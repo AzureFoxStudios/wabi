@@ -435,6 +435,79 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Live room ephemeral reaper: evicts expired messages by TTL and enforces
+    // the message cap for all live (session-only) channels every 5 seconds.
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let mut sio_rx = state.sio_broadcast_tx.subscribe();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                let io = match sio_rx.recv().await {
+                    Ok(io) => io,
+                    Err(_) => {
+                        tracing::warn!("[live-reaper] failed to receive SocketIo handle, retrying next tick");
+                        continue;
+                    }
+                };
+
+                // Snapshot the live channel set under the label lock.
+                let live_channels: Vec<String> = {
+                    let labels = state.channel_auto_delete_label.read().await;
+                    labels
+                        .iter()
+                        .filter(|(_, v)| v.as_str() == "live")
+                        .map(|(k, _)| k.clone())
+                        .collect()
+                };
+
+                for channel in &live_channels {
+                    // Resolve per-channel TTL and cap.
+                    let ttl = state
+                        .live_channel_ttl_ms
+                        .read()
+                        .await
+                        .get(channel)
+                        .copied()
+                        .unwrap_or(10 * 60 * 1000);
+                    let cap = state
+                        .live_channel_cap
+                        .read()
+                        .await
+                        .get(channel)
+                        .copied()
+                        .unwrap_or(1000);
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0);
+
+                    // Collect expired ids under a write lock, then drop lock and emit.
+                    let expired_ids: Vec<String> = {
+                        let mut session = state.session_messages.write().await;
+                        let msgs = match session.get_mut(channel) {
+                            Some(msgs) => msgs,
+                            None => continue,
+                        };
+                        crate::state::reap_live_channel_buffer(msgs, ttl, cap, now)
+                    };
+
+                    // Emit message-deleted for each expired id (outside the lock).
+                    for id in &expired_ids {
+                        let payload = serde_json::json!({"channelId": channel, "messageId": id});
+                        let _ = io.to(channel.clone()).emit("message-deleted", &payload).await;
+                    }
+
+                    if !expired_ids.is_empty() {
+                        tracing::debug!("[live-reaper] channel {} evicted {} messages", channel, expired_ids.len());
+                    }
+                }
+            }
+        });
+    }
+
     // Load blacklist
     let blacklist = BlacklistManager::new(config.blacklist_file.clone());
     if let Err(e) = blacklist.load_from_file().await {

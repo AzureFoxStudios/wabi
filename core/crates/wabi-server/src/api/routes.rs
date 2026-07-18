@@ -6,8 +6,8 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 use super::{
-    admin, albums, auth, blobs, calls, channels, forum, incidents, jobs, lan, media, mesh, messages,
-    nodes, operator, payments, preview, public, standby, sync, upload, user, wiki,
+    admin, albums, auth, blobs, calls, channels, forum, gallery, incidents, jobs, lan, media, mesh,
+    messages, nodes, operator, payments, preview, public, standby, sync, upload, user, wiki,
 };
 #[cfg(feature = "wabi-lore")]
 use super::lore;
@@ -36,6 +36,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/wiki", wiki::routes(state.clone()))
         // Forum thread & post routes
         .nest("/forum", forum::routes(state.clone()))
+        // Gallery work & feedback routes
+        .nest("/gallery", gallery::routes(state.clone()))
         // Incident routes
         .nest("/incidents", incidents::routes(state.clone()))
         // Call-session routes (replaces WDB call-session reducers)

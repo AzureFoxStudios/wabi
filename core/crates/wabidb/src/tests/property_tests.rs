@@ -120,6 +120,9 @@ proptest! {
             created_at_micros: now,
             updated_at_micros: now,
             is_deleted: false,
+            parent_page_id: String::new(),
+            slug: String::new(),
+            order_index: 0,
         };
         projection_round_trip(&record);
     }
@@ -149,6 +152,12 @@ proptest! {
             edited_at_micros: edited,
             is_deleted: false,
             is_thread_starter,
+            title: String::new(),
+            tags: Vec::new(),
+            votes_up: 0,
+            votes_down: 0,
+            is_solution: false,
+            category: None,
         };
         projection_round_trip(&record);
     }
@@ -260,6 +269,9 @@ proptest! {
             created_at_micros: 1_718_901_234_567_890i64,
             updated_at_micros: 1_718_901_234_567_891i64,
             is_deleted: false,
+            parent_page_id: String::new(),
+            slug: String::new(),
+            order_index: 0,
         };
         let json = serde_json::to_string(&page).unwrap();
         let back: crate::domain::WikiPage = serde_json::from_str(&json).unwrap();
@@ -287,6 +299,12 @@ proptest! {
             edited_at_micros: None,
             is_deleted: false,
             is_thread_starter,
+            title: String::new(),
+            tags: Vec::new(),
+            votes_up: 0,
+            votes_down: 0,
+            is_solution: false,
+            category: None,
         };
         let json = serde_json::to_string(&post).unwrap();
         let back: crate::domain::ForumPost = serde_json::from_str(&json).unwrap();

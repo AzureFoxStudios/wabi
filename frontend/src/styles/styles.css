@@ -62,7 +62,11 @@
 @import './components/admin-tab.css';
 @import './components/call-view.css';
 @import './components/diary-view.css';
+@import './components/surfaces.css';
+@import './components/forum.css';
+@import './components/wiki.css';
 @import './components/gallery-channel.css';
+@import './components/gallery-feedback.css';
 @import './components/model-viewer-3d.css';
 @import './components/reader-tab.css';
 @import './components/task-panel.css';

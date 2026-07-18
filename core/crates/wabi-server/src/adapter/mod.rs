@@ -145,6 +145,20 @@ fn now_micros() -> i64 {
         .unwrap_or(0)
 }
 
+/// Derive a URL-friendly slug from a title. Lowercases, replaces whitespace
+/// with hyphens, removes non-alphanumeric characters.
+fn slugify_title(title: &str) -> String {
+    let slug: String = title
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() { "untitled".into() } else { slug }
+}
+
 impl WabiStore for WdbAdapter {
     // ============================================================
     // Writes
@@ -1682,9 +1696,23 @@ impl WabiStore for WdbAdapter {
         Ok(records.into_iter().map(wabidb::domain::WikiPage::from).collect())
     }
 
-    async fn create_wiki_page(&self, channel_id: &str, title: &str, body: &str, author_user_id: u64) -> Result<String> {
+    async fn create_wiki_page(
+        &self,
+        channel_id: &str,
+        title: &str,
+        body: &str,
+        author_user_id: u64,
+        parent_page_id: &str,
+        slug: &str,
+        order_index: i64,
+    ) -> Result<String> {
         use wabidb::projections::wiki::{encode_record, WikiPageRecord};
         let now = now_micros();
+        let slug = if slug.is_empty() {
+            slugify_title(title)
+        } else {
+            slug.to_string()
+        };
         let record = WikiPageRecord {
             page_id: String::new(),
             channel_id: channel_id.to_string(),
@@ -1694,6 +1722,9 @@ impl WabiStore for WdbAdapter {
             created_at_micros: now,
             updated_at_micros: now,
             is_deleted: false,
+            parent_page_id: parent_page_id.to_string(),
+            slug,
+            order_index,
         };
         let payload = encode_record(&record);
         let seq = self
@@ -1711,23 +1742,69 @@ impl WabiStore for WdbAdapter {
         Ok(format!("page_{:x}", seq))
     }
 
-    async fn update_wiki_page(&self, channel_id: &str, page_id: &str, title: &str, body: &str, author_user_id: u64) -> Result<()> {
-        use wabidb::projections::wiki::{self, encode_record, WikiPageRecord};
+    async fn update_wiki_page(
+        &self,
+        channel_id: &str,
+        page_id: &str,
+        title: &str,
+        body: &str,
+        author_user_id: u64,
+        parent_page_id: &str,
+        slug: &str,
+        order_index: i64,
+    ) -> Result<()> {
+        use wabidb::projections::wiki::{self, encode_record, encode_revision_record, WikiPageRecord, WikiRevisionRecord};
         let state = self.engine.projection_state();
         let existing = wiki::WikiProjection::get_page(&state, channel_id, page_id)?;
         let record = match existing {
-            Some(r) => WikiPageRecord {
-                page_id: r.page_id,
-                channel_id: r.channel_id,
-                title: title.to_string(),
-                body: body.to_string(),
-                author_user_id: r.author_user_id,
-                created_at_micros: r.created_at_micros,
-                updated_at_micros: now_micros(),
-                is_deleted: r.is_deleted,
-            },
+            Some(r) => {
+                // Capture pre-edit state as a revision
+                let revision = WikiRevisionRecord {
+                    revision_id: String::new(),
+                    page_id: r.page_id.clone(),
+                    channel_id: r.channel_id.clone(),
+                    editor_user_id: author_user_id,
+                    title: r.title.clone(),
+                    body: r.body.clone(),
+                    summary: String::new(),
+                    created_at_micros: now_micros(),
+                };
+                let rev_payload = encode_revision_record(&revision);
+                let rev_seq = self
+                    .run(
+                        author_user_id,
+                        "create_wiki_revision",
+                        channel_id.to_string(),
+                        "wiki_revision_created",
+                        6,
+                        rev_payload,
+                        true,
+                        None,
+                    )
+                    .await?;
+                let _ = rev_seq;
+                let slug = if slug.is_empty() { r.slug.clone() } else { slug.to_string() };
+                WikiPageRecord {
+                    page_id: r.page_id,
+                    channel_id: r.channel_id,
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    author_user_id: r.author_user_id,
+                    created_at_micros: r.created_at_micros,
+                    updated_at_micros: now_micros(),
+                    is_deleted: r.is_deleted,
+                    parent_page_id: parent_page_id.to_string(),
+                    slug,
+                    order_index,
+                }
+            }
             None => {
                 let now = now_micros();
+                let slug = if slug.is_empty() {
+                    slugify_title(title)
+                } else {
+                    slug.to_string()
+                };
                 WikiPageRecord {
                     page_id: page_id.to_string(),
                     channel_id: channel_id.to_string(),
@@ -1737,6 +1814,9 @@ impl WabiStore for WdbAdapter {
                     created_at_micros: now,
                     updated_at_micros: now,
                     is_deleted: false,
+                    parent_page_id: parent_page_id.to_string(),
+                    slug,
+                    order_index,
                 }
             }
         };
@@ -1777,6 +1857,22 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
+    async fn list_wiki_revisions(&self, channel_id: &str, page_id: &str) -> Result<Vec<wabidb::domain::WikiRevision>> {
+        use wabidb::projections::wiki;
+        let state = self.engine.projection_state();
+        let records = wiki::WikiRevisionProjection::list_revisions(&state, channel_id, page_id)?;
+        Ok(records.into_iter().map(wabidb::domain::WikiRevision::from).collect())
+    }
+
+    async fn get_wiki_revision(&self, channel_id: &str, page_id: &str, revision_id: &str) -> Result<Option<wabidb::domain::WikiRevision>> {
+        use wabidb::projections::wiki;
+        let state = self.engine.projection_state();
+        match wiki::WikiRevisionProjection::get_revision(&state, channel_id, page_id, revision_id)? {
+            Some(r) => Ok(Some(wabidb::domain::WikiRevision::from(r))),
+            None => Ok(None),
+        }
+    }
+
     // ================================================================
     // Forum
     // ================================================================
@@ -1804,7 +1900,15 @@ impl WabiStore for WdbAdapter {
         Ok(records.into_iter().map(wabidb::domain::ForumPost::from).collect())
     }
 
-    async fn create_forum_thread(&self, channel_id: &str, body: &str, author_user_id: u64) -> Result<String> {
+    async fn create_forum_thread(
+        &self,
+        channel_id: &str,
+        body: &str,
+        author_user_id: u64,
+        title: Option<&str>,
+        tags: Option<&[String]>,
+        category: Option<&str>,
+    ) -> Result<String> {
         use wabidb::projections::forum::{encode_record, ForumPostRecord};
         let now = now_micros();
         let record = ForumPostRecord {
@@ -1817,6 +1921,12 @@ impl WabiStore for WdbAdapter {
             edited_at_micros: None,
             is_deleted: false,
             is_thread_starter: true,
+            title: title.unwrap_or("").to_string(),
+            tags: tags.map(|t| t.to_vec()).unwrap_or_default(),
+            votes_up: 0,
+            votes_down: 0,
+            is_solution: false,
+            category: category.map(|c| c.to_string()),
         };
         let payload = encode_record(&record);
         let seq = self
@@ -1834,7 +1944,14 @@ impl WabiStore for WdbAdapter {
         Ok(format!("post_{:x}", seq))
     }
 
-    async fn create_forum_post(&self, channel_id: &str, thread_id: &str, body: &str, author_user_id: u64) -> Result<String> {
+    async fn create_forum_post(
+        &self,
+        channel_id: &str,
+        thread_id: &str,
+        body: &str,
+        author_user_id: u64,
+        tags: Option<&[String]>,
+    ) -> Result<String> {
         use wabidb::projections::forum::{encode_record, ForumPostRecord};
         let now = now_micros();
         let record = ForumPostRecord {
@@ -1847,6 +1964,12 @@ impl WabiStore for WdbAdapter {
             edited_at_micros: None,
             is_deleted: false,
             is_thread_starter: false,
+            title: String::new(),
+            tags: tags.map(|t| t.to_vec()).unwrap_or_default(),
+            votes_up: 0,
+            votes_down: 0,
+            is_solution: false,
+            category: None,
         };
         let payload = encode_record(&record);
         let seq = self
@@ -1864,7 +1987,17 @@ impl WabiStore for WdbAdapter {
         Ok(format!("post_{:x}", seq))
     }
 
-    async fn update_forum_post(&self, channel_id: &str, thread_id: &str, post_id: &str, body: &str, author_user_id: u64) -> Result<()> {
+    async fn update_forum_post(
+        &self,
+        channel_id: &str,
+        thread_id: &str,
+        post_id: &str,
+        body: &str,
+        author_user_id: u64,
+        title: Option<&str>,
+        tags: Option<&[String]>,
+        category: Option<&str>,
+    ) -> Result<()> {
         use wabidb::projections::forum::{self, encode_record, ForumPostRecord};
         let state = self.engine.projection_state();
         let existing = forum::ForumProjection::get_post(&state, channel_id, thread_id, post_id)?;
@@ -1872,6 +2005,9 @@ impl WabiStore for WdbAdapter {
             Some(r) => ForumPostRecord {
                 body: body.to_string(),
                 edited_at_micros: Some(now_micros()),
+                title: title.unwrap_or("").to_string(),
+                tags: tags.map(|t| t.to_vec()).unwrap_or_default(),
+                category: category.map(|c| c.to_string()),
                 ..r
             },
             None => {
@@ -1886,6 +2022,12 @@ impl WabiStore for WdbAdapter {
                     edited_at_micros: Some(now),
                     is_deleted: false,
                     is_thread_starter: false,
+                    title: title.unwrap_or("").to_string(),
+                    tags: tags.map(|t| t.to_vec()).unwrap_or_default(),
+                    votes_up: 0,
+                    votes_down: 0,
+                    is_solution: false,
+                    category: category.map(|c| c.to_string()),
                 }
             }
         };
@@ -1916,6 +2058,106 @@ impl WabiStore for WdbAdapter {
                 "delete_forum_post",
                 channel_id.to_string(),
                 "forum_post_deleted",
+                6,
+                payload,
+                true,
+                None,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn vote_forum_post(&self, channel_id: &str, thread_id: &str, post_id: &str, direction: &str, actor_user_id: u64) -> Result<()> {
+        use postcard::to_allocvec;
+        #[derive(serde::Serialize)]
+        struct VotePayload {
+            post_id: String,
+            thread_id: String,
+            channel_id: String,
+            direction: String,
+            actor_user_id: u64,
+        }
+        let payload = to_allocvec(&VotePayload {
+            post_id: post_id.to_string(),
+            thread_id: thread_id.to_string(),
+            channel_id: channel_id.to_string(),
+            direction: direction.to_string(),
+            actor_user_id,
+        })
+        .map_err(|e| wabidb::error::WabiError::Corrupt {
+            location: "vote_forum_post".into(),
+            detail: format!("postcard encode failed: {e}"),
+        })?;
+        self.run(
+            actor_user_id,
+            "vote_forum_post",
+            channel_id.to_string(),
+            "forum_post_voted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn mark_forum_solution(&self, channel_id: &str, thread_id: &str, post_id: &str, actor_user_id: u64) -> Result<()> {
+        use postcard::to_allocvec;
+        #[derive(serde::Serialize)]
+        struct SolutionPayload {
+            post_id: String,
+            thread_id: String,
+            channel_id: String,
+            actor_user_id: u64,
+        }
+        let payload = to_allocvec(&SolutionPayload {
+            post_id: post_id.to_string(),
+            thread_id: thread_id.to_string(),
+            channel_id: channel_id.to_string(),
+            actor_user_id,
+        })
+        .map_err(|e| wabidb::error::WabiError::Corrupt {
+            location: "mark_forum_solution".into(),
+            detail: format!("postcard encode failed: {e}"),
+        })?;
+        self.run(
+            actor_user_id,
+            "mark_forum_solution",
+            channel_id.to_string(),
+            "forum_post_solution_set",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn update_forum_thread_meta(
+        &self,
+        channel_id: &str,
+        thread_id: &str,
+        title: &str,
+        tags: &[String],
+        category: Option<&str>,
+        actor_user_id: u64,
+    ) -> Result<()> {
+        use wabidb::projections::forum::{self, encode_record};
+        let state = self.engine.projection_state();
+        if let Some(mut record) = forum::ForumProjection::get_post(&state, channel_id, thread_id, thread_id)? {
+            record.title = title.to_string();
+            record.tags = tags.to_vec();
+            record.category = category.map(|c| c.to_string());
+            record.edited_at_micros = Some(now_micros());
+            let payload = encode_record(&record);
+            self.run(
+                actor_user_id,
+                "update_forum_thread_meta",
+                channel_id.to_string(),
+                "forum_thread_meta_updated",
                 6,
                 payload,
                 true,
@@ -2192,6 +2434,214 @@ impl WabiStore for WdbAdapter {
             None,
         )
         .await?;
+        Ok(())
+    }
+
+    // ================================================================
+    // Gallery
+    // ================================================================
+
+    async fn list_gallery_works(&self, channel_id: &str) -> Result<Vec<wabidb::domain::GalleryWork>> {
+        use wabidb::projections::gallery;
+        let state = self.engine.projection_state();
+        let records = gallery::GalleryWorkProjection::list_works(&state, channel_id, false)?;
+        Ok(records.into_iter().map(wabidb::domain::GalleryWork::from).collect())
+    }
+
+    async fn get_gallery_work(&self, channel_id: &str, work_id: &str) -> Result<Option<wabidb::domain::GalleryWork>> {
+        use wabidb::projections::gallery;
+        let state = self.engine.projection_state();
+        match gallery::GalleryWorkProjection::get_work(&state, channel_id, work_id)? {
+            Some(r) => Ok(Some(wabidb::domain::GalleryWork::from(r))),
+            None => Ok(None),
+        }
+    }
+
+    async fn upload_gallery_work(
+        &self,
+        channel_id: &str,
+        title: &str,
+        caption: &str,
+        attachment_url: &str,
+        mime_type: &str,
+        category: &str,
+        is_wip: bool,
+        author_user_id: u64,
+    ) -> Result<String> {
+        use wabidb::projections::gallery::{encode_record, GalleryWorkRecord};
+        let now = now_micros();
+        let record = GalleryWorkRecord {
+            work_id: String::new(),
+            channel_id: channel_id.to_string(),
+            author_user_id,
+            title: title.to_string(),
+            caption: caption.to_string(),
+            attachment_url: attachment_url.to_string(),
+            mime_type: mime_type.to_string(),
+            category: category.to_string(),
+            is_wip,
+            created_at_micros: now,
+            updated_at_micros: now,
+            is_deleted: false,
+        };
+        let payload = encode_record(&record);
+        let seq = self
+            .run(
+                author_user_id,
+                "upload_gallery_work",
+                channel_id.to_string(),
+                "gallery_work_uploaded",
+                6,
+                payload,
+                true,
+                None,
+            )
+            .await?;
+        Ok(format!("work_{:x}", seq))
+    }
+
+    async fn edit_gallery_work(
+        &self,
+        channel_id: &str,
+        work_id: &str,
+        title: &str,
+        caption: &str,
+        category: &str,
+        is_wip: bool,
+        actor_user_id: u64,
+    ) -> Result<()> {
+        use wabidb::projections::gallery::{self, encode_record, GalleryWorkRecord};
+        let state = self.engine.projection_state();
+        let existing = gallery::GalleryWorkProjection::get_work(&state, channel_id, work_id)?;
+        let record = match existing {
+            Some(r) => GalleryWorkRecord {
+                title: title.to_string(),
+                caption: caption.to_string(),
+                category: category.to_string(),
+                is_wip,
+                updated_at_micros: now_micros(),
+                ..r
+            },
+            None => {
+                let now = now_micros();
+                GalleryWorkRecord {
+                    work_id: work_id.to_string(),
+                    channel_id: channel_id.to_string(),
+                    author_user_id: actor_user_id,
+                    title: title.to_string(),
+                    caption: caption.to_string(),
+                    attachment_url: String::new(),
+                    mime_type: String::new(),
+                    category: category.to_string(),
+                    is_wip,
+                    created_at_micros: now,
+                    updated_at_micros: now,
+                    is_deleted: false,
+                }
+            }
+        };
+        let payload = encode_record(&record);
+        self.run(
+            actor_user_id,
+            "edit_gallery_work",
+            channel_id.to_string(),
+            "gallery_work_edited",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_gallery_work(&self, channel_id: &str, work_id: &str, actor_user_id: u64) -> Result<()> {
+        use wabidb::projections::gallery::{self, encode_record};
+        let state = self.engine.projection_state();
+        if let Some(mut record) = gallery::GalleryWorkProjection::get_work(&state, channel_id, work_id)? {
+            record.is_deleted = true;
+            record.updated_at_micros = now_micros();
+            let payload = encode_record(&record);
+            self.run(
+                actor_user_id,
+                "delete_gallery_work",
+                channel_id.to_string(),
+                "gallery_work_deleted",
+                6,
+                payload,
+                true,
+                None,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn list_gallery_feedback(&self, channel_id: &str, work_id: &str) -> Result<Vec<wabidb::domain::GalleryFeedback>> {
+        use wabidb::projections::gallery;
+        let state = self.engine.projection_state();
+        let records = gallery::GalleryFeedbackProjection::list_feedback_for_work(&state, channel_id, work_id, false)?;
+        Ok(records.into_iter().map(wabidb::domain::GalleryFeedback::from).collect())
+    }
+
+    async fn add_gallery_feedback(
+        &self,
+        channel_id: &str,
+        work_id: &str,
+        comment: &str,
+        x_percent: f32,
+        y_percent: f32,
+        author_user_id: u64,
+    ) -> Result<String> {
+        use wabidb::projections::gallery::{encode_feedback_record, GalleryFeedbackRecord};
+        let now = now_micros();
+        let record = GalleryFeedbackRecord {
+            feedback_id: String::new(),
+            work_id: work_id.to_string(),
+            channel_id: channel_id.to_string(),
+            author_user_id,
+            comment: comment.to_string(),
+            x_percent,
+            y_percent,
+            created_at_micros: now,
+            is_deleted: false,
+        };
+        let payload = encode_feedback_record(&record);
+        let seq = self
+            .run(
+                author_user_id,
+                "add_gallery_feedback",
+                channel_id.to_string(),
+                "gallery_feedback_added",
+                6,
+                payload,
+                false,
+                None,
+            )
+            .await?;
+        Ok(format!("feedback_{:x}", seq))
+    }
+
+    async fn delete_gallery_feedback(&self, channel_id: &str, work_id: &str, feedback_id: &str, actor_user_id: u64) -> Result<()> {
+        use wabidb::projections::gallery::{self, encode_feedback_record};
+        let state = self.engine.projection_state();
+        // We need to fetch the feedback record; list_feedback_for_work then filter by feedback_id.
+        let all = gallery::GalleryFeedbackProjection::list_feedback_for_work(&state, channel_id, work_id, true)?;
+        if let Some(mut record) = all.into_iter().find(|r| r.feedback_id == feedback_id) {
+            record.is_deleted = true;
+            let payload = encode_feedback_record(&record);
+            self.run(
+                actor_user_id,
+                "delete_gallery_feedback",
+                channel_id.to_string(),
+                "gallery_feedback_deleted",
+                6,
+                payload,
+                true,
+                None,
+            )
+            .await?;
+        }
         Ok(())
     }
 }

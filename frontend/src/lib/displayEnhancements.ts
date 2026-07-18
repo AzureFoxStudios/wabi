@@ -48,7 +48,6 @@ export interface DisplayEnhancementSettings {
 	betterSearchPageEnabled: boolean;
 	googleSearchReplaceEnabled: boolean;
 	hideMutedCategoriesEnabled: boolean;
-	mutedChannelIds: string[];
 	spotifyControlsEnabled: boolean;
 	localNicknamesEnabled: boolean;
 	readAllNotificationsButtonEnabled: boolean;
@@ -82,7 +81,6 @@ const DEFAULT_DISPLAY_ENHANCEMENT_SETTINGS: DisplayEnhancementSettings = {
 	betterSearchPageEnabled: true,
 	googleSearchReplaceEnabled: true,
 	hideMutedCategoriesEnabled: false,
-	mutedChannelIds: [],
 	spotifyControlsEnabled: true,
 	localNicknamesEnabled: true,
 	readAllNotificationsButtonEnabled: true,
@@ -133,12 +131,6 @@ function sanitizeDisplayEnhancementSettings(
 			.filter(Boolean)
 			.filter((entry, index, array) => array.indexOf(entry) === index)
 		: [];
-	const mutedChannelIds = Array.isArray(base.mutedChannelIds)
-		? base.mutedChannelIds
-			.map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-			.filter(Boolean)
-			.filter((entry, index, array) => array.indexOf(entry) === index)
-		: [];
 	return {
 		clickableMentionsEnabled: base.clickableMentionsEnabled !== false,
 		timestampDisplayMode: normalizeTimestampDisplayMode(base.timestampDisplayMode),
@@ -148,7 +140,6 @@ function sanitizeDisplayEnhancementSettings(
 		betterSearchPageEnabled: base.betterSearchPageEnabled !== false,
 		googleSearchReplaceEnabled: base.googleSearchReplaceEnabled !== false,
 		hideMutedCategoriesEnabled: base.hideMutedCategoriesEnabled === true,
-		mutedChannelIds,
 		spotifyControlsEnabled: base.spotifyControlsEnabled !== false,
 		localNicknamesEnabled: base.localNicknamesEnabled !== false,
 		readAllNotificationsButtonEnabled: base.readAllNotificationsButtonEnabled !== false,
@@ -285,15 +276,6 @@ export function setHideMutedCategoriesEnabled(enabled: boolean): void {
 	);
 }
 
-export function setMutedChannelIds(channelIds: string[]): void {
-	displayEnhancementSettingsStore.update((current) =>
-		sanitizeDisplayEnhancementSettings({
-			...current,
-			mutedChannelIds: channelIds
-		})
-	);
-}
-
 export function setSpotifyControlsEnabled(enabled: boolean): void {
 	displayEnhancementSettingsStore.update((current) =>
 		sanitizeDisplayEnhancementSettings({
@@ -308,29 +290,6 @@ export function setLocalNicknamesEnabled(enabled: boolean): void {
 		sanitizeDisplayEnhancementSettings({
 			...current,
 			localNicknamesEnabled: enabled
-		})
-	);
-}
-
-export function toggleMutedChannelId(channelId: string): void {
-	const normalized = channelId.trim();
-	if (!normalized) return;
-	displayEnhancementSettingsStore.update((current) => {
-		const next = current.mutedChannelIds.includes(normalized)
-			? current.mutedChannelIds.filter((id) => id !== normalized)
-			: [...current.mutedChannelIds, normalized];
-		return sanitizeDisplayEnhancementSettings({
-			...current,
-			mutedChannelIds: next
-		});
-	});
-}
-
-export function clearMutedChannelIds(): void {
-	displayEnhancementSettingsStore.update((current) =>
-		sanitizeDisplayEnhancementSettings({
-			...current,
-			mutedChannelIds: []
 		})
 	);
 }

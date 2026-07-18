@@ -45781,3 +45781,25 @@ c3ed78c feat: sync local Wabi to current state (WabiDB + calling cleanup)
 de0c8d8 fix: persist profile picture/font, auto-save connected server, show tagline
 ```
 
+
+---
+
+## 2026-07-17 14:16:56 +07 — Carl posted
+
+### wabidb commits
+
+```
+4bfd9eb feat: opencode batches — P0 reaction/handler wiring, P1 STDB eradication
+```
+
+
+---
+
+## 2026-07-17 14:20:56 +07 — Carl posted
+
+### wabidb commits
+
+```
+4bfd9eb feat: opencode batches — P0 reaction/handler wiring, P1 STDB eradication
+```
+

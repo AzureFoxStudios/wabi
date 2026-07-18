@@ -7,17 +7,25 @@
 		MESSAGE_RETENTION_LABELS,
 		MESSAGE_RETENTION_PRESETS,
 		DEFAULT_CHANNEL_RETENTION,
+		LIVE_RETENTION,
+		isLiveRetention,
 		type MessageRetentionDuration
 	} from '../../../../../shared/messageRetention.js';
+
+	// A retention selection is either a durable preset, null (keep forever),
+	// or the "live" sentinel (session-only, never persisted).
+	type RetentionChoice = MessageRetentionDuration | null | typeof LIVE_RETENTION;
 
 	// Only workspace owners and admins may bulk-clear a channel's messages.
 	$: canClearMessages = ['owner', 'admin'].includes($currentUser?.highestRole || '');
 
-	/** Effective timer for UI: unset → default 24h; null only when keep-forever. */
+	/** Effective timer for UI: 'live' stays live; unset → default 24h; null only when keep-forever. */
 	$: effectiveAutoDelete =
-		channel.autoDeleteAfter === undefined
-			? DEFAULT_CHANNEL_RETENTION
-			: channel.autoDeleteAfter;
+		isLiveRetention(channel.autoDeleteAfter)
+			? LIVE_RETENTION
+			: channel.autoDeleteAfter === undefined
+				? DEFAULT_CHANNEL_RETENTION
+				: channel.autoDeleteAfter;
 
 	function clearAllMessages(): void {
 		if (!canClearMessages || channel.type === 'dm') return;
@@ -30,8 +38,23 @@
 		sock.emit('clear-channel-messages', { channelId: channel.id });
 	}
 
-	function chooseRetention(next: MessageRetentionDuration | null): void {
+	function chooseRetention(next: RetentionChoice): void {
 		const prev = effectiveAutoDelete;
+		if (next === prev) return;
+		// Opt into Live (session-only, no persistence).
+		if (isLiveRetention(next) && !isLiveRetention(prev)) {
+			const ok = window.confirm(
+				`Make #${channel.name} a Live room?\n\nMessages are session-only and are lost when the server restarts. No history is stored. Note: Live is not private from the server owner while messages are live.`
+			);
+			if (!ok) return;
+			saveChannelSettings(LIVE_RETENTION);
+			return;
+		}
+		// Leaving Live → timed/forever: nothing was stored, so no purge needed.
+		if (isLiveRetention(prev) && !isLiveRetention(next)) {
+			saveChannelSettings(next);
+			return;
+		}
 		// Opt into keep-forever (persistence).
 		if (next === null && prev !== null) {
 			const ok = window.confirm(
@@ -83,6 +106,12 @@
 	let tempForceSpoiler = false;
 	let tempVoiceUserLimit = '';
 	let tempVoiceForceSolo = false;
+	let tempLiveTtl = '';
+	let tempLiveCap = '';
+	let tempLiveGrace = '';
+	let tempLiveAttachMax = '';
+	let tempAfkAnnounce = true;
+	let tempLiveRenderWindow = getLiveRenderWindow();
 
 	$: if (channel && channel.id !== activeChannelId) {
 		activeChannelId = channel.id;
@@ -93,6 +122,12 @@
 		tempForceSpoiler = channel.forceSpoiler || false;
 		tempVoiceUserLimit = channel.voiceSettings?.userLimit ? String(channel.voiceSettings.userLimit) : '';
 		tempVoiceForceSolo = channel.voiceSettings?.forceSolo === true;
+		tempLiveTtl = '';
+		tempLiveCap = '';
+		tempLiveGrace = '';
+		tempLiveAttachMax = '';
+		tempAfkAnnounce = true;
+		tempLiveRenderWindow = getLiveRenderWindow();
 	}
 
 	function isEditableTarget(target: EventTarget | null): boolean {
@@ -107,6 +142,47 @@
 		const parsed = Number.parseInt(trimmed, 10);
 		if (!Number.isFinite(parsed) || parsed < 1) return 1;
 		return Math.min(99, parsed);
+	}
+
+	function parseDurationToMs(input: string): number | null {
+		const trimmed = input.trim().toLowerCase();
+		if (!trimmed) return null;
+		const match = trimmed.match(/^(\d+)\s*(ms|s|m|h|d)?$/);
+		if (!match) return null;
+		const val = parseInt(match[1], 10);
+		const unit = match[2] || 'ms';
+		switch (unit) {
+			case 'ms': return val;
+			case 's': return val * 1000;
+			case 'm': return val * 60 * 1000;
+			case 'h': return val * 60 * 60 * 1000;
+			case 'd': return val * 24 * 60 * 60 * 1000;
+			default: return val;
+		}
+	}
+
+	function parseNumberInput(input: string): number | null {
+		const trimmed = input.trim();
+		if (!trimmed) return null;
+		const val = parseInt(trimmed, 10);
+		return Number.isFinite(val) ? val : null;
+	}
+
+	function getLiveRenderWindow(): number {
+		try {
+			const v = localStorage.getItem('wabi:liveRenderWindow');
+			if (v !== null) {
+				const n = parseInt(v, 10);
+				if (Number.isFinite(n) && n > 0) return n;
+			}
+		} catch {}
+		return 250;
+	}
+
+	function setLiveRenderWindow(val: number): void {
+		try {
+			localStorage.setItem('wabi:liveRenderWindow', String(val));
+		} catch {}
 	}
 
 	function buildDraftVoiceSettings(): VoiceChannelSettings | undefined {
@@ -128,19 +204,32 @@
 		return Object.keys(next).length > 0 ? next : undefined;
 	}
 
-	function saveChannelSettings(autoDeleteAfter: MessageRetentionDuration | null = channel.autoDeleteAfter || null): void {
+	function saveChannelSettings(autoDeleteAfter: RetentionChoice = channel.autoDeleteAfter || null): void {
+		const liveUpdates: Record<string, unknown> = {};
+		if (isLiveRetention(tempLiveTtl ? undefined : channel.autoDeleteAfter) || isLiveRetention(autoDeleteAfter)) {
+			const ttlMs = parseDurationToMs(tempLiveTtl);
+			if (ttlMs !== null) liveUpdates.liveTtlMs = ttlMs;
+			const cap = parseNumberInput(tempLiveCap);
+			if (cap !== null) liveUpdates.liveCap = cap;
+			const grace = parseDurationToMs(tempLiveGrace);
+			if (grace !== null) liveUpdates.liveGraceMs = grace;
+			if (tempLiveAttachMax.trim()) liveUpdates.liveAttachMax = tempLiveAttachMax.trim();
+			liveUpdates.afkAnnounce = tempAfkAnnounce;
+		}
 		dispatch('save', {
 			channelId: channel.id,
 			updates: {
-				autoDeleteAfter,
+				autoDeleteAfter: autoDeleteAfter as MessageRetentionDuration | null,
 				persistMessages: canTogglePersistMessages ? tempPersistMessages : channel.persistMessages,
 				description: tempDescription,
 				name: tempChannelName.trim() || channel.name,
 				watchQueueEnabled: canManageWatchQueue ? tempWatchQueueEnabled : channel.watchQueueEnabled,
 				forceSpoiler: tempForceSpoiler,
-				voiceSettings: canManageVoiceSettings ? buildDraftVoiceSettings() : channel.voiceSettings
-			}
+				voiceSettings: canManageVoiceSettings ? buildDraftVoiceSettings() : channel.voiceSettings,
+				...liveUpdates
+			} as any
 		});
+		setLiveRenderWindow(tempLiveRenderWindow);
 	}
 
 	function handleOverlayKeydown(event: KeyboardEvent): void {
@@ -214,10 +303,19 @@
 				<div class="setting-group">
 					<span class="setting-label">Message retention</span>
 					<p class="setting-description">
-						Default is timed chat (24 hours). Keep forever is opt-in persistence.
+						Live (session only) · Timed (default 24 hours) · Keep forever (opt-in persistence).
 					</p>
 
 					<div class="auto-delete-options">
+						<button
+							class="auto-delete-btn live-retention-btn"
+							class:active={effectiveAutoDelete === LIVE_RETENTION}
+							on:click={() => chooseRetention(LIVE_RETENTION)}
+							type="button"
+							title="Session only — messages are never saved and are lost on server restart"
+						>
+							Live · session only
+						</button>
 						<button
 							class="auto-delete-btn"
 							class:active={effectiveAutoDelete === null}
@@ -348,6 +446,90 @@
 						{#if !canManageVoiceSettings}
 							<p class="setting-description">Only workspace owners or admins can change focused audio mode.</p>
 						{/if}
+					</div>
+				{/if}
+
+				{#if isLiveRetention(channel.autoDeleteAfter)}
+					<div class="setting-section live-settings-section">
+						<h3>Live Room</h3>
+
+						<div class="setting-group">
+							<label for="live-ttl" class="setting-label">Message TTL</label>
+							<input
+								id="live-ttl"
+								type="text"
+								bind:value={tempLiveTtl}
+								placeholder="e.g. 10m"
+								class="description-input"
+							/>
+							<p class="setting-description">How long messages stay alive before expiring (e.g. 10m, 30s, 1h).</p>
+						</div>
+
+						<div class="setting-group">
+							<label for="live-cap" class="setting-label">Message Cap</label>
+							<input
+								id="live-cap"
+								type="text"
+								bind:value={tempLiveCap}
+								placeholder="e.g. 1000"
+								class="description-input"
+							/>
+							<p class="setting-description">Maximum number of alive messages in the server buffer.</p>
+						</div>
+
+						<div class="setting-group">
+							<label for="live-grace" class="setting-label">Reconnect Grace Period</label>
+							<input
+								id="live-grace"
+								type="text"
+								bind:value={tempLiveGrace}
+								placeholder="e.g. 60s"
+								class="description-input"
+							/>
+							<p class="setting-description">Time after disconnect before a user is marked AFK (e.g. 60s, 5m).</p>
+						</div>
+
+						<div class="setting-group">
+							<label for="live-attach-max" class="setting-label">Max Attachment Size</label>
+							<input
+								id="live-attach-max"
+								type="text"
+								bind:value={tempLiveAttachMax}
+								placeholder="e.g. 8 MB"
+								class="description-input"
+							/>
+							<p class="setting-description">Maximum attachment file size for live messages.</p>
+						</div>
+
+						<div class="setting-group">
+							<label class="setting-label">
+								<input
+									type="checkbox"
+									bind:checked={tempAfkAnnounce}
+									class="setting-checkbox"
+								/>
+								AFK Announcements
+							</label>
+							<p class="setting-description">Show system messages when someone goes AFK or returns.</p>
+						</div>
+
+						<div class="setting-group">
+							<label for="live-render-window" class="setting-label">Client Render Window</label>
+							<input
+								id="live-render-window"
+								type="number"
+								min="50"
+								max="5000"
+								step="50"
+								bind:value={tempLiveRenderWindow}
+								class="description-input"
+							/>
+							<p class="setting-description">Weaker PCs: keep last N messages in DOM. Server buffer is unaffected.</p>
+						</div>
+
+						<button class="save-description-btn" on:click={() => saveChannelSettings()}>
+							Save Live Settings
+						</button>
 					</div>
 				{/if}
 			</div>

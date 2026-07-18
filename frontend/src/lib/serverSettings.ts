@@ -22,6 +22,8 @@ export interface ServerSettings {
 	spoilAll: boolean;
 	/** Force-reveal every message on this server, even spoilers ("server is king"). */
 	unspoilAll: boolean;
+	/** Channel IDs muted on this server only (your view). */
+	mutedChannelIds: string[];
 }
 
 export type ServerSettingsState = Record<string, ServerSettings>;
@@ -30,16 +32,23 @@ const SERVER_SETTINGS_KEY = 'wabi.serverSettings';
 
 const DEFAULT_SERVER_SETTINGS: ServerSettings = {
 	spoilAll: false,
-	unspoilAll: false
+	unspoilAll: false,
+	mutedChannelIds: []
 };
 
 const DEFAULT_STATE: ServerSettingsState = {};
+
+function sanitizeStringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
 
 function sanitizeServerSettings(value: unknown): ServerSettings {
 	const candidate = (value ?? {}) as Record<string, unknown>;
 	return {
 		spoilAll: candidate.spoilAll === true,
-		unspoilAll: candidate.unspoilAll === true
+		unspoilAll: candidate.unspoilAll === true,
+		mutedChannelIds: sanitizeStringArray(candidate.mutedChannelIds)
 	};
 }
 
@@ -122,7 +131,7 @@ export function updateServerSetting<K extends keyof ServerSettings>(
 		const current = state[normalizedServerUrl] ?? { ...DEFAULT_SERVER_SETTINGS };
 		const next: ServerSettings = { ...current, [key]: value };
 
-		if (next.spoilAll === false && next.unspoilAll === false) {
+		if (next.spoilAll === false && next.unspoilAll === false && next.mutedChannelIds.length === 0) {
 			const nextState = { ...state };
 			delete nextState[normalizedServerUrl];
 			return nextState;
@@ -166,3 +175,38 @@ export const activeServerUnspoilAll: Readable<boolean> = derived(
 	activeServerSettings,
 	($activeServerSettings): boolean => $activeServerSettings.unspoilAll === true
 );
+
+// --- Per-server channel mutes ---
+
+export function isServerChannelMuted(channelId: string, serverUrl: string = getActiveServerUrl()): boolean {
+	const normalized = normalizeServerUrl(serverUrl);
+	if (!normalized) return false;
+	return serverSettings[normalized]?.mutedChannelIds?.includes(channelId) === true;
+}
+
+export function toggleServerMutedChannelId(channelId: string, serverUrl: string = getActiveServerUrl()): void {
+	const normalizedChannel = channelId.trim();
+	if (!normalizedChannel) return;
+	const normalizedServerUrl = normalizeServerUrl(serverUrl);
+	if (!normalizedServerUrl) return;
+
+	serverSettings.update((state) => {
+		const current = state[normalizedServerUrl] ?? { ...DEFAULT_SERVER_SETTINGS };
+		const nextMuted = current.mutedChannelIds.includes(normalizedChannel)
+			? current.mutedChannelIds.filter((id) => id !== normalizedChannel)
+			: [...current.mutedChannelIds, normalizedChannel];
+
+		const next: ServerSettings = { ...current, mutedChannelIds: nextMuted };
+
+		if (next.spoilAll === false && next.unspoilAll === false && next.mutedChannelIds.length === 0) {
+			const nextState = { ...state };
+			delete nextState[normalizedServerUrl];
+			return nextState;
+		}
+		return { ...state, [normalizedServerUrl]: next };
+	});
+}
+
+export function clearServerMutedChannelIds(serverUrl: string = getActiveServerUrl()): void {
+	updateServerSetting('mutedChannelIds', [], serverUrl);
+}

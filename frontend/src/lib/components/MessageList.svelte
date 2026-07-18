@@ -80,6 +80,7 @@
 	import {
 		loadPlaceRegistry
 	} from '$lib/placeRegistry';
+	import { navigateToRef, type NavRef } from '$lib/navigateToRef';
 	import { openFullMapTab, openMapPanel, openPreferredMapSurface } from '$lib/mapWorkspace';
 	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
 	export let messages: Message[];
@@ -506,6 +507,37 @@
 			event.stopPropagation();
 			await openPreferredMapSurface(placeId, { layerId: layerId || null, poiId: poiId || null });
 			return;
+		}
+		const refTokenEl = target.closest('[data-ref-kind]');
+		if (refTokenEl instanceof HTMLElement) {
+			const refKind = refTokenEl.dataset.refKind;
+			const refId = refTokenEl.dataset.refId;
+			if (refKind && refId) {
+				let navRef: NavRef;
+				switch (refKind) {
+					case 'user':
+						navRef = { kind: 'user', userId: refId };
+						break;
+					case 'channel':
+						navRef = { kind: 'channel', channelId: refId };
+						break;
+					case 'forum_post':
+						navRef = { kind: 'forum_post', postId: refId };
+						break;
+					case 'wiki_page':
+						navRef = { kind: 'wiki_page', pageId: refId };
+						break;
+					case 'gallery_work':
+						navRef = { kind: 'gallery_work', workId: refId };
+						break;
+					default:
+						return;
+				}
+				event.preventDefault();
+				event.stopPropagation();
+				await navigateToRef(navRef);
+				return;
+			}
 		}
 		if (!$displayEnhancementSettingsStore.clickableMentionsEnabled) return;
 		const mentionTokenEl = target.closest('.mention-token');

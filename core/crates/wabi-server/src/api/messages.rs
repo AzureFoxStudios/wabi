@@ -8,6 +8,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::sync::Arc;
 
 use crate::auth_extractor::AuthUser;
@@ -134,6 +135,32 @@ async fn send_message(
             .send_message(&req.channel_id, sender_id, &req.content, is_spoiler)
             .await?
     };
+
+    // Push live messages into the in-memory session buffer.
+    if is_live {
+        let cap = state
+            .live_channel_cap
+            .read()
+            .await
+            .get(&req.channel_id)
+            .copied()
+            .unwrap_or(1000);
+        let mut session = state.session_messages.write().await;
+        let msgs = session.entry(req.channel_id.clone()).or_default();
+        if msgs.len() >= cap as usize {
+            msgs.drain(0..msgs.len() - (cap as usize).saturating_sub(1));
+        }
+        msgs.push(json!({
+            "id": message_id.clone(),
+            "user": sender_username.clone(),
+            "userId": sender_id.to_string(),
+            "text": req.content.clone(),
+            "timestamp": created_at_micros / 1000,
+            "bornAt": created_at_micros / 1000,
+            "type": message_type.clone(),
+            "isSpoiler": is_spoiler,
+        }));
+    }
 
     Ok(Json(MessageResponse {
         id: message_id,

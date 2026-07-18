@@ -20,6 +20,14 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
             "/{channel_id}/threads/{thread_id}/posts/{post_id}",
             axum::routing::put(update_post).delete(delete_post),
         )
+        .route(
+            "/{channel_id}/threads/{thread_id}/posts/{post_id}/vote",
+            axum::routing::post(vote_post),
+        )
+        .route(
+            "/{channel_id}/threads/{thread_id}/posts/{post_id}/solution",
+            axum::routing::post(mark_solution),
+        )
         .with_state(state)
 }
 
@@ -35,6 +43,9 @@ async fn list_threads(
 #[serde(rename_all = "camelCase")]
 struct CreateThreadPayload {
     body: String,
+    title: Option<String>,
+    tags: Option<Vec<String>>,
+    category: Option<String>,
 }
 
 async fn create_thread(
@@ -45,7 +56,14 @@ async fn create_thread(
 ) -> Result<Json<Value>, AppError> {
     let post_id = state
         .wdb
-        .create_forum_thread(&channel_id, &payload.body, auth.user_id as u64)
+        .create_forum_thread(
+            &channel_id,
+            &payload.body,
+            auth.user_id as u64,
+            payload.title.as_deref(),
+            payload.tags.as_deref(),
+            payload.category.as_deref(),
+        )
         .await?;
     let post = state
         .wdb
@@ -67,6 +85,7 @@ async fn list_posts(
 #[serde(rename_all = "camelCase")]
 struct CreatePostPayload {
     body: String,
+    tags: Option<Vec<String>>,
 }
 
 async fn create_post(
@@ -77,7 +96,13 @@ async fn create_post(
 ) -> Result<Json<Value>, AppError> {
     let post_id = state
         .wdb
-        .create_forum_post(&channel_id, &thread_id, &payload.body, auth.user_id as u64)
+        .create_forum_post(
+            &channel_id,
+            &thread_id,
+            &payload.body,
+            auth.user_id as u64,
+            payload.tags.as_deref(),
+        )
         .await?;
     let post = state
         .wdb
@@ -91,6 +116,9 @@ async fn create_post(
 #[serde(rename_all = "camelCase")]
 struct UpdatePostPayload {
     body: String,
+    title: Option<String>,
+    tags: Option<Vec<String>>,
+    category: Option<String>,
 }
 
 async fn update_post(
@@ -101,7 +129,16 @@ async fn update_post(
 ) -> Result<Json<Value>, AppError> {
     state
         .wdb
-        .update_forum_post(&channel_id, &thread_id, &post_id, &payload.body, auth.user_id as u64)
+        .update_forum_post(
+            &channel_id,
+            &thread_id,
+            &post_id,
+            &payload.body,
+            auth.user_id as u64,
+            payload.title.as_deref(),
+            payload.tags.as_deref(),
+            payload.category.as_deref(),
+        )
         .await?;
     let post = state
         .wdb
@@ -121,4 +158,45 @@ async fn delete_post(
         .delete_forum_post(&channel_id, &thread_id, &post_id, auth.user_id as u64)
         .await?;
     Ok(Json(json!({ "deleted": true })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VotePayload {
+    direction: String,
+}
+
+async fn vote_post(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, thread_id, post_id)): Path<(String, String, String)>,
+    Json(payload): Json<VotePayload>,
+) -> Result<Json<Value>, AppError> {
+    state
+        .wdb
+        .vote_forum_post(&channel_id, &thread_id, &post_id, &payload.direction, auth.user_id as u64)
+        .await?;
+    let post = state
+        .wdb
+        .get_forum_post(&channel_id, &thread_id, &post_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("forum post not found".into()))?;
+    Ok(Json(json!(post)))
+}
+
+async fn mark_solution(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, thread_id, post_id)): Path<(String, String, String)>,
+) -> Result<Json<Value>, AppError> {
+    state
+        .wdb
+        .mark_forum_solution(&channel_id, &thread_id, &post_id, auth.user_id as u64)
+        .await?;
+    let post = state
+        .wdb
+        .get_forum_post(&channel_id, &thread_id, &post_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("forum post not found".into()))?;
+    Ok(Json(json!(post)))
 }

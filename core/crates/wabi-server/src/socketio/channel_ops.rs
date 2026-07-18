@@ -25,7 +25,7 @@ async fn on_create_thread(socket: SocketRef, data: Value, state: SioState, io: S
         return;
     }
 
-    match state.app.wdb.create_forum_thread(&channel_id, &name, user_id as u64).await {
+    match state.app.wdb.create_forum_thread(&channel_id, &name, user_id as u64, None, None, None).await {
         Ok(thread_id) => {
             let _ = socket.emit("thread-created", &json!({
                 "channelId": channel_id,

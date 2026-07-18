@@ -8,6 +8,7 @@ pub mod auth;
 pub mod blobs;
 pub mod channels;
 pub mod forum;
+pub mod gallery;
 pub mod incidents;
 pub mod wiki;
 pub mod jobs;

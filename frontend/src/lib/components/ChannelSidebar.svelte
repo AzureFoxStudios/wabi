@@ -59,7 +59,8 @@
 		toggleChannelFollow
 	} from '$lib/following';
 	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
-	import { displayEnhancementSettingsStore, toggleMutedChannelId } from '$lib/displayEnhancements';
+	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
+	import { isServerChannelMuted, toggleServerMutedChannelId } from '$lib/serverSettings';
 	import { whiteboardPresence } from '$lib/presenceStore';
 
 	const dispatch = createEventDispatcher();
@@ -121,10 +122,10 @@
 	let ownProfilePopoutAnchor: HTMLElement | null = null;
 
 	function openOwnProfilePopout(event: Event) { if (!$currentUser) return; ownProfilePopoutAnchor = event.currentTarget as HTMLElement | null; showOwnProfilePopout = true; }
-	function isChannelLocallyMuted(id: string) { return $displayEnhancementSettingsStore.mutedChannelIds.includes(id); }
+	function isChannelLocallyMuted(id: string) { return isServerChannelMuted(id); }
 	function shouldHideChannelFromList(ch: Channel) { return $displayEnhancementSettingsStore.hideMutedCategoriesEnabled && $currentChannel !== ch.id && isChannelLocallyMuted(ch.id); }
 
-	$: textChannels = $channels.filter(ch => !ch.type || ch.type === 'public' || ch.type === 'text').filter(ch => !shouldHideChannelFromList(ch)).sort((a, b) => { if (a.id === 'general') return -1; if (b.id === 'general') return 1; return a.name.localeCompare(b.name); });
+		$: textChannels = $channels.filter(ch => { const t = ch.type as string | undefined; return !t || t === 'public' || t === 'text' || t === 'live'; }).filter(ch => !shouldHideChannelFromList(ch)).sort((a, b) => { if (a.id === 'general') return -1; if (b.id === 'general') return 1; return a.name.localeCompare(b.name); });
 	$: groupChannels = $channels.filter(ch => ch.type === 'group').filter(ch => !shouldHideChannelFromList(ch));
 	$: threadChannels = $channels.filter(ch => ch.type === 'thread_public' || ch.type === 'thread_private').sort((a, b) => (b.threadLastActivityAt || b.createdAt || 0) - (a.threadLastActivityAt || a.createdAt || 0));
 	$: threadChannelsByParent = threadChannels.reduce((acc: Record<string, Channel[]>, t) => { const p = t.parentChannelId; if (!p) return acc; (acc[p] ||= []).push(t); return acc; }, {});
@@ -243,7 +244,7 @@
 			{ id: 'windowing-divider', type: 'separator' },
 			{ id: 'pin-channel', label: isChannelBookmarked(ch) ? 'Remove Bookmark' : 'Bookmark Channel', icon: 'pin', onSelect: () => toggleChannelBookmark(ch) },
 			{ id: 'pinned-messages', label: 'Pinned Messages', icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) },
-			{ id: 'toggle-mute-channel', label: isChannelLocallyMuted(ch.id) ? 'Unmute Channel' : 'Mute Channel', onSelect: () => toggleMutedChannelId(ch.id) },
+			{ id: 'toggle-mute-channel', label: isChannelLocallyMuted(ch.id) ? 'Unmute Channel' : 'Mute Channel', onSelect: () => toggleServerMutedChannelId(ch.id) },
 			{ id: 'channel-settings', label: 'Channel Settings', icon: 'settings', onSelect: () => handleOpenChannelSettings(ch) }
 		];
 		if (sup) items.unshift(
@@ -257,7 +258,7 @@
 			items.push({ id: 'voice-divider', type: 'separator' });
 			items.push(hasBreakoutRooms(ch.id) ? { id: 'close-breakout-rooms', label: 'Close Breakout Rooms', icon: 'archive-restore', onSelect: () => handleCloseBreakoutRooms(ch) } : { id: 'create-breakout-rooms', label: 'Create Breakout Rooms', icon: 'archive', onSelect: () => handleCreateBreakoutRooms(ch) });
 		}
-		if (ch.id !== 'general' && ch.id !== 'voice' && !ch.isBreakout) items.push({ id: 'danger-divider', type: 'separator' }, { id: 'delete-channel', label: 'Delete Channel', icon: 'trash-2', danger: true, onSelect: () => handleDeleteChannel(ch.id) });
+		if (ch.id !== 'general' && ch.id !== 'voice' && !ch.isBreakout && canCreateChannel) items.push({ id: 'danger-divider', type: 'separator' }, { id: 'delete-channel', label: 'Delete Channel', icon: 'trash-2', danger: true, onSelect: () => handleDeleteChannel(ch.id) });
 		return items;
 	}
 </script>

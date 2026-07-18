@@ -33,6 +33,7 @@ wabi-mesh = { path = "../../addons/mesh/backend" }
 
 # WabiDB engine (the new state engine, replacing SpacetimeDB)
 wabidb = { path = "../wabidb" }
+postcard = { version = "1", features = ["alloc"] }
 
 # Error handling
 anyhow = "1"

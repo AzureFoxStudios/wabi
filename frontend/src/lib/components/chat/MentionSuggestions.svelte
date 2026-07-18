@@ -27,8 +27,16 @@
 					{$_('chat.mentions.kind_mention')}
 				{:else if suggestion.kind === 'place'}
 					Place
+				{:else if suggestion.kind === 'channel'}
+					# Channel
+				{:else if suggestion.kind === 'forum_post'}
+					? Forum
+				{:else if suggestion.kind === 'wiki_page'}
+					! Wiki
+				{:else if suggestion.kind === 'gallery_work'}
+					~ Gallery
 				{:else}
-					{$_('chat.mentions.kind_user')}
+					@ User
 				{/if}
 			</span>
 		</button>

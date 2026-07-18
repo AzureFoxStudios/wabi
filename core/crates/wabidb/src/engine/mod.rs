@@ -653,7 +653,8 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::users::UsersProjection;
     use crate::projections::owner::OwnerProjection;
     use crate::projections::webhooks::WebhooksProjection;
-    use crate::projections::wiki::WikiProjection;
+    use crate::projections::gallery::{GalleryFeedbackProjection, GalleryWorkProjection};
+    use crate::projections::wiki::{WikiProjection, WikiRevisionProjection};
     use std::sync::Arc;
 
     let entries = vec![
@@ -760,6 +761,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::wiki::WikiPageRecord",
         },
         ProjectionRegistration {
+            event_types: &["wiki_revision_created"],
+            handler: Arc::new(WikiRevisionProjection),
+            index_name: "wiki_revisions",
+            record_type_name: "wabidb::projections::wiki::WikiRevisionRecord",
+        },
+        ProjectionRegistration {
             event_types: &["forum_thread_created", "forum_post_created", "forum_post_edited", "forum_post_deleted"],
             handler: Arc::new(ForumProjection),
             index_name: "forum_posts",
@@ -794,6 +801,22 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             handler: Arc::new(LoreCommitProjection),
             index_name: "lore_commits",
             record_type_name: "wabidb::projections::lore::LoreCommitRecord",
+        },
+        ProjectionRegistration {
+            event_types: &[
+                "gallery_work_uploaded",
+                "gallery_work_edited",
+                "gallery_work_deleted",
+            ],
+            handler: Arc::new(GalleryWorkProjection),
+            index_name: "gallery_works",
+            record_type_name: "wabidb::projections::gallery::GalleryWorkRecord",
+        },
+        ProjectionRegistration {
+            event_types: &["gallery_feedback_added", "gallery_feedback_deleted"],
+            handler: Arc::new(GalleryFeedbackProjection),
+            index_name: "gallery_feedback",
+            record_type_name: "wabidb::projections::gallery::GalleryFeedbackRecord",
         },
         ProjectionRegistration {
             event_types: &["reaction_removed", "member_joined", "member_left", "channel_renamed"],

@@ -12,6 +12,8 @@
 		parseRoleGateText
 	} from './messageItemUtils';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
+	import UnfurlCard from '$lib/components/UnfurlCard.svelte';
+	import type { MessageEntity } from '$lib/socket';
 
 	export let message: Message;
 	export let messageText: string;
@@ -67,6 +69,17 @@
 	}
 
 	$: albumAnnouncement = parseAlbumAnnouncement(message.text);
+
+	const OBJECT_ENTITY_KINDS = new Set(['forum_post', 'wiki_page', 'gallery_work', 'place']);
+
+	$: firstObjectEntity = findFirstObjectEntity(message.entities ?? []);
+
+	function findFirstObjectEntity(entities: MessageEntity[]): MessageEntity | null {
+		for (const e of entities) {
+			if (OBJECT_ENTITY_KINDS.has(e.kind)) return e;
+		}
+		return null;
+	}
 </script>
 
 <div class="message-content">
@@ -280,4 +293,8 @@
 		{ensureLinkPreviewLoaded}
 		{onOpenModelInDedicatedTab}
 	/>
+
+	{#if firstObjectEntity}
+		<UnfurlCard entity={firstObjectEntity} />
+	{/if}
 </div>

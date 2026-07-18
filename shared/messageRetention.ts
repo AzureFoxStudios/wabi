@@ -58,6 +58,16 @@ const MESSAGE_RETENTION_MS: Record<MessageRetentionDuration, number> = {
 	'90d': 90 * 24 * 60 * 60 * 1000
 };
 
+/** Live session rooms use the sentinel "live" on the same field. It is NOT a
+ * MessageRetentionDuration preset (which are durable timers); it means the
+ * channel is session-only and never persisted. Kept separate so the generated
+ * protocol type stays untouched. */
+export const LIVE_RETENTION = 'live' as const;
+
+export function isLiveRetention(value: unknown): boolean {
+	return value === LIVE_RETENTION;
+}
+
 export function isMessageRetentionDuration(value: unknown): value is MessageRetentionDuration {
 	return typeof value === 'string' && MESSAGE_RETENTION_PRESETS.includes(value as MessageRetentionDuration);
 }

@@ -6,6 +6,8 @@
 	import { FOLLOW_ALERT_LEVEL_LABELS } from '$lib/following';
 	import { formatBadge, formatGlimpseTime, summarizeGlimpseMessage } from './channelSidebarHelpers';
 	import { isLikelyNsfwChannel } from '$lib/displayEnhancements';
+	import { isLiveRetention } from '../../../../../shared/messageRetention.js';
+	import { isServerChannelMuted } from '$lib/serverSettings';
 
 	export let textChannels: Channel[];
 	export let groupChannels: Channel[];
@@ -21,7 +23,7 @@
 		: [];
 
 	function isChannelLocallyMuted(channelId: string): boolean {
-		return $displayEnhancementSettingsStore.mutedChannelIds.includes(channelId);
+		return isServerChannelMuted(channelId);
 	}
 
 	function isNsfwTaggedChannel(channel: Channel): boolean {
@@ -63,6 +65,9 @@
 		<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => onChannelButtonClick(channel.id, event)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : 'Alt-click to glimpse'}>
 			<span class="hash">#</span>
 			{channel.name}
+			{#if isLiveRetention(channel.autoDeleteAfter)}
+				<span class="live-tag" title="Live room — messages are session only and not saved">LIVE</span>
+			{/if}
 			{#if $displayEnhancementSettingsStore.betterNsfwTagEnabled && isNsfwTaggedChannel(channel)}
 				<span class="nsfw-tag">NSFW</span>
 			{/if}
