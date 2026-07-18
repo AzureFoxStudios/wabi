@@ -1,4 +1,5 @@
 import type { HomeExperienceMode } from '$lib/homeExperience';
+import { sanitizeAccentColor, sanitizeCustomCss, sanitizeCssUrl } from '$lib/cssSanitize';
 
 export interface LoginValidationResult {
 	valid: boolean;
@@ -83,9 +84,15 @@ export function buildLaunchPageStyles(config: {
 	if (!config.enabled) {
 		return { launchContainerStyle: '', launchCardStyle: '', launchCustomCss: '' };
 	}
-	const launchContainerStyle = `--launch-bg-top: ${config.palette.backgroundTop}; --launch-bg-bottom: ${config.palette.backgroundBottom}; --launch-accent: ${config.palette.accent}; --launch-text: ${config.palette.text};${config.backgroundImageUrl ? ` background-image: url(${config.backgroundImageUrl}); background-size: cover; background-position: center;` : ''}`;
-	const launchCardStyle = `--launch-card-bg: ${config.palette.cardBackground};`;
-	const launchCustomCss = config.customCss || '';
+	const bgTop = sanitizeAccentColor(config.palette.backgroundTop) || '#0f172a';
+	const bgBottom = sanitizeAccentColor(config.palette.backgroundBottom) || '#020617';
+	const accent = sanitizeAccentColor(config.palette.accent) || '#2dd4bf';
+	const text = sanitizeAccentColor(config.palette.text) || '#f8fafc';
+	const cardBg = sanitizeAccentColor(config.palette.cardBackground) || 'rgba(15, 23, 42, 0.85)';
+	const safeBgUrl = sanitizeCssUrl(config.backgroundImageUrl || null);
+	const launchContainerStyle = `--launch-bg-top: ${bgTop}; --launch-bg-bottom: ${bgBottom}; --launch-accent: ${accent}; --launch-text: ${text};${safeBgUrl ? ` background-image: url(${safeBgUrl}); background-size: cover; background-position: center;` : ''}`;
+	const launchCardStyle = `--launch-card-bg: ${cardBg};`;
+	const launchCustomCss = sanitizeCustomCss(config.customCss || '');
 	return { launchContainerStyle, launchCardStyle, launchCustomCss };
 }
 

@@ -11,11 +11,11 @@ export async function generateKeyPair(): Promise<{
 	publicKey: string;
 	privateKey: string;
 }> {
-	if (!window.crypto || !window.crypto.subtle) {
+	if (!((typeof globalThis !== "undefined" && (globalThis as any).crypto) || (typeof window !== "undefined" && window.crypto))) {
 		throw new Error('Web Crypto API not available in this environment');
 	}
 
-	const keyPair = await window.crypto.subtle.generateKey(
+	const keyPair = await getSubtle().generateKey(
 		{
 			name: 'ECDH',
 			namedCurve: 'P-256'
@@ -25,8 +25,8 @@ export async function generateKeyPair(): Promise<{
 	);
 
 	// Export keys for storage
-	const publicKeyExported = await window.crypto.subtle.exportKey('raw', keyPair.publicKey);
-	const privateKeyExported = await window.crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+	const publicKeyExported = await getSubtle().exportKey('raw', keyPair.publicKey);
+	const privateKeyExported = await getSubtle().exportKey('pkcs8', keyPair.privateKey);
 
 	// Convert to base64
 	const publicKeyBase64 = arrayBufferToBase64(publicKeyExported);
@@ -45,12 +45,12 @@ export async function deriveSharedKey(
 	privateKeyBase64: string,
 	publicKeyBase64: string
 ): Promise<CryptoKey> {
-	if (!window.crypto || !window.crypto.subtle) {
+	if (!((typeof globalThis !== "undefined" && (globalThis as any).crypto) || (typeof window !== "undefined" && window.crypto))) {
 		throw new Error('Web Crypto API not available');
 	}
 
 	// Import keys
-	const privateKey = await window.crypto.subtle.importKey(
+	const privateKey = await getSubtle().importKey(
 		'pkcs8',
 		base64ToArrayBuffer(privateKeyBase64),
 		{
@@ -61,7 +61,7 @@ export async function deriveSharedKey(
 		['deriveKey']
 	);
 
-	const publicKey = await window.crypto.subtle.importKey(
+	const publicKey = await getSubtle().importKey(
 		'raw',
 		base64ToArrayBuffer(publicKeyBase64),
 		{
@@ -73,7 +73,7 @@ export async function deriveSharedKey(
 	);
 
 	// Derive shared secret
-	const sharedKey = await window.crypto.subtle.deriveKey(
+	const sharedKey = await getSubtle().deriveKey(
 		{
 			name: 'ECDH',
 			public: publicKey
@@ -100,18 +100,18 @@ export async function encryptContent(
 	encryptedData: string;
 	iv: string;
 }> {
-	if (!window.crypto || !window.crypto.subtle) {
+	if (!((typeof globalThis !== "undefined" && (globalThis as any).crypto) || (typeof window !== "undefined" && window.crypto))) {
 		throw new Error('Web Crypto API not available');
 	}
 
 	// Generate initialization vector
-	const iv = window.crypto.getRandomValues(new Uint8Array(12));
+	const iv = getCrypto().getRandomValues(new Uint8Array(12));
 
 	// Encrypt content
 	const encoder = new TextEncoder();
 	const data = encoder.encode(content);
 
-	const encryptedData = await window.crypto.subtle.encrypt(
+	const encryptedData = await getSubtle().encrypt(
 		{
 			name: 'AES-GCM',
 			iv: iv
@@ -134,7 +134,7 @@ export async function decryptContent(
 	ivBase64: string,
 	sharedKey: CryptoKey
 ): Promise<string> {
-	if (!window.crypto || !window.crypto.subtle) {
+	if (!((typeof globalThis !== "undefined" && (globalThis as any).crypto) || (typeof window !== "undefined" && window.crypto))) {
 		throw new Error('Web Crypto API not available');
 	}
 
@@ -143,7 +143,7 @@ export async function decryptContent(
 	const iv = base64ToArrayBuffer(ivBase64);
 
 	// Decrypt content
-	const decryptedData = await window.crypto.subtle.decrypt(
+	const decryptedData = await getSubtle().decrypt(
 		{
 			name: 'AES-GCM',
 			iv: iv
@@ -185,11 +185,11 @@ export async function encryptForUsers(
  * Generate a random encryption key for symmetric encryption
  */
 export async function generateSymmetricKey(): Promise<CryptoKey> {
-	if (!window.crypto || !window.crypto.subtle) {
+	if (!((typeof globalThis !== "undefined" && (globalThis as any).crypto) || (typeof window !== "undefined" && window.crypto))) {
 		throw new Error('Web Crypto API not available');
 	}
 
-	return window.crypto.subtle.generateKey(
+	return getSubtle().generateKey(
 		{
 			name: 'AES-GCM',
 			length: 256
@@ -209,15 +209,15 @@ export async function encryptSymmetric(
 	encryptedData: string;
 	iv: string;
 }> {
-	if (!window.crypto || !window.crypto.subtle) {
+	if (!((typeof globalThis !== "undefined" && (globalThis as any).crypto) || (typeof window !== "undefined" && window.crypto))) {
 		throw new Error('Web Crypto API not available');
 	}
 
-	const iv = window.crypto.getRandomValues(new Uint8Array(12));
+	const iv = getCrypto().getRandomValues(new Uint8Array(12));
 	const encoder = new TextEncoder();
 	const data = encoder.encode(content);
 
-	const encryptedData = await window.crypto.subtle.encrypt(
+	const encryptedData = await getSubtle().encrypt(
 		{
 			name: 'AES-GCM',
 			iv: iv
@@ -240,14 +240,14 @@ export async function decryptSymmetric(
 	ivBase64: string,
 	key: CryptoKey
 ): Promise<string> {
-	if (!window.crypto || !window.crypto.subtle) {
+	if (!((typeof globalThis !== "undefined" && (globalThis as any).crypto) || (typeof window !== "undefined" && window.crypto))) {
 		throw new Error('Web Crypto API not available');
 	}
 
 	const encryptedData = base64ToArrayBuffer(encryptedDataBase64);
 	const iv = base64ToArrayBuffer(ivBase64);
 
-	const decryptedData = await window.crypto.subtle.decrypt(
+	const decryptedData = await getSubtle().decrypt(
 		{
 			name: 'AES-GCM',
 			iv: iv
@@ -296,6 +296,20 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
  * wrapped and re-saved.
  */
 export const ENCRYPTION_STORAGE_KEY = 'wabi_encryption_keys';
+/** Per-install device secret used when no session wrapping secret is set. Never reuse a hardcoded salt. */
+export const DEVICE_WRAP_SECRET_KEY = 'wabi_device_wrap_secret_v1';
+
+function getCrypto(): Crypto {
+	const c = (typeof globalThis !== 'undefined' && (globalThis as any).crypto) || (typeof window !== 'undefined' ? window.crypto : undefined);
+	if (!c) throw new Error('Web Crypto unavailable');
+	return c;
+}
+function getSubtle(): SubtleCrypto {
+	const s = getCrypto().subtle;
+	if (!s) throw new Error('Web Crypto subtle unavailable');
+	return s;
+}
+
 
 // Module-level wrapping secret — set once per session via setKeyWrappingSecret()
 let wrappingSecret: string | null = null;
@@ -304,12 +318,52 @@ export function setKeyWrappingSecret(secret: string | null): void {
 	wrappingSecret = secret;
 }
 
+/**
+ * Device-scoped secret for at-rest key wrapping when no user/session passphrase is active.
+ * Generated once per browser profile and stored separately from the encrypted private keys.
+ */
+export function getOrCreateDeviceWrapSecret(): string {
+	try {
+		const existing = localStorage.getItem(DEVICE_WRAP_SECRET_KEY);
+		if (existing && existing.length >= 16) return existing;
+	} catch {
+		// ignore storage failures; fall through to ephemeral secret for this session
+	}
+	const cryptoApi =
+		(typeof globalThis !== 'undefined' && (globalThis as { crypto?: Crypto }).crypto) ||
+		(typeof window !== 'undefined' ? window.crypto : undefined);
+	if (!cryptoApi?.getRandomValues) {
+		// Extremely degraded environment — still avoid empty secret
+		const fallback = `fallback-${Date.now()}-${Math.random()}`;
+		try {
+			localStorage.setItem(DEVICE_WRAP_SECRET_KEY, fallback);
+		} catch {
+			/* ignore */
+		}
+		return fallback;
+	}
+	const bytes = cryptoApi.getRandomValues(new Uint8Array(32));
+	const secret = arrayBufferToBase64(bytes.buffer);
+	try {
+		localStorage.setItem(DEVICE_WRAP_SECRET_KEY, secret);
+	} catch {
+		// still return secret so this process wraps keys even if persistence fails
+	}
+	return secret;
+}
+
+function resolveWrappingSecret(): string {
+	return wrappingSecret && wrappingSecret.length > 0
+		? wrappingSecret
+		: getOrCreateDeviceWrapSecret();
+}
+
 async function deriveWrappingKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
 	const enc = new TextEncoder();
-	const keyMaterial = await window.crypto.subtle.importKey(
+	const keyMaterial = await getSubtle().importKey(
 		'raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']
 	);
-	return window.crypto.subtle.deriveKey(
+	return getSubtle().deriveKey(
 		{ name: 'PBKDF2', salt: salt.buffer as ArrayBuffer, iterations: 100_000, hash: 'SHA-256' },
 		keyMaterial,
 		{ name: 'AES-GCM', length: 256 },
@@ -319,11 +373,11 @@ async function deriveWrappingKey(secret: string, salt: Uint8Array): Promise<Cryp
 }
 
 async function wrapPrivateKey(privateKeyB64: string, secret: string): Promise<string> {
-	const salt = window.crypto.getRandomValues(new Uint8Array(16));
-	const iv = window.crypto.getRandomValues(new Uint8Array(12));
+	const salt = getCrypto().getRandomValues(new Uint8Array(16));
+	const iv = getCrypto().getRandomValues(new Uint8Array(12));
 	const wrappingKey = await deriveWrappingKey(secret, salt);
 	const enc = new TextEncoder();
-	const ciphertext = await window.crypto.subtle.encrypt(
+	const ciphertext = await getSubtle().encrypt(
 		{ name: 'AES-GCM', iv },
 		wrappingKey,
 		enc.encode(privateKeyB64)
@@ -339,7 +393,7 @@ async function unwrapPrivateKey(wrapped: string, secret: string): Promise<string
 	const iv = new Uint8Array(base64ToArrayBuffer(parts[1]));
 	const ciphertext = base64ToArrayBuffer(parts[2]);
 	const wrappingKey = await deriveWrappingKey(secret, salt);
-	const plaintext = await window.crypto.subtle.decrypt(
+	const plaintext = await getSubtle().decrypt(
 		{ name: 'AES-GCM', iv },
 		wrappingKey,
 		ciphertext
@@ -359,7 +413,9 @@ interface StoredKeyEntry {
 
 export async function saveUserKeys(userId: number, publicKey: string, privateKey: string): Promise<void> {
 	const keys = loadAllKeysRaw();
-	const wrappedPrivate = wrappingSecret ? await wrapPrivateKey(privateKey, wrappingSecret) : privateKey;
+	// Always wrap before persistence — never write a raw private key to localStorage.
+	const secret = resolveWrappingSecret();
+	const wrappedPrivate = await wrapPrivateKey(privateKey, secret);
 	keys[userId.toString()] = { publicKey, privateKey: wrappedPrivate };
 	localStorage.setItem(ENCRYPTION_STORAGE_KEY, JSON.stringify(keys));
 }
@@ -369,30 +425,38 @@ export async function loadUserKeys(userId: number): Promise<{ publicKey: string;
 	const entry = keys[userId.toString()];
 	if (!entry) return null;
 
-	// If the stored key is wrapped, try to unwrap it
+	// If the stored key is wrapped, try session secret then device secret
 	if (isWrappedKey(entry.privateKey)) {
-		if (!wrappingSecret) {
-			// Can't decrypt without wrapping secret — keys exist but are locked
-			return null;
+		const candidates = [
+			wrappingSecret,
+			// Always allow device secret as fallback so keys unlock without an active session passphrase
+			typeof localStorage !== 'undefined' ? localStorage.getItem(DEVICE_WRAP_SECRET_KEY) : null,
+		].filter((s): s is string => typeof s === 'string' && s.length > 0);
+
+		// Prefer explicit session secret first, then device secret (may already be in list)
+		const tried = new Set<string>();
+		for (const secret of candidates) {
+			if (tried.has(secret)) continue;
+			tried.add(secret);
+			try {
+				const decryptedPrivate = await unwrapPrivateKey(entry.privateKey, secret);
+				return { publicKey: entry.publicKey, privateKey: decryptedPrivate };
+			} catch {
+				// try next secret
+			}
 		}
-		try {
-			const decryptedPrivate = await unwrapPrivateKey(entry.privateKey, wrappingSecret);
-			return { publicKey: entry.publicKey, privateKey: decryptedPrivate };
-		} catch {
-			console.warn('[Encryption] Failed to unwrap private key — secret may have changed');
-			return null;
-		}
+		console.warn('[Encryption] Failed to unwrap private key — no matching wrapping secret');
+		return null;
 	}
 
-	// Legacy plaintext key — migrate to wrapped format on load
-	if (wrappingSecret) {
-		try {
-			const wrappedPrivate = await wrapPrivateKey(entry.privateKey, wrappingSecret);
-			keys[userId.toString()] = { publicKey: entry.publicKey, privateKey: wrappedPrivate };
-			localStorage.setItem(ENCRYPTION_STORAGE_KEY, JSON.stringify(keys));
-		} catch {
-			// Migration failed, still return the plaintext key
-		}
+	// Legacy plaintext key — always migrate to wrapped format on load
+	try {
+		const secret = resolveWrappingSecret();
+		const wrappedPrivate = await wrapPrivateKey(entry.privateKey, secret);
+		keys[userId.toString()] = { publicKey: entry.publicKey, privateKey: wrappedPrivate };
+		localStorage.setItem(ENCRYPTION_STORAGE_KEY, JSON.stringify(keys));
+	} catch {
+		// Migration failed; still return plaintext once so the session can recover, but prefer not to re-save raw
 	}
 	return { publicKey: entry.publicKey, privateKey: entry.privateKey };
 }

@@ -102,6 +102,35 @@ struct AttachmentStorageMeta {
     at_rest_encrypted: bool,
 }
 
+/// Security headers applied to every uploaded-file response (GET /uploads/*).
+///
+/// Uploaded blobs are user-controlled content. We never let the browser
+/// sniff the content type, and we serve them inside a locked-down CSP /
+/// sandbox so a malicious upload (e.g. an SVG with embedded script, or an
+/// HTML file) cannot execute or reach other origins.
+const UPLOAD_SECURITY_HEADERS: &[(&str, &str)] = &[
+    ("X-Content-Type-Options", "nosniff"),
+    (
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; sandbox",
+    ),
+];
+
+/// Build the header map applied to uploaded-file responses.
+///
+/// Pure function so it can be unit-tested without spinning up the server.
+pub fn upload_response_headers() -> Vec<(axum::http::HeaderName, axum::http::HeaderValue)> {
+    UPLOAD_SECURITY_HEADERS
+        .iter()
+        .map(|(k, v)| {
+            (
+                axum::http::HeaderName::from_bytes(k.as_bytes()).expect("valid header name"),
+                axum::http::HeaderValue::from_static(v),
+            )
+        })
+        .collect()
+}
+
 /// Extension to MIME type mapping for safe file naming
 fn extension_for_mime(mime: &str, fallback: &str) -> String {
     match mime {
@@ -643,4 +672,30 @@ pub async fn upload_profile_picture(
     Ok(Json(ProfilePictureResponse {
         profile_picture_url,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::upload_response_headers;
+
+    #[test]
+    fn upload_headers_carry_nosniff_and_csp() {
+        let headers = upload_response_headers();
+        let map: std::collections::HashMap<_, _> = headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.to_str().unwrap()))
+            .collect();
+
+        // nosniff must be present to prevent MIME sniffing of user uploads.
+        assert_eq!(
+            map.get("x-content-type-options").copied(),
+            Some("nosniff")
+        );
+
+        // A strict CSP/sandbox must be present so uploaded content (e.g. SVG)
+        // cannot execute script or reach other origins.
+        let csp = map.get("content-security-policy").copied().expect("CSP header");
+        assert!(csp.contains("default-src 'none'"));
+        assert!(csp.contains("sandbox"));
+    }
 }

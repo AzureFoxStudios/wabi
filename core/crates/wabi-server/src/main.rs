@@ -94,7 +94,15 @@ async fn serve_upload(
                 data.len(),
                 mime
             );
-            ([(axum::http::header::CONTENT_TYPE, mime.as_ref())], data).into_response()
+            // Harden user-uploaded content: disallow MIME sniffing and sandbox
+            // it behind a strict CSP so an SVG/image cannot execute script or
+            // reach other origins.
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(axum::http::header::CONTENT_TYPE, mime.as_ref().parse().unwrap());
+            for (k, v) in crate::api::upload::upload_response_headers() {
+                headers.insert(k, v);
+            }
+            (headers, data).into_response()
         }
         Err(e) => {
             tracing::debug!("Upload file not found: {:?} — {}", file_path, e);
@@ -200,6 +208,87 @@ async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
     }
     info!("purge-orphans: done, purged {} message(s)", purged);
     Ok(())
+}
+
+/// Build the CORS layer based on `WABI_CORS_ORIGINS`.
+///
+/// - If `WABI_CORS_ORIGINS` is set to a non-empty, comma-separated list of
+///   origins, only those exact origins are allowed (with credentials).
+/// - If unset/empty, mirror the request Origin — but ONLY when it is a safe
+///   local origin (localhost, 127.0.0.1, or a Tailscale 100.x address). This
+///   keeps dev/self-host convenient without reflecting arbitrary attacker
+///   origins on a publicly reachable, unconfigured server.
+fn build_cors_layer() -> CorsLayer {
+    let allowed_origins = std::env::var("WABI_CORS_ORIGINS")
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .map(|o| o.trim().to_string())
+                .filter(|o| !o.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|v| !v.is_empty());
+
+    let allow_origin = match allowed_origins {
+        Some(origins) => {
+            let parsed = origins
+                .iter()
+                .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
+                .collect::<Vec<_>>();
+            tower_http::cors::AllowOrigin::list(parsed)
+        }
+        None => {
+            // Safe-local mirror fallback.
+            tower_http::cors::AllowOrigin::predicate(|origin: &axum::http::HeaderValue, _| {
+                origin
+                    .to_str()
+                    .map(|s| is_safe_local_origin(s))
+                    .unwrap_or(false)
+            })
+        }
+    };
+
+    CorsLayer::new()
+        .allow_origin(allow_origin)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+            axum::http::Method::OPTIONS,
+            axum::http::Method::PATCH,
+        ])
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::ACCEPT,
+            axum::http::header::ORIGIN,
+            axum::http::header::HeaderName::from_static("x-requested-with"),
+        ])
+        .allow_credentials(true)
+}
+
+/// Returns true for origins that are safe to mirror on an unconfigured server:
+/// localhost, 127.0.0.1, and Tailscale 100.x.x.x (CGNAT range).
+fn is_safe_local_origin(origin: &str) -> bool {
+    // Parse "scheme://host[:port]" — only inspect the host.
+    let host = match origin.split_once("://") {
+        Some((_, rest)) => rest.split('/').next().unwrap_or(rest),
+        None => origin.split('/').next().unwrap_or(origin),
+    };
+    let host = host.split(':').next().unwrap_or(host);
+
+    if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+        return true;
+    }
+    // Tailscale IPv4 CGNAT range: 100.64.0.0/10.
+    if let Ok(octets) = host.parse::<std::net::Ipv4Addr>() {
+        let [a, b, _, _] = octets.octets();
+        if a == 100 && b >= 64 && b <= 127 {
+            return true;
+        }
+    }
+    false
 }
 
 /// Resolve the JWT signing secret.
@@ -630,26 +719,20 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Build CORS layer — mirror request origin so credentialed requests work.
-    // Cannot combine allow_credentials(true) with wildcard headers — list them.
-    let cors = CorsLayer::new()
-        .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
-        .allow_methods([
-            axum::http::Method::GET,
-            axum::http::Method::POST,
-            axum::http::Method::PUT,
-            axum::http::Method::DELETE,
-            axum::http::Method::OPTIONS,
-            axum::http::Method::PATCH,
-        ])
-        .allow_headers([
-            axum::http::header::AUTHORIZATION,
-            axum::http::header::CONTENT_TYPE,
-            axum::http::header::ACCEPT,
-            axum::http::header::ORIGIN,
-            axum::http::header::HeaderName::from_static("x-requested-with"),
-        ])
-        .allow_credentials(true);
+    // Build CORS layer.
+    //
+    // Production: set `WABI_CORS_ORIGINS` to a comma-separated list of exact
+    // allowed origins (e.g. "https://app.example.com,https://admin.example.com").
+    // Only those origins will be allowed, with credentials.
+    //
+    // When `WABI_CORS_ORIGINS` is unset or empty we fall back to mirroring the
+    // request Origin. This keeps local/dev self-hosting convenient (the embedded
+    // frontend and API share an origin), but it is permissive — anyone who can
+    // reach the server can have their Origin mirrored. **Production deployments
+    // MUST set WABI_CORS_ORIGINS.** We additionally gate the mirror fallback to
+    // safe origins (localhost / 127.0.0.1 / Tailscale 100.x) so a public server
+    // left unconfigured does not reflect arbitrary third-party origins.
+    let cors = build_cors_layer();
 
     let max_body_bytes = config.max_body_size.unwrap_or(50 * 1024 * 1024 * 1024);
 
