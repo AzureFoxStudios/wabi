@@ -24,6 +24,7 @@ use wabidb::domain::{
 };
 use wabidb::engine::wabi_store::WabiStore;
 use wabidb::projections::lore::LoreRepoRecord;
+use wabidb::projections::query::QueryableProjection;
 use wabidb::engine::{WabiDbConfig, WabiDbEngine};
 use wabidb::error::{Result, WabiError};
 use wabidb::format::record::RecordKind;
@@ -484,21 +485,22 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn get_message_typed(&self, message_id: &str) -> Result<Option<Message>> {
-        use wabidb::projections::messages::decode_record;
+        use wabidb::projections::messages::MessagesProjection;
+        use wabidb::projections::query::MessagesFilter;
         let state = self.engine.projection_state();
-        // Full scan because key is (channel_id, message_id) compound.
-        // TODO: add a message_id → (channel_id, seq) secondary index.
-        let mut found: Option<Message> = None;
-        state.for_each("messages", |_key, value| {
-            if found.is_some() {
-                return;
-            }
-            if let Ok(record) = decode_record(value) {
-                if record.message_id == message_id {
-                    found = Some(Message::from(record));
-                }
-            }
-        });
+        // No message_id-only index yet, so query scans the primary index and
+        // decodes only matching rows.
+        let found = MessagesProjection
+            .query(
+                &state,
+                &MessagesFilter {
+                    include_deleted: true,
+                    ..Default::default()
+                },
+            )?
+            .into_iter()
+            .find(|r| r.message_id == message_id)
+            .map(Message::from);
         Ok(found)
     }
 
@@ -507,18 +509,22 @@ impl WabiStore for WdbAdapter {
         channel_id: &str,
         limit: u64,
     ) -> Result<Vec<Message>> {
-        use wabidb::projections::messages::decode_record;
+        use wabidb::projections::messages::MessagesProjection;
+        use wabidb::projections::query::MessagesFilter;
         let state = self.engine.projection_state();
-        let mut out: Vec<Message> = Vec::new();
-        state.for_each("messages", |_key, value| {
-            if let Ok(record) = decode_record(value) {
-                if record.channel_id == channel_id {
-                    out.push(Message::from(record));
-                }
-            }
-        });
+        let mut out: Vec<Message> = MessagesProjection
+            .query(
+                &state,
+                &MessagesFilter {
+                    channel_id: Some(channel_id.to_string()),
+                    limit: Some(limit as usize),
+                    ..Default::default()
+                },
+            )?
+            .into_iter()
+            .map(Message::from)
+            .collect();
         out.sort_by(|a, b| a.created_at_micros.cmp(&b.created_at_micros));
-        out.truncate(limit as usize);
         Ok(out)
     }
 
@@ -546,29 +552,27 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
-        use wabidb::projections::users::decode_record;
+        use wabidb::projections::query::UsersFilter;
+        use wabidb::projections::users::UsersProjection;
         let state = self.engine.projection_state();
-        let mut found: Option<User> = None;
         let key_lc = username.to_lowercase();
-        state.for_each("users", |_key, value| {
-            if let Ok(record) = decode_record(value) {
-                if record.username.to_lowercase() == key_lc && found.is_none() {
-                    found = Some(User::from(record));
-                }
-            }
-        });
+        let found = UsersProjection
+            .query(&state, &UsersFilter::default())?
+            .into_iter()
+            .find(|r| r.username.to_lowercase() == key_lc)
+            .map(User::from);
         Ok(found)
     }
 
     async fn list_users(&self) -> Result<Vec<User>> {
-        use wabidb::projections::users::decode_record;
+        use wabidb::projections::query::UsersFilter;
+        use wabidb::projections::users::UsersProjection;
         let state = self.engine.projection_state();
-        let mut out: Vec<User> = Vec::new();
-        state.for_each("users", |_key, value| {
-            if let Ok(record) = decode_record(value) {
-                out.push(User::from(record));
-            }
-        });
+        let out: Vec<User> = UsersProjection
+            .query(&state, &UsersFilter::default())?
+            .into_iter()
+            .map(User::from)
+            .collect();
         Ok(out)
     }
 
@@ -609,13 +613,11 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn list_channels(&self, member_user_id: Option<u64>) -> Result<Vec<Channel>> {
+        use wabidb::projections::channels::ChannelProjection;
+        use wabidb::projections::query::ChannelsFilter;
         let state = self.engine.projection_state();
-        let mut all: Vec<Channel> = Vec::new();
-        state.for_each("channels", |_key, value| {
-            if let Ok(c) = Self::decode::<Channel>(value) {
-                all.push(c);
-            }
-        });
+        let all: Vec<Channel> =
+            ChannelProjection.query(&state, &ChannelsFilter::default())?;
         match member_user_id {
             None => Ok(all),
             Some(uid) => {
@@ -649,16 +651,20 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn list_reactions(&self, message_id: &str) -> Result<Vec<Reaction>> {
-        use wabidb::projections::reactions::decode_reaction;
+        use wabidb::projections::query::ReactionsFilter;
+        use wabidb::projections::reactions::ReactionsProjection;
         let state = self.engine.projection_state();
-        let mut out: Vec<Reaction> = Vec::new();
-        state.for_each("reactions", |_key, value| {
-            if let Ok(r) = decode_reaction(value) {
-                if r.message_id == message_id {
-                    out.push(Reaction::from(r));
-                }
-            }
-        });
+        let out = ReactionsProjection
+            .query(
+                &state,
+                &ReactionsFilter {
+                    message_id: Some(message_id.to_string()),
+                    ..Default::default()
+                },
+            )?
+            .into_iter()
+            .map(Reaction::from)
+            .collect();
         Ok(out)
     }
 
@@ -792,11 +798,12 @@ impl WabiStore for WdbAdapter {
     async fn get_channels_raw(
         &self,
     ) -> Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+        use wabidb::projections::channels::ChannelProjection;
+        use wabidb::projections::query::ChannelsFilter;
         let state = self.engine.projection_state();
         let mut out = Vec::new();
-        state.for_each("channels", |_key, value| {
-            if let Ok(c) = Self::decode::<wabidb::domain::Channel>(value) {
-                let mut row = std::collections::HashMap::new();
+        for c in ChannelProjection.query(&state, &ChannelsFilter::default())? {
+            let mut row = std::collections::HashMap::new();
                 row.insert("channel_id".into(), serde_json::Value::String(c.channel_id.clone()));
                 row.insert("id".into(), serde_json::Value::String(c.channel_id));
                 row.insert("name".into(), serde_json::Value::String(c.name));
@@ -823,7 +830,6 @@ impl WabiStore for WdbAdapter {
                 row.insert("force_spoiler".into(), serde_json::json!(c.force_spoiler));
                 out.push(row);
             }
-        });
         Ok(out)
     }
 
@@ -2651,14 +2657,14 @@ impl WdbAdapter {
     /// channel id. Used by maintenance diagnostics to detect channel-id
     /// mismatches that hide messages from `list_messages_typed`.
     pub async fn list_all_messages_typed(&self) -> anyhow::Result<Vec<Message>> {
-        use wabidb::projections::messages::decode_record;
+        use wabidb::projections::messages::MessagesProjection;
+        use wabidb::projections::query::MessagesFilter;
         let state = self.engine.projection_state();
-        let mut out: Vec<Message> = Vec::new();
-        state.for_each("messages", |_key, value| {
-            if let Ok(record) = decode_record(value) {
-                out.push(Message::from(record));
-            }
-        });
+        let out: Vec<Message> = MessagesProjection
+            .query(&state, &MessagesFilter { include_deleted: true, ..Default::default() })?
+            .into_iter()
+            .map(Message::from)
+            .collect();
         Ok(out)
     }
 }
