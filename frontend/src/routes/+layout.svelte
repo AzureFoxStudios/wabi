@@ -18,8 +18,10 @@
 	import { initEmojis } from '$lib/emoji-store';
 	import AmbientBackground from '$lib/effects/AmbientBackground.svelte';
 	import ConnectionBadge from '$lib/effects/ConnectionBadge.svelte';
+	import { startSocketErrorToasts, socketToasts } from '$lib/socketErrorToasts';
 
 	initI18n();
+	startSocketErrorToasts();
 
 let cleanupAutoSave: (() => void) | null = null;
 let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -175,6 +177,14 @@ function isLocalPreviewHost(): boolean {
 
 	<SyncLoadingOverlay />
 
+	{#if $socketToasts.length}
+		<div class="socket-toast-stack" role="status" aria-live="polite">
+			{#each $socketToasts as t (t.id)}
+				<div class="socket-toast">{t.message}</div>
+			{/each}
+		</div>
+	{/if}
+
 	<slot />
 </div>
 
@@ -185,5 +195,26 @@ function isLocalPreviewHost(): boolean {
 	.app-content-layer {
 		position: relative;
 		z-index: 1;
+	}
+	.socket-toast-stack {
+		position: fixed;
+		right: 16px;
+		bottom: 16px;
+		z-index: 9999;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		max-width: min(360px, calc(100vw - 32px));
+		pointer-events: none;
+	}
+	.socket-toast {
+		background: rgba(15, 23, 42, 0.94);
+		color: #f8fafc;
+		border: 1px solid rgba(248, 113, 113, 0.45);
+		border-radius: 10px;
+		padding: 10px 14px;
+		font-size: 13px;
+		line-height: 1.35;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 	}
 </style>

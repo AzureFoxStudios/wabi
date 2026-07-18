@@ -1095,4 +1095,57 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|m| m.message_id != format!("msg_{:x}", 1)));
     }
+
+
+    /// A7 quality gate: channel-scoped query at 10k messages stays well under
+    /// the GOAL p99 target of 5ms on typical dev hardware (best-effort; we
+    /// assert < 50ms to avoid CI flake on slow boxes while still catching
+    /// accidental full-table scans that take hundreds of ms).
+    #[test]
+    fn query_index_backed_10k_channel_is_fast() {
+        use std::time::Instant;
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        // 50 channels × 200 msgs = 10k
+        for ch in 0..50u64 {
+            let channel = format!("ch_{ch:02}");
+            for i in 0..200u64 {
+                let seq = ch * 200 + i + 1;
+                let r = MessageRecord {
+                    message_id: String::new(),
+                    channel_id: channel.clone(),
+                    author_user_id: i,
+                    ..sample_msg()
+                };
+                proj.apply(&make_event(seq, "message_created", &r), &state).unwrap();
+            }
+        }
+        let filter = MessagesFilter {
+            channel_id: Some("ch_07".into()),
+            ..Default::default()
+        };
+        // Warm
+        let _ = proj.query(&state, &filter).unwrap();
+        let start = Instant::now();
+        let results = proj.query(&state, &filter).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(results.len(), 200);
+        assert!(
+            elapsed.as_millis() < 50,
+            "list_messages via index took {:?} (want <50ms; GOAL p99 <5ms on fast HW)",
+            elapsed
+        );
+        // Regression: wrong channel empty
+        let empty = proj
+            .query(
+                &state,
+                &MessagesFilter {
+                    channel_id: Some("ch_missing".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(empty.is_empty());
+    }
+
 }

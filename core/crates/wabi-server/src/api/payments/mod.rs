@@ -121,9 +121,9 @@ impl Default for PaymentDonationConfig {
             enabled: false,
             provider_plugin_id: None,
             method_id: None,
-            currency: "USD".into(),
+            currency: "THB".into(),
             country_code: None,
-            suggested_amounts_minor: vec![500, 1000, 2500],
+            suggested_amounts_minor: vec![5000, 10000, 25000], // satang: 50/100/250 THB
             headline: "Support This Server".into(),
             description: "Contribute to server hosting and maintenance.".into(),
         }
