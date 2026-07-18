@@ -178,6 +178,20 @@ impl ProjectionState {
         map.get(key).map(|entry| entry.value().clone())
     }
 
+    /// Run `f` with the `SkipMap` for a named index, creating an empty one if
+    /// it does not yet exist. Used by secondary indexes that need a direct
+    /// handle to their `SkipMap` rather than the insert/get convenience
+    /// methods. The create path takes the write lock; `f` is therefore
+    /// invoked while the lock is held momentarily.
+    pub fn with_index<F, R>(&self, index: &str, f: F) -> R
+    where
+        F: FnOnce(&SkipMap<Vec<u8>, Vec<u8>>) -> R,
+    {
+        let mut indexes = self.indexes.write().unwrap();
+        let map = indexes.entry(index.to_string()).or_insert_with(SkipMap::new);
+        f(map)
+    }
+
     /// Iterate the index, calling `f` for each key-value pair. The
     /// iteration is lock-free on the inner `SkipMap`; the outer `RwLock`
     /// is held only to look up the index.
