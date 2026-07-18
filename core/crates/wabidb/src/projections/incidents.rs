@@ -2,6 +2,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::query::{apply_limit, IncidentsFilter, QueryableProjection};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -128,6 +129,52 @@ impl IncidentProjection {
         let value = encode_record(&record);
         state.insert("incidents", key, value, event.commit_seq);
         Ok(())
+    }
+}
+
+impl QueryableProjection for IncidentProjection {
+    type Record = IncidentRecord;
+    type Filter = IncidentsFilter;
+
+    fn query(&self, state: &ProjectionState, filter: &IncidentsFilter) -> Result<Vec<IncidentRecord>> {
+        let mut results = Vec::new();
+        match &filter.channel_id {
+            // channel_id is the leading key component; incident_id narrows further.
+            Some(channel_id) => {
+                let mut prefix = Vec::new();
+                prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
+                prefix.extend_from_slice(channel_id.as_bytes());
+                if let Some(incident_id) = &filter.incident_id {
+                    prefix.extend_from_slice(&(incident_id.len() as u64).to_le_bytes());
+                    prefix.extend_from_slice(incident_id.as_bytes());
+                }
+                state.prefix_scan("incidents", &prefix, |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+            None => {
+                state.for_each("incidents", |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if let Some(incident_id) = &filter.incident_id {
+                            if &record.incident_id != incident_id {
+                                return;
+                            }
+                        }
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+        }
+        apply_limit(&mut results, filter.limit);
+        Ok(results)
     }
 }
 
@@ -340,5 +387,59 @@ mod tests {
         };
         let result = IncidentProjection.apply(&event, &state);
         assert!(result.is_err());
+    }
+
+    // --- IncidentProjection query tests ------------------------------------
+
+    #[test]
+    fn query_by_channel_uses_prefix() {
+        let state = ProjectionState::new();
+        let proj = IncidentProjection;
+        for seq in 1..=3 {
+            let mut r = sample_incident();
+            r.title = format!("Incident {seq}");
+            proj.apply(&make_event(seq, "incident_created", &r), &state).unwrap();
+        }
+        let mut other = sample_incident();
+        other.channel_id = "ch_other".into();
+        proj.apply(&make_event(9, "incident_created", &other), &state).unwrap();
+
+        let results = proj.query(&state, &IncidentsFilter { channel_id: Some("ch_inc".into()), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|i| i.channel_id == "ch_inc"));
+    }
+
+    #[test]
+    fn query_by_incident_id_narrows() {
+        let state = ProjectionState::new();
+        let proj = IncidentProjection;
+        for seq in 1..=2 {
+            let mut r = sample_incident();
+            r.title = format!("Incident {seq}");
+            proj.apply(&make_event(seq, "incident_created", &r), &state).unwrap();
+        }
+        let inc_id = format!("inc_{:x}", 1);
+        let results = proj.query(&state, &IncidentsFilter { channel_id: Some("ch_inc".into()), incident_id: Some(inc_id.clone()), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].incident_id, inc_id);
+    }
+
+    #[test]
+    fn query_filters_deleted() {
+        let state = ProjectionState::new();
+        let proj = IncidentProjection;
+        for seq in 1..=2 {
+            let mut r = sample_incident();
+            r.title = format!("Incident {seq}");
+            proj.apply(&make_event(seq, "incident_created", &r), &state).unwrap();
+        }
+        let key = encode_key("ch_inc", &format!("inc_{:x}", 2));
+        let stored = state.get("incidents", &key).unwrap();
+        let mut deleted = decode_record(&stored).unwrap();
+        deleted.is_deleted = true;
+        proj.apply(&make_event(3, "incident_updated", &deleted), &state).unwrap();
+
+        assert_eq!(proj.query(&state, &IncidentsFilter { channel_id: Some("ch_inc".into()), ..Default::default() }).unwrap().len(), 1);
+        assert_eq!(proj.query(&state, &IncidentsFilter { channel_id: Some("ch_inc".into()), include_deleted: true, ..Default::default() }).unwrap().len(), 2);
     }
 }

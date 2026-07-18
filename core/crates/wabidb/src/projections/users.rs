@@ -2,6 +2,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::query::{apply_limit, UsersFilter, QueryableProjection};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -164,6 +165,45 @@ impl Projection for UsersProjection {
     }
 }
 
+impl QueryableProjection for UsersProjection {
+    type Record = UserRecord;
+    type Filter = UsersFilter;
+
+    fn query(&self, state: &ProjectionState, filter: &UsersFilter) -> Result<Vec<UserRecord>> {
+        let mut results = Vec::new();
+        match filter.user_id {
+            // user_id is the full key, so this is a direct lookup.
+            Some(user_id) => {
+                let key = encode_key(user_id);
+                if let Some(bytes) = state.get("users", &key) {
+                    if let Ok(record) = decode_record(&bytes) {
+                        if let Some(active) = filter.is_active {
+                            if record.is_active != active {
+                                return Ok(results);
+                            }
+                        }
+                        results.push(record);
+                    }
+                }
+            }
+            None => {
+                state.for_each("users", |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if let Some(active) = filter.is_active {
+                            if record.is_active != active {
+                                return;
+                            }
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+        }
+        apply_limit(&mut results, filter.limit);
+        Ok(results)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +344,46 @@ mod tests {
         let key = encode_key(42);
         assert_eq!(key.len(), 8);
         assert_eq!(key, 42u64.to_be_bytes().to_vec());
+    }
+
+    #[test]
+    fn query_by_user_id_lookup() {
+        let state = ProjectionState::new();
+        let proj = UsersProjection;
+        // The apply path overrides user_id with commit_seq, so insert via events.
+        for seq in 1..=3u64 {
+            let r = UserRecord {
+                user_id: seq, username: format!("u{seq}").into(), handle: None, color: "blue".into(),
+                password_hash: "h".into(), is_registered: true, is_active: seq != 2,
+                created_at_micros: 1, last_seen_micros: 1,
+                profile_picture: None, username_font: None, bio: None, status_message: None,
+            };
+            proj.apply(&DurableEvent { commit_seq: seq, stream_id: "users".into(), event_type: "user_registered".into(), payload: encode_record(&r) }, &state).unwrap();
+        }
+        // commit_seq 1 -> user_id 1, seq 2 -> user_id 2, seq 3 -> user_id 3
+        let one = proj.query(&state, &UsersFilter { user_id: Some(1), ..Default::default() }).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].username, "u1");
+
+        let active = proj.query(&state, &UsersFilter { is_active: Some(true), ..Default::default() }).unwrap();
+        assert_eq!(active.len(), 2);
+        assert!(active.iter().all(|u| u.is_active));
+    }
+
+    #[test]
+    fn query_limit_truncates() {
+        let state = ProjectionState::new();
+        let proj = UsersProjection;
+        for seq in 1..=5u64 {
+            let r = UserRecord {
+                user_id: seq, username: format!("u{seq}").into(), handle: None, color: "blue".into(),
+                password_hash: "h".into(), is_registered: true, is_active: true,
+                created_at_micros: 1, last_seen_micros: 1,
+                profile_picture: None, username_font: None, bio: None, status_message: None,
+            };
+            proj.apply(&DurableEvent { commit_seq: seq, stream_id: "users".into(), event_type: "user_registered".into(), payload: encode_record(&r) }, &state).unwrap();
+        }
+        let results = proj.query(&state, &UsersFilter { limit: Some(2), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 2);
     }
 }

@@ -154,17 +154,30 @@ impl AppState {
         std::fs::create_dir_all(&wdb_data_dir).ok();
 
         // If a peer endpoint is configured, enable replication.
-        let peer_endpoint = std::env::var("WABIDB_PEER_ENDPOINT").ok();
+        let peer_endpoint = std::env::var("WABIDB_PEER_ENDPOINT")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let sync_interval_micros = std::env::var("WABIDB_SYNC_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|ms| ms.saturating_mul(1_000))
+            .unwrap_or(30_000_000); // default 30s
         let wdb: Arc<WdbAdapter> = if let Some(endpoint) = peer_endpoint {
             let transport = Arc::new(ReqwestTransport::new(wdb_data_dir.clone()));
             let rep_config = wabidb::replication::config::ReplicationConfig::new(
                 &endpoint,
-                1_000_000, // 1 second sync interval
+                sync_interval_micros,
                 5_000_000, // 5 second max lag
             );
             let mut wdb_config = wabidb::engine::WabiDbConfig::from_env_var(wdb_data_dir);
             wdb_config.sync_transport = Some(transport);
             wdb_config.replication_config = Some(rep_config);
+            tracing::info!(
+                "WabiDB replication enabled → peer {} (interval {}µs)",
+                endpoint,
+                sync_interval_micros
+            );
             Arc::new(WdbAdapter::open_with_config(wdb_config).await?)
         } else {
             Arc::new(WdbAdapter::open(&wdb_data_dir).await?)

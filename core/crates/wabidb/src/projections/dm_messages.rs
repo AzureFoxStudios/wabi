@@ -2,6 +2,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::query::{apply_limit, DmMessagesFilter, QueryableProjection};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -80,6 +81,47 @@ impl Projection for DmMessagesProjection {
         let value = encode_record(&record);
         state.insert("dm_messages", key, value, event.commit_seq);
         Ok(())
+    }
+}
+
+impl QueryableProjection for DmMessagesProjection {
+    type Record = DmMessageRecord;
+    type Filter = DmMessagesFilter;
+
+    fn query(&self, state: &ProjectionState, filter: &DmMessagesFilter) -> Result<Vec<DmMessageRecord>> {
+        let mut results = Vec::new();
+        match &filter.dm_id {
+            // dm_id is the leading key component, so this is a prefix scan.
+            Some(dm_id) => {
+                let mut prefix = Vec::new();
+                prefix.extend_from_slice(&(dm_id.len() as u64).to_le_bytes());
+                prefix.extend_from_slice(dm_id.as_bytes());
+                state.prefix_scan("dm_messages", &prefix, |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if let Some(author) = filter.author_id {
+                            if record.author_user_id != author {
+                                return;
+                            }
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+            None => {
+                state.for_each("dm_messages", |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if let Some(author) = filter.author_id {
+                            if record.author_user_id != author {
+                                return;
+                            }
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+        }
+        apply_limit(&mut results, filter.limit);
+        Ok(results)
     }
 }
 
@@ -203,5 +245,50 @@ mod tests {
         }
         let msgs = DmMessagesProjection::list_messages(&state, "dm_01").unwrap();
         assert_eq!(msgs.len(), 3);
+    }
+
+    #[test]
+    fn query_by_dm_id_prefix() {
+        let state = ProjectionState::new();
+        let proj = DmMessagesProjection;
+        for i in 1..=3 {
+            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 100 + i, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![] };
+            proj.apply(&DurableEvent { commit_seq: i, stream_id: "dm_01".into(), event_type: "dm_message_created".into(), payload: encode_record(&r) }, &state).unwrap();
+        }
+        // A message in another DM must not appear.
+        let other = DmMessageRecord { dm_id: "dm_99".into(), message_id: "msg_99".into(), author_user_id: 200, author_device_id: "dev".into(), created_at_micros: 1, encrypted_body_ref: "h".into(), idempotency_key: None, edit_history: vec![] };
+        proj.apply(&DurableEvent { commit_seq: 9, stream_id: "dm_99".into(), event_type: "dm_message_created".into(), payload: encode_record(&other) }, &state).unwrap();
+
+        let results = proj.query(&state, &DmMessagesFilter { dm_id: Some("dm_01".into()), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|m| m.dm_id == "dm_01"));
+    }
+
+    #[test]
+    fn query_by_author_filters() {
+        let state = ProjectionState::new();
+        let proj = DmMessagesProjection;
+        for i in 1..=3 {
+            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 7, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![] };
+            proj.apply(&DurableEvent { commit_seq: i, stream_id: "dm_01".into(), event_type: "dm_message_created".into(), payload: encode_record(&r) }, &state).unwrap();
+        }
+        let results = proj.query(&state, &DmMessagesFilter { dm_id: Some("dm_01".into()), author_id: Some(7), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|m| m.author_user_id == 7));
+        // A different author in the same dm returns nothing.
+        let none = proj.query(&state, &DmMessagesFilter { dm_id: Some("dm_01".into()), author_id: Some(999), ..Default::default() }).unwrap();
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn query_limit_truncates() {
+        let state = ProjectionState::new();
+        let proj = DmMessagesProjection;
+        for i in 1..=4 {
+            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 7, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![] };
+            proj.apply(&DurableEvent { commit_seq: i, stream_id: "dm_01".into(), event_type: "dm_message_created".into(), payload: encode_record(&r) }, &state).unwrap();
+        }
+        let results = proj.query(&state, &DmMessagesFilter { dm_id: Some("dm_01".into()), author_id: None, limit: Some(2) }).unwrap();
+        assert_eq!(results.len(), 2);
     }
 }

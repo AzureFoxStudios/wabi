@@ -46,6 +46,7 @@ pub mod engine;
 pub mod error;
 pub mod format;
 pub mod fuzz;
+pub mod maintenance;
 pub mod projections;
 pub mod protocol;
 pub mod replication;

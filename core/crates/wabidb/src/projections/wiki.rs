@@ -2,6 +2,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::query::{apply_limit, WikiFilter, QueryableProjection};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -232,6 +233,52 @@ impl WikiRevisionProjection {
         let value = encode_revision_record(&record);
         state.insert("wiki_revisions", key, value, event.commit_seq);
         Ok(())
+    }
+}
+
+impl QueryableProjection for WikiProjection {
+    type Record = WikiPageRecord;
+    type Filter = WikiFilter;
+
+    fn query(&self, state: &ProjectionState, filter: &WikiFilter) -> Result<Vec<WikiPageRecord>> {
+        let mut results = Vec::new();
+        match &filter.channel_id {
+            // channel_id is the leading key component; page_id narrows further.
+            Some(channel_id) => {
+                let mut prefix = Vec::new();
+                prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
+                prefix.extend_from_slice(channel_id.as_bytes());
+                if let Some(page_id) = &filter.page_id {
+                    prefix.extend_from_slice(&(page_id.len() as u64).to_le_bytes());
+                    prefix.extend_from_slice(page_id.as_bytes());
+                }
+                state.prefix_scan("wiki_pages", &prefix, |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+            None => {
+                state.for_each("wiki_pages", |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if let Some(page_id) = &filter.page_id {
+                            if &record.page_id != page_id {
+                                return;
+                            }
+                        }
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+        }
+        apply_limit(&mut results, filter.limit);
+        Ok(results)
     }
 }
 
@@ -522,5 +569,55 @@ mod tests {
         let buf = encode_revision_record(&r);
         let decoded = decode_revision_record(&buf).unwrap();
         assert_eq!(r, decoded);
+    }
+
+    // --- WikiProjection query tests ----------------------------------------
+
+    #[test]
+    fn query_by_channel_uses_prefix() {
+        let state = ProjectionState::new();
+        let proj = WikiProjection;
+        for seq in 1..=3 {
+            let r = WikiPageRecord { page_id: String::new(), channel_id: "ch_wiki".into(), title: format!("P{seq}"), body: "b".into(), author_user_id: seq, created_at_micros: 1, updated_at_micros: 1, is_deleted: false, parent_page_id: String::new(), slug: format!("p-{seq}"), order_index: seq as i64 };
+            proj.apply(&make_event(seq, "wiki_page_created", &r), &state).unwrap();
+        }
+        let other = WikiPageRecord { page_id: String::new(), channel_id: "ch_other".into(), title: "X".into(), body: "b".into(), author_user_id: 1, created_at_micros: 1, updated_at_micros: 1, is_deleted: false, parent_page_id: String::new(), slug: "x".into(), order_index: 0 };
+        proj.apply(&make_event(4, "wiki_page_created", &other), &state).unwrap();
+
+        let results = proj.query(&state, &WikiFilter { channel_id: Some("ch_wiki".into()), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|p| p.channel_id == "ch_wiki"));
+    }
+
+    #[test]
+    fn query_by_page_id_narrows() {
+        let state = ProjectionState::new();
+        let proj = WikiProjection;
+        for seq in 1..=2 {
+            let r = WikiPageRecord { page_id: String::new(), channel_id: "ch_wiki".into(), title: format!("P{seq}"), body: "b".into(), author_user_id: seq, created_at_micros: 1, updated_at_micros: 1, is_deleted: false, parent_page_id: String::new(), slug: format!("p-{seq}"), order_index: seq as i64 };
+            proj.apply(&make_event(seq, "wiki_page_created", &r), &state).unwrap();
+        }
+        let page_id = format!("page_{:x}", 1);
+        let results = proj.query(&state, &WikiFilter { channel_id: Some("ch_wiki".into()), page_id: Some(page_id.clone()), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].page_id, page_id);
+    }
+
+    #[test]
+    fn query_filters_deleted() {
+        let state = ProjectionState::new();
+        let proj = WikiProjection;
+        for seq in 1..=2 {
+            let r = WikiPageRecord { page_id: String::new(), channel_id: "ch_wiki".into(), title: format!("P{seq}"), body: "b".into(), author_user_id: seq, created_at_micros: 1, updated_at_micros: 1, is_deleted: false, parent_page_id: String::new(), slug: format!("p-{seq}"), order_index: seq as i64 };
+            proj.apply(&make_event(seq, "wiki_page_created", &r), &state).unwrap();
+        }
+        let key = encode_key("ch_wiki", &format!("page_{:x}", 2));
+        let stored = state.get("wiki_pages", &key).unwrap();
+        let mut deleted = decode_record(&stored).unwrap();
+        deleted.is_deleted = true;
+        proj.apply(&make_event(3, "wiki_page_deleted", &deleted), &state).unwrap();
+
+        assert_eq!(proj.query(&state, &WikiFilter { channel_id: Some("ch_wiki".into()), ..Default::default() }).unwrap().len(), 1);
+        assert_eq!(proj.query(&state, &WikiFilter { channel_id: Some("ch_wiki".into()), include_deleted: true, ..Default::default() }).unwrap().len(), 2);
     }
 }
