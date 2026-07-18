@@ -10,6 +10,7 @@
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
 	import LoginQRModal from '$lib/components/login/LoginQRModal.svelte';
 	import LoginConnectionPrompt from '$lib/components/login/LoginConnectionPrompt.svelte';
+	import { buildLaunchPageStyles } from '$lib/components/loginHelpers';
 	import './login.css';
 
 	const dispatch = createEventDispatcher<{
@@ -38,11 +39,17 @@
 
 	$: selectedLocale = $currentLocale || 'en';
 	$: activeLaunchPageConfig = launchPageConfig?.enabled ? launchPageConfig : null;
-	$: launchContainerStyle = activeLaunchPageConfig
-		? `--launch-bg-top: ${activeLaunchPageConfig.palette.backgroundTop}; --launch-bg-bottom: ${activeLaunchPageConfig.palette.backgroundBottom}; --launch-accent: ${activeLaunchPageConfig.palette.accent}; --launch-text: ${activeLaunchPageConfig.palette.text};${activeLaunchPageConfig.backgroundImageUrl ? ` background-image: url(${activeLaunchPageConfig.backgroundImageUrl}); background-size: cover; background-position: center;` : ''}`
-		: '';
-	$: launchCardStyle = activeLaunchPageConfig ? `--launch-card-bg: ${activeLaunchPageConfig.palette.cardBackground};` : '';
-	$: launchCustomCss = activeLaunchPageConfig?.customCss || '';
+	$: launchStyles = activeLaunchPageConfig
+		? buildLaunchPageStyles({
+				enabled: true,
+				palette: activeLaunchPageConfig.palette,
+				backgroundImageUrl: activeLaunchPageConfig.backgroundImageUrl,
+				customCss: activeLaunchPageConfig.customCss
+			})
+		: { launchContainerStyle: '', launchCardStyle: '', launchCustomCss: '' };
+	$: launchContainerStyle = launchStyles.launchContainerStyle;
+	$: launchCardStyle = launchStyles.launchCardStyle;
+	$: launchCustomCss = launchStyles.launchCustomCss;
 
 	const t = (key: string): string => get(_)(key) as string;
 	$: serverUrl = typeof window !== 'undefined' ? getServerUrl() : '';

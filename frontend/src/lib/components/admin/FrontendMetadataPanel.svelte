@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FrontendAppMetadataPolicy } from '$lib/api';
+	import { sanitizeAccentColor } from '$lib/cssSanitize';
 
 	export let frontendAppMetadata: FrontendAppMetadataPolicy;
 	export let publishedFrontendAppMetadata: FrontendAppMetadataPolicy;
@@ -18,6 +19,17 @@
 	let bannerInput: HTMLInputElement | null = null;
 	let iconDragOver = false;
 	let bannerDragOver = false;
+
+	function setAccentColor(raw: string) {
+		const sanitized = sanitizeAccentColor(raw);
+		// Keep empty string as null; reject invalid by not updating to attack payload
+		onMetadataChange({
+			...frontendAppMetadata,
+			accentColor: raw.trim() === '' ? null : sanitized
+		});
+	}
+
+	$: safePreviewAccent = sanitizeAccentColor(frontendAppMetadata.accentColor) || '#2dd4bf';
 
 	function pickIcon() {
 		iconInput?.click();
@@ -78,7 +90,7 @@
 			</label>
 			<label>
 				Accent Color
-				<input type="text" value={frontendAppMetadata.accentColor || ''} placeholder="#2dd4bf" on:input={(e) => onMetadataChange({ ...frontendAppMetadata, accentColor: (e.currentTarget as HTMLInputElement).value || null })} />
+				<input type="text" value={frontendAppMetadata.accentColor || ''} placeholder="#2dd4bf" on:input={(e) => setAccentColor((e.currentTarget as HTMLInputElement).value)} />
 			</label>
 			<label class="frontend-metadata-wide">
 				Description
@@ -204,7 +216,7 @@
 				</span>
 			</div>
 
-			<div class="frontend-metadata-preview" style:--metadata-accent={frontendAppMetadata.accentColor || '#2dd4bf'}>
+			<div class="frontend-metadata-preview" style:--metadata-accent={safePreviewAccent}>
 				{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.bannerUrl)}
 					<img
 						src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.bannerUrl) || undefined}
