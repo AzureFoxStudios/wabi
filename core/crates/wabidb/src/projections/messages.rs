@@ -2,6 +2,8 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::secondary_index::SecondaryIndex;
+use crossbeam_skiplist::SkipMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -141,12 +143,16 @@ impl Projection for MessagesProjection {
     }
 
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
-        match event.event_type.as_str() {
+        let result = match event.event_type.as_str() {
             "message_created" => self.apply_created(event, state),
             "message_edited" => self.apply_edited(event, state),
             "message_deleted" => self.apply_deleted(event, state),
             _ => Ok(()),
+        };
+        if result.is_ok() {
+            apply_secondary_indexes(event, state);
         }
+        result
     }
 }
 
@@ -211,6 +217,117 @@ impl MessagesProjection {
         let value = encode_record(&update);
         state.insert("messages", key, value, event.commit_seq);
         Ok(())
+    }
+}
+
+/// Secondary index: one entry per (channel_id, message_id) so a channel's
+/// messages can be enumerated without scanning the primary index. The key
+/// mirrors the primary `messages` key encoding; the value is the encoded
+/// `MessageRecord` (with message_id rewritten on create, matching primary).
+pub struct MessagesByChannelIndex;
+
+impl SecondaryIndex for MessagesByChannelIndex {
+    fn name(&self) -> &str {
+        "messages_by_channel"
+    }
+
+    fn extract_keys(&self, event: &DurableEvent) -> Vec<Vec<u8>> {
+        if !matches!(
+            event.event_type.as_str(),
+            "message_created" | "message_edited" | "message_deleted"
+        ) {
+            return vec![];
+        }
+        let record: MessageRecord = match decode_record(&event.payload) {
+            Ok(r) => r,
+            Err(_) => return vec![],
+        };
+        let message_id = if event.event_type == "message_created" {
+            format!("msg_{:x}", event.commit_seq)
+        } else {
+            record.message_id.clone()
+        };
+        vec![encode_key(&record.channel_id, &message_id)]
+    }
+
+    fn apply(&self, index: &SkipMap<Vec<u8>, Vec<u8>>, event: &DurableEvent) {
+        for key in self.extract_keys(event) {
+            index.insert(key, reencoded_payload(event));
+        }
+    }
+}
+
+/// Secondary index: one entry per (author_user_id, message_id) so a user's
+/// messages can be enumerated across channels. The value is the encoded
+/// `MessageRecord`.
+pub struct MessagesByAuthorIndex;
+
+impl SecondaryIndex for MessagesByAuthorIndex {
+    fn name(&self) -> &str {
+        "messages_by_author"
+    }
+
+    fn extract_keys(&self, event: &DurableEvent) -> Vec<Vec<u8>> {
+        if !matches!(
+            event.event_type.as_str(),
+            "message_created" | "message_edited" | "message_deleted"
+        ) {
+            return vec![];
+        }
+        let record: MessageRecord = match decode_record(&event.payload) {
+            Ok(r) => r,
+            Err(_) => return vec![],
+        };
+        let message_id = if event.event_type == "message_created" {
+            format!("msg_{:x}", event.commit_seq)
+        } else {
+            record.message_id.clone()
+        };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&(record.author_user_id as u64).to_le_bytes());
+        buf.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
+        buf.extend_from_slice(message_id.as_bytes());
+        vec![buf]
+    }
+
+    fn apply(&self, index: &SkipMap<Vec<u8>, Vec<u8>>, event: &DurableEvent) {
+        for key in self.extract_keys(event) {
+            index.insert(key, reencoded_payload(event));
+        }
+    }
+}
+
+/// Re-encode a message event's payload so the secondary index stores the
+/// exact same `MessageRecord` the primary `messages` index stores. For
+/// `message_created`, the primary path overrides `message_id` to
+/// `format!("msg_{:x}", commit_seq)`; mirror that here so secondary and
+/// primary values are byte-consistent.
+fn reencoded_payload(event: &DurableEvent) -> Vec<u8> {
+    let mut record: MessageRecord = match decode_record(&event.payload) {
+        Ok(r) => r,
+        Err(_) => return event.payload.clone(),
+    };
+    if event.event_type == "message_created" {
+        record.message_id = format!("msg_{:x}", event.commit_seq);
+    }
+    encode_record(&record)
+}
+
+/// The registered secondary indexes for `MessagesProjection`. Kept as a
+/// single source of truth so both the live dispatcher and replay can iterate
+/// them. Order is stable; it is only used for iteration.
+pub const MESSAGES_SECONDARY_INDEXES: &[&dyn SecondaryIndex] = &[
+    &MessagesByChannelIndex,
+    &MessagesByAuthorIndex,
+];
+
+/// Apply all registered secondary indexes for the messages projection to the
+/// given event. Called from the same path as the primary `apply` so replays
+/// rebuild them automatically.
+pub fn apply_secondary_indexes(event: &DurableEvent, state: &ProjectionState) {
+    for index in MESSAGES_SECONDARY_INDEXES {
+        let name = index.name().to_string();
+        state.with_index(&name, |map| index.apply(map, event));
     }
 }
 
@@ -556,5 +673,221 @@ mod tests {
         assert_eq!(MessagesProjection::list_messages(&state, "ch_01", true).unwrap().len(), 2);
         // The deleted message is gone even with include_deleted=true.
         assert!(MessagesProjection::get_message(&state, "ch_01", &format!("msg_{:x}", 2)).unwrap().is_none());
+    }
+
+    // --- Secondary index tests --------------------------------------------
+
+    fn decode_msg_id(record: &MessageRecord, created: bool, commit_seq: u64) -> String {
+        if created {
+            format!("msg_{:x}", commit_seq)
+        } else {
+            record.message_id.clone()
+        }
+    }
+
+    #[test]
+    fn secondary_index_by_channel_populated_on_create() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        let r = MessageRecord {
+            message_id: String::new(),
+            channel_id: "ch_01".into(),
+            author_user_id: 42,
+            ..sample_msg()
+        };
+        let event = make_event(1, "message_created", &r);
+        proj.apply(&event, &state).unwrap();
+
+        let expected_id = format!("msg_{:x}", event.commit_seq);
+        let key = encode_key("ch_01", &expected_id);
+        let value = state.get("messages_by_channel", &key);
+        assert!(value.is_some(), "messages_by_channel should contain the key");
+        // The value should decode back to the same message record.
+        let decoded = decode_record(&value.unwrap()).unwrap();
+        assert_eq!(decoded.message_id, expected_id);
+        assert_eq!(decoded.channel_id, "ch_01");
+    }
+
+    #[test]
+    fn secondary_index_by_channel_groups_multiple_messages() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        for seq in 1..=3 {
+            let r = MessageRecord {
+                message_id: String::new(),
+                channel_id: "ch_01".into(),
+                author_user_id: seq,
+                ..sample_msg()
+            };
+            proj.apply(&make_event(seq, "message_created", &r), &state).unwrap();
+        }
+        // A second channel with one message.
+        let r2 = MessageRecord {
+            message_id: String::new(),
+            channel_id: "ch_02".into(),
+            author_user_id: 99,
+            ..sample_msg()
+        };
+        proj.apply(&make_event(4, "message_created", &r2), &state).unwrap();
+
+        let mut prefix = Vec::new();
+        prefix.extend_from_slice(&("ch_01".len() as u64).to_le_bytes());
+        prefix.extend_from_slice(b"ch_01");
+        let mut count = 0;
+        state.prefix_scan("messages_by_channel", &prefix, |_k, _v| count += 1);
+        assert_eq!(count, 3, "ch_01 should have 3 entries in messages_by_channel");
+
+        let mut prefix2 = Vec::new();
+        prefix2.extend_from_slice(&("ch_02".len() as u64).to_le_bytes());
+        prefix2.extend_from_slice(b"ch_02");
+        let mut count2 = 0;
+        state.prefix_scan("messages_by_channel", &prefix2, |_k, _v| count2 += 1);
+        assert_eq!(count2, 1, "ch_02 should have 1 entry in messages_by_channel");
+    }
+
+    #[test]
+    fn secondary_index_by_author_populated_on_create() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        let r = MessageRecord {
+            message_id: String::new(),
+            channel_id: "ch_01".into(),
+            author_user_id: 42,
+            ..sample_msg()
+        };
+        let event = make_event(1, "message_created", &r);
+        proj.apply(&event, &state).unwrap();
+
+        let expected_id = format!("msg_{:x}", event.commit_seq);
+        let mut key = Vec::new();
+        key.extend_from_slice(&(42u64).to_le_bytes());
+        key.extend_from_slice(&(expected_id.len() as u64).to_le_bytes());
+        key.extend_from_slice(expected_id.as_bytes());
+        let value = state.get("messages_by_author", &key);
+        assert!(value.is_some(), "messages_by_author should contain the key");
+        let decoded = decode_record(&value.unwrap()).unwrap();
+        assert_eq!(decoded.author_user_id, 42);
+    }
+
+    #[test]
+    fn secondary_indexes_updated_on_edit_and_delete() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        let r = MessageRecord {
+            message_id: String::new(),
+            channel_id: "ch_01".into(),
+            author_user_id: 7,
+            ..sample_msg()
+        };
+        let create_event = make_event(1, "message_created", &r);
+        proj.apply(&create_event, &state).unwrap();
+        let msg_id = format!("msg_{:x}", create_event.commit_seq);
+
+        // Edit: re-inserts under the same secondary keys.
+        let stored_key = encode_key("ch_01", &msg_id);
+        let stored = state.get("messages", &stored_key).unwrap();
+        let mut edited = decode_record(&stored).unwrap();
+        edited.encrypted_body_ref = "edited".into();
+        proj.apply(
+            &DurableEvent {
+                commit_seq: 2,
+                stream_id: "ch_01".into(),
+                event_type: "message_edited".into(),
+                payload: encode_record(&edited),
+            },
+            &state,
+        )
+        .unwrap();
+
+        // By-channel key still present with edited body.
+        let ch_key = encode_key("ch_01", &msg_id);
+        let value = state.get("messages_by_channel", &ch_key).unwrap();
+        let decoded = decode_record(&value).unwrap();
+        assert_eq!(decoded.encrypted_body_ref, "edited");
+
+        // Delete: secondary indexes continue to hold the deleted record
+        // (deletion is a soft flag in this schema; compaction removes it).
+        let mut deleted = decoded;
+        deleted.is_deleted = true;
+        proj.apply(
+            &DurableEvent {
+                commit_seq: 3,
+                stream_id: "ch_01".into(),
+                event_type: "message_deleted".into(),
+                payload: encode_record(&deleted),
+            },
+            &state,
+        )
+        .unwrap();
+        assert!(state.get("messages_by_channel", &ch_key).is_some());
+        assert!(state.get("messages_by_author", &author_key(7, &msg_id)).is_some());
+    }
+
+    fn author_key(author: u64, message_id: &str) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(&(author as u64).to_le_bytes());
+        key.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
+        key.extend_from_slice(message_id.as_bytes());
+        key
+    }
+
+    #[test]
+    fn secondary_indexes_built_during_replay() {
+        // Simulate a full replay: a fresh state applies the same events that
+        // were previously dispatched. The secondary indexes must match.
+        let live = ProjectionState::new();
+        let proj = MessagesProjection;
+        let mut recorded = Vec::new();
+        for seq in 1..=3 {
+            let r = MessageRecord {
+                message_id: String::new(),
+                channel_id: if seq % 2 == 0 { "ch_02".to_string() } else { "ch_01".to_string() },
+                author_user_id: seq * 10,
+                ..sample_msg()
+            };
+            let event = make_event(seq, "message_created", &r);
+            proj.apply(&event, &live).unwrap();
+            recorded.push(event);
+        }
+
+        // Replay into a fresh state through the same apply path.
+        let replayed = ProjectionState::new();
+        for event in &recorded {
+            proj.apply(event, &replayed).unwrap();
+        }
+
+        // The secondary indexes should be byte-identical.
+        let live_ch: Vec<(Vec<u8>, Vec<u8>)> = collect_index(&live, "messages_by_channel");
+        let replayed_ch: Vec<(Vec<u8>, Vec<u8>)> = collect_index(&replayed, "messages_by_channel");
+        assert_eq!(live_ch, replayed_ch);
+
+        let live_au: Vec<(Vec<u8>, Vec<u8>)> = collect_index(&live, "messages_by_author");
+        let replayed_au: Vec<(Vec<u8>, Vec<u8>)> = collect_index(&replayed, "messages_by_author");
+        assert_eq!(live_au, replayed_au);
+
+        assert_eq!(replayed_ch.len(), 3);
+        assert_eq!(replayed_au.len(), 3);
+    }
+
+    fn collect_index(state: &ProjectionState, index: &str) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let mut entries = Vec::new();
+        state.for_each(index, |k, v| entries.push((k.to_vec(), v.to_vec())));
+        entries.sort();
+        entries
+    }
+
+    #[test]
+    fn secondary_index_trait_const_registered() {
+        assert_eq!(MESSAGES_SECONDARY_INDEXES.len(), 2);
+        assert_eq!(MESSAGES_SECONDARY_INDEXES[0].name(), "messages_by_channel");
+        assert_eq!(MESSAGES_SECONDARY_INDEXES[1].name(), "messages_by_author");
+        // Only message_* events should yield keys.
+        let non_msg = DurableEvent {
+            commit_seq: 1,
+            stream_id: "x".into(),
+            event_type: "channel_created".into(),
+            payload: vec![],
+        };
+        assert!(MESSAGES_SECONDARY_INDEXES[0].extract_keys(&non_msg).is_empty());
     }
 }

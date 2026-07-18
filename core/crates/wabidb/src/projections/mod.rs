@@ -26,6 +26,7 @@ pub mod owner;
 pub mod reactions;
 pub mod rebuild_auth;
 pub mod registry;
+pub mod secondary_index;
 pub mod users;
 pub mod webhooks;
 pub mod wiki;
