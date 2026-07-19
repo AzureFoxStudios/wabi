@@ -1,5 +1,6 @@
 import type { ObjectRefRecord, ObjectRefKind } from './objectRefRegistry';
 import { slugify } from './objectRefRegistry';
+import { getServerUrl } from './serverUrl';
 
 const KIND_NS: Record<ObjectRefKind, string> = {
 	forum_post: 'f',
@@ -37,7 +38,7 @@ export function buildSharePayload(record: ObjectRefRecord): { text: string; enti
 	};
 }
 
-export function buildShareLink(record: ObjectRefRecord, baseUrl = 'https://wabi.chat'): string {
+export function buildShareLink(record: ObjectRefRecord, baseUrl = getServerUrl() || 'https://wabi.chat'): string {
 	const ref = `${record.kind}:${record.id}`;
 	return `${baseUrl}/c/${record.channelId || ''}?ref=${encodeURIComponent(ref)}`;
 }
