@@ -184,6 +184,9 @@ pub async fn create_intent(
         confirmed_by: None,
         confirm_note: None,
     };
+    // Lock to prevent a concurrent load+rewrite (confirm/reject) from
+    // dropping this new intent.
+    let _lock = state.intents_mutex.lock().await;
     append_intent(&state.config.data_dir, &intent);
     Json(json!({ "success": true, "intent": intent })).into_response()
 }
@@ -218,25 +221,30 @@ pub async fn confirm_intent(
     if !is_admin_user(admin_id, &state).await {
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
-    let mut intents = load_intents(&state.config.data_dir);
-    let Some(pos) = intents.iter().position(|i| i.id == id) else {
-        return json_error(StatusCode::NOT_FOUND, "Intent not found");
-    };
-    if intents[pos].status != "pending" {
-        return json_error(StatusCode::CONFLICT, "Intent is not pending");
-    }
-    let now = chrono::Utc::now().timestamp_millis();
-    intents[pos].status = "completed".into();
-    intents[pos].updated_at = now;
-    intents[pos].confirmed_by = Some(admin_id);
-    intents[pos].confirm_note = input.reference_note;
-    if let Some(amt) = input.actual_amount_minor {
-        if amt > 0 {
-            intents[pos].amount_minor = amt;
+    let (pos, intent) = {
+        let _lock = state.intents_mutex.lock().await;
+        let mut intents = load_intents(&state.config.data_dir);
+        let Some(pos) = intents.iter().position(|i| i.id == id) else {
+            return json_error(StatusCode::NOT_FOUND, "Intent not found");
+        };
+        if intents[pos].status != "pending" {
+            return json_error(StatusCode::CONFLICT, "Intent is not pending");
         }
-    }
-    rewrite_intents(&state.config.data_dir, &intents);
-    Json(json!({ "success": true, "intent": intents[pos].clone() })).into_response()
+        let now = chrono::Utc::now().timestamp_millis();
+        intents[pos].status = "completed".into();
+        intents[pos].updated_at = now;
+        intents[pos].confirmed_by = Some(admin_id);
+        intents[pos].confirm_note = input.reference_note;
+        if let Some(amt) = input.actual_amount_minor {
+            if amt > 0 {
+                intents[pos].amount_minor = amt;
+            }
+        }
+        let intent = intents[pos].clone();
+        rewrite_intents(&state.config.data_dir, &intents);
+        (pos, intent)
+    };
+    Json(json!({ "success": true, "intent": intent })).into_response()
 }
 
 pub async fn reject_intent(
@@ -252,18 +260,23 @@ pub async fn reject_intent(
     if !is_admin_user(admin_id, &state).await {
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
-    let mut intents = load_intents(&state.config.data_dir);
-    let Some(pos) = intents.iter().position(|i| i.id == id) else {
-        return json_error(StatusCode::NOT_FOUND, "Intent not found");
+    let intent = {
+        let _lock = state.intents_mutex.lock().await;
+        let mut intents = load_intents(&state.config.data_dir);
+        let Some(pos) = intents.iter().position(|i| i.id == id) else {
+            return json_error(StatusCode::NOT_FOUND, "Intent not found");
+        };
+        if intents[pos].status != "pending" {
+            return json_error(StatusCode::CONFLICT, "Intent is not pending");
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        intents[pos].status = "rejected".into();
+        intents[pos].updated_at = now;
+        intents[pos].confirmed_by = Some(admin_id);
+        intents[pos].confirm_note = input.reference_note;
+        let intent = intents[pos].clone();
+        rewrite_intents(&state.config.data_dir, &intents);
+        intent
     };
-    if intents[pos].status != "pending" {
-        return json_error(StatusCode::CONFLICT, "Intent is not pending");
-    }
-    let now = chrono::Utc::now().timestamp_millis();
-    intents[pos].status = "rejected".into();
-    intents[pos].updated_at = now;
-    intents[pos].confirmed_by = Some(admin_id);
-    intents[pos].confirm_note = input.reference_note;
-    rewrite_intents(&state.config.data_dir, &intents);
-    Json(json!({ "success": true, "intent": intents[pos].clone() })).into_response()
+    Json(json!({ "success": true, "intent": intent })).into_response()
 }

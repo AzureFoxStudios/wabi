@@ -272,11 +272,21 @@ fn build_cors_layer() -> CorsLayer {
 /// localhost, 127.0.0.1, and Tailscale 100.x.x.x (CGNAT range).
 fn is_safe_local_origin(origin: &str) -> bool {
     // Parse "scheme://host[:port]" — only inspect the host.
-    let host = match origin.split_once("://") {
+    let host_port = match origin.split_once("://") {
         Some((_, rest)) => rest.split('/').next().unwrap_or(rest),
         None => origin.split('/').next().unwrap_or(origin),
     };
-    let host = host.split(':').next().unwrap_or(host);
+    // Extract the host portion. IPv6 addresses are bracketed: [::1]:8080.
+    let host = if host_port.starts_with('[') {
+        // Take everything between '[' and the first ']'.
+        host_port
+            .split(']')
+            .next()
+            .and_then(|s| s.strip_prefix('['))
+            .unwrap_or(host_port)
+    } else {
+        host_port.split(':').next().unwrap_or(host_port)
+    };
 
     if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
         return true;
@@ -289,6 +299,72 @@ fn is_safe_local_origin(origin: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod cors_tests {
+    use super::is_safe_local_origin;
+
+    #[test]
+    fn accept_localhost() {
+        assert!(is_safe_local_origin("http://localhost"));
+        assert!(is_safe_local_origin("https://localhost"));
+    }
+
+    #[test]
+    fn accept_localhost_with_port() {
+        assert!(is_safe_local_origin("http://localhost:3000"));
+        assert!(is_safe_local_origin("https://localhost:5173"));
+    }
+
+    #[test]
+    fn accept_ipv4_loopback() {
+        assert!(is_safe_local_origin("http://127.0.0.1"));
+        assert!(is_safe_local_origin("http://127.0.0.1:3000"));
+        assert!(is_safe_local_origin("https://127.0.0.1:5173"));
+    }
+
+    #[test]
+    fn accept_ipv6_loopback() {
+        assert!(is_safe_local_origin("http://[::1]"));
+        assert!(is_safe_local_origin("http://[::1]:8080"));
+        assert!(is_safe_local_origin("https://[::1]:443"));
+    }
+
+    #[test]
+    fn accept_tailscale_cgnat() {
+        assert!(is_safe_local_origin("http://100.64.0.1"));
+        assert!(is_safe_local_origin("http://100.100.100.100:8080"));
+        assert!(is_safe_local_origin("https://100.127.255.255:443"));
+    }
+
+    #[test]
+    fn reject_localhost_subdomain_attack() {
+        // origin.starts_with("https://localhost") would incorrectly accept this
+        assert!(!is_safe_local_origin("https://localhost.evil.com"));
+        assert!(!is_safe_local_origin("http://localhost.evil.com:3000"));
+    }
+
+    #[test]
+    fn reject_external_origins() {
+        assert!(!is_safe_local_origin("https://example.com"));
+        assert!(!is_safe_local_origin("https://evil.com:3000"));
+        assert!(!is_safe_local_origin("http://192.168.1.1"));
+    }
+
+    #[test]
+    fn reject_1x_public_tailscale() {
+        // 100.128.x.x is outside the 100.64.0.0/10 CGNAT range
+        assert!(!is_safe_local_origin("http://100.128.0.1"));
+        assert!(!is_safe_local_origin("http://100.63.255.255"));
+    }
+
+    #[test]
+    fn accept_plain_no_scheme() {
+        // Some clients send Origin without scheme
+        assert!(is_safe_local_origin("localhost"));
+        assert!(is_safe_local_origin("127.0.0.1"));
+    }
 }
 
 /// Resolve the JWT signing secret.

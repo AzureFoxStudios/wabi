@@ -208,21 +208,29 @@ impl MaintenanceRule for ThreadAutoArchiver {
         let mut notes = Vec::new();
         let now = now_micros();
         let threshold = self.idle_after.as_micros() as i64;
-        let mut idle: Vec<Vec<u8>> = Vec::new();
+        // Collect candidate (key, last_activity) pairs inside the iter lock.
+        let mut candidates: Vec<(Vec<u8>, i64)> = Vec::new();
         state.for_each("forum_last_activity", |key, value| {
             if value.len() < 8 {
-                return;
-            }
-            if state.get("forum_archived_at", key).is_some() {
                 return;
             }
             let mut buf = [0u8; 8];
             buf.copy_from_slice(&value[..8]);
             let last = i64::from_le_bytes(buf);
-            if now.saturating_sub(last) >= threshold {
-                idle.push(key.to_vec());
-            }
+            candidates.push((key.to_vec(), last));
         });
+        // Check archived status *outside* the iter lock (RwLock read is not
+        // re-entrant vs a queued writer — same deadlock family as before).
+        let idle: Vec<Vec<u8>> = candidates
+            .into_iter()
+            .filter(|(key, last)| {
+                if state.get("forum_archived_at", key).is_some() {
+                    return false;
+                }
+                now.saturating_sub(*last) >= threshold
+            })
+            .map(|(key, _)| key)
+            .collect();
         let archived_val = now.to_le_bytes().to_vec();
         for key in &idle {
             state.insert(

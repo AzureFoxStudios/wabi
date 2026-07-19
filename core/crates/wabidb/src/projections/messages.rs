@@ -283,6 +283,12 @@ impl QueryableProjection for MessagesProjection {
 /// Apply the `since_seq` / `limit` portions of a `MessagesFilter` to a result
 /// set collected from a secondary or primary index. `since_seq` is derived
 /// from the message id (`msg_{:x}` of its commit_seq).
+///
+/// **Ordering**: secondary index `prefix_scan` returns results in
+/// lexicographic key order (`msg_{:x}` hex). After decode + filter that is
+/// NOT strictly commit_seq order when message ids have mixed widths
+/// (msg_9 vs msg_10). We sort by parsed numeric commit_seq so the caller
+/// gets seq-monotonic output regardless of key encoding.
 fn filter_since_and_limit(
     mut results: Vec<MessageRecord>,
     filter: &MessagesFilter,
@@ -295,6 +301,15 @@ fn filter_since_and_limit(
                 .map_or(false, |seq| seq >= since)
         });
     }
+    // Sort by parsed numeric commit_seq (msg_{:x}) so mixed-width hex ids
+    // (e.g. msg_9, msg_f, msg_10) come in seq-monotonic order.
+    // Unknown formats sort last (stable) rather than before seq 1.
+    results.sort_by_key(|r| {
+        r.message_id
+            .strip_prefix("msg_")
+            .and_then(|h| u64::from_str_radix(h, 16).ok())
+            .unwrap_or(u64::MAX)
+    });
     apply_limit(&mut results, filter.limit);
     Ok(results)
 }
@@ -1096,6 +1111,50 @@ mod tests {
         assert!(results.iter().all(|m| m.message_id != format!("msg_{:x}", 1)));
     }
 
+
+    #[test]
+    fn query_returns_messages_in_seq_monotonic_order_with_mixed_width_ids() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        // seq 7  → msg_7   (1 hex digit)
+        // seq 15 → msg_f   (1 hex digit)
+        // seq 16 → msg_10  (2 hex digits)
+        // Lexicographic key order: msg_10, msg_7, msg_f
+        // Seq-monotonic order:      msg_7, msg_f, msg_10
+        for seq in &[7u64, 15, 16] {
+            let r = MessageRecord {
+                message_id: String::new(),
+                channel_id: "ch_01".into(),
+                author_user_id: *seq,
+                ..sample_msg()
+            };
+            proj.apply(&make_event(*seq, "message_created", &r), &state).unwrap();
+        }
+        let filter = MessagesFilter {
+            channel_id: Some("ch_01".into()),
+            ..Default::default()
+        };
+        let results = proj.query(&state, &filter).unwrap();
+        assert_eq!(results.len(), 3);
+        // Must be in commit_seq order: 7, 15, 16
+        assert_eq!(results[0].message_id, "msg_7");
+        assert_eq!(results[1].message_id, "msg_f");
+        assert_eq!(results[2].message_id, "msg_10");
+        // Also verify limit works after sort
+        let limited = proj
+            .query(
+                &state,
+                &MessagesFilter {
+                    channel_id: Some("ch_01".into()),
+                    limit: Some(2),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(limited.len(), 2);
+        assert_eq!(limited[0].message_id, "msg_7");
+        assert_eq!(limited[1].message_id, "msg_f");
+    }
 
     /// A7 quality gate: channel-scoped query at 10k messages stays well under
     /// the GOAL p99 target of 5ms on typical dev hardware (best-effort; we
