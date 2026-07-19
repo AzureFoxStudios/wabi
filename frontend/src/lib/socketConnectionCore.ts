@@ -261,7 +261,11 @@ export class SocketManager {
 		console.log('[SocketManager] Connecting to:', serverUrl, token ? '(token)' : sessionId ? '(session)' : '(new)');
 
 		this.socketInstance = io(serverUrl, {
-			transports: ['websocket'],
+			// Prefer WebSocket, but fall back to long-polling. Cloudflare/cloudflared
+			// can strip the WS Upgrade header on some tunnel configs, and without a
+			// polling fallback the client would never connect. socket.io negotiates
+			// polling first, then upgrades to WS when the transport is available.
+			transports: ['websocket', 'polling'],
 			reconnection: false,
 			timeout: this.connectTimeoutMs,
 			withCredentials: true,
