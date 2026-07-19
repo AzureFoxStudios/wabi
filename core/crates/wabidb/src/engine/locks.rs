@@ -178,15 +178,24 @@ impl ProjectionState {
         map.get(key).map(|entry| entry.value().clone())
     }
 
-    /// Run `f` with the `SkipMap` for a named index, creating an empty one if
-    /// it does not yet exist. Used by secondary indexes that need a direct
-    /// handle to their `SkipMap` rather than the insert/get convenience
-    /// methods. The create path takes the write lock; `f` is therefore
-    /// invoked while the lock is held momentarily.
+    /// Run `f` with the `SkipMap` for a named index. The create path takes a
+    /// write lock, but if the index already exists we serve `f` under a *read*
+    /// lock: `SkipMap` inserts are lock-free on `&self`, so the hot apply path
+    /// (every message insert hits the secondary index) never contends on a
+    /// write lock. This is the perf fix for "secondary index taking a write
+    /// lock on read-heavy apply".
     pub fn with_index<F, R>(&self, index: &str, f: F) -> R
     where
         F: FnOnce(&SkipMap<Vec<u8>, Vec<u8>>) -> R,
     {
+        // Fast path: index already exists → run under a shared read lock.
+        {
+            let indexes = self.indexes.read().unwrap();
+            if let Some(map) = indexes.get(index) {
+                return f(map);
+            }
+        }
+        // Slow path (rare): index does not exist yet → create under write lock.
         let mut indexes = self.indexes.write().unwrap();
         let map = indexes.entry(index.to_string()).or_insert_with(SkipMap::new);
         f(map)

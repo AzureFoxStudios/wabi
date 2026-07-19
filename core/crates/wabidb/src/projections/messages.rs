@@ -184,14 +184,27 @@ impl MessagesProjection {
         Ok(results)
     }
 
-    /// Remove all soft-deleted records from the `messages` index and return
-    /// the number of entries removed.
+    /// Remove all soft-deleted records from the `messages` primary index and
+    /// from the `messages_by_channel` / `messages_by_author` secondary
+    /// indexes (otherwise deleted rows linger in the secondary indexes until a
+    /// full rebuild). Returns the total number of entries removed.
     pub fn compact(state: &ProjectionState) -> usize {
-        state.compact_index("messages", |_key, value| {
+        let primary = state.compact_index("messages", |_key, value| {
             decode_record_lenient(value)
                 .ok()
                 .map_or(false, |r| r.is_deleted)
-        })
+        });
+        let by_channel = state.compact_index("messages_by_channel", |_key, value| {
+            decode_record_lenient(value)
+                .ok()
+                .map_or(false, |r| r.is_deleted)
+        });
+        let by_author = state.compact_index("messages_by_author", |_key, value| {
+            decode_record_lenient(value)
+                .ok()
+                .map_or(false, |r| r.is_deleted)
+        });
+        primary + by_channel + by_author
     }
 
     fn apply_created(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
@@ -762,7 +775,9 @@ mod tests {
         assert_eq!(MessagesProjection::list_messages(&state, "ch_01", true).unwrap().len(), 3);
 
         let removed = MessagesProjection::compact(&state);
-        assert_eq!(removed, 1);
+        // Removed: 1 primary + 1 messages_by_channel + 1 messages_by_author for
+        // the deleted message (compaction now also purges secondary indexes).
+        assert_eq!(removed, 3);
         // After compaction: only 2 entries remain.
         assert_eq!(MessagesProjection::list_messages(&state, "ch_01", true).unwrap().len(), 2);
         // The deleted message is gone even with include_deleted=true.

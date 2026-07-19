@@ -45803,3 +45803,69 @@ de0c8d8 fix: persist profile picture/font, auto-save connected server, show tagl
 4bfd9eb feat: opencode batches — P0 reaction/handler wiring, P1 STDB eradication
 ```
 
+
+---
+
+## 2026-07-19 00:36:05 +07 — Carl posted
+
+### wabidb commits
+
+```
+9a546e0 chore: overnight baseline — uncommitted chat-refs/surfaces/forum/wiki/gallery work
+```
+
+
+---
+
+## 2026-07-19 00:44:05 +07 — Carl posted
+
+### wabidb commits
+
+```
+62ae603 feat(wabidb): A1 SecondaryIndex framework for messages
+```
+
+
+---
+
+## 2026-07-19 01:16:05 +07 — Carl posted
+
+### wabidb commits
+
+```
+f5e3bfd feat(wabidb): A2 QueryableProjection + A4/A5 replication interval + maintenance
+```
+
+
+---
+
+## 2026-07-19 01:24:05 +07 — Carl posted
+
+### wabidb commits
+
+```
+67c1055 feat(overnight): B5 error toasts, A7 index perf gate, THB donation default
+```
+
+
+---
+
+## 2026-07-19 01:28:05 +07 — Carl posted
+
+### wabidb commits
+
+```
+67c1055 feat(overnight): B5 error toasts, A7 index perf gate, THB donation default
+```
+
+
+---
+
+## 2026-07-19 08:24:07 +07 — Carl posted
+
+### wabidb commits
+
+```
+efb10b8 fix(overnight): 4 correctness follow-ups from branch review
+```
+

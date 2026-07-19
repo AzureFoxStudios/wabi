@@ -140,11 +140,16 @@ mod tests {
         })
         .unwrap();
         assert!(payload.starts_with("000201"));
-        assert!(payload.contains("5406100.00") || payload.contains("5405100.0") || payload.contains("54"));
+        // The CRC tag 6304 + 2-byte CRC sit at the very end. Validate the
+        // round-trip: the payload up to the last 4 chars must end in "6304"
+        // and the trailing 4 chars must equal CRC16-CCITT of that body.
+        let body = &payload[..payload.len() - 4];
+        assert!(body.ends_with("6304"), "CRC tag 6304 must precede the checksum");
+        let expected_crc = crc16_ccitt(body);
+        assert_eq!(&payload[payload.len() - 4..], expected_crc.as_str());
+        // Amount block present and decodes to 100.00
+        assert!(payload.contains("5406100.00"));
         assert!(payload.contains("5802TH"));
-        assert!(payload.ends_with(&crc16_ccitt(&payload[..payload.len() - 4])) || payload.len() > 20);
-        // CRC tag present
-        assert!(payload.contains("6304"));
         // Last 4 are hex CRC
         let crc = &payload[payload.len() - 4..];
         assert!(crc.chars().all(|c| c.is_ascii_hexdigit()));

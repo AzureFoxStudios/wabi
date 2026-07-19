@@ -321,6 +321,14 @@ export function setKeyWrappingSecret(secret: string | null): void {
 /**
  * Device-scoped secret for at-rest key wrapping when no user/session passphrase is active.
  * Generated once per browser profile and stored separately from the encrypted private keys.
+ *
+ * SECURITY LIMITATION: this wrapping secret lives in localStorage on the same origin as the
+ * app. It protects against *cold-disk / stolen-device* key theft (an attacker reading the
+ * localStorage blob off disk without the per-profile secret cannot unwrap the private key),
+ * but it does NOT protect against active XSS on the page — a script running in the page
+ * context can read both the wrapped key and this secret and unwrap it. It is defense-in-depth
+ * for at-rest storage, not an XSS boundary. For XSS resistance, keep secrets out of the DOM
+ * and rely on CSP + a short-lived in-memory session secret via setKeyWrappingSecret().
  */
 export function getOrCreateDeviceWrapSecret(): string {
 	try {
