@@ -36,7 +36,7 @@ use crate::nodes::NodeCapability;
 use crate::state::AppState;
 use axum::{
     extract::DefaultBodyLimit,
-    http::{header::CONTENT_TYPE, StatusCode},
+    http::{header::CACHE_CONTROL, header::CONTENT_TYPE, StatusCode},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -912,15 +912,28 @@ async fn serve_static(uri: axum::extract::OriginalUri) -> impl IntoResponse {
         path
     };
 
+    // Cache policy: the SPA entry (index.html) must be revalidated on every
+    // load so rapid redeploys never strand a client on a stale chunk graph.
+    // Hashed immutable assets (_app/...) are safe to cache forever.
+    let cache = if path == "index.html" || path.ends_with("service-worker.js") {
+        "no-cache"
+    } else {
+        "public, max-age=31536000, immutable"
+    };
+
     match StaticAssets::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
-            ([(CONTENT_TYPE, mime.as_ref())], content.data).into_response()
+            ([(CONTENT_TYPE, mime.as_ref()), (CACHE_CONTROL, cache)], content.data).into_response()
         }
         None => {
             // SPA fallback
             match StaticAssets::get("index.html") {
-                Some(content) => ([(CONTENT_TYPE, "text/html")], content.data).into_response(),
+                Some(content) => (
+                    [(CONTENT_TYPE, "text/html"), (CACHE_CONTROL, "no-cache")],
+                    content.data,
+                )
+                    .into_response(),
                 None => StatusCode::NOT_FOUND.into_response(),
             }
         }
