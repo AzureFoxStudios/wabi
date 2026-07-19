@@ -7,12 +7,7 @@ export default defineConfig({
 	// Tauri requires specific builder config
 	build: {
 		target: isTauri ? 'ES2021' : ['ES2020', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
-		minify: !process.env.TAURI_DEBUG ? 'terser' : false,
-		terserOptions: {
-			compress: {
-				drop_console: !process.env.TAURI_DEBUG
-			}
-		}
+		minify: !process.env.TAURI_DEBUG, // esbuild minify (terser broke Svelte store runtime in SPA client bundle)
 	},
 	server: {
 		// Plain localhost only. If you need a public URL, set PUBLIC_URL env
