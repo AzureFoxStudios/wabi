@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { currentUser, socket } from '$lib/socket';
+	import { get } from 'svelte/store';
+	import { currentUser, socket, connected } from '$lib/socket';
+	import { getWabiDB } from '$lib/wabidb';
 	import { onMount } from 'svelte';
 
 	let showPopup = false;
@@ -9,12 +11,17 @@
 		currentStatus = $currentUser.status;
 	}
 
-	function setStatus(status: 'active' | 'away' | 'busy') {
+	async function setStatus(status: 'active' | 'away' | 'busy') {
 		if ($socket && $currentUser) {
-			$socket.emit('update-profile', {
-				userId: $currentUser.id,
-				status
-			});
+			const payload = { userId: $currentUser.id, status };
+			const db = getWabiDB();
+			const online = get(connected);
+			if (db && !online) {
+				await db.enqueue({ scopeId: 'corechat', type: 'update-profile', payload });
+				showPopup = false;
+				return;
+			}
+			$socket.emit('update-profile', payload);
 		}
 		showPopup = false;
 	}

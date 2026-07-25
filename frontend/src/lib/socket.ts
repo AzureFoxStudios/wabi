@@ -17,7 +17,8 @@
 
 import { writable, get } from 'svelte/store';
 import type { Emoji, User } from './socket-types';
-import { getSocket } from './socketConnection';
+import { getSocket, connected } from './socketConnection';
+import { getWabiDB } from '$lib/wabidb';
 import { loadOlderHistory } from './messagePagination';
 import {
 	joinVoiceChannel as joinCallVoiceChannel,
@@ -49,7 +50,7 @@ export async function leaveVoiceChannel(channelId?: string) {
 export function retryDecryptLoadedDmMessages() { console.warn('[stub] retryDecryptLoadedDmMessages'); }
 export function loadOlderMessages(channelId: string) { return loadOlderHistory(channelId); }
 
-export function updateProfile(...args: any[]) {
+export async function updateProfile(...args: any[]) {
 	const sock = getSocket();
 	if (!sock) return;
 	const callback = typeof args[args.length - 1] === 'function' ? args.pop() : undefined;
@@ -63,6 +64,12 @@ export function updateProfile(...args: any[]) {
 					...(typeof bio === 'string' ? { bio } : {}),
 					...(typeof username === 'string' ? { username } : {})
 				};
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'update-profile', payload: patch });
+		return;
+	}
 	sock.emit('update-profile', patch, callback);
 }
 
@@ -72,9 +79,15 @@ export function createDM(userId: string): void {
 	sock.emit('create-dm', { targetUserId: userId });
 }
 
-export function deleteDM(channelId: string) {
+export async function deleteDM(channelId: string) {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'delete-dm', payload: { channelId } });
+		return;
+	}
 	sock.emit('delete-dm', { channelId });
 }
 

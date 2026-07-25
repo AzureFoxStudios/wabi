@@ -14,8 +14,9 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import type { Channel } from './socket-types';
-import { socket } from './socketConnection';
+import { socket, connected } from './socketConnection';
 import { getSocket } from './socketConnection';
+import { getWabiDB } from '$lib/wabidb';
 import { createChannelApi, deleteChannelApi } from './api';
 
 // ============================================================================
@@ -52,24 +53,44 @@ function updatePinnedChannels(): void {
 
 export function joinChannel(channelId: string): void {
 	const sock = getSocket();
-	if (!sock) return;
+	if (!sock || !channelId) return;
 	sock.emit('join-channel', channelId);
 }
 
+/** Select a channel in the UI and join its socket room. Always updates
+ * `currentChannel` — do not gate on registry presence (that blocked navigation
+ * when type/list race left the channel briefly unlisted). */
 export function switchChannel(channelId: string): void {
+	if (!channelId) return;
 	const currentChannelId = get(currentChannel);
-	if (currentChannelId === channelId) return;
-
-	const channel = getChannelById(channelId);
-	if (channel) {
+	if (currentChannelId !== channelId) {
 		currentChannel.set(channelId);
-		joinChannel(channelId);
 	}
+	joinChannel(channelId);
 }
 
 export async function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' = 'text', forceSpoiler?: boolean): Promise<void> {
 	try {
-		await createChannelApi(channelName, channelType, description, forceSpoiler);
+		const created = await createChannelApi(channelName, channelType, description, forceSpoiler);
+		// REST create does not always fan out a socket event (and even when it
+		// does, the caller may not be in the right room yet). Optimistically
+		// upsert so the sidebar updates immediately.
+		if (created?.id) {
+			const next: Channel = {
+				id: created.id,
+				name: created.name || channelName,
+				createdAt: Date.now(),
+				type: (created.channel_type || channelType || 'text') as Channel['type'],
+				...(created.force_spoiler != null ? { forceSpoiler: created.force_spoiler } : {})
+			} as Channel;
+			channels.update((list) => {
+				if (list.some((c) => c.id === next.id)) {
+					return list.map((c) => (c.id === next.id ? { ...c, ...next } : c));
+				}
+				return [...list, next];
+			});
+			_updatePinnedChannels();
+		}
 	} catch (e) {
 		console.error('[channelStore] Failed to create channel:', e);
 		throw e;
@@ -118,15 +139,27 @@ export async function deleteChannel(channelId: string): Promise<void> {
 	}
 }
 
-export function pinChannel(channelId: string): void {
+export async function pinChannel(channelId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'pin-channel', payload: { channelId } });
+		return;
+	}
 	sock.emit('pin-channel', { channelId });
 }
 
-export function unpinChannel(channelId: string): void {
+export async function unpinChannel(channelId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'unpin-channel', payload: { channelId } });
+		return;
+	}
 	sock.emit('unpin-channel', { channelId });
 }
 

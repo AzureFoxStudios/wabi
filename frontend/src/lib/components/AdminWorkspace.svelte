@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { channels, currentUser, assignRole, removeUserRole, type User, updateChannelSettings, sendMessage, channelMessages } from '$lib/socket';
+import { get } from 'svelte/store';
+	import { channels, currentUser, assignRole, removeUserRole, type User, updateChannelSettings, sendMessage, channelMessages, connected } from '$lib/socket';
 	import { users } from '$lib/socket';
 	import { getSocket } from '$lib/socket';
+	import { getWabiDB } from '$lib/wabidb';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
 	import { refreshSavedServer } from '$lib/savedServers';
@@ -328,9 +330,15 @@
 		return $channels.find((channel) => channel.id === channelId)?.name || channelId;
 	}
 
-	function deleteEmojiRoleRule(ruleId: number) {
+	async function deleteEmojiRoleRule(ruleId: number) {
 		const sock = getSocket();
 		if (!sock || !canManageRoles) return;
+		const db = getWabiDB();
+		const online = get(connected);
+		if (db && !online) {
+			await db.enqueue({ scopeId: 'corechat', type: 'delete-emoji-role-rule', payload: { ruleId } });
+			return;
+		}
 		sock.emit('delete-emoji-role-rule', { ruleId });
 	}
 

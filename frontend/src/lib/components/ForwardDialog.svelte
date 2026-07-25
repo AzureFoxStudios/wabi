@@ -1,16 +1,18 @@
 ﻿<script lang="ts">
+	import { get } from 'svelte/store';
 	import type { Message } from '$lib/socket';
-	import { channels, currentChannel, socket } from '$lib/socket';
+	import { channels, currentChannel, socket, connected } from '$lib/socket';
+	import { getWabiDB } from '$lib/wabidb';
 	import { _ } from '$lib/i18n';
 	import { getChannelTypeIcon } from '$lib/channelTypes';
 
 	export let visible: boolean = false;
 	export let message: Message | null = null;
 
-	function forwardToChannel(channelId: string) {
+	async function forwardToChannel(channelId: string) {
 		if (!message || !$socket) return;
 
-		$socket.emit('message', {
+		const payload = {
 			channelId,
 			text: message.text,
 			type: message.type,
@@ -19,7 +21,17 @@
 			fileName: message.fileName,
 			fileSize: message.fileSize,
 			files: message.files
-		});
+		};
+
+		const db = getWabiDB();
+		const online = get(connected);
+		if (db && !online) {
+			await db.enqueue({ scopeId: 'corechat', type: 'message', payload });
+			visible = false;
+			return;
+		}
+
+		$socket.emit('message', payload);
 
 		visible = false;
 	}
