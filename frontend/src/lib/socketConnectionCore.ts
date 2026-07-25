@@ -13,6 +13,8 @@ import { getAuthToken, getGuestSessionId } from './authSession';
 import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
 import { SocketHeartbeat } from './socketConnectionHeartbeat';
 import { SocketReconnectionManager } from './socketConnectionReconnect';
+import { drainOutboundQueue } from '$lib/wabidb/drain';
+import { getWabiDB } from '$lib/wabidb';
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, _updatePinnedChannels } from './channelStore';
 import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
@@ -327,6 +329,8 @@ export class SocketManager {
 			this.lastConnected = Date.now();
 			this.fastReconnectCount = 0;
 			this.reconnect.resetAttempts();
+			// Drain any queued outbound actions now that we're connected.
+			drainOutboundQueue();
 			const connectedUrl = normalizeServerUrl(getServerUrl()) || this.currentServerUrl;
 			this.currentServerUrl = connectedUrl;
 			if (this.currentServerUrl) {
@@ -531,8 +535,12 @@ export class SocketManager {
 					deliveryError: undefined
 				}
 			);
+			// Reconcile the corresponding queued outbound action.
+			const db = getWabiDB();
+			if (db && payload.clientMessageId) {
+				db.markSyncedByClientId(payload.clientMessageId).catch(() => {});
+			}
 		});
-
 		sock.on('message-deleted', (payload: { channelId?: string; messageId?: string }) => {
 			if (!payload?.channelId || !payload.messageId) return;
 			_removeOptimisticMessage(payload.channelId, payload.messageId);

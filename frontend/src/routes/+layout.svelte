@@ -11,6 +11,8 @@
 	import { chatStorage } from '$lib/storage';
 	import { get } from 'svelte/store';
 	import { initI18n } from '$lib/i18n';
+	import { openWabiDB, getWabiDB } from '$lib/wabidb';
+import { drainOutboundQueue } from '$lib/wabidb/drain';
 
 	import { updated } from '$app/stores';
 	import { initRelaySelector } from '$lib/relaySelector';
@@ -25,6 +27,7 @@
 
 let cleanupAutoSave: (() => void) | null = null;
 let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
+let onlineHandler: (() => void) | null = null;
 
 function isLocalPreviewHost(): boolean {
 	if (typeof window === 'undefined') return false;
@@ -146,9 +149,26 @@ function isLocalPreviewHost(): boolean {
 			} else {
 				console.log('[Layout] Tauri storage not enabled - skipping auto-save');
 			}
-			startupMark('layout:tauri:init:end');
-			startupMeasure('layout:tauri:init', 'layout:tauri:init:start', 'layout:tauri:init:end');
+		startupMark('layout:tauri:init:end');
+		startupMeasure('layout:tauri:init', 'layout:tauri:init:start', 'layout:tauri:init:end');
+	}
+
+		// Initialize WabiDB (client-side offline persistence)
+		try {
+			await openWabiDB();
+			const wabiDB = getWabiDB();
+			if (wabiDB) {
+				wabiDB.retryFailed();
+				onlineHandler = () => {
+					const db = getWabiDB();
+					if (db) { void db.retryFailed(); void drainOutboundQueue(); }
+				};
+				window.addEventListener('online', onlineHandler);
+			}
+		} catch (error) {
+			console.warn('[Layout] WabiDB init failed:', error);
 		}
+
 		startupMark('layout:onMount:end');
 		startupMeasure('layout:onMount', 'layout:onMount:start', 'layout:onMount:end');
 	});
@@ -161,6 +181,10 @@ function isLocalPreviewHost(): boolean {
 		if (relayInitTimer) {
 			clearTimeout(relayInitTimer);
 			relayInitTimer = null;
+		}
+		if (onlineHandler) {
+			window.removeEventListener('online', onlineHandler);
+			onlineHandler = null;
 		}
 	});
 </script>

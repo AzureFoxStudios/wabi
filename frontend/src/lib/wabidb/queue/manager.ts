@@ -54,6 +54,21 @@ export class QueueManager {
 		}
 	}
 
+	async markSyncedByClientId(clientMessageId: string): Promise<void> {
+		const all = await this.db.getAll();
+		for (const item of all) {
+			if (!this._isQueuedAction(item)) continue;
+			if (item.status === 'synced') continue;
+			const payload = item.payload as any;
+			if (payload?.clientMessageId === clientMessageId) {
+				const updated = { ...item, status: 'synced' as const };
+				const key = `${item.scopeId}:${item.id}`;
+				await this.db.put(key, updated);
+				return;
+			}
+		}
+	}
+
 	async retryFailed(): Promise<void> {
 		const all = await this.db.getAll();
 		const now = Date.now();

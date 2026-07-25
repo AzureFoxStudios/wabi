@@ -13,7 +13,8 @@
 import { writable, get } from 'svelte/store';
 import type { Message } from './socket-types';
 import type { MessageType } from '../../../packages/wabi-protocol/src/generated/MessageType';
-import { getSocket } from './socketConnection';
+import { getSocket, connected } from './socketConnection';
+import { getWabiDB } from '$lib/wabidb';
 import { currentUser } from './presenceStore';
 
 // ============================================================================
@@ -109,12 +110,12 @@ export function retryMessagePersistence(channelId: string, messageId: string): v
 	sock.emit('retry-message', { channelId, messageId });
 }
 
-export function sendMessage(
+export async function sendMessage(
 	channelId: string,
 	content: string,
 	type: MessageType = 'text',
 	options: Record<string, unknown> = {}
-): void {
+): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
 
@@ -138,6 +139,23 @@ export function sendMessage(
 	};
 
 	appendOptimisticMessage(channelId, optimisticMessage);
+
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({
+			scopeId: 'corechat',
+			type: 'send-message',
+			payload: { channelId, text: trimmed, type, clientMessageId, ...options }
+		});
+		updateOptimisticMessage(
+			channelId,
+			(m) => m.clientMessageId === clientMessageId,
+			{ deliveryState: 'failed', deliveryError: 'Queued — will send when online' }
+		);
+		return;
+	}
+
 	sock.emit('message', {
 		channelId,
 		text: trimmed,
