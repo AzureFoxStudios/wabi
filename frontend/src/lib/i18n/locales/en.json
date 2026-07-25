@@ -565,6 +565,48 @@
       "tauri_enabled": "Tauri storage enabled! Your data will auto-save every 30 seconds.",
       "tauri_disabled": "Tauri storage disabled. Your data will not be auto-saved.",
       "save_setting_failed": "Failed to save setting"
+    },
+    "offline": {
+      "title": "Offline & Connectivity",
+      "subtitle": "Manage offline behavior and data sync settings for WabiDB.",
+      "status": {
+        "connected": "Connected",
+        "disconnected": "Offline",
+        "recovering": "Recovering offline queue…"
+      },
+      "wabiDB": {
+        "status_label": "WabiDB Status",
+        "open": "Open",
+        "closed": "Closed",
+        "scope_label": "Scopes",
+        "queue_label": "Outbound Queue",
+        "pending": "pending",
+        "failed": "failed",
+        "synced": "synced",
+        "usage_label": "Usage",
+        "estimating": "Estimating…"
+      },
+      "retry": {
+        "button": "Retry failed actions",
+        "success": "Offline queue retried.",
+        "error": "Retry failed."
+      },
+      "scopes": {
+        "title": "Offline Scopes",
+        "corechat_desc": "Message history, drafts, and outbound queue for CoreChat.",
+        "system_desc": "System preferences, themes, and session data.",
+        "enable": "Enable",
+        "disable": "Disable",
+        "always_on": "Always on",
+        "opt_in": "Opt-in",
+        "off": "Off"
+      },
+      "alerts": {
+        "retry_success": "Offline queue retried.",
+        "retry_failed": "Queue retry failed.",
+        "scope_enabled": "Scope enabled.",
+        "scope_disabled": "Scope disabled."
+      }
     }
   },
   "shell": {

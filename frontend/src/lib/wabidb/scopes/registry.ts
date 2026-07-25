@@ -69,7 +69,6 @@ export function enableScope(scopeId: string, options?: { force?: boolean }): voi
 	const state = scopeState.get(scopeId);
 	if (!state) throw new Error(`Scope ${scopeId} not registered`);
 	state.enabled = true;
-	if (options?.force) state.enabled = true;
 	persistState();
 }
 

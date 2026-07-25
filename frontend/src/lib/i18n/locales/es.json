@@ -565,6 +565,48 @@
       "tauri_enabled": "Almacenamiento Tauri habilitado! Tus datos se guardaran automaticamente cada 30 segundos.",
       "tauri_disabled": "Almacenamiento Tauri deshabilitado. Tus datos no se guardaran automaticamente.",
       "save_setting_failed": "No se pudo guardar la configuracion"
+    },
+    "offline": {
+      "title": "Sin conexión y conectividad",
+      "subtitle": "Administrar el comportamiento sin conexión y la configuración de sincronización de datos para WabiDB.",
+      "status": {
+        "connected": "Conectado",
+        "disconnected": "Sin conexión",
+        "recovering": "Recuperando la cola sin conexión…"
+      },
+      "wabiDB": {
+        "status_label": "Estado de WabiDB",
+        "open": "Abierto",
+        "closed": "Cerrado",
+        "scope_label": "Alcances",
+        "queue_label": "Cola saliente",
+        "pending": "pendiente",
+        "failed": "fallido",
+        "synced": "sincronizado",
+        "usage_label": "Uso",
+        "estimating": "Calculando…"
+      },
+      "retry": {
+        "button": "Reintentar acciones fallidas",
+        "success": "Cola sin conexión reintentada.",
+        "error": "Error al reintentar."
+      },
+      "scopes": {
+        "title": "Alcances sin conexión",
+        "corechat_desc": "Historial de mensajes, borradores y cola saliente para CoreChat.",
+        "system_desc": "Preferencias del sistema, temas y datos de sesión.",
+        "enable": "Habilitar",
+        "disable": "Deshabilitar",
+        "always_on": "Siempre activo",
+        "opt_in": "Opt-in",
+        "off": "Desactivado"
+      },
+      "alerts": {
+        "retry_success": "Cola sin conexión reintentada.",
+        "retry_failed": "Error al reintentar la cola.",
+        "scope_enabled": "Alcance habilitado.",
+        "scope_disabled": "Alcance deshabilitado."
+      }
     }
   },
   "shell": {
