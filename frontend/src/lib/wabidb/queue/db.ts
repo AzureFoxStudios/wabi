@@ -42,7 +42,7 @@ export class QueueDB {
 		return new Promise<void>((resolve, reject) => {
 			const tx = this.db!.transaction([QUEUE_STORE], 'readwrite');
 			const store = tx.objectStore(QUEUE_STORE);
-			const req = store.put(value, key);
+			const req = store.put(value);
 			req.onsuccess = () => resolve();
 			req.onerror = () => reject(req.error);
 		});
@@ -116,6 +116,17 @@ export class QueueDB {
 		}
 
 		return pruned;
+	}
+
+	async trimToSize(maxSize: number): Promise<void> {
+		const all = await this.getAll();
+		if (all.length <= maxSize) return;
+		const items = all.filter((item): item is QueuedAction => this._isQueuedAction(item));
+		items.sort((a, b) => a.createdAt - b.createdAt);
+		const toDelete = items.slice(0, items.length - maxSize);
+		for (const item of toDelete) {
+			await this.delete(`${item.scopeId}:${item.id}`);
+		}
 	}
 
 	async getSize(): Promise<number> {

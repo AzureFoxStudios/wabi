@@ -11,6 +11,8 @@
 		getTauriDataPath
 	} from '$lib/tauri-storage';
 	import { currentUser } from '$lib/socket';
+	import { getWabiDB } from '$lib/wabidb';
+	import type { ScopeStatus, StorageReport } from '$lib/wabidb/types';
 
 	let saveHistory = false;
 	let rotationPeriod = chatStorage.getRotationPeriod();
@@ -39,6 +41,45 @@
 		if (bytes === 0) return '0 B';
 		const mb = bytes / (1024 * 1024);
 		return mb >= 0.01 ? `${mb.toFixed(2)} MB` : `${(bytes / 1024).toFixed(2)} KB`;
+	}
+
+	let scopes: ScopeStatus[] = [];
+	let queueCounts = { pending: 0, failed: 0, synced: 0 };
+	let usage: StorageReport = { scopes: [], totalBytes: 0 };
+
+	async function refreshQueue() {
+		const db = getWabiDB();
+		if (!db) return;
+		const q = await db.listQueue();
+		queueCounts = {
+			pending: q.filter(x => x.status === 'pending').length,
+			failed: q.filter(x => x.status === 'failed').length,
+			synced: q.filter(x => x.status === 'synced').length,
+		};
+	}
+
+	async function handleRetry() {
+		const db = getWabiDB();
+		if (!db) return;
+		try {
+			await db.retryFailed();
+			await refreshQueue();
+			alert(t('offline.alerts.retry_success'));
+		} catch {
+			alert(t('offline.alerts.retry_failed'));
+		}
+	}
+
+	async function toggleScope(scopeId: string, enable: boolean) {
+		const db = getWabiDB();
+		if (!db) return;
+		if (enable) {
+			await db.enableScope(scopeId);
+		} else {
+			await db.disableScope(scopeId);
+		}
+		scopes = db.listScopes();
+		await refreshQueue();
 	}
 
 	function formatPeriod(period: string): string {
@@ -185,6 +226,13 @@
 
 		saveHistory = await chatStorage.isEnabled();
 		await refreshStats();
+
+		const db = getWabiDB();
+		if (db) {
+			scopes = db.listScopes();
+			await refreshQueue();
+			usage = await db.getUsage();
+		}
 	});
 </script>
 
@@ -337,6 +385,62 @@
 			</button>
 		</div>
 	{/if}
+
+	<div class="divider"></div>
+
+	<div class="offline-section">
+		<div class="header">
+			<h3>🌐 {$_('offline.title')}</h3>
+			<p class="subtitle">{$_('offline.subtitle')}</p>
+		</div>
+
+		{#if scopes.length > 0}
+			<div class="setting-group">
+				<span class="label">{$_('offline.wabiDB.scope_label')}</span>
+				{#each scopes as scope}
+					<div class="scope-item">
+						<span class="scope-name">{scope.name}</span>
+						<span class="badge">
+							{#if scope.userControl === 'always'}
+								{$_('offline.scopes.always_on')}
+							{:else if scope.userControl === 'opt-in'}
+								{$_('offline.scopes.opt_in')}
+							{:else}
+								{$_('offline.scopes.off')}
+							{/if}
+						</span>
+						{#if scope.userControl === 'always'}
+							<button class="btn-small" disabled>{$_('offline.scopes.always_on')}</button>
+						{:else if scope.enabled}
+							<button class="btn-small" on:click={() => toggleScope(scope.scopeId, false)}>{$_('offline.scopes.disable')}</button>
+						{:else}
+							<button class="btn-small" on:click={() => toggleScope(scope.scopeId, true)}>{$_('offline.scopes.enable')}</button>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		<div class="setting-group">
+			<span class="label">{$_('offline.wabiDB.queue_label')}</span>
+			<p>
+				{$_('offline.wabiDB.pending')}: {queueCounts.pending} |
+				{$_('offline.wabiDB.failed')}: {queueCounts.failed} |
+				{$_('offline.wabiDB.synced')}: {queueCounts.synced}
+			</p>
+		</div>
+
+		<div class="setting-group">
+			<button class="btn-primary" on:click={handleRetry}>
+				{$_('offline.retry.button')}
+			</button>
+		</div>
+
+		<div class="setting-group">
+			<span class="label">{$_('offline.wabiDB.usage_label')}</span>
+			<p>{formatBytes(usage.totalBytes)}</p>
+		</div>
+	</div>
 </div>
 
 <ConfirmDialog

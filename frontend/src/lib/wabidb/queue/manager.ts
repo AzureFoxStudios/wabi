@@ -13,14 +13,19 @@ export class QueueManager {
 	}
 
 	async enqueue(action: Omit<QueuedAction, 'id' | 'status' | 'createdAt'>): Promise<string> {
-		const size = await this.db.getSize();
-		if (size >= MAX_QUEUE_SIZE) {
-			await this.db.prune();
-		}
-
 		const id = crypto.randomUUID();
 		const record = this._serialize(action, id);
 		const key = `${action.scopeId}:${id}`;
+
+		let size = await this.db.getSize();
+		if (size >= MAX_QUEUE_SIZE) {
+			await this.db.prune();
+			size = await this.db.getSize();
+			if (size >= MAX_QUEUE_SIZE) {
+				await this.db.trimToSize(MAX_QUEUE_SIZE - 1);
+			}
+		}
+
 		await this.db.put(key, record);
 		return id;
 	}
@@ -89,7 +94,8 @@ export class QueueManager {
 			status: 'pending',
 			payload,
 			createdAt: Date.now(),
-		};
+			key: `${action.scopeId}:${id}`,
+		} as QueuedAction;
 	}
 
 	private _safeSerialize(value: unknown): unknown {
