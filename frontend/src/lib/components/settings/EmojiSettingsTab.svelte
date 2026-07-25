@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { get } from 'svelte/store';
 	import { _ as t } from '$lib/i18n';
-	import { emojis, getSocket } from '$lib/socket';
+	import { emojis, getSocket, connected } from '$lib/socket';
+	import { getWabiDB } from '$lib/wabidb';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
 
@@ -104,10 +106,17 @@
 		}
 	}
 
-	function deleteEmoji(targetName: string) {
+	async function deleteEmoji(targetName: string) {
 		if (!confirm(`Delete emoji ":${targetName}:"?`)) return;
-		const socket = getSocket();
-		socket?.emit('delete-emoji', targetName);
+		const sock = getSocket();
+		if (!sock) return;
+		const db = getWabiDB();
+		const online = get(connected);
+		if (db && !online) {
+			await db.enqueue({ scopeId: 'corechat', type: 'delete-emoji', payload: targetName });
+			return;
+		}
+		sock.emit('delete-emoji', targetName);
 	}
 
 	async function handleBulkEmojiFileSelect(event: Event) {

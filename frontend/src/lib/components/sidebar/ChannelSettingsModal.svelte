@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+import { get } from 'svelte/store';
 	import type { Channel, VoiceChannelSettings } from '$lib/socket';
 	import { currentUser } from '$lib/socket';
-	import { getSocket } from '$lib/socketConnection';
+	import { getSocket, connected } from '$lib/socketConnection';
+	import { getWabiDB } from '$lib/wabidb';
 	import {
 		MESSAGE_RETENTION_LABELS,
 		MESSAGE_RETENTION_PRESETS,
@@ -27,7 +29,7 @@
 				? DEFAULT_CHANNEL_RETENTION
 				: channel.autoDeleteAfter;
 
-	function clearAllMessages(): void {
+	async function clearAllMessages(): Promise<void> {
 		if (!canClearMessages || channel.type === 'dm') return;
 		const confirmed = window.confirm(
 			`Purge ALL messages in #${channel.name}? This removes chat history for everyone. Attachment files on disk are not deleted. This cannot be undone.`
@@ -35,6 +37,12 @@
 		if (!confirmed) return;
 		const sock = getSocket();
 		if (!sock) return;
+		const db = getWabiDB();
+		const online = get(connected);
+		if (db && !online) {
+			await db.enqueue({ scopeId: 'corechat', type: 'clear-channel-messages', payload: { channelId: channel.id } });
+			return;
+		}
 		sock.emit('clear-channel-messages', { channelId: channel.id });
 	}
 
@@ -100,6 +108,21 @@
 
 	let activeChannelId = '';
 	let tempPersistMessages = false;
+
+	$: channelKind = (channel.type || 'text') as string;
+	$: isWikiChannel = channelKind === 'wiki';
+	$: isForumChannel = channelKind === 'forum';
+	$: isGalleryChannel = channelKind === 'gallery';
+	$: isChatLikeChannel = !isWikiChannel && !isForumChannel && !isGalleryChannel && channelKind !== 'voice';
+	$: settingsTitle = isWikiChannel
+		? 'Wiki Settings'
+		: isForumChannel
+			? 'Forum Settings'
+			: isGalleryChannel
+				? 'Gallery Settings'
+				: 'Channel Settings';
+	$: channelHeadingPrefix = isWikiChannel ? '◈' : isForumChannel ? '◫' : isGalleryChannel ? '▣' : '#';
+
 	let tempDescription = '';
 	let tempChannelName = '';
 	let tempWatchQueueEnabled = false;
@@ -265,13 +288,13 @@
 		<div class="modal-header">
 			<h2>
 				<svg class="modal-title-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-				Channel Settings
+				{settingsTitle}
 			</h2>
 			<button class="close-btn" on:click={() => dispatch('close')}>&times;</button>
 		</div>
 		<div class="modal-body">
 			<div class="setting-section">
-				<h3>Channel: #{channel.name}</h3>
+				<h3>Channel: {channelHeadingPrefix}{channel.name}</h3>
 
 				<div class="setting-group">
 					<label for="channel-settings-name">Name</label>
@@ -300,6 +323,7 @@
 					</button>
 				</div>
 
+				{#if isChatLikeChannel}
 				<div class="setting-group">
 					<span class="setting-label">Message retention</span>
 					<p class="setting-description">
@@ -336,8 +360,32 @@
 						{/each}
 					</div>
 				</div>
+				{:else if isWikiChannel}
+				<div class="setting-group">
+					<span class="setting-label">Wiki options</span>
+					<p class="setting-description">
+						Pages live in this wiki channel. Name and description above identify the wiki surface.
+						Page history and permissions will expand here; chat retention does not apply.
+					</p>
+				</div>
+				{:else if isForumChannel}
+				<div class="setting-group">
+					<span class="setting-label">Forum options</span>
+					<p class="setting-description">
+						Threads and posts live in this forum. Chat spoiler/retention controls do not apply.
+						Moderation tools for threads will expand here.
+					</p>
+				</div>
+				{:else if isGalleryChannel}
+				<div class="setting-group">
+					<span class="setting-label">Gallery options</span>
+					<p class="setting-description">
+						Media albums are scoped to this gallery channel. Chat message retention does not apply.
+					</p>
+				</div>
+				{/if}
 
-			{#if channel.type !== 'dm'}
+			{#if isChatLikeChannel && channel.type !== 'dm'}
 				<div class="setting-group">
 					<label class="spoiler-toggle">
 						<input
@@ -355,7 +403,7 @@
 				</div>
 			{/if}
 
-			{#if channel.type !== 'dm' && canClearMessages}
+			{#if isChatLikeChannel && channel.type !== 'dm' && canClearMessages}
 				<div class="setting-group danger-zone">
 					<span class="setting-label">Purge channel history</span>
 					<p class="setting-description">

@@ -165,7 +165,7 @@ export async function sendMessage(
 	});
 }
 
-export function editMessage(channelId: string, messageId: string, newText: string): void {
+export async function editMessage(channelId: string, messageId: string, newText: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
 	// Optimistic UI — server will confirm via message-edited or edit-error
@@ -174,22 +174,57 @@ export function editMessage(channelId: string, messageId: string, newText: strin
 		(m) => m.id === messageId,
 		{ text: newText, isEdited: true }
 	);
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({
+			scopeId: 'corechat',
+			type: 'edit-message',
+			payload: { channelId, messageId, newText }
+		});
+		updateOptimisticMessage(
+			channelId,
+			(m) => m.id === messageId,
+			{ deliveryState: 'failed', deliveryError: 'Queued — will send when online' }
+		);
+		return;
+	}
 	sock.emit('edit-message', { channelId, messageId, newText });
 }
 
-export function deleteMessage(channelId: string, messageId: string): void {
+export async function deleteMessage(channelId: string, messageId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
 
 	// Remove immediately from the open channel view (Discord-style hard delete in UI).
 	// Server confirms via message-deleted; edit/delete-error can restore if needed.
 	removeOptimisticMessage(channelId, messageId);
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({
+			scopeId: 'corechat',
+			type: 'delete-message',
+			payload: { channelId, messageId }
+		});
+		return;
+	}
 	sock.emit('delete-message', { channelId, messageId });
 }
 
-export function togglePinMessage(channelId: string, messageId: string): void {
+export async function togglePinMessage(channelId: string, messageId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({
+			scopeId: 'corechat',
+			type: 'toggle-pin-message',
+			payload: { channelId, messageId }
+		});
+		return;
+	}
 	sock.emit('toggle-pin-message', { channelId, messageId });
 }
 

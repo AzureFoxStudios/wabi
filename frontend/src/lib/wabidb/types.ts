@@ -1,4 +1,4 @@
-export type BackendKind = 'indexeddb' | 'sqlite';
+export type BackendKind = 'indexeddb';
 
 export interface WabiDB {
 	open(options?: WabiDBOptions): Promise<void>;

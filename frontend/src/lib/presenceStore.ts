@@ -12,7 +12,8 @@
 
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
-import { getSocket } from './socketConnection';
+import { getSocket, connected } from './socketConnection';
+import { getWabiDB } from '$lib/wabidb';
 import type { User } from './socket-types';
 import type { WhiteboardPresenceUser } from './whiteboard/boardTypes';
 
@@ -79,21 +80,39 @@ export function clearWhiteboardPresence(channelId: string): void {
 // PUBLIC API - Voice Channel Operations
 // ============================================================================
 
-export function subscribeVoiceChannel(channelId: string): void {
+export async function subscribeVoiceChannel(channelId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'voice-channel-subscribe', payload: { channelId } });
+		return;
+	}
 	sock.emit('voice-channel-subscribe', { channelId });
 }
 
-export function unsubscribeVoiceChannel(channelId: string): void {
+export async function unsubscribeVoiceChannel(channelId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'voice-channel-leave', payload: { channelId } });
+		return;
+	}
 	sock.emit('voice-channel-leave', { channelId });
 }
 
-export function setVoiceTransmitMode(mode: 'primary' | 'all-listening'): void {
+export async function setVoiceTransmitMode(mode: 'primary' | 'all-listening'): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'set-voice-transmit-mode', payload: { mode } });
+		return;
+	}
 	sock.emit('set-voice-transmit-mode', { mode });
 }
 
@@ -107,19 +126,31 @@ function toNumericUserId(userId: string | number): number | null {
 	return match ? Number(match[1]) : null;
 }
 
-export function assignRole(userId: string | number, roleId: string): void {
+export async function assignRole(userId: string | number, roleId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
 	const targetUserId = toNumericUserId(userId);
 	if (!targetUserId) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'assign-role', payload: { targetUserId, roleName: roleId } });
+		return;
+	}
 	sock.emit('assign-role', { targetUserId, roleName: roleId });
 }
 
-export function removeUserRole(userId: string | number, roleId: string): void {
+export async function removeUserRole(userId: string | number, roleId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
 	const targetUserId = toNumericUserId(userId);
 	if (!targetUserId) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'remove-role', payload: { targetUserId, roleName: roleId } });
+		return;
+	}
 	sock.emit('remove-role', { targetUserId, roleName: roleId });
 }
 
@@ -127,11 +158,17 @@ export function removeUserRole(userId: string | number, roleId: string): void {
 // PUBLIC API - User Management
 // ============================================================================
 
-export function banUser(userId: string | number, reason?: string): void {
+export async function banUser(userId: string | number, reason?: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
 	const targetUserId = toNumericUserId(userId);
 	if (!targetUserId) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'ban-user', payload: { targetUserId, reason } });
+		return;
+	}
 	sock.emit('ban-user', { targetUserId, reason });
 }
 
@@ -139,33 +176,63 @@ export function banUser(userId: string | number, reason?: string): void {
 // PUBLIC API - Group Operations
 // ============================================================================
 
-export function createGroup(groupName: string, userIds: string[]): void {
+export async function createGroup(groupName: string, userIds: string[]): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'create-group', payload: { groupName, userIds } });
+		return;
+	}
 	sock.emit('create-group', { groupName, userIds });
 }
 
-export function leaveGroup(groupId: string): void {
+export async function leaveGroup(groupId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'leave-group', payload: { channelId: groupId } });
+		return;
+	}
 	sock.emit('leave-group', { channelId: groupId });
 }
 
-export function kickGroupMember(groupId: string, userId: string): void {
+export async function kickGroupMember(groupId: string, userId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'kick-group-member', payload: { channelId: groupId, targetUserId: userId } });
+		return;
+	}
 	sock.emit('kick-group-member', { channelId: groupId, targetUserId: userId });
 }
 
-export function addGroupMember(groupId: string, userId: string): void {
+export async function addGroupMember(groupId: string, userId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'add-group-member', payload: { channelId: groupId, userId } });
+		return;
+	}
 	sock.emit('add-group-member', { channelId: groupId, userId });
 }
 
-export function updateGroupAvatar(groupId: string, avatarUrl: string): void {
+export async function updateGroupAvatar(groupId: string, avatarUrl: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
+	const db = getWabiDB();
+	const online = get(connected);
+	if (db && !online) {
+		await db.enqueue({ scopeId: 'corechat', type: 'update-group-avatar', payload: { channelId: groupId, avatarUrl } });
+		return;
+	}
 	sock.emit('update-group-avatar', { channelId: groupId, avatarUrl });
 }
 

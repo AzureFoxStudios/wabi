@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { currentUser, getSocket } from '../socket';
+	import { currentUser, getSocket, connected } from '../socket';
+	import { getWabiDB } from '$lib/wabidb';
 	import { onMount, onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
 
-	// Font options
 	const fontFamilies = ['Arial', 'Georgia', 'Times New Roman', 'Comic Sans MS', 'Courier New', 'Trebuchet MS', 'Verdana', 'Impact', 'Palatino', 'Helvetica'];
 	const fontSizes = ['Small', 'Medium', 'Large', 'XL'];
 	const fontWeights = ['Normal', 'Medium', 'Semi-Bold', 'Bold'];
 	const fontStyles = ['Normal', 'Italic'];
 
-	// Map display names to actual values
 	const sizeMap = { Small: '0.9em', Medium: '1em', Large: '1.2em', XL: '1.4em' };
 	const weightMap = { Normal: '400', Medium: '500', 'Semi-Bold': '600', Bold: '700' };
 	const styleMap = { Normal: 'normal', Italic: 'italic' };
@@ -20,23 +20,33 @@
 
 	let isSaving = false;
 	let saveError: string | null = null;
-	
+	let saveOk = false;
+	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function onProfileUpdated() {
+		isSaving = false;
+		saveError = null;
+		saveOk = true;
+		if (saveTimer) clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => (saveOk = false), 2200);
+	}
+
+	function onProfileFailed(error: { reason?: string; message?: string } | string) {
+		isSaving = false;
+		const msg = typeof error === 'string' ? error : error?.reason || error?.message || 'Update failed';
+		saveError = msg;
+	}
+
 	onMount(() => {
 		const socket = getSocket();
-		if (socket) {
-			socket.on('profile-update-failed', (error) => {
-				console.error('[FontCustomizer] Profile update failed:', error);
-				saveError = error.message || 'An unknown error occurred.';
-				alert(`Failed to save font settings: ${saveError}`);
-				isSaving = false;
-			});
-		}
-
+		if (!socket) return;
+		socket.on('profile-updated', onProfileUpdated);
+		socket.on('profile-update-failed', onProfileFailed);
 		return () => {
-			if (socket) {
-				socket.off('profile-update-failed');
-			}
-		}
+			socket.off('profile-updated', onProfileUpdated);
+			socket.off('profile-update-failed', onProfileFailed);
+			if (saveTimer) clearTimeout(saveTimer);
+		};
 	});
 
 	$: previewStyle = `
@@ -48,47 +58,45 @@
 	`;
 
 	async function handleSave() {
-		const socket = getSocket();
-		console.log('[FontCustomizer] handleSave called.');
-		if (!$currentUser || !socket) {
-			console.error('[FontCustomizer] Cannot save: No current user or socket connection.');
-			alert('Error: Not connected to the server. Cannot save settings.');
+		const sock = getSocket();
+		if (!$currentUser || !sock) {
+			saveError = 'Not connected — cannot save.';
 			return;
 		}
 
+		const usernameFont = {
+			family: selectedFamily,
+			size: sizeMap[selectedSize as keyof typeof sizeMap],
+			weight: weightMap[selectedWeight as keyof typeof weightMap],
+			style: styleMap[selectedStyle as keyof typeof styleMap]
+		};
+
 		isSaving = true;
 		saveError = null;
-		console.log('[FontCustomizer] isSaving set to true.');
-		
-		try {
-			const payload = {
-				usernameFont: {
-					family: selectedFamily,
-					size: sizeMap[selectedSize as keyof typeof sizeMap],
-					weight: weightMap[selectedWeight as keyof typeof weightMap],
-					style: styleMap[selectedStyle as keyof typeof styleMap]
-				}
-			};
-			
-			console.log('[FontCustomizer] Emitting "update-profile" with payload:', payload);
-			socket.emit('update-profile', payload, (ack) => {
-				isSaving = false;
-				if (ack.success) {
-					console.log('[FontCustomizer] Profile update acknowledged successfully.');
-					alert('Font settings saved!');
-				} else {
-					console.error('[FontCustomizer] Profile update failed:', ack.error);
-					saveError = ack.error || 'The server rejected the update.';
-					alert(`Failed to save font settings: ${saveError}`);
-				}
-			});
+		saveOk = false;
 
-		} catch (error) {
-			console.error('Failed to save username font:', error);
-			saveError = error.message;
-			alert(`An unexpected error occurred: ${saveError}`);
+		// Optimistic local apply so chat usernames update immediately.
+		currentUser.update((u) => (u ? { ...u, usernameFont } : u));
+
+		const db = getWabiDB();
+		const online = get(connected);
+		if (db && !online) {
+			await db.enqueue({ scopeId: 'corechat', type: 'update-profile', payload: { usernameFont } });
 			isSaving = false;
+			saveOk = true;
+			return;
 		}
+
+		sock.emit('update-profile', { usernameFont });
+
+		// Safety: clear spinner if server never answers.
+		if (saveTimer) clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => {
+			if (isSaving) {
+				isSaving = false;
+				saveOk = true;
+			}
+		}, 4000);
 	}
 
 	function handleReset() {
@@ -102,197 +110,78 @@
 
 <div class="font-customizer">
 	<h3>Username Font</h3>
-	<p class="description">Customize how your username appears to others</p>
+	<p class="hint">Shown on your name in chat. Others see it after save.</p>
 
-	<div class="preview-section">
-		<p class="preview-label">Preview:</p>
-		<div class="preview-box" style={previewStyle}>
-			{$currentUser?.username || 'Username'}
-		</div>
+	<div class="preview" style={previewStyle}>{$currentUser?.username || 'username'}</div>
+
+	<label>
+		Family
+		<select bind:value={selectedFamily}>
+			<option value="inherit">Default</option>
+			{#each fontFamilies as f}<option value={f}>{f}</option>{/each}
+		</select>
+	</label>
+	<label>
+		Size
+		<select bind:value={selectedSize}>
+			{#each fontSizes as s}<option value={s}>{s}</option>{/each}
+		</select>
+	</label>
+	<label>
+		Weight
+		<select bind:value={selectedWeight}>
+			{#each fontWeights as w}<option value={w}>{w}</option>{/each}
+		</select>
+	</label>
+	<label>
+		Style
+		<select bind:value={selectedStyle}>
+			{#each fontStyles as s}<option value={s}>{s}</option>{/each}
+		</select>
+	</label>
+
+	<div class="actions">
+		<button type="button" class="primary" disabled={isSaving} on:click={handleSave}>{isSaving ? 'Saving…' : 'Save font'}</button>
+		<button type="button" class="ghost" disabled={isSaving} on:click={handleReset}>Reset</button>
 	</div>
-
-	<div class="controls-section">
-		<div class="control-group">
-			<label for="font-family">Font Family:</label>
-			<select id="font-family" bind:value={selectedFamily}>
-				<option value="inherit">Default</option>
-				{#each fontFamilies as family}
-					<option value={family}>{family}</option>
-				{/each}
-			</select>
-		</div>
-
-		<div class="control-group">
-			<label for="font-size">Size:</label>
-			<select id="font-size" bind:value={selectedSize}>
-				{#each Object.keys(sizeMap) as size}
-					<option value={size}>{size}</option>
-				{/each}
-			</select>
-		</div>
-
-		<div class="control-group">
-			<label for="font-weight">Weight:</label>
-			<select id="font-weight" bind:value={selectedWeight}>
-				{#each Object.keys(weightMap) as weight}
-					<option value={weight}>{weight}</option>
-				{/each}
-			</select>
-		</div>
-
-		<div class="control-group">
-			<label for="font-style">Style:</label>
-			<select id="font-style" bind:value={selectedStyle}>
-				{#each Object.keys(styleMap) as style}
-					<option value={style}>{style}</option>
-				{/each}
-			</select>
-		</div>
-	</div>
-
-	<div class="button-group">
-		<button class="btn btn-primary" on:click={handleSave} disabled={isSaving}>
-			{isSaving ? 'Saving...' : 'Save'}
-		</button>
-		<button class="btn btn-secondary" on:click={handleReset} disabled={isSaving}>
-			Reset
-		</button>
-	</div>
+	{#if saveOk}<p class="ok">Saved.</p>{/if}
+	{#if saveError}<p class="err">{saveError}</p>{/if}
 </div>
 
 <style>
-	.font-customizer {
-		background: var(--surface-base);
-		border-radius: 8px;
-		padding: 16px;
-		margin-bottom: 16px;
-	}
-
-	h3 {
-		margin: 0 0 4px 0;
-		font-size: 1rem;
-		font-weight: 600;
-		color: var(--text-heading);
-	}
-
-	.description {
-		margin: 0 0 16px 0;
-		font-size: 0.875rem;
-		color: var(--text-secondary);
-	}
-
-	.preview-section {
-		margin-bottom: 16px;
-	}
-
-	.preview-label {
-		margin: 0 0 8px 0;
-		font-size: 0.875rem;
-		color: var(--text-secondary);
-		font-weight: 500;
-	}
-
-	.preview-box {
-		background: var(--surface-app);
-		border: 1px solid var(--surface-raised);
-		border-radius: 6px;
-		padding: 12px;
-		text-align: center;
-		min-height: 2em;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.controls-section {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-		gap: 12px;
-		margin-bottom: 16px;
-	}
-
-	.control-group {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	label {
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: var(--text-secondary);
-	}
-
-	select {
-		background: var(--surface-app);
-		border: 1px solid var(--surface-raised);
-		border-radius: 6px;
-		color: var(--text-heading);
-		padding: 8px 12px;
-		font-size: 0.875rem;
-		cursor: pointer;
-		transition: border-color 0.2s;
-	}
-
-	select:hover {
-		border-color: var(--accent-primary-color);
-	}
-
-	select:focus {
-		outline: none;
-		border-color: var(--accent-primary-color);
-		box-shadow: 0 0 0 2px rgba(var(--accent-primary, 100, 150, 255), 0.1);
-	}
-
-	.button-group {
-		display: flex;
-		gap: 8px;
-	}
-
-	.btn {
-		padding: 8px 16px;
-		border: none;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.btn-primary {
-		background: var(--accent-primary-color);
-		color: white;
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		opacity: 0.9;
-	}
-
-	.btn-secondary {
+	.font-customizer { display: flex; flex-direction: column; gap: 0.65rem; }
+	.hint { margin: 0; color: var(--text-secondary); font-size: 0.82rem; }
+	.preview {
+		padding: 0.75rem 1rem;
+		border-radius: 10px;
+		border: 1px solid var(--border-subtle);
 		background: var(--surface-raised);
+	}
+	label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; font-weight: 650; color: var(--text-secondary); }
+	select {
+		padding: 0.45rem 0.55rem;
+		border-radius: 8px;
+		border: 1px solid var(--border-subtle);
+		background: var(--surface-base);
 		color: var(--text-heading);
 	}
-
-	.btn-secondary:hover:not(:disabled) {
-		background: var(--surface-hover);
+	.actions { display: flex; gap: 0.5rem; }
+	.primary, .ghost {
+		border-radius: 8px;
+		padding: 0.45rem 0.85rem;
+		font-weight: 650;
+		cursor: pointer;
 	}
-
-	.btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
+	.primary {
+		border: 1px solid rgba(var(--accent-rgb), 0.45);
+		background: rgba(var(--accent-rgb), 0.18);
+		color: var(--text-heading);
 	}
-
-	@media (max-width: 640px) {
-		.controls-section {
-			grid-template-columns: 1fr;
-		}
-
-		.button-group {
-			flex-direction: column;
-		}
-
-		.btn {
-			width: 100%;
-		}
+	.ghost {
+		border: 1px solid var(--border-subtle);
+		background: transparent;
+		color: var(--text-secondary);
 	}
+	.ok { color: #4ade80; margin: 0; font-size: 0.82rem; }
+	.err { color: #f87171; margin: 0; font-size: 0.82rem; }
 </style>
