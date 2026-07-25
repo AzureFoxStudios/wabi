@@ -1,8 +1,10 @@
 import { browser } from '$app/environment';
+import type { QueuedAction } from '../types';
 
 const QUEUE_STORE = 'outbound_queue';
 const QUEUE_DB_NAME = 'wabi-queue';
 const DB_VERSION = 1;
+const MAX_QUEUE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export class QueueDB {
 	private db: IDBDatabase | null = null;
@@ -96,5 +98,40 @@ export class QueueDB {
 			req.onsuccess = () => resolve();
 			req.onerror = () => reject(req.error);
 		});
+	}
+
+	async prune(): Promise<number> {
+		const all = await this.getAll();
+		const now = Date.now();
+		let pruned = 0;
+
+		for (const item of all) {
+			if (!this._isQueuedAction(item)) continue;
+			const age = now - item.createdAt;
+			if (age > MAX_QUEUE_AGE_MS) {
+				const key = `${item.scopeId}:${item.id}`;
+				await this.delete(key);
+				pruned++;
+			}
+		}
+
+		return pruned;
+	}
+
+	async getSize(): Promise<number> {
+		const all = await this.getAll();
+		return all.filter(item => this._isQueuedAction(item)).length;
+	}
+
+	private _isQueuedAction(item: unknown): item is QueuedAction {
+		return (
+			typeof item === 'object' &&
+			item !== null &&
+			'id' in item &&
+			typeof (item as QueuedAction).id === 'string' &&
+			'type' in item &&
+			'scopeId' in item &&
+			'status' in item
+		);
 	}
 }

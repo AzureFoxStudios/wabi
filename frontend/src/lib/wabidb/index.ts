@@ -18,9 +18,9 @@ class WabiDBImpl implements WabiDB {
 		this.opened = true;
 	}
 
-	close(): Promise<void> {
+	async close(): Promise<void> {
 		this.opened = false;
-		return Promise.resolve();
+		await this.queue.prune();
 	}
 
 	registerScope(scope: OfflineScopeDescriptor): void {
