@@ -1,0 +1,178 @@
+/* Planner workspace tokens — unified with main app design system */
+
+.planner-surface {
+	--planner-accent: var(--accent, #f36b21);
+	--planner-accent-soft: var(--accent-soft, rgba(243, 107, 33, 0.16));
+	--planner-bg: var(--surface-base, #0b0c0e);
+	--planner-raised: var(--surface-raised, #12141a);
+	--planner-hover: var(--surface-hover, #1a1d25);
+	--planner-border: var(--border, rgba(255, 255, 255, 0.08));
+	--planner-text: var(--text-heading, #f4f4f5);
+	--planner-text-secondary: var(--text-secondary, #a1a1aa);
+	--planner-text-muted: var(--text-muted, #71717a);
+	--planner-radius-sm: var(--radius-sm, 6px);
+	--planner-radius-md: var(--radius-md, 10px);
+	--planner-font: var(--font, "Inter", system-ui, -apple-system, sans-serif);
+	--planner-font-mono: var(--font-mono, "Geist Mono", "SF Mono", ui-monospace, monospace);
+}
+
+.planner-surface {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	height: 100%;
+	background: var(--planner-bg);
+	color: var(--planner-text);
+	font-family: var(--planner-font);
+}
+
+/* Surface header */
+.planner-header {
+	height: var(--header-h, 48px);
+	padding: 0 16px;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	border-bottom: 1px solid var(--planner-border);
+	background: color-mix(in srgb, var(--planner-raised) 85%, transparent);
+	backdrop-filter: blur(12px);
+	flex-shrink: 0;
+}
+
+.planner-title {
+	font-weight: 600;
+	font-size: 15px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.planner-badge {
+	font-size: 10px;
+	font-weight: 600;
+	padding: 2px 6px;
+	border-radius: 999px;
+	background: var(--planner-accent-soft);
+	color: var(--planner-accent);
+	letter-spacing: 0.03em;
+}
+
+.planner-spacer {
+	flex: 1;
+}
+
+/* Segmented view tabs */
+.planner-tabs {
+	display: inline-flex;
+	background: var(--planner-raised);
+	border: 1px solid var(--planner-border);
+	border-radius: var(--planner-radius-md);
+	padding: 3px;
+	gap: 2px;
+}
+
+.planner-tab {
+	border: none;
+	background: transparent;
+	color: var(--planner-text-secondary);
+	font: inherit;
+	font-size: 13px;
+	font-weight: 500;
+	padding: 6px 14px;
+	border-radius: 7px;
+	cursor: pointer;
+	transition: background 0.12s, color 0.12s;
+}
+
+.planner-tab:hover {
+	color: var(--planner-text);
+}
+
+.planner-tab.active {
+	background: var(--planner-hover);
+	color: var(--planner-text);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* Stats strip */
+.planner-stats {
+	display: flex;
+	gap: 8px;
+	padding: 10px 16px;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+	flex-shrink: 0;
+	overflow-x: auto;
+}
+
+.planner-stat {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 10px;
+	border-radius: 999px;
+	background: var(--planner-raised);
+	border: 1px solid var(--planner-border);
+	font-size: 12px;
+	color: var(--planner-text-secondary);
+	white-space: nowrap;
+}
+
+.planner-stat strong {
+	color: var(--planner-text);
+	font-weight: 600;
+}
+
+/* Viewport for views */
+.planner-body {
+	flex: 1;
+	overflow: hidden;
+	position: relative;
+	min-height: 0;
+}
+
+.planner-view {
+	position: absolute;
+	inset: 0;
+	display: none;
+	overflow: auto;
+	padding: 16px;
+}
+
+.planner-view.active {
+	display: block;
+}
+
+/* Icon button helpers */
+.planner-icon-btn {
+	width: 32px;
+	height: 32px;
+	border: none;
+	background: transparent;
+	color: var(--planner-text-secondary);
+	border-radius: var(--planner-radius-sm);
+	cursor: pointer;
+	display: grid;
+	place-items: center;
+	font-size: 15px;
+}
+
+.planner-icon-btn:hover {
+	background: var(--planner-hover);
+	color: var(--planner-text);
+}
+
+.planner-primary-btn {
+	border: none;
+	background: var(--planner-accent);
+	color: #fff;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	padding: 7px 14px;
+	border-radius: var(--planner-radius-sm);
+	cursor: pointer;
+}
+
+.planner-primary-btn:hover {
+	background: var(--accent-hover, #ff7a2f);
+}
