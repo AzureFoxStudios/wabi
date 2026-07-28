@@ -131,37 +131,6 @@
 		padding: 0.35rem 0.5rem 0.5rem;
 	}
 
-	.notes-hub-entry {
-		padding: 0.2rem 0.5rem 0.35rem;
-	}
-
-	.notes-hub-btn {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.45rem 0.6rem;
-		border: 1px solid var(--surface-border, rgba(255, 255, 255, 0.08));
-		border-radius: 0.5rem;
-		background: var(--surface-raised, rgba(255, 255, 255, 0.03));
-		color: var(--text-primary, #e8e8ea);
-		font-size: 0.85rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: background 0.12s ease, border-color 0.12s ease;
-	}
-
-	.notes-hub-btn:hover {
-		background: var(--surface-hover, rgba(255, 255, 255, 0.07));
-		border-color: var(--accent-color, rgba(120, 170, 255, 0.5));
-	}
-
-	.notes-hub-btn svg {
-		width: 1rem;
-		height: 1rem;
-		flex-shrink: 0;
-	}
-
 
 	.dm-hub-btn {
 		width: 100%;

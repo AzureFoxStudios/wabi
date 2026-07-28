@@ -7,9 +7,11 @@
   import { getDMOtherUser } from '$lib/userLookupStore';
   import PeoplePicker from './PeoplePicker.svelte';
   import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+  import NotesView from './NotesView.svelte';
   import { openDetachedPanel } from '$lib/detachedPanels';
 
   let showPeoplePicker = false;
+  let dmTab = 'channels' as 'channels' | 'notes';
 
   $: dmChannels = ($channels || []).filter(
     (ch: Channel) => ch.type === 'dm' || ch.type === 'group'
@@ -136,74 +138,85 @@
 </script>
 
 <div class="dm-hub">
-  <div class="dm-hub-header">
-    <div class="dm-hub-title-wrap">
-      <span class="dm-hub-title">Direct Messages</span>
-      <span class="dm-hub-subtitle">Your conversations</span>
-    </div>
-    <button class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New conversation">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="12" y1="5" x2="12" y2="19" />
-        <line x1="5" y1="12" x2="19" y2="12" />
-      </svg>
-    </button>
+  <div class="dm-hub-tabs">
+    <button class="dm-hub-tab" class:active={dmTab === 'channels'} on:click={() => dmTab = 'channels'}>Direct Messages</button>
+    <button class="dm-hub-tab" class:active={dmTab === 'notes'} on:click={() => dmTab = 'notes'}>Notes</button>
   </div>
 
-  {#if showPeoplePicker}
-    <div class="dm-hub-picker">
-      <PeoplePicker on:select={async (e) => handlePersonSelected(e.detail)} on:close={() => (showPeoplePicker = false)} />
+  {#if dmTab === 'channels'}
+    <div class="dm-hub-header">
+      <div class="dm-hub-title-wrap">
+        <span class="dm-hub-title">Direct Messages</span>
+        <span class="dm-hub-subtitle">Your conversations</span>
+      </div>
+      <button class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New conversation">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+    </div>
+
+    {#if showPeoplePicker}
+      <div class="dm-hub-picker">
+        <PeoplePicker on:select={async (e) => handlePersonSelected(e.detail)} on:close={() => (showPeoplePicker = false)} />
+      </div>
+    {/if}
+
+    <div class="dm-hub-scroll">
+      {#if dmChannels.length === 0}
+        <div class="dm-hub-empty">
+          <p>No conversations yet.</p>
+          <button class="dm-hub-empty-btn" on:click={() => (showPeoplePicker = true)}>
+            Start a conversation
+          </button>
+        </div>
+      {:else}
+        {#each dmChannels as channel (channel.id)}
+          {@const other = otherUserFor(channel)}
+          {@const unread = $channelUnreadCounts[channel.id] || 0}
+          <button
+            class="dm-hub-conversation"
+            class:active={$centerDmChannelId === channel.id}
+            class:unread={unread > 0}
+            on:click={() => openInCenter(channel)}
+            on:contextmenu={(e) => handleContextMenu(channel, e)}
+          >
+            <div class="dm-hub-avatar-wrap">
+              {#if conversationAvatar(channel)}
+                <img class="dm-hub-avatar" src={conversationAvatar(channel)} alt="" />
+              {:else}
+                <div class="dm-hub-avatar dm-hub-avatar-placeholder">
+                  {(conversationLabel(channel) || '?')[0]}
+                </div>
+              {/if}
+              {#if other}
+                <span class="dm-hub-status-dot" style:background={statusColor(other)}></span>
+              {/if}
+            </div>
+            <div class="dm-hub-body">
+              <div class="dm-hub-top">
+                <span class="dm-hub-name">{conversationLabel(channel)}</span>
+                {#if lastMessageTime(channel)}
+                  <span class="dm-hub-time">{lastMessageTime(channel)}</span>
+                {/if}
+              </div>
+              <div class="dm-hub-bottom">
+                <span class="dm-hub-preview">{lastMessagePreview(channel) || 'No messages yet'}</span>
+                {#if unread > 0}
+                  <span class="dm-hub-badge">{unread > 99 ? '99+' : unread}</span>
+                {/if}
+              </div>
+            </div>
+          </button>
+        {/each}
+      {/if}
+    </div>
+  {:else}
+    <div class="dm-hub-notes">
+      <NotesView />
     </div>
   {/if}
-
-  <div class="dm-hub-scroll">
-    {#if dmChannels.length === 0}
-      <div class="dm-hub-empty">
-        <p>No conversations yet.</p>
-        <button class="dm-hub-empty-btn" on:click={() => (showPeoplePicker = true)}>
-          Start a conversation
-        </button>
-      </div>
-    {:else}
-      {#each dmChannels as channel (channel.id)}
-        {@const other = otherUserFor(channel)}
-        {@const unread = $channelUnreadCounts[channel.id] || 0}
-        <button
-          class="dm-hub-conversation"
-          class:active={$centerDmChannelId === channel.id}
-          class:unread={unread > 0}
-          on:click={() => openInCenter(channel)}
-          on:contextmenu={(e) => handleContextMenu(channel, e)}
-        >
-          <div class="dm-hub-avatar-wrap">
-            {#if conversationAvatar(channel)}
-              <img class="dm-hub-avatar" src={conversationAvatar(channel)} alt="" />
-            {:else}
-              <div class="dm-hub-avatar dm-hub-avatar-placeholder">
-                {(conversationLabel(channel) || '?')[0]}
-              </div>
-            {/if}
-            {#if other}
-              <span class="dm-hub-status-dot" style:background={statusColor(other)}></span>
-            {/if}
-          </div>
-          <div class="dm-hub-body">
-            <div class="dm-hub-top">
-              <span class="dm-hub-name">{conversationLabel(channel)}</span>
-              {#if lastMessageTime(channel)}
-                <span class="dm-hub-time">{lastMessageTime(channel)}</span>
-              {/if}
-            </div>
-            <div class="dm-hub-bottom">
-              <span class="dm-hub-preview">{lastMessagePreview(channel) || 'No messages yet'}</span>
-              {#if unread > 0}
-                <span class="dm-hub-badge">{unread > 99 ? '99+' : unread}</span>
-              {/if}
-            </div>
-          </div>
-        </button>
-      {/each}
-    {/if}
-  </div>
 </div>
 
 <ContextMenu
