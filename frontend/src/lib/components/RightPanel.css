@@ -159,6 +159,7 @@
 .stack-actions { display: flex; align-items: center; gap: 0.25rem; }
 .stack-actions button { width: 26px; height: 26px; border-radius: 7px; }
 .panel-stack-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.panel-stack-content > * { flex: 1; min-width: 0; min-height: 0; }
 .stack-resize-handle {
 	flex-shrink: 0;
 	border: none;
