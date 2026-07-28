@@ -138,7 +138,7 @@ export function resolveServerUrl(): { url: string; source: string } {
 
 function resolveServerUrlInternal(): { url: string; source: string } {
 	if (!browser) {
-		return { url: 'http://localhost:3001', source: 'ssr_default' };
+		return { url: 'http://localhost:3000', source: 'ssr_default' };
 	}
 
 	const origin = window.location.origin;
@@ -203,7 +203,7 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 	// 4. Direct container access: frontend on :3000, backend on :8080 on the same host.
 	// Keep localhost and LAN/IP access working without requiring a separate reverse proxy.
 	if (port === '3000') {
-		return { url: `${protocol}//${hostname}:3001`, source: 'docker_port_rewrite' };
+	    return { url: `${protocol}//${hostname}:3000`, source: 'docker_port_rewrite' };
 	}
 
 	// 5. Production: same-origin (platform routes /socket.io to backend)
