@@ -26,9 +26,9 @@ fn channel_to_response(c: wabidb::domain::Channel) -> ChannelResponse {
         id: c.channel_id,
         name: c.name,
         channel_type: format!("{:?}", c.channel_kind).to_lowercase(),
-        position: 0,
-        parent_id: None,
-        description: None,
+        position: c.position,
+        parent_id: c.parent_id,
+        description: c.description,
         force_spoiler: c.force_spoiler,
     }
 }
@@ -61,14 +61,15 @@ struct ChannelResponse {
 }
 
 async fn list_channels(State(state): State<Arc<AppState>>) -> Result<Json<ChannelListResponse>> {
-    let channels = state
+    let mut channels = state
         .wdb
         .list_channels(None)
         .await
         .map_err(|e| AppError::Internal(format!("wdb list_channels: {e}")))?
         .into_iter()
         .map(channel_to_response)
-        .collect();
+        .collect::<Vec<_>>();
+    channels.sort_by_key(|c| c.position);
 
     Ok(Json(ChannelListResponse { channels }))
 }
