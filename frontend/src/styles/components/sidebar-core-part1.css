@@ -89,10 +89,12 @@
 		content: '';
 		position: absolute;
 		inset: 0;
-		background:
-			linear-gradient(180deg, var(--surface-app, rgba(6, 10, 18, 0.12)), var(--surface-base, rgba(6, 10, 18, 0.72))),
-			linear-gradient(90deg, var(--surface-base, rgba(6, 10, 18, 0.74)), var(--surface-app, rgba(6, 10, 18, 0.28)));
+		background: linear-gradient(180deg, rgba(6, 10, 18, 0.78), rgba(6, 10, 18, 0.85));
 		pointer-events: none;
+	}
+
+	.top-section:has(.banner-image)::after {
+		background: linear-gradient(180deg, rgba(6, 10, 18, 0.35), rgba(6, 10, 18, 0.55));
 	}
 
 
