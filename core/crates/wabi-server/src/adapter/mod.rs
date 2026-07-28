@@ -283,7 +283,7 @@ impl WabiStore for WdbAdapter {
         actor_user_id: u64,
     ) -> Result<()> {
         let mut payload = serde_json::Map::new();
-        payload.insert("channel_id".to_string(), json!(channel_id));
+        payload.insert("channel_id".to_string(), serde_json::json!(channel_id));
         if let Some(name) = patch.get("name") {
             payload.insert("name".to_string(), name.clone());
         }
