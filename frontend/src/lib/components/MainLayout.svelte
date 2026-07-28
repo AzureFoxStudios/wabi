@@ -45,7 +45,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { savedServerRailItems } from '$lib/savedServers';
 	import { activeTransfers, incomingFileOffers } from '$lib/p2pFileTransfer';
 
-	export let activeView: 'chat' | 'screen' | 'following' | 'dm' = 'chat';
+	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;

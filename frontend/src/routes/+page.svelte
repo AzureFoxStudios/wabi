@@ -134,10 +134,6 @@
 		startupMark('page:accessibility:ready');
 		startupMeasure('page:accessibility:init', 'page:onMount:start', 'page:accessibility:ready');
 		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.ctrlKey && e.shiftKey && e.key === '1') {
-				e.preventDefault();
-				window.location.href = '/business';
-			}
 			if (e.ctrlKey && e.shiftKey && (e.key === 'O' || e.key === 'o')) {
 				e.preventDefault();
 				handleLogout();
@@ -263,8 +259,8 @@
 					const token = getAuthToken();
 					if (token) {
 						fetch('/api/auth/validate', {
-							headers: { Authorization: `Bearer ${token}` },
-							signal: AbortSignal.timeout(5000),
+							headers: { 'Authorization': `Bearer ${token}` },
+							signal: AbortSignal.timeout(5000)
 						}).then((res) => {
 							if (res.ok && !disposed) {
 								clearInterval(reconnectTimer);

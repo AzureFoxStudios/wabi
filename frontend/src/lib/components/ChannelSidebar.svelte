@@ -64,7 +64,7 @@
 	import { whiteboardPresence } from '$lib/presenceStore';
 
 	const dispatch = createEventDispatcher();
-	export let activeView: 'chat' | 'screen' | 'following' | 'dm' = 'chat';
+	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
 
 	let newChannelName = '';
 	let newChannelDescription = '';
