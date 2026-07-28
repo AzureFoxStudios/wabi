@@ -12,6 +12,10 @@
 
   let showPeoplePicker = false;
   let dmTab = 'channels' as 'channels' | 'notes';
+  let showExternalConfig = false;
+  let externalApp = 'obsidian' as 'obsidian' | 'notion' | 'logseq' | 'custom' | 'none';
+  let customAppUrl = '';
+  let externalAppTestResult = '';
 
   $: dmChannels = ($channels || []).filter(
     (ch: Channel) => ch.type === 'dm' || ch.type === 'group'
@@ -135,6 +139,47 @@
       }
     });
   }
+
+  function testExternalApp() {
+    const app = externalApp;
+    if (app === 'none') {
+      externalAppTestResult = 'local-only';
+      return;
+    }
+    if (app === 'obsidian') {
+      // Test obsidian:// URI scheme
+      try {
+        window.open('obsidian://vault', '_blank');
+        externalAppTestResult = 'ok';
+      } catch {
+        externalAppTestResult = 'Obsidian URI not supported';
+      }
+    } else if (app === 'notion') {
+      window.open('https://www.notion.so', '_blank');
+      externalAppTestResult = 'ok';
+    } else if (app === 'logseq') {
+      try {
+        window.open('logseq://', '_blank');
+        externalAppTestResult = 'ok';
+      } catch {
+        externalAppTestResult = 'Logseq URI not supported';
+      }
+    } else if (app === 'custom') {
+      if (!customAppUrl) {
+        externalAppTestResult = 'Enter a URL first';
+        return;
+      }
+      try {
+        new URL(customAppUrl);
+        window.open(customAppUrl, '_blank');
+        externalAppTestResult = 'ok';
+      } catch {
+        externalAppTestResult = 'Invalid URL';
+      }
+    } else {
+      externalAppTestResult = 'Unknown app';
+    }
+  }
 </script>
 
 <div class="dm-hub">
@@ -214,6 +259,40 @@
     </div>
   {:else}
     <div class="dm-hub-notes">
+      <div class="notes-external-config">
+        <div class="notes-external-header">
+          <span class="notes-external-title">External Note Apps</span>
+          <button class="notes-external-toggle" on:click={() => showExternalConfig = !showExternalConfig} title="Configure external note app">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
+        </div>
+        {#if showExternalConfig}
+          <div class="notes-external-settings">
+            <label class="notes-external-label">
+              <span>App</span>
+              <select bind:value={externalApp} class="notes-external-select">
+                <option value="obsidian">Obsidian</option>
+                <option value="notion">Notion</option>
+                <option value="logseq">Logseq</option>
+                <option value="custom">Custom URL</option>
+                <option value="none">None (local only)</option>
+              </select>
+            </label>
+            {#if externalApp === 'custom'}
+              <label class="notes-external-label">
+                <span>Base URL</span>
+                <input type="url" bind:value={customAppUrl} placeholder="https://your-note-app.com" class="notes-external-input" />
+              </label>
+            {/if}
+            {#if externalApp !== 'none'}
+              <button class="notes-external-test" on:click={testExternalApp}>Test Connection</button>
+              {#if externalAppTestResult}
+                <span class="notes-external-result" class:success={externalAppTestResult === 'ok'} class:error={externalAppTestResult !== 'ok'}>{externalAppTestResult === 'ok' ? 'Connection OK' : externalAppTestResult}</span>
+              {/if}
+            {/if}
+          </div>
+        {/if}
+      </div>
       <NotesView />
     </div>
   {/if}
