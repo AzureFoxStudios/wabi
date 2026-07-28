@@ -34,6 +34,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { MODEL_VIEWPORT_ADDON_ID } from '$lib/modelViewportTab';
 	import { READER_ADDON_ID } from '$lib/readerWorkspace';
 	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
+	import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
+	import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import {
 		getServerScopedUserKey,
 		getTrackedPersonKeyForUser,
@@ -91,10 +93,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	const READER_TAB_TOKEN = mobileTabQueue.toAddonTabId(READER_ADDON_ID);
 	const MAP_TAB_TOKEN = mobileTabQueue.toAddonTabId(MAP_ADDON_ID);
 	const MEDIA_ALBUMS_TAB_TOKEN = mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID);
+	const PLANNER_TAB_TOKEN = mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID);
 	$: isModelViewportTabActive = $activeTabId === MODEL_VIEWPORT_TAB_TOKEN;
 	$: isReaderTabActive = $activeTabId === READER_TAB_TOKEN;
 	$: isMapTabActive = $activeTabId === MAP_TAB_TOKEN;
 	$: isMediaAlbumsTabActive = $activeTabId === MEDIA_ALBUMS_TAB_TOKEN;
+	$: isPlannerTabActive = $activeTabId === PLANNER_TAB_TOKEN;
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
 	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
@@ -155,6 +159,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			id: MEDIA_ALBUMS_ADDON_ID,
 			label: 'Media Albums',
 			shortLabel: 'Albums'
+		});
+		mobileTabQueue.registerAddonTab({
+			id: PLANNER_ADDON_ID,
+			label: 'Planner',
+			shortLabel: 'Planner'
 		});
 
 		// Optional deep-link: #admin opens the full dashboard for staff.
@@ -239,6 +248,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		mobileTabQueue.unregisterAddonTab(READER_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(MAP_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(MEDIA_ALBUMS_ADDON_ID);
+		mobileTabQueue.unregisterAddonTab(PLANNER_ADDON_ID);
 		if (mobileNavIdleTimer) {
 			clearTimeout(mobileNavIdleTimer);
 			mobileNavIdleTimer = null;
@@ -889,6 +899,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					<MediaAlbumsTab variant="full" />
 				{:else if isMapTabActive}
 					<MapWorkspace variant="full" />
+				{:else if isPlannerTabActive}
+					<PlannerWorkspace variant="full" />
 				{:else if $layoutStore.centerDmChannelId || activeView === 'dm'}
 					<div class="center-dm-layout">
 						<div class="center-dm-list">
