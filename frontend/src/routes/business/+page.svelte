@@ -9,5 +9,5 @@
 </svelte:head>
 
 {#if typeof window !== 'undefined'}
-	<!-- Preserve legacy /business URLs by opening Planner in the main app shell. -->
+	<!-- Redirect legacy /business URLs to the main Planner workspace. -->
 {/if}
