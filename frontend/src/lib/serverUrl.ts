@@ -174,11 +174,11 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 			try {
 				const parsed = new URL(envUrl);
 				if (!isLocalHost(parsed.hostname)) {
-					return { url: `${protocol}//${hostname}:3001`, source: 'env_override_dev_rewrite' };
+					return { url: `${protocol}//${hostname}:3000`, source: 'env_override_dev_rewrite' };
 				}
 			} catch {
 				// Invalid URL in dev override -> fail safe to local backend.
-				return { url: `${protocol}//${hostname}:3001`, source: 'env_override_dev_rewrite_invalid' };
+				return { url: `${protocol}//${hostname}:3000`, source: 'env_override_dev_rewrite_invalid' };
 			}
 		}
 		return { url: envUrl, source: 'env_override' };
@@ -190,14 +190,14 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 	// 2. Tauri runtime (Windows often uses https://tauri.localhost, but runtime can vary by platform/build)
 	if (hasTauriBridge || hostname === 'tauri.localhost' || protocol === 'tauri:') {
 		if (import.meta.env.DEV) {
-			return { url: `${protocol}//${hostname}:3001`, source: 'dev_tauri' };
+			return { url: `${protocol}//${hostname}:3000`, source: 'dev_tauri' };
 		}
 		return { url: 'https://wabi.chat', source: 'prod_tauri' };
 	}
 
 	// 3. Vite dev server — use the page's hostname with backend port 3001
 	if (port === '5173') {
-		return { url: `${protocol}//${hostname}:3001`, source: 'dev_vite' };
+		return { url: `${protocol}//${hostname}:3000`, source: 'dev_vite' };
 	}
 
 	// 4. Direct container access: frontend on :3000, backend on :8080 on the same host.
