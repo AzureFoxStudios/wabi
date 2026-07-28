@@ -38,6 +38,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/", axum::routing::get(list_channels))
         .route("/", axum::routing::post(create_channel))
         .route("/{id}", axum::routing::get(get_channel))
+        .route("/{id}", axum::routing::patch(update_channel))
         .route("/{id}", axum::routing::delete(delete_channel))
         .route("/{channel_id}/reactions", axum::routing::get(list_channel_reactions))
         .with_state(state)
@@ -131,6 +132,8 @@ async fn create_channel(
         "wiki" => wabidb::domain::ChannelKind::Wiki,
         "forum" => wabidb::domain::ChannelKind::Forum,
         "incident" => wabidb::domain::ChannelKind::Incident,
+        "gallery" => wabidb::domain::ChannelKind::Gallery,
+        "category" => wabidb::domain::ChannelKind::Category,
         _ => wabidb::domain::ChannelKind::Text,
     };
 
@@ -217,6 +220,41 @@ async fn create_channel(
         description: None,
         force_spoiler: req.force_spoiler,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateChannelRequest {
+    name: Option<String>,
+    description: Option<String>,
+    position: Option<i32>,
+    force_spoiler: Option<bool>,
+}
+
+async fn update_channel(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateChannelRequest>,
+) -> Result<Json<ChannelResponse>> {
+    if !state.is_admin(auth.user_id).await {
+        return Err(AppError::Unauthorized("only admins can update channels".into()));
+    }
+    let mut patch = serde_json::Map::new();
+    if let Some(name) = req.name {
+        patch.insert("name".to_string(), serde_json::Value::String(name));
+    }
+    if let Some(desc) = req.description {
+        patch.insert("description".to_string(), serde_json::Value::String(desc));
+    }
+    if let Some(pos) = req.position {
+        patch.insert("position".to_string(), serde_json::Value::Number(pos.into()));
+    }
+    if let Some(force) = req.force_spoiler {
+        patch.insert("force_spoiler".to_string(), serde_json::Value::Bool(force));
+    }
+    state.wdb.update_channel(&id, &serde_json::Value::Object(patch), auth.user_id as u64).await?;
+    let channel = state.wdb.get_channel(&id).await?.ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
+    Ok(Json(channel_to_response(channel)))
 }
 
 async fn delete_channel(
