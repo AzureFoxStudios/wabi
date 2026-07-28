@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import BusinessSurface from '$lib/components/business/BusinessSurface.svelte';
+	import { openPlannerSurface } from '$lib/plannerWorkspace';
 </script>
 
 <svelte:head>
-	<title>Business Hub · Wabi</title>
+	<title>Planner · Wabi</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
-<BusinessSurface />
+{#if typeof window !== 'undefined'}
+	<!-- Preserve legacy /business URLs by opening Planner in the main app shell. -->
+{/if}
