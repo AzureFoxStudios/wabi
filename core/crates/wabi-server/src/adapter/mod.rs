@@ -276,6 +276,44 @@ impl WabiStore for WdbAdapter {
         Ok(format!("ch_{:x}", seq))
     }
 
+    async fn update_channel(
+        &self,
+        channel_id: &str,
+        patch: &serde_json::Value,
+        actor_user_id: u64,
+    ) -> Result<()> {
+        let mut payload = serde_json::Map::new();
+        payload.insert("channel_id".to_string(), json!(channel_id));
+        if let Some(name) = patch.get("name") {
+            payload.insert("name".to_string(), name.clone());
+        }
+        if let Some(desc) = patch.get("description") {
+            payload.insert("description".to_string(), desc.clone());
+        }
+        if let Some(force) = patch.get("force_spoiler") {
+            payload.insert("force_spoiler".to_string(), force.clone());
+        }
+        if let Some(pos) = patch.get("position") {
+            payload.insert("position".to_string(), pos.clone());
+        }
+        if let Some(parent) = patch.get("parent_id") {
+            payload.insert("parent_id".to_string(), parent.clone());
+        }
+        let payload = serde_json::Value::Object(payload);
+        self.run(
+            actor_user_id,
+            "update_channel",
+            format!("channels:{}", channel_id),
+            "channel_updated",
+            1,
+            Self::payload_json(&payload)?,
+            false,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn add_reaction(
         &self,
         message_id: &str,
@@ -818,6 +856,8 @@ impl WabiStore for WdbAdapter {
                     wabidb::domain::ChannelKind::Wiki => "wiki",
                     wabidb::domain::ChannelKind::Forum => "forum",
                     wabidb::domain::ChannelKind::Incident => "incident",
+                    wabidb::domain::ChannelKind::Gallery => "gallery",
+                    wabidb::domain::ChannelKind::Category => "category",
                 };
                 row.insert("channel_type".into(), serde_json::json!(kind));
                 row.insert("type".into(), serde_json::json!(kind));
