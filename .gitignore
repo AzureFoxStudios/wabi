@@ -81,6 +81,7 @@ turn-server/turnserver.conf
 # Data files (per-instance, never commit)
 data/business/
 data/chat.db
+data/wabidb/
 data/state-plane-stdb-token-cache.json
 data/state-plane-outbox.ndjson
 data/state-plane-schema-version.json
