@@ -86,6 +86,12 @@
 	let isTextSectionExpanded = true;
 	let isVoiceSectionExpanded = true;
 	let isGallerySectionExpanded = true;
+	let collapsedCategories = new Set<string>();
+	function toggleCategory(id: string) {
+		if (collapsedCategories.has(id)) collapsedCategories.delete(id);
+		else collapsedCategories.add(id);
+		collapsedCategories = collapsedCategories;
+	}
 	let voiceDurationMode: 'off' | 'others' | 'all' = 'off';
 	let nowMs = Date.now();
 	let voiceDurationTicker: ReturnType<typeof setInterval> | null = null;
@@ -125,16 +131,47 @@
 	function isChannelLocallyMuted(id: string) { return isServerChannelMuted(id); }
 	function shouldHideChannelFromList(ch: Channel) { return $displayEnhancementSettingsStore.hideMutedCategoriesEnabled && $currentChannel !== ch.id && isChannelLocallyMuted(ch.id); }
 
-		$: textChannels = $channels.filter(ch => { const t = ch.type as string | undefined; return !t || t === 'public' || t === 'text' || t === 'live'; }).filter(ch => !shouldHideChannelFromList(ch)).sort((a, b) => { if (a.id === 'general') return -1; if (b.id === 'general') return 1; return a.name.localeCompare(b.name); });
+		function sortByPosition(channels: Channel[]): Channel[] {
+		return channels.sort((a, b) => (a.position ?? 999) - (b.position ?? 999) || a.name.localeCompare(b.name));
+	}
+
+	function groupByCategory(channels: Channel[], all: Channel[]): { categories: { id: string; name: string; channels: Channel[] }[]; uncategorized: Channel[] } {
+		const categoryIds = new Set<string>();
+		const channelMap = new Map(all.map(c => [c.id, c]));
+		const categorized = new Map<string, Channel[]>();
+		const uncategorized: Channel[] = [];
+		for (const ch of channels) {
+			if (ch.parentId && channelMap.has(ch.parentId)) {
+				const list = categorized.get(ch.parentId) || [];
+				list.push(ch);
+				categorized.set(ch.parentId, list);
+				categoryIds.add(ch.parentId);
+			} else {
+				uncategorized.push(ch);
+			}
+		}
+		const categories = Array.from(categoryIds).map(id => ({
+			id,
+			name: channelMap.get(id)?.name || id,
+			channels: sortByPosition(categorized.get(id) || [])
+		})).sort((a, b) => (channelMap.get(a.id)?.position ?? 999) - (channelMap.get(b.id)?.position ?? 999));
+		return { categories, uncategorized: sortByPosition(uncategorized) };
+	}
+
+	$: textChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return !t || t === 'public' || t === 'text' || t === 'live'; }).filter(ch => !shouldHideChannelFromList(ch));
+	$: textChannelsByPos = sortByPosition([...textChannelsAll]);
+	$: textCategoryMap = groupByCategory(textChannelsAll, $channels);
 	$: groupChannels = $channels.filter(ch => ch.type === 'group').filter(ch => !shouldHideChannelFromList(ch));
 	$: threadChannels = $channels.filter(ch => ch.type === 'thread_public' || ch.type === 'thread_private').sort((a, b) => (b.threadLastActivityAt || b.createdAt || 0) - (a.threadLastActivityAt || a.createdAt || 0));
 	$: threadChannelsByParent = threadChannels.reduce((acc: Record<string, Channel[]>, t) => { const p = t.parentChannelId; if (!p) return acc; (acc[p] ||= []).push(t); return acc; }, {});
-	$: allVoiceChannels = $channels.filter(ch => ch.type === 'voice').filter(ch => !shouldHideChannelFromList(ch)).sort((a, b) => { if (a.id === 'voice') return -1; if (b.id === 'voice') return 1; return a.name.localeCompare(b.name); });
-	$: breakoutChannelsByParent = allVoiceChannels.filter(ch => ch.isBreakout && ch.parentChannelId).reduce((acc: Record<string, Channel[]>, ch) => { const p = ch.parentChannelId!; (acc[p] ||= []).push(ch); return acc; }, {});
+	$: allVoiceChannelsAll = $channels.filter(ch => ch.type === 'voice').filter(ch => !shouldHideChannelFromList(ch));
+	$: voiceCategoryMap = groupByCategory(allVoiceChannelsAll, $channels);
+	$: breakoutChannelsByParent = allVoiceChannelsAll.filter(ch => ch.isBreakout && ch.parentChannelId).reduce((acc: Record<string, Channel[]>, ch) => { const p = ch.parentChannelId!; (acc[p] ||= []).push(ch); return acc; }, {});
 	$: Object.values(breakoutChannelsByParent).forEach(r => r.sort((a, b) => (a.breakoutIndex || 0) - (b.breakoutIndex || 0)));
-	$: voiceChannels = allVoiceChannels.filter(ch => !ch.isBreakout);
-	$: galleryChannels = $channels.filter(ch => ch.type === 'gallery').filter(ch => !shouldHideChannelFromList(ch)).sort((a, b) => a.name.localeCompare(b.name));
-	$: workspaceChannelCount = textChannels.length + groupChannels.length + voiceChannels.length + galleryChannels.length;
+	$: voiceChannels = allVoiceChannelsAll.filter(ch => !ch.isBreakout);
+	$: galleryChannelsAll = $channels.filter(ch => ch.type === 'gallery').filter(ch => !shouldHideChannelFromList(ch));
+	$: galleryCategoryMap = groupByCategory(galleryChannelsAll, $channels);
+	$: workspaceChannelCount = textChannelsAll.length + groupChannels.length + voiceChannels.length + galleryChannelsAll.length;
 	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
 	$: canTogglePersistMessages = $currentUser?.highestRole === 'owner';
 	$: canManageWatchQueue = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
@@ -196,6 +233,109 @@
 	function handleVoiceChannelDrop(e: DragEvent, chId: string) { if (!draggedVoiceMember || draggedVoiceMember.channelId === chId) return; e.preventDefault(); e.stopPropagation(); moveUserToVoiceChannel(draggedVoiceMember.userId, chId); draggedVoiceMember = null; voiceDropTargetChannelId = null; }
 	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') { voiceDurationMode = mode; try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {} }
 	function toggleSection(s: 'text' | 'voice' | 'gallery') { if (s === 'text') isTextSectionExpanded = !isTextSectionExpanded; else if (s === 'gallery') isGallerySectionExpanded = !isGallerySectionExpanded; else isVoiceSectionExpanded = !isVoiceSectionExpanded; }
+
+	let draggedChannelId: string | null = null;
+	let dropTargetChannelId: string | null = null;
+	let dropPosition: 'before' | 'after' | null = null;
+
+	function handleChannelDragStart(e: DragEvent, channelId: string) {
+		draggedChannelId = channelId;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', channelId);
+		}
+	}
+
+	function handleChannelDragOver(e: DragEvent, channelId: string) {
+		if (!draggedChannelId || draggedChannelId === channelId) return;
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const mid = rect.top + rect.height / 2;
+		dropTargetChannelId = channelId;
+		dropPosition = e.clientY < mid ? 'before' : 'after';
+	}
+
+	function handleChannelDragLeave(channelId: string) {
+		if (dropTargetChannelId === channelId) {
+			dropTargetChannelId = null;
+			dropPosition = null;
+		}
+	}
+
+	function handleChannelDrop(e: DragEvent, targetChannelId: string) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (!draggedChannelId || draggedChannelId === targetChannelId) {
+			draggedChannelId = null; dropTargetChannelId = null; dropPosition = null;
+			return;
+		}
+		const allCh = $channels;
+		const draggedIdx = allCh.findIndex(c => c.id === draggedChannelId);
+		const targetIdx = allCh.findIndex(c => c.id === targetChannelId);
+		if (draggedIdx === -1 || targetIdx === -1) {
+			draggedChannelId = null; dropTargetChannelId = null; dropPosition = null;
+			return;
+		}
+
+		const dragged = allCh[draggedIdx];
+		const target = allCh[targetIdx];
+		const targetParentId = target.parentId;
+
+		const sameSection = dragged.parentId === targetParentId;
+		const orders: { id: string; position: number; parentId: string | null }[] = [];
+
+		if (sameSection) {
+			const sectionChs = allCh
+				.filter(c => c.parentId === targetParentId && (c.type === dragged.type || (!c.type && !dragged.type)))
+				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+			const fromIdx = sectionChs.findIndex(c => c.id === draggedChannelId);
+			const toIdx = sectionChs.findIndex(c => c.id === targetChannelId);
+			if (fromIdx !== -1 && toIdx !== -1) {
+				sectionChs.splice(fromIdx, 1);
+				const insertAt = fromIdx < toIdx ? toIdx : toIdx;
+				sectionChs.splice(insertAt, 0, dragged);
+			}
+			sectionChs.forEach((ch, i) => {
+				orders.push({ id: ch.id, position: i, parentId: targetParentId ?? null });
+			});
+		} else {
+			const targetSectionChs = allCh
+				.filter(c => c.parentId === targetParentId && (c.type === dragged.type || (!c.type && !dragged.type)))
+				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+			const toIdx = targetSectionChs.findIndex(c => c.id === targetChannelId);
+			const insertAt = dropPosition === 'after' ? toIdx + 1 : toIdx;
+			targetSectionChs.splice(insertAt, 0, dragged);
+			targetSectionChs.forEach((ch, i) => {
+				orders.push({ id: ch.id, position: i, parentId: targetParentId ?? null });
+			});
+
+			const fromSectionChs = allCh
+				.filter(c => c.parentId === dragged.parentId && (c.type === dragged.type || (!c.type && !dragged.type)))
+				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+			fromSectionChs.forEach((ch, i) => {
+				if (!orders.find(o => o.id === ch.id)) {
+					orders.push({ id: ch.id, position: i, parentId: dragged.parentId ?? null });
+				}
+			});
+		}
+
+		reorderChannels(orders);
+		draggedChannelId = null;
+		dropTargetChannelId = null;
+		dropPosition = null;
+	}
+
+	function handleChannelDragEnd() {
+		draggedChannelId = null;
+		dropTargetChannelId = null;
+		dropPosition = null;
+	}
+
+	function dropTargetClass(channelId: string): string {
+		if (dropTargetChannelId !== channelId) return '';
+		return dropPosition === 'before' ? 'drop-before' : 'drop-after';
+	}
 	async function handleCreateChannel() {
 		const channelName = newChannelName.trim();
 		if (!channelName || creatingChannel) return;
@@ -305,30 +445,69 @@
 			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('text')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
 		{#if isTextSectionExpanded}
-			<TextChannelList {textChannels} {groupChannels} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} />
+			{#each textCategoryMap.categories as cat (cat.id)}
+				<div class="category-row">
+					<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+						<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+						<span class="category-name">{cat.name}</span>
+					</button>
+				</div>
+				{#if !collapsedCategories.has(cat.id)}
+					<div class="category-channels" data-category-id={cat.id}>
+						<TextChannelList textChannels={cat.channels} groupChannels={[]} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} {dropTargetClass} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+					</div>
+				{/if}
+			{/each}
+			<TextChannelList textChannels={textCategoryMap.uncategorized} {groupChannels} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} {dropTargetClass} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 		{/if}
 
 		<div class="section-heading-row">
 			<button class="section-toggle" type="button" aria-expanded={isVoiceSectionExpanded} on:click={() => toggleSection('voice')}>
 				<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-				<span class="section-toggle-label">Voice Channels</span><span class="section-count">{allVoiceChannels.length}</span>
+				<span class="section-toggle-label">Voice Channels</span><span class="section-count">{allVoiceChannelsAll.length}</span>
 			</button>
 			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('voice')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
 		{#if isVoiceSectionExpanded}
-			<VoiceChannelList {voiceChannels} {allVoiceChannels} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {followedChannelIds} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} />
+			{#each voiceCategoryMap.categories as cat (cat.id)}
+				<div class="category-row">
+					<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+						<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+						<span class="category-name">{cat.name}</span>
+					</button>
+				</div>
+				{#if !collapsedCategories.has(cat.id)}
+					<div class="category-channels" data-category-id={cat.id}>
+						<VoiceChannelList voiceChannels={cat.channels} {allVoiceChannelsAll} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {followedChannelIds} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} />
+					</div>
+				{/if}
+			{/each}
+			<VoiceChannelList {voiceChannels} allVoiceChannels={voiceCategoryMap.uncategorized} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {followedChannelIds} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} />
 		{/if}
 
-		{#if galleryChannels.length > 0}
+		{#if galleryChannelsAll.length > 0}
 			<div class="section-heading-row">
 				<button class="section-toggle" type="button" aria-expanded={isGallerySectionExpanded} on:click={() => toggleSection('gallery')}>
 					<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-					<span class="section-toggle-label">Gallery</span><span class="section-count">{galleryChannels.length}</span>
+					<span class="section-toggle-label">Gallery</span><span class="section-count">{galleryChannelsAll.length}</span>
 				</button>
 				{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('gallery')} title="Create gallery channel" aria-label="Create gallery channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 			</div>
 			{#if isGallerySectionExpanded}
-				<GalleryChannelList {galleryChannels} {followedChannelIds} {liveWhiteboardChannelIds} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} />
+				{#each galleryCategoryMap.categories as cat (cat.id)}
+					<div class="category-row">
+						<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+							<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+							<span class="category-name">{cat.name}</span>
+						</button>
+					</div>
+					{#if !collapsedCategories.has(cat.id)}
+						<div class="category-channels" data-category-id={cat.id}>
+							<GalleryChannelList galleryChannels={cat.channels} {followedChannelIds} {liveWhiteboardChannelIds} {dropTargetClass} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+						</div>
+					{/if}
+				{/each}
+				<GalleryChannelList galleryChannels={galleryCategoryMap.uncategorized} {followedChannelIds} {liveWhiteboardChannelIds} {dropTargetClass} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 			{/if}
 		{/if}
 

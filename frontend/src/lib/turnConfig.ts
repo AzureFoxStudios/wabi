@@ -186,7 +186,7 @@ export function getStunServers(): { urls: string }[] {
 	}
 
 	// Add Google STUN servers as optional fallback
-	const enableGoogleStun = import.meta.env.VITE_ENABLE_GOOGLE_STUN !== 'false';
+	const enableGoogleStun = import.meta.env.VITE_ENABLE_GOOGLE_STUN === 'true';
 
 	if (enableGoogleStun) {
 		stunServers.push(

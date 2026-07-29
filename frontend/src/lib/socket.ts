@@ -161,6 +161,7 @@ export {
 	pinChannel,
 	unpinChannel,
 	updateChannelSettings,
+	reorderChannels,
 
 	// Message operations
 	sendMessage,

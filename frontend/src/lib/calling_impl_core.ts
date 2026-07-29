@@ -1,5 +1,6 @@
 import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
+import { showToast } from './toast';
 import { disconnectWabidbCall, connectWabidbCall } from './callingWabidb';
 import {
 	configureLivekitTokenRefresh
@@ -2042,23 +2043,23 @@ function handleMediaError(error: DOMException | Error, action: string) {
 		message.includes('secure context') ||
 		message.includes('127.0.0.1');
 	if (insecure) {
-		alert(
-			`Cannot ${action === 'starting' ? 'start' : 'answer'} call: mic/camera API is blocked.\n\n` +
-				`Open Wabi at http://127.0.0.1:5173 (or HTTPS), not a plain LAN IP over HTTP.\n\n${message}`
+		showToast(
+			`Cannot ${action === 'starting' ? 'start' : 'answer'} call: mic/camera API is blocked. Open Wabi at http://127.0.0.1:5173 (or HTTPS), not a plain LAN IP over HTTP.`,
+			'error'
 		);
 		return;
 	}
 	if (error instanceof DOMException && error.name === 'NotAllowedError') {
-		alert(`Permission denied: Please allow camera and microphone access to ${action === 'starting' ? 'start' : 'answer'} a call.`);
+		showToast(`Permission denied: Please allow camera and microphone access to ${action === 'starting' ? 'start' : 'answer'} a call.`, 'error');
 	} else if (error instanceof DOMException && error.name === 'NotFoundError') {
-		alert(`No camera or microphone found to ${action === 'starting' ? 'start' : 'answer'} the call.`);
+		showToast(`No camera or microphone found to ${action === 'starting' ? 'start' : 'answer'} the call.`, 'error');
 	} else if (
 		error instanceof DOMException &&
 		(error.name === 'NotReadableError' || error.name === 'OverconstrainedError')
 	) {
-		alert('Camera or microphone is in use or inaccessible. Please close other applications that might be using it.');
+		showToast('Camera or microphone is in use or inaccessible. Please close other applications that might be using it.', 'error');
 	} else {
-		alert(`Error ${action} call: ${message}`);
+		showToast(`Error ${action} call: ${message}`, 'error');
 	}
 }
 

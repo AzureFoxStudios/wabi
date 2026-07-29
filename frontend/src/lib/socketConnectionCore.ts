@@ -580,6 +580,22 @@ export class SocketManager {
 			);
 		});
 
+		sock.on('channels-reordered', (payload: { channels?: { id: string; position?: number; parentId?: string | null }[] }) => {
+			const reorderList = payload?.channels;
+			if (!Array.isArray(reorderList) || reorderList.length === 0) return;
+			channels.update((list) =>
+				list.map((ch) => {
+					const update = reorderList.find((r) => r.id === ch.id);
+					if (!update) return ch;
+					return {
+						...ch,
+						...(update.position != null ? { position: update.position } : {}),
+						...(update.parentId !== undefined ? { parentId: update.parentId ?? undefined } : {})
+					};
+				})
+			);
+		});
+
 		sock.on('edit-error', (payload: { messageId?: string; error?: string }) => {
 			console.warn('[socket] edit-error', payload?.messageId, payload?.error);
 		});

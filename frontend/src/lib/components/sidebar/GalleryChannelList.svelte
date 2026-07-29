@@ -12,30 +12,29 @@
 	export let onChannelRightClick: (event: MouseEvent, channel: Channel) => void;
 	export let onChannelLongPress: (event: TouchEvent, channel: Channel) => void;
 	export let liveWhiteboardChannelIds: Set<string> = new Set();
+	export let dropTargetClass: (channelId: string) => string = () => '';
+	export let onChannelDragStart: (e: DragEvent, channelId: string) => void = () => {};
+	export let onChannelDragOver: (e: DragEvent, channelId: string) => void = () => {};
+	export let onChannelDragLeave: (channelId: string) => void = () => {};
+	export let onChannelDrop: (e: DragEvent, channelId: string) => void = () => {};
+	export let onChannelDragEnd: () => void = () => {};
 </script>
 
-<div class="section-heading-row">
-	<button
-		class="section-toggle"
-		type="button"
-		aria-expanded={true}
-	>
-		<span class="section-chevron" aria-hidden="true">
-			<svg viewBox="0 0 24 24">
-				<path d="M9 6l6 6-6 6"></path>
-			</svg>
-		</span>
-		<span class="section-toggle-label">Gallery</span>
-		<span class="section-count">{galleryChannels.length}</span>
-	</button>
-</div>
 {#each galleryChannels as channel (channel.id)}
 	<div
 		class="channel-item"
 		class:active={$currentChannel === channel.id}
+		class:drop-before={dropTargetClass(channel.id) === 'drop-before'}
+		class:drop-after={dropTargetClass(channel.id) === 'drop-after'}
 		role="group"
+		draggable="true"
 		on:contextmenu={(e) => onChannelRightClick(e, channel)}
 		use:longpress={{ onLongPress: (e) => onChannelLongPress(e, channel) }}
+		on:dragstart|stopPropagation={(e) => onChannelDragStart(e, channel.id)}
+		on:dragover|stopPropagation={(e) => onChannelDragOver(e, channel.id)}
+		on:dragleave|stopPropagation={() => onChannelDragLeave(channel.id)}
+		on:drop|stopPropagation={(e) => onChannelDrop(e, channel.id)}
+		on:dragend={onChannelDragEnd}
 	>
 		<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => onChannelButtonClick(channel.id, event)} title="Alt-click to glimpse">
 			<span class="hash gallery-icon" aria-hidden="true">
