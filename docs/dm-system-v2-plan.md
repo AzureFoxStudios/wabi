@@ -1,6 +1,8 @@
 # Wabi DM System v2 — Plan + Sober STDB Market Analysis
 
-> **The Lamborghini principle (read first).** STDB is the engine. Wabi's body is the Svelte frontend, the design language, the friend-tier UX, the cross-surface integration with Notes. The right question is not "is STDB over-spec'd for Wabi's throughput" — it is. The right question is: **does the architecture make the trust promise structural?** Wabi's promise is "your audio is gone in 5 minutes, your messages are unreadable to the server admin, your friends are who you say they are, and the server cannot bypass any of this." That promise is only as strong as the database that enforces it. Use the engine. Use STDB's subscription model for real-time. Use its transactional reducers for every state change. Use its binary columns for media. Use its WASM-isolation as defense-in-depth. Don't hedge with "WebRTC is the production pattern" — that argument is for apps where the database is a Honda. Wabi is a Lamborghini.
+> **Unshipped security target:** Current Wabi DMs are server-readable. This plan describes desired architecture, not current guarantees. No E2EE badge or operator-blind claim may ship until the implementation and downgrade tests pass.
+>
+> **The Lamborghini principle (read first).** STDB is the engine. Wabi's body is the Svelte frontend, the design language, the friend-tier UX, the cross-surface integration with Notes. The relevant future-design question is whether the architecture can make tested retention and confidentiality properties structural. Those properties are not guarantees of the current product.
 
 Two documents in one:
 
@@ -24,7 +26,7 @@ Five ideas from the doc that shape v2:
 
 3. **Memory is what the user says.** Retention ladder follows Snapchat/Session framing. Fixed list, not free duration picker. `view once` / `30s` / `1m` / `5m` / `10m` / `30m` / `1h` / `1d` / `1w` / `1mo` / `forever`. Default 1 week. Per-conversation, per-message.
 
-4. **Encryption is non-negotiable.** "Not 'we promise not to look.' Structurally. The server cannot read DM contents." E2E for message bodies. Server holds ciphertext only.
+4. **Verified encryption gates any future claim.** The target is client-side E2EE with ciphertext-only server handling. Current DMs remain server-readable.
 
 5. **LINE mode is a first-class home view, not an extra.** Personal messenger layout that hides server channels, puts DMs + Notes + People at the front.
 
@@ -236,7 +238,7 @@ A user can right-click on a group in the sidebar and "Request history sync" — 
 
 **Upgrade path: Nemotron 3.5 ASR Streaming 0.6B** (the one you linked) — 600M parameters, **~300 MB INT4 ONNX**, ~1-2 GB RAM, 40 languages, configurable chunk sizes 80/160/320/560/1120 ms. Better WER. Same privacy model.
 
-**Server-side opt-in for Tauri-native users:** the same whisper.cpp binary on the server admin's machine, off by default, audio sent over the encrypted DM channel. Lower RAM than browser-side, better latency.
+**Potential server-side opt-in for Tauri-native users:** the same whisper.cpp binary on the server admin's machine, off by default. This sends audio into the server trust boundary and must not be described as E2EE.
 
 **No cloud STT.** Google/Azure/AWS would break E2E.
 

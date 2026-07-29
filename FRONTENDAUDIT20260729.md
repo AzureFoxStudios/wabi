@@ -23,7 +23,7 @@ This is a static and build-level audit. Multi-user calls, payments, uploads, off
 The frontend is **not release-ready**.
 
 - The production build fails.
-- The DM UI displays an `E2EE` guarantee while production send/upload code does not encrypt DMs.
+- The false DM `E2EE` badge was removed after this audit; production send/upload code still does not encrypt DMs.
 - The recommended Caddy configuration denies camera and microphone access and blocks several shipped integrations.
 - The installed dependency graph reports 10 known vulnerabilities, including 2 high severity.
 - `svelte-check` reports 94 warnings in 37 files, in addition to 60 explicitly suppressed accessibility diagnostics.
@@ -32,23 +32,23 @@ The frontend is **not release-ready**.
 
 ## Ranked findings
 
-### 1. P0 — The UI falsely labels DMs as end-to-end encrypted
+### 1. Resolved P0 — The UI falsely labeled DMs as end-to-end encrypted
 
 **Evidence**
 
-- `frontend/src/lib/components/DmConversationView.svelte:63` always renders `E2EE` with the title “End-to-end encrypted.”
+- The audited version of `frontend/src/lib/components/DmConversationView.svelte` rendered `E2EE` with the title “End-to-end encrypted.” The badge and its styling were removed on 2026-07-29.
 - No production caller uses `dmRatchet.encryptMessage`, `sealBase64`, or `deriveConversationKey`; those primitives are only exercised by dormant custom test runners.
 - `frontend/src/lib/components/chat/uploadOrchestrator.ts:71-87` sets both DM privacy branches to `null`, appends `&& false` to `canEncrypt`, and contains `await null` in the encryption branch. DM attachments therefore upload normally without `attachmentEncryption`.
 - `frontend/src/lib/components/MessageList.svelte:1430-1445` deliberately makes encrypted attachment decryption unreachable with `!false` and `await null`.
-- `README.md:65` acknowledges that the visible badge is not a production security guarantee.
+- `README.md` now states that current DM text and attachments are server-readable and that the dormant cryptographic groundwork provides no current E2EE guarantee.
 
 **Impact**
 
-Users are given a concrete security guarantee that the implementation does not provide. DM text and attachments can be readable by infrastructure that users were told could not read them.
+The false UI guarantee is resolved. DM text and attachments remain server-readable, so future UI and documentation must not restore an E2EE claim before the implementation is verified.
 
 **Fix**
 
-Remove the `E2EE` badge immediately. Either finish authenticated message and attachment encryption/decryption, identity verification, key rotation, recovery, multi-device handling, and failure UX, or explicitly label DMs as transport-encrypted only.
+Keep the `E2EE` badge absent. Before making a future claim, finish authenticated message and attachment encryption/decryption, identity verification, key rotation, recovery, multi-device handling, failure UX, and downgrade testing.
 
 ### 2. P0 — Production builds fail
 
@@ -581,7 +581,7 @@ The 94 warnings are distributed as follows:
 
 ## Recommended repair order
 
-1. Remove the false E2EE badge and decide whether real DM E2EE is in release scope.
+1. ~~Remove the false E2EE badge.~~ Completed 2026-07-29; decide separately whether real DM E2EE is in release scope.
 2. Restore a reproducible production build and frozen dependency install.
 3. Correct Caddy browser permissions/CSP and test the actual production headers.
 4. Upgrade vulnerable rendering/network dependencies.

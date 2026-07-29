@@ -60,7 +60,6 @@
       <span class="dm-header-name">{channelDisplayName}</span>
       <div class="dm-header-meta">
         <span class="dm-badge">DM</span>
-        <span class="dm-e2e-badge" title="End-to-end encrypted">E2EE</span>
       </div>
     </div>
     <div class="dm-header-actions">
@@ -195,16 +194,6 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-size: 10px;
-  }
-
-  .dm-e2e-badge {
-    padding: 1px 5px;
-    border-radius: var(--radius-sm, 4px);
-    background: rgba(34, 197, 94, 0.15);
-    color: var(--color-success, #22c55e);
-    font-weight: var(--font-weight-semibold, 600);
-    font-size: 10px;
-    letter-spacing: 0.3px;
   }
 
   .dm-header-actions {
