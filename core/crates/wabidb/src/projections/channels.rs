@@ -81,6 +81,14 @@ impl ChannelProjection {
         if let Some(force) = patch.get("force_spoiler").and_then(|v| v.as_bool()) {
             channel.force_spoiler = force;
         }
+        if let Some(position) = patch.get("position").and_then(|v| v.as_i64()) {
+            if let Ok(position) = i32::try_from(position) {
+                channel.position = position;
+            }
+        }
+        if let Some(parent_id) = patch.get("parent_id") {
+            channel.parent_id = parent_id.as_str().map(str::to_owned);
+        }
         let value = serde_json::to_vec(&channel).map_err(|e| {
             crate::error::WabiError::Validation {
                 command: "channels_projection".into(),
@@ -187,5 +195,50 @@ mod tests {
         assert_eq!(all.len(), 4);
         let limited = proj.query(&state, &ChannelsFilter { limit: Some(2), ..Default::default() }).unwrap();
         assert_eq!(limited.len(), 2);
+    }
+
+    #[test]
+    fn apply_updated_merges_mutable_fields() {
+        let state = ProjectionState::new();
+        let proj = ChannelProjection;
+        let channel = Channel::new("ignored", "general", 42);
+        proj.apply(
+            &DurableEvent {
+                commit_seq: 2,
+                stream_id: "channels".into(),
+                event_type: "channel_created".into(),
+                payload: serde_json::to_vec(&channel).unwrap(),
+            },
+            &state,
+        )
+        .unwrap();
+
+        let channel_id = "ch_2";
+        let patch = serde_json::json!({
+            "channel_id": channel_id,
+            "name": "announcements",
+            "description": "Important updates",
+            "position": 7,
+            "parent_id": "ch_parent",
+            "force_spoiler": true
+        });
+        proj.apply(
+            &DurableEvent {
+                commit_seq: 3,
+                stream_id: format!("channels:{channel_id}"),
+                event_type: "channel_updated".into(),
+                payload: serde_json::to_vec(&patch).unwrap(),
+            },
+            &state,
+        )
+        .unwrap();
+
+        let stored = state.get("channels", channel_id.as_bytes()).unwrap();
+        let updated: Channel = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(updated.name, "announcements");
+        assert_eq!(updated.description.as_deref(), Some("Important updates"));
+        assert_eq!(updated.position, 7);
+        assert_eq!(updated.parent_id.as_deref(), Some("ch_parent"));
+        assert!(updated.force_spoiler);
     }
 }

@@ -48,6 +48,14 @@ pub trait WabiStore: Send + Sync {
         force_spoiler: bool,
     ) -> Result<String>;
 
+    /// Patch mutable channel metadata.
+    async fn update_channel(
+        &self,
+        channel_id: &str,
+        patch: &serde_json::Value,
+        actor_user_id: u64,
+    ) -> Result<()>;
+
     /// Add or update a reaction on a message.
     async fn add_reaction(
         &self,
@@ -824,6 +832,15 @@ impl WabiStore for LocalWabiStore {
         _force_spoiler: bool,
     ) -> Result<String> {
         Ok("ch_local_stub".to_string())
+    }
+
+    async fn update_channel(
+        &self,
+        _channel_id: &str,
+        _patch: &serde_json::Value,
+        _actor_user_id: u64,
+    ) -> Result<()> {
+        Ok(())
     }
 
     async fn add_reaction(

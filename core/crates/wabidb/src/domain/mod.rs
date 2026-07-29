@@ -107,6 +107,8 @@ pub enum ChannelKind {
     Wiki = 6,
     Forum = 7,
     Incident = 8,
+    Gallery = 9,
+    Category = 10,
 }
 
 impl Channel {
@@ -751,6 +753,8 @@ mod tests {
         assert_eq!(ChannelKind::Wiki as u8, 6);
         assert_eq!(ChannelKind::Forum as u8, 7);
         assert_eq!(ChannelKind::Incident as u8, 8);
+        assert_eq!(ChannelKind::Gallery as u8, 9);
+        assert_eq!(ChannelKind::Category as u8, 10);
     }
 
     #[test]
