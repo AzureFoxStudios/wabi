@@ -1,5 +1,7 @@
 # Wabi DM Mode — Design & Architecture Evaluation Request
 
+> **Current status:** DMs are server-readable and no E2EE badge or guarantee should be shown. Encryption language in this evaluation is an unshipped design target.
+
 You are evaluating a greenfield DM (Direct Message) system for **Wabi**, a self-hosted chat app built with SvelteKit + TypeScript (frontend) and Rust (backend with wabiDB event-store database). Your task: produce a holistic evaluation covering UX design, architecture, and implementation plan for a DM mode that can operate independently from the app's community/channel features.
 
 This is NOT a feature request — I want your original analysis, design thinking, and implementation judgment. Be critical. Point out flaws in my existing approach. Suggest alternatives I haven't considered. The final deliverable from you should be a comprehensive written evaluation.
@@ -199,7 +201,7 @@ Each phase is independently shippable and testable.
 ### Phase 2 — Social boundaries
 - DM request/accept flow (opt-in default, pending state, inline accept/decline)
 - Quick-reaction bar on message hover (thumbs up, heart, etc.) — replaces read receipts
-- Honest banners: "single device · key not backed up · server cannot read"
+- Security disclosure only after verification; no encryption badge or server-blind claim in the current product
 
 ### Phase 3 — Retention + LINE mode
 - 4-rung retention picker (1h / 1d / 1w / keep-on-device), conversation-level only
@@ -221,10 +223,10 @@ v1 ships: 1 hour / 1 day / 1 week (default) / keep-on-device. Full 12-rung ladde
 Read receipts cause documented anxiety (Signal's own UX research confirms this). Ship a quick-reaction bar (thumbs up, heart, etc.) on message hover instead. Read receipts are an opt-in toggle, off by default. The social signal ("they saw it") is better served by a lightweight reaction than by a timestamp-display anxiety loop.
 
 ### "Forever" is NOT a local sidecar
-Simplified for v1: "forever" = no TTL on server ciphertext. The server already cannot read it (E2E). No IndexedDB sidecar, no "best effort" disclaimer, no device-bound caveat. The ciphertext stays on the server indefinitely. For users who want truly device-local copies, an export/backup feature can be added later. This eliminates the entire "local sidecar" complexity while maintaining the security model.
+The proposed design treats "forever" as no TTL on a server record. Current records must be treated as server-readable; calling them ciphertext or E2EE is contingent on a future verified encryption path.
 
-### Single-device key is honest, not a failure
-The banners must say: "Your messages are end-to-end encrypted. Your encryption key lives on this device. If you lose access to this device or clear your browser data, your messages cannot be recovered." A recovery phrase (encrypted blob server-side, unlocked by BIP39 mnemonic) is the v1.5 safety net — but v1 ships the honest single-device limitation.
+### Single-device key disclosure is conditional
+Do not ship an encryption banner in the current product. If verified E2EE later ships, disclose the tested single-device and recovery limitations without promising protections beyond the implementation.
 
 ### Build DmConversationView fresh, do not fork Chat.svelte
 The old DM-strip happened because DMs shared a render path with channels. `DmConversationView` should share only headless utilities (message virtualization, composer textarea) but have its own render tree. The `type === 'dm'` path in `Chat.svelte` is the trap — rip it out.

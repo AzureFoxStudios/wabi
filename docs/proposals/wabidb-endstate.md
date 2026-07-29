@@ -4,6 +4,8 @@
 > **Date:** 2026-06-19  
 > **Audience:** Senior Rust engineer implementing the Wabi database engine  
 > **Scope:** The complete, production-ready WabiDB. Not the migration path. Not phased rollouts. Just what it is.
+>
+> **Current product status (2026-07-29):** This is a proposal. Current Wabi DMs are server-readable; the encryption boundaries in this document are targets and must not be presented as shipped guarantees.
 
 ---
 
@@ -2595,7 +2597,7 @@ The key material is held only in process memory (not on disk in plaintext). The 
 
 The encryption boundary: every stream segment is encrypted with that stream's key before being written to disk. Decryption is on read. Key destruction (when retention expires) makes the ciphertext permanently unrecoverable.
 
-### 6.10 What the Server Never Sees
+### 6.10 Proposed Client-Only Material (Unshipped)
 
 - Plaintext DM message content.
 - Plaintext private identity keys.

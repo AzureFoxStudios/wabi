@@ -1,5 +1,7 @@
 # DM System — Final Build Plan
 
+> **Unshipped security target:** Current Wabi DMs are server-readable. This plan is not a product guarantee. The current UI must not show an E2EE badge, encryption footer, or operator-blind claim.
+
 > The vision document `dms-and-notes-vision.md` is the source of truth for product intent.
 > This is the single end-state spec. No versions, no deferrals. Every feature here gets built.
 > Build order is dependency-driven, not scope-driven — crypto before UI because correctness demands isolation, not because time is a constraint.
@@ -147,11 +149,11 @@ Backend: `dm_messages.rs`, `dm_reactions.rs`, `dm_retention.rs` — append to wa
 - `server-browser`: channels take the stage; DMs collapse to the rail (existing layout)
 
 ### 6. DmConversationView (fresh component, no Chat.svelte)
-Header: avatar, name, presence dot, last-seen, 🔒 E2E badge, ⏱ retention badge, 📞 call buttons, 📝→note action
+Header: avatar, name, presence dot, last-seen, retention badge, call buttons, note action. Add encryption status only after the verified E2EE release gate passes.
 Composer: text input, send on Enter, per-message retention override, no @mentions
 Message list: virtualized scrollback, decrypted client-side
 Message item: bubble, hover reactions (encrypted), retention chip, promote-to-note, edit/delete own
-Footer: "🔒 end-to-end encrypted with forward secrecy · no @mentions · no roles"
+Footer: no encryption guarantee in the current product.
 
 ### 7. Multitasking — aux pane, tabs, pop-out
 - `DmSecondaryPanel.svelte` — right panel (320px, resizable) hosting a second DmConversationView
@@ -284,6 +286,6 @@ frontend/src/lib/components/ChatComposer.svelte
 
 ---
 
-## Posture statement
+## Security-claim release gate
 
-> "Wabi DMs are encrypted with a key only your recovery phrase can restore. Your server stores ciphertext and can never read your words. Messages expire on your schedule — from view-once to forever. Forward secrecy ensures that even a future key leak cannot decrypt past messages. The crypto adds microseconds per message; speed is indistinguishable from non-encrypted chat. Your server is blind to your conversations — structurally, not by policy."
+Do not publish an E2EE, forward-secrecy, ciphertext-only, recovery, or operator-blind posture statement until the complete production send/receive, attachment, downgrade, key-change, recovery, and multi-device test suite passes. Current DMs are server-readable.

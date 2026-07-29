@@ -62,7 +62,7 @@ The DM hub combines one-to-one conversations and private group conversations. Us
 
 DM conversations reuse the main chat composer and message renderer, so they support text, replies, GIFs, emoji, spoilers, and file/media uploads. Voice and video call actions are available when a DM is open in the main chat surface. The Rust server owns DM/group creation and deletion, call signaling, and Wabidb-backed message/channel state; guests cannot create or delete DMs.
 
-There is cryptographic groundwork for encrypted DM envelopes, X25519/AES-GCM client primitives, key recovery, and a ratchet. However, the current frontend send/upload path does not wire those pieces into complete client-to-client encryption. Do not treat the visible `E2EE` badge as a production security guarantee yet.
+Current DMs are **not end-to-end encrypted**. The server and server operator may be able to read DM text and attachments. The repository contains experimental X25519/AES-GCM, recovery, ratchet, and encrypted-envelope groundwork, but those pieces are not connected to the production send/upload path and provide no current E2EE guarantee.
 
 Implementation: `frontend/src/lib/components/DmHub.svelte`, `frontend/src/lib/components/DmConversationView.svelte`, `frontend/src/lib/dm/`, and `core/crates/wabi-server/src/socketio/dm_moderation.rs`.
 

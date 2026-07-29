@@ -1,8 +1,10 @@
 # Privacy, Ephemeral Persistence, and DM E2EE Repair Plan
 
+> **Current implementation status (2026-07-29):** DMs and DM files are server-readable. This is a repair plan, not evidence of shipped E2EE. No E2EE badge or guarantee may be restored until every relevant acceptance test passes.
+>
 > For hy3: implement this plan in small, independently reviewable cards. Do not commit, rebase, change branches, or delete existing documentation. Run the stated tests after each card and stop at a failing contract instead of broadening scope.
 
-**Goal:** Restore Wabi’s intended trust model: user content is memory-only unless explicitly persisted; opted-in public history is readable by the server owner; DMs and DM files are end-to-end encrypted so the server stores ciphertext only.
+**Goal:** Restore Wabi’s intended trust model so that, after implementation and verification, DMs and DM files can use client-side E2EE with ciphertext-only server storage.
 
 **Architecture:** Split message delivery by persistence class before any durable write occurs. `Off` messages use the existing in-memory/session fanout and never reach WabiDB. Persistent public messages use the normal WabiDB path and remain owner-readable. DMs use the existing browser X3DH/Double Ratchet primitives, but their live send/receive and attachment paths must be reconnected so the server only relays/stores ciphertext envelopes.
 
