@@ -22,7 +22,7 @@ This is a static and build-level audit. Multi-user calls, payments, uploads, off
 
 The frontend is **not release-ready**.
 
-- The production build fails.
+- The production build failure found by this audit was fixed with Svelte/Vite TypeScript preprocessing.
 - The false DM `E2EE` badge was removed after this audit; production send/upload code still does not encrypt DMs.
 - The recommended Caddy configuration denies camera and microphone access and blocks several shipped integrations.
 - The installed dependency graph reports 10 known vulnerabilities, including 2 high severity.
@@ -50,21 +50,21 @@ The false UI guarantee is resolved. DM text and attachments remain server-readab
 
 Keep the `E2EE` badge absent. Before making a future claim, finish authenticated message and attachment encryption/decryption, identity verification, key rotation, recovery, multi-device handling, failure UX, and downgrade testing.
 
-### 2. P0 — Production builds fail
+### 2. Resolved P0 — Production builds failed
 
 **Evidence**
 
-- `bun run build` and `npm run build` fail at `frontend/src/lib/effects/AmbientBackground.svelte:95`.
-- Rollup receives the TypeScript-only optional parameter syntax in `function loop(time?: number)` as JavaScript and reports `Expected ',', got '?'`.
-- `frontend/svelte.config.js:12` explicitly sets `preprocess: []`.
+- The audited version failed at `frontend/src/lib/effects/AmbientBackground.svelte:95` because Rollup received TypeScript syntax as JavaScript.
+- `frontend/svelte.config.js` now uses `vitePreprocess({ script: true })`, which preprocesses TypeScript-bearing Svelte scripts before compilation.
+- `bun run build` completed successfully after the correction.
 
 **Impact**
 
-The frontend, embedded server assets, Tauri builds, and release CI cannot produce a deployable artifact from the current tree.
+The blocking compiler failure is resolved. Existing build warnings remain separate audit findings.
 
 **Fix**
 
-Configure `vitePreprocess()` in `svelte.config.js` or rewrite the component to syntax the configured compiler supports. Keep `bun run build` as a required CI gate.
+Keep `vitePreprocess({ script: true })` enabled and retain `bun run build` as a required CI gate.
 
 ### 3. P0 — Recommended deployment headers disable calls, capture, maps, and shipped integrations
 
@@ -571,7 +571,7 @@ The 94 warnings are distributed as follows:
 
 | Command | Result |
 |---|---|
-| `bun run build` | **Failed** — `AmbientBackground.svelte:95` TypeScript parse error |
+| `bun run build` | **Passed after follow-up fix** — Svelte TypeScript preprocessing enabled |
 | `npm run check` | Passed exit code, **0 errors / 94 warnings in 37 files** |
 | `npm run check:i18n` | Passed — locale key parity only |
 | `bun test` | Passed — **7 registered tests** |
@@ -582,7 +582,7 @@ The 94 warnings are distributed as follows:
 ## Recommended repair order
 
 1. ~~Remove the false E2EE badge.~~ Completed 2026-07-29; decide separately whether real DM E2EE is in release scope.
-2. Restore a reproducible production build and frozen dependency install.
+2. ~~Restore the production build.~~ Completed 2026-07-29; the frozen dependency install remains unresolved.
 3. Correct Caddy browser permissions/CSP and test the actual production headers.
 4. Upgrade vulnerable rendering/network dependencies.
 5. Stop caching private media; repair PWA shell/expiry behavior.
