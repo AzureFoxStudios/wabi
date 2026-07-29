@@ -60,7 +60,7 @@ rand = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 
 # JWT
-jsonwebtoken = "9"
+jsonwebtoken = "11"
 
 # Password hashing
 bcrypt = "0.17"
