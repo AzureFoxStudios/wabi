@@ -13,12 +13,14 @@ Positioning references:
 
 ## What Wabi includes
 
-- Real-time text chat, channels, DMs, presence, typing indicators
-- Voice, video, and screen sharing via WebRTC
+- Real-time text chat, channels, one-to-one DMs, private group conversations, presence, and typing indicators
+- Private, browser-local notes with pinning, color labels, a quick scratchpad, and Reader integration
+- Voice, video, and configurable-quality screen sharing via WebRTC
 - Better call connectivity across networks using TURN (coturn)
 - User accounts, JWT auth, guest access codes, and role-based permissions
 - Saves shared server state in the embedded Wabidb engine; browser-local client caches belong in IndexedDB
-- Theme customization and saved user preferences
+- Eight built-in themes, timed light/dark switching, and a custom theme editor
+- Optional Lore-backed version control for large assets and call recordings
 - Plugin system with integrity/signature policy controls
 - Optional `relay-node` (file delivery network phase) and `media-gateway` (SRT gateway daemon + worker bridge)
 
@@ -26,25 +28,117 @@ Positioning references:
 
 | Area | Status | Notes |
 |---|---|---|
-| Real-time chat | Available | Channels, DMs, presence, typing indicators |
-| Voice/video calls | Available | WebRTC with TURN REST credentials |
-| Screen sharing | Available | Real-time share flows in client |
+| Real-time chat | Available | Channels, one-to-one DMs, private groups, replies, uploads, presence, and typing indicators |
+| Notes | Available | Private browser-local workspace, quick scratchpad, pinning, colors, and Reader view |
+| Voice/video calls | Available | Direct, group, and voice-channel calls over WebRTC; TURN and LiveKit are optional |
+| Screen sharing | Available | Browser/desktop capture with quality presets from low-data 144p through source resolution |
 | Auth + roles | Available | JWT auth, guest codes, RBAC |
 | Persistence | Available | Wabidb server state (embedded engine) + IndexedDB client-local cache |
-| Theming | Available | Saved user theme/preferences |
+| Theming | Available | Eight presets, custom colors/gradients/backgrounds, per-panel colors, import/export, and timed switching |
+| Lore asset VCS | Optional | Compile-time addon for revisioned large-file storage, history, branches, merges, diffs, and locks |
 | Relay network | Optional/Phase 1 | `relay-node/` for file delivery relays |
-| SRT media gateway | Optional | `media-gateway/` daemon with control-plane sync + worker orchestration |
+| SRT media gateway | Optional/Partial | Control-plane sync and worker orchestration are present; browser call media still uses WebRTC |
 | Plugin system | In progress | Core framework is live (integrity/signing). Plugin mode completion is on roadmap. |
+
+## Feature guide
+
+### Notes
+
+Wabi includes a private notes workspace alongside chat. Notes are scoped to the signed-in user in the current browser profile and support:
+
+- Create, edit, and delete
+- Pin-to-top ordering and theme-aware color labels
+- A resizable list/editor workspace and compact panel layout
+- Opening a note in Reader mode
+- A separate quick scratchpad
+
+Notes currently use browser `localStorage`; they are not synced to Wabidb or another device. The DM hub can also launch or test links to Obsidian, Notion, Logseq, or a custom URL, but this is an external-app shortcut rather than two-way note synchronization.
+
+Implementation: `frontend/src/lib/notesStore.ts`, `frontend/src/lib/components/NotesWorkspace.svelte`, and `frontend/src/lib/components/QuickScratchpad.svelte`.
+
+### Direct messages
+
+The DM hub combines one-to-one conversations and private group conversations. Users can start a conversation from the people picker, see presence, unread counts, last-message previews, and open a conversation in the main view, side panel, detached desktop window, or both center and side layouts.
+
+DM conversations reuse the main chat composer and message renderer, so they support text, replies, GIFs, emoji, spoilers, and file/media uploads. Voice and video call actions are available when a DM is open in the main chat surface. The Rust server owns DM/group creation and deletion, call signaling, and Wabidb-backed message/channel state; guests cannot create or delete DMs.
+
+There is cryptographic groundwork for encrypted DM envelopes, X25519/AES-GCM client primitives, key recovery, and a ratchet. However, the current frontend send/upload path does not wire those pieces into complete client-to-client encryption. Do not treat the visible `E2EE` badge as a production security guarantee yet.
+
+Implementation: `frontend/src/lib/components/DmHub.svelte`, `frontend/src/lib/components/DmConversationView.svelte`, `frontend/src/lib/dm/`, and `core/crates/wabi-server/src/socketio/dm_moderation.rs`.
+
+### Lore asset version control
+
+[Lore](https://github.com/EpicGames/lore) is an optional version-control backend for large binary assets such as video, audio, textures, CAD files, and 3D models. Wabi exposes Lore through Asset Storage channels with:
+
+- Drag-and-drop upload, download, deletion, folders, and media previews
+- Immutable revision and per-file history
+- Snapshots with commit messages
+- Revision diffs
+- Branch creation and merging
+- File locking for assets that cannot be merged safely
+- Optional upload of completed call recordings to a configured Recordings channel
+
+Wabidb stores repository and commit metadata while the Lore server stores the file bytes. The addon is excluded from the default server binary: build `wabi-server` with `--features wabi-lore` (or the aggregate `addons` feature), enable `[addons.lore]`, and provide a working Lore CLI/server. Without that feature, the REST routes do not exist and the shared frontend quietly disables Lore behavior.
+
+See [`docs/addons/lore.md`](docs/addons/lore.md) for build, configuration, API, security, and operations details.
+
+### Themes and appearance
+
+The current theme system derives application-wide semantic CSS tokens from eight curated palettes: Nebula, Daylight, Midnight Blue, High Contrast, Forest, Warm Red, Sakura, and Space. Several themes include ambient effects and frosted surfaces.
+
+Appearance settings also support:
+
+- Custom surface, text, accent, border, and gradient colors
+- Independent colors for the server rail, sidebar, chat, and side panels
+- Background images, uniform font controls, and a live preview
+- JSON theme import/export
+- Scheduled switching between a chosen daytime and nighttime theme
+- Message density, layout, motion, and lower-power presentation controls
+
+Theme choices fall back to browser-local persistence when the optional server theme endpoint is unavailable. This means a theme may remain device-local on deployments whose Wabidb user settings do not yet persist theme fields.
+
+Implementation: `frontend/src/lib/theme/`, `frontend/src/lib/components/ThemeCustomizer.svelte`, and `frontend/src/lib/timedThemeMode.ts`.
+
+### Calling
+
+Wabi supports one-to-one voice/video calls, private group calls, and persistent voice channels. The browser baseline is WebRTC:
+
+- Direct calls use peer-to-peer media.
+- Self-hosted coturn provides relay connectivity when peers cannot connect directly.
+- Group/channel calls can use an optional LiveKit SFU when configured, with fallback to peer-to-peer WebRTC.
+- Call controls cover microphone, camera, deafen, device selection, participant layouts, connection diagnostics, and recording.
+- Video sender quality can step down under load to prioritize audio.
+- Call session, participant, and signaling state is represented in Wabidb-backed server APIs.
+
+The optional SRT media gateway currently supplies gateway heartbeats, session lifecycle/control-plane integration, recording, and distribution hooks. It does not replace WebRTC as the browser’s interactive media path.
+
+See [`PROJECT_DOCS/01-architecture/CALLING_TRANSPORT_ARCHITECTURE.md`](PROJECT_DOCS/01-architecture/CALLING_TRANSPORT_ARCHITECTURE.md) for transport boundaries and rollout status.
+
+### Screen sharing
+
+Screen sharing uses the platform’s display-capture picker and participates in the active WebRTC or LiveKit call. It supports screen audio when the browser and operating system expose an audio track, automatically stops when the captured track ends, and provides saved quality profiles:
+
+- Auto: up to 2560×1440 at 30 fps
+- 1080p: up to 8 Mbps at 30 fps
+- Source: up to 3840×2160 at 60 fps with no application bitrate cap
+- 720p, 480p, and 144p low-data modes
+- Optional custom bitrate override
+
+Available resolution, frame rate, window/tab capture, and system audio still depend on the browser, operating system, permissions, and network capacity.
+
+Implementation: `frontend/src/lib/callingScreenShare.ts`, `frontend/src/lib/media/screenShare.ts`, and `frontend/src/lib/callingLivekit.ts`.
 
 ## Architecture at a glance
 
 - `frontend/`: SvelteKit client (web + Tauri support)
-- `backend/`: Node.js + Socket.IO API/server, auth, policy, persistence, plugins
-- `turn-server/`: Dockerized coturn for TURN REST auth
+- `core/crates/wabi-server/`: Rust API and Socket.IO server, auth, policy, persistence, calls, and plugins
+- `core/crates/wabidb/`: embedded event store, projections, snapshots, and domain commands
+- `core/addons/lore/`: optional Lore large-asset version-control bridge
+- `docker-compose.yml`: optional coturn profile for TURN relay service
 - `relay-node/`: Volunteer-hosted relay node for file delivery
 - `media-gateway/`: SRT gateway daemon (control-plane + worker orchestration)
 
-See full architecture and deep technical docs in `PROJECT_DOCS/ARCHITECTURE.md` and `PROJECT_DOCS/CODEBASE_OVERVIEW.md`.
+See full architecture and deep technical docs in `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` and `PROJECT_DOCS/archive/CODEBASE_OVERVIEW.md`.
 
 ## Quick start (recommended: Docker or Podman)
 
