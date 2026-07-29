@@ -525,6 +525,14 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            socket.on("reorder-channels", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_reorder_channels(socket, data, s, io).await }
+                }
+            });
+
             socket.on("retry-message", {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {

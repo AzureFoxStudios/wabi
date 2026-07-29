@@ -49,6 +49,12 @@
 	export let onOpenChannelSettings: (channel: Channel) => void;
 	export let onShowPinnedMessages: (channelId: string) => void;
 	export let liveWhiteboardChannelIds: Set<string> = new Set();
+	export let dropTargetClass: (channelId: string) => string = () => '';
+	export let onChannelDragStart: (e: DragEvent, channelId: string) => void = () => {};
+	export let onChannelDragOver: (e: DragEvent, channelId: string) => void = () => {};
+	export let onChannelDragLeave: (channelId: string) => void = () => {};
+	export let onChannelDrop: (e: DragEvent, channelId: string) => void = () => {};
+	export let onChannelDragEnd: () => void = () => {};
 </script>
 
 {#each textChannels as channel (channel.id)}
@@ -58,9 +64,17 @@
 		class:has-timer={channel.autoDeleteAfter}
 		class:followed={followedChannelIds.has(channel.id)}
 		class:bookmarked={isChannelBookmarked(channel)}
+		class:drop-before={dropTargetClass(channel.id) === 'drop-before'}
+		class:drop-after={dropTargetClass(channel.id) === 'drop-after'}
 		role="group"
+		draggable="true"
 		on:contextmenu={(e) => onChannelRightClick(e, channel)}
 		use:longpress={{ onLongPress: (e) => onChannelLongPress(e, channel) }}
+		on:dragstart|stopPropagation={(e) => onChannelDragStart(e, channel.id)}
+		on:dragover|stopPropagation={(e) => onChannelDragOver(e, channel.id)}
+		on:dragleave|stopPropagation={() => onChannelDragLeave(channel.id)}
+		on:drop|stopPropagation={(e) => onChannelDrop(e, channel.id)}
+		on:dragend={onChannelDragEnd}
 	>
 		<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => onChannelButtonClick(channel.id, event)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : 'Alt-click to glimpse'}>
 			<span class="hash">#</span>
@@ -174,9 +188,17 @@
 			class:has-timer={channel.autoDeleteAfter}
 			class:followed={followedChannelIds.has(channel.id)}
 			class:bookmarked={isChannelBookmarked(channel)}
+			class:drop-before={dropTargetClass(channel.id) === 'drop-before'}
+			class:drop-after={dropTargetClass(channel.id) === 'drop-after'}
 			role="group"
+			draggable="true"
 			on:contextmenu={(e) => onChannelRightClick(e, channel)}
 			use:longpress={{ onLongPress: (e) => onChannelLongPress(e, channel) }}
+			on:dragstart|stopPropagation={(e) => onChannelDragStart(e, channel.id)}
+			on:dragover|stopPropagation={(e) => onChannelDragOver(e, channel.id)}
+			on:dragleave|stopPropagation={() => onChannelDragLeave(channel.id)}
+			on:drop|stopPropagation={(e) => onChannelDrop(e, channel.id)}
+			on:dragend={onChannelDragEnd}
 		>
 			<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => onChannelButtonClick(channel.id, event)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : 'Alt-click to glimpse'}>
 				<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>

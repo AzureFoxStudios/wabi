@@ -163,6 +163,21 @@ export async function unpinChannel(channelId: string): Promise<void> {
 	sock.emit('unpin-channel', { channelId });
 }
 
+export function reorderChannels(orders: { id: string; position: number; parentId: string | null }[]): void {
+  channels.update(list =>
+    list.map(ch => {
+      const order = orders.find(o => o.id === ch.id);
+      if (order) {
+        return { ...ch, position: order.position, parentId: order.parentId ?? undefined };
+      }
+      return ch;
+    })
+  );
+  const sock = getSocket();
+  if (!sock) return;
+  sock.emit('reorder-channels', { channels: orders });
+}
+
 export function updateChannelSettings(channelId: string, settings: {
 	name?: string;
 	description?: string;

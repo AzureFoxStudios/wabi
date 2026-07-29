@@ -51,6 +51,7 @@ export {
 	pinChannel,
 	unpinChannel,
 	updateChannelSettings,
+	reorderChannels,
 	_updatePinnedChannels,
 	_getChannelById
 } from './channelStore';
