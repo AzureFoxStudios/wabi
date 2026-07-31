@@ -7,7 +7,7 @@
   import OverviewSection from './admin/OverviewSection.svelte'
   import type { DashboardStats } from './admin/OverviewSection.svelte'
   import AdminWorkspace from './AdminWorkspace.svelte'
-  import { getAdminPaymentAccessPolicy, type PaymentAccessPolicy } from '$lib/api'
+  import { getAdminPaymentAccessPolicy, getApiBase, type PaymentAccessPolicy } from '$lib/api'
 
   type Section =
     | 'overview' | 'users' | 'roles' | 'channels' | 'gates'
@@ -59,7 +59,7 @@
     const token = getAuthToken()
     if (!token) { statsLoading = false; return }
     try {
-      const res = await fetch('/api/admin/stats', {
+      const res = await fetch(`${getApiBase()}/api/admin/stats`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
