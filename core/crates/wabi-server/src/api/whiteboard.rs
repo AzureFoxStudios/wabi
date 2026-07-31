@@ -24,6 +24,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::error::Result;
 use crate::state::AppState;
+use crate::upload_registry::UploadKind;
 use wabidb::engine::wabi_store::WabiStore;
 
 // ---------------------------------------------------------------------------
@@ -293,6 +294,20 @@ async fn upload_whiteboard_image(
         file_data.len(),
         board_id,
     );
+
+    // Record ownership (ops metadata, not authz). Whiteboard files land in the
+    // generic `/uploads/` URL space, so they belong in the registry too.
+    state
+        .upload_registry
+        .record(
+            &file_id,
+            &safe_file_name,
+            Some(channel_id.clone()),
+            Some(user_id),
+            UploadKind::Whiteboard,
+            file_data.len() as u64,
+        )
+        .await;
 
     let response = WhiteboardImageUploadResponse {
         success: true,

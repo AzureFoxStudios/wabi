@@ -23,6 +23,7 @@ pub mod socketio;
 pub mod socketio_impl;
 pub mod standby;
 pub mod state;
+pub mod upload_registry;
 pub mod websocket;
 
 #[cfg(feature = "wabi-lore")]

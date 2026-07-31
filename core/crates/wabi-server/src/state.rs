@@ -17,6 +17,7 @@ use crate::config::ServerConfig;
 use crate::jobs::JobQueue;
 use crate::nodes::NodeRegistry;
 use crate::replication_transport::ReqwestTransport;
+use crate::upload_registry::UploadRegistry;
 
 /// In-memory message cache shared between Socket.IO and HTTP handlers.
 /// channel_id → Vec of message JSON objects (capped at 1000 per channel).
@@ -63,6 +64,8 @@ pub struct AppState {
     pub job_queue: JobQueue,
     /// Content-addressed blob registry
     pub blob_registry: BlobRegistry,
+    /// Ownership registry for files under `/uploads/` (ops metadata, not authz)
+    pub upload_registry: UploadRegistry,
     /// Media room routing registry (voice/video assignment to helper nodes)
     pub media_registry: crate::media::MediaRoomRegistry,
     /// Broadcasts the SocketIo handle so HTTP handlers (like avatar upload) can emit events
@@ -150,6 +153,7 @@ impl AppState {
         let job_queue =
             JobQueue::new_persistent(PathBuf::from(&config.data_dir).join("job_queue.json"));
         let blob_registry = BlobRegistry::new_persistent(PathBuf::from(&config.data_dir));
+        let upload_registry = UploadRegistry::new_persistent(PathBuf::from(&config.data_dir));
         let media_registry =
             crate::media::MediaRoomRegistry::new_persistent(PathBuf::from(&config.data_dir));
 
@@ -221,6 +225,7 @@ impl AppState {
             node_registry,
             job_queue,
             blob_registry,
+            upload_registry,
             media_registry,
             sio_broadcast_tx,
             blacklist: RwLock::new(None),
