@@ -169,58 +169,40 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("wabi-upload-reg-test-{}", Uuid::new_v4()));
         let reg = UploadRegistry::new_persistent(&tmp);
 
-        reg.record(
-            "abc-123.jpg",
-            "photo.jpg",
-            Some("ch_1".into()),
-            Some(42),
-            UploadKind::Attachment,
-            4096,
-        )
-        .await;
-        reg.record(
-            "wb-1.png",
-            "drawing.png",
-            Some("ch_2".into()),
-            Some(7),
-            UploadKind::Whiteboard,
-            1024,
-        )
-        .await;
-        reg.record(
-            "profile-1.jpg",
-            "avatar.jpg",
-            None,
-            Some(42),
-            UploadKind::Profile,
-            512,
-        )
-        .await;
+        let files = [
+            ("attach-1.jpg", "photo.jpg", Some("ch_1"), Some(42), UploadKind::Attachment, 4096),
+            ("avatar-1.png", "pic.png", Some("ch_2"), Some(7), UploadKind::Avatar, 2048),
+            ("profile-1.jpg", "avatar.jpg", None, Some(42), UploadKind::Profile, 512),
+            ("brand-1.png", "logo.png", Some("ch_3"), Some(9), UploadKind::Branding, 8192),
+            ("wb-1.png", "drawing.png", Some("ch_2"), Some(7), UploadKind::Whiteboard, 1024),
+        ];
 
-        // In-memory lookups
-        let meta = reg.get("abc-123.jpg").await.unwrap();
-        assert_eq!(meta.kind, UploadKind::Attachment);
-        assert_eq!(meta.channel_id.as_deref(), Some("ch_1"));
-        assert_eq!(meta.uploader_id, Some(42));
-        assert_eq!(meta.size, 4096);
-        assert_eq!(meta.original_name, "photo.jpg");
+        for (filename, original, channel, uploader, kind, size) in files {
+            reg.record(filename, original, channel.map(str::to_string), uploader, kind, size)
+                .await;
+        }
+
+        // In-memory lookups — each recorded file returns its own kind
+        for (filename, original, channel, uploader, kind, size) in files {
+            let meta = reg.get(filename).await.unwrap();
+            assert_eq!(meta.kind, kind);
+            assert_eq!(meta.original_name, original);
+            assert_eq!(meta.channel_id.as_deref(), channel);
+            assert_eq!(meta.uploader_id, uploader);
+            assert_eq!(meta.size, size);
+        }
 
         let ch1 = reg.by_channel("ch_1").await;
         assert_eq!(ch1.len(), 1);
         assert_eq!(reg.total_bytes_for_channel("ch_1").await, 4096);
-        assert_eq!(reg.total_bytes_for_channel("ch_2").await, 1024);
+        assert_eq!(reg.total_bytes_for_channel("ch_2").await, 3072);
 
-        // Reload from disk — metadata survives a restart
+        // Reload from disk — all five kinds survive a restart
         let reg2 = UploadRegistry::new_persistent(&tmp);
-        assert_eq!(reg2.list().await.len(), 3);
-        assert_eq!(
-            reg2.get("wb-1.png").await.unwrap().kind,
-            UploadKind::Whiteboard
-        );
-        assert_eq!(
-            reg2.get("profile-1.jpg").await.unwrap().uploader_id,
-            Some(42)
-        );
+        assert_eq!(reg2.list().await.len(), 5);
+        for (filename, _, _, _, kind, _) in files {
+            assert_eq!(reg2.get(filename).await.unwrap().kind, kind);
+        }
 
         // Failure policy: a corrupt registry file must not crash startup
         std::fs::write(tmp.join("upload_registry.json"), "{ not json").unwrap();
