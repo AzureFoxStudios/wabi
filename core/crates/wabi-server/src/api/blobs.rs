@@ -17,6 +17,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::auth_extractor::{AuthUser, OptionalAuthUser};
 use crate::blobs::BlobRegistryError;
 use crate::state::AppState;
 
@@ -63,17 +64,22 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 /// POST /api/blobs/upload
 /// Body is the raw blob bytes. Metadata in query params.
 async fn upload_blob(
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Query(q): Query<UploadBlobQuery>,
     body: axum::body::Bytes,
 ) -> Result<Json<UploadBlobResponse>, BlobApiError> {
+    if auth.is_guest {
+        return Err(BlobApiError::Unauthorized);
+    }
+    let uploaded_by = Some(auth.user_id.to_string());
     let meta = state
         .blob_registry
         .store_blob(
             &body,
             q.original_name,
             q.mime_type,
-            None, // uploaded_by — add from JWT later
+            uploaded_by,
             q.channel_id,
             q.message_id,
             None,
@@ -89,6 +95,7 @@ async fn upload_blob(
 
 /// GET /api/blobs/{hash}
 async fn download_blob(
+    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path(hash): Path<String>,
 ) -> Result<impl IntoResponse, BlobApiError> {
@@ -111,6 +118,7 @@ async fn download_blob(
 
 /// GET /api/blobs/{hash}/meta
 async fn blob_meta(
+    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path(hash): Path<String>,
 ) -> Result<Json<crate::blobs::BlobMeta>, BlobApiError> {
@@ -123,15 +131,22 @@ async fn blob_meta(
 }
 
 /// GET /api/blobs/
-async fn list_blobs(State(state): State<Arc<AppState>>) -> Json<BlobListResponse> {
+async fn list_blobs(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<BlobListResponse>, BlobApiError> {
+    if !state.is_admin(auth.user_id).await {
+        return Err(BlobApiError::Unauthorized);
+    }
     let blobs = state.blob_registry.list_blobs().await;
-    Json(BlobListResponse { blobs })
+    Ok(Json(BlobListResponse { blobs }))
 }
 
 #[derive(Debug)]
 pub enum BlobApiError {
     Registry(BlobRegistryError),
     NotFound,
+    Unauthorized,
     Io(String),
 }
 
@@ -156,6 +171,9 @@ impl IntoResponse for BlobApiError {
             BlobApiError::Registry(BlobRegistryError::Io(msg)) | BlobApiError::Io(msg) => {
                 tracing::error!("blob io error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+            }
+            BlobApiError::Unauthorized => {
+                return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
             }
         };
         (status, body).into_response()

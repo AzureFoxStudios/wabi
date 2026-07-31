@@ -95,6 +95,7 @@ proptest! {
             edited_at_micros: None,
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         };
         projection_round_trip(&record);
     }

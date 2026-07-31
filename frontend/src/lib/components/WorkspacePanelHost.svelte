@@ -10,11 +10,7 @@
 	import ReaderTab from './ReaderTab.svelte';
 	import FfxivReferencePanel from './FfxivReferencePanel.svelte';
 	import TransferCenter from './TransferCenter.svelte';
-	import DmListPanel from './DmListPanel.svelte';
-	import DmConversationView from './DmConversationView.svelte';
-	import { selectedDmChannelId } from '$lib/layoutStoreStates';
-	import { currentUser } from '$lib/socket';
-	import { getKeepNotesStorageKey } from '$lib/notesStore';
+	import DMTab from './DMTab.svelte';
 	import AdminTab from './AdminTab.svelte';
 
 	export let panel: WorkspacePanelManifest;
@@ -27,19 +23,9 @@
 {#if panel.component === 'users'}
 	<UserListTab />
 {:else if panel.component === 'dms'}
-	{#if $selectedDmChannelId}
-		<DmConversationView context="right" />
-	{:else}
-		<DmListPanel />
-	{/if}
+	<DMTab />
 {:else if panel.component === 'notes'}
-	<NotesWorkspace
-		storageKey={getKeepNotesStorageKey($currentUser?.id)}
-		title="Notes"
-		emptyMessage="No notes yet. Create one to get started."
-		placeholder="Write your note..."
-		compact={true}
-	/>
+	<DMTab />
 {:else if panel.component === 'map'}
 	<MapWorkspace variant="compact" />
 {:else if panel.component === 'media'}

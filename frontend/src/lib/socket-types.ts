@@ -133,7 +133,9 @@ type ChannelOptionalProtocolField =
   | 'persistMessages'
   | 'pinnedBy'
   | 'voiceSettings'
-  | 'topic';
+  | 'topic'
+  | 'position'
+  | 'parentId';
 
 export interface Channel extends Omit<ProtocolChannelView, ChannelOptionalProtocolField> {
   description?: Exclude<ProtocolChannelView['description'], null>;
@@ -160,4 +162,7 @@ export interface Channel extends Omit<ProtocolChannelView, ChannelOptionalProtoc
   voiceSettings?: VoiceChannelSettings;
   topic?: Exclude<ProtocolChannelView['topic'], null>;
   forceSpoiler?: boolean;
+  sortOrder?: number;
+  position?: number;
+  parentId?: string;
 }

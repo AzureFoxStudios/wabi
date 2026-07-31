@@ -9,7 +9,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use crate::{error::Result, state::AppState};
+use crate::auth_extractor::{AuthUser, OptionalAuthUser};
+use crate::error::{AppError, Result};
+use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
 fn album_json(album: &wabidb::domain::Album, item_count: usize, preview_items: Vec<Value>) -> Value {
@@ -108,6 +110,7 @@ struct SetFeaturedPayload {
 }
 
 async fn list_albums(
+    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListAlbumsQuery>,
 ) -> Result<Json<Value>> {
@@ -124,6 +127,7 @@ async fn list_albums(
 }
 
 async fn create_album(
+    _auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateAlbumPayload>,
 ) -> Result<Json<Value>> {
@@ -143,6 +147,7 @@ async fn create_album(
 }
 
 async fn get_album(
+    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<Json<Value>> {
@@ -169,6 +174,7 @@ async fn get_album(
 }
 
 async fn delete_album(
+    _auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<StatusCode> {
@@ -195,6 +201,7 @@ async fn delete_album(
 }
 
 async fn list_items(
+    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<Json<Value>> {
@@ -210,6 +217,7 @@ async fn list_items(
 }
 
 async fn add_item(
+    _auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
     Json(payload): Json<AddItemPayload>,
@@ -243,6 +251,7 @@ async fn add_item(
 }
 
 async fn delete_item(
+    _auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Path((album_id, item_id)): Path<(String, String)>,
 ) -> Result<StatusCode> {

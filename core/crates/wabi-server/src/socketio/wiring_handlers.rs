@@ -164,6 +164,15 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
     if let Some(force_spoiler) = settings.get("forceSpoiler").and_then(|v| v.as_bool()) {
         row.insert("force_spoiler".to_string(), json!(force_spoiler));
     }
+    if let Some(pos) = settings.get("position").and_then(|v| v.as_i64()) {
+        row.insert("position".to_string(), json!(pos as i32));
+    }
+    if let Some(parent) = settings.get("parentId").and_then(|v| v.as_str()) {
+        row.insert("parent_id".to_string(), json!(parent));
+    }
+    if settings.get("parentId").and_then(|v| v.as_null()).is_some() {
+        row.insert("parent_id".to_string(), json!(serde_json::Value::Null));
+    }
 
     // Auto-delete / retention presets (5s..90d or null/off = keep forever opt-in,
     // or "live" = session-only, never persisted to WabiDB).
@@ -255,6 +264,15 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
     }
     if let Some(force) = settings.get("forceSpoiler").and_then(|v| v.as_bool()) {
         patch.insert("force_spoiler".to_string(), json!(force));
+    }
+    if let Some(pos) = settings.get("position").and_then(|v| v.as_i64()) {
+        patch.insert("position".to_string(), json!(pos as i32));
+    }
+    if let Some(parent) = settings.get("parentId").and_then(|v| v.as_str()) {
+        patch.insert("parent_id".to_string(), json!(parent));
+    }
+    if settings.get("parentId").and_then(|v| v.as_null()).is_some() {
+        patch.insert("parent_id".to_string(), json!(serde_json::Value::Null));
     }
     if let Err(e) = state.app.wdb.ingest_event("channel", "update", &json!({ "row": patch })).await {
         warn!("[sio] update-channel settings projection merge failed: {}", e);

@@ -89,10 +89,14 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         if is_live {
             message_id = format!("live_{}", uuid::Uuid::new_v4());
         } else {
+            let files: Vec<wabidb::projections::messages::FileAttachmentRecord> = cmd
+                .get("files")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
             match state
                 .app
                 .wdb
-                .send_message(&channel_id, user_id_num as u64, &text, is_spoiler)
+                .send_message(&channel_id, user_id_num as u64, &text, is_spoiler, &files)
                 .await
             {
                 Ok(wdb_id) => {

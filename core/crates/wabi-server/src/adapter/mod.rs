@@ -171,6 +171,7 @@ impl WabiStore for WdbAdapter {
         user_id: u64,
         content: &str,
         is_spoiler: bool,
+        files: &[wabidb::projections::messages::FileAttachmentRecord],
     ) -> Result<String> {
         use wabidb::projections::messages::{encode_record, MessageRecord};
         let idem = format!(
@@ -190,6 +191,7 @@ impl WabiStore for WdbAdapter {
             edited_at_micros: None,
             is_deleted: false,
             is_spoiler,
+            files: files.to_vec(),
         };
         let payload = encode_record(&record);
         let seq = self

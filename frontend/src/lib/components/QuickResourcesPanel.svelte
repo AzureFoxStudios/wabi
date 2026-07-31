@@ -34,7 +34,11 @@
 	];
 
 	function launch(id: string): void {
-		layoutStore.openRightPanel(id);
+		if (id === 'notes') {
+			layoutStore.openNotes();
+		} else {
+			layoutStore.openRightPanel(id);
+		}
 	}
 
 	onDestroy(() => {

@@ -191,10 +191,10 @@ const closeCenterDm = () => {
 };
 
 	const openNotes = () => {
-		selectedDmChannelId.set(null);
-		dmOtherUser.set(null);
+		selectedDmChannelId.set(NOTES_DM_ID);
+		dmOtherUser.set({ id: 'notes', username: 'Notes', color: '#28b463', status: 'active' } as any);
 		selectedGroupChannel.set(null);
-		openRightPanel('notes');
+		openRightPanel('dms');
 	};
 
 const closeDM = () => {

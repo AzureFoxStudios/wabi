@@ -8,6 +8,13 @@ use crossbeam_skiplist::SkipMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FileAttachmentRecord {
+    pub file_url: String,
+    pub file_name: String,
+    pub file_size: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageRecord {
     pub message_id: String,
     pub channel_id: String,
@@ -23,6 +30,10 @@ pub struct MessageRecord {
     /// Added after the initial schema; missing on older on-disk records,
     /// which decode via `MessageRecordV0` and default to `false`.
     pub is_spoiler: bool,
+    /// File attachments uploaded with the message. Empty on older records
+    /// (defaults to `vec![]` during decode).
+    #[serde(default)]
+    pub files: Vec<FileAttachmentRecord>,
 }
 
 /// Pre-`is_spoiler` schema, used as a fallback so messages written before
@@ -63,6 +74,14 @@ impl From<MessageRecord> for crate::domain::Message {
             commit_seq: 0,
             is_deleted: r.is_deleted,
             is_spoiler: r.is_spoiler,
+            files: r.files
+                .into_iter()
+                .map(|f| crate::domain::FileAttachmentRecord {
+                    file_url: f.file_url,
+                    file_name: f.file_name,
+                    file_size: f.file_size,
+                })
+                .collect(),
         }
     }
 }
@@ -81,6 +100,14 @@ impl From<crate::domain::Message> for MessageRecord {
             edited_at_micros: m.edited_at_micros,
             is_deleted: m.is_deleted,
             is_spoiler: m.is_spoiler,
+            files: m.files
+                .into_iter()
+                .map(|f| FileAttachmentRecord {
+                    file_url: f.file_url,
+                    file_name: f.file_name,
+                    file_size: f.file_size,
+                })
+                .collect(),
         }
     }
 }
@@ -118,6 +145,7 @@ pub fn decode_record_lenient(buf: &[u8]) -> Result<MessageRecord> {
                 edited_at_micros: v0.edited_at_micros,
                 is_deleted: v0.is_deleted,
                 is_spoiler: false,
+                files: vec![],
             })
         }
     }
@@ -455,6 +483,7 @@ mod tests {
             edited_at_micros: Some(600_000),
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         }
     }
 
@@ -480,6 +509,7 @@ mod tests {
             edited_at_micros: None,
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         };
         let buf = encode_record(&r);
         let decoded = decode_record(&buf).unwrap();
@@ -546,10 +576,11 @@ mod tests {
             edit_history: vec![],
             edited_at_micros: None,
             is_deleted: false,
-            is_spoiler: false,
-        };
+                is_spoiler: false,
+                files: vec![],
+            };
 
-        let event = make_event(1, "message_created", &r);
+            let event = make_event(1, "message_created", &r);
         proj.apply(&event, &state).unwrap();
 
         // message_id is overridden to format!("msg_{:x}", commit_seq)
@@ -578,6 +609,7 @@ mod tests {
             edited_at_micros: None,
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         };
         let create_event = make_event(1, "message_created", &r);
         proj.apply(&create_event, &state).unwrap();
@@ -676,6 +708,7 @@ mod tests {
             edited_at_micros: None,
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         };
         let event = make_event(1, "message_created", &r);
         proj.apply(&event, &state).unwrap();
@@ -709,6 +742,7 @@ mod tests {
                 edited_at_micros: None,
                 is_deleted: false,
                 is_spoiler: false,
+                files: vec![],
             };
             proj.apply(&make_event(seq, "message_created", &r), &state).unwrap();
         }
@@ -1015,6 +1049,7 @@ mod tests {
             edited_at_micros: None,
             is_deleted: deleted,
             is_spoiler: false,
+            files: vec![],
         }
     }
 

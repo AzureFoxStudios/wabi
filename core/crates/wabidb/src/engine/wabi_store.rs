@@ -29,6 +29,7 @@ pub trait WabiStore: Send + Sync {
         user_id: u64,
         content: &str,
         is_spoiler: bool,
+        files: &[crate::projections::messages::FileAttachmentRecord],
     ) -> Result<String>;
 
     /// Create a new user. Returns the new user_id.
@@ -157,6 +158,17 @@ pub trait WabiStore: Send + Sync {
 
     /// Soft-delete a channel.
     async fn delete_channel(&self, _channel_id: &str, _actor_user_id: u64) -> Result<()> {
+        Ok(())
+    }
+
+    /// Update channel properties (name, description, position, force_spoiler, parent_id).
+    async fn update_channel(
+        &self,
+        channel_id: &str,
+        patch: &serde_json::Value,
+        actor_user_id: u64,
+    ) -> Result<()> {
+        let _ = (channel_id, patch, actor_user_id);
         Ok(())
     }
 
@@ -791,19 +803,14 @@ impl LocalWabiStore {
 impl WabiStore for LocalWabiStore {
     async fn send_message(
         &self,
-        channel_id: &str,
-        user_id: u64,
-        content: &str,
+        _channel_id: &str,
+        _user_id: u64,
+        _content: &str,
         _is_spoiler: bool,
+        _files: &[crate::projections::messages::FileAttachmentRecord],
     ) -> Result<String> {
-        let id = format!("msg_{}", self.next_message_id);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_micros() as i64)
-            .unwrap_or(0);
         // LocalWabiStore is read-only by design (no interior mutability);
         // real writes go through the engine via WdbAdapter.
-        let _ = (id, channel_id, user_id, content, now);
         Ok("msg_local_stub".to_string())
     }
 
@@ -1006,6 +1013,16 @@ impl WabiStore for LocalWabiStore {
         Ok(())
     }
 
+    async fn update_channel(
+        &self,
+        channel_id: &str,
+        patch: &serde_json::Value,
+        actor_user_id: u64,
+    ) -> Result<()> {
+        let _ = (channel_id, patch, actor_user_id);
+        Ok(())
+    }
+
     async fn delete_message(&self, message_id: &str, _actor_user_id: u64) -> Result<()> {
         let _ = message_id;
         Ok(())
@@ -1129,7 +1146,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_string_methods_still_work() {
         let store = LocalWabiStore::new();
-        let id = store.send_message("ch_1", 42, "hello", false).await.unwrap();
+        let id = store.send_message("ch_1", 42, "hello", false, &[]).await.unwrap();
         assert!(!id.is_empty());
         let _ = store.get_message("any_id").await.unwrap();
         let _ = store.list_messages("ch_1", 10).await.unwrap();
@@ -1216,6 +1233,7 @@ mod tests {
             commit_seq: 1,
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         };
         let s = serde_json::to_string(&m).unwrap();
         let back: Message = serde_json::from_str(&s).unwrap();

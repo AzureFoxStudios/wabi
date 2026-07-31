@@ -155,9 +155,13 @@ fn extension_for_mime(mime: &str, fallback: &str) -> String {
 
 /// Initialize or resume an upload
 async fn init_upload(
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Json(req): Json<InitUploadRequest>,
 ) -> Result<Json<InitUploadResponse>> {
+    if auth.is_guest {
+        return Err(anyhow::anyhow!("Guests cannot upload files").into());
+    }
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
 
     // Check if resuming existing upload
@@ -250,15 +254,22 @@ async fn init_upload(
 struct ChunkQuery {
     upload_id: String,
     offset: u64,
-    upload_token: String,
 }
 
 /// Upload a chunk
 async fn upload_chunk(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Query(query): Query<ChunkQuery>,
     body: axum::body::Bytes,
 ) -> Result<Json<InitUploadResponse>> {
+    // The upload token is carried in a header (not the query string) so it is
+    // not leaked into access logs / browser history.
+    let upload_token = headers
+        .get("x-upload-token")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| anyhow::anyhow!("Missing x-upload-token header"))?;
+
     // Look up session (clone to release the read lock before the async file ops)
     let session = state
         .upload_state
@@ -269,7 +280,7 @@ async fn upload_chunk(
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?;
 
-    if session.upload_token != query.upload_token {
+    if session.upload_token != upload_token {
         return Err(anyhow::anyhow!("Invalid upload token").into());
     }
 
@@ -303,7 +314,7 @@ async fn upload_chunk(
 
     Ok(Json(InitUploadResponse {
         upload_id: query.upload_id.clone(),
-        upload_token: query.upload_token,
+        upload_token: upload_token.to_string(),
         uploaded_bytes,
         completed: uploaded_bytes >= session.file_size,
         file_url: None,
@@ -388,6 +399,7 @@ struct GroupAvatarResponse {
 /// Saves the file, persists the avatar URL to WDB, then broadcasts
 /// `group-avatar-updated` to all connected clients.
 async fn upload_group_avatar(
+    _auth: AuthUser,
     State(state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<GroupAvatarResponse>> {
@@ -498,39 +510,6 @@ struct SimpleUploadResponse {
     file_url: String,
 }
 
-const SIMPLE_UPLOAD_MAX_BYTES: u64 = 10 * 1024 * 1024;
-
-/// Resolve a safe, allowed image extension from a content type and filename.
-/// Returns `None` for anything that is not an allowed branding image type.
-fn resolve_image_extension(content_type: Option<&str>, filename: &str) -> Option<String> {
-    let allowed: &[(&str, &str)] = &[
-        ("image/png", ".png"),
-        ("image/jpeg", ".jpg"),
-        ("image/gif", ".gif"),
-        ("image/webp", ".webp"),
-    ];
-
-    if let Some(ct) = content_type {
-        if let Some((_, ext)) = allowed.iter().find(|(m, _)| *m == ct) {
-            return Some((*ext).to_string());
-        }
-    }
-
-    let ext = std::path::Path::new(filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{}", e.to_lowercase()))
-        .unwrap_or_default();
-
-    match ext.as_str() {
-        ".png" => Some(".png".to_string()),
-        ".jpg" | ".jpeg" => Some(".jpg".to_string()),
-        ".gif" => Some(".gif".to_string()),
-        ".webp" => Some(".webp".to_string()),
-        _ => None,
-    }
-}
-
 async fn upload_simple(
     auth: AuthUser,
     State(state): State<Arc<AppState>>,
@@ -544,7 +523,6 @@ async fn upload_simple(
 
     let mut file_data: Vec<u8> = Vec::new();
     let mut filename = "branding".to_string();
-    let mut content_type: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -554,7 +532,6 @@ async fn upload_simple(
         let name = field.name().unwrap_or("").to_string();
         if name == "file" {
             filename = field.file_name().unwrap_or("branding").to_string();
-            content_type = field.content_type().map(|c| c.to_string());
             file_data = field
                 .bytes()
                 .await
@@ -567,20 +544,11 @@ async fn upload_simple(
         return Err(anyhow::anyhow!("No file data provided").into());
     }
 
-    if file_data.len() as u64 > SIMPLE_UPLOAD_MAX_BYTES {
-        return Err(anyhow::anyhow!("Image must be 10 MB or smaller.").into());
-    }
-
-    // Determine and validate the extension; reject anything not an allowed image.
-    let ext = match resolve_image_extension(content_type.as_deref(), &filename) {
-        Some(ext) => ext,
-        None => {
-            return Err(anyhow::anyhow!(
-                "Use a PNG, JPG, GIF, or WEBP image for branding assets."
-            )
-            .into())
-        }
-    };
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{}", e))
+        .unwrap_or_else(|| ".png".to_string());
 
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     tokio::fs::create_dir_all(&uploads_dir).await?;
@@ -616,6 +584,7 @@ pub struct ProfilePictureResponse {
 }
 
 pub async fn upload_profile_picture(
+    _auth: AuthUser,
     State(state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<ProfilePictureResponse>> {

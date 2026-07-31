@@ -8,28 +8,37 @@
 
 ## Summary
 
-Make channels fully reorganizable like Discord. Users can drag channels to any position, mix channel types freely (text, voice, forum, wiki, gallery, notes, DM), and reorder within groups or across groups. Positions persist via the WabiDB event system.
+Make channels fully reorganizable like Discord. Users can reorder channels via drag-and-drop, mix channel types freely (text, voice, forum, wiki, gallery, notes, DM), and positions persist via the WabiDB event system.
 
 ---
 
-## What needs to happen
+## What has been done (backend)
 
-### Backend
-1. **Sort `list_channels` by `position`** — `wabi_store.rs` `list_channels()` should return channels sorted by `position` ascending instead of HashMap iteration order.
-2. **Expose `PATCH /api/channels/{id}`** — already handled by `channel_updated` event → `apply_updated` in channels.rs projection. Need to wire up the HTTP PATCH route in `wabi-server/src/api/channels.rs`.
-3. **Include `position` in `channel_to_response`** — currently hardcoded to `position: 0` in `channel_to_response` (channels.rs:29).
-4. **Include `position` in channel_created event payload** — set `position` = next_index when creating a channel.
+### 1. Fixed `channel_to_response` to use real data
+- `channels.rs:24-34` — now returns actual `position`, `parent_id`, `description` instead of hardcoded zeros/nones
 
-### Frontend
-5. **Add `position` to `ChannelResponse` type** — frontend needs `position: i32` field.
-6. **Drag-and-drop reorder in ChannelSidebar** — implement HTML5 drag-and-drop (or pointer events) for channel items.
-7. **Persist reorder** — on drop, send PATCH to update position.
-8. **Mixed channel types in one list** — current code separates by type (textChannels, voiceChannels, etc.). For Discord-style, allow mixed or keep grouping but allow cross-group reorder.
+### 2. Sort `list_channels` by `position`
+- `channels.rs:64-74` — added `channels.sort_by_key(|c| c.position)` so channels are returned in order
 
-### Design Decision
-- Keep channel type groupings (visual separators) like Discord — but allow drag across groups.
-- Position is a global integer; type groups are visual only.
-- New channels get `position = max(position) + 1`.
+### 3. Added `PATCH /api/channels/{id}` endpoint
+- New `UpdateChannelRequest` struct and `update_channel` handler
+- Accepts `name`, `description`, `position`, `force_spoiler` as partial update
+- Admin-only auth check
+- Emits `channel_updated` event via WDB (same path as the existing socket handler)
+
+## What needs to be done (frontend)
+
+### 4. Drag-and-drop reorder in ChannelSidebar
+- Add `draggable` attribute to channel items
+- Track drag source and drop target
+- On drop: calculate new position, call PATCH API
+
+### 5. Frontend type for `position`
+- `ChannelResponse` type in `socket-types.ts` needs `position: i32` field
+
+### 6. Visual feedback
+- Drop indicator line (Discord-style)
+- Smooth reorder animation
 
 ## DO NOT touch
 - WabiDB engine internals (event log, commit seq)
@@ -42,16 +51,3 @@ Make channels fully reorganizable like Discord. Users can drag channels to any p
 - `bun run check` passes in frontend
 - Drag reorder works across channel types
 - Reorder persists across page reloads
-
-## Channel types to support in the reorderable list
-- text, public, live (text-like)
-- voice
-- dm, groupdm (DMs)
-- forum
-- wiki
-- gallery
-- notes
-- announcement
-- whiteboard
-- incident
-- category (grouping header, not draggable as a leaf)
