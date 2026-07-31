@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+	<meta name="theme-color" content="#0f0c29" />
+	<title>Wabi — Offline</title>
+	<style>
+		html, body {
+			min-height: 100%;
+			margin: 0;
+			font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+			color: #e2e8f0;
+			background:
+				radial-gradient(circle at top, rgba(129, 140, 248, 0.16), transparent 38%),
+				radial-gradient(circle at bottom, rgba(56, 189, 248, 0.14), transparent 42%),
+				linear-gradient(180deg, #0f172a 0%, #0b1220 55%, #060b14 100%);
+		}
+		.wrap {
+			min-height: 100vh;
+			display: grid;
+			place-items: center;
+			padding: 24px;
+			box-sizing: border-box;
+			text-align: center;
+		}
+		.logo {
+			width: 72px;
+			height: 72px;
+			object-fit: contain;
+			margin-bottom: 16px;
+			opacity: 0.95;
+		}
+		h1 {
+			margin: 0 0 8px;
+			font-size: 1.35rem;
+			font-weight: 650;
+			letter-spacing: 0.01em;
+		}
+		p {
+			margin: 0 auto 20px;
+			max-width: 28rem;
+			line-height: 1.5;
+			color: #94a3b8;
+			font-size: 0.95rem;
+		}
+		.btn {
+			appearance: none;
+			border: 1px solid rgba(148, 163, 184, 0.35);
+			background: rgba(15, 23, 42, 0.65);
+			color: #e2e8f0;
+			border-radius: 10px;
+			padding: 10px 16px;
+			font: inherit;
+			cursor: pointer;
+		}
+		.btn:hover { border-color: rgba(129, 140, 248, 0.55); }
+		.hint { margin-top: 14px; font-size: 0.8rem; color: #64748b; }
+	</style>
+</head>
+<body>
+	<div class="wrap">
+		<div>
+			<img class="logo" src="/wabi-logo.png" alt="" width="72" height="72" />
+			<h1>You're offline</h1>
+			<p>
+				Wabi can't reach the server right now. When you're back online, reload to restore
+				the full app. Local data stays on this device.
+			</p>
+			<button class="btn" type="button" id="reload">Try again</button>
+			<p class="hint">If this was a brief blip, reload usually fixes it.</p>
+		</div>
+	</div>
+	<script>
+		document.getElementById('reload')?.addEventListener('click', () => location.reload());
+		window.addEventListener('online', () => location.reload());
+	</script>
+</body>
+</html>

@@ -1,21 +1,50 @@
 // Wabi Custom Service Worker — no third-party dependencies
 // Replaces vite-plugin-pwa / workbox
 //
-// Finding 5: media cache must stamp X-Cached-At (via cachePut), enforce
-// max age before serving, and be cleared on logout from the app shell.
+// Finding 5: media cache stamps X-Cached-At, enforces max age, cleared on logout.
+// Finding 12: install actually precaches a shell; navigate falls back to it;
+//             media SWR revalidate is tied to event.waitUntil.
 
 const MEDIA_CACHE = 'media-cache-v2';
-const SHELL_CACHE = 'shell-cache-v1';
+const SHELL_CACHE = 'shell-cache-v2';
 
 const MAX_MEDIA_ENTRIES = 300;
 // Capability-URL uploads: short retention. Logout also deletes this cache.
 const MEDIA_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+/** Static assets safe to precache (same-origin, no auth). */
+const SHELL_PRECACHE_URLS = [
+  '/',
+  '/offline.html',
+  '/manifest.webmanifest',
+  '/favicon.png',
+  '/wabi-logo.png',
+];
+
 // ---------------------------------------------------------------------------
-// Install — pre-cache the app shell
+// Install — pre-cache the app shell (finding 12)
 // ---------------------------------------------------------------------------
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(SHELL_CACHE);
+      // Best-effort: one failure must not abort the whole install.
+      await Promise.all(
+        SHELL_PRECACHE_URLS.map(async (path) => {
+          try {
+            const req = new Request(path, { cache: 'reload', credentials: 'same-origin' });
+            const res = await fetch(req);
+            if (res && res.ok) {
+              await cache.put(path === '/' ? '/' : path, res.clone());
+            }
+          } catch {
+            // ignore individual precache failures
+          }
+        })
+      );
+      await self.skipWaiting();
+    })()
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -37,9 +66,9 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Navigation / HTML — network first, fallback to cache or offline
+  // Navigation / HTML — network first, fallback to cached shell or offline page
   if (request.mode === 'navigate') {
-    event.respondWith(navigationHandler(request));
+    event.respondWith(navigationHandler(request, event));
     return;
   }
 
@@ -48,7 +77,9 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/uploads/') ||
     /^\/api\/whiteboard\/boards\/[^/]+\/files\//.test(url.pathname)
   ) {
-    event.respondWith(staleWhileRevalidateHandler(request, MEDIA_CACHE, MAX_MEDIA_ENTRIES, MEDIA_MAX_AGE_MS));
+    event.respondWith(
+      staleWhileRevalidateHandler(request, MEDIA_CACHE, MAX_MEDIA_ENTRIES, MEDIA_MAX_AGE_MS, event)
+    );
     return;
   }
 
@@ -66,21 +97,43 @@ self.addEventListener('fetch', (event) => {
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function navigationHandler(request) {
+async function navigationHandler(request, event) {
   try {
     const response = await fetch(request);
+    // Keep a fresh copy of successful navigations as the SPA shell.
+    if (response && response.ok && response.type === 'basic') {
+      const cache = await caches.open(SHELL_CACHE);
+      const putPromise = cache.put('/', response.clone()).catch(() => {});
+      if (event && typeof event.waitUntil === 'function') {
+        event.waitUntil(putPromise);
+      }
+    }
     return response;
   } catch {
-    // Try to serve a cached HTML page
     const cache = await caches.open(SHELL_CACHE);
-    const cached = await cache.match('/');
-    if (cached) return cached;
-    // Ultimate fallback — return a basic offline response
-    return new Response(
-      '<html><body><h1>Offline</h1><p>No internet connection.</p></body></html>',
-      { headers: { 'Content-Type': 'text/html' } }
-    );
+    // Prefer the real app shell if we ever captured it online.
+    const shell =
+      (await cache.match('/')) ||
+      (await cache.match('/index.html')) ||
+      (await cache.match(request));
+    if (shell) return shell;
+
+    const offline = await cache.match('/offline.html');
+    if (offline) return offline;
+
+    // Last resort — styled inline page (should rarely hit if offline.html precached)
+    return offlineFallbackResponse();
   }
+}
+
+function offlineFallbackResponse() {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Wabi — Offline</title>
+<style>html,body{min-height:100%;margin:0;font-family:system-ui,sans-serif;color:#e2e8f0;background:linear-gradient(180deg,#0f172a,#060b14)} .w{min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center} h1{margin:0 0 8px;font-size:1.25rem} p{color:#94a3b8;max-width:28rem;line-height:1.5} button{margin-top:12px;padding:10px 16px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}</style>
+</head><body><div class="w"><div><h1>You're offline</h1><p>Wabi can't reach the server. Reload when you're back online.</p><button onclick="location.reload()">Try again</button></div></div></body></html>`;
+  return new Response(html, {
+    status: 503,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
 }
 
 async function networkFirstHandler(request, cacheName, maxEntries, maxAgeMs) {
@@ -99,7 +152,6 @@ async function networkFirstHandler(request, cacheName, maxEntries, maxAgeMs) {
       const isFresh = await isEntryFresh(cached, maxAgeMs);
       if (isFresh) return cached;
     }
-    // Network failed and no valid cache — return offline error
     return new Response(JSON.stringify({ error: 'Offline', details: 'Network unavailable and no cached response' }), {
       status: 503,
       headers: { 'Content-Type': 'application/json' }
@@ -107,7 +159,7 @@ async function networkFirstHandler(request, cacheName, maxEntries, maxAgeMs) {
   }
 }
 
-async function staleWhileRevalidateHandler(request, cacheName, maxEntries, maxAgeMs) {
+async function staleWhileRevalidateHandler(request, cacheName, maxEntries, maxAgeMs, event) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
   const fresh = cached ? await isEntryFresh(cached, maxAgeMs) : false;
@@ -121,9 +173,12 @@ async function staleWhileRevalidateHandler(request, cacheName, maxEntries, maxAg
     return response;
   };
 
-  // Fresh hit: serve immediately, refresh in background
+  // Fresh hit: serve immediately, refresh in background (tied to SW lifetime)
   if (cached && fresh) {
-    void fetchAndStore().catch(() => {});
+    const bg = fetchAndStore().catch(() => {});
+    if (event && typeof event.waitUntil === 'function') {
+      event.waitUntil(bg);
+    }
     return cached;
   }
 
@@ -176,7 +231,6 @@ async function trimCache(cache, maxEntries) {
   const keys = await cache.keys();
   if (keys.length <= maxEntries) return;
 
-  // Sort by oldest first using X-Cached-At
   const entriesWithAge = [];
   for (const key of keys) {
     const response = await cache.match(key);
@@ -194,7 +248,7 @@ async function trimCache(cache, maxEntries) {
 
 /**
  * Delete caches whose names we no longer use (stale workbox caches, old versions).
- * Bumping MEDIA_CACHE to v2 drops legacy unstamped media-cache-v1 entries.
+ * shell-cache-v2 drops empty v1 shells; media-cache-v2 drops unstamped v1 media.
  */
 async function deleteOldCaches() {
   const expectedCaches = [MEDIA_CACHE, SHELL_CACHE];
