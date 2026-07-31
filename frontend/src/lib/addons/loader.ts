@@ -8,6 +8,7 @@
 import type { AddonManifest, AddonInstance, AddonState } from './registry';
 import { addonRegistry, addAddon, updateAddonState } from './registry';
 import { getAddonConfig, saveAddonConfig } from './settings';
+import { getAuthToken } from '$lib/authSession';
 import { getServerUrl } from '../serverUrl';
 
 const loadedAddons = new Map<string, AddonInstance>();
@@ -206,7 +207,8 @@ export function getAllAddons(): AddonInstance[] {
 async function fetchAddonManifest(addonId: string): Promise<AddonManifest | null> {
 	// Try server first
 	try {
-		const token = localStorage.getItem('auth_token');
+		// Finding 9: use scoped authSession token, not dead localStorage 'auth_token'
+		const token = getAuthToken(getServerUrl());
 		const response = await fetch(`${getServerUrl()}/api/addons/${addonId}`, {
 			headers: token ? { Authorization: `Bearer ${token}` } : undefined
 		});
