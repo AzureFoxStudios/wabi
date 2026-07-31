@@ -35,6 +35,8 @@ fn populate(state: &ProjectionState) {
                 edit_history: vec![],
                 edited_at_micros: None,
                 is_deleted: (g * per_group + i) % 10 == 0,
+                is_spoiler: false,
+                files: vec![],
             };
             let key = msg::encode_key(&ch, &msgi);
             let val = msg::encode_record(&r);

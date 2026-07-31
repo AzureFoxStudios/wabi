@@ -111,10 +111,13 @@ export async function uploadFileResumable(
 			attempt++;
 			try {
 				const chunkResponse = await fetch(
-					`${serverUrl}/api/upload/resumable/chunk?uploadId=${encodeURIComponent(uploadId)}&offset=${uploadedBytes}&uploadToken=${encodeURIComponent(uploadToken)}`,
+					`${serverUrl}/api/upload/resumable/chunk?uploadId=${encodeURIComponent(uploadId)}&offset=${uploadedBytes}`,
 					{
 						method: 'PUT',
-						headers: getUploadAuthHeaders(),
+						headers: {
+							...getUploadAuthHeaders(),
+							'x-upload-token': uploadToken
+						},
 						credentials: 'include',
 						body: chunkBlob
 					}

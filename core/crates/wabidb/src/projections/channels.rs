@@ -81,6 +81,17 @@ impl ChannelProjection {
         if let Some(force) = patch.get("force_spoiler").and_then(|v| v.as_bool()) {
             channel.force_spoiler = force;
         }
+        if let Some(pos) = patch.get("position").and_then(|v| v.as_i64()) {
+            channel.position = pos as i32;
+        }
+        if let Some(parent) = patch.get("parent_id").and_then(|v| v.as_str()) {
+            channel.parent_id = Some(parent.to_string());
+        }
+        if let Some(parent_null) = patch.get("parentId").and_then(|v| v.as_null()) {
+            // parentId: null clears the parent
+            let _ = parent_null;
+            channel.parent_id = None;
+        }
         let value = serde_json::to_vec(&channel).map_err(|e| {
             crate::error::WabiError::Validation {
                 command: "channels_projection".into(),

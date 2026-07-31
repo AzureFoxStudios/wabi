@@ -771,6 +771,7 @@ mod tests {
             edited_at_micros: None,
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         };
         let payload = encode_record(&msg);
         let expected_msg_id = format!("msg_{:x}", 1);

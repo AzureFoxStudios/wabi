@@ -82,7 +82,7 @@ async fn control_non_live_message_written_to_disk() {
     let canary = format!("CONTROL-CANARY-{}", Uuid::new_v4());
 
     let message_id = adapter
-        .send_message("ch_control_test", 1, &canary, false)
+        .send_message("ch_control_test", 1, &canary, false, &[])
         .await
         .unwrap();
 

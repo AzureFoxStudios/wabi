@@ -226,6 +226,8 @@ fn row_to_channel_view(row: &HashMap<String, Value>) -> Value {
         "parentChannelId": row.get("parent_channel_id").and_then(|v| v.as_str()),
         "persistMessages": row.get("persist_messages").and_then(|v| v.as_bool()),
         "minRole":   row.get("min_role").and_then(|v| v.as_str()),
+        "position":  row.get("position").and_then(|v| v.as_i64()).map(|v| v as i32),
+        "parentId":  row.get("parent_id").and_then(|v| v.as_str()),
     })
 }
 

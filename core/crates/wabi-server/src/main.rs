@@ -31,6 +31,7 @@ mod socketio_impl;
 mod standby;
 mod state;
 mod websocket;
+use crate::auth_extractor::OptionalAuthUser;
 use crate::blacklist::BlacklistManager;
 use crate::nodes::NodeCapability;
 use crate::state::AppState;
@@ -58,6 +59,7 @@ use crate::config::{ServerConfig, ServerRole};
 
 /// Serve a file from the uploads directory
 async fn serve_upload(
+    _auth: OptionalAuthUser,
     axum::extract::Path(filename): axum::extract::Path<String>,
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
 ) -> impl axum::response::IntoResponse {

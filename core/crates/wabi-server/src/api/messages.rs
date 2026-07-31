@@ -132,7 +132,7 @@ async fn send_message(
         // WDB-assigned message_id (format!("msg_{:x}", commit_seq)).
         state
             .wdb
-            .send_message(&req.channel_id, sender_id, &req.content, is_spoiler)
+            .send_message(&req.channel_id, sender_id, &req.content, is_spoiler, &[])
             .await?
     };
 

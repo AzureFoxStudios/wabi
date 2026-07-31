@@ -107,6 +107,10 @@ pub enum ChannelKind {
     Wiki = 6,
     Forum = 7,
     Incident = 8,
+    /// Image/video gallery surface (media-album backed).
+    Gallery = 9,
+    /// Category for grouping channels (like Discord categories).
+    Category = 10,
 }
 
 impl Channel {
@@ -129,6 +133,15 @@ impl Channel {
             force_spoiler: false,
         }
     }
+}
+
+/// A file attachment embedded in a message (e.g., an uploaded image, document,
+/// or recording). Mirrors the frontend `FileAttachment` protocol type.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FileAttachmentRecord {
+    pub file_url: String,
+    pub file_name: String,
+    pub file_size: u64,
 }
 
 /// A message in a channel.
@@ -156,6 +169,9 @@ pub struct Message {
     /// default. Also forced on by a channel's `force_spoiler` flag.
     #[serde(default)]
     pub is_spoiler: bool,
+    /// File attachments uploaded with the message.
+    #[serde(default)]
+    pub files: Vec<FileAttachmentRecord>,
 }
 
 /// A reaction on a message.
@@ -751,6 +767,8 @@ mod tests {
         assert_eq!(ChannelKind::Wiki as u8, 6);
         assert_eq!(ChannelKind::Forum as u8, 7);
         assert_eq!(ChannelKind::Incident as u8, 8);
+        assert_eq!(ChannelKind::Gallery as u8, 9);
+        assert_eq!(ChannelKind::Category as u8, 10);
     }
 
     #[test]
@@ -879,6 +897,7 @@ mod tests {
             commit_seq: 1,
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         };
         let s = serde_json::to_string(&m).unwrap();
         let back: Message = serde_json::from_str(&s).unwrap();
@@ -921,6 +940,7 @@ mod tests {
             commit_seq: 1,
             is_deleted: false,
             is_spoiler: false,
+            files: vec![],
         };
         let json = serde_json::to_string(&m).unwrap();
         let back: Message = serde_json::from_str(&json).unwrap();

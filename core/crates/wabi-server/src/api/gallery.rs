@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use serde_json::{json, Value};
 
-use crate::auth_extractor::AuthUser;
+use crate::auth_extractor::{AuthUser, OptionalAuthUser};
 use crate::error::AppError;
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
@@ -28,6 +28,7 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
 }
 
 async fn list_works(
+    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path(channel_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
@@ -74,6 +75,7 @@ async fn upload_work(
 }
 
 async fn get_work(
+    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path((channel_id, work_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
@@ -133,6 +135,7 @@ async fn delete_work(
 }
 
 async fn list_feedback(
+    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path((channel_id, work_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
