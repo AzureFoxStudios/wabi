@@ -1,128 +1,92 @@
+import { describe, expect, test } from 'bun:test'
 import { computePublicKey } from './x25519'
 import {
 	generateMnemonic, mnemonicToSeed, mnemonicToKeypair,
 	validateMnemonic, createVerificationChallenge, loadIdentity
 } from './dmRecovery'
 
-interface CryptoTestResult {
-	name: string
-	passed: boolean
-	error?: string
+function bytesEqual(a: ArrayBuffer | Uint8Array, b: ArrayBuffer | Uint8Array): boolean {
+	const aa = a instanceof Uint8Array ? a : new Uint8Array(a)
+	const bb = b instanceof Uint8Array ? b : new Uint8Array(b)
+	if (aa.length !== bb.length) return false
+	return aa.every((v, i) => v === bb[i])
 }
 
-function assert(condition: boolean, message: string): void {
-	if (!condition) throw new Error(message)
-}
-
-export async function runDmRecoveryTests(): Promise<CryptoTestResult[]> {
-	const results: CryptoTestResult[] = []
-
-	// --- generateMnemonic produces valid mnemonics ---
-	try {
+describe('dmRecovery', () => {
+	test('generateMnemonic produces valid mnemonics for all strengths', async () => {
 		for (const strength of [128, 160, 192, 224, 256] as const) {
 			const mnemonic = await generateMnemonic(strength)
-			const expectedLen = (strength / 32) * 3 + 3 // ENT/32 = CS, words = (ENT+CS)/11
-			assert(mnemonic.length === (strength + strength / 32) / 11, `expected ${(strength + strength/32)/11} words for ${strength} bits`)
-			assert(await validateMnemonic(mnemonic), `generated mnemonic should validate (${strength} bits)`)
+			const expectedWords = (strength + strength / 32) / 11
+			expect(mnemonic.length).toBe(expectedWords)
+			expect(await validateMnemonic(mnemonic)).toBe(true)
 		}
-		results.push({ name: 'generateMnemonic produces valid mnemonics for all strengths', passed: true })
-	} catch (error) {
-		results.push({ name: 'generateMnemonic produces valid mnemonics for all strengths', passed: false, error: String(error) })
-	}
+	})
 
-	// --- Deterministic: same mnemonic → same seed → same keypair ---
-	try {
+	test('same mnemonic deterministically produces same keypair', async () => {
 		const mnemonic = ['abandon', 'ability', 'able', 'about', 'above', 'absent', 'absorb', 'abstract', 'absurd', 'abuse', 'access', 'accident']
 		const seed1 = await mnemonicToSeed(mnemonic)
 		const seed2 = await mnemonicToSeed(mnemonic)
-		assert(seed1.byteLength === 64, 'seed should be 64 bytes')
-		assert(
-			new Uint8Array(seed1).every((b, i) => b === new Uint8Array(seed2)[i]),
-			'same mnemonic should produce same seed'
-		)
+		expect(seed1.byteLength).toBe(64)
+		expect(bytesEqual(seed1, seed2)).toBe(true)
 		const kp1 = await mnemonicToKeypair(mnemonic)
 		const kp2 = await mnemonicToKeypair(mnemonic)
-		assert(kp1.publicKeyB64 === kp2.publicKeyB64, 'same mnemonic should produce same keypair')
-		results.push({ name: 'same mnemonic deterministically produces same keypair', passed: true })
-	} catch (error) {
-		results.push({ name: 'same mnemonic deterministically produces same keypair', passed: false, error: String(error) })
-	}
+		expect(kp1.publicKeyB64).toBe(kp2.publicKeyB64)
+	})
 
-	// --- Different mnemonics → different keypairs ---
-	try {
+	test('different mnemonics produce different keypairs', async () => {
 		const mnemonicA = await generateMnemonic()
 		const mnemonicB = await generateMnemonic()
 		const kpA = await mnemonicToKeypair(mnemonicA)
 		const kpB = await mnemonicToKeypair(mnemonicB)
-		assert(kpA.publicKeyB64 !== kpB.publicKeyB64, 'different mnemonics should produce different keypairs')
-		results.push({ name: 'different mnemonics produce different keypairs', passed: true })
-	} catch (error) {
-		results.push({ name: 'different mnemonics produce different keypairs', passed: false, error: String(error) })
-	}
+		expect(kpA.publicKeyB64).not.toBe(kpB.publicKeyB64)
+	})
 
-	// --- Passphrase changes keypair ---
-	try {
+	test('passphrase changes derived seed', async () => {
+		// mnemonicToKeypair always uses empty passphrase; compare seeds directly.
 		const mnemonic = await generateMnemonic()
-		const kpNoPass = await mnemonicToKeypair(mnemonic)
-		const kpWithPass = await mnemonicToSeed(mnemonic, 'mysecret')
-		// Different passphrase → different seed → different key
-		const kpWithPassKeypair = await mnemonicToKeypair(mnemonic) // same seed as kpNoPass
-		assert(kpNoPass.publicKeyB64 === kpWithPassKeypair.publicKeyB64, 'same mnemonic without passphrase should match')
-		results.push({ name: 'passphrase changes derived key (test structure)', passed: true })
-	} catch (error) {
-		results.push({ name: 'passphrase changes derived key (test structure)', passed: false, error: String(error) })
-	}
+		const seedNoPass = await mnemonicToSeed(mnemonic)
+		const seedWithPass = await mnemonicToSeed(mnemonic, 'mysecret')
+		const seedWithOther = await mnemonicToSeed(mnemonic, 'other-secret')
+		expect(seedNoPass.byteLength).toBe(64)
+		expect(seedWithPass.byteLength).toBe(64)
+		expect(bytesEqual(seedNoPass, seedWithPass)).toBe(false)
+		expect(bytesEqual(seedWithPass, seedWithOther)).toBe(false)
+		// Same passphrase is stable
+		const seedWithPass2 = await mnemonicToSeed(mnemonic, 'mysecret')
+		expect(bytesEqual(seedWithPass, seedWithPass2)).toBe(true)
+	})
 
-	// --- validateMnemonic rejects invalid words ---
-	try {
+	test('validateMnemonic rejects invalid words', async () => {
 		const invalid = ['notaword', 'ability', 'able', 'about', 'above', 'absent', 'absorb', 'abstract', 'absurd', 'abuse', 'access', 'accident']
-		assert(!await validateMnemonic(invalid), 'invalid words should fail validation')
-		results.push({ name: 'validateMnemonic rejects invalid words', passed: true })
-	} catch (error) {
-		results.push({ name: 'validateMnemonic rejects invalid words', passed: false, error: String(error) })
-	}
+		expect(await validateMnemonic(invalid)).toBe(false)
+	})
 
-	// --- validateMnemonic rejects wrong length ---
-	try {
+	test('validateMnemonic rejects wrong length', async () => {
 		const tooShort = ['abandon', 'ability', 'able']
-		const result = await validateMnemonic(tooShort)
-		assert(result === false, 'too-short mnemonic should fail')
-		results.push({ name: 'validateMnemonic rejects wrong length', passed: true })
-	} catch (error) {
-		results.push({ name: 'validateMnemonic rejects wrong length', passed: false, error: String(error) })
-	}
+		expect(await validateMnemonic(tooShort)).toBe(false)
+	})
 
-	// --- createVerificationChallenge returns 3 indices from mnemonic ---
-	try {
+	test('createVerificationChallenge returns correct indices', async () => {
 		const mnemonic = await generateMnemonic()
 		const { indices, expected } = createVerificationChallenge(mnemonic)
-		assert(indices.length === 3, 'should return 3 indices')
-		assert(expected.length === 3, 'should return 3 expected words')
-		assert(new Set(indices).size === 3, 'indices should be unique')
+		expect(indices.length).toBe(3)
+		expect(expected.length).toBe(3)
+		expect(new Set(indices).size).toBe(3)
 		for (let i = 0; i < 3; i++) {
-			assert(mnemonic[indices[i]] === expected[i], 'expected word should match mnemonic at index')
+			expect(mnemonic[indices[i]]).toBe(expected[i])
 		}
-		results.push({ name: 'createVerificationChallenge returns correct indices', passed: true })
-	} catch (error) {
-		results.push({ name: 'createVerificationChallenge returns correct indices', passed: false, error: String(error) })
-	}
+	})
 
-	// --- loadIdentity is alias for mnemonicToKeypair ---
-	try {
+	test('loadIdentity matches mnemonicToKeypair', async () => {
 		const mnemonic = await generateMnemonic()
 		const kp1 = await mnemonicToKeypair(mnemonic)
 		const kp2 = await loadIdentity(mnemonic)
-		assert(kp1.publicKeyB64 === kp2.publicKeyB64, 'loadIdentity should match mnemonicToKeypair')
-		results.push({ name: 'loadIdentity matches mnemonicToKeypair', passed: true })
-	} catch (error) {
-		results.push({ name: 'loadIdentity matches mnemonicToKeypair', passed: false, error: String(error) })
-	}
+		expect(kp1.publicKeyB64).toBe(kp2.publicKeyB64)
+	})
 
-	// --- Keypair public key is valid X25519 point ---
-	try {
+	test('mnemonicToKeypair public key is valid X25519 point', async () => {
 		const mnemonic = await generateMnemonic()
 		const kp = await mnemonicToKeypair(mnemonic)
-		// Re-derive raw private from mnemonic to verify public key
 		const seed = await mnemonicToSeed(mnemonic)
 		const hkdfKey = await crypto.subtle.importKey('raw', seed, 'HKDF', false, ['deriveBits'])
 		const rawPrivate = new Uint8Array(await crypto.subtle.deriveBits(
@@ -131,11 +95,6 @@ export async function runDmRecoveryTests(): Promise<CryptoTestResult[]> {
 		))
 		const computedPub = computePublicKey(rawPrivate)
 		const computedB64 = btoa(String.fromCharCode(...computedPub)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-		assert(computedB64 === kp.publicKeyB64, 'derived public key should match computed public key')
-		results.push({ name: 'mnemonicToKeypair public key is valid X25519 point', passed: true })
-	} catch (error) {
-		results.push({ name: 'mnemonicToKeypair public key is valid X25519 point', passed: false, error: String(error) })
-	}
-
-	return results
-}
+		expect(computedB64).toBe(kp.publicKeyB64)
+	})
+})

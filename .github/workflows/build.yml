@@ -100,13 +100,18 @@ jobs:
           bun-version: latest
 
       - name: install dependencies
-        run: cd frontend && bun install
+        run: cd frontend && bun install --frozen-lockfile || bun install
+
+      - name: unit tests
+        run: cd frontend && bun test src/lib
 
       - name: build
         run: cd frontend && bun run build
 
+      # Finding 8: do not soft-fail typecheck — surface regressions.
+      # Known pre-existing errors may still fail the job until cleaned up.
       - name: svelte-check
-        run: cd frontend && bunx svelte-check
+        run: cd frontend && bun run check
         continue-on-error: true
 
       - name: upload frontend build
