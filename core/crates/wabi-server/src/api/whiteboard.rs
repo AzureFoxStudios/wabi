@@ -144,11 +144,15 @@ async fn can_access_channel(
         }
     }
 
-    // Check WDB for channel membership
-    if let Ok(channels) = state.wdb.list_channels(None).await {
-        for ch in &channels {
-            if ch.channel_id == channel_id {
-                return true;
+    // Check WDB for channel membership. Pass the user id so only channels the
+    // user actually belongs to are returned — listing with None returns every
+    // channel, which never tests membership.
+    if let Some(uid) = user_id {
+        if let Ok(channels) = state.wdb.list_channels(Some(uid as u64)).await {
+            for ch in &channels {
+                if ch.channel_id == channel_id {
+                    return true;
+                }
             }
         }
     }
@@ -384,6 +388,11 @@ async fn serve_whiteboard_file(
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, &content_type)
                 .header(header::CACHE_CONTROL, "private, max-age=300")
+                .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+                .header(
+                    header::CONTENT_SECURITY_POLICY,
+                    "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src 'self'",
+                )
                 .body(Body::from(data))
                 .unwrap())
         }
