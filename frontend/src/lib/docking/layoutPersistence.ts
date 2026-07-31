@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { invoke } from '@tauri-apps/api/core';
+import { getApiBase } from '$lib/api';
 import { getAuthToken } from '$lib/authSession';
 import { isTauriRuntime } from '$lib/tauri-platform';
 import {
@@ -14,8 +15,12 @@ const STORAGE_KEY = 'wabi:dock-layout:v1';
 // ─── Remote API persistence (server sync) ───────────────────────────────────
 
 const API_LAYOUT_KEY = 'wabi:dock-layout:remote:v1';
-const API_BASE = '/api/user/layout';
 const API_DEBOUNCE_MS = 2000;
+
+/** Resolve at call time so remote-server mode tracks getServerUrl(). */
+function layoutApiUrl(): string {
+	return `${getApiBase()}/api/user/layout`;
+}
 
 interface StoredLayout {
 	state: LayoutStateV1;
@@ -42,7 +47,7 @@ function saveRemoteToStorage(state: LayoutStateV1, updatedAt: number): void {
 
 async function loadFromServer(token: string): Promise<{ layoutJson: string | null; updatedAt: number | null } | null> {
 	try {
-		const res = await fetch(API_BASE, {
+		const res = await fetch(layoutApiUrl(), {
 			headers: { Authorization: `Bearer ${token}` }
 		});
 		if (!res.ok) return null;
@@ -101,7 +106,7 @@ export function queuePersist(state: LayoutStateV1): void {
 	if (apiSaveTimer) clearTimeout(apiSaveTimer);
 	apiSaveTimer = setTimeout(async () => {
 		try {
-			await fetch(API_BASE, {
+			await fetch(layoutApiUrl(), {
 				method: 'PUT',
 				headers: {
 					'Content-Type': 'application/json',

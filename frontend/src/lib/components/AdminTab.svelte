@@ -3,7 +3,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
 	import { channels, currentChannel, currentUser, users, joinChannel } from '$lib/socket';
-	import { getAdminPaymentAccessPolicy, type PaymentAccessPolicy } from '$lib/api';
+	import { getAdminPaymentAccessPolicy, getApiBase, type PaymentAccessPolicy } from '$lib/api';
 
 	type ServerPulse = { onlineUsers: number; totalUsers: number };
 
@@ -35,7 +35,7 @@
 		if (!token) return;
 		serverPulseLoading = true;
 		try {
-			const res = await fetch('/api/admin/stats', {
+			const res = await fetch(`${getApiBase()}/api/admin/stats`, {
 				headers: { Authorization: `Bearer ${token}` }
 			});
 			if (res.ok) {

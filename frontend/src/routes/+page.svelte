@@ -18,7 +18,7 @@
 		setStoredUsername
 	} from '$lib/authSession';
 	import { authStore } from '$lib/authStore';
-	import { getUserSettings, getSetupStatus } from '$lib/api';
+	import { getUserSettings, getSetupStatus, getApiBase } from '$lib/api';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
 	import { initializeAnimationPassSettings } from '$lib/animationPass';
 	import { refreshBackendEndpointCandidates } from '$lib/backendEndpoints';
@@ -258,7 +258,7 @@
 					reconnectAttempts++;
 					const token = getAuthToken();
 					if (token) {
-						fetch('/api/auth/validate', {
+						fetch(`${getApiBase()}/api/auth/validate`, {
 							headers: { 'Authorization': `Bearer ${token}` },
 							signal: AbortSignal.timeout(5000)
 						}).then((res) => {
