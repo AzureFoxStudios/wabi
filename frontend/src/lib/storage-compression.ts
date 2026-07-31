@@ -5,21 +5,74 @@
  * Uses Web Crypto API for encryption, pako for gzip compression.
  */
 
-import { browser } from '$app/environment';
+/** True in browser / Bun / Node with WebCrypto — no SvelteKit virtual import. */
+const browser = typeof globalThis !== 'undefined' && typeof globalThis.crypto !== 'undefined' && !!globalThis.crypto.subtle;
 
 const AT_REST_MAGIC = new Uint8Array([0x57, 0x41, 0x42, 0x49, 0x45, 0x4e, 0x43, 0x31]); // 'WABIENC1'
 const COMP_MAGIC = new Uint8Array([0x57, 0x42, 0x5a, 0x31]); // 'WBZ1'
 const COMP_CODEC_GZIP = 1;
 const COMP_HEADER_SIZE = COMP_MAGIC.length + 1 + 4;
 
+/** Legacy static salt (v1 metadata). Kept so existing ciphertext still opens. */
+export const STORAGE_SALT_LEGACY_STRING = 'wabi-storage-salt-v1';
+export const STORAGE_SALT_BYTES = 16;
+export const STORAGE_PBKDF2_ITERATIONS = 100_000;
+
+/** v1: salt was the static UTF-8 string. v2: random 16 bytes as base64. */
+export type StorageKeyParamsV1 = { version: 1; salt: string };
+export type StorageKeyParamsV2 = { version: 2; saltB64: string; iterations?: number };
+export type StorageKeyParams = StorageKeyParamsV1 | StorageKeyParamsV2;
+
+export function generateStorageSalt(byteLength = STORAGE_SALT_BYTES): Uint8Array {
+	return crypto.getRandomValues(new Uint8Array(byteLength));
+}
+
+export function saltBytesToB64(salt: Uint8Array): string {
+	let binary = '';
+	for (let i = 0; i < salt.length; i++) binary += String.fromCharCode(salt[i]!);
+	return btoa(binary);
+}
+
+export function saltB64ToBytes(b64: string): Uint8Array {
+	const binary = atob(b64);
+	const out = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+	return out;
+}
+
+function saltToBuffer(salt: string | Uint8Array): ArrayBuffer {
+	if (typeof salt === 'string') {
+		return new TextEncoder().encode(salt).buffer as ArrayBuffer;
+	}
+	const copy = new Uint8Array(salt.byteLength);
+	copy.set(salt);
+	return copy.buffer as ArrayBuffer;
+}
+
 /**
- * Generate encryption key from password
+ * Resolve salt bytes from stored key params (v1 string or v2 base64).
  */
-export async function deriveKey(password: string): Promise<CryptoKey> {
-	const encoder = new TextEncoder();
+export function saltFromKeyParams(params: StorageKeyParams): string | Uint8Array {
+	if (params.version === 2 && params.saltB64) {
+		return saltB64ToBytes(params.saltB64);
+	}
+	if (params.version === 1 && typeof params.salt === 'string' && params.salt.length > 0) {
+		return params.salt;
+	}
+	return STORAGE_SALT_LEGACY_STRING;
+}
+
+/**
+ * Derive AES-GCM key from password + salt.
+ * Omit salt (or pass legacy string) to open v1 ciphertext encrypted under the static salt.
+ */
+export async function deriveKey(
+	password: string,
+	salt: string | Uint8Array = STORAGE_SALT_LEGACY_STRING
+): Promise<CryptoKey> {
 	const keyMaterial = await crypto.subtle.importKey(
 		'raw',
-		encoder.encode(password),
+		new TextEncoder().encode(password),
 		'PBKDF2',
 		false,
 		['deriveKey']
@@ -28,8 +81,8 @@ export async function deriveKey(password: string): Promise<CryptoKey> {
 	return crypto.subtle.deriveKey(
 		{
 			name: 'PBKDF2',
-			salt: encoder.encode('wabi-storage-salt-v1'),
-			iterations: 100000,
+			salt: saltToBuffer(salt),
+			iterations: STORAGE_PBKDF2_ITERATIONS,
 			hash: 'SHA-256'
 		},
 		keyMaterial,

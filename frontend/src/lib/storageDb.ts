@@ -6,12 +6,9 @@
 import { browser } from '$app/environment';
 import { DB_VERSION, MESSAGES_STORE, SETTINGS_STORE } from './storageTypes';
 import { decryptAndDecompress, compressAndEncrypt } from './storage-compression';
+import { getEncryptionKey, setEncryptionKey } from './storage/encryptionKeyHolder';
 
-let encryptionKey: CryptoKey | null = null;
-
-export function setEncryptionKey(key: CryptoKey | null): void {
-	encryptionKey = key;
-}
+export { setEncryptionKey, getEncryptionKey };
 
 export class IndexedDBWrapper {
 	private db: IDBDatabase | null = null;
@@ -101,11 +98,12 @@ export class IndexedDBWrapper {
 
 			request.onsuccess = async () => {
 				let data = request.result?.data;
+				const key = getEncryptionKey();
 
-				if (data?.encrypted && encryptionKey) {
+				if (data?.encrypted && key) {
 					try {
 						const encrypted = new Uint8Array(data.data);
-						const decrypted = await decryptAndDecompress(encrypted, encryptionKey);
+						const decrypted = await decryptAndDecompress(encrypted, key);
 						const json = new TextDecoder().decode(decrypted);
 						data = JSON.parse(json);
 					} catch (err) {
@@ -127,11 +125,12 @@ export class IndexedDBWrapper {
 			const store = transaction.objectStore(MESSAGES_STORE);
 
 			let storedData = data;
-			if (encryptionKey) {
+			const key = getEncryptionKey();
+			if (key) {
 				try {
 					const json = JSON.stringify(data);
 					const encoded = new TextEncoder().encode(json);
-					const encrypted = await compressAndEncrypt(encoded, encryptionKey);
+					const encrypted = await compressAndEncrypt(encoded, key);
 					storedData = { encrypted: true, data: Array.from(encrypted) };
 				} catch (err) {
 					console.warn('[Storage] Encryption failed, storing unencrypted:', err);
