@@ -30,6 +30,7 @@ mod socketio;
 mod socketio_impl;
 mod standby;
 mod state;
+mod upload_registry;
 mod websocket;
 use crate::auth_extractor::OptionalAuthUser;
 use crate::blacklist::BlacklistManager;

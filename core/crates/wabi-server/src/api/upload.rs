@@ -28,6 +28,7 @@ use wabidb::engine::wabi_store::WabiStore;
 use crate::auth_extractor::AuthUser;
 use crate::error::Result;
 use crate::state::AppState;
+use crate::upload_registry::UploadKind;
 
 /// Upload session state — stored in-memory for the lifetime of the server process.
 #[derive(Debug, Clone)]
@@ -45,6 +46,8 @@ pub struct UploadSession {
     pub temp_path: PathBuf,
     /// File extension including dot (e.g. ".jpg", ".webm")
     pub extension: String,
+    /// ID of the user who initiated the upload
+    pub uploader_id: Option<i64>,
 }
 #[derive(Debug, Default)]
 pub struct UploadState {
@@ -221,6 +224,7 @@ async fn init_upload(
         upload_token: upload_token.clone(),
         temp_path: temp_path.clone(),
         extension,
+        uploader_id: Some(auth.user_id),
     };
 
     state
@@ -372,6 +376,23 @@ async fn complete_upload(
         session.uploaded_bytes
     );
 
+    // Record ownership (ops metadata). Failure is logged, never fatal.
+    state
+        .upload_registry
+        .record(
+            &final_name,
+            &session.file_name,
+            if session.channel_id.is_empty() {
+                None
+            } else {
+                Some(session.channel_id.clone())
+            },
+            session.uploader_id,
+            UploadKind::Attachment,
+            session.uploaded_bytes,
+        )
+        .await;
+
     Ok(Json(CompleteUploadResponse {
         file_url: format!("/uploads/{}", final_name),
         file_name: session.file_name,
@@ -399,7 +420,7 @@ struct GroupAvatarResponse {
 /// Saves the file, persists the avatar URL to WDB, then broadcasts
 /// `group-avatar-updated` to all connected clients.
 async fn upload_group_avatar(
-    _auth: AuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<GroupAvatarResponse>> {
@@ -465,6 +486,18 @@ async fn upload_group_avatar(
         channel_id,
         final_path
     );
+
+    state
+        .upload_registry
+        .record(
+            &final_name,
+            &filename,
+            Some(channel_id.clone()),
+            Some(auth.user_id),
+            UploadKind::Avatar,
+            file_data.len() as u64,
+        )
+        .await;
 
     // Persist avatar URL to WDB
     if let Err(e) = state
@@ -570,6 +603,18 @@ async fn upload_simple(
         final_path
     );
 
+    state
+        .upload_registry
+        .record(
+            &final_name,
+            &filename,
+            None,
+            Some(auth.user_id),
+            UploadKind::Branding,
+            file_data.len() as u64,
+        )
+        .await;
+
     Ok(Json(SimpleUploadResponse { file_url }))
 }
 
@@ -584,7 +629,7 @@ pub struct ProfilePictureResponse {
 }
 
 pub async fn upload_profile_picture(
-    _auth: AuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<ProfilePictureResponse>> {
@@ -637,6 +682,18 @@ pub async fn upload_profile_picture(
         file_data.len(),
         final_path
     );
+
+    state
+        .upload_registry
+        .record(
+            &final_name,
+            &filename,
+            None,
+            Some(auth.user_id),
+            UploadKind::Profile,
+            file_data.len() as u64,
+        )
+        .await;
 
     Ok(Json(ProfilePictureResponse {
         profile_picture_url,
