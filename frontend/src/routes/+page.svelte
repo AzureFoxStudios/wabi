@@ -432,6 +432,16 @@
 		localStorage.removeItem('wabi_has_logged_in');
 		clearStoredIdentity();
 		clearAuthSession();
+		// Finding 5: drop SW media cache so uploads don't outlive the session
+		if (typeof caches !== 'undefined') {
+			void caches.keys().then((keys) =>
+				Promise.all(
+					keys
+						.filter((k) => k === 'media-cache-v1' || k === 'media-cache-v2' || k.startsWith('media-cache-'))
+						.map((k) => caches.delete(k))
+				)
+			).catch(() => {});
+		}
 	}
 
 	async function confirmProfileImportPrompt(): Promise<void> {
