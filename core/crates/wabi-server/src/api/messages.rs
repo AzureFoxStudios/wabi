@@ -41,6 +41,8 @@ struct MessageResponse {
     edited_at: Option<i64>,
     #[serde(default)]
     is_spoiler: bool,
+    #[serde(default)]
+    files: Vec<serde_json::Value>,
 }
 
 /// Convert a WDB typed `Message` to the JSON `MessageResponse` shape.
@@ -59,6 +61,14 @@ fn message_to_response(m: wabidb::domain::Message) -> MessageResponse {
         created_at: m.created_at_micros / 1000,
         edited_at: m.edited_at_micros.map(|e| e / 1000),
         is_spoiler: m.is_spoiler,
+        files: m.files
+            .into_iter()
+            .map(|f| json!({
+                "fileUrl": f.file_url,
+                "fileName": f.file_name,
+                "fileSize": f.file_size,
+            }))
+            .collect(),
     }
 }
 
@@ -172,5 +182,6 @@ async fn send_message(
         created_at: created_at_micros / 1000,
         edited_at: None,
         is_spoiler,
+        files: vec![],
     }))
 }

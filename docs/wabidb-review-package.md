@@ -3,6 +3,7 @@
 **Date:** 2026-06-19
 **For:** Frontier AI architecture review (GPT / Claude / Gemini / etc.)
 **Status:** Design complete. Take-off ready pending review. First vertical slice is the gate, not this document.
+**Current product status (2026-07-29):** Wabi DMs are server-readable. Encryption sections describe a proposed end state, not shipped behavior or a product guarantee.
 
 ---
 
@@ -167,7 +168,7 @@ The room/object layer defines a bounded set of object types (see Section 7 for t
 **Crate:** `wabidb::crypto`  
 **Public types:** `KeyRegistry`, `EncryptedPayload`
 
-The encryption layer stores only public keys, never private keys. Per-DM-conversation key derivation is entirely client-side (see Section 6). The server's role is limited to: storing public identity keys (X25519 or similar), storing ciphertext+nonce pairs for encrypted DM messages, storing key escrow blobs for multi-device sync, and exposing a key-registration command (`rotate_key`). All encryption and decryption happens in the browser using the Web Crypto API — the server never sees plaintext DM message content.
+The proposed encryption layer would store only public keys, never private keys. The target design performs per-DM-conversation key derivation client-side (see Section 6) and limits the server to public identity keys, ciphertext/nonces, wrapped recovery blobs, and key-registration commands. None of this describes the current DM send/upload path, which is server-readable.
 
 ### 2.7 The Retention Engine
 
@@ -1527,7 +1528,7 @@ The server stores only: `wrapped_private_key_blob` (opaque bytes), `salt` (for A
 
 The UI must display an honest tradeoff: "Your passphrase is the only way to recover your encryption keys. Wabi cannot reset it. If you forget your passphrase, your existing DMs become unreadable on new devices."
 
-### 6.5 What the Server Stores
+### 6.5 Proposed Server Storage After the E2EE Gate
 
 - **Public keys** in `identity_keys` and `devices` tables (always public).
 - **Key identifiers** in `dm_conversations.key_id` (just a label, not a key).
@@ -1535,7 +1536,7 @@ The UI must display an honest tradeoff: "Your passphrase is the only way to reco
 - **Wrapped key escrow blob** (server cannot unwrap).
 - **Expiry timestamps** for retention (server uses these to delete ciphertext, not to decrypt).
 
-### 6.6 What the Server Never Sees
+### 6.6 Target Client-Only Material (Unshipped)
 
 - Plaintext DM message content.
 - Private identity keys.

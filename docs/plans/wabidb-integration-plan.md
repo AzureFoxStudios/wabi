@@ -37,7 +37,7 @@ In scope:
 
 Out of scope (deferred until WabiDB is the production substrate for 30+ clean days):
 
-- X3DH + Double Ratchet + per-device envelopes for DMs (the real end-to-end encrypted DM story in `wabidb-endstate.md` §6)
+- Proposed X3DH + Double Ratchet + per-device envelopes for DMs; unshipped and not a current security guarantee
 - Full whiteboard patch system (rich drawing primitives, patch streaming, history)
 - Full business hub (kanban tasks, projects, sprints, calendar events, diary)
 - Helper node protocol (search helper, media node, transcode node, regional anchor)

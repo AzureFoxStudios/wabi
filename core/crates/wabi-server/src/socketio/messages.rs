@@ -310,6 +310,11 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
                     "editedAt": m.edited_at_micros.map(|e| e / 1000),
                     "commitSeq": m.commit_seq,
                     "isDeleted": m.is_deleted,
+                    "files": m.files.iter().map(|f| json!({
+                        "fileUrl": f.file_url,
+                        "fileName": f.file_name,
+                        "fileSize": f.file_size,
+                    })).collect::<Vec<_>>(),
                 })
             })
             .collect()
