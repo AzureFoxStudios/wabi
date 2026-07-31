@@ -1,3 +1,4 @@
+import { describe, expect, test } from 'bun:test';
 import {
 	createDefaultLayoutState,
 	createDefaultWorkspaceLayout,
@@ -9,37 +10,16 @@ import {
 	serializeLayoutState
 } from './layoutSchema';
 
-interface DockingTestResult {
-	name: string;
-	passed: boolean;
-	error?: string;
-}
-
-function assert(condition: boolean, message: string): void {
-	if (!condition) {
-		throw new Error(message);
-	}
-}
-
-export function runDockingLayoutSchemaTests(): DockingTestResult[] {
-	const results: DockingTestResult[] = [];
-
-	try {
+describe('docking layoutSchema', () => {
+	test('serialize/deserialize keeps schema v1 state', () => {
 		const state = createDefaultLayoutState();
 		const encoded = serializeLayoutState(state);
 		const decoded = deserializeLayoutState(encoded);
-		assert(decoded.layoutVersion === 1, 'layoutVersion should remain 1 after deserialize');
-		assert(decoded.workspaces.default !== undefined, 'default workspace should be present');
-		results.push({ name: 'serialize/deserialize keeps schema v1 state', passed: true });
-	} catch (error) {
-		results.push({
-			name: 'serialize/deserialize keeps schema v1 state',
-			passed: false,
-			error: error instanceof Error ? error.message : String(error)
-		});
-	}
+		expect(decoded.layoutVersion).toBe(1);
+		expect(decoded.workspaces.default).toBeDefined();
+	});
 
-	try {
+	test('legacy shape migrates into v1 workspace model', () => {
 		const legacy = {
 			navDock: 'right',
 			channelSidebarWidth: 310,
@@ -48,37 +28,23 @@ export function runDockingLayoutSchemaTests(): DockingTestResult[] {
 		};
 		const migrated = migrateLayoutState(legacy);
 		const workspace = migrated.workspaces.default;
-		assert(workspace.navDock === 'right', 'legacy navDock should migrate');
-		assert(getNavTabset(workspace).size === 310, 'legacy nav width should migrate');
-		assert(getAuxTabset(workspace).collapsed === false, 'open right panel should not migrate as collapsed');
-		results.push({ name: 'legacy shape migrates into v1 workspace model', passed: true });
-	} catch (error) {
-		results.push({
-			name: 'legacy shape migrates into v1 workspace model',
-			passed: false,
-			error: error instanceof Error ? error.message : String(error)
-		});
-	}
+		expect(workspace.navDock).toBe('right');
+		expect(getNavTabset(workspace).size).toBe(310);
+		expect(getAuxTabset(workspace).collapsed).toBe(false);
+	});
 
-	try {
+	test('default workspace preset is reset-safe', () => {
 		const reset = createDefaultWorkspaceLayout('default');
 		const nav = getNavTabset(reset);
 		const aux = getAuxTabset(reset);
-		assert(nav.size === 280, 'default nav size should be 280');
-		assert(nav.collapsed === false, 'default nav should be expanded');
-		assert(aux.size === 360, 'default auxiliary size should be 360');
-		assert(aux.collapsed === false, 'default auxiliary panel should start open');
-		assert(reset.panelDock.stacks[0].tabs.includes('users'), 'default panel dock should include users');
-		results.push({ name: 'default workspace preset is reset-safe', passed: true });
-	} catch (error) {
-		results.push({
-			name: 'default workspace preset is reset-safe',
-			passed: false,
-			error: error instanceof Error ? error.message : String(error)
-		});
-	}
+		expect(nav.size).toBe(280);
+		expect(nav.collapsed).toBe(false);
+		expect(aux.size).toBe(360);
+		expect(aux.collapsed).toBe(false);
+		expect(reset.panelDock.stacks[0].tabs.includes('users')).toBe(true);
+	});
 
-	try {
+	test('dynamic panel ids migrate with invalid panel fallback', () => {
 		const raw = {
 			layoutVersion: 1,
 			activeWorkspace: 'default',
@@ -107,20 +73,13 @@ export function runDockingLayoutSchemaTests(): DockingTestResult[] {
 		};
 		const migrated = migrateLayoutState(raw);
 		const tabs = migrated.workspaces.default.panelDock.stacks[0].tabs;
-		assert(tabs.includes('addon:stocks-watch'), 'valid dynamic panel IDs should survive migration');
-		assert(!tabs.includes(''), 'empty panel IDs should be removed');
-		assert(!tabs.includes('__proto__'), 'reserved panel IDs should be removed');
-		assert(migrated.workspaces.default.panelDock.stacks[0].activePanelId === 'addon:stocks-watch', 'dynamic active panel should survive');
-		results.push({ name: 'dynamic panel ids migrate with invalid panel fallback', passed: true });
-	} catch (error) {
-		results.push({
-			name: 'dynamic panel ids migrate with invalid panel fallback',
-			passed: false,
-			error: error instanceof Error ? error.message : String(error)
-		});
-	}
+		expect(tabs.includes('addon:stocks-watch')).toBe(true);
+		expect(tabs.includes('')).toBe(false);
+		expect(tabs.includes('__proto__')).toBe(false);
+		expect(migrated.workspaces.default.panelDock.stacks[0].activePanelId).toBe('addon:stocks-watch');
+	});
 
-	try {
+	test('invalid panel dock falls back to users', () => {
 		const normalized = normalizePanelDock({
 			orientation: 'vertical',
 			stacks: [
@@ -134,16 +93,7 @@ export function runDockingLayoutSchemaTests(): DockingTestResult[] {
 				}
 			]
 		});
-		assert(normalized.stacks.length === 1, 'invalid stack should fall back to one stack');
-		assert(normalized.stacks[0].activePanelId === 'users', 'invalid active panel should fall back to users');
-		results.push({ name: 'invalid panel dock falls back to users', passed: true });
-	} catch (error) {
-		results.push({
-			name: 'invalid panel dock falls back to users',
-			passed: false,
-			error: error instanceof Error ? error.message : String(error)
-		});
-	}
-
-	return results;
-}
+		expect(normalized.stacks.length).toBe(1);
+		expect(normalized.stacks[0].activePanelId).toBe('users');
+	});
+});

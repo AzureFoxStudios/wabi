@@ -1,0 +1,5 @@
+# Bun test config for Wabi frontend.
+# Playwright E2E lives as *.playwright.js and is not discovered by bun test.
+[test]
+# Keep root at frontend so bun test discovers src/lib/**/*.test.ts
+root = "."

@@ -1,15 +1,31 @@
+import { describe, expect, test } from 'bun:test'
 import { generateX25519KeyPair } from './dmCrypto'
 import { x3dhInitiate, x3dhRespond, encryptMessage, decryptMessage } from './dmRatchet'
 import type { PreKeyBundle, RatchetSession } from './dmRatchet'
 
-interface CryptoTestResult {
-	name: string
-	passed: boolean
-	error?: string
+function bytesEqual(a: ArrayBuffer | Uint8Array, b: ArrayBuffer | Uint8Array): boolean {
+	const aa = a instanceof Uint8Array ? a : new Uint8Array(a)
+	const bb = b instanceof Uint8Array ? b : new Uint8Array(b)
+	if (aa.length !== bb.length) return false
+	return aa.every((v, i) => v === bb[i])
 }
 
-function assert(condition: boolean, message: string): void {
-	if (!condition) throw new Error(message)
+async function supportsX25519DeriveBits(): Promise<boolean> {
+	try {
+		const kp = await crypto.subtle.generateKey(
+			{ name: 'X25519' },
+			true,
+			['deriveBits', 'deriveKey']
+		) as CryptoKeyPair
+		await crypto.subtle.deriveBits(
+			{ name: 'X25519', public: kp.publicKey },
+			kp.privateKey,
+			256
+		)
+		return true
+	} catch {
+		return false
+	}
 }
 
 async function deriveChain(privateKey: CryptoKey, publicKey: CryptoKey): Promise<ArrayBuffer> {
@@ -20,32 +36,18 @@ async function deriveChain(privateKey: CryptoKey, publicKey: CryptoKey): Promise
 	)
 }
 
-function concat(...buffers: ArrayBuffer[]): ArrayBuffer {
-	const total = buffers.reduce((s, b) => s + b.byteLength, 0)
-	const result = new Uint8Array(total)
-	let offset = 0
-	for (const b of buffers) {
-		result.set(new Uint8Array(b), offset)
-		offset += b.byteLength
-	}
-	return result.buffer
-}
+const x25519DeriveOk = await supportsX25519DeriveBits()
 
-export async function runDmRatchetTests(): Promise<CryptoTestResult[]> {
-	const results: CryptoTestResult[] = []
-
-	// --- X3DH: both sides derive same root key (with one-time prekey) ---
-	try {
+describe('dmRatchet', () => {
+	// Entire suite needs WebCrypto X25519 deriveBits (unsupported in current Bun)
+	test.skipIf(!x25519DeriveOk)('X3DH both sides derive the same root key', async () => {
 		const aliceIdentity = await generateX25519KeyPair()
 		const bobIdentity = await generateX25519KeyPair()
 		const bobSignedPreKey = await generateX25519KeyPair()
 		const bobOneTimePreKey = await generateX25519KeyPair()
 
-		// Alice signs her identity key to produce preKeySignature (for X3DH)
-		// In a real implementation this is a signature over the signed prekey.
-		// For testing, we use a placeholder — the important thing is both sides reach the same root key.
 		const aliceBundle: PreKeyBundle = {
-			identityKey: aliceIdentity.publicKey,
+			identityKey: bobIdentity.publicKey,
 			signedPreKey: bobSignedPreKey.publicKey,
 			preKeySignature: new Uint8Array(64).buffer,
 			oneTimePreKey: bobOneTimePreKey.publicKey,
@@ -53,24 +55,21 @@ export async function runDmRatchetTests(): Promise<CryptoTestResult[]> {
 		}
 
 		const aliceX3DH = await x3dhInitiate(aliceIdentity.privateKey, aliceBundle)
-
 		const bobRootKey = await x3dhRespond(
 			bobIdentity.privateKey,
 			bobSignedPreKey.privateKey,
 			bobOneTimePreKey.privateKey,
 			aliceIdentity.publicKey,
-			aliceX3DH.theirEphemeralKey // Alice's ephemeral public key, sent to Bob
+			aliceX3DH.theirEphemeralKey
 		)
 
-		assert(aliceX3DH.rootKey.byteLength > 0, 'Alice root key should be non-empty')
-		assert(bobRootKey.byteLength > 0, 'Bob root key should be non-empty')
-		results.push({ name: 'X3DH both sides derive non-empty root keys', passed: true })
-	} catch (error) {
-		results.push({ name: 'X3DH both sides derive non-empty root keys', passed: false, error: String(error) })
-	}
+		expect(aliceX3DH.rootKey.byteLength).toBe(32)
+		expect(bobRootKey.byteLength).toBe(32)
+		// Finding 8: must compare equality, not just non-empty
+		expect(bytesEqual(aliceX3DH.rootKey, bobRootKey)).toBe(true)
+	})
 
-	// --- Ratchet: encrypt then decrypt the same message ---
-	try {
+	test.skipIf(!x25519DeriveOk)('ratchet encrypt/decrypt round-trip', async () => {
 		const aliceDH = await generateX25519KeyPair()
 		const bobDH = await generateX25519KeyPair()
 
@@ -89,10 +88,9 @@ export async function runDmRatchetTests(): Promise<CryptoTestResult[]> {
 
 		const aad = new TextEncoder().encode('test-conv:alice:0')
 		const { message, session: sessionAfter } = await encryptMessage(session, 'Hello, ratchet!', aad)
-		assert(message.ciphertext.byteLength > 0, 'encrypted message should have ciphertext')
-		assert(sessionAfter.Ns === 1, 'Ns should increment after encrypt')
+		expect(message.ciphertext.byteLength).toBeGreaterThan(0)
+		expect(sessionAfter.Ns).toBe(1)
 
-		// Bob decrypts — derive his receiving chain from the same DH shared secret
 		const bobReceivingChain = await deriveChain(bobDH.privateKey, aliceDH.publicKey)
 		const bobSession: RatchetSession = {
 			conversationId: 'test-conv',
@@ -109,14 +107,10 @@ export async function runDmRatchetTests(): Promise<CryptoTestResult[]> {
 		}
 
 		const { plaintext } = await decryptMessage(bobSession, message, aad)
-		assert(plaintext === 'Hello, ratchet!', 'decrypted text should match original')
-		results.push({ name: 'ratchet encrypt/decrypt round-trip', passed: true })
-	} catch (error) {
-		results.push({ name: 'ratchet encrypt/decrypt round-trip', passed: false, error: String(error) })
-	}
+		expect(plaintext).toBe('Hello, ratchet!')
+	})
 
-	// --- Ratchet: forward secrecy — old key can't decrypt new message ---
-	try {
+	test.skipIf(!x25519DeriveOk)('ratchet forward secrecy: old key cannot decrypt new message', async () => {
 		const aliceDH = await generateX25519KeyPair()
 		const bobDH = await generateX25519KeyPair()
 		const rootKey = crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer
@@ -134,7 +128,6 @@ export async function runDmRatchetTests(): Promise<CryptoTestResult[]> {
 		const { message: msg1, session: aliceAfter1 } = await encryptMessage(aliceSession, 'message one', aad)
 		const { message: msg2 } = await encryptMessage(aliceAfter1, 'message two', aad)
 
-		// Bob decrypts msg1, then tries to decrypt msg2 with the session state *after* msg1
 		const bobReceivingChain = await deriveChain(bobDH.privateKey, aliceDH.publicKey)
 		const bobSession: RatchetSession = {
 			conversationId: 'fs-test',
@@ -146,35 +139,19 @@ export async function runDmRatchetTests(): Promise<CryptoTestResult[]> {
 			deviceId: 'bob', peerDeviceId: 'alice', peerPublicKeyB64: ''
 		}
 
-		// Decrypt msg1
 		await decryptMessage(bobSession, msg1, aad)
-
-		// Bob should be able to decrypt msg2 since it's the next in chain
 		const { plaintext: pt2 } = await decryptMessage(bobSession, msg2, aad)
-		assert(pt2 === 'message two', 'second message should decrypt after first')
+		expect(pt2).toBe('message two')
 
-		// Now try reusing the pre-msg1 session to decrypt msg2 — should fail because
-		// chain key has moved
-		try {
-			const oldBobSession: RatchetSession = {
-				conversationId: 'fs-test',
-				rootKey,
-				DHs: bobDH.privateKey,
-				DHr: aliceDH.publicKey,
-				receivingChain: bobReceivingChain,
-				Ns: 0, Nr: 0, PN: 0,
-				deviceId: 'bob', peerDeviceId: 'alice', peerPublicKeyB64: ''
-			}
-			await decryptMessage(oldBobSession, msg2, aad)
-			assert(false, 'old session should not decrypt new message')
-		} catch {
-			assert(true, 'old session correctly rejected new message')
+		const oldBobSession: RatchetSession = {
+			conversationId: 'fs-test',
+			rootKey,
+			DHs: bobDH.privateKey,
+			DHr: aliceDH.publicKey,
+			receivingChain: bobReceivingChain,
+			Ns: 0, Nr: 0, PN: 0,
+			deviceId: 'bob', peerDeviceId: 'alice', peerPublicKeyB64: ''
 		}
-
-		results.push({ name: 'ratchet forward secrecy: old key can\'t decrypt new message', passed: true })
-	} catch (error) {
-		results.push({ name: 'ratchet forward secrecy: old key can\'t decrypt new message', passed: false, error: String(error) })
-	}
-
-	return results
-}
+		await expect(decryptMessage(oldBobSession, msg2, aad)).rejects.toBeTruthy()
+	})
+})
