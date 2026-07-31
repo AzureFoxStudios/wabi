@@ -1,5 +1,7 @@
 # DM System v1 — Build Plan
 
+> **Unshipped security target:** Current Wabi DMs are server-readable. This plan must not be cited as evidence that E2EE exists, and no encryption badge or guarantee may ship until its full acceptance suite passes.
+
 Building the new DM system from scratch, faithful to the vision in
 `docs/dms-and-notes-vision.md`. This plan pulls the doc's ideas
 through end to end and lays out the build order.
@@ -30,11 +32,10 @@ Five ideas from the doc that shape v1:
    The data model MUST support this from day one even if the picker
    UI ships in v2.
 
-4. **Encryption is non-negotiable.** "Not 'we promise not to look.'
-   Structurally. The server cannot read DM contents." E2E for message
-   bodies. The server holds ciphertext only. The metadata exposure
-   is honest: who, when, message count — that's visible. Message
-   bodies, attachments, reactions — not.
+4. **Verified encryption is a release gate for any future E2EE
+   claim.** The target is client-side encryption with ciphertext-only
+   server handling. Until that is implemented and tested, DMs remain
+   server-readable and the UI must make no E2EE claim.
 
 5. **LINE mode is a first-class home view, not an extra.** Users who
    only care about DMs (LINE users, Signal users, "I just want a
@@ -129,15 +130,15 @@ Following the vision doc:
 - **What the server CAN see** (be honest about it): who is in a
   conversation, when messages were sent, message count, online
   status, conversation metadata.
-- **What the server CANNOT see**: message bodies, attachments,
-  reactions, edit history, voice notes (when those ship).
+- **Target after the E2EE gate passes:** the server cannot see message
+  bodies, attachments, reactions, edit history, or voice notes. This
+  is not true of the current implementation.
 - **Single-device for v1**: the user's private key is bound to
   their first device. If they sign in elsewhere, they get a new
   key and lose access to old ciphertext messages (which are
   unrecoverable without the original key). This is HONEST and
-  explicit: a banner on first DM says "Your messages are
-  end-to-end encrypted. Your encryption key lives on this device.
-  If you lose this device, you lose access to old messages."
+  explicit only after verified E2EE ships. Before then, show no
+  encryption badge or operator-blind banner.
 - **Multi-device key sync (v2)**: "link new device" flow with
   QR code or passphrase. Requires a key-rotation scheme that v1
   doesn't have to solve.
@@ -417,20 +418,20 @@ Each phase is independently demoable. Each phase ends with
 - Typing indicators (`dm.typing.start` / `dm.typing.stop`)
 - Presence in the People list (reuse the existing presence pipeline)
 - Read receipts in the conversation view
-- Encryption indicator badge
+- Encryption status UI only after runtime verification; no badge in the current product
 - Cross-DM search (client-side, after decrypt) — the vision doc
   says search is per-user, never shared with the server
 - "Promote to note" / "Send note to DM" cross-surface actions
 - Voice notes (the data model already supports attachments; the
   voice-notes UI is the deferred piece but the wiring is ready)
 
-### Phase 9: Honest single-device banner
+### Phase 9: Security status disclosure
 
-- On first DM open, show a one-time onboarding: "Your messages are
-  end-to-end encrypted. Your encryption key lives on this device.
-  If you lose this device, you lose access to old messages."
-- A persistent banner in DM encryption settings: "Single device
-  only. Multi-device sync coming in v2."
+- Do not show an E2EE badge or guarantee until message text,
+  attachments, downgrade rejection, key recovery, and multi-device
+  behavior pass the release-gate tests.
+- After that gate passes, disclose the verified device/key limitations
+  without claiming protections beyond the tested implementation.
 - A "rotate key" action with confirmation modal explaining what
   happens
 

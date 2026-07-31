@@ -1,5 +1,7 @@
 # DMs and Notes: The Important Ideas
 
+> **Implementation status (2026-07-29):** This is a future vision, not a description of current security. Current DMs are server-readable and must not display or advertise E2EE. Any operator-blind wording below is a target gated on a verified implementation.
+
 A short vision document for Wabi's two most personal surfaces, plus the
 People list that connects them. Not a spec. No code. No schemas. No
 timeline. Just the ideas that should anchor every decision about how
@@ -439,10 +441,9 @@ These are the cross-features. They make the personal-data surfaces
 
 **Voice notes and transcription.** In a self-hosted product, voice
 memos that transcribe locally (in the browser) are a real
-differentiator versus cloud competitors. The server never sees the
-audio. The server sees the text, optionally, if the user opts in. Most
-users will want local-only. The architecture should make local-only the
-default and opt-in to server-side anything.
+differentiator versus cloud competitors. A future local-only mode
+should keep audio away from the server and send text only when the user
+opts in. That behavior is not guaranteed by the current implementation.
 
 **A note is not a database row.** Notes don't have required fields.
 There's no `created_at` the user has to see. There's no `updated_at`
@@ -508,8 +509,9 @@ For DMs:
 - Multiple transport options: STDB calling (current default),
   P2P/WebRTC (future), offline queue (future). The user shouldn't
   have to care which transport a given DM is using.
-- End-to-end encryption of message bodies. The server cannot read
-  DM contents. The user knows what metadata is exposed.
+- Target end-to-end encryption of message bodies, gated on verified
+  client encryption and server downgrade rejection. Current DMs are
+  server-readable. The user must be told what metadata is exposed.
 - Per-DM read state that travels with the user
 - Real-time typing and presence in DMs only
 - Voice and screen share as DM-first features

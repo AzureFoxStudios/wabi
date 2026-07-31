@@ -172,7 +172,7 @@ If the user wants the full 10 in Phase 11, the minimal in-process helper stub fo
 **1.2 Where does the ratchet state live (architectural question, NOT yet propagated)**
 
 - The endstate doc has Double Ratchet state in `core/crates/wabidb/src/crypto/double_ratchet.rs`. The wabidb crate is the server-side engine.
-- The council argued: server doesn't store Double Ratchet state (the endstate doc §6.10 "What the Server Never Sees" lists private keys); the client maintains ratchet state; the server only stores ciphertext + wrapped keys. So the wabidb-79 card should be re-titled as a client-side task.
+- The council's proposed end state keeps Double Ratchet state client-side and stores only ciphertext plus wrapped keys. That behavior is not implemented in current DMs, so the wabidb-79 card remains a client-side security task rather than a current guarantee.
 - **Conflict:** the wabidb crate is used by the Tauri desktop client as a shared library. The Double Ratchet implementation may legitimately live in `core/crates/wabidb/src/crypto/` and be linked from the frontend. If so, the council's argument is wrong about WHERE the code lives (it's still in the wabidb crate, but used by clients, not the server).
 - **NOT auto-propagated.** Flagged for Ronin to decide. Three options:
   1. Keep the file path as-is (Double Ratchet is a shared library used by the client; the wabidb crate is a shared library, not a server-only crate).

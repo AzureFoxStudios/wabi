@@ -49,6 +49,14 @@ pub trait WabiStore: Send + Sync {
         force_spoiler: bool,
     ) -> Result<String>;
 
+    /// Update channel properties (name, description, position, force_spoiler, parent_id).
+    async fn update_channel(
+        &self,
+        channel_id: &str,
+        patch: &serde_json::Value,
+        actor_user_id: u64,
+    ) -> Result<()>;
+
     /// Add or update a reaction on a message.
     async fn add_reaction(
         &self,
@@ -158,17 +166,6 @@ pub trait WabiStore: Send + Sync {
 
     /// Soft-delete a channel.
     async fn delete_channel(&self, _channel_id: &str, _actor_user_id: u64) -> Result<()> {
-        Ok(())
-    }
-
-    /// Update channel properties (name, description, position, force_spoiler, parent_id).
-    async fn update_channel(
-        &self,
-        channel_id: &str,
-        patch: &serde_json::Value,
-        actor_user_id: u64,
-    ) -> Result<()> {
-        let _ = (channel_id, patch, actor_user_id);
         Ok(())
     }
 
