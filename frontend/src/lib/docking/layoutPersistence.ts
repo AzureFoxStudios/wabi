@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { invoke } from '@tauri-apps/api/core';
+import { getAuthToken } from '$lib/authSession';
 import { isTauriRuntime } from '$lib/tauri-platform';
 import {
 	createDefaultLayoutState,
@@ -37,10 +38,6 @@ function loadRemoteFromStorage(): StoredLayout | null {
 
 function saveRemoteToStorage(state: LayoutStateV1, updatedAt: number): void {
 	localStorage.setItem(API_LAYOUT_KEY, JSON.stringify({ state, updatedAt }));
-}
-
-function getAuthToken(): string | null {
-	return localStorage.getItem('auth_token') ?? null;
 }
 
 async function loadFromServer(token: string): Promise<{ layoutJson: string | null; updatedAt: number | null } | null> {
