@@ -31,7 +31,7 @@
 	import VideoCompressionController from './VideoCompressionController.svelte';
 	import type { MediaAlbumScopeType } from '$lib/api';
 	import type { FilePreview } from './fileHandlers';
-		import type { MentionSuggestion } from './mentionSuggestions';
+	import type { MentionSuggestion } from './types';
 
 	export let isDMChannel = false;
 	export let channelId: string | null = null;
@@ -145,9 +145,9 @@
 	async function applyMentionSuggestion(index: number) {
 		if (!textareaElement || index < 0 || index >= mentionSuggestions.length || mentionTokenStart < 0) return;
 		const caret = textareaElement.selectionStart ?? messageInput.length;
-		const applied = applyMentionToInput(messageInput, composerEntities as any, mentionSuggestions[index], mentionTokenStart, caret);
+		const applied = applyMentionToInput(messageInput, composerEntities, mentionSuggestions[index], mentionTokenStart, caret);
 		messageInput = applied.input;
-		composerEntities = applied.entities as any;
+		composerEntities = applied.entities;
 		previousComposerInput = messageInput;
 		showMentionSuggestions = false;
 		mentionTokenStart = -1;
@@ -285,7 +285,7 @@
 <AudioRecorder isOpen={showAudioRecorder} on:close={() => (showAudioRecorder = false)} on:send={handleAudioSend} />
 
 <div class="input-wrapper" class:hidden={$layoutStore.isMobile && !composerVisible}>
-	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions as any} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
+	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
 	{#if filePreviews.length > 0 && !isUploading}		<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} on:change={handleFileSelect} multiple class="hidden" />
