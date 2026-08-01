@@ -172,7 +172,7 @@ function injectMessageEntityPlaceholders(
 		if (kind === 'place') {
 			html =
 				`<span class="mention-token mention-token-${kind}" ` +
-				`data-place-id="${escapeHtml(entity.targetId)}` +
+				`data-place-id="${escapeHtml(entity.targetId)}"` +
 				`data-place-layer-id="${escapeHtml(entity.layerId || '')}" ` +
 				`data-place-poi-id="${escapeHtml(entity.poiId || '')}" ` +
 				`data-place-name="${escapeHtml(entity.label)}" ` +
