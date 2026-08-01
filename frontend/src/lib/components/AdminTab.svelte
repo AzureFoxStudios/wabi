@@ -45,9 +45,14 @@
 					totalUsers: data?.overview?.totalUsers ?? 0
 				};
 				channelPulseError = false;
+			} else {
+				// Finding 27: distinguish "no data" from request failure
+				channelPulseError = true;
+				console.warn(`[Admin] stats failed: HTTP ${res.status}`);
 			}
-		} catch {
-			// keep silent, rail is ambient
+		} catch (err) {
+			channelPulseError = true;
+			console.warn('[Admin] stats network error:', err);
 		} finally {
 			serverPulseLoading = false;
 		}

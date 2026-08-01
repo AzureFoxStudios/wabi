@@ -210,6 +210,7 @@ async function uploadScreenshotAsset(token: string, file: File): Promise<{
 	fileUrl: string;
 	fileName: string;
 	fileSize: number;
+	mimeType: string;
 }> {
 	const formData = new FormData();
 	formData.append('file', file, file.name);
@@ -245,7 +246,9 @@ async function uploadScreenshotAsset(token: string, file: File): Promise<{
 		fileSize:
 			typeof payload?.fileSize === 'number' && Number.isFinite(payload.fileSize)
 				? payload.fileSize
-				: file.size
+				: file.size,
+		// Finding 32: preserve MIME from the File (set from screenshot payload)
+		mimeType: file.type || 'application/octet-stream'
 	};
 }
 
@@ -254,10 +257,24 @@ async function uploadMultipleAssets(
 	token: string,
 	files: { file: File; path: string; hash: string }[]
 ): Promise<{
-	success: { path: string; hash: string; fileUrl: string; fileName: string; fileSize: number }[];
+	success: {
+		path: string;
+		hash: string;
+		fileUrl: string;
+		fileName: string;
+		fileSize: number;
+		mimeType: string;
+	}[];
 	failed: { path: string; error: string }[];
 }> {
-	const success: { path: string; hash: string; fileUrl: string; fileName: string; fileSize: number }[] = [];
+	const success: {
+		path: string;
+		hash: string;
+		fileUrl: string;
+		fileName: string;
+		fileSize: number;
+		mimeType: string;
+	}[] = [];
 	const failed: { path: string; error: string }[] = [];
 
 	// Process in batches of 3 to avoid overwhelming the server
@@ -278,7 +295,16 @@ async function uploadMultipleAssets(
 		for (const result of results) {
 			if (result.success) {
 				const { success: _, ...rest } = result;
-				success.push(rest as { path: string; hash: string; fileUrl: string; fileName: string; fileSize: number });
+				success.push(
+					rest as {
+						path: string;
+						hash: string;
+						fileUrl: string;
+						fileName: string;
+						fileSize: number;
+						mimeType: string;
+					}
+				);
 			} else {
 				failed.push({ path: result.path, error: result.error });
 			}
@@ -456,7 +482,7 @@ async function importAvailableGameScreenshotsOnce(): Promise<GameScreenshotPipeR
 				attachmentUrl: uploaded.fileUrl,
 				attachmentName: uploaded.fileName,
 				attachmentSize: uploaded.fileSize,
-				attachmentMime: 'application/octet-stream', // TODO: track mime from payload
+				attachmentMime: uploaded.mimeType || 'application/octet-stream',
 				caption: 'Imported from FFXIV screenshot folder'
 			};
 

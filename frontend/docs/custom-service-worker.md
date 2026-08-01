@@ -1,173 +1,50 @@
-# Custom Service Worker — Replacing vite-plugin-pwa / workbox
+# Custom Service Worker
 
 ## Status
 
-Proposed — pending implementation.
+**Implemented.** Active files:
 
-## Motivation
+- `frontend/static/sw.js` — custom SW (no workbox)
+- `frontend/static/manifest.webmanifest` — **canonical** web app manifest
+- `frontend/static/offline.html` — offline navigation fallback
+- Registered from app layout as `/sw.js`
 
-`vite-plugin-pwa` uses Google's **workbox** library under the hood:
-- `workbox-build` — runs at build time, generates `sw.js`. Contains vulnerable `lodash` and `minimatch` packages (flagged in npm audit).
-- `workbox` runtime — ships in the generated `sw.js` to every user's browser (~50KB).
+## Canonical manifest (finding 26)
 
-For a privacy-focused, self-hosted chat app, shipping Google's service worker toolkit to users is unnecessary dependency. A custom `sw.js` using browser built-ins achieves the same result with zero third-party code in the browser.
+| File | Role |
+|------|------|
+| `static/manifest.webmanifest` | **Active** — linked from `src/app.html` |
+| `static/manifest.json` | **Removed** — was a divergent duplicate |
 
-## What PWA Currently Does
+Do not reintroduce `manifest.json`. Edit only `manifest.webmanifest`.
 
-The current `VitePWA` config in `vite.config.ts` sets up:
+App shell theme/description should stay aligned with `app.html` (`theme-color`, meta description).
 
-```
-Cache: /api/*  → NetworkFirst (1hr TTL, 50 max entries)
-Cache: /uploads/* + whiteboard media → StaleWhileRevalidate (7d TTL, 300 max entries)
-```
+## What the SW does (current)
 
-The service worker also handles the web app manifest for "Add to Home Screen" on Android.
+| Feature | Behavior |
+|---------|----------|
+| Install | `event.waitUntil` precaches shell into `shell-cache-v2`: `/`, `/offline.html`, `/manifest.webmanifest`, `/favicon.png`, `/wabi-logo.png` |
+| Navigate | Network-first; on failure → cached shell → `/offline.html` → inline 503 |
+| Media | SWR on `/uploads/*` and whiteboard file paths; `media-cache-v2`; `X-Cached-At` stamp; 24h TTL; max 300 entries |
+| Media revalidate | Background refresh tied to `event.waitUntil` so the worker does not die mid-cache |
+| API | Pass-through (no SW caching of `/api/*`) |
+| Logout | App clears `media-cache-*` caches |
 
-## What We Want
+## Cache names
 
-| Feature | Implementation |
-|---------|---------------|
-| API caching | NetworkFirst, 1hr TTL, 50 max entries |
-| Media caching | StaleWhileRevalidate, 7d TTL, 300 max entries |
-| App shell offline | Cache app shell on install |
-| Manifest | Hand-written `static/manifest.json` |
-| SW registration | Keep existing `+layout.svelte` logic (it already points to `/sw.js`) |
-| Update detection | Optional ~15 lines of `registration.update()` |
+- `shell-cache-v2` — app shell + offline page
+- `media-cache-v2` — capability-URL uploads (short retention)
 
-## Implementation Plan
+Activate deletes any cache name not in the expected set (drops stale v1 shells/media).
 
-### 1. Create `static/manifest.json`
+## Registration
 
-Replaces the `manifest:` key from the current `VitePWA` config in `vite.config.ts`.
+Keep existing `+layout.svelte` registration pointing at `/sw.js`. No vite-plugin-pwa / workbox.
 
-```json
-{
-  "name": "Wabi",
-  "short_name": "Wabi",
-  "description": "Ephemeral chat with screen sharing and business features",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#1a1a1a",
-  "theme_color": "#1a1a1a",
-  "icons": [
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ]
-}
-```
+## Verify
 
-### 2. Create `static/sw.js`
-
-~90 lines of vanilla JS using the CacheStorage API. No external dependencies.
-
-**Cache names:**
-- `api-cache` — API responses
-- `media-cache` — uploads and whiteboard files
-- `app-shell` — app shell for offline
-
-**Event flow:**
-
-```
-install event:
-  → pre-cache app shell: /, /app.css
-
-fetch event (navigation / HTML):
-  → try network first
-  → if network fails, serve cached HTML or offline page
-
-fetch event (GET /api/*):
-  → network first
-  → on success, update cache
-  → on network failure, serve cached response
-  → max 50 entries, auto-expire after 1hr
-
-fetch event (GET /uploads/* or whiteboard media):
-  → stale-while-revalidate: serve cached immediately, update in background
-  → on first request (uncached): fetch from network and cache
-  → max 300 entries, auto-expire after 7 days
-
-fetch event (other):
-  → pass through, no caching
-```
-
-**Key implementation details:**
-- Use `Cache.put()` for storing responses
-- Use `Cache.delete()` for manual eviction (max entries)
-- No automatic expiration — track `Date.now()` on store, run cleanup on activate
-- `self.clients.claim()` in activate to take over immediately
-- Handle `self.skipWaiting()` in install for force update
-
-### 3. Update `vite.config.ts`
-
-Remove the `VitePWA` import and plugin. Keep everything else.
-
-```diff
-- import { VitePWA } from 'vite-plugin-pwa';
-- ...
-- ...(isTauri ? [] : [VitePWA({ ... })])
-+ // PWA handled by static/sw.js
-```
-
-### 4. Remove `vite-plugin-pwa` from package.json
-
-```
-npm uninstall vite-plugin-pwa
-```
-
-Or just remove it from `package.json` and run `npm install`.
-
-### 5. Keep `+layout.svelte` unchanged
-
-Lines 73–84 in `+layout.svelte` already do:
-
-```svelte
-} else if (import.meta.env.PROD && 'serviceWorker' in navigator && !isRunningInTauri()) {
-    navigator.serviceWorker.register('/sw.js')...
-```
-
-This works with the custom `sw.js` — no change needed. SvelteKit's `serviceWorker: { register: true }` in `svelte.config.js` is also fine to keep or remove (it's redundant since we register manually).
-
-## Files to Create / Modify
-
-| File | Action |
-|------|--------|
-| `static/sw.js` | Create — the custom service worker |
-| `static/manifest.json` | Create — replaces plugin-generated manifest |
-| `vite.config.ts` | Modify — remove VitePWA plugin and import |
-| `package.json` | Modify — remove `vite-plugin-pwa` |
-| `src/routes/+layout.svelte` | No change needed |
-
-## What We Lose
-
-- **Auto-update toast** — the "new version available, refresh" prompt that vite-plugin-pwa injects. Can be re-added manually with ~15 lines using `registration.update()` and `registration.addEventListener('updatefound', ...)`.
-- **workbox-build vulnerability warnings** — gone (good)
-
-## What We Keep
-
-- "Add to Home Screen" on Android (via manifest.json)
-- API caching (NetworkFirst)
-- Media caching (StaleWhileRevalidate)
-- Offline page fallback
-- App installability
-
-## Verification
-
-1. `npm run build` — succeeds with no workbox packages
-2. `static/sw.js` exists in build output
-3. `static/manifest.json` exists in build output
-4. Browser DevTools → Application → Service Workers → `sw.js` registered
-5. DevTools → Network → "from cache" seen on repeated API requests
-6. DevTools → Network → "from service worker" seen on media
-
-## Timeline
-
-~20 minutes to implement + deploy to Tim's server.
+1. Hard reload online once so install precaches shell.
+2. DevTools → Application → Service Workers: `sw.js` activated.
+3. Offline → reload: shell or offline.html, not a bare browser error.
+4. Only `manifest.webmanifest` is linked from `app.html`.

@@ -77,10 +77,17 @@ export async function loadLayoutState(): Promise<LayoutStateV1 | null> {
 
 	const localUpdatedAt = local?.updatedAt ?? 0;
 	if (server.updatedAt !== null && server.updatedAt > localUpdatedAt) {
-		const parsed = JSON.parse(server.layoutJson);
-		const now = server.updatedAt;
-		saveRemoteToStorage(parsed, now);
-		return parsed;
+		// Finding 25: never JSON.parse raw server layout outside a guard —
+		// deserializeLayoutState validates/migrates and falls back to default.
+		try {
+			const parsed = deserializeLayoutState(server.layoutJson);
+			const now = server.updatedAt;
+			saveRemoteToStorage(parsed, now);
+			return parsed;
+		} catch (err) {
+			console.warn('[Docking] Server layoutJson invalid; using local/default:', err);
+			return local?.state ?? null;
+		}
 	}
 
 	return local?.state ?? null;
@@ -106,7 +113,7 @@ export function queuePersist(state: LayoutStateV1): void {
 	if (apiSaveTimer) clearTimeout(apiSaveTimer);
 	apiSaveTimer = setTimeout(async () => {
 		try {
-			await fetch(layoutApiUrl(), {
+			const res = await fetch(layoutApiUrl(), {
 				method: 'PUT',
 				headers: {
 					'Content-Type': 'application/json',
@@ -114,8 +121,12 @@ export function queuePersist(state: LayoutStateV1): void {
 				},
 				body: JSON.stringify({ layoutJson: JSON.stringify(state) })
 			});
-		} catch {
-			// Silent fail — localStorage already saved
+			// Finding 27: surface failed layout saves (local already persisted)
+			if (!res.ok) {
+				console.warn(`[Docking] Layout save failed: HTTP ${res.status}`);
+			}
+		} catch (err) {
+			console.warn('[Docking] Layout save network error (local still saved):', err);
 		}
 	}, API_DEBOUNCE_MS);
 }
