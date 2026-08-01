@@ -218,7 +218,7 @@
 										<input type="checkbox" bind:checked={rememberMe} disabled={loading} />
 										<span>{$_('login.auth.remember_me')}</span>
 									</label>
-									<a href="#" class="forgot-link" on:click|preventDefault={() => { /* TODO: implement forgot password */ }}>{$_('login.auth.forgot_password')}</a>
+									<!-- Finding 13: forgot-password has no backend yet — hide until recovery exists -->
 								</div>
 								<button type="submit" class="auth-btn auth-btn-primary" disabled={loading}>
 									{loading ? $_('login.auth.logging_in') : $_('login.auth.login_button')}

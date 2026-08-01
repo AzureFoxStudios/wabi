@@ -14,6 +14,44 @@ import { getServerUrl } from '../serverUrl';
 const loadedAddons = new Map<string, AddonInstance>();
 
 /**
+ * Finding 14: never `import(manifest.frontendEntry)` from server data.
+ * Vite only bundles static import paths. Map known addon IDs to eager modules.
+ * model-viewer stays off this map (three.js) so Tauri desktop does not pull it.
+ */
+const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
+	'youtube-sync': () => import('$lib/components/plugins/YouTubeWatchEmbed.svelte'),
+	'spotify-sync': () => import('$lib/components/plugins/SpotifyControlsEmbed.svelte')
+};
+
+const LOCAL_MANIFESTS: Record<string, AddonManifest> = {
+	'youtube-sync': {
+		id: 'youtube-sync',
+		name: 'YouTube Watch Together',
+		version: '1.0.0',
+		frontendEntry: 'bundled:youtube-sync',
+		dependencies: []
+	},
+	'spotify-sync': {
+		id: 'spotify-sync',
+		name: 'Spotify Sync',
+		version: '1.0.0',
+		frontendEntry: 'bundled:spotify-sync',
+		dependencies: []
+	}
+};
+
+async function loadBundledFrontend(addonId: string): Promise<unknown | null> {
+	const loader = BUNDLED_ADDON_LOADERS[addonId];
+	if (!loader) {
+		console.warn(
+			`[Addons] No bundled frontend allowlist entry for ${addonId}; refusing remote/dynamic import`
+		);
+		return null;
+	}
+	return loader();
+}
+
+/**
  * Load an addon by ID
  * - Fetches manifest from registry
  * - Dynamically imports frontend entry point
@@ -51,14 +89,12 @@ export async function loadAddon(addonId: string): Promise<AddonInstance> {
 			}
 		}
 
-		// Load frontend entry point
+		// Load frontend only via bundled allowlist (finding 14) — never import(manifest.frontendEntry)
 		let frontendModule: any = null;
-		if (manifest.frontendEntry) {
-			try {
-				frontendModule = await import(manifest.frontendEntry);
-			} catch (err) {
-				console.warn(`[Addons] Failed to load frontend for ${addonId}:`, err);
-			}
+		try {
+			frontendModule = await loadBundledFrontend(addonId);
+		} catch (err) {
+			console.warn(`[Addons] Failed to load frontend for ${addonId}:`, err);
 		}
 
 		// Create addon instance
@@ -219,27 +255,8 @@ async function fetchAddonManifest(addonId: string): Promise<AddonManifest | null
 		console.warn(`[Addons] Server fetch failed for ${addonId}, using local`);
 	}
 
-	// Fallback: local manifest
-	// Note: `model-viewer` (three.js) is intentionally omitted here so it is only
-	// resolvable from the server and never bundled into the desktop Tauri build.
-	const localManifests: Record<string, AddonManifest> = {
-		'youtube-sync': {
-			id: 'youtube-sync',
-			name: 'YouTube Watch Together',
-			version: '1.0.0',
-			frontendEntry: '$lib/components/plugins/YouTubeWatchEmbed.svelte',
-			dependencies: []
-		},
-		'spotify-sync': {
-			id: 'spotify-sync',
-			name: 'Spotify Sync',
-			version: '1.0.0',
-			frontendEntry: '$lib/components/plugins/SpotifyControlsEmbed.svelte',
-			dependencies: []
-		}
-	};
-
-	return localManifests[addonId] || null;
+	// Fallback: local manifest only for allowlisted IDs (model-viewer omitted on purpose)
+	return LOCAL_MANIFESTS[addonId] || null;
 }
 
 /**
