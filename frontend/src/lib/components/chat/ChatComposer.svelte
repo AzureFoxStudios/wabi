@@ -6,6 +6,7 @@
 	import { pinChannel, unpinChannel } from '$lib/socket';
 	import { _, currentLocale } from '$lib/i18n';
 	import { layoutStore } from '$lib/layoutStore';
+	import { showToast } from '$lib/toast';
 	import { getMatchingCommands, type Command } from '$lib/commands';
 	import { getAuthToken } from '$lib/authSession';
 	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
@@ -190,8 +191,8 @@
 		if (editingMessage) { editMessage(effectiveChannel, editingMessage.id, messageInput.trim()); editingMessage = null; }
 		else {
 			const processed = processOutgoingText(messageInput.trim(), { writeUpperCaseEnabled, unicodeEmojisEnabled, emojis: $emojis as unknown as Emoji[] });
-			if (processed.blocked) { alert(processed.reason); return; }
-			if (!processed.text) { alert('Message is empty after processing.'); return; }
+			if (processed.blocked) { showToast(processed.reason, 'warning'); return; }
+			if (!processed.text) { showToast('Message is empty after processing.', 'warning'); return; }
 			const now = Date.now();
 			const burst = checkSendBurst(manualSendTimestamps, now, SEND_BURST_LIMIT, SEND_BURST_WINDOW_MS);
 			manualSendTimestamps = burst.updatedTimestamps;
@@ -200,7 +201,7 @@
 			const normalizedEntities = resolveOutgoingPlaceEntities(processed.text);
 			if (splitLargeMessagesEnabled && processed.text.length > splitLargeMessagesChunkSize) {
 				const chunks = splitMessageForSending(processed.text, splitLargeMessagesChunkSize);
-				if (chunks.length === 0) { alert('Unable to split message into chunks.'); return; }
+				if (chunks.length === 0) { showToast('Unable to split message into chunks.', 'error'); return; }
 				const chunkEntities = splitEntitiesForChunks(processed.text, chunks, normalizedEntities);
 				for (const [i, chunk] of chunks.entries()) sendChatMessage(effectiveChannel, chunk, 'text', { replyTo: i === 0 ? replyingTo?.id : undefined, isSpoiler: markAsSpoiler, entities: chunkEntities[i] });
 			} else {
@@ -240,7 +241,7 @@
 	}
 	function clearFilePreviews(): void { videoCompressionController?.clearCompressionMetadata(filePreviews.map(i => i.file)); for (const item of filePreviews) revokePreviewUrl(item.preview); filePreviews = []; selectedFiles = []; createAlbumFromUpload = false; uploadAlbumName = ''; }
 	function applySelectedFiles(files: File[], mode: 'replace' | 'append'): void { if (mode === 'replace') { clearFilePreviews(); selectedFiles = files; filePreviews = buildPreviewEntries(files); } else { selectedFiles = [...selectedFiles, ...files]; filePreviews = [...filePreviews, ...buildPreviewEntries(files)]; } const b = enforcePreviewBudget(filePreviews, selectedFiles, MAX_FILE_PREVIEW_IMAGES); filePreviews = b.previews; selectedFiles = b.files; }
-	async function prepareIncomingFiles(files: File[]): Promise<File[]> { for (const file of files) { if (file.size > MAX_UPLOAD_FILE_BYTES) { alert(`File too large! Maximum size is 1GB per file. "${file.name}" is ${formatFileMb(file.size)}MB`); return []; } } const prepared: File[] = []; for (const file of files) { const candidate = videoCompressionController ? await videoCompressionController.maybeCompressVideoFile(file) : file; if (candidate) prepared.push(candidate); } return prepared; }
+	async function prepareIncomingFiles(files: File[]): Promise<File[]> { for (const file of files) { if (file.size > MAX_UPLOAD_FILE_BYTES) { showToast(`File too large! Maximum size is 1GB per file. "${file.name}" is ${formatFileMb(file.size)}MB`, 'error'); return []; } } const prepared: File[] = []; for (const file of files) { const candidate = videoCompressionController ? await videoCompressionController.maybeCompressVideoFile(file) : file; if (candidate) prepared.push(candidate); } return prepared; }
 	async function handleFileSelect(event: Event) { const input = event.target as HTMLInputElement; const files = Array.from(input.files || []); if (files.length === 0) return; const prepared = await prepareIncomingFiles(files); if (prepared.length > 0) applySelectedFiles(prepared, 'replace'); input.value = ''; }
 	function removeFile(index: number) { const removed = filePreviews[index]; revokePreviewUrl(removed?.preview); if (removed?.file) videoCompressionController?.deleteCompressionMetadata(removed.file); selectedFiles = selectedFiles.filter((_, i) => i !== index); filePreviews = filePreviews.filter((_, i) => i !== index); }
 	function handleAlbumUploadToggle(checked: boolean): void { createAlbumFromUpload = checked; if (!checked) { uploadAlbumName = ''; return; } if (!uploadAlbumName.trim()) uploadAlbumName = buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput); }
@@ -251,8 +252,8 @@
 		const dmOtherDbUserId = typeof dmOtherUser?.dbUserId === 'number' ? dmOtherUser.dbUserId : null;
 		const authToken = getAuthToken();
 		const albumScope = createAlbumFromUpload ? getMediaAlbumScope(activeChannel as {type:string; id:string} | undefined) : null;
-		if (createAlbumFromUpload && !authToken) { alert('Sign in with a registered account to turn multi-photo uploads into an album.'); return; }
-		if (createAlbumFromUpload && !albumScope) { alert('Cannot determine album scope for this upload.'); return; }
+		if (createAlbumFromUpload && !authToken) { showToast('Sign in with a registered account to turn multi-photo uploads into an album.', 'warning'); return; }
+		if (createAlbumFromUpload && !albumScope) { showToast('Cannot determine album scope for this upload.', 'error'); return; }
 		isUploading = true;
 		uploadStatusLabel = get(_)('chat.upload.uploading');
 		uploadProgress = 0;
@@ -261,10 +262,10 @@
 			const spec = await orchestrateUpload({ files: selectedFiles, channelId: effectiveChannel, channelType: activeChannel?.type || 'channel', dmChannelId: activeChannel?.type === 'dm' ? activeChannel.id : undefined, dmOtherDbUserId, authToken, messageInput: messageInput.trim(), replyToId: replyingTo?.id, markAsSpoiler, captionEntities, createAlbum: createAlbumFromUpload, albumName: uploadAlbumName, albumScopeType: (albumScope?.scopeType ?? null) as any, albumScopeId: albumScope?.scopeId ?? null, getCompressionMetadata: f => videoCompressionController?.getCompressionMetadata(f), onProgress: pct => { uploadProgress = pct; } });
 			sendChatMessage(effectiveChannel, spec.text, spec.type, spec.options);
 			messageInput = ''; resetComposerEntityState(); replyingTo = null; clearFilePreviews(); textareaElement?.focus();
-		} catch (error) { console.error('Upload error:', error); alert('Failed to upload files. Please try again.'); } finally { isUploading = false; uploadStatusLabel = ''; uploadProgress = 0; }
+		} catch (error) { console.error('Upload error:', error); showToast('Failed to upload files. Please try again.', 'error'); } finally { isUploading = false; uploadStatusLabel = ''; uploadProgress = 0; }
 	}
-	async function handlePhotoCapture(event: CustomEvent<Blob>) { const blob = event.detail; const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }); if (file.size > 10 * 1024 * 1024) { alert('Photo too large (max 10MB). Please try again.'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showCameraCapture = false; showMediaMenu = false; }
-	async function handleAudioSend(event: CustomEvent<Blob>) { const blob = event.detail; const ext = blob.type.includes('webm') ? 'webm' : 'm4a'; const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }); if (file.size > 10 * 1024 * 1024) { alert('Audio too large (max 10MB). Please try again.'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showAudioRecorder = false; showMediaMenu = false; }
+	async function handlePhotoCapture(event: CustomEvent<Blob>) { const blob = event.detail; const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }); if (file.size > 10 * 1024 * 1024) { showToast('Photo too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showCameraCapture = false; showMediaMenu = false; }
+	async function handleAudioSend(event: CustomEvent<Blob>) { const blob = event.detail; const ext = blob.type.includes('webm') ? 'webm' : 'm4a'; const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }); if (file.size > 10 * 1024 * 1024) { showToast('Audio too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showAudioRecorder = false; showMediaMenu = false; }
 	function ensureEmojiPickerLoaded(): void { if (EmojiPickerComponent || emojiPickerLoadPromise) return; emojiPickerLoadPromise = import('../EmojiPicker.svelte').then(mod => { EmojiPickerComponent = mod.default; }).catch(err => { console.error('Failed to load EmojiPicker:', err); }).finally(() => { emojiPickerLoadPromise = null; }); }
 	function supportsMediaCapture(): boolean { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
 	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mediaMenuContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showMediaMenu = false; showEmojiPicker = false; showMentionSuggestions = false; }

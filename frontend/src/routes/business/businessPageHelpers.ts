@@ -4,6 +4,7 @@ import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from '$lib/busines
 import { sanitizeBusinessData } from '$lib/business/validation';
 import { grantLocalMockGuestAccess, isLocalMockApiMode } from '$lib/localMockApi';
 import { joinChannel } from '$lib/socket';
+import { showToast } from '$lib/toast';
 
 export type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
 
@@ -104,10 +105,10 @@ export function handleImportFileInput(event: Event, onImport: (data: unknown) =>
 		try {
 			const data = JSON.parse(e.target?.result as string);
 			onImport(data);
-			alert('Data imported successfully!');
+			showToast('Data imported successfully!', 'info');
 		} catch (error) {
 			console.error('Import error:', error);
-			alert('Failed to import data. Please check the file format.');
+			showToast('Failed to import data. Please check the file format.', 'error');
 		}
 	};
 	reader.readAsText(file);

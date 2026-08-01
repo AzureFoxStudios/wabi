@@ -6,6 +6,7 @@
 	import Login from '$lib/components/Login.svelte';
 	import LayoutRouter from '$lib/components/LayoutRouter.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import { showToast } from '$lib/toast';
 	import { layoutStore } from '$lib/layoutStore';
 		import {
 		clearAuthSession,
@@ -454,11 +455,11 @@
 		markLocalWabiImportPromptHandled(targetKey);
 		const result = await applyLocalWabiProfileImport(sourceKey);
 		if (!result.success) {
-			window.alert(result.errors.join(' ') || 'Profile import did not complete.');
+			showToast(result.errors.join(' ') || 'Profile import did not complete.', 'error');
 			return;
 		}
 		const importedSummary = result.importedFields.join(' and ');
-		window.alert(`Imported ${importedSummary}.`);
+		showToast(`Imported ${importedSummary}.`, 'info');
 	}
 
 	function cancelProfileImportPrompt(): void {
