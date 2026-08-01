@@ -6,6 +6,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { saveThemePreferences } from '$lib/theme/themeApi';
 	import { saveThemeToLocalStorage } from '$lib/theme/themeManager';
+	import { showToast } from '$lib/toast';
 	import type { EffectConfig } from './types';
 
 	let selectedEffect = 'none';
@@ -88,12 +89,12 @@
 				URL.revokeObjectURL(url);
 				const EffectClass = module.default || Object.values(module)[0];
 				if (!EffectClass || typeof EffectClass !== 'function') {
-					alert('Could not find an effect class in the module. Make sure it exports a class implementing AmbientEffect as default.');
+					showToast('Could not find an effect class in the module. Make sure it exports a class implementing AmbientEffect as default.', 'error');
 					return;
 				}
 				const instance = new EffectClass();
 				if (!instance.id || !instance.name || !instance.render) {
-					alert('Invalid effect: missing required properties (id, name, render).');
+					showToast('Invalid effect: missing required properties (id, name, render).', 'error');
 					return;
 				}
 				effectsRegistry.register(instance);
@@ -104,7 +105,7 @@
 				effectSpeed = instance.defaultConfig?.speed ?? effectSpeed;
 				applyEffect();
 			} catch (err) {
-				alert('Failed to import effect: ' + (err instanceof Error ? err.message : 'Unknown error'));
+				showToast('Failed to import effect: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
 			}
 		};
 		input.click();

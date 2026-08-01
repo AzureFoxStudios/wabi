@@ -13,6 +13,7 @@
 
 import { browser } from '$app/environment';
 import { normalizeServerUrl, resolveServerUrl } from './serverUrl';
+import { showToast } from '$lib/toast';
 import type { RotationPeriod, LoadMessagesResult, StorageStats } from './storageTypes';
 import { LEGACY_MIGRATION_SCOPE_KEY, LEGACY_DB_NAME } from './storageTypes';
 import { IndexedDBWrapper } from './storageDb';
@@ -244,7 +245,7 @@ export class ChatStorage {
 		const archives = await this.db.getAllArchives();
 
 		if (archives.length === 0) {
-			alert('No archives to export');
+			showToast('No archives to export', 'warning');
 			return;
 		}
 
@@ -268,7 +269,7 @@ export class ChatStorage {
 		const data = await this.db.getArchive(periodKey);
 
 		if (!data) {
-			alert('Archive not found');
+			showToast('Archive not found', 'warning');
 			return;
 		}
 

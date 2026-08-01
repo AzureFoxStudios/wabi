@@ -49,6 +49,7 @@
 		import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { layoutStore } from '$lib/layoutStore';
+	import { showToast } from '$lib/toast';
 	import { _ } from '$lib/i18n';
 	import { addMediaAlbumItem, createMediaAlbum, listMediaAlbums, type MediaAlbumScopeType } from '$lib/api';
 	import { messageRetentionToMs, DEFAULT_CHANNEL_RETENTION } from '../../../../shared/messageRetention.js';
@@ -779,7 +780,7 @@
 
 		const token = getAuthToken();
 		if (!token) {
-			alert('Login is required to add files to albums.');
+			showToast('Login is required to add files to albums.', 'warning');
 			contextMenuVisible = false;
 			return;
 		}
@@ -797,7 +798,7 @@
 
 		const scope = getAlbumScopeFromCurrentChannel();
 		if (!scope) {
-			alert('Cannot determine active album scope.');
+			showToast('Cannot determine active album scope.', 'error');
 			contextMenuVisible = false;
 			return;
 		}
@@ -818,10 +819,10 @@
 			}
 
 			if (addedCount > 0) {
-				alert(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`);
+				showToast(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`, 'info');
 			}
 		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to add file(s) to album.');
+			showToast(error instanceof Error ? error.message : 'Failed to add file(s) to album.', 'error');
 		} finally {
 			contextMenuVisible = false;
 		}
@@ -974,13 +975,13 @@
 	async function uploadFilesToAlbumAnnouncement(meta: AlbumAnnouncementMeta, fileList: FileList | File[]): Promise<void> {
 		const token = getAuthToken();
 		if (!token) {
-			alert('Login is required to upload into shared albums.');
+			showToast('Login is required to upload into shared albums.', 'warning');
 			return;
 		}
 
 		const scope = getAlbumScopeFromCurrentChannel();
 		if (!scope) {
-			alert('Cannot determine the active album scope.');
+			showToast('Cannot determine the active album scope.', 'error');
 			return;
 		}
 
@@ -993,6 +994,7 @@
 			let targetAlbum =
 				albums.find((album) => normalizeAlbumName(album.name) === normalizeAlbumName(meta.name)) || null;
 			if (!targetAlbum) {
+				// D19 defer: convert to ConfirmDialog in album-picker follow-up
 				const shouldCreate = confirm(`"${meta.name}" no longer exists here. Recreate it and upload into it?`);
 				if (!shouldCreate) return;
 				targetAlbum = await createMediaAlbum(token, {
@@ -1016,10 +1018,10 @@
 
 			if (addedCount > 0) {
 				recordAlbumAnnouncementUpload(meta.name, addedCount);
-				alert(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`);
+				showToast(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`, 'info');
 			}
 		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to upload into the album.');
+			showToast(error instanceof Error ? error.message : 'Failed to upload into the album.', 'error');
 		} finally {
 			albumAnnouncementUploadName = null;
 		}
@@ -1137,7 +1139,7 @@
 		const targetMessage = contextMenuMessage;
 		const settings = getTranslatorSettings();
 		if (!settings.providerUrl) {
-			alert('Select a translator model in Settings > Add-ons > Translator Assist.');
+			showToast('Select a translator model in Settings > Add-ons > Translator Assist.', 'warning');
 			contextMenuVisible = false;
 			return;
 		}
@@ -1431,14 +1433,14 @@
 		const otherDbUserId = channel?.type === 'dm' ? channel.otherUser?.dbUserId : undefined;
 		const authToken = getAuthToken();
 		if (!otherDbUserId || !authToken || !false) {
-			alert(get(_)('messages.errors.cannot_decrypt_session'));
+			showToast(get(_)('messages.errors.cannot_decrypt_session'), 'error');
 			return;
 		}
 
 		const encryptedBuffer = await response.arrayBuffer();
 		const decrypted = await null;
 		if (!decrypted) {
-			alert(get(_)('messages.errors.decrypt_failed'));
+			showToast(get(_)('messages.errors.decrypt_failed'), 'error');
 			return;
 		}
 
@@ -1546,14 +1548,15 @@
 			if (!response.ok || payload?.success === false) {
 				throw new Error(payload?.error || `Failed to queue import (${response.status})`);
 			}
-			alert(
+			showToast(
 				payload?.job?.id
 					? get(_)('messages.blend.queued_with_id', { values: { id: payload.job.id } })
-					: get(_)('messages.blend.queued')
+					: get(_)('messages.blend.queued'),
+				'info'
 			);
 			showBlendImportSettings = false;
 		} catch (error) {
-			alert(error instanceof Error ? error.message : get(_)('messages.blend.queue_failed'));
+			showToast(error instanceof Error ? error.message : get(_)('messages.blend.queue_failed'), 'error');
 		} finally {
 			blendImportSubmitting = false;
 		}

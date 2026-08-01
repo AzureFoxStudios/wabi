@@ -1,6 +1,7 @@
 import type { Message, Channel } from '../socket-types';
 import { browser } from '$app/environment';
 import { isRenderableMessage } from '$lib/displayEnhancements';
+import { showToast } from '$lib/toast';
 import { IndexedDBWrapper } from './indexeddb';
 import {
 	resolveStorageScope,
@@ -495,7 +496,7 @@ export class ChatStorage {
 		const archives = await this.db.getAllArchives();
 
 		if (archives.length === 0) {
-			alert('No archives to export');
+			showToast('No archives to export', 'warning');
 			return;
 		}
 
@@ -519,7 +520,7 @@ export class ChatStorage {
 		const data = await this.db.getArchive(periodKey);
 
 		if (!data) {
-			alert('Archive not found');
+			showToast('Archive not found', 'warning');
 			return;
 		}
 
