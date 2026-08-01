@@ -5,9 +5,7 @@
 	import { formatBadge } from './channelSidebarHelpers';
 
 	export let galleryChannels: Channel[];
-	export let followedChannelIds: Set<string>;
 
-	export let onChannelClick: (channelId: string) => void;
 	export let onChannelButtonClick: (channelId: string, event: MouseEvent) => void;
 	export let onChannelRightClick: (event: MouseEvent, channel: Channel) => void;
 	export let onChannelLongPress: (event: TouchEvent, channel: Channel) => void;
