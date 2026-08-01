@@ -23,7 +23,8 @@
 		closeBreakoutRooms,
 		moveUserToVoiceChannel,
 		pinChannel,
-		unpinChannel
+		unpinChannel,
+		reorderChannels
 	} from '$lib/socket';
 	import {
 		activeVoiceChannel as callActiveVoiceChannel,
@@ -184,7 +185,7 @@
 	$: {
 		const prev = voicePresenceSince; const next = new Map<string, number>(); const at = Date.now();
 		const selfId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id || null;
-		for (const ch of allVoiceChannels) { for (const m of getVoiceMembers(ch.id)) next.set(`${ch.id}::${m.userId}`, prev.get(`${ch.id}::${m.userId}`) ?? at); if (selfId && isConnectedToVoice(ch.id)) next.set(`${ch.id}::${selfId}`, prev.get(`${ch.id}::${selfId}`) ?? at); }
+		for (const ch of allVoiceChannelsAll) { for (const m of getVoiceMembers(ch.id)) next.set(`${ch.id}::${m.userId}`, prev.get(`${ch.id}::${m.userId}`) ?? at); if (selfId && isConnectedToVoice(ch.id)) next.set(`${ch.id}::${selfId}`, prev.get(`${ch.id}::${selfId}`) ?? at); }
 		voicePresenceSince = next;
 	}
 
@@ -440,7 +441,7 @@
 		<div class="section-heading-row">
 			<button class="section-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => toggleSection('text')}>
 				<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-				<span class="section-toggle-label">Text Channels</span><span class="section-count">{textChannels.length + groupChannels.length}</span>
+				<span class="section-toggle-label">Text Channels</span><span class="section-count">{textChannelsAll.length + groupChannels.length}</span>
 			</button>
 			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('text')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
