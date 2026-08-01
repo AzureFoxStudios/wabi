@@ -504,11 +504,11 @@
 					</div>
 					{#if !collapsedCategories.has(cat.id)}
 						<div class="category-channels" data-category-id={cat.id}>
-							<GalleryChannelList galleryChannels={cat.channels} {followedChannelIds} {liveWhiteboardChannelIds} {dropTargetClass} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+							<GalleryChannelList galleryChannels={cat.channels} {liveWhiteboardChannelIds} {dropTargetClass} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 						</div>
 					{/if}
 				{/each}
-				<GalleryChannelList galleryChannels={galleryCategoryMap.uncategorized} {followedChannelIds} {liveWhiteboardChannelIds} {dropTargetClass} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+				<GalleryChannelList galleryChannels={galleryCategoryMap.uncategorized} {liveWhiteboardChannelIds} {dropTargetClass} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 			{/if}
 		{/if}
 

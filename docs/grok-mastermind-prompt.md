@@ -56,7 +56,11 @@ subprocess.run(['opencode', 'run', open('/tmp/opencode-task-prompt.txt').read(),
 
 ### Round D — P2 (important)
 
-16–20. **deferred** — systemic multi-session: a11y (94 warns/60 ignores), strict TS, megacomponent splits, native dialogs→toasts, i18n coverage.
+16. [x] **a11y Pass A** (finding 16) — `f152b15`: GalleryLightbox, WikiPageTree, LoreChannel, GalleryChannel, ReaderTabImpl + reader-tab.css. role/tabindex/keydown, video captions, non-void tags. Target-file a11y cleared; overall ~50 warns remain elsewhere (Pass B later).
+17. [x] **types thin** (finding 17) — GalleryChannelList drop unused `followedChannelIds`/`onChannelClick` props + call sites. Full strict TS still deferred (systemic).
+18. **deferred** — megacomponent splits (MessageList/MainLayout/etc.). No natural extract fell out of D16; multi-session later.
+19. [x] **native dialogs → showToast** (finding 19) — `4512a8f`: ChatComposer, MessageList, +page import, EffectsTab, storage/chat archive, business import, tauri-storage (UI ConfirmDialog owns wipe). Album recreate `confirm` + copy `prompt` deferred with D19 comments.
+20. **partial** — i18n: D19 decrypt/blend paths already used `get(_)()` keys. Bulk new keys for toast English strings out of scope this pass.
 21. [x] **ConnectionBadge** (finding 21) — socket `connectionState` + browser online; connecting/reconnecting/unreachable; named offline listener cleanup (also E32).
 22. [x] **Add-on settings dead DM section** (finding 22) — drop `dms` section; default `activeAddonSection='chat'`; park line_dm/pin_dms under chat.
 23. [x] **External-note URL schemes** (finding 23) — allowlist https/http/obsidian/logseq/notion; reject credentials/control chars; `noopener,noreferrer`.
