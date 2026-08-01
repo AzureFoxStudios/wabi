@@ -485,8 +485,15 @@
 				on:dragleave={() => dragOver = false}
 				on:drop|preventDefault={onDrop}
 				on:click={() => uploadInput?.click()}
+				on:keydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						uploadInput?.click();
+					}
+				}}
 				role="button"
 				tabindex="0"
+				aria-label="Upload files to lore"
 			>
 				<div class="lore-upload-icon">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
@@ -604,7 +611,19 @@
 							<span class="lore-col-actions">Actions</span>
 						</div>
 						{#each dirsInFolder as dir}
-							<div class="lore-file-row" on:click={() => handleNavigateToFolder(dir)}>
+							<div
+								class="lore-file-row"
+								role="button"
+								tabindex="0"
+								aria-label="Open folder {dir.replace(currentFolder, '').replace('/', '')}"
+								on:click={() => handleNavigateToFolder(dir)}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										handleNavigateToFolder(dir);
+									}
+								}}
+							>
 								<span class="lore-col-name">
 									<span class="lore-file-icon">📁</span>
 									<span class="lore-file-name">{dir.replace(currentFolder, '').replace('/', '')}</span>
@@ -619,7 +638,16 @@
 							<div
 								class="lore-file-row"
 								class:lore-file-selected={selectedFile?.path === file.path}
+								role="button"
+								tabindex="0"
+								aria-label="Preview {file.path.split('/').pop() || file.path}"
 								on:click={() => handlePreviewFile(file)}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										handlePreviewFile(file);
+									}
+								}}
 							>
 								<span class="lore-col-name">
 									<span class="lore-file-icon">{getFileIcon(file.path)}</span>
@@ -684,7 +712,7 @@
 			<aside class="lore-sidebar">
 				<div class="lore-sidebar-header">
 					<h4 title={selectedFile.path}>{selectedFile.path.split('/').pop() || selectedFile.path}</h4>
-					<button class="lore-action-btn" on:click={() => { showPreview = false; selectedFile = null; clearLoreFileHistory(); }}>
+					<button class="lore-action-btn" aria-label="Close preview" on:click={() => { showPreview = false; selectedFile = null; clearLoreFileHistory(); }}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
 							<line x1="18" y1="6" x2="6" y2="18"/>
 							<line x1="6" y1="6" x2="18" y2="18"/>
@@ -694,7 +722,19 @@
 				<div class="lore-sidebar-content">
 					<!-- Preview area -->
 					{#if isImageType(selectedFile.path)}
-						<div class="lore-preview-image-container" on:click={openImageLightbox}>
+						<div
+							class="lore-preview-image-container"
+							role="button"
+							tabindex="0"
+							aria-label="Enlarge image preview"
+							on:click={openImageLightbox}
+							on:keydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									e.preventDefault();
+									openImageLightbox();
+								}
+							}}
+						>
 							<img class="lore-preview-image" src={previewUrl} alt={selectedFile.path} loading="lazy" />
 							<div class="lore-preview-enlarge">Click to enlarge</div>
 						</div>
@@ -815,8 +855,8 @@
 
 <!-- Lightbox overlays -->
 {#if lightboxVisible && lightboxImages.length > 0}
-	<div class="lore-lightbox-backdrop" on:click={closeLightbox} role="button" tabindex="0" on:keydown={(e) => e.key === 'Escape' && closeLightbox()}>
-		<button class="lore-lightbox-close" on:click={closeLightbox}>
+	<div class="lore-lightbox-backdrop" on:click={closeLightbox} role="button" tabindex="0" aria-label="Close image lightbox" on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') && closeLightbox()}>
+		<button class="lore-lightbox-close" aria-label="Close" on:click={closeLightbox}>
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
 				<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
 			</svg>
@@ -826,8 +866,8 @@
 {/if}
 
 {#if lightboxVideoUrl}
-	<div class="lore-lightbox-backdrop" on:click={closeLightbox} role="button" tabindex="0" on:keydown={(e) => e.key === 'Escape' && closeLightbox()}>
-		<button class="lore-lightbox-close" on:click={closeLightbox}>
+	<div class="lore-lightbox-backdrop" on:click={closeLightbox} role="button" tabindex="0" aria-label="Close video lightbox" on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') && closeLightbox()}>
+		<button class="lore-lightbox-close" aria-label="Close" on:click={closeLightbox}>
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
 				<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
 			</svg>

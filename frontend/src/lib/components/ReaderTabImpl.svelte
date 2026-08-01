@@ -472,13 +472,19 @@
 							‹
 						</button>
 						<div class="reader-image-viewport">
-							<img 
-								src={currentImage.url} 
-								alt={currentImage.alt}
-								class="reader-image"
-								style="object-fit: {$readerPreferences.imageFit};"
+							<button
+								type="button"
+								class="reader-image-open"
+								aria-label="Open image viewer"
 								on:click={() => openImageViewer(currentImageIndex)}
-							/>
+							>
+								<img
+									src={currentImage.url}
+									alt={currentImage.alt}
+									class="reader-image"
+									style="object-fit: {$readerPreferences.imageFit};"
+								/>
+							</button>
 						</div>
 						<button 
 							class="image-nav next" 
@@ -555,14 +561,34 @@
 	/>
 
 	{#if imageViewerOpen && currentImage}
-		<div class="image-viewer-overlay" on:click={closeImageViewer} role="button" tabindex="0" on:keydown={(e) => e.key === 'Escape' && closeImageViewer()}>
-			<div class="image-viewer-panel" on:click|stopPropagation role="dialog" aria-modal="true">
+		<div
+			class="image-viewer-overlay"
+			on:click={closeImageViewer}
+			role="button"
+			tabindex="0"
+			aria-label="Close image viewer"
+			on:keydown={(e) => {
+				if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					closeImageViewer();
+				}
+			}}
+		>
+			<div
+				class="image-viewer-panel"
+				on:click|stopPropagation
+				on:keydown|stopPropagation
+				role="dialog"
+				aria-modal="true"
+				tabindex="-1"
+				aria-label={currentImage.alt || 'Image viewer'}
+			>
 				<img src={currentImage.url} alt={currentImage.alt} class="image-viewer-img" style="object-fit: {$readerPreferences.imageFit};" />
 				<div class="image-viewer-toolbar">
-					<button on:click={goToPreviousImage} disabled={isFirstImage}>← Prev</button>
+					<button type="button" on:click={goToPreviousImage} disabled={isFirstImage}>← Prev</button>
 					<span>{currentImageIndex + 1} / {currentImages.length}</span>
-					<button on:click={goToNextImage} disabled={isLastImage}>Next →</button>
-					<button on:click={closeImageViewer}>Close</button>
+					<button type="button" on:click={goToNextImage} disabled={isLastImage}>Next →</button>
+					<button type="button" on:click={closeImageViewer}>Close</button>
 				</div>
 			</div>
 		</div>
