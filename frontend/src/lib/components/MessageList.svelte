@@ -250,12 +250,7 @@
 				blendImportModalLoadPromise = null;
 			});
 	}
-	// Emoji picker for reactions
-	// TODO: Add emoji reactions feature
-	// - Right-click message → "Add Reaction" → Opens emoji picker
-	// - Click emoji → Adds reaction to message
-	// - Display reactions below messages with counts
-	// - Click reaction to toggle your reaction on/off
+	// Emoji reaction picker (wired via openReactionPicker / addReaction)
 	let showReactionPicker = false;
 	let reactionPickerX = 0;
 	let reactionPickerY = 0;

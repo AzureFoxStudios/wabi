@@ -38,6 +38,8 @@
   let section: Section = 'overview'
   let stats: DashboardStats | null = null
   let statsLoading = true
+  /** Finding 27: surface stats fetch failures instead of silently stale dashboard */
+  let statsError: string | null = null
   let timeStr = ''
   let paymentPolicy: PaymentAccessPolicy | null = null
   let paymentLoading = true
@@ -58,15 +60,20 @@
   async function fetchStats() {
     const token = getAuthToken()
     if (!token) { statsLoading = false; return }
+    statsError = null
     try {
       const res = await fetch(`${getApiBase()}/api/admin/stats`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
         stats = await res.json()
+      } else {
+        statsError = `Stats unavailable (HTTP ${res.status})`
+        console.warn(`[Admin] stats failed: HTTP ${res.status}`)
       }
-    } catch {
-      // stats stay null
+    } catch (err) {
+      statsError = 'Stats unavailable (network error)'
+      console.warn('[Admin] stats network error:', err)
     } finally {
       statsLoading = false
     }
@@ -176,11 +183,13 @@
       <div class="admin-topbar-right">
         {#if stats}
           <div class="admin-topbar-stats">
-            <span class="admin-topbar-dot" />
+            <span class="admin-topbar-dot"></span>
             <span class="admin-topbar-stat">{stats.overview.onlineUsers} online</span>
-            <span class="admin-topbar-sep" />
+            <span class="admin-topbar-sep"></span>
             <span class="admin-topbar-stat">{stats.overview.totalUsers} total</span>
           </div>
+        {:else if statsError}
+          <span class="admin-topbar-stat admin-topbar-stat--error" title={statsError}>{statsError}</span>
         {/if}
         <span class="admin-topbar-clock">{timeStr}</span>
       </div>

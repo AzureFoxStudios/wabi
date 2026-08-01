@@ -42,10 +42,8 @@
     "vite": "6.4.2"
   },
   "dependencies": {
-    "@giphy/js-components": "5.13.0",
     "@giphy/js-fetch-api": "5.8.0",
     "@tauri-apps/api": "2.11.0",
-    "@types/marked": "5.0.2",
     "@xyflow/svelte": "1.5.2",
     "dompurify": "3.4.12",
     "livekit-client": "2.18.8",

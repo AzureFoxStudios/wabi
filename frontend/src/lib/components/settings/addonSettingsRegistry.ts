@@ -1,5 +1,4 @@
 export type AddonSectionId =
-	| 'dms'
 	| 'chat'
 	| 'search'
 	| 'navigation'
@@ -17,7 +16,6 @@ export interface LocalAddonControlMeta {
 }
 
 export const ADDON_SECTION_IDS: AddonSectionId[] = [
-	'dms',
 	'chat',
 	'search',
 	'navigation',
@@ -30,7 +28,6 @@ export const ADDON_SECTION_IDS: AddonSectionId[] = [
 ];
 
 export const ADDON_SECTION_LABELS: Record<AddonSectionId, string> = {
-	dms: 'DMs',
 	chat: 'Chat',
 	search: 'Search',
 	navigation: 'Navigation',
@@ -50,7 +47,8 @@ export const LOCAL_ADDON_CONTROL_META: Record<string, LocalAddonControlMeta> = {
 	},
 	line_dm: {
 		label: 'LINE DM',
-		section: 'dms',
+		// Finding 22: DM section removed — park under chat until a dedicated panel returns
+		section: 'chat',
 		terms: ['line', 'direct message', 'wallpaper', 'background', 'preset']
 	},
 	chat_aliases: {
@@ -250,7 +248,8 @@ export const LOCAL_ADDON_CONTROL_META: Record<string, LocalAddonControlMeta> = {
 	},
 	pin_dms: {
 		label: 'PinDMs',
-		section: 'dms',
+		// Finding 22: DM section removed
+		section: 'chat',
 		terms: ['pin dms', 'pinned conversations', 'direct messages']
 	}
 };

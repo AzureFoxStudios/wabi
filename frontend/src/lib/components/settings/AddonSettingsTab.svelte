@@ -40,7 +40,8 @@
 	let addonsImportPreview: { importedAt?: string; frontend?: unknown[]; backend?: unknown[] } | null = null;
 	let addonSearchQuery = '';
 	let addonSearchTokens: string[] = [];
-	let activeAddonSection: AddonSectionId | null = 'dms';
+	// Finding 22: default to first rendered section (chat). 'dms' was removed.
+	let activeAddonSection: AddonSectionId | null = 'chat';
 	let visibleLocalAddonControlCount = 0;
 	let availableLocalAddonControlCount = 0;
 	const frontendAddonModules = import.meta.glob('./plugins/*.svelte');

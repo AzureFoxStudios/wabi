@@ -140,6 +140,50 @@
     });
   }
 
+  /**
+   * Finding 23: only allow known safe schemes. Reject javascript:/data:/etc,
+   * credentials, and control chars. Always open with noopener,noreferrer.
+   */
+  const ALLOWED_EXTERNAL_SCHEMES = new Set([
+    'https:',
+    'http:',
+    'obsidian:',
+    'logseq:',
+    'notion:'
+  ]);
+
+  function isSafeExternalUrl(raw: string): { ok: true; href: string } | { ok: false; reason: string } {
+    const trimmed = raw.trim();
+    if (!trimmed) return { ok: false, reason: 'Enter a URL first' };
+    // Block control characters and obvious script payloads
+    if (/[\u0000-\u001f\u007f]/.test(trimmed)) {
+      return { ok: false, reason: 'URL contains control characters' };
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      return { ok: false, reason: 'Invalid URL' };
+    }
+    if (!ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
+      return { ok: false, reason: `Scheme not allowed: ${parsed.protocol}` };
+    }
+    if (parsed.username || parsed.password) {
+      return { ok: false, reason: 'URLs with credentials are not allowed' };
+    }
+    return { ok: true, href: parsed.href };
+  }
+
+  function openExternalSafe(url: string): boolean {
+    const check = isSafeExternalUrl(url);
+    if (check.ok === false) {
+      externalAppTestResult = check.reason;
+      return false;
+    }
+    window.open(check.href, '_blank', 'noopener,noreferrer');
+    return true;
+  }
+
   function testExternalApp() {
     const app = externalApp;
     if (app === 'none') {
@@ -147,35 +191,17 @@
       return;
     }
     if (app === 'obsidian') {
-      // Test obsidian:// URI scheme
-      try {
-        window.open('obsidian://vault', '_blank');
-        externalAppTestResult = 'ok';
-      } catch {
-        externalAppTestResult = 'Obsidian URI not supported';
-      }
+      if (openExternalSafe('obsidian://vault')) externalAppTestResult = 'ok';
     } else if (app === 'notion') {
-      window.open('https://www.notion.so', '_blank');
-      externalAppTestResult = 'ok';
+      if (openExternalSafe('https://www.notion.so')) externalAppTestResult = 'ok';
     } else if (app === 'logseq') {
-      try {
-        window.open('logseq://', '_blank');
-        externalAppTestResult = 'ok';
-      } catch {
-        externalAppTestResult = 'Logseq URI not supported';
-      }
+      if (openExternalSafe('logseq://')) externalAppTestResult = 'ok';
     } else if (app === 'custom') {
       if (!customAppUrl) {
         externalAppTestResult = 'Enter a URL first';
         return;
       }
-      try {
-        new URL(customAppUrl);
-        window.open(customAppUrl, '_blank');
-        externalAppTestResult = 'ok';
-      } catch {
-        externalAppTestResult = 'Invalid URL';
-      }
+      if (openExternalSafe(customAppUrl)) externalAppTestResult = 'ok';
     } else {
       externalAppTestResult = 'Unknown app';
     }

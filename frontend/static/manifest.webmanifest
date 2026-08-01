@@ -5,8 +5,8 @@
 	"description": "Ephemeral chat with screen sharing and business features",
 	"start_url": "/",
 	"display": "standalone",
-	"background_color": "#1a1a1a",
-	"theme_color": "#1a1a1a",
+	"background_color": "#0f0c29",
+	"theme_color": "#0f0c29",
 	"icons": [
 		{
 			"src": "/icon-192.png",

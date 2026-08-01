@@ -41,5 +41,5 @@
 		</label>
 		<button class="admin-btn" on:click={onCreatePost}>{$_('admin.role_gate.create')}</button>
 	</div>
-	<div class="admin_empty">{$_('admin.role_gate.note')}</div>
+	<div class="admin-empty">{$_('admin.role_gate.note')}</div>
 </div>

@@ -94,12 +94,13 @@
 		return getRecordingParticipantsForChannel(channelId).some((participant) => participant.userId === member.userId);
 	}
 
-	function canDragVoiceMember(memberUserId: string): boolean {
+	/** Finding 32: only self is draggable here; parent may still cancel unauthorized moves. */
+	export let canDragVoiceMember: (memberUserId: string) => boolean = (memberUserId) => {
 		if (!$currentUser) return false;
 		if (memberUserId === $currentUser.id) return true;
 		if ($currentUser.dbUserId && memberUserId === `user-${$currentUser.dbUserId}`) return true;
-		return true;
-	}
+		return false;
+	};
 
 	export let onVoiceMemberDragStart: (event: DragEvent, channelId: string, memberUserId: string) => void;
 	export let onVoiceMemberDragEnd: () => void;
