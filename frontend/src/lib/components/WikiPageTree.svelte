@@ -40,6 +40,13 @@
 		const ms = page.updatedAtMicros > 1e12 ? Math.floor(page.updatedAtMicros / 1000) : page.updatedAtMicros;
 		return Date.now() - ms < 60000;
 	}
+
+	function onChevronKey(e: KeyboardEvent, pageId: string) {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			toggleCollapse(pageId);
+		}
+	}
 </script>
 
 <div class="wiki-tree-pane">
@@ -75,10 +82,14 @@
 							<span
 								class="wiki-tree-chevron"
 								class:collapsed={collapsed.has(page.pageId)}
+								role="button"
+								tabindex="0"
+								aria-label={collapsed.has(page.pageId) ? 'Expand page' : 'Collapse page'}
 								on:click|stopPropagation={() => toggleCollapse(page.pageId)}
+								on:keydown|stopPropagation={(e) => onChevronKey(e, page.pageId)}
 							>&#9660;</span>
 						{:else}
-							<span class="wiki-tree-chevron" style="visibility:hidden">&#9660;</span>
+							<span class="wiki-tree-chevron" style="visibility:hidden" aria-hidden="true">&#9660;</span>
 						{/if}
 						<span class="wiki-tree-item-icon">&#128196;</span>
 						<span class="wiki-tree-item-title">{page.title}</span>
@@ -99,10 +110,14 @@
 											<span
 												class="wiki-tree-chevron"
 												class:collapsed={collapsed.has(child.pageId)}
+												role="button"
+												tabindex="0"
+												aria-label={collapsed.has(child.pageId) ? 'Expand page' : 'Collapse page'}
 												on:click|stopPropagation={() => toggleCollapse(child.pageId)}
+												on:keydown|stopPropagation={(e) => onChevronKey(e, child.pageId)}
 											>&#9660;</span>
 										{:else}
-											<span class="wiki-tree-chevron" style="visibility:hidden">&#9660;</span>
+											<span class="wiki-tree-chevron" style="visibility:hidden" aria-hidden="true">&#9660;</span>
 										{/if}
 										<span class="wiki-tree-item-icon">&#128196;</span>
 										<span class="wiki-tree-item-title">{child.title}</span>

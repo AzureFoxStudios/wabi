@@ -240,7 +240,20 @@
 					</div>
 					<div class="recent-scroll">
 						{#each recentItems as item, idx (item.id)}
-							<div class="recent-card" on:click={() => openLightbox(idx, recentItems)} on:contextmenu|stopPropagation={(e) => { e.preventDefault(); shareGalleryItem(recentItems[idx]); }}>
+							<div
+								class="recent-card"
+								role="button"
+								tabindex="0"
+								aria-label="Open {item.attachmentName}"
+								on:click={() => openLightbox(idx, recentItems)}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										openLightbox(idx, recentItems);
+									}
+								}}
+								on:contextmenu|stopPropagation={(e) => { e.preventDefault(); shareGalleryItem(recentItems[idx]); }}
+							>
 								<div class="recent-card-cover">
 									{#if getGalleryItemKind(item.attachmentMime) === 'video'}
 										<video
@@ -254,7 +267,9 @@
 											use:videoRef={item.id}
 											on:mouseenter={() => setVideoHover(item.id, true)}
 											on:mouseleave={() => setVideoHover(item.id, false)}
-										/>
+										>
+											<track kind="captions" />
+										</video>
 									{:else}
 										<img src={item.attachmentUrl} alt={item.attachmentName} class="recent-media" loading="lazy" />
 									{/if}
@@ -323,7 +338,20 @@
 					{/if}
 					<div class="gallery-grid">
 						{#each mainItems as item, idx (item.id)}
-							<div class="gallery-card" on:click={() => openLightbox(idx, mainItems)} on:contextmenu|stopPropagation={(e) => { e.preventDefault(); shareGalleryItem(mainItems[idx]); }}>
+							<div
+								class="gallery-card"
+								role="button"
+								tabindex="0"
+								aria-label="Open {item.attachmentName}"
+								on:click={() => openLightbox(idx, mainItems)}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										openLightbox(idx, mainItems);
+									}
+								}}
+								on:contextmenu|stopPropagation={(e) => { e.preventDefault(); shareGalleryItem(mainItems[idx]); }}
+							>
 								<div class="card-cover">
 									{#if getGalleryItemKind(item.attachmentMime) === 'video'}
 										<video
@@ -337,7 +365,9 @@
 											use:videoRef={item.id}
 											on:mouseenter={() => setVideoHover(item.id, true)}
 											on:mouseleave={() => setVideoHover(item.id, false)}
-										/>
+										>
+											<track kind="captions" />
+										</video>
 									{:else}
 										<img src={item.attachmentUrl} alt={item.attachmentName} class="card-media" loading="lazy" />
 									{/if}

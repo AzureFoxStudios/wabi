@@ -135,10 +135,22 @@
 			handleSend();
 		}
 	}
+
+	function onActivateKey(e: KeyboardEvent, action: () => void) {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			action();
+		}
+	}
 </script>
 
 {#if visible && currentItem}
-	<div class="lightbox-backdrop" on:click|self={close} transition:fade>
+	<div
+		class="lightbox-backdrop"
+		role="presentation"
+		on:click|self={close}
+		transition:fade
+	>
 		<button class="lightbox-close" on:click={close} aria-label="Close lightbox">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
 				<line x1="18" y1="6" x2="6" y2="18"/>
@@ -162,7 +174,14 @@
 		{#if feedbackMode}
 			<div class="lightbox-body-row">
 				<div class="lightbox-media-col">
-					<div class="lightbox-media" on:click={handleMediaClick}>
+					<div
+						class="lightbox-media"
+						role="button"
+						tabindex="0"
+						aria-label="Place feedback marker on media"
+						on:click={handleMediaClick}
+						on:keydown={(e) => onActivateKey(e, () => handleMediaClick(e as unknown as MouseEvent))}
+					>
 						{#if currentItem.attachmentMime?.startsWith('video/')}
 							<video
 								src={currentItem.attachmentUrl}
@@ -170,7 +189,9 @@
 								autoplay
 								class="lightbox-video"
 								on:click|stopPropagation
-							/>
+							>
+								<track kind="captions" />
+							</video>
 						{:else}
 							<img
 								src={currentItem.attachmentUrl}
@@ -196,7 +217,7 @@
 								<div
 									class="lightbox-marker-dot lightbox-marker-pending"
 									style="left: {pendingMarker.x}%; top: {pendingMarker.y}%"
-								/>
+								></div>
 							{/if}
 						</div>
 					{/if}
@@ -228,7 +249,11 @@
 									class="lightbox-feedback-item"
 									class:active={activeMarkerId === fb.feedbackId}
 									data-feedback-id={fb.feedbackId}
+									role="button"
+									tabindex="0"
+									aria-label="Feedback {idx + 1}"
 									on:click={() => handleSidebarItemClick(fb)}
+									on:keydown={(e) => onActivateKey(e, () => handleSidebarItemClick(fb))}
 								>
 									<div class="lightbox-feedback-number">{idx + 1}</div>
 									<div class="lightbox-feedback-body">
@@ -257,7 +282,7 @@
 							on:keydown={handleComposerKeydown}
 							disabled={!pendingMarker}
 							rows="1"
-						/>
+						></textarea>
 						<button
 							class="lightbox-feedback-send"
 							on:click={handleSend}
@@ -273,7 +298,14 @@
 				</div>
 			</div>
 		{:else}
-			<div class="lightbox-media" on:click={close}>
+			<div
+				class="lightbox-media"
+				role="button"
+				tabindex="0"
+				aria-label="Close lightbox"
+				on:click={close}
+				on:keydown={(e) => onActivateKey(e, close)}
+			>
 				{#if currentItem.attachmentMime?.startsWith('video/')}
 					<video
 						src={currentItem.attachmentUrl}
@@ -281,7 +313,9 @@
 						autoplay
 						class="lightbox-video"
 						on:click|stopPropagation
-					/>
+					>
+						<track kind="captions" />
+					</video>
 				{:else}
 					<img
 						src={currentItem.attachmentUrl}
@@ -292,7 +326,7 @@
 			</div>
 		{/if}
 
-		<div class="lightbox-info" on:click|stopPropagation>
+		<div class="lightbox-info" role="presentation" on:click|stopPropagation>
 			<div class="lightbox-info-row">
 				<div class="lightbox-info-left">
 					{#if currentCreator}
