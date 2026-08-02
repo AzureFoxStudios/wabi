@@ -18,6 +18,20 @@
 		return roleDefinition?.displayName || FALLBACK_ROLE_LABELS[roleName] || roleName;
 	})();
 
+	// R8: never render blank / literal "unknown" for self label in BL profile card.
+	$: displayUsername = (() => {
+		const raw = ($currentUser?.username || '').trim();
+		if (!raw) return 'Guest';
+		if (raw.toLowerCase() === 'unknown' || raw.toLowerCase() === 'unknown user') return 'Guest';
+		return raw;
+	})();
+	$: displayHandle = (() => {
+		const handle = ($currentUser?.handle || '').trim();
+		if (handle && handle.toLowerCase() !== 'unknown') return handle;
+		return displayUsername;
+	})();
+	$: avatarInitial = (displayUsername.charAt(0) || 'G').toUpperCase();
+
 	function openProfilePopout(event: Event): void {
 		dispatch('openProfilePopout', event);
 	}
@@ -38,10 +52,10 @@
 		<div class="profile-info">
 			<button class="avatar-container" on:click={openProfilePopout}>
 				{#if $currentUser.profilePicture}
-					<img src={$currentUser.profilePicture} alt={$currentUser.username} class="avatar" />
+					<img src={$currentUser.profilePicture} alt={displayUsername} class="avatar" />
 				{:else}
 					<div class="avatar-placeholder" style="--avatar-color: {$currentUser.color}">
-						{$currentUser.username.charAt(0).toUpperCase()}
+						{avatarInitial}
 					</div>
 				{/if}
 				<div class="status-indicator" class:online={$currentUser.status === 'active'} class:away={$currentUser.status === 'away'} class:busy={$currentUser.status === 'busy'}></div>
@@ -59,10 +73,10 @@
 						}
 					}}
 				>
-					<span class="username-text">{$currentUser.username}</span>
+					<span class="username-text">{displayUsername}</span>
 					<span class="self-role-badge">{currentUserRoleLabel}</span>
 				</div>
-				<div class="user-tag">@{$currentUser.handle || $currentUser.username}</div>
+				<div class="user-tag">@{displayHandle}</div>
 			</div>
 		</div>
 

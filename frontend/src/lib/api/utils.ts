@@ -47,12 +47,52 @@ export async function fetchWithTimeout(url: string, options: RequestWithTimeout 
 	}
 }
 
-export async function safeJsonParse(response: Response): Promise<unknown> {
+/** True when Content-Type looks like JSON (incl. +json). */
+export function isJsonContentType(response: Response): boolean {
+	const ct = response.headers.get('content-type') || '';
+	return /\bjson\b/i.test(ct) || /[+_/]json\b/i.test(ct);
+}
+
+/**
+ * Parse a Response as JSON only when it is actually JSON.
+ * SPA fallback often returns 200 text/html for missing API routes — never
+ * call response.json() on that (SyntaxError @ col 1).
+ *
+ * Returns null for non-JSON / empty / parse failure (callers treat as missing).
+ * safeJsonParse keeps the older {} fallback for admin error bodies.
+ */
+export async function parseApiJson(response: Response): Promise<unknown | null> {
+	const ct = response.headers.get('content-type') || '';
+	// Fast reject: explicit HTML or missing json content-type on 2xx SPA shells
+	if (!isJsonContentType(response)) {
+		// Peek body start without throwing when content-type lied or was empty
+		try {
+			const text = await response.clone().text();
+			const trimmed = text.trimStart();
+			if (!trimmed) return null;
+			if (trimmed.startsWith('<!') || trimmed.startsWith('<html') || trimmed.startsWith('<HTML')) {
+				return null;
+			}
+			// content-type wrong but body might still be JSON
+			try {
+				return JSON.parse(text) as unknown;
+			} catch {
+				return null;
+			}
+		} catch {
+			return null;
+		}
+	}
 	try {
 		return await response.json();
 	} catch {
-		return {};
+		return null;
 	}
+}
+
+export async function safeJsonParse(response: Response): Promise<unknown> {
+	const parsed = await parseApiJson(response);
+	return parsed ?? {};
 }
 
 export function isPositiveNumber(value: unknown): boolean {

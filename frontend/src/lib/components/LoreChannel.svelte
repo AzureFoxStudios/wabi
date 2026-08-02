@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { currentChannel, channels } from '$lib/socket';
-	import { getServerUrl } from '$lib/serverUrl';
 	import {
 		loreRepo,
 		loreFiles,
@@ -31,11 +30,13 @@
 		createLoreSnapshot,
 		createLoreBranch,
 		mergeLoreBranch,
+		parseLoreChannelId,
 		type LoreFileInfo,
 		type LoreRevision,
 		type LoreBranch
 	} from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
+	import { layoutStore } from '$lib/layoutStore';
 
 	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
 	$: repo = $loreRepo;
@@ -66,6 +67,13 @@
 	let showPreview = false;
 	let previewText = '';
 	let previewTextLoading = false;
+	/** L5: auth'd media — raw <img>/<video> cannot send Bearer; use blob object URLs. */
+	let previewUrl = '';
+	let previewUrlLoading = false;
+	let previewBlobGen = 0;
+	/** path -> object URL cache for grid thumbs (revoked on channel change / destroy). */
+	let thumbUrlByPath: Record<string, string> = {};
+	let thumbInflight = new Set<string>();
 
 	// Lightbox state
 	let lightboxImages: string[] = [];
@@ -93,10 +101,6 @@
 
 	$: breadcrumbs = currentFolder ? currentFolder.split('/').filter(Boolean) : [];
 
-	$: previewUrl = selectedFile && parseChannelId($currentChannel || '')
-		? `${getServerUrl()}/addons/lore/repos/${parseChannelId($currentChannel!)}/files/${encodeURIComponent(selectedFile.path)}`
-		: '';
-
 	onMount(() => {
 		loadLoreRepo();
 		loadLoreHistory();
@@ -104,12 +108,86 @@
 	});
 
 	onDestroy(() => {
+		revokePreviewUrl();
+		revokeAllThumbs();
 		resetLoreStore();
 	});
 
 	$: if ($currentChannel) {
+		revokePreviewUrl();
+		revokeAllThumbs();
+		selectedFile = null;
+		showPreview = false;
 		loadLoreRepo();
 		loadLoreHistory();
+	}
+
+	function revokePreviewUrl() {
+		if (previewUrl && previewUrl.startsWith('blob:')) {
+			try { URL.revokeObjectURL(previewUrl); } catch {}
+		}
+		previewUrl = '';
+		previewUrlLoading = false;
+	}
+
+	function revokeAllThumbs() {
+		for (const url of Object.values(thumbUrlByPath)) {
+			if (url && url.startsWith('blob:')) {
+				try { URL.revokeObjectURL(url); } catch {}
+			}
+		}
+		thumbUrlByPath = {};
+		thumbInflight = new Set();
+	}
+
+	function needsAuthMediaBlob(path: string): boolean {
+		const t = getFileType(path);
+		return t === 'image' || t === 'video' || t === 'audio' || t === 'pdf';
+	}
+
+	/** L5: download with bearer → object URL for <img>/<video>/<audio>/<iframe>. */
+	async function loadPreviewBlob(file: LoreFileInfo) {
+		const gen = ++previewBlobGen;
+		revokePreviewUrl();
+		if (!needsAuthMediaBlob(file.path)) return;
+		const token = getAuthToken();
+		const chId = parseLoreChannelId($currentChannel);
+		if (!token || chId == null) return;
+		previewUrlLoading = true;
+		try {
+			const blob = await downloadLoreFile(token, chId, file.path);
+			if (gen !== previewBlobGen) return; // stale
+			previewUrl = URL.createObjectURL(blob);
+		} catch (err) {
+			if (gen !== previewBlobGen) return;
+			console.warn('[LoreChannel] preview blob failed', err);
+			previewUrl = '';
+		} finally {
+			if (gen === previewBlobGen) previewUrlLoading = false;
+		}
+	}
+
+	/** L5: lazy grid thumbs — only fetch when path not cached. */
+	function ensureThumb(path: string): string {
+		const cached = thumbUrlByPath[path];
+		if (cached) return cached;
+		if (thumbInflight.has(path)) return '';
+		const token = getAuthToken();
+		const chId = parseLoreChannelId($currentChannel);
+		if (!token || chId == null) return '';
+		thumbInflight.add(path);
+		downloadLoreFile(token, chId, path)
+			.then((blob) => {
+				const url = URL.createObjectURL(blob);
+				thumbUrlByPath = { ...thumbUrlByPath, [path]: url };
+			})
+			.catch((err) => {
+				console.warn('[LoreChannel] thumb blob failed', path, err);
+			})
+			.finally(() => {
+				thumbInflight.delete(path);
+			});
+		return '';
 	}
 
 	function formatSize(bytes: number): string {
@@ -183,9 +261,9 @@
 		return type === 'image' || type === 'video' || type === 'audio' || type === 'text' || type === 'pdf';
 	}
 
-	function parseChannelId(chId: string): number | null {
-		const match = chId.match(/^ch_(\d+)/);
-		return match ? parseInt(match[1], 10) : null;
+	/** L4: wire ids are ch_{hex}; use shared parser (never decimal). */
+	function parseChannelId(chId: string | null | undefined): number | null {
+		return parseLoreChannelId(chId);
 	}
 
 	function handleNavigateToFolder(dir: string) {
@@ -211,6 +289,7 @@
 		showDiff = false;
 		previewText = '';
 		previewTextLoading = false;
+		revokePreviewUrl();
 
 		const token = getAuthToken();
 		const chId = parseChannelId($currentChannel || '');
@@ -218,10 +297,16 @@
 			await loadLoreFileHistory(file.path);
 		}
 
+		// L5: media/pdf via auth'd blob object URL
+		if (needsAuthMediaBlob(file.path) && token && chId) {
+			await loadPreviewBlob(file);
+		}
+
 		if (isTextType(file.path)) {
 			previewTextLoading = true;
 			try {
-				const blob = await downloadLoreFile(token!, chId!, file.path);
+				if (!token || !chId) throw new Error('not authed');
+				const blob = await downloadLoreFile(token, chId, file.path);
 				previewText = await blob.text();
 			} catch {
 				previewText = 'Failed to load text preview.';
@@ -307,6 +392,7 @@
 			if (selectedFile?.path === file.path) {
 				selectedFile = null;
 				showPreview = false;
+				revokePreviewUrl();
 				clearLoreFileHistory();
 			}
 			await Promise.all([loadLoreRepo(), loadLoreHistory()]);
@@ -430,6 +516,15 @@
 						<rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
 					</svg>
 				{/if}
+			</button>
+			<button
+				class="lore-btn lore-btn-sm"
+				type="button"
+				title="Open notes"
+				aria-label="Open notes"
+				on:click={() => layoutStore.openNotes()}
+			>
+				Notes
 			</button>
 			<button class="lore-btn lore-btn-sm" on:click={() => showSnapshot = !showSnapshot}>
 				Snapshot
@@ -580,13 +675,13 @@
 								{#if isImageType(file.path)}
 									<img
 										class="lore-grid-thumb"
-										src={`${getServerUrl()}/addons/lore/repos/${parseChannelId($currentChannel || '')}/files/${encodeURIComponent(file.path)}`}
+										src={thumbUrlByPath[file.path] || ensureThumb(file.path)}
 										alt={file.path}
 										loading="lazy"
 									/>
 								{:else if isVideoType(file.path)}
 									<video class="lore-grid-thumb" preload="metadata" muted>
-										<source src={`${getServerUrl()}/addons/lore/repos/${parseChannelId($currentChannel || '')}/files/${encodeURIComponent(file.path)}`} />
+										<source src={thumbUrlByPath[file.path] || ensureThumb(file.path)} />
 									</video>
 								{:else}
 									<div class="lore-grid-icon">{getFileIcon(file.path)}</div>
@@ -722,36 +817,48 @@
 				<div class="lore-sidebar-content">
 					<!-- Preview area -->
 					{#if isImageType(selectedFile.path)}
-						<div
-							class="lore-preview-image-container"
-							role="button"
-							tabindex="0"
-							aria-label="Enlarge image preview"
-							on:click={openImageLightbox}
-							on:keydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									e.preventDefault();
-									openImageLightbox();
-								}
-							}}
-						>
-							<img class="lore-preview-image" src={previewUrl} alt={selectedFile.path} loading="lazy" />
-							<div class="lore-preview-enlarge">Click to enlarge</div>
-						</div>
+						{#if previewUrlLoading || !previewUrl}
+							<div class="lore-loading"><div class="loading-spinner"></div><span>Loading preview...</span></div>
+						{:else}
+							<div
+								class="lore-preview-image-container"
+								role="button"
+								tabindex="0"
+								aria-label="Enlarge image preview"
+								on:click={openImageLightbox}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										openImageLightbox();
+									}
+								}}
+							>
+								<img class="lore-preview-image" src={previewUrl} alt={selectedFile.path} />
+								<div class="lore-preview-enlarge">Click to enlarge</div>
+							</div>
+						{/if}
 					{:else if isVideoType(selectedFile.path)}
-						<div class="lore-preview-video-container">
-							<video class="lore-preview-video" controls preload="auto" src={previewUrl}>
-								<track kind="captions" />
-							</video>
-							<button class="lore-btn lore-btn-sm" on:click={openVideoLightbox}>Full screen</button>
-						</div>
+						{#if previewUrlLoading || !previewUrl}
+							<div class="lore-loading"><div class="loading-spinner"></div><span>Loading preview...</span></div>
+						{:else}
+							<div class="lore-preview-video-container">
+								<video class="lore-preview-video" controls preload="auto" src={previewUrl}>
+									<track kind="captions" />
+								</video>
+								<button class="lore-btn lore-btn-sm" on:click={openVideoLightbox}>Full screen</button>
+							</div>
+						{/if}
 					{:else if isAudioType(selectedFile.path)}
-						<div class="lore-preview-audio">
-							<div class="lore-preview-audio-icon">🎵</div>
-							<audio controls src={previewUrl} style="width: 100%">
-								<track kind="captions" />
-							</audio>
-						</div>
+						{#if previewUrlLoading || !previewUrl}
+							<div class="lore-loading"><div class="loading-spinner"></div><span>Loading preview...</span></div>
+						{:else}
+							<div class="lore-preview-audio">
+								<div class="lore-preview-audio-icon">🎵</div>
+								<audio controls src={previewUrl} style="width: 100%">
+									<track kind="captions" />
+								</audio>
+							</div>
+						{/if}
 					{:else if isTextType(selectedFile.path)}
 						<div class="lore-preview-text">
 							{#if previewTextLoading}
@@ -761,9 +868,13 @@
 							{/if}
 						</div>
 					{:else if getFileType(selectedFile.path) === 'pdf'}
-						<div class="lore-preview-pdf">
-							<iframe class="lore-preview-pdf-frame" src={previewUrl} title="PDF preview"></iframe>
-						</div>
+						{#if previewUrlLoading || !previewUrl}
+							<div class="lore-loading"><div class="loading-spinner"></div><span>Loading preview...</span></div>
+						{:else}
+							<div class="lore-preview-pdf">
+								<iframe class="lore-preview-pdf-frame" src={previewUrl} title="PDF preview"></iframe>
+							</div>
+						{/if}
 					{:else}
 						<div class="lore-preview-metadata">
 							<div class="lore-preview-metadata-icon">{getFileIcon(selectedFile.path)}</div>
@@ -918,7 +1029,7 @@
 		padding: 2px 6px;
 		border-radius: 4px;
 		background: var(--accent-primary-color);
-		color: #fff;
+		color: var(--text-on-danger);
 	}
 
 	.lore-health {
@@ -928,13 +1039,13 @@
 	}
 
 	.lore-health-ok {
-		background: #2d7d46;
-		color: #fff;
+		background: var(--color-success);
+		color: var(--text-on-danger);
 	}
 
 	.lore-health-err {
-		background: #a33;
-		color: #fff;
+		background: var(--color-danger);
+		color: var(--text-on-danger);
 	}
 
 	.lore-header-actions {
@@ -972,7 +1083,7 @@
 	}
 
 	.lore-view-toggle:hover {
-		background: rgba(255, 255, 255, 0.06);
+		background: color-mix(in srgb, var(--text-heading) 6%, transparent);
 		color: var(--text-primary-color, #eee);
 	}
 
@@ -1183,7 +1294,7 @@
 	}
 
 	.lore-grid-dir {
-		background: rgba(255, 255, 255, 0.02);
+		background: color-mix(in srgb, var(--text-heading) 2%, transparent);
 	}
 
 	.lore-grid-thumb {
@@ -1204,7 +1315,7 @@
 		left: 0;
 		right: 0;
 		padding: 6px 8px;
-		background: linear-gradient(transparent, rgba(0,0,0,0.7));
+		background: linear-gradient(transparent, color-mix(in srgb, #000 70%, transparent));
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
@@ -1259,7 +1370,7 @@
 	}
 
 	.lore-file-row:hover {
-		background: rgba(255, 255, 255, 0.03);
+		background: color-mix(in srgb, var(--text-heading) 3%, transparent);
 	}
 
 	.lore-file-selected {
@@ -1313,8 +1424,8 @@
 		font-size: 11px;
 		padding: 1px 4px;
 		border-radius: 3px;
-		background: #854d0e;
-		color: #fff;
+		background: var(--color-warning);
+		color: var(--text-on-danger);
 	}
 
 	.lore-unlock-badge {
@@ -1337,13 +1448,13 @@
 	}
 
 	.lore-action-btn:hover {
-		background: rgba(255, 255, 255, 0.06);
+		background: color-mix(in srgb, var(--text-heading) 6%, transparent);
 		color: var(--text-primary-color, #eee);
 	}
 
 	.lore-action-danger:hover {
-		background: rgba(255, 50, 50, 0.15);
-		color: #ff4444;
+		background: var(--color-danger-bg);
+		color: var(--text-danger);
 	}
 
 	.lore-btn {
@@ -1351,7 +1462,7 @@
 		border: none;
 		border-radius: 4px;
 		background: var(--accent-primary-color);
-		color: #fff;
+		color: var(--text-on-danger);
 		font-size: 13px;
 		cursor: pointer;
 		transition: opacity 0.15s;
@@ -1377,11 +1488,11 @@
 	}
 
 	.lore-btn-danger {
-		background: #a33;
+		background: var(--color-danger);
 	}
 
 	.lore-btn-danger:hover:not(:disabled) {
-		background: #c44;
+		background: var(--color-danger);
 	}
 
 	/* -- Sidebar / Preview -- */
@@ -1447,8 +1558,8 @@
 		font-size: 11px;
 		padding: 3px 8px;
 		border-radius: 4px;
-		background: rgba(0,0,0,0.6);
-		color: #fff;
+		background: var(--surface-overlay);
+		color: var(--text-on-danger);
 		opacity: 0;
 		transition: opacity 0.15s;
 	}
@@ -1467,7 +1578,7 @@
 		width: 100%;
 		max-height: 250px;
 		border-radius: 6px;
-		background: #000;
+		background: var(--surface-sunken);
 	}
 
 	/* Preview: audio */
@@ -1693,8 +1804,8 @@
 	.lore-lightbox-backdrop {
 		position: fixed;
 		inset: 0;
-		z-index: 2000;
-		background: rgba(0, 0, 0, 0.9);
+		z-index: var(--z-lightbox);
+		background: color-mix(in srgb, #000 90%, transparent);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1705,7 +1816,7 @@
 		position: absolute;
 		top: 16px;
 		right: 16px;
-		background: rgba(0,0,0,0.5);
+		background: color-mix(in srgb, #000 50%, transparent);
 		border: none;
 		border-radius: 50%;
 		width: 40px;
@@ -1713,13 +1824,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: #fff;
+		color: var(--text-on-danger);
 		cursor: pointer;
-		z-index: 2001;
+		z-index: calc(var(--z-lightbox) + 1);
 	}
 
 	.lore-lightbox-close:hover {
-		background: rgba(255,255,255,0.2);
+		background: color-mix(in srgb, var(--text-heading) 20%, transparent);
 	}
 
 	.lore-lightbox-image {

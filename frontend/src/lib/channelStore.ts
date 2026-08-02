@@ -69,9 +69,24 @@ export function switchChannel(channelId: string): void {
 	joinChannel(channelId);
 }
 
-export async function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' = 'text', forceSpoiler?: boolean): Promise<void> {
+export type CreateableChannelType = 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' | 'lore';
+
+export async function createChannel(
+	channelName: string,
+	description?: string,
+	channelType: CreateableChannelType = 'text',
+	forceSpoiler?: boolean,
+	/** Explicit override; lore type also implies asset_storage on the API layer. */
+	assetStorage?: boolean
+): Promise<void> {
 	try {
-		const created = await createChannelApi(channelName, channelType, description, forceSpoiler);
+		const created = await createChannelApi(
+			channelName,
+			channelType,
+			description,
+			forceSpoiler,
+			assetStorage ?? channelType === 'lore'
+		);
 		// REST create does not always fan out a socket event (and even when it
 		// does, the caller may not be in the right room yet). Optimistically
 		// upsert so the sidebar updates immediately.

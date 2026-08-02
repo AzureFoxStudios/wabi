@@ -54,21 +54,21 @@
 .user-avatar-wrap .presence-dot,
 .dm-conv-avatar-wrap .dm-conv-status-dot {
 	position: absolute;
-	bottom: -2px;
-	right: -2px;
-	width: 14px;
-	height: 14px;
-	border-width: 3px;
+	bottom: -1px;
+	right: -1px;
+	width: 10px;
+	height: 10px;
+	border-width: 2px;
 	z-index: 2;
 	background: var(--status-color, var(--status-offline));
 }
 
-/* Bottom-left self profile status is intentionally larger than list/panel dots. */
+/* R11: BL self profile — same token size as list dots (was 18px oversized marble) */
 .profile-card .avatar-container .status-indicator {
 	bottom: 0;
-	right: -1px;
-	width: 18px;
-	height: 18px;
+	right: 0;
+	width: 10px;
+	height: 10px;
 	border-width: 2px;
 	box-shadow: 0 0 0 1px rgba(224, 242, 254, 0.22);
 }
@@ -76,7 +76,7 @@
 .profile-card .avatar-container .status-indicator.online {
 	box-shadow:
 		0 0 0 1px rgba(224, 242, 254, 0.25),
-		0 0 12px rgba(var(--status-online-rgb, 34, 197, 94), 0.42);
+		0 0 6px rgba(var(--status-online-rgb, 34, 197, 94), 0.42);
 }
 
 /* --- Status popup dots --- */

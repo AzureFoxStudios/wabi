@@ -1,0 +1,502 @@
+[
+ {
+  "id": "twemoji_angry",
+  "name": "twemoji_angry",
+  "displayName": "Angry",
+  "url": "/stickers/angry.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_balloon",
+  "name": "twemoji_balloon",
+  "displayName": "Balloon",
+  "url": "/stickers/balloon.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_clap",
+  "name": "twemoji_clap",
+  "displayName": "Clap",
+  "url": "/stickers/clap.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_cool",
+  "name": "twemoji_cool",
+  "displayName": "Cool",
+  "url": "/stickers/cool.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_crying",
+  "name": "twemoji_crying",
+  "displayName": "Crying",
+  "url": "/stickers/crying.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_dizzy",
+  "name": "twemoji_dizzy",
+  "displayName": "Dizzy",
+  "url": "/stickers/dizzy.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_eyes",
+  "name": "twemoji_eyes",
+  "displayName": "Eyes",
+  "url": "/stickers/eyes.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_fire",
+  "name": "twemoji_fire",
+  "displayName": "Fire",
+  "url": "/stickers/fire.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_grin",
+  "name": "twemoji_grin",
+  "displayName": "Grin",
+  "url": "/stickers/grin.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_handshake",
+  "name": "twemoji_handshake",
+  "displayName": "Handshake",
+  "url": "/stickers/handshake.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_happy",
+  "name": "twemoji_happy",
+  "displayName": "Happy",
+  "url": "/stickers/happy.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_hear-no-evil",
+  "name": "twemoji_hear-no-evil",
+  "displayName": "Hear No Evil",
+  "url": "/stickers/hear-no-evil.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_heart-blue",
+  "name": "twemoji_heart-blue",
+  "displayName": "Heart Blue",
+  "url": "/stickers/heart-blue.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_heart-eyes",
+  "name": "twemoji_heart-eyes",
+  "displayName": "Heart Eyes",
+  "url": "/stickers/heart-eyes.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_heart-green",
+  "name": "twemoji_heart-green",
+  "displayName": "Heart Green",
+  "url": "/stickers/heart-green.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_heart-purple",
+  "name": "twemoji_heart-purple",
+  "displayName": "Heart Purple",
+  "url": "/stickers/heart-purple.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_hearts",
+  "name": "twemoji_hearts",
+  "displayName": "Hearts",
+  "url": "/stickers/hearts.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_hug",
+  "name": "twemoji_hug",
+  "displayName": "Hug",
+  "url": "/stickers/hug.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_hundred",
+  "name": "twemoji_hundred",
+  "displayName": "Hundred",
+  "url": "/stickers/hundred.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_kiss",
+  "name": "twemoji_kiss",
+  "displayName": "Kiss",
+  "url": "/stickers/kiss.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_laughing-tears",
+  "name": "twemoji_laughing-tears",
+  "displayName": "Laughing Tears",
+  "url": "/stickers/laughing-tears.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_lol",
+  "name": "twemoji_lol",
+  "displayName": "Lol",
+  "url": "/stickers/lol.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_muscle",
+  "name": "twemoji_muscle",
+  "displayName": "Muscle",
+  "url": "/stickers/muscle.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_party",
+  "name": "twemoji_party",
+  "displayName": "Party",
+  "url": "/stickers/party.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_pensive",
+  "name": "twemoji_pensive",
+  "displayName": "Pensive",
+  "url": "/stickers/pensive.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_poop",
+  "name": "twemoji_poop",
+  "displayName": "Poop",
+  "url": "/stickers/poop.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_pray",
+  "name": "twemoji_pray",
+  "displayName": "Pray",
+  "url": "/stickers/pray.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_rage",
+  "name": "twemoji_rage",
+  "displayName": "Rage",
+  "url": "/stickers/rage.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_scared",
+  "name": "twemoji_scared",
+  "displayName": "Scared",
+  "url": "/stickers/scared.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_see-no-evil",
+  "name": "twemoji_see-no-evil",
+  "displayName": "See No Evil",
+  "url": "/stickers/see-no-evil.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_shocked",
+  "name": "twemoji_shocked",
+  "displayName": "Shocked",
+  "url": "/stickers/shocked.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_skull",
+  "name": "twemoji_skull",
+  "displayName": "Skull",
+  "url": "/stickers/skull.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_sleepy",
+  "name": "twemoji_sleepy",
+  "displayName": "Sleepy",
+  "url": "/stickers/sleepy.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_slight-smile",
+  "name": "twemoji_slight-smile",
+  "displayName": "Slight Smile",
+  "url": "/stickers/slight-smile.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_smile",
+  "name": "twemoji_smile",
+  "displayName": "Smile",
+  "url": "/stickers/smile.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_sneezing",
+  "name": "twemoji_sneezing",
+  "displayName": "Sneezing",
+  "url": "/stickers/sneezing.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_sob",
+  "name": "twemoji_sob",
+  "displayName": "Sob",
+  "url": "/stickers/sob.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_speak-no-evil",
+  "name": "twemoji_speak-no-evil",
+  "displayName": "Speak No Evil",
+  "url": "/stickers/speak-no-evil.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_sweat",
+  "name": "twemoji_sweat",
+  "displayName": "Sweat",
+  "url": "/stickers/sweat.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_thinking",
+  "name": "twemoji_thinking",
+  "displayName": "Thinking",
+  "url": "/stickers/thinking.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_thumbs-down",
+  "name": "twemoji_thumbs-down",
+  "displayName": "Thumbs Down",
+  "url": "/stickers/thumbs-down.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_thumbs-up",
+  "name": "twemoji_thumbs-up",
+  "displayName": "Thumbs Up",
+  "url": "/stickers/thumbs-up.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_tongue",
+  "name": "twemoji_tongue",
+  "displayName": "Tongue",
+  "url": "/stickers/tongue.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_upside-down",
+  "name": "twemoji_upside-down",
+  "displayName": "Upside Down",
+  "url": "/stickers/upside-down.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_wink",
+  "name": "twemoji_wink",
+  "displayName": "Wink",
+  "url": "/stickers/wink.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_woozy",
+  "name": "twemoji_woozy",
+  "displayName": "Woozy",
+  "url": "/stickers/woozy.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_wow",
+  "name": "twemoji_wow",
+  "displayName": "Wow",
+  "url": "/stickers/wow.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_yum",
+  "name": "twemoji_yum",
+  "displayName": "Yum",
+  "url": "/stickers/yum.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_zany",
+  "name": "twemoji_zany",
+  "displayName": "Zany",
+  "url": "/stickers/zany.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ },
+ {
+  "id": "twemoji_zzz",
+  "name": "twemoji_zzz",
+  "displayName": "Zzz",
+  "url": "/stickers/zzz.png",
+  "category": "default",
+  "isCustom": false,
+  "type": "sticker",
+  "source": "twemoji"
+ }
+]

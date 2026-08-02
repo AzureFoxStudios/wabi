@@ -38,7 +38,12 @@
 	$: visibleStacks = $layoutStore.isMobile ? buildMobileRenderStack(availablePanels, activePanel) : renderStacks;
 	$: splitOrientation = $layoutStore.rightPanelDock.orientation === 'horizontal' ? 'horizontal' : 'vertical';
 	$: stacksWithDetachedFiltered = visibleStacks.map((stack) => ({ ...stack, visiblePanels: stack.visiblePanels.filter((panel) => dpIds?.has ? !dpIds.has(panel.id) : true) }));
-	$: if (availablePanels.length > 0 && !panelById.has(activeTab)) layoutStore.openRightPanel(availablePanels[0].id);
+	// N4: heal invalid tab without thrashing to panels[0] via openRightPanel
+	$: if (availablePanels.length > 0 && activeTab && !panelById.has(activeTab)) {
+		const fallback =
+			recentPanelIds.find((id) => panelById.has(id)) || availablePanels[0].id;
+		layoutStore.setActiveRightPanel(fallback);
+	}
 	$: if (activePanel && recentPanelIds[0] !== activePanel.id) recentPanelIds = [activePanel.id, ...recentPanelIds.filter((id) => id !== activePanel.id)].slice(0, 5);
 	$: recentPanels = recentPanelIds.map((id) => panelById.get(id)).filter((panel): panel is WorkspacePanelManifest => Boolean(panel));
 
@@ -75,11 +80,6 @@
 	function hideContextMenu(): void { contextMenuVisible = false; contextMenuPanelId = ''; }
 	function closePanelDrawer(): void { panelDrawerStackId = null; panelSearchQuery = ''; }
 	function togglePanelDrawer(stackId: string): void { panelDrawerStackId = panelDrawerStackId === stackId ? null : stackId; panelSearchQuery = ''; }
-	function cycleActivePanel(stack: RenderStack): void {
-		const currentIndex = stack.panels.findIndex((candidate) => candidate.id === stack.activePanel.id);
-		const nextIndex = (currentIndex + 1) % stack.panels.length;
-		layoutStore.setActiveRightPanel(stack.panels[nextIndex].id);
-	}
 	async function handleDetachPanel(): Promise<void> { if (!contextMenuPanelId || !$windowsEnabled) return; layoutStore.detachPanel(contextMenuPanelId as any); await openDetachedPanel({ kind: 'workspace-panel', panelId: contextMenuPanelId }); hideContextMenu(); }
 	function splitPanel(panelId: string): void { closePanelDrawer(); layoutStore.splitRightPanelTab(panelId); }
 	function addPanelToStack(panelId: string, stackId: string): void { if (!panelId) return; layoutStore.moveRightPanelTab(panelId, stackId); layoutStore.setActiveRightPanel(panelId); }
@@ -121,7 +121,7 @@
 				<section class="panel-stack" class:is-collapsed={stack.collapsed} role="group" aria-label={`${stack.activePanel.label} stack`} style:flex-basis={visibleStacks.length > 1 ? `${stack.collapsed ? 42 : stack.size}%` : '100%'} on:dragover={handleDragOver} on:drop={(event) => handleDrop(event, stack.id)}>
 					<div class="stack-header">
 						<div class="stack-tabs" role="tablist" aria-label={`${stack.id} workspace panels`}>
-							<button type="button" class="panel-tab active panel-tab-drawer-trigger" role="tab" aria-selected="true" aria-haspopup="listbox" aria-expanded={panelDrawerStackId === stack.id} title="Choose right panel mode" on:click|stopPropagation={() => togglePanelDrawer(stack.id)} on:dblclick|stopPropagation={() => cycleActivePanel(stack)} on:contextmenu|preventDefault={() => togglePanelDrawer(stack.id)}>
+							<button type="button" class="panel-tab active panel-tab-drawer-trigger" role="tab" aria-selected="true" aria-haspopup="listbox" aria-expanded={panelDrawerStackId === stack.id} title="Choose right panel mode" on:click|stopPropagation={() => togglePanelDrawer(stack.id)} on:contextmenu|preventDefault={() => togglePanelDrawer(stack.id)}>
 								<span class="panel-tab-icon"><WorkspacePanelIcon icon={stack.activePanel.icon} /></span>
 								<span class="panel-tab-label">{stack.activePanel.shortLabel || stack.activePanel.label}</span>
 								<svg class="panel-tab-chevron" class:open={panelDrawerStackId === stack.id} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>

@@ -1,10 +1,24 @@
 {
-  "name": "mesh",
+  "id": "mesh",
+  "name": "Mesh",
   "version": "0.1.0",
   "description": "Mesh service for multi-node coordination",
   "backend": {
     "runtime": "rust",
-    "path": "backend"
+    "path": "backend",
+    "crate": "wabi-mesh",
+    "cargo_feature": null
   },
-  "permissions": ["network:outbound"]
+  "frontend": {
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": [],
+      "settingsPages": [],
+      "mobileTabs": []
+    },
+    "bundled": false
+  },
+  "permissions": [
+    "network:outbound"
+  ]
 }

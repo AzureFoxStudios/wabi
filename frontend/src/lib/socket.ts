@@ -99,9 +99,17 @@ export function getDMChannelIdForUser(current: User, target: User): string {
 	return `dm-user-${ids[0]}-user-${ids[1]}`;
 }
 export function uploadEmote(_file: File) { console.warn('[stub] uploadEmote'); }
-export function deleteEmote(_emoteId: string) { console.warn('[stub] deleteEmote'); }
+export function deleteEmote(name: string) {
+	const sock = getSocket();
+	if (!sock) return;
+	sock.emit('delete-emoji', name);
+}
 export function uploadEmoji(_file: File) { console.warn('[stub] uploadEmoji'); }
-export function deleteEmoji(_emojiId: string) { console.warn('[stub] deleteEmoji'); }
+export function deleteEmoji(name: string) {
+	const sock = getSocket();
+	if (!sock) return;
+	sock.emit('delete-emoji', name);
+}
 
 export {
 	// Singleton manager

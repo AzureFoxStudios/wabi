@@ -27,11 +27,17 @@
 	}
 
 
+	/* Compact mode zeros channel-btn font-size for ::after abbrev — keep the
+	   leading glyph/SVG box visible and centered. */
 	.channel-sidebar.compact .channel-btn .hash,
 	.channel-sidebar.compact .channel-btn .group-icon {
-		font-size: 1rem;
+		display: none; /* abbrev letter (::after) is the compact glyph */
+		font-size: 0;
 		margin: 0;
 	}
+
+	/* If a row only has an SVG icon (no text name visible), still show it when
+	   we opt out of abbrev — default remains hide + ::after letter. */
 
 
 	.channel-sidebar.compact .bookmark-tag {
@@ -170,6 +176,35 @@
 		align-items: center;
 		padding: 0 0.375rem;
 		position: relative;
+	}
+
+	/* R5: Discord-style drag — dim the dragged row */
+	.channel-item.is-dragging {
+		opacity: 0.4;
+	}
+
+	/* R5: drop line above/below target (server-rail pattern) */
+	.channel-item.drop-before::before,
+	.channel-item.drop-after::after {
+		content: '';
+		position: absolute;
+		left: 0.5rem;
+		right: 0.5rem;
+		height: 2px;
+		border-radius: 999px;
+		background: var(--color-info, #7dd3fc);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface-sunken, #0f0c29) 70%, transparent),
+			0 0 8px color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
+		pointer-events: none;
+		z-index: 2;
+	}
+
+	.channel-item.drop-before::before {
+		top: -1px;
+	}
+
+	.channel-item.drop-after::after {
+		bottom: -1px;
 	}
 
 
@@ -426,22 +461,37 @@
 	}
 
 
-	/* Gallery channel icon */
-	.hash.gallery-icon {
+	/* Typed channel icons (gallery/forum/lore/wiki/voice) share .hash box */
+	.hash.gallery-icon,
+	.hash.forum-icon,
+	.hash.lore-icon,
+	.hash.wiki-icon,
+	.hash.voice-icon {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		width: 18px;
 		height: 18px;
+		flex: 0 0 18px;
 	}
 
-	.hash.gallery-icon svg {
+	.hash.gallery-icon svg,
+	.hash.forum-icon svg,
+	.hash.lore-icon svg,
+	.hash.wiki-icon svg,
+	.hash.voice-icon svg {
 		width: 16px;
 		height: 16px;
+		display: block;
+		flex: 0 0 16px;
 	}
 
-	.channel-sidebar.compact .channel-btn .hash.gallery-icon {
-		font-size: 1rem;
+	.channel-sidebar.compact .channel-btn .hash.gallery-icon,
+	.channel-sidebar.compact .channel-btn .hash.forum-icon,
+	.channel-sidebar.compact .channel-btn .hash.lore-icon,
+	.channel-sidebar.compact .channel-btn .hash.wiki-icon,
+	.channel-sidebar.compact .channel-btn .hash.voice-icon {
+		display: none;
 		margin: 0;
 	}
 

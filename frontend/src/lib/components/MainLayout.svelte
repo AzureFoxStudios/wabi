@@ -27,6 +27,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import { onDestroy, onMount } from 'svelte';
 import { _ } from '$lib/i18n';
 import AdminCenterStage from '$lib/components/AdminCenterStage.svelte';
+import KeepNotesView from '$lib/components/KeepNotesView.svelte';
 import '$lib/../styles/components/admin-center-stage.css';
 import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
@@ -728,6 +729,35 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 {#if $centerPanelView === 'admin'}
 	<AdminCenterStage />
+{:else if $centerPanelView === 'notes'}
+	<!-- N3: full notes center stage (same KeepNotes storage as right panel; not compact). -->
+	<div class="notes-center-stage">
+		<header class="notes-center-header">
+			<button
+				type="button"
+				class="notes-center-back"
+				on:click={() => layoutStore.setCenterPanelView('chat')}
+				title="Back to chat"
+			>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+					<path d="M19 12H5M12 19l-7-7 7-7" />
+				</svg>
+				<span>Back</span>
+			</button>
+			<span class="notes-center-title">Notes</span>
+			<button
+				type="button"
+				class="notes-center-dock"
+				on:click={() => layoutStore.showNotesTab()}
+				title="Open notes in right panel"
+			>
+				Dock
+			</button>
+		</header>
+		<div class="notes-center-body">
+			<KeepNotesView />
+		</div>
+	</div>
 {:else}
 {#if $layoutStore.isMobile && !$layoutStore.isInCall}
 	{#if !mobileNavVisible}
@@ -1118,6 +1148,62 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		.center-dm-layout:not(:has(.center-dm-thread .dm-conversation)) .center-dm-list {
 			display: flex;
 		}
+	}
+
+	/* N3: full notes center stage (mirrors admin stage shell, same KeepNotes store) */
+	.notes-center-stage {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		min-height: 0;
+		background: var(--surface-base, #12121c);
+		color: var(--text-heading, #e8eef7);
+	}
+
+	.notes-center-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.65rem 1rem;
+		border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+		background: var(--surface-raised, #1a1a2e);
+		flex-shrink: 0;
+	}
+
+	.notes-center-back,
+	.notes-center-dock {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.35rem 0.65rem;
+		border-radius: 6px;
+		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+		background: transparent;
+		color: var(--text-secondary, #94a3b8);
+		font-size: 0.85rem;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s;
+	}
+
+	.notes-center-back:hover,
+	.notes-center-dock:hover {
+		background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+		color: var(--text-heading, #e8eef7);
+	}
+
+	.notes-center-title {
+		flex: 1;
+		font-weight: 600;
+		font-size: 1rem;
+		color: var(--text-heading, #e8eef7);
+	}
+
+	.notes-center-body {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 	}
 </style>
 

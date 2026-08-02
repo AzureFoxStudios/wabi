@@ -111,6 +111,9 @@ pub enum ChannelKind {
     Gallery = 9,
     /// Category for grouping channels (like Discord categories).
     Category = 10,
+    /// Lore asset storage channel (versioned binary assets; gates on wabi-lore).
+    /// Stable wire value: channel_type "lore". Append-only — never renumber.
+    Lore = 11,
 }
 
 impl Channel {
@@ -228,6 +231,15 @@ pub struct Emote {
     pub image_url: String,
     pub created_at_micros: i64,
     pub created_by_user_id: u64,
+    /// Human-readable label shown in the picker tooltip (optional).
+    pub display_name: String,
+    /// Optional artist / pack creator attribution (searchable in picker).
+    pub artist: String,
+    /// Category for picker filtering (custom, animated, art, memes, ...).
+    pub category: String,
+    /// "emoji" or "sticker" — drives which picker tab the emote shows in.
+    #[serde(rename = "type")]
+    pub kind: String,
 }
 
 /// A webhook attached to a channel.
@@ -769,6 +781,7 @@ mod tests {
         assert_eq!(ChannelKind::Incident as u8, 8);
         assert_eq!(ChannelKind::Gallery as u8, 9);
         assert_eq!(ChannelKind::Category as u8, 10);
+        assert_eq!(ChannelKind::Lore as u8, 11);
     }
 
     #[test]
@@ -795,6 +808,10 @@ mod tests {
             image_url: "https://cdn.example.com/emotes/blobwave.png".into(),
             created_at_micros: 1234567890,
             created_by_user_id: 42,
+            display_name: "Blob Wave".into(),
+            artist: "Blob Artist".into(),
+            category: "custom".into(),
+            kind: "emoji".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
         let back: Emote = serde_json::from_str(&json).unwrap();

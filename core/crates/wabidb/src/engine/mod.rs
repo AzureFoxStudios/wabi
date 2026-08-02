@@ -713,7 +713,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::owner::OwnerRecord",
         },
         ProjectionRegistration {
-            event_types: &["emote_upserted"],
+            event_types: &["emote_upserted", "emote_deleted"],
             handler: Arc::new(EmotesProjection),
             index_name: "emotes",
             record_type_name: "wabidb::domain::Emote",

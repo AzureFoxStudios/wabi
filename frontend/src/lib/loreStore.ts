@@ -9,6 +9,7 @@ import {
 	getLoreFileHistory,
 	getLoreFileDiff,
 	checkLoreHealth,
+	parseLoreChannelId,
 	type LoreRepo,
 	type LoreFileInfo,
 	type LoreRevision,
@@ -37,11 +38,9 @@ async function refresh(load: () => Promise<void>) {
 	}
 }
 
+/** L4: channel ids are hex on the wire (`ch_{:x}`); never decimal-parse. */
 function getChannelId(): number | null {
-	const ch = get(currentChannel);
-	if (!ch) return null;
-	const match = ch.match(/^ch_(\d+)/);
-	return match ? parseInt(match[1], 10) : null;
+	return parseLoreChannelId(get(currentChannel));
 }
 
 export async function loadLoreRepo() {
@@ -51,7 +50,7 @@ export async function loadLoreRepo() {
 	await refresh(async () => {
 		const [repo, files] = await Promise.all([
 			getLoreRepo(token, channelId),
-			listLoreFiles(token, channelId).catch(() => [] as LoreFileInfo[]),
+			listLoreFiles(token, channelId).catch(() => [] as LoreFileInfo[])
 		]);
 		loreRepo.set(repo);
 		loreFiles.set(files);

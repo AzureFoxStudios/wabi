@@ -17,19 +17,46 @@ use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
+/// Map domain ChannelKind → stable frontend wire string.
+/// Prefer explicit arms over Debug::fmt so renames don't silently break clients.
+fn channel_kind_to_type(kind: wabidb::domain::ChannelKind, asset_storage: bool) -> String {
+    use wabidb::domain::ChannelKind::*;
+    let s = match kind {
+        Text => {
+            // Legacy: some older asset_storage channels were Text+flag.
+            if asset_storage {
+                "lore"
+            } else {
+                "text"
+            }
+        }
+        Voice => "voice",
+        Dm => "dm",
+        GroupDm => "group",
+        Announcement => "announcement",
+        Whiteboard => "whiteboard",
+        Wiki => "wiki",
+        Forum => "forum",
+        Incident => "incident",
+        Gallery => "gallery",
+        Category => "category",
+        Lore => "lore",
+    };
+    s.to_string()
+}
+
 /// Convert a WDB typed `Channel` to the JSON `ChannelResponse` shape
-/// the frontend expects. Fields the WDB doesn't track (position,
-/// parent_id, description) are filled with sensible defaults — they'll
-/// get added to the WDB Channel domain type when Carl extends it.
+/// the frontend expects.
 fn channel_to_response(c: wabidb::domain::Channel) -> ChannelResponse {
     ChannelResponse {
         id: c.channel_id,
         name: c.name,
-        channel_type: format!("{:?}", c.channel_kind).to_lowercase(),
+        channel_type: channel_kind_to_type(c.channel_kind, c.asset_storage),
         position: c.position,
         parent_id: c.parent_id,
         description: c.description,
         force_spoiler: c.force_spoiler,
+        asset_storage: c.asset_storage || matches!(c.channel_kind, wabidb::domain::ChannelKind::Lore),
     }
 }
 
@@ -59,6 +86,9 @@ struct ChannelResponse {
     description: Option<String>,
     #[serde(default)]
     force_spoiler: bool,
+    /// True when this channel has (or should have) a Lore asset-storage repo.
+    #[serde(default)]
+    asset_storage: bool,
 }
 
 async fn list_channels(State(state): State<Arc<AppState>>) -> Result<Json<ChannelListResponse>> {
@@ -122,11 +152,19 @@ async fn create_channel(
 
     // Map the request's channel_type string to a WDB ChannelKind enum.
     // Defaults to Text for unknown / "text" / missing.
+    // "lore" / asset_storage → ChannelKind::Lore (L1).
+    let wants_asset_storage = req.asset_storage || req.channel_type == "lore";
     let channel_kind = match req.channel_type.as_str() {
-        "text" | "" => wabidb::domain::ChannelKind::Text,
+        "text" | "" => {
+            if wants_asset_storage {
+                wabidb::domain::ChannelKind::Lore
+            } else {
+                wabidb::domain::ChannelKind::Text
+            }
+        }
         "voice" => wabidb::domain::ChannelKind::Voice,
         "dm" => wabidb::domain::ChannelKind::Dm,
-        "group_dm" => wabidb::domain::ChannelKind::GroupDm,
+        "group_dm" | "group" => wabidb::domain::ChannelKind::GroupDm,
         "announcement" => wabidb::domain::ChannelKind::Announcement,
         "whiteboard" => wabidb::domain::ChannelKind::Whiteboard,
         "wiki" => wabidb::domain::ChannelKind::Wiki,
@@ -134,8 +172,11 @@ async fn create_channel(
         "incident" => wabidb::domain::ChannelKind::Incident,
         "gallery" => wabidb::domain::ChannelKind::Gallery,
         "category" => wabidb::domain::ChannelKind::Category,
+        "lore" | "asset_storage" => wabidb::domain::ChannelKind::Lore,
         _ => wabidb::domain::ChannelKind::Text,
     };
+    let is_lore = matches!(channel_kind, wabidb::domain::ChannelKind::Lore);
+    let asset_storage = wants_asset_storage || is_lore;
 
     // The WDB engine assigns the channel_id (returns a "ch_{:x}" id
     // derived from the commit_seq). Use that.
@@ -143,6 +184,18 @@ async fn create_channel(
         .wdb
         .create_channel(&name, channel_kind, auth.user_id as u64, req.force_spoiler)
         .await?;
+
+    // Persist asset_storage flag on the channel record (L1).
+    if asset_storage {
+        let _ = state
+            .wdb
+            .update_channel(
+                &channel_id,
+                &serde_json::json!({ "asset_storage": true }),
+                auth.user_id as u64,
+            )
+            .await;
+    }
 
     // Add the creator as a member with the Owner role so they can see and
     // manage the channel.
@@ -176,12 +229,12 @@ async fn create_channel(
     // `description` is in the WDB Channel domain type yet — dropped for v1.
     let _ = req.description;
 
-    // Auto-create a Lore repo if asset_storage is enabled
+    // Auto-create a Lore repo if asset_storage / lore kind is enabled
     let lore_channel_id = channel_id
         .strip_prefix("ch_")
         .and_then(|hex| i64::from_str_radix(hex, 16).ok())
         .unwrap_or(0);
-    if req.asset_storage {
+    if asset_storage {
         #[cfg(feature = "wabi-lore")]
         {
             if lore_channel_id != 0 {
@@ -205,20 +258,28 @@ async fn create_channel(
         }
         #[cfg(not(feature = "wabi-lore"))]
         {
-            tracing::warn!(channel_id, "asset_storage requested but Lore addon not enabled");
+            tracing::warn!(channel_id, "asset_storage/lore requested but Lore addon not enabled");
         }
     }
+
+    // Wire channel_type is always "lore" for Lore kind (not the raw request string).
+    let response_type = if is_lore {
+        "lore".to_string()
+    } else {
+        req.channel_type
+    };
 
     // We don't have the typed Channel object back (create returns just the
     // id), so build the response from the request + returned id.
     Ok(Json(ChannelResponse {
         id: channel_id,
         name,
-        channel_type: req.channel_type,
+        channel_type: response_type,
         position: 0,
         parent_id: None,
         description: None,
         force_spoiler: req.force_spoiler,
+        asset_storage,
     }))
 }
 

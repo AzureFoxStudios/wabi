@@ -177,6 +177,19 @@ export const COMMANDS: Command[] = [
 		execute: (args, flags) => {
 			// Implementation in Chat component
 		}
+	},
+	{
+		// N1: open floating QuickScratchpad (store side-effect; no Chat handler needed)
+		name: 'scratch',
+		description: 'Open the quick scratchpad (Ctrl/Cmd+Shift+N)',
+		usage: '/scratch',
+		aliases: ['scratchpad', 'pad'],
+		execute: () => {
+			// Lazy import avoids circular deps with notesStore consumers
+			import('$lib/notesStore').then(({ openQuickScratchpad }) => {
+				openQuickScratchpad();
+			});
+		}
 	}
 ];
 

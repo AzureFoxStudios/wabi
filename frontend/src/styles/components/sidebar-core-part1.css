@@ -216,23 +216,33 @@
 	.text-channel-actions .settings-btn {
 		background: transparent;
 		border: none;
-		font-size: 1.5rem;
+		/* Do NOT use font-size to size the gear — SVG owns the box. */
+		font-size: inherit;
+		width: 28px;
+		height: 28px;
+		min-width: 28px;
+		min-height: 28px;
 		cursor: pointer;
 		color: var(--text-secondary);
-		padding: 0.5rem;
-		transition: all 0.2s;
-		border-radius: 4px;
-		display: flex;
+		padding: 0;
+		transition: color 0.15s ease, background 0.15s ease;
+		border-radius: 6px;
+		display: inline-flex;
 		align-items: center;
 		justify-content: center;
+		line-height: 1;
+		box-sizing: border-box;
 	}
 
 
 	.text-channel-actions .settings-btn svg {
 		width: 16px;
 		height: 16px;
+		min-width: 16px;
+		min-height: 16px;
 		stroke: currentColor;
 		stroke-width: 2;
+		flex: 0 0 16px;
 	}
 
 
@@ -460,18 +470,33 @@
 	}
 
 
+	/* Channel-row leading glyph: text # and SVG icons share one box so compact
+	   mode (channel-btn font-size:0 + ::after abbrev) does not collapse SVGs. */
 	.hash {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 18px;
+		width: 18px;
+		height: 18px;
+		margin-right: 0.35rem;
 		color: var(--text-secondary);
+		font-size: 1rem;
 		font-weight: 600;
+		line-height: 1;
+		vertical-align: middle;
 	}
 
-
-	.voice-icon svg {
+	.hash svg,
+	.voice-icon svg,
+	.group-icon svg {
 		width: 16px;
 		height: 16px;
 		display: block;
+		flex: 0 0 16px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
-
 
 	.group-icon {
 		color: var(--text-secondary);

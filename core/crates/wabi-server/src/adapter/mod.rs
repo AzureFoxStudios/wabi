@@ -262,6 +262,10 @@ impl WabiStore for WdbAdapter {
         let mut channel = Channel::new("", name, owner_user_id);
         channel.channel_kind = channel_kind;
         channel.force_spoiler = force_spoiler;
+        // L1: Lore channels always carry asset_storage so repo auto-provision fires.
+        if matches!(channel_kind, wabidb::domain::ChannelKind::Lore) {
+            channel.asset_storage = true;
+        }
         let payload = Self::payload_json(&channel)?;
         let seq = self
             .run(
@@ -294,6 +298,9 @@ impl WabiStore for WdbAdapter {
         }
         if let Some(force) = patch.get("force_spoiler") {
             payload.insert("force_spoiler".to_string(), force.clone());
+        }
+        if let Some(asset) = patch.get("asset_storage") {
+            payload.insert("asset_storage".to_string(), asset.clone());
         }
         if let Some(pos) = patch.get("position") {
             payload.insert("position".to_string(), pos.clone());
@@ -849,7 +856,9 @@ impl WabiStore for WdbAdapter {
                 row.insert("name".into(), serde_json::Value::String(c.name));
                 row.insert("created_at".into(), serde_json::json!(c.created_at_micros));
                 let kind = match c.channel_kind {
-                    wabidb::domain::ChannelKind::Text => "text",
+                    wabidb::domain::ChannelKind::Text => {
+                        if c.asset_storage { "lore" } else { "text" }
+                    }
                     wabidb::domain::ChannelKind::Voice => "voice",
                     wabidb::domain::ChannelKind::Dm => "dm",
                     wabidb::domain::ChannelKind::GroupDm => "group",
@@ -860,6 +869,7 @@ impl WabiStore for WdbAdapter {
                     wabidb::domain::ChannelKind::Incident => "incident",
                     wabidb::domain::ChannelKind::Gallery => "gallery",
                     wabidb::domain::ChannelKind::Category => "category",
+                    wabidb::domain::ChannelKind::Lore => "lore",
                 };
                 row.insert("channel_type".into(), serde_json::json!(kind));
                 row.insert("type".into(), serde_json::json!(kind));
@@ -870,6 +880,13 @@ impl WabiStore for WdbAdapter {
                     row.insert("parent_channel_id".into(), serde_json::json!(parent));
                 }
                 row.insert("force_spoiler".into(), serde_json::json!(c.force_spoiler));
+                row.insert(
+                    "asset_storage".into(),
+                    serde_json::json!(
+                        c.asset_storage
+                            || matches!(c.channel_kind, wabidb::domain::ChannelKind::Lore)
+                    ),
+                );
                 out.push(row);
             }
         Ok(out)
@@ -1097,7 +1114,16 @@ impl WabiStore for WdbAdapter {
         Ok(out)
     }
 
-    async fn upsert_emote(&self, name: &str, image_url: &str) -> Result<()> {
+    async fn upsert_emote(
+        &self,
+        name: &str,
+        image_url: &str,
+        display_name: &str,
+        artist: &str,
+        category: &str,
+        kind: &str,
+        created_by_user_id: u64,
+    ) -> Result<()> {
         use wabidb::domain::Emote;
         use wabidb::projections::emotes::encode_record;
         let now = now_micros();
@@ -1106,16 +1132,43 @@ impl WabiStore for WdbAdapter {
             name: name.to_string(),
             image_url: image_url.to_string(),
             created_at_micros: now,
-            created_by_user_id: 0,
+            created_by_user_id,
+            display_name: display_name.to_string(),
+            artist: artist.to_string(),
+            category: if category.is_empty() {
+                "custom".to_string()
+            } else {
+                category.to_string()
+            },
+            kind: if kind.is_empty() {
+                "emoji".to_string()
+            } else {
+                kind.to_string()
+            },
         };
         let payload = encode_record(&emote);
         self.run(
-            0,
+            created_by_user_id,
             "upsert_emote",
             "emotes".into(),
             "emote_upserted",
             6,
             payload,
+            false,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_emote(&self, name: &str) -> Result<()> {
+        self.run(
+            0,
+            "delete_emote",
+            "emotes".into(),
+            "emote_deleted",
+            6,
+            format!("emo_{}", name).into_bytes(),
             false,
             None,
         )

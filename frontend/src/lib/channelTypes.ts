@@ -1,9 +1,9 @@
 import type { Channel } from './socket-types';
 
-export type RoutedChannelType = 'forum' | 'gallery' | 'wiki' | 'stage' | 'lore';
+export type RoutedChannelType = 'forum' | 'gallery' | 'wiki' | 'stage' | 'lore' | 'planning';
 export type ChannelType = NonNullable<Channel['type']> | RoutedChannelType;
 
-const ROUTED_CHANNEL_TYPES = new Set<string>(['forum', 'gallery', 'wiki', 'stage', 'lore']);
+const ROUTED_CHANNEL_TYPES = new Set<string>(['forum', 'gallery', 'wiki', 'stage', 'lore', 'planning']);
 
 export function isRoutedChannelType(type: string | null | undefined): type is RoutedChannelType {
 	return Boolean(type && ROUTED_CHANNEL_TYPES.has(type));
@@ -32,6 +32,8 @@ export function getChannelTypeLabel(type: string | null | undefined): string {
 			return 'Stage';
 		case 'lore':
 			return 'Asset Storage';
+		case 'planning':
+			return 'Planning';
 		default:
 			return 'Text';
 	}
@@ -55,6 +57,8 @@ export function getChannelTypeIcon(type: string | null | undefined): string {
 			return 'ST';
 		case 'lore':
 			return 'LO';
+		case 'planning':
+			return 'PL';
 		case 'thread_public':
 		case 'thread_private':
 			return 'TH';

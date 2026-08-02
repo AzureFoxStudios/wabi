@@ -6,11 +6,11 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 use super::{
-    admin, albums, auth, blobs, calls, channels, forum, gallery, incidents, jobs, lan, media, mesh,
-    messages, nodes, operator, payments, preview, public, standby, sync, upload, user, wiki,
+    addons, admin, albums, auth, blobs, calls, channels, emoji, forum, gallery, incidents, jobs,
+    lan, media, mesh, messages, nodes, operator, payments, places, preview, public, standby, sync,
+    upload, user, wiki,
 };
-#[cfg(feature = "wabi-lore")]
-use super::lore;
+// lore is nested inside addons::routes (feature-gated there) — do not import here.
 
 /// Create the main API router with all routes
 pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -53,11 +53,14 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Mesh coordination routes (multi-node discovery)
         .nest("/mesh", mesh::routes(state.clone()))
         // Break-glass operator routes (loopback + WABI_OPERATOR_SECRET only)
-        .nest("/operator", operator::routes(state.clone()));
-
-    // Optional addon routes
-    #[cfg(feature = "wabi-lore")]
-    let router = router.nest("/addons/lore", lore::routes(state.clone()));
+        .nest("/operator", operator::routes(state.clone()))
+        // Addon capability list/get + nested lore (when feature on).
+        // Lore lives inside addons::routes as /addons/lore/... (A2).
+        .nest("/addons", addons::routes(state.clone()))
+        // Places registry (R7b) — always JSON, never SPA HTML fallthrough.
+        .nest("/places", places::routes(state.clone()))
+        // Emoji / sticker upload routes
+        .nest("/emoji", emoji::routes(state.clone()));
 
     router
         // Media room routing (helper-node SFU assignment)
