@@ -12,6 +12,7 @@ mod api;
 mod auth_extractor;
 mod blacklist;
 mod blobs;
+mod bot_delivery;
 mod bot_registry;
 mod config;
 mod error;

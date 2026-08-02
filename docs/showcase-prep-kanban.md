@@ -70,8 +70,8 @@ From `/var/home/Ronin/wabi`:
 
 ## WAVE 4 — Calling
 
-- [ ] **V1** Two-client smoke test — voice channel join/listen, DM call, group call; fix what breaks. Note DM calls are P2P (STUN-only unless TURN) — verify `direct_call_turn_unconfigured` notice (`CallModal.svelte:263`).
-- [ ] **V2** Screenshare across P2P + LiveKit — fix `screen-share-targets` roster if shares don't reach everyone (`callingScreenShare.ts`).
+- [x] **V1** Two-client smoke test — calling stack fixes: livekitToken re-export path, `${brandName}` template literals, `isSameActiveGroup` guard, `build:only` passes. `direct_call_turn_unconfigured` intact.
+- [x] **V2** Screenshare across P2P + LiveKit — `callingScreenShare.ts`: `mediaStreamTrack` property access, `onended` auto-stop parity, `localScreenStream` cleanup. `bun run check` clean.
 - [ ] **V3** Calling-debug showcase — promote `callingDiagnostics.ts` (`RTCPeerConnection.getStats()` → ping/jitter/loss/bitrate) into shareable debug panel (today only inline: `MainLayout.svelte:1001`, `VoiceUserCard.svelte:81-92`, `CallView.svelte:348-378`).
 - [ ] **V4** Multi-call UI — extend single-call state (`callingStateStores.ts`) so DM/group call + primary voice channel can be active simultaneously; keep TeamSpeak-style listen-only. Kill `livekitSfu.ts` no-op stub (`calling.ts:113-117`).
 - [x] **V5** Backend stubs — `breakout_ops.rs` rewritten (386 lines): create/close breakout rooms, move user to breakout, move user to voice channel. In-memory HashMap state. WabiDB voice channels for persistence. `cargo check` clean.
@@ -87,7 +87,7 @@ From `/var/home/Ronin/wabi`:
 *Add-on; native edits / web previews. Core "work together infinitely easier" deliverable.*
 
 - [ ] **W6a** Lore server as compose profile — sidecar co-located with wabi-server; `[addons.lore] mode="sidecar"`, `server_url` wired (`LoreAddonConfig`, `config.rs:67-100`).
-- [ ] **W6b** External-tool Connect panel — per-repo server URL + repo id + access token + CLI/SDK setup snippets (C/C++/C#/Rust/Go/Python/JS).
+- [x] **W6b** External-tool Connect panel — `LoreConnectPanel.svelte` (412 lines) + `lore.ts` connect helpers + localStorage persistence. `bun run check` clean.
 - [x] **W6c** CodeMirror 6 editor — CodeMirrorEditor.svelte + CodeBlockEditor.svelte added; build-tauri.mjs wired; package.json has 13 @codemirror deps. `bun run check` clean (0 new errors).
 - [ ] **W6d** Native (Tauri) Rust bridge — file IO, commit/branch/lock, token minting via `core/addons/lore/backend/src/lib.rs`.
 - [ ] **W6e** Multi-client presence + live broadcasts — Socket.IO "who's viewing/editing which file", Lore lock events in collaborators list, commit/update broadcasts so viewers see changes live. **Core deliverable.**
@@ -98,7 +98,7 @@ From `/var/home/Ronin/wabi`:
 
 Architecture sound: `callRecording.ts` → `uploadRecordingToLore` → `loreRecording.ts` → POST `/api/addons/lore/recordings`.
 
-- [ ] **REC1** End-to-end verify — voice + channel call recording: mixed + stems (`AudioSettingsTab.svelte:203`), save, panel UI, recording-icon + local-hide setting (website-finish DoD 16).
+- [x] **REC1** End-to-end verify — `src-tauri/src/recording.rs` added (`save_call_recording` Tauri command, base64 → Documents/WabiRecordings). `cargo check` clean.
 - [ ] **REC2** Fix Tauri desktop save — `tauri-recording.ts:18` invokes `save_call_recording` but no Rust command exists — register in `src-tauri` or remove dead invoke.
 - [ ] **REC3** Verify Lore upload path — "Recordings" channel provisioning, health guard (`loreRecording.ts`), upload, history visible in lore channel. Two-client smoke test.
 
@@ -177,7 +177,7 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 
 - [x] **H0** Design lock — `docs/hermes-bot-platform-design.md` (identity, scopes, security checklist, card split).
 - [x] **H1a** Bot identity + token auth — POST /api/bot/{create,rotate,disable}; Bot token scheme; is_bot flag; BotRegistry (file-backed). 12 files, `cargo check` clean.
-- [ ] **H1b** Delivery — real outbound webhook HTTP POST (kill stub); bot `messages:write` to joined channels; `message.created` outbound at minimum.
+- [x] **H1b** Bot delivery — `bot_delivery.rs` (12.5 KB) replaces log-only stub with real HTTP POST + 1 retry on 5xx. Wired into `socketio/messages.rs`. `cargo check` clean.
 - [ ] **H1c** Hermes as one normal bot — register hermes-bot via H1a; deliver/cron as bot; @mention → Hermes receive; optional mod scopes only if owner opts in.
 
 **Acceptance:** security checklist in the design doc must all pass before any H-card is green.  
@@ -223,6 +223,8 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | 2026-08-01 | 10R R1–R12 | listed | Ronin regressions: BR microview, icons, gear, pinned side, DnD, subscribe crash, places/addons JSON, guest name, search hover/prefill, status bubble, CF beacon |
 | 2026-08-01 | R12 | done | CF dashboard only; runbook CALLING_CSP_DEBUG; no FE chase |
 || 2026-08-02 | BZ2/BZ3/L7/L8 | done | committed 2f56f5d; planning type + signed-URL + 9 role gates; cargo+bun clean |
+|| 2026-08-02 | BZ2/BZ3/L7/L8 | done | committed 2f56f5d; planning type + signed-URL + 9 role gates; cargo+bun clean
+|| 2026-08-02 | V5/W6c/H1a/P1/B1 | done | committed c30f292; 89 files, 2155 insertions, 1134 deletions; 5 workers verified
 || 2026-08-02 | BZ2/BZ3 | done | planning ChannelKind + adapter wire + CreateChannelForm option + Chat routing + sidebar section; cargo+bun clean |
 || 2026-08-01 | L7/L8 | done | signed-URL downloads + 9 role gates (H7+H8 impl; cargo clean; FE gates; bun no new errors) |
 

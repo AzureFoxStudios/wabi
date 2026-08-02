@@ -316,3 +316,238 @@ export async function checkLoreHealth(token: string): Promise<{ status: string }
 	}
 	return (await res.json()) as { status: string };
 }
+
+// ============================================================================
+// W6b: External-tool Connect — per-channel connection config + setup snippets
+// ============================================================================
+
+export interface LoreConnectConfig {
+	serverUrl: string;
+	repoId: string;
+	token: string;
+}
+
+export interface LoreConnectSnippet {
+	lang: string;
+	label: string;
+	code: string;
+}
+
+const LORE_CONNECT_STORAGE_PREFIX = 'wabi:lore:connect:';
+
+export function loreConnectStorageKey(channelKey: string): string {
+	return `${LORE_CONNECT_STORAGE_PREFIX}${channelKey}`;
+}
+
+export function loadLoreConnectConfig(channelKey: string): LoreConnectConfig | null {
+	if (typeof localStorage === 'undefined') return null;
+	try {
+		const raw = localStorage.getItem(loreConnectStorageKey(channelKey));
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as Partial<LoreConnectConfig>;
+		return {
+			serverUrl: typeof parsed.serverUrl === 'string' ? parsed.serverUrl : '',
+			repoId: typeof parsed.repoId === 'string' ? parsed.repoId : '',
+			token: typeof parsed.token === 'string' ? parsed.token : ''
+		};
+	} catch {
+		return null;
+	}
+}
+
+export function saveLoreConnectConfig(channelKey: string, config: LoreConnectConfig): void {
+	if (typeof localStorage === 'undefined') return;
+	try {
+		localStorage.setItem(loreConnectStorageKey(channelKey), JSON.stringify(config));
+	} catch {
+		// Best effort only.
+	}
+}
+
+export function generateLoreAccessToken(): string {
+	const bytes = new Uint8Array(32);
+	if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+		crypto.getRandomValues(bytes);
+	} else {
+		for (let i = 0; i < bytes.length; i++) {
+			bytes[i] = Math.floor(Math.random() * 256);
+		}
+	}
+	return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function fillLoreSnippet(template: string, server: string, repo: string, token: string, url: string): string {
+	return template
+		.replaceAll('__SERVER__', server)
+		.replaceAll('__REPO__', repo)
+		.replaceAll('__TOKEN__', token)
+		.replaceAll('__URL__', url);
+}
+
+/** Pre-formatted, copyable setup snippets for external tools. */
+export function buildLoreConnectSnippets(serverUrl: string, repoId: string, token: string): LoreConnectSnippet[] {
+	const server = serverUrl.trim().replace(/\/+$/, '');
+	const repo = repoId.trim() || '<repo>';
+	const tok = token.trim() || '<token>';
+	const url = `${server}/api/addons/lore/repos/${repo}/files`;
+
+	const c = `#define SERVER "__SERVER__"
+#define REPO "__REPO__"
+#define TOKEN "__TOKEN__"
+
+#include <stdio.h>
+#include <string.h>
+#include <curl/curl.h>
+
+static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *userdata) {
+    return fwrite(ptr, size, nmemb, (FILE *)userdata);
+}
+
+int main(void) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return 1;
+    struct curl_slist *headers = NULL;
+    char auth[256];
+    snprintf(auth, sizeof auth, "Authorization: Bearer %s", TOKEN);
+    headers = curl_slist_append(headers, auth);
+
+    char url[512];
+    snprintf(url, sizeof url, "%s/api/addons/lore/repos/%s/files", SERVER, REPO);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, stdout);
+
+    curl_easy_perform(curl);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return 0;
+}`;
+
+	const cpp = `#define SERVER "__SERVER__"
+#define REPO "__REPO__"
+#define TOKEN "__TOKEN__"
+
+#include <httplib.h>
+#include <iostream>
+#include <string>
+
+int main() {
+    httplib::Client cli(SERVER);
+    httplib::Headers headers = {
+        {"Authorization", "Bearer " + std::string(TOKEN)}
+    };
+    std::string path = "/api/addons/lore/repos/" + std::string(REPO) + "/files";
+    auto res = cli.Get(path, headers);
+    if (res && res->status == 200) {
+        std::cout << res->body << std::endl;
+    }
+    return 0;
+}`;
+
+	const csharp = `using System;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        const string server = "__SERVER__";
+        const string repo = "__REPO__";
+        const string token = "__TOKEN__";
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
+
+        string json = await client.GetStringAsync(
+            $"{server}/api/addons/lore/repos/{repo}/files");
+        Console.WriteLine(json);
+    }
+}`;
+
+	const rust = `use reqwest::header::{AUTHORIZATION, HeaderValue};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = "__SERVER__";
+    let repo = "__REPO__";
+    let token = "__TOKEN__";
+
+    let client = reqwest::Client::new();
+    let json = client
+        .get(format!("{server}/api/addons/lore/repos/{repo}/files"))
+        .header(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {token}"))?)
+        .send()
+        .await?
+        .text()
+        .await?;
+    println!("{json}");
+    Ok(())
+}`;
+
+	const go = `package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+)
+
+func main() {
+	const server = "__SERVER__"
+	const repo = "__REPO__"
+	const token = "__TOKEN__"
+
+	req, err := http.NewRequest("GET", server+"/api/addons/lore/repos/"+repo+"/files", nil)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	fmt.Println(string(body))
+}`;
+
+	const python = `import requests
+
+SERVER = "__SERVER__"
+REPO = "__REPO__"
+TOKEN = "__TOKEN__"
+
+r = requests.get(
+    "{{URL}}",
+    headers={"Authorization": "Bearer " + TOKEN},
+)
+print(r.json())`.replace('{{URL}}', url);
+
+	const js = `const SERVER = '__SERVER__';
+const REPO = '__REPO__';
+const TOKEN = '__TOKEN__';
+
+const res = await fetch('__URL__', {
+  headers: { Authorization: 'Bearer ' + TOKEN },
+});
+const files = await res.json();
+console.log(files);`;
+
+	const raw: { lang: string; label: string; code: string }[] = [
+		{ lang: 'c', label: 'C (libcurl)', code: c },
+		{ lang: 'cpp', label: 'C++ (cpp-httplib)', code: cpp },
+		{ lang: 'csharp', label: 'C# (HttpClient)', code: csharp },
+		{ lang: 'rust', label: 'Rust (reqwest)', code: rust },
+		{ lang: 'go', label: 'Go (net/http)', code: go },
+		{ lang: 'python', label: 'Python (requests)', code: python },
+		{ lang: 'js', label: 'JavaScript (fetch)', code: js }
+	];
+
+	return raw.map((s) => ({ lang: s.lang, label: s.label, code: fillLoreSnippet(s.code, server, repo, tok, url) }));
+}

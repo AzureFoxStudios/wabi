@@ -171,6 +171,23 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         }
     }
 
+    // H1b: fire outbound webhook delivery (`message.created`) to every
+    // webhook URL registered on this channel. Fire-and-forget so a slow
+    // webhook never blocks the socket handler.
+    if user_id_num > 0 {
+        crate::bot_delivery::spawn_message_created_delivery(
+            state.app.wdb.clone(),
+            channel_id.clone(),
+            crate::bot_delivery::MessageCreatedPayload {
+                channel_id: channel_id.clone(),
+                message_id: message_id.clone(),
+                content: text.clone(),
+                author: username.clone(),
+                timestamp,
+            },
+        );
+    }
+
     let message_view = json!({
         "id":             message_id.clone(),
         "user":           username,

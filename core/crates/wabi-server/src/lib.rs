@@ -8,6 +8,7 @@ pub mod api;
 pub mod auth_extractor;
 pub mod blacklist;
 pub mod blobs;
+pub mod bot_delivery;
 pub mod bot_registry;
 pub mod config;
 pub mod error;

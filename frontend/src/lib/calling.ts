@@ -114,7 +114,7 @@ export {
 export {
 	scheduleLivekitTokenRefresh,
 	cancelLivekitTokenRefresh
-} from './livekitToken';
+} from './callingLivekitTokenRefresh';
 
 // Import and re-export remaining functionality from implementation
 // These will be refactored into separate modules gradually

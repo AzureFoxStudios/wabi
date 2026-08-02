@@ -39,6 +39,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { layoutStore } from '$lib/layoutStore';
 	import { currentUser } from '$lib/socket';
+	import LoreConnectPanel from '$lib/components/sidebar/LoreConnectPanel.svelte';
 
 	/** L8: workspace-role gates — Owner/Admin/Developer edit; Artist asset-write; Viewer read-only. */
 	$: loreRole = ($currentUser?.highestRole || '').toLowerCase();
@@ -74,6 +75,8 @@
 	let showPreview = false;
 	let previewText = '';
 	let previewTextLoading = false;
+	/** W6b: external-tool Connect panel visibility. */
+	let showConnect = false;
 	/** L5: auth'd media — raw <img>/<video> cannot send Bearer; use blob object URLs. */
 	let previewUrl = '';
 	let previewUrlLoading = false;
@@ -125,6 +128,7 @@
 		revokeAllThumbs();
 		selectedFile = null;
 		showPreview = false;
+		showConnect = false;
 		loadLoreRepo();
 		loadLoreHistory();
 	}
@@ -544,6 +548,15 @@
 				on:click={() => layoutStore.openNotes()}
 			>
 				Notes
+			</button>
+			<button
+				class="lore-btn lore-btn-sm"
+				type="button"
+				title="Connect external tools"
+				aria-label="Connect external tools"
+				on:click={() => (showConnect = !showConnect)}
+			>
+				Connect
 			</button>
 			{#if canEditLore}
 			<button class="lore-btn lore-btn-sm" on:click={() => showSnapshot = !showSnapshot}>
@@ -996,6 +1009,15 @@
 		</div>
 	</footer>
 </div>
+
+{#if showConnect && $currentChannel}
+	<LoreConnectPanel
+		channelKey={$currentChannel}
+		repoId={repo?.channelId ?? null}
+		repoName={repo?.repoName ?? null}
+		onclose={() => (showConnect = false)}
+	/>
+{/if}
 
 <!-- Lightbox overlays -->
 {#if lightboxVisible && lightboxImages.length > 0}
