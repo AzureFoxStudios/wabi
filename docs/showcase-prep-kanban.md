@@ -55,8 +55,8 @@ From `/var/home/Ronin/wabi`:
 - [x] **L4** ID parsing — shared `parseLoreChannelId` hex (`ch_{:x}`); loreStore + LoreChannel; no decimal parse.
 - [x] **L5** Auth'd media previews — blob object URLs via `downloadLoreFile` (thumbs cache + preview + lightbox); revoke on channel change/destroy; signed URL = L7.
 - [x] **L6** Tokenize styles — bare hex/rgba/raw z → tokens (`--z-lightbox`, surfaces, danger/warning/success, color-mix); Notes header hook → `layoutStore.openNotes()` (not N1–N4). bare scan 0; bun pre-existing bun:test only.
-- [ ] **L7** Auth'd web downloads w/ permission — cookie/signed-URL path + channel-membership gate.
-- [ ] **L8** Role-based editing — Owner/Admin/Developer edit; Artist = asset-write only (W6g); Viewer read-only. Frontend gates Edit/Commit UI by role.
+- [x] **L7** Signed-URL downloads — `signed_download_url` endpoint (`GET /repos/{channel_id}/signed-url?path=…&revision=…&expires=…`, HMAC jwt_secret, 5-min default / 1m–1h clamp); `download_file` accepts `OptionalAuthUser`, verifies sig+expiry, re-checks membership, supports `?download=1` Content-Disposition. Cargo check clean.
+- [x] **L8** Role-based Lore editing — Owner/Admin/Developer on repo/snapshot/branch; Owner/Admin/Developer/Artist on upload/delete/lock/unlock (9 server gates); FE UI gates via `currentUser.highestRole` (upload zone, snapshot/branch panels, lock/delete rows + preview actions). Cargo check clean; bun no new TS errors.
 
 ## WAVE 2 — Math (KaTeX in chat)
 
@@ -78,7 +78,7 @@ From `/var/home/Ronin/wabi`:
 
 ## WAVE 5 — Notes 3-layer system
 
-- [ ] **N1** Layer 1 (corner/quick) — mount dead `QuickScratchpad.svelte` (0 importers) + orphaned `notesStore.ts` scratchpad helpers; global hotkey/slash command.
+- [x] **N1** Layer 1 (corner/quick) — mount `QuickScratchpad.svelte` in `MainLayout` + notesStore scratchpad helpers; global hotkey `Ctrl/Cmd+Shift+N` + `/scratch` command.
 - [x] **N2** Layer 2 (right panel) — `WorkspacePanelHost` notes → `KeepNotesView compact`; `openNotes()` → `openRightPanel('notes')` (clears stale NOTES_DM_ID); KeepNotes `compact` prop.
 - [x] **N3** Layer 3 (center stage) — `centerPanelView: 'notes'` + MainLayout notes stage + Expand from compact KeepNotes; same storage as right panel.
 - [x] **N4** Kill bottom-right fast-swap — removed dblclick `cycleActivePanel`; invalid-tab heal → `setActiveRightPanel(recent|first)` (not `openRightPanel(panels[0])`).
@@ -107,8 +107,8 @@ Architecture sound: `callRecording.ts` → `uploadRecordingToLore` → `loreReco
 Full business suite exists (`PlannerWorkspace`, `KanbanBoard`, `GanttChart`, etc.); `/business` redirects to Planner. But no `planning` channel type.
 
 - [x] **BZ1** Channel type — `planning` on `RoutedChannelType` + label/icon in `channelTypes.ts`.
-- [ ] **BZ2** Backend + create — `ChannelKind` mapping; "Planning" create option in `CreateChannelForm.svelte`; sidebar section in `ChannelSidebar.svelte`.
-- [ ] **BZ3** Route to surface — render `PlannerWorkspace`/`BusinessSurface` when `currentChannelType === 'planning'` (mirror forum/gallery/wiki in `Chat.svelte`/`MainLayout.svelte`); channel-scoped projects/boards.
+- [x] **BZ2** Backend + create — `ChannelKind` mapping; "Planning" create option in `CreateChannelForm.svelte`; sidebar section in `ChannelSidebar.svelte`.
+- [x] **BZ3** Route to surface — render `PlannerWorkspace`/`BusinessSurface` when `currentChannelType === 'planning'` (mirror forum/gallery/wiki in `Chat.svelte`/`MainLayout.svelte`); channel-scoped projects/boards.
 - [ ] **BZ4** Verify views + perms — Kanban/burndown/gantt/calendar accessible from channel; permission gating.
 - Ref: `docs/plans/2026-07-28-business-into-main.md`
 
@@ -218,9 +218,12 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | 2026-08-01 | N2 | done | KeepNotesView compact; openNotes→notes panel; no NOTES_DM_ID fake DM |
 | 2026-08-01 | N3 | done | centerPanelView notes; MainLayout stage; Expand from compact |
 | 2026-08-01 | BZ1 | done | planning on RoutedChannelType + Planning/PL label/icon |
+| 2026-08-01 | N1 | done | QuickScratchpad overlay in MainLayout + Ctrl/Cmd+Shift+N + /scratch |
 | 2026-08-01 | R5 | done | drop CSS + is-dragging + sameChannelFamily + before/after math; server double-patch confirmed; bun pre-existing only |
-| 2026-08-01 | R12 | done | CF dashboard only; runbook CALLING_CSP_DEBUG; no FE chase |
 | 2026-08-01 | 10R R1–R12 | listed | Ronin regressions: BR microview, icons, gear, pinned side, DnD, subscribe crash, places/addons JSON, guest name, search hover/prefill, status bubble, CF beacon |
+| 2026-08-01 | R12 | done | CF dashboard only; runbook CALLING_CSP_DEBUG; no FE chase |
+|| 2026-08-02 | BZ2/BZ3 | done | planning ChannelKind + adapter wire + CreateChannelForm option + Chat routing + sidebar section; cargo+bun clean |
+|| 2026-08-01 | L7/L8 | done | signed-URL downloads + 9 role gates (H7+H8 impl; cargo clean; FE gates; bun no new errors) |
 
 ## Card counts
 
@@ -231,7 +234,7 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | W2 Math | 1 | M1 done |
 | W3 Channels | 3 | C1–C3 done |
 | W4 Calling | 5 | pending |
-| W5 Notes | 4 | N2–N4 done; N1 free |
+| W5 Notes | 4 | N1–N4 done |
 | W6 Lore collab | 7 | pending |
 | W7 Recording | 3 | pending |
 | W8 Planning | 4 | BZ1 done; BZ2–BZ4 free |

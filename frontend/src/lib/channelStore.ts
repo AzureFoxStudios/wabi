@@ -69,7 +69,7 @@ export function switchChannel(channelId: string): void {
 	joinChannel(channelId);
 }
 
-export type CreateableChannelType = 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' | 'lore';
+export type CreateableChannelType = 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' | 'lore' | 'planning';
 
 export async function createChannel(
 	channelName: string,

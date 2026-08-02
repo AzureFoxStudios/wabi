@@ -870,6 +870,7 @@ impl WabiStore for WdbAdapter {
                     wabidb::domain::ChannelKind::Gallery => "gallery",
                     wabidb::domain::ChannelKind::Category => "category",
                     wabidb::domain::ChannelKind::Lore => "lore",
+                wabidb::domain::ChannelKind::Planning => "planning",
                 };
                 row.insert("channel_type".into(), serde_json::json!(kind));
                 row.insert("type".into(), serde_json::json!(kind));

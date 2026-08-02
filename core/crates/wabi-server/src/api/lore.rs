@@ -9,10 +9,54 @@ use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tracing::info;
 
-use crate::auth_extractor::AuthUser;
+use crate::auth_extractor::{AuthUser, OptionalAuthUser};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
+
+/// HMAC-SHA256 signature helper for signed download URLs (L7).
+/// Payload: `{channel_id}|{user_id}|{path}|{expires}` — user is embedded so
+/// membership can be re-checked at download time, not just at mint time.
+fn lore_signature(secret: &str, channel_id: i64, user_id: i64, path: &str, expires: i64) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key size");
+    mac.update(format!("{channel_id}|{user_id}|{path}|{expires}").as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Workspace-role gates for Lore (L8).
+/// Owner/Admin/Developer = full edit; Artist = asset-write only; Viewer = read-only.
+async fn lore_role(state: &AppState, user_id: i64) -> Option<String> {
+    state
+        .wdb
+        .get_user_role("default-workspace", user_id as u64)
+        .await
+        .ok()
+        .flatten()
+}
+
+async fn can_edit_lore(state: &AppState, user_id: i64) -> bool {
+    if state.is_owner(user_id).await || state.is_admin(user_id).await {
+        return true;
+    }
+    match lore_role(state, user_id).await.map(|r| r.to_ascii_lowercase()) {
+        Some(r) => matches!(r.as_str(), "owner" | "admin" | "developer"),
+        None => false,
+    }
+}
+
+async fn can_asset_write_lore(state: &AppState, user_id: i64) -> bool {
+    if can_edit_lore(state, user_id).await {
+        return true;
+    }
+    match lore_role(state, user_id).await.map(|r| r.to_ascii_lowercase()) {
+        Some(r) => r == "artist",
+        None => false,
+    }
+}
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
@@ -26,6 +70,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/repos/{channel_id}/files/{*path}/lock", axum::routing::post(lock_file).delete(unlock_file))
         .route("/repos/{channel_id}/files/{*path}/history", axum::routing::get(file_level_history))
         .route("/repos/{channel_id}/files/{*path}/diff", axum::routing::get(file_diff))
+        // L7: signed download URL mint (AuthUser + membership at mint time)
+        .route("/repos/{channel_id}/signed-url", axum::routing::get(signed_download_url))
         // Repo history
         .route("/repos/{channel_id}/history", axum::routing::get(repo_history))
         // Branch operations
@@ -71,6 +117,10 @@ async fn create_repo(
 ) -> Result<Json<serde_json::Value>> {
     let channel_id = payload["channelId"].as_i64().unwrap_or(0);
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: repo management = Owner/Admin/Developer
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
+    }
     let repo_name = payload["repoName"].as_str().unwrap_or("default");
 
     let lore = lore_service(&state).await?;
@@ -106,6 +156,10 @@ async fn delete_repo(
     Path(channel_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: repo management = Owner/Admin/Developer
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
+    }
     let lore = lore_service(&state).await?;
     lore.delete_repo(channel_id).await?;
 
@@ -130,6 +184,10 @@ async fn snapshot(
     Json(payload): Json<SnapshotPayload>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: commits = Owner/Admin/Developer
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore commits require Owner/Admin/Developer role".into()));
+    }
     let lore = lore_service(&state).await?;
     let revision = lore.commit_staged(channel_id, &payload.message, auth.user_id).await?;
 
@@ -177,6 +235,10 @@ async fn upload_file(
     body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: asset writes = Owner/Admin/Developer/Artist
+    if !can_asset_write_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore asset uploads require at least Artist role".into()));
+    }
     let message = query.message.unwrap_or_else(|| "Upload via API".into());
     let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
 
@@ -308,6 +370,59 @@ async fn upload_recording(
 #[derive(Deserialize)]
 struct DownloadQuery {
     revision: Option<String>,
+    expires: Option<i64>,
+    uid: Option<i64>,
+    sig: Option<String>,
+    download: Option<u8>,
+}
+
+/// Query for the signed-URL mint endpoint (L7).
+#[derive(Deserialize)]
+struct SignedUrlQuery {
+    path: String,
+    revision: Option<String>,
+    expires: Option<i64>,
+}
+
+/// GET /repos/{channel_id}/signed-url?path=...&revision=...&expires=...
+/// Requires AuthUser + channel membership. Returns a short-lived HMAC-signed
+/// download URL usable from <a href>/window.open without a Bearer header.
+async fn signed_download_url(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Query(query): Query<SignedUrlQuery>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+
+    let now = chrono::Utc::now().timestamp();
+    let ttl = query.expires.unwrap_or(now + 300);
+    let expires = ttl.clamp(now + 60, now + 3600);
+
+    let sig = lore_signature(
+        &state.app.config.jwt_secret,
+        channel_id,
+        auth.user_id,
+        &query.path,
+        expires,
+    );
+
+    let mut url = format!(
+        "/api/addons/lore/repos/{}/files/{}?expires={}&uid={}&sig={}",
+        channel_id,
+        urlencoding::encode(&query.path),
+        expires,
+        auth.user_id,
+        sig
+    );
+    if let Some(rev) = &query.revision {
+        url.push_str(&format!("&revision={}", urlencoding::encode(rev)));
+    }
+
+    Ok(Json(serde_json::json!({
+        "url": url,
+        "expiresAt": expires,
+    })))
 }
 
 /// Parse a `Range: bytes=START-END` or `bytes=START-` header.
@@ -348,12 +463,33 @@ fn cache_path(channel_id: i64, path: &str, revision: Option<&str>) -> std::path:
 
 async fn download_file(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    auth: OptionalAuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<DownloadQuery>,
     headers: axum::http::HeaderMap,
 ) -> Result<axum::response::Response> {
-    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L7: signed-URL path — no Bearer header required; membership was checked
+    // at mint time and is re-checked here via the embedded uid.
+    let user_id = if let (Some(expires), Some(uid), Some(sig)) =
+        (query.expires, query.uid, query.sig.as_deref())
+    {
+        let now = chrono::Utc::now().timestamp();
+        if now > expires || expires - now > 3600 {
+            return Err(AppError::Forbidden("signed URL expired".into()));
+        }
+        let expected =
+            lore_signature(&state.app.config.jwt_secret, channel_id, uid, &path, expires);
+        if sig != expected {
+            return Err(AppError::Forbidden("invalid signed URL signature".into()));
+        }
+        uid
+    } else {
+        let user = auth
+            .0
+            .ok_or_else(|| AppError::Unauthorized("Authentication required".into()))?;
+        user.user_id
+    };
+    ensure_channel_member(&state, channel_id, user_id).await?;
     let tmp_path = cache_path(channel_id, &path, query.revision.as_deref());
     tokio::fs::create_dir_all(tmp_path.parent().unwrap_or(std::path::Path::new("."))).await?;
 
@@ -407,13 +543,20 @@ async fn download_file(
 
     // Full content
     let data = tokio::fs::read(&tmp_path).await?;
-    let resp = axum::response::Response::builder()
+    let mut builder = axum::response::Response::builder()
         .status(axum::http::StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
         .header(axum::http::header::CONTENT_LENGTH, data.len().to_string())
-        .header(axum::http::header::ACCEPT_RANGES, "bytes")
-        .body(axum::body::Body::from(data))
-        .unwrap();
+        .header(axum::http::header::ACCEPT_RANGES, "bytes");
+    // L7: ?download=1 → attachment disposition (direct web save)
+    if query.download == Some(1) {
+        let filename = path.rsplit('/').next().unwrap_or("download");
+        builder = builder.header(
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", filename.replace('"', "_")),
+        );
+    }
+    let resp = builder.body(axum::body::Body::from(data)).unwrap();
     Ok(resp)
 }
 
@@ -429,6 +572,10 @@ async fn delete_file(
     Json(payload): Json<DeleteFilePayload>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: asset writes = Owner/Admin/Developer/Artist
+    if !can_asset_write_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore asset deletion requires at least Artist role".into()));
+    }
     let message = payload.message.unwrap_or_else(|| "Deleted via API".into());
 
     let lore = lore_service(&state).await?;
@@ -446,6 +593,10 @@ async fn lock_file(
     Path((channel_id, path)): Path<(i64, String)>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: asset writes = Owner/Admin/Developer/Artist
+    if !can_asset_write_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore locking requires at least Artist role".into()));
+    }
     let lore = lore_service(&state).await?;
     lore.lock_file(channel_id, &path, auth.user_id).await?;
 
@@ -458,6 +609,10 @@ async fn unlock_file(
     Path((channel_id, path)): Path<(i64, String)>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: asset writes = Owner/Admin/Developer/Artist
+    if !can_asset_write_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore unlocking requires at least Artist role".into()));
+    }
     let lore = lore_service(&state).await?;
     lore.unlock_file(channel_id, &path).await?;
 
@@ -527,6 +682,10 @@ async fn create_branch(
     Json(payload): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: branch management = Owner/Admin/Developer
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore branch operations require Owner/Admin/Developer role".into()));
+    }
     let branch_name = payload["name"].as_str().unwrap_or("feature");
     let base_revision = payload["baseRevision"].as_str();
 
@@ -542,6 +701,10 @@ async fn merge_branch(
     Path((channel_id, branch_name)): Path<(i64, String)>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: branch management = Owner/Admin/Developer
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore branch operations require Owner/Admin/Developer role".into()));
+    }
     let lore = lore_service(&state).await?;
     lore.merge_branch(channel_id, &branch_name).await?;
 

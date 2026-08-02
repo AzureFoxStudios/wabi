@@ -60,6 +60,7 @@
 	import LoreChannel from './LoreChannel.svelte';
 	import ForumChannel from './ForumChannel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
+import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
 	import { formatTypingUsers, getVisibleTypingUsers } from './chat/typing';
@@ -452,6 +453,8 @@
 			<ForumChannel />
 		{:else if currentChannelType === 'wiki'}
 			<WikiChannel />
+		{:else if currentChannelType === 'planning'}
+			<PlannerWorkspace />
 		{:else if isRoutedChannelType(currentChannelType)}
 			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType as 'stage'} />
 		{:else}

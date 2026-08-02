@@ -153,6 +153,30 @@ export async function downloadLoreFile(
 	return await res.blob();
 }
 
+export async function getSignedLoreUrl(
+	token: string,
+	channelId: number,
+	path: string,
+	revision?: string,
+	expires?: number
+): Promise<string> {
+	const params = new URLSearchParams({ path });
+	if (revision) params.set('revision', revision);
+	if (expires) params.set('expires', String(expires));
+	const url = `${loreUrl(`/repos/${channelId}/signed-url`)}?${params.toString()}`;
+	const res = await fetchWithTimeout(url, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw new Error((err as any).error || 'Failed to create signed URL');
+	}
+	const payload = (await res.json()) as { url?: string; expiresAt?: number };
+	if (!payload.url) throw new Error('Signed URL response missing url');
+	return payload.url;
+}
+
 export async function deleteLoreFile(token: string, channelId: number, path: string, message?: string): Promise<void> {
 	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}`), {
 		method: 'DELETE',

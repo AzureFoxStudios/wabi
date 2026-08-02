@@ -37,6 +37,7 @@
 		if (type === 'wiki') return 'Wiki';
 		if (type === 'stage') return 'Stage';
 		if (type === 'lore') return 'Asset Storage';
+		if (type === 'planning') return 'Planning';
 		return 'Text';
 	}
 </script>
@@ -51,14 +52,16 @@
 			placeholder={newChannelType === 'voice'
 				? 'voice-room'
 				: newChannelType === 'lore'
-					? 'asset-storage'
-					: newChannelType === 'forum'
-						? 'forum-board'
-						: newChannelType === 'wiki'
-							? 'wiki-pages'
-							: newChannelType === 'gallery'
-								? 'gallery'
-								: 'channel-name'}
+				? 'asset-storage'
+				: newChannelType === 'forum'
+				? 'forum-board'
+				: newChannelType === 'wiki'
+				? 'wiki-pages'
+				: newChannelType === 'gallery'
+				? 'gallery'
+				: newChannelType === 'planning'
+				? 'planning-board'
+				: 'channel-name'}
 			on:keydown={(e) => e.key === 'Enter' && !creatingChannel && onSubmit()}
 		/>
 		<input
@@ -78,6 +81,7 @@
 			<option value="gallery">Gallery Channel</option>
 			<option value="forum">Forum Channel</option>
 			<option value="wiki">Wiki Channel</option>
+			<option value="planning">Planning Channel</option>
 			{#if loreAvailable}
 				<option value="lore">Asset Storage</option>
 			{/if}
@@ -86,6 +90,8 @@
 			<p class="create-channel-hint">
 				Asset Storage uses the Lore add-on for versioned binary assets (CAD, 3D, large files).
 			</p>
+		{:else if newChannelType === 'planning'}
+			<p class="create-channel-hint">Planning channels surface the Planner workspace: kanban, Gantt, calendar, and task boards scoped to this channel.</p>
 		{:else if newChannelType === 'forum'}
 			<p class="create-channel-hint">Forum channels host threads and posts (not a chat stream).</p>
 		{:else if newChannelType === 'wiki'}
@@ -99,7 +105,7 @@
 				checked={forceSpoiler}
 				on:change={(e) => onForceSpoilerChange((e.currentTarget as HTMLInputElement).checked)}
 			/>
-			<span>🔒 Spoiler channel — automatically hide all messages</span>
+			<span>Spoiler channel — automatically hide all messages</span>
 		</label>
 		{#if createError}
 			<p class="create-channel-error" role="alert">{createError}</p>

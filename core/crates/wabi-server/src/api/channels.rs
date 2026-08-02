@@ -41,6 +41,7 @@ fn channel_kind_to_type(kind: wabidb::domain::ChannelKind, asset_storage: bool) 
         Gallery => "gallery",
         Category => "category",
         Lore => "lore",
+        Planning => "planning",
     };
     s.to_string()
 }
@@ -173,6 +174,7 @@ async fn create_channel(
         "gallery" => wabidb::domain::ChannelKind::Gallery,
         "category" => wabidb::domain::ChannelKind::Category,
         "lore" | "asset_storage" => wabidb::domain::ChannelKind::Lore,
+        "planning" => wabidb::domain::ChannelKind::Planning,
         _ => wabidb::domain::ChannelKind::Text,
     };
     let is_lore = matches!(channel_kind, wabidb::domain::ChannelKind::Lore);
@@ -262,9 +264,11 @@ async fn create_channel(
         }
     }
 
-    // Wire channel_type is always "lore" for Lore kind (not the raw request string).
+    // Wire channel_type is always the canonical string for the kind.
     let response_type = if is_lore {
         "lore".to_string()
+    } else if channel_kind == wabidb::domain::ChannelKind::Planning {
+        "planning".to_string()
     } else {
         req.channel_type
     };

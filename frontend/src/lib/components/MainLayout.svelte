@@ -47,6 +47,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { openWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { savedServerRailItems } from '$lib/savedServers';
 	import { activeTransfers, incomingFileOffers } from '$lib/p2pFileTransfer';
+	// N1: floating QuickScratchpad
+	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
+	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 
 	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
 	export let accountSecurityOpenRequest = 0;
@@ -54,6 +57,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
+	// N1: overlay reactive
+	$: showQuickScratchpad = $quickScratchpadOpen;
 
 	$: mobileRightVisible = $layoutStore.isMobile && $layoutStore.rightPanelView !== 'none';
 	$: totalUnreadDMs = 0; // DM-strip: was Object.entries($channelUnreadCounts) for DM channels. Stubbed to 0.
@@ -242,6 +247,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			friendPresenceByKey = nextSnapshot;
 			friendPresenceObserverReady = true;
 		});
+
+		if (typeof window !== 'undefined') {
+			window.addEventListener('keydown', handleQuickScratchpadKeydown);
+		}
 	});
 
 	onDestroy(() => {
@@ -258,6 +267,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			unsubscribeFriendPresence();
 			unsubscribeFriendPresence = null;
 		}
+		window.removeEventListener('keydown', handleQuickScratchpadKeydown);
 	});
 
 	function getPresenceObserverKey(user: User | null | undefined, serverUrl: string): string {
@@ -267,14 +277,20 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	function shouldNotifyFriendStatus(trackedPersonKey: string): boolean {
 		const settings = get(displayEnhancementSettingsStore);
 		if (!settings.friendNotificationsEnabled) return false;
-		if (settings.friendNotificationsTrackedOnly && !isTrackedPersonStatusAlertsKeyEnabled(trackedPersonKey)) {
-			return false;
-		}
+		if (settings.friendNotificationsTrackedOnly && !isTrackedPersonStatusAlertsKeyEnabled(trackedPersonKey)) return false;
 		if (typeof window === 'undefined') return false;
 		if (!('Notification' in window)) return false;
 		if (Notification.permission !== 'granted') return false;
 		if (localStorage.getItem('notificationsEnabled') === 'false') return false;
 		return true;
+	}
+
+	// N1: global hotkey Ctrl/Cmd+Shift+N toggles floating QuickScratchpad
+	function handleQuickScratchpadKeydown(event: KeyboardEvent): void {
+		if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'n') {
+			event.preventDefault();
+			quickScratchpadOpen.update((v) => !v);
+		}
 	}
 
 	function formatPresenceStatus(status: User['status'] | 'offline'): string {
@@ -730,34 +746,34 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 {#if $centerPanelView === 'admin'}
 	<AdminCenterStage />
 {:else if $centerPanelView === 'notes'}
-	<!-- N3: full notes center stage (same KeepNotes storage as right panel; not compact). -->
-	<div class="notes-center-stage">
-		<header class="notes-center-header">
-			<button
-				type="button"
-				class="notes-center-back"
-				on:click={() => layoutStore.setCenterPanelView('chat')}
-				title="Back to chat"
-			>
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-					<path d="M19 12H5M12 19l-7-7 7-7" />
-				</svg>
-				<span>Back</span>
-			</button>
-			<span class="notes-center-title">Notes</span>
-			<button
-				type="button"
-				class="notes-center-dock"
-				on:click={() => layoutStore.showNotesTab()}
-				title="Open notes in right panel"
-			>
-				Dock
-			</button>
-		</header>
-		<div class="notes-center-body">
-			<KeepNotesView />
-		</div>
+<!-- N3: full notes center stage (same KeepNotes storage as right panel; not compact). -->
+<div class="notes-center-stage">
+	<header class="notes-center-header">
+		<button
+			type="button"
+			class="notes-center-back"
+			on:click={() => layoutStore.setCenterPanelView('chat')}
+			title="Back to chat"
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+				<path d="M19 12H5M12 19l-7-7 7-7" />
+			</svg>
+			<span>Back</span>
+		</button>
+		<span class="notes-center-title">Notes</span>
+		<button
+			type="button"
+			class="notes-center-dock"
+			on:click={() => layoutStore.showNotesTab()}
+			title="Open notes in right panel"
+		>
+			Dock
+		</button>
+	</header>
+	<div class="notes-center-body">
+		<KeepNotesView />
 	</div>
+</div>
 {:else}
 {#if $layoutStore.isMobile && !$layoutStore.isInCall}
 	{#if !mobileNavVisible}
@@ -800,7 +816,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			on:touchmove={handleMobileNavTouchMove}
 			on:touchend={handleMobileNavTouchEnd}
 		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><circle cx="9" cy="7" r="4"/></svg>
 			<span>{$_('shell.mobile.users')}</span>
 		</button>
 	</nav>
@@ -971,8 +987,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			class="right-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
 			style:right={$layoutStore.navDock === 'right'
-			    ? `${desktopServerRailOffset + $layoutStore.channelSidebarWidth}px`
-			    : '0px'}
+				? `${desktopServerRailOffset + $layoutStore.channelSidebarWidth}px`
+				: '0px'}
 			on:click={layoutStore.expandRight}
 			on:mousedown|preventDefault={startRightResizeFromClosed}
 			title="Open right panel"
@@ -1103,6 +1119,22 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 {/if}
 {/if}
 
+<!-- N1: floating QuickScratchpad overlay -->
+{#if showQuickScratchpad}
+	<div
+		class="quick-scratchpad-overlay"
+		on:click|self={closeQuickScratchpad}
+		on:keydown|self={(e) => {
+			if ((e as KeyboardEvent).key === 'Escape') closeQuickScratchpad();
+		}}
+		role="dialog"
+		aria-modal="true"
+		aria-label="Quick Scratchpad"
+	>
+		<QuickScratchpad />
+	</div>
+{/if}
+
 <style>
 	.center-dm-layout {
 		display: grid;
@@ -1205,5 +1237,24 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		display: flex;
 		flex-direction: column;
 	}
-</style>
 
+	/* N1: floating QuickScratchpad overlay */
+	.quick-scratchpad-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: var(--z-modal, 1500);
+		display: flex;
+		align-items: flex-end;
+		justify-content: flex-end;
+		padding: 1rem;
+		background: rgba(0, 0, 0, 0.35);
+	}
+
+	.quick-scratchpad-overlay > :global(*) {
+		width: min(420px, 92vw);
+		max-height: min(380px, 72vh);
+		border-radius: 12px;
+		overflow: hidden;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+	}
+</style>
