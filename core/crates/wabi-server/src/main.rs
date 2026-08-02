@@ -559,6 +559,16 @@ async fn main() -> anyhow::Result<()> {
     // Create application state
     let state = Arc::new(AppState::new(config.clone()).await?);
 
+    // Auto-register the Hermes service bot on startup so cron jobs and
+    // outbound deliveries can emit messages as this bot account.
+    let hermes_state = state.clone();
+    tokio::spawn(async move {
+        match crate::api::bots::ensure_hermes_bot(&hermes_state).await {
+            Ok(id) => tracing::info!("[bot:hermes] ready: {}", id),
+            Err(e) => tracing::warn!("[bot:hermes] registration failed: {e}"),
+        }
+    });
+
     // Set mesh service in application state if initialized
     if let Some(mesh) = mesh_service {
         state.set_mesh_service(Arc::new(mesh)).await;
