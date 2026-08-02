@@ -43,6 +43,9 @@
 			{#if shouldShowStaffTag(author)}
 				<span class="staff-inline-tag">Staff</span>
 			{/if}
+			{#if author?.isBot || message.isBot}
+				<span class="bot-inline-badge" title="Bot account">BOT</span>
+			{/if}
 			<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
 				{formatTime(message.timestamp)}
 			</span>

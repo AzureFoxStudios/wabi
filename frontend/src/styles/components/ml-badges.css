@@ -4,7 +4,6 @@
    ========================================================================== */
 
 
-
 	.role-inline-badge {
 		display: inline-flex;
 		align-items: center;
@@ -61,6 +60,23 @@
 		border: 1px solid color-mix(in srgb, var(--color-danger, #ef5f5f) 42%, transparent);
 		background: color-mix(in srgb, var(--color-danger, #ef5f5f) 17%, var(--surface-base));
 		color: var(--text-danger, #ffc6c6);
+		white-space: nowrap;
+	}
+
+
+	.bot-inline-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.08rem 0.36rem;
+		border-radius: 999px;
+		font-size: 0.62rem;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 42%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color) 17%, var(--surface-base));
+		color: var(--text-secondary);
 		white-space: nowrap;
 	}
 

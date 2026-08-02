@@ -58,6 +58,7 @@ export interface Message extends Omit<ProtocolMessageView, MessageOptionalProtoc
   isSpoiler?: boolean;
   reactions?: Record<string, string[]>;
   entities?: MessageEntity[];
+  isBot?: boolean;
   isDeleted?: boolean;
   deletionExpireTime?: number;
   persistenceState?: 'failed' | 'retrying';
@@ -113,6 +114,8 @@ export interface User {
   highestRole?: Exclude<ProtocolUserView['highestRole'], null>;
   roleColor?: ProtocolUserView['roleColor'];
   usernameFont?: Exclude<ProtocolUserView['usernameFont'], null>;
+  /// True when this is a bot service account (BOT badge in message headers).
+  isBot?: boolean;
 }
 
 export type VoiceChannelSettings = ProtocolVoiceChannelSettings;
