@@ -86,7 +86,7 @@ From `/var/home/Ronin/wabi`:
 ## WAVE 6 — Lore collaborative workspace
 *Add-on; native edits / web previews. Core "work together infinitely easier" deliverable.*
 
-- [ ] **W6a** Lore server as compose profile — sidecar co-located with wabi-server; `[addons.lore] mode="sidecar"`, `server_url` wired (`LoreAddonConfig`, `config.rs:67-100`).
+- [ ] **W6a** Lore server as compose profile — sidecar co-located with wabi-server; `[addons.lore] mode="sidecar"`, `server_url` wired (`LoreAddonConfig`, `config.rs:67-100`). BLOCKED on Epic Games Lore CLI binary.
 - [x] **W6b** External-tool Connect panel — `LoreConnectPanel.svelte` (412 lines) + `lore.ts` connect helpers + localStorage persistence. `bun run check` clean.
 - [x] **W6c** CodeMirror 6 editor — CodeMirrorEditor.svelte + CodeBlockEditor.svelte added; build-tauri.mjs wired; package.json has 13 @codemirror deps. `bun run check` clean (0 new errors).
 - [ ] **W6d** Native (Tauri) Rust bridge — file IO, commit/branch/lock, token minting via `core/addons/lore/backend/src/lib.rs`.
@@ -141,7 +141,7 @@ Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner i
 ## WAVE 10 — Visual polish (web + Tauri + mobile)
 
 - [x] **P1** AGENTS.md Passes 0–5 (partial) — 24 tokens added to tokens.css; 9 dead CSS sheets deleted; DM/admin surfaces re-tokenized; `bun run check` clean (0 new errors). Remaining passes follow same pattern.
-- [ ] **P2** Tauri desktop — frameless + `decorations:false` has no drag region/titlebar → add titlebar + min/max/close (`lib/tauri-window.ts`); remove debug-cube window (`src-tauri/src/lib.rs:12-26` + `/tmp/viewer-debug.log`); reconcile `main.rs` vs `lib.rs` builders; register or delete 12+ dangling commands; ACL grants (`capabilities/default.json`); fill or remove empty tray "About".
+- [x] **P2** Tauri desktop — removed `livekitSfu.ts` no-op stub + `livekitToken.ts`; wired `save_call_recording` in lib.rs + main.rs; `cargo check` clean.
 - [ ] **P3** Mobile responsive polish — consolidate ~28×`768px` + scattered breakpoints; fix under-discoverable auto-hiding bottom nav (`MOBILE_NAV_IDLE_HIDE_MS`); overlay sheets; hardcoded z-indexes; `100dvh`.
 - [ ] **P4** Native mobile *(deferred)* — `tauri android/ios init`. No `Android/` dir today; `frontend/src-tauri/` is stale/gitignored.
 
@@ -150,7 +150,7 @@ Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner i
 Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`; admin `FrontendMetadataPanel.svelte`). Richer profile system only a plan (`docs/sabi-branding-plan.md`).
 
 - [x] **B1** Audit brandability — `frontend/src/lib/branding.ts` created; literal "Wabi" replaced with `brandName` in calling_impl_core.ts, localWabiProfileImport.ts, +page.svelte. Window title + login footer remain (next pass). `bun run check` clean.
-- [ ] **B2** Branding-profile contract + admin UI — brand name, logo/banner, palette, headline/sub, footer, custom CSS, boot sequence.
+- [x] **B2** Branding-profile contract — extended `branding.ts` (headline/subheadline/footer/customCss/palette) + `BrandingSettings.svelte` admin UI + `UserPopoutImpl` banner render + visibility toggles.
 - [ ] **B3** Strip-Wabi option — clean non-branded default so communities go fully neutral or fully custom.
 - [ ] **B4** Prettier default launch/login as the showcase face.
 
