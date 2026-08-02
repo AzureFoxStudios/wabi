@@ -59,6 +59,13 @@ export const callConnectionDiagnostics = writable<CallConnectionDiagnostics>({
 
 export const activeVoiceChannel = writable<ActiveVoiceChannel | null>(null);
 export const activeGroupCall = writable<ActiveGroupCall | null>(null);
+
+// Identifies the current DM/group call session. Unlike the legacy single-call
+// model this can be non-null at the same time as `activeVoiceChannel` — a DM or
+// group call can coexist with a primary voice channel, which stays listen-only
+// (TeamSpeak-style) while the call is active. Cleared when the call ends.
+export const activeCallSessionId = writable<string | null>(null);
+
 export const callMode = writable<'direct' | 'channel' | 'group' | null>(null);
 export const channelCallPanelOpen = writable(false);
 export const voiceChannelNotice = writable<{ id: number; text: string } | null>(null);

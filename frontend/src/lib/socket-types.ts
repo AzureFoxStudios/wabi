@@ -102,9 +102,13 @@ export interface User {
   color: ProtocolUserView['color'];
   status: ProtocolUserView['status'];
   profilePicture?: Exclude<ProtocolUserView['profilePicture'], null>;
+  bannerUrl?: string;
+  overlayUrl?: string;
+  showBanner?: boolean;
+  showOverlay?: boolean;
   bio?: Exclude<ProtocolUserView['bio'], null>;
   joinedAt?: Exclude<ProtocolUserView['joinedAt'], null>;
-  dbUserId?: Exclude<ProtocolUserView['dbUserId'], null>; // Stable registered user ID (undefined for guests)
+  dbUserId?: Exclude<ProtocolUserView['dbUserId'], null>;
   roles?: Exclude<ProtocolUserView['roles'], null>;
   highestRole?: Exclude<ProtocolUserView['highestRole'], null>;
   roleColor?: ProtocolUserView['roleColor'];

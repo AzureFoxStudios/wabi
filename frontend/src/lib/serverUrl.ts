@@ -150,13 +150,21 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 	const configured = getConfiguredServerUrl();
 	if (configured) {
 		// Discard stored URLs that are stale dev/test artifacts or www variants
-		// of the current production host — both cause broken CORS preflight.
+		// of the current production host — both cause broken CORS/preflight.
+		// Also discard same-host URLs whose protocol no longer matches the page
+		// protocol (e.g. persisted http on a now-https production host).
 		try {
-			const storedHost = new URL(configured).hostname;
-			const pageHost = hostname;
+			const configuredUrl = new URL(configured);
+			const storedHost = configuredUrl.hostname;
 			const isWwwVariant =
-				storedHost === `www.${pageHost}` || pageHost === `www.${storedHost}`;
-			if ((isLocalHost(storedHost) && !isLocalHost(pageHost)) || isWwwVariant) {
+				storedHost === `www.${hostname}` || hostname === `www.${storedHost}`;
+			const isSameHostProtocolMismatch =
+				storedHost === hostname && configuredUrl.protocol !== protocol;
+			if (
+				(isLocalHost(storedHost) && !isLocalHost(hostname)) ||
+				isWwwVariant ||
+				isSameHostProtocolMismatch
+			) {
 				// Silently discard and fall through to origin detection
 			} else {
 				return { url: configured, source: 'user_configured' };

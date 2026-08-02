@@ -492,3 +492,33 @@
 	.popout-banner { background: var(--banner-color, var(--pfp-banner, var(--accent-primary-color))); }
 	.popout-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
 	.status-badge, .status-indicator { background-color: var(--status-color); }
+
+/* PR1: uploaded banner image */
+.popout-banner-img {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	opacity: 0.85;
+}
+
+/* PR2: overlay preview square in settings */
+.avatar-overlay-preview {
+	width: 120px;
+	height: 120px;
+	border-radius: 50%;
+	background-size: cover;
+	background-position: center;
+	background-repeat: no-repeat;
+}
+
+/* PR2: overlay layer on avatar (messages, popouts, member list) */
+.avatar-overlay-layer {
+	position: absolute;
+	inset: 0;
+	background-size: cover;
+	background-position: center;
+	background-repeat: no-repeat;
+	pointer-events: none;
+}

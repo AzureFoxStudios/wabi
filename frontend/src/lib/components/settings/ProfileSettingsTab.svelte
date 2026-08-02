@@ -82,6 +82,113 @@
 		void focusPasswordChangeForm();
 	}
 
+	// ── PR1/PR2/PR3: Banner / overlay upload + visibility ──
+	let bannerUploading = $state(false);
+	let bannerStatus = $state('');
+	let overlayUploading = $state(false);
+	let overlayStatus = $state('');
+	let showBannerLocal = $state(false);
+	let showOverlayLocal = $state(false);
+	let disableAllBannersLocal = $state(false);
+
+	const BANNER_STORE_KEY = 'wabi:profile:bannerUrl';
+	const OVERLAY_STORE_KEY = 'wabi:profile:overlayUrl';
+	const VISIBILITY_KEY = 'wabi:profile:visibility';
+
+	function loadBannerVisibility() {
+		try {
+			const raw = localStorage.getItem(VISIBILITY_KEY);
+			if (!raw) return;
+			const v = JSON.parse(raw);
+			if (typeof v.showBanner === 'boolean') showBannerLocal = v.showBanner;
+			if (typeof v.showOverlay === 'boolean') showOverlayLocal = v.showOverlay;
+			if (typeof v.disableAll === 'boolean') disableAllBannersLocal = v.disableAll;
+		} catch { /* ignore */ }
+	}
+
+	$effect(() => {
+		localStorage.setItem(
+			VISIBILITY_KEY,
+			JSON.stringify({ showBanner: showBannerLocal, showOverlay: showOverlayLocal, disableAll: disableAllBannersLocal })
+		);
+	});
+
+	async function uploadBanner(file: File) {
+		if (!file) return;
+		bannerUploading = true;
+		bannerStatus = '';
+		try {
+			const fd = new FormData();
+			fd.append('file', file, file.name || 'banner.png');
+			const res = await fetch(`${getServerUrl()}/api/upload`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${getAuthToken()}` },
+				body: fd
+			});
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
+			const url = typeof payload?.file_url === 'string' ? payload.file_url : '';
+			if (!url) throw new Error('No URL returned');
+			localStorage.setItem(BANNER_STORE_KEY, url);
+			// Patch current user locally so the UI updates immediately.
+			if ($currentUser) $currentUser = { ...$currentUser, bannerUrl: url };
+			bannerStatus = 'Banner uploaded.';
+			// Best-effort socket broadcast.
+			updateProfile({ bannerUrl: url });
+		} catch (e) {
+			bannerStatus = e instanceof Error ? e.message : 'Banner upload failed.';
+		} finally {
+			bannerUploading = false;
+		}
+	}
+
+	async function uploadOverlay(file: File) {
+		if (!file) return;
+		overlayUploading = true;
+		overlayStatus = '';
+		try {
+			const fd = new FormData();
+			fd.append('file', file, file.name || 'overlay.png');
+			const res = await fetch(`${getServerUrl()}/api/upload`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${getAuthToken()}` },
+				body: fd
+			});
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
+			const url = typeof payload?.file_url === 'string' ? payload.file_url : '';
+			if (!url) throw new Error('No URL returned');
+			localStorage.setItem(OVERLAY_STORE_KEY, url);
+			if ($currentUser) $currentUser = { ...$currentUser, overlayUrl: url };
+			overlayStatus = 'Overlay uploaded.';
+			updateProfile({ overlayUrl: url });
+		} catch (e) {
+			overlayStatus = e instanceof Error ? e.message : 'Overlay upload failed.';
+		} finally {
+			overlayUploading = false;
+		}
+	}
+
+	onMount(() => {
+		loadBannerVisibility();
+		try {
+			const b = localStorage.getItem(BANNER_STORE_KEY);
+			if (b && $currentUser && !$currentUser.bannerUrl) $currentUser = { ...$currentUser, bannerUrl: b };
+			const o = localStorage.getItem(OVERLAY_STORE_KEY);
+			if (o && $currentUser && !$currentUser.overlayUrl) $currentUser = { ...$currentUser, overlayUrl: o };
+		} catch { /* ignore */ }
+		const bannerInput = document.getElementById('banner-file-input');
+		bannerInput?.addEventListener('change', (ev) => {
+			const file = (ev.target as HTMLInputElement).files?.[0];
+			if (file) void uploadBanner(file);
+		});
+		const overlayInput = document.getElementById('overlay-file-input');
+		overlayInput?.addEventListener('change', (ev) => {
+			const file = (ev.target as HTMLInputElement).files?.[0];
+			if (file) void uploadOverlay(file);
+		});
+	});
+
 	onMount(() => {
 		const token = getAuthToken();
 		if (!token) return;
@@ -382,6 +489,71 @@
 		<button class="pfp-upload-btn" on:click={() => dispatch('openServerDonation')}>
 			View Donations
 		</button>
+	</div>
+</div>
+
+<div class="settings-section">
+	<h3>Profile Banner</h3>
+	<div class="pfp-upload-section">
+		<div class="current-pfp">
+			{#if $currentUser?.bannerUrl}
+				<img src={$currentUser.bannerUrl} alt="Profile banner" class="pfp-current-img banner-preview" />
+			{:else}
+				<div class="pfp-placeholder banner-placeholder">No banner set</div>
+			{/if}
+		</div>
+		<div class="pfp-upload-form">
+			<input type="file" accept="image/*" id="banner-file-input" class="hidden-file-input" />
+			<button class="pfp-select-btn" on:click={() => document.getElementById('banner-file-input')?.click()}>
+				{bannerUploading ? 'Uploading...' : 'Upload Banner'}
+			</button>
+			{#if bannerStatus}<div class="runtime-note">{bannerStatus}</div>{/if}
+		</div>
+	</div>
+</div>
+
+<div class="settings-section">
+	<h3>Avatar Overlay</h3>
+	<div class="pfp-upload-section">
+		<div class="current-pfp">
+			{#if $currentUser?.overlayUrl}
+				<div class="avatar-overlay-preview" style="background-image: url({$currentUser.overlayUrl})"></div>
+			{:else}
+				<div class="pfp-placeholder">No overlay set</div>
+			{/if}
+		</div>
+		<div class="pfp-upload-form">
+			<input type="file" accept="image/png" id="overlay-file-input" class="hidden-file-input" />
+			<button class="pfp-select-btn" on:click={() => document.getElementById('overlay-file-input')?.click()}>
+				{overlayUploading ? 'Uploading...' : 'Upload Overlay (PNG)'}
+			</button>
+			{#if overlayStatus}<div class="runtime-note">{overlayStatus}</div>{/if}
+		</div>
+	</div>
+</div>
+
+<div class="settings-section">
+	<h3>Banner & Overlay Visibility</h3>
+	<div class="setting-item-full">
+		<div class="setting-info">
+			<span class="setting-label">Show my banner</span>
+			<span class="setting-description">Display my profile banner in popouts and member list.</span>
+		</div>
+		<input type="checkbox" bind:checked={showBannerLocal} />
+	</div>
+	<div class="setting-item-full">
+		<div class="setting-info">
+			<span class="setting-label">Show my avatar overlay</span>
+			<span class="setting-description">Display my PNG overlay frame on avatars.</span>
+		</div>
+		<input type="checkbox" bind:checked={showOverlayLocal} />
+	</div>
+	<div class="setting-item-full">
+		<div class="setting-info">
+			<span class="setting-label">Disable all banner overlays (global)</span>
+			<span class="setting-description">"People hate banners" — hide every banner and overlay for everyone on this client.</span>
+		</div>
+		<input type="checkbox" bind:checked={disableAllBannersLocal} />
 	</div>
 </div>
 

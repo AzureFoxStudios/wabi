@@ -26,10 +26,14 @@ pub fn run() {
       }
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![commands::open_model_viewer])
+    .invoke_handler(tauri::generate_handler![
+        commands::open_model_viewer,
+        recording::save_call_recording
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
 
 mod commands;
+mod recording;
 mod viewer;
