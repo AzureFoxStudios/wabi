@@ -17,6 +17,7 @@ import {
 	callConnectionDiagnostics
 } from './callingStateStores';
 import { getLivekitRoom } from './callingLivekit';
+import { Track } from 'livekit-client';
 import { getScreenShareQualityProfile } from './mediaRuntime';
 import { prefetchTurnCredentials } from './turnConfig';
 import {
@@ -67,13 +68,37 @@ export function canScreenShare(): boolean {
 	return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
 }
 
+async function resolveLocalLivekitScreenTrack(): Promise<MediaStreamTrack | null> {
+	const room = getLivekitRoom();
+	if (!room) return null;
+	// setScreenShareEnabled() resolves once the local screen track is published,
+	// but the publication can lag a tick — poll briefly before giving up.
+	for (let attempt = 0; attempt < 10; attempt++) {
+		const publication = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+		if (publication?.track?.mediaStreamTrack) {
+			return publication.track.mediaStreamTrack;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	return null;
+}
+
 export async function startScreenShare(socket: Socket) {
 	if (!canScreenShare()) {
 		console.warn('[screenshare] getDisplayMedia not supported on this platform');
 		return null;
 	}
 	if (getLivekitRoom() && get(sfuMediaActive)) {
-		await getLivekitRoom()!.localParticipant.setScreenShareEnabled(true);
+		const publication = await getLivekitRoom()!.localParticipant.setScreenShareEnabled(true);
+		const track = publication?.track?.mediaStreamTrack ?? (await resolveLocalLivekitScreenTrack());
+		if (!track) {
+			// Picker cancelled or publication unavailable — never mark sharing active.
+			void getLivekitRoom()!.localParticipant.setScreenShareEnabled(false).catch(() => undefined);
+			return null;
+		}
+		// Match P2P: browser/OS "Stop sharing" ends the local track.
+		track.onended = () => stopScreenShare(socket);
+		localScreenStream.set(new MediaStream([track]));
 		isSharing.set(true);
 		return null;
 	}
@@ -123,6 +148,9 @@ export function stopScreenShare(socket: Socket) {
 	if (getLivekitRoom() && get(sfuMediaActive)) {
 		void getLivekitRoom()!.localParticipant.setScreenShareEnabled(false).catch(() => undefined);
 		isSharing.set(false);
+		// LiveKit owns the published screen track; just drop the local reference
+		// so the sharer's own roster tile is removed.
+		localScreenStream.set(null);
 		syncSpatialAudioGraph();
 		return;
 	}

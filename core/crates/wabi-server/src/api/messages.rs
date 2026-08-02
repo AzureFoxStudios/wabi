@@ -172,6 +172,21 @@ async fn send_message(
         }));
     }
 
+    // H1b: fire outbound webhook delivery (`message.created`) to every
+    // webhook URL registered on this channel. Fire-and-forget so a slow
+    // webhook never blocks the sender.
+    crate::bot_delivery::spawn_message_created_delivery(
+        state.wdb.clone(),
+        req.channel_id.clone(),
+        crate::bot_delivery::MessageCreatedPayload {
+            channel_id: req.channel_id.clone(),
+            message_id: message_id.clone(),
+            content: req.content.clone(),
+            author: sender_username.clone(),
+            timestamp: created_at_micros / 1000,
+        },
+    );
+
     Ok(Json(MessageResponse {
         id: message_id,
         channel_id: req.channel_id,

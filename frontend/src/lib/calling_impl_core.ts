@@ -1017,8 +1017,8 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 
 export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	if (!socket.connected) {
-		callOfflineNotice.set('No connection to server. Calls require an active connection to the ${brandName} server.');
-		throw new Error('No connection to server. Calls require an active connection to the ${brandName} server.');
+		callOfflineNotice.set(`No connection to server. Calls require an active connection to the ${brandName} server.`);
+		throw new Error(`No connection to server. Calls require an active connection to the ${brandName} server.`);
 	}
 
 	if (activeVoiceChannelId === channelId) {
@@ -1182,8 +1182,8 @@ export async function startCall(
 ) {
 	try {
 		if (!socket.connected) {
-			callOfflineNotice.set('No connection to server. Calls require an active connection to the ${brandName} server.');
-			throw new Error('No connection to server. Calls require an active connection to the ${brandName} server.');
+			callOfflineNotice.set(`No connection to server. Calls require an active connection to the ${brandName} server.`);
+			throw new Error(`No connection to server. Calls require an active connection to the ${brandName} server.`);
 		}
 
 		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
@@ -1328,8 +1328,8 @@ export async function startGroupCall(
 ) {
 	try {
 		if (!socket.connected) {
-			callOfflineNotice.set('No connection to server. Calls require an active connection to the ${brandName} server.');
-			throw new Error('No connection to server. Calls require an active connection to the ${brandName} server.');
+			callOfflineNotice.set(`No connection to server. Calls require an active connection to the ${brandName} server.`);
+			throw new Error(`No connection to server. Calls require an active connection to the ${brandName} server.`);
 		}
 
 		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
@@ -1581,7 +1581,10 @@ export async function handleGroupCallParticipantJoined(
 	const pending = get(outgoingCall);
 	const activeGroup = get(activeGroupCall);
 	const localDisplayName = pending?.localDisplayName || `${brandName} User`;
-	const isSameActiveGroup = get(callMode) === 'group' && activeGroup?.id === data.channelId;
+	const isSameActiveGroup =
+		get(isInCall) &&
+		get(callMode) === 'group' &&
+		activeGroup?.id === data.channelId;
 	if (data.stableUserId) {
 		removeGroupCallRingingTarget(data.stableUserId);
 	}
