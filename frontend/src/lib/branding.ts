@@ -8,6 +8,15 @@ export interface BrandConfig {
 	logoSmallUrl: string;
 	bootLogoUrl: string;
 	faviconUrl: string;
+	headline: string;
+	subheadline: string;
+	footerText: string;
+	customCss: string;
+	palette: {
+		accent: string;
+		muted: string;
+		surface: string;
+	};
 }
 
 export const brandConfig: BrandConfig = {
@@ -19,7 +28,16 @@ export const brandConfig: BrandConfig = {
 	logoUrl: '/wabi-logo.webp',
 	logoSmallUrl: '/wabi-logo-small.webp',
 	bootLogoUrl: '/wabi-logo.png',
-	faviconUrl: '/favicon.png'
+	faviconUrl: '/favicon.png',
+	headline: '',
+	subheadline: '',
+	footerText: '',
+	customCss: '',
+	palette: {
+		accent: '#6366f1',
+		muted: '#94a3b8',
+		surface: '#1a1a2e'
+	}
 };
 
 export const brandName = brandConfig.name;
