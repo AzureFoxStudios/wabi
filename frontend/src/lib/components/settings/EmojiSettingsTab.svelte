@@ -83,9 +83,6 @@
 			const result = await response.json();
 			const uploadedType = emojiType;
 
-			const socket = getSocket();
-			socket?.emit('emoji-added', result.emoji);
-
 			emojiName = '';
 			emojiDisplayName = '';
 			emojiArtist = '';
@@ -209,8 +206,6 @@
 					}
 
 					const result = await response.json();
-					const socket = getSocket();
-					socket?.emit('emoji-added', result.emoji);
 
 					successCount++;
 				} catch (error) {

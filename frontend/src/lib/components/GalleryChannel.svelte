@@ -17,6 +17,7 @@
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { openShareModal } from '$lib/shareStore';
 	import { buildShareLink, buildShareRefText, copyToClipboard } from '$lib/shareToChannel';
+	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
 
 	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
 	$: allItems = $galleryItemsStore;
@@ -93,6 +94,21 @@
 
 	$: if ($currentChannel) {
 		loadGallery($currentChannel);
+	}
+
+	// C2: deep-link handoff after items load — peek first, take only on hit
+	$: if ($currentChannel && allItems.length > 0) {
+		const pending = peekPendingNav();
+		if (
+			pending?.kind === 'gallery_work' &&
+			(!pending.channelId || pending.channelId === $currentChannel)
+		) {
+			const idx = allItems.findIndex((item) => item.id === pending.workId);
+			if (idx >= 0) {
+				takePendingNav('gallery_work', $currentChannel);
+				openLightbox(idx, allItems);
+			}
+		}
 	}
 
 	let observer: IntersectionObserver | null = null;

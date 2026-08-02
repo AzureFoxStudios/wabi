@@ -1,6 +1,7 @@
 import { marked } from 'marked';
 import Prism from 'prismjs';
 import DOMPurify from 'dompurify';
+import katex from 'katex';
 import { emojis } from './emoji-store';
 import type { MessageEntity } from './socket-types';
 
@@ -136,6 +137,107 @@ function isSafeUrl(url: string): boolean {
 	return SAFE_URL_PROTOCOLS.test(trimmed);
 }
 
+type MathSlot = { token: string; tex: string; displayMode: boolean };
+
+/**
+ * Protect fenced + inline code so math extractors never touch $ inside code.
+ * Returns text with code regions replaced by opaque tokens, plus restore map.
+ */
+function protectCodeRegions(text: string): {
+	text: string;
+	restorations: Array<{ token: string; original: string }>;
+} {
+	const restorations: Array<{ token: string; original: string }> = [];
+	let i = 0;
+
+	const stash = (original: string): string => {
+		const token = `WABI_CODE_${i++}_X`;
+		restorations.push({ token, original });
+		return token;
+	};
+
+	// Fenced code first (``` ... ```), then inline `...`
+	let out = text.replace(/```[\s\S]*?```/g, (m) => stash(m));
+	out = out.replace(/`[^`\n]+`/g, (m) => stash(m));
+	return { text: out, restorations };
+}
+
+function restoreCodeRegions(
+	text: string,
+	restorations: Array<{ token: string; original: string }>
+): string {
+	let out = text;
+	// Restore in reverse so nested-looking tokens stay stable
+	for (let i = restorations.length - 1; i >= 0; i--) {
+		const { token, original } = restorations[i];
+		out = out.split(token).join(original);
+	}
+	return out;
+}
+
+/**
+ * Extract TeX math to opaque placeholders before marked mangles _, *, \\.
+ * Supports $$...$$, $...$, \\[...\\], \\(...\\), and \\begin{env}...\\end{env}.
+ * Caller must protect code regions first.
+ */
+function extractMathPlaceholders(text: string): { text: string; slots: MathSlot[] } {
+	const slots: MathSlot[] = [];
+	let out = text;
+
+	const take = (tex: string, displayMode: boolean): string => {
+		const token = `WABIMATH${slots.length}X`;
+		slots.push({ token, tex, displayMode });
+		return token;
+	};
+
+	// Display $$...$$ (non-greedy, allow newlines)
+	out = out.replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex: string) => take(tex, true));
+
+	// \\[ ... \\]
+	out = out.replace(/\\\[([\s\S]+?)\\\]/g, (_m, tex: string) => take(tex, true));
+
+	// \\begin{env}...\\end{env}
+	out = out.replace(
+		/\\begin\{([a-zA-Z*]+)\}([\s\S]*?)\\end\{\1\}/g,
+		(m) => take(m, true)
+	);
+
+	// \\( ... \\)
+	out = out.replace(/\\\(([\s\S]+?)\\\)/g, (_m, tex: string) => take(tex, false));
+
+	// Inline $...$ — single-line, non-empty, no leading/trailing space inside
+	// Avoid currency like $5 by requiring a non-digit start after $
+	out = out.replace(
+		/(?<![\\$])\$([^\s$][^$\n]*?[^\s$])\$(?!\$)/g,
+		(_m, tex: string) => take(tex, false)
+	);
+	// Single-char math: $x$
+	out = out.replace(/(?<![\\$])\$([^\s$])\$(?!\$)/g, (_m, tex: string) => take(tex, false));
+
+	return { text: out, slots };
+}
+
+function renderMathSlots(html: string, slots: MathSlot[]): string {
+	if (!slots.length) return html;
+	let out = html;
+	for (const slot of slots) {
+		let rendered: string;
+		try {
+			rendered = katex.renderToString(slot.tex, {
+				throwOnError: false,
+				displayMode: slot.displayMode,
+				output: 'html',
+				strict: 'ignore'
+			});
+		} catch {
+			rendered = `<code class="katex-error">${escapeHtml(slot.tex)}</code>`;
+		}
+		// KaTeX injects AFTER DOMPurify so inline styles/spans are not stripped
+		out = out.split(slot.token).join(rendered);
+	}
+	return out;
+}
+
 function injectMessageEntityPlaceholders(
 	text: string,
 	entities: MessageEntity[] = []
@@ -216,69 +318,131 @@ export function parseMessage(text: string, entities: MessageEntity[] = []): stri
 	const { preparedText, replacements } = injectMessageEntityPlaceholders(text, entities);
 	text = preparedText;
 
-  // Preprocess spoiler tags ||text|| before markdown parsing
-  // Replace with span that can be clicked to reveal
-  text = text.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" data-spoiler="true">$1</span>');
+	// 1) Protect code so math extractors never rewrite $ inside fences/backticks
+	const codeProtected = protectCodeRegions(text);
+	text = codeProtected.text;
 
-  // Highlight plain-text mentions in chat content.
-  text = text.replace(
-    /(^|[\s(])@(everyone|here|all|[a-zA-Z0-9._-]{2,32})\b/g,
-    (_match, prefix: string, mention: string) => `${prefix}<span class="mention-token">@${mention}</span>`
-  );
+	// 2) Extract math → opaque tokens (before marked mangles TeX)
+	const mathExtracted = extractMathPlaceholders(text);
+	text = mathExtracted.text;
+	const mathSlots = mathExtracted.slots;
 
-  // Discord-style code block preprocessing: ensure closing ``` is on its own line
-  // Matches: ```lang\ncode``` and converts to: ```lang\ncode\n```
-  text = text.replace(/```(\w+)\n([\s\S]*?)```/g, (match, lang, code) => {
-    // If code doesn't end with newline, add one before closing backticks
-    if (!code.endsWith('\n')) {
-      return '```' + lang + '\n' + code + '\n```';
-    }
-    return match;
-  });
+	// 3) Mentions while code is still protected (C1) — never rewrite #/@ inside fences/backticks
+	text = text.replace(
+		/(^|[\s(])@(everyone|here|all|[a-zA-Z0-9._-]{2,32})\b/g,
+		(_match, prefix: string, mention: string) =>
+			`${prefix}<span class="mention-token">@${mention}</span>`
+	);
+	// Clickable #channel (no space after # → not a markdown header).
+	// MessageList routes data-ref-kind=channel → navigateToRef; name→id resolve stays there.
+	text = text.replace(
+		/(^|[\s(])#([a-zA-Z][a-zA-Z0-9._-]{0,31})\b/g,
+		(_match, prefix: string, name: string) =>
+			`${prefix}<span class="mention-token mention-token-channel" ` +
+			`data-ref-kind="channel" ` +
+			`data-ref-id="${escapeHtml(name)}" ` +
+			`data-ref-label="#${escapeHtml(name)}">#${escapeHtml(name)}</span>`
+	);
 
-  // First, parse markdown - use parseInline for single-line or parse for multi-line
-  let html: string;
-  try {
-    const result = marked.parse(text, { async: false });
-    html = typeof result === 'string' ? result : String(result);
-  } catch (e) {
-    console.error('Markdown parse error:', e);
-    html = text; // Fallback to plain text
-  }
+	// 4) Restore code regions for marked/Prism
+	text = restoreCodeRegions(text, codeProtected.restorations);
 
-  // Replace emote codes with images (custom emotes uploaded by users)
-  html = html.replace(/:([a-zA-Z0-9_+-]+):/g, (match, emoteName) => {
-    const emote = emotes.get(emoteName);
-    if (emote && isSafeUrl(emote.url)) {
-      return `<img src="${escapeHtml(emote.url)}" alt=":${escapeHtml(emoteName)}:" class="emote ${emote.type === 'animated' ? 'emote-animated' : ''}" title=":${escapeHtml(emoteName)}:">`;
-    }
-    // If not an emote, check if it's an emoji (O(1) Map lookup)
-    const emoji = emojiByName.get(emoteName);
-    if (emoji && isSafeUrl(emoji.url)) {
-      return `<img src="${escapeHtml(emoji.url)}" alt=":${escapeHtml(emoji.name)}:" class="emoji-inline" title=":${escapeHtml(emoji.name)}:">`;
-    }
-    return match; // Return original if neither emote nor emoji found
-  });
+	// Preprocess spoiler tags ||text|| before markdown parsing
+	// Replace with span that can be clicked to reveal
+	text = text.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" data-spoiler="true">$1</span>');
+
+	// Discord-style code block preprocessing: ensure closing ``` is on its own line
+	// Matches: ```lang\ncode``` and converts to: ```lang\ncode\n```
+	text = text.replace(/```(\w+)\n([\s\S]*?)```/g, (match, lang, code) => {
+		// If code doesn't end with newline, add one before closing backticks
+		if (!code.endsWith('\n')) {
+			return '```' + lang + '\n' + code + '\n```';
+		}
+		return match;
+	});
+
+	// First, parse markdown - use parseInline for single-line or parse for multi-line
+	let html: string;
+	try {
+		const result = marked.parse(text, { async: false });
+		html = typeof result === 'string' ? result : String(result);
+	} catch (e) {
+		console.error('Markdown parse error:', e);
+		html = text; // Fallback to plain text
+	}
+
+	// Replace emote codes with images (custom emotes uploaded by users)
+	html = html.replace(/:([a-zA-Z0-9_+-]+):/g, (match, emoteName) => {
+		const emote = emotes.get(emoteName);
+		if (emote && isSafeUrl(emote.url)) {
+			return `<img src="${escapeHtml(emote.url)}" alt=":${escapeHtml(emoteName)}:" class="emote ${emote.type === 'animated' ? 'emote-animated' : ''}" title=":${escapeHtml(emoteName)}:">`;
+		}
+		// If not an emote, check if it's an emoji (O(1) Map lookup)
+		const emoji = emojiByName.get(emoteName);
+		if (emoji && isSafeUrl(emoji.url)) {
+			return `<img src="${escapeHtml(emoji.url)}" alt=":${escapeHtml(emoji.name)}:" class="emoji-inline" title=":${escapeHtml(emoji.name)}:">`;
+		}
+		return match; // Return original if neither emote nor emoji found
+	});
 
 	for (const replacement of replacements) {
 		html = html.split(replacement.token).join(replacement.html);
 	}
 
-  // Sanitize HTML to prevent XSS
-  const clean = DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: [
-      'p', 'br', 'strong', 'em', 'u', 's', 'del', 'code', 'pre',
-      'a', 'img', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3',
-      'h4', 'h5', 'h6', 'hr', 'span'
-    ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'title', 'target', 'rel', 'data-spoiler', 'data-place-id', 'data-place-layer-id', 'data-place-poi-id', 'data-place-name', 'data-ref-kind', 'data-ref-id', 'data-ref-label'],
-    FORBID_TAGS: ['style', 'script'],
-    FORBID_ATTR: ['style', 'onerror', 'onload'],
-  });
+	// Sanitize HTML to prevent XSS (math still opaque tokens — safe plain text)
+	const clean = DOMPurify.sanitize(html, {
+		ALLOWED_TAGS: [
+			'p',
+			'br',
+			'strong',
+			'em',
+			'u',
+			's',
+			'del',
+			'code',
+			'pre',
+			'a',
+			'img',
+			'blockquote',
+			'ul',
+			'ol',
+			'li',
+			'h1',
+			'h2',
+			'h3',
+			'h4',
+			'h5',
+			'h6',
+			'hr',
+			'span'
+		],
+		ALLOWED_ATTR: [
+			'href',
+			'src',
+			'alt',
+			'class',
+			'title',
+			'target',
+			'rel',
+			'data-spoiler',
+			'data-place-id',
+			'data-place-layer-id',
+			'data-place-poi-id',
+			'data-place-name',
+			'data-ref-kind',
+			'data-ref-id',
+			'data-ref-label'
+		],
+		FORBID_TAGS: ['style', 'script'],
+		FORBID_ATTR: ['style', 'onerror', 'onload']
+	});
 
-  markdownRenderCache.set(cacheKey, clean);
-  pruneMarkdownRenderCache();
-  return clean;
+	// 4) Inject trusted KaTeX HTML AFTER sanitize (keeps styles; no FORBID_ATTR widen)
+	const withMath = renderMathSlots(clean, mathSlots);
+
+	markdownRenderCache.set(cacheKey, withMath);
+	pruneMarkdownRenderCache();
+	return withMath;
 }
 
 /**

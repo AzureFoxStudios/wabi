@@ -24,6 +24,44 @@ pub async fn handle_get_emojis(socket: SocketRef, state: &SioState) {
     }
 }
 
+/// Delete a custom emoji by name. Admin-only: emotes are server-wide assets.
+/// Payload may be a plain string name or `{ name: ... }`.
+#[allow(dead_code)]
+pub async fn handle_delete_emoji(
+    socket: SocketRef,
+    data: Value,
+    state: &SioState,
+    io: &SocketIo,
+) {
+    let name = data
+        .as_str()
+        .map(|s| s.to_string())
+        .or_else(|| data.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .unwrap_or_default();
+    if name.is_empty() {
+        let _ = socket.emit("delete-emoji-error", &json!({ "error": "Missing emoji name" }));
+        return;
+    }
+
+    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
+    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    if !state.app.is_admin(caller_id).await {
+        warn!("[sio] delete-emoji: user {} not authorized", caller_id);
+        let _ = socket.emit("delete-emoji-error", &json!({ "error": "Only admins can delete emojis" }));
+        return;
+    }
+
+    if let Err(e) = state.app.wdb.delete_emote(&name).await {
+        warn!("[sio] delete-emoji failed: {}", e);
+        let _ = socket.emit("delete-emoji-error", &json!({ "error": "Failed to delete emoji" }));
+        return;
+    }
+
+    let emotes = state.app.wdb.get_emotes().await.unwrap_or_default();
+    drop(io.emit("emojis-list", &json!(emotes)).await);
+    let _ = socket.emit("delete-emoji-success", &json!({ "name": name }));
+}
+
 #[allow(dead_code)]
 pub async fn handle_get_role_definitions(socket: SocketRef, io: &SocketIo, state: &SioState) {
     let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();

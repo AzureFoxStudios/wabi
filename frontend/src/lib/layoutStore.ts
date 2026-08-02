@@ -142,7 +142,18 @@ const showAdminCenterStage = () => {
 	centerPanelView.set('admin');
 };
 
-const setCenterPanelView = (view: 'chat' | 'admin') => {
+/** N3: full-width notes center stage (same storage key as right-panel KeepNotes). */
+const showNotesCenterStage = () => {
+	// Clear stale NOTES_DM_ID selection if any older path left it set.
+	if (get(selectedDmChannelId) === NOTES_DM_ID) {
+		selectedDmChannelId.set(null);
+		dmOtherUser.set(null);
+	}
+	selectedGroupChannel.set(null);
+	centerPanelView.set('notes');
+};
+
+const setCenterPanelView = (view: 'chat' | 'admin' | 'notes') => {
 	centerPanelView.set(view);
 };
 
@@ -190,11 +201,15 @@ const closeCenterDm = () => {
 	centerDmChannelId.set(null);
 };
 
+	/** N2: open the real notes workspace panel — not a fake DM conversation. */
 	const openNotes = () => {
-		selectedDmChannelId.set(NOTES_DM_ID);
-		dmOtherUser.set({ id: 'notes', username: 'Notes', color: '#28b463', status: 'active' } as any);
+		// Clear stale NOTES_DM_ID selection if any older path left it set.
+		if (get(selectedDmChannelId) === NOTES_DM_ID) {
+			selectedDmChannelId.set(null);
+			dmOtherUser.set(null);
+		}
 		selectedGroupChannel.set(null);
-		openRightPanel('dms');
+		openRightPanel('notes');
 	};
 
 const closeDM = () => {
@@ -365,6 +380,7 @@ export const layoutStore = {
 	showDMsTab,
 	showAdminTab,
 	showAdminCenterStage,
+	showNotesCenterStage,
 	setCenterPanelView,
 	showMediaTab,
 	showMapTab,

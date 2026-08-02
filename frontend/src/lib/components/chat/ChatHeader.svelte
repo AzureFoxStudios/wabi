@@ -231,7 +231,7 @@
 					wabiDB EXP {experimentalWabidbCallsEnabled ? 'ON' : 'OFF'}
 				</button>
 			{/if}
-			<div class="search-container" class:expanded={searchExpanded} bind:this={searchContainerElement} on:mouseenter={onOpenSearch} role="search">
+			<div class="search-container" class:expanded={searchExpanded} bind:this={searchContainerElement} role="search">
 			<span class="search-icon" aria-hidden="true">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<circle cx="11" cy="11" r="7"></circle>

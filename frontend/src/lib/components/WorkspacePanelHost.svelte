@@ -3,7 +3,7 @@
 	import type { WorkspacePanelManifest } from '$lib/workspacePanels';
 	import UserListTab from './UserListTab.svelte';
 	import MediaAlbumsTab from './MediaAlbumsTab.svelte';
-	import NotesWorkspace from './NotesWorkspace.svelte';
+	import KeepNotesView from './KeepNotesView.svelte';
 	import MapWorkspace from './MapWorkspace.svelte';
 	import AddonFallbackPanel from './AddonFallbackPanel.svelte';
 	import ModelViewportTab from './ModelViewportTab.svelte';
@@ -25,7 +25,8 @@
 {:else if panel.component === 'dms'}
 	<DMTab />
 {:else if panel.component === 'notes'}
-	<DMTab />
+	<!-- N2: real notes panel (not DMTab / NOTES_DM_ID fake conversation) -->
+	<KeepNotesView compact />
 {:else if panel.component === 'map'}
 	<MapWorkspace variant="compact" />
 {:else if panel.component === 'media'}

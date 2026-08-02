@@ -97,12 +97,13 @@
 	}
 
 
+	/* R11: token-sized BL presence (was 18px — oversized vs avatar) */
 	.status-indicator {
 		position: absolute;
 		bottom: 0;
 		right: -1px;
-		width: 18px;
-		height: 18px;
+		width: 10px;
+		height: 10px;
 		border-radius: 50%;
 		border: 2px solid var(--surface-base, #1a1a2e);
 		background: var(--status-offline, #6b7280);
@@ -117,7 +118,7 @@
 		background: var(--status-online, #22c55e);
 		box-shadow:
 			0 0 0 1px rgba(224, 242, 254, 0.25),
-			0 0 12px rgba(var(--status-online-rgb, 34, 197, 94), 0.42);
+			0 0 6px rgba(var(--status-online-rgb, 34, 197, 94), 0.42);
 		animation: wabi-status-pulse-online 2.5s infinite ease-in-out;
 	}
 
@@ -430,14 +431,36 @@
 
 
 	/* Channel-row settings: tray owns show/hide via parent opacity.
-   Do NOT set opacity:0 here — that fights .text-channel-actions > button. */
+	   Do NOT set opacity:0 here — that fights .text-channel-actions > button.
+	   Must match part1 box (part3 loads last and would otherwise clobber size). */
 	.text-channel-actions .settings-btn {
 		background: transparent;
 		border: none;
+		font-size: inherit;
+		width: 28px;
+		height: 28px;
+		min-width: 28px;
+		min-height: 28px;
 		color: var(--text-secondary);
 		cursor: pointer;
-		border-radius: 4px;
+		border-radius: 6px;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		line-height: 1;
+		box-sizing: border-box;
 		transition: color 0.15s ease, background 0.15s ease;
+	}
+
+	.text-channel-actions .settings-btn svg {
+		width: 16px;
+		height: 16px;
+		min-width: 16px;
+		min-height: 16px;
+		stroke: currentColor;
+		stroke-width: 2;
+		flex: 0 0 16px;
 	}
 
 	.text-channel-actions .settings-btn:hover {

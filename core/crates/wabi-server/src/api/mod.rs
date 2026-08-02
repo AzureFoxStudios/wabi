@@ -1,5 +1,6 @@
 //! API route handlers
 
+pub mod addons;
 pub mod admin;
 pub mod operator;
 pub mod albums;
@@ -7,6 +8,7 @@ pub mod calls;
 pub mod auth;
 pub mod blobs;
 pub mod channels;
+pub mod emoji;
 pub mod forum;
 pub mod gallery;
 pub mod incidents;
@@ -20,6 +22,7 @@ pub mod lore;
 pub mod messages;
 pub mod nodes;
 pub mod payments;
+pub mod places;
 pub mod preview;
 pub mod public;
 pub mod routes;

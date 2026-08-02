@@ -116,12 +116,13 @@
 
 	.profile-card .profile-controls .control-btn svg,
 	.top-section .compact-settings-btn svg {
-		width: 14px !important;
-		height: 14px !important;
-		min-width: 14px !important;
-		min-height: 14px !important;
+		width: 16px !important;
+		height: 16px !important;
+		min-width: 16px !important;
+		min-height: 16px !important;
 		stroke: currentColor;
-		flex: 0 0 14px !important;
+		stroke-width: 2;
+		flex: 0 0 16px !important;
 	}
 
 	.profile-card .profile-controls .control-btn:hover,

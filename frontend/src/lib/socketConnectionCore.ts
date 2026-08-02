@@ -19,6 +19,7 @@ import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, _updatePinnedChannels } from './channelStore';
 import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
 import { isRenderableMessage } from '$lib/displayEnhancements';
+import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
 import { recordSuccessfulServerConnection } from './savedServerActions';
 import {
 	users,
@@ -35,6 +36,43 @@ import {
 } from './presenceStore';
 import { _setTypingUsers, _clearTypingUsers } from './typingStore';
 import { incomingCall, outgoingCall } from './callingStateStores';
+
+/**
+ * L2: normalize wire channel payloads so Chat routes to LoreChannel.
+ * Server may send `type`, `channel_type`, and/or `asset_storage`.
+ */
+function normalizeChannel(raw: Channel | Record<string, unknown> | null | undefined): Channel | null {
+	if (!raw || typeof raw !== 'object') return null;
+	const r = raw as Record<string, unknown>;
+	const id = r.id ?? r.channel_id;
+	if (typeof id !== 'string' || !id) return null;
+
+	const wireType =
+		(typeof r.type === 'string' && r.type) ||
+		(typeof r.channel_type === 'string' && r.channel_type) ||
+		'text';
+	const assetStorage = r.asset_storage === true || r.assetStorage === true;
+	const type =
+		wireType === 'lore' || wireType === 'asset_storage' || assetStorage ? 'lore' : wireType;
+
+	return {
+		...(raw as Channel),
+		id,
+		type: type as Channel['type'],
+		// keep a stable flag for sidebar filters even if protocol omits it
+		...(type === 'lore' || assetStorage ? { asset_storage: true } : {})
+	} as Channel;
+}
+
+function normalizeChannelList(list: unknown): Channel[] {
+	if (!Array.isArray(list)) return [];
+	const out: Channel[] = [];
+	for (const item of list) {
+		const n = normalizeChannel(item as Channel);
+		if (n) out.push(n);
+	}
+	return out;
+}
 
 function classifyError(errorMessage: string): { fatal: boolean; userMessage: string; errorType: string } {
 	const lower = (errorMessage || '').toLowerCase();
@@ -354,6 +392,9 @@ export class SocketManager {
 				console.log('[SocketManager] Join as:', this.username);
 				sock.emit('join', this.username);
 			}
+
+			// Fetch server-side custom emotes (merged into the picker store).
+			sock.emit('get-emojis');
 		});
 
 		sock.on('connect_error', (error) => {
@@ -421,7 +462,7 @@ export class SocketManager {
 			roleDefinitions?: unknown[];
 			voiceState?: Record<string, unknown>;
 		}) => {
-			const nextChannels = Array.isArray(payload?.channels) ? payload.channels : [];
+			const nextChannels = normalizeChannelList(payload?.channels);
 			channels.set(nextChannels);
 			_updatePinnedChannels();
 
@@ -443,8 +484,25 @@ export class SocketManager {
 				...normalizeUserList(payload?.users),
 				...normalizeUserList(payload?.serverMembers)
 			];
-			const normalizedUsername = this.username.trim().toLowerCase();
-			const me = allUsers.find((user) => user.username?.trim().toLowerCase() === normalizedUsername) || null;
+			// R8: resolve self by username; if init roster lags (common for guests),
+			// synthesize a provisional currentUser so BL ProfileCard never shows blank/Unknown.
+			const joinName = this.username.trim();
+			const normalizedUsername = joinName.toLowerCase();
+			let me =
+				allUsers.find((user) => user.username?.trim().toLowerCase() === normalizedUsername) || null;
+			if (!me && joinName) {
+				const sockId = typeof sock.id === 'string' && sock.id ? sock.id : `guest-${Date.now()}`;
+				me = {
+					id: sockId,
+					username: joinName,
+					handle: joinName,
+					color: '#98D8C8',
+					status: 'active',
+					highestRole: 'guest'
+				};
+				upsertUser(users, me);
+				upsertUser(serverMembers, me);
+			}
 			_setCurrentUser(me);
 
 			for (const [channelId, members] of Object.entries(payload?.voiceState || {})) {
@@ -461,11 +519,14 @@ export class SocketManager {
 		});
 
 		const upsertChannel = (channel: Channel | undefined) => {
-			if (!channel?.id) return;
+			const normalized = normalizeChannel(channel);
+			if (!normalized?.id) return;
 			channels.update((current) => {
-				const existingIndex = current.findIndex((candidate) => candidate.id === channel.id);
-				if (existingIndex === -1) return [...current, channel];
-				return current.map((candidate, index) => index === existingIndex ? { ...candidate, ...channel } : candidate);
+				const existingIndex = current.findIndex((candidate) => candidate.id === normalized.id);
+				if (existingIndex === -1) return [...current, normalized];
+				return current.map((candidate, index) =>
+					index === existingIndex ? { ...candidate, ...normalized } : candidate
+				);
 			});
 			_updatePinnedChannels();
 		};
@@ -647,6 +708,15 @@ export class SocketManager {
 			sock.on(evt, (payload: { error?: string }) => surfaceSocketError(evt, payload));
 		}
 
+		// Server-side custom emote list (upload/delete broadcast) -> picker store.
+		sock.on('emojis-list', (serverEmotes: ServerEmote[]) => {
+			mergeServerEmotes(Array.isArray(serverEmotes) ? serverEmotes : []);
+		});
+
+		sock.on('delete-emoji-success', (payload: { name?: string }) => {
+			if (payload?.name) removeServerEmote(payload.name);
+		});
+
 		sock.on('emoji-reaction-added', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
 			const userIdStr = String(payload.userId);
@@ -706,6 +776,15 @@ export class SocketManager {
 			if (!user?.id) return;
 			upsertUser(users, user);
 			upsertUser(serverMembers, user);
+			// R8: when self finally arrives (or re-joins), promote to currentUser so
+			// guest name / id / roles replace any provisional hydrate.
+			const joinName = this.username.trim().toLowerCase();
+			const isSelfByName =
+				Boolean(joinName) && user.username?.trim().toLowerCase() === joinName;
+			const isSelfBySocket = Boolean(sock.id) && user.id === sock.id;
+			if (isSelfByName || isSelfBySocket) {
+				_setCurrentUser(user);
+			}
 		});
 
 		sock.on('user-updated', (user: User) => {

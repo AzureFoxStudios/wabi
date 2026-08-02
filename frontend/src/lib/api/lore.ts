@@ -26,7 +26,30 @@ export interface LoreBranch {
 }
 
 export function loreUrl(path: string): string {
-	return `${getApiBase()}/addons/lore${path}`;
+	// Server mounts lore under /api/addons/lore (main.rs nest /api + addons nest)
+	return `${getApiBase()}/api/addons/lore${path}`;
+}
+
+/**
+ * Parse a Wabi channel id string (`ch_{hex}`) into the numeric i64 the Lore
+ * API path expects. Server assigns ids as format!("ch_{:x}", commit_seq).
+ * Accepts plain decimal digits too for safety.
+ */
+export function parseLoreChannelId(chId: string | null | undefined): number | null {
+	if (!chId) return null;
+	const match = chId.match(/^ch_([0-9a-fA-F]+)$/);
+	if (!match) return null;
+	const n = Number.parseInt(match[1], 16);
+	return Number.isFinite(n) ? n : null;
+}
+
+/** Authenticated media URL builder (L3). Prefer blob previews (L5) for <img>/<video>. */
+export function loreFileUrl(channelId: number, path: string, revision?: string): string {
+	const params = new URLSearchParams();
+	if (revision) params.set('revision', revision);
+	const qs = params.toString();
+	const base = loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}`);
+	return qs ? `${base}?${qs}` : base;
 }
 
 export async function getLoreRepo(token: string, channelId: number): Promise<LoreRepo | null> {

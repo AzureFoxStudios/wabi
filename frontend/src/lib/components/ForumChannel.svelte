@@ -27,6 +27,7 @@
 	import ForumComposer from './ForumComposer.svelte';
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
+	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
 
 	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
 	$: allThreads = $forumThreadsStore;
@@ -98,6 +99,23 @@
 
 	$: if ($currentChannel) {
 		loadThreads($currentChannel);
+	}
+
+	// C2: deep-link handoff after threads load — peek first, take only on hit
+	$: if ($currentChannel && allThreads.length > 0) {
+		const pending = peekPendingNav();
+		if (
+			pending?.kind === 'forum_post' &&
+			(!pending.channelId || pending.channelId === $currentChannel)
+		) {
+			const hit =
+				allThreads.find((t) => t.post_id === pending.postId) ||
+				allThreads.find((t) => t.thread_id === pending.postId);
+			if (hit) {
+				takePendingNav('forum_post', $currentChannel);
+				selectThread(hit);
+			}
+		}
 	}
 
 	function handleSearch(q: string) {

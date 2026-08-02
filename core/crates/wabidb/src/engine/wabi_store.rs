@@ -227,8 +227,23 @@ pub trait WabiStore: Send + Sync {
         Ok(Vec::new())
     }
 
-    /// Upsert an emote by name.
-    async fn upsert_emote(&self, _name: &str, _image_url: &str) -> Result<()> {
+    /// Upsert an emote by name with full metadata.
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_emote(
+        &self,
+        _name: &str,
+        _image_url: &str,
+        _display_name: &str,
+        _artist: &str,
+        _category: &str,
+        _kind: &str,
+        _created_by_user_id: u64,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Delete an emote by id (name-based lookup key `emo_{name}`).
+    async fn delete_emote(&self, _name: &str) -> Result<()> {
         Ok(())
     }
 
@@ -1084,7 +1099,21 @@ impl WabiStore for LocalWabiStore {
         Ok(self.emotes.values().cloned().collect())
     }
 
-    async fn upsert_emote(&self, _name: &str, _image_url: &str) -> Result<()> {
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_emote(
+        &self,
+        _name: &str,
+        _image_url: &str,
+        _display_name: &str,
+        _artist: &str,
+        _category: &str,
+        _kind: &str,
+        _created_by_user_id: u64,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn delete_emote(&self, _name: &str) -> Result<()> {
         Ok(())
     }
 
@@ -1196,7 +1225,7 @@ mod tests {
         store.undeafen_user("ch_1", 1, 42).await.unwrap();
         assert!(!store.is_user_deafened("ch_1", 42).await.unwrap());
         assert!(store.get_emotes().await.unwrap().is_empty());
-        store.upsert_emote("wave", "url").await.unwrap();
+        store.upsert_emote("wave", "url", "Wave", "", "custom", "emoji", 42).await.unwrap();
         assert!(store.get_emoji_role_rules("msg_1").await.unwrap().is_empty());
         assert!(store.get_webhooks("ch_1").await.unwrap().is_empty());
         store.upsert_webhook("ch_1", "hook", "url").await.unwrap();

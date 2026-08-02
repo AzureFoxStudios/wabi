@@ -22,6 +22,7 @@
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { parseMessage } from '$lib/markdown';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
+	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
 
 	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
 	$: allPages = $wikiPagesStore;
@@ -67,6 +68,21 @@
 
 	$: if ($currentChannel) {
 		loadWiki($currentChannel);
+	}
+
+	// C2: deep-link handoff after pages load — peek first, take only on hit
+	$: if ($currentChannel && allPages.length > 0) {
+		const pending = peekPendingNav();
+		if (
+			pending?.kind === 'wiki_page' &&
+			(!pending.channelId || pending.channelId === $currentChannel)
+		) {
+			const hit = allPages.find((p) => p.pageId === pending.pageId);
+			if (hit) {
+				takePendingNav('wiki_page', $currentChannel);
+				selectPage(hit);
+			}
+		}
 	}
 
 	$: revisionsForDrawer = showHistory ? allRevisions : [];

@@ -11,6 +11,7 @@
 	export let onChannelLongPress: (event: TouchEvent, channel: Channel) => void;
 	export let liveWhiteboardChannelIds: Set<string> = new Set();
 	export let dropTargetClass: (channelId: string) => string = () => '';
+	export let isChannelDragging: (channelId: string) => boolean = () => false;
 	export let onChannelDragStart: (e: DragEvent, channelId: string) => void = () => {};
 	export let onChannelDragOver: (e: DragEvent, channelId: string) => void = () => {};
 	export let onChannelDragLeave: (channelId: string) => void = () => {};
@@ -24,6 +25,7 @@
 		class:active={$currentChannel === channel.id}
 		class:drop-before={dropTargetClass(channel.id) === 'drop-before'}
 		class:drop-after={dropTargetClass(channel.id) === 'drop-after'}
+		class:is-dragging={isChannelDragging(channel.id)}
 		role="group"
 		draggable="true"
 		on:contextmenu={(e) => onChannelRightClick(e, channel)}

@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { writable } from 'svelte/store';
 
 export interface LocalNote {
 	id: string;
@@ -95,4 +96,19 @@ export function createEmptyNote(): LocalNote {
 		createdAt: ts,
 		updatedAt: ts
 	};
+}
+
+/** N1: floating QuickScratchpad open state (global hotkey + /scratch). */
+export const quickScratchpadOpen = writable(false);
+
+export function openQuickScratchpad(): void {
+	quickScratchpadOpen.set(true);
+}
+
+export function closeQuickScratchpad(): void {
+	quickScratchpadOpen.set(false);
+}
+
+export function toggleQuickScratchpad(): void {
+	quickScratchpadOpen.update((v) => !v);
 }

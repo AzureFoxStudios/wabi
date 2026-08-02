@@ -35,11 +35,29 @@ impl Projection for EmotesProjection {
         "emote_upserted"
     }
 
+    fn event_types(&self) -> Vec<&str> {
+        vec!["emote_upserted", "emote_deleted"]
+    }
+
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
-        let record: Emote = decode_record(&event.payload)?;
-        let key = encode_key(&record.emote_id);
-        let value = encode_record(&record);
-        state.insert("emotes", key, value, event.commit_seq);
+        match event.event_type.as_str() {
+            "emote_upserted" => {
+                let record: Emote = decode_record(&event.payload)?;
+                let key = encode_key(&record.emote_id);
+                let value = encode_record(&record);
+                state.insert("emotes", key, value, event.commit_seq);
+            }
+            "emote_deleted" => {
+                let emote_id = std::str::from_utf8(&event.payload)
+                    .map_err(|e| crate::error::WabiError::Corrupt {
+                        location: "emotes projection".into(),
+                        detail: format!("invalid emote_id utf8 in delete payload: {e}"),
+                    })?;
+                let key = encode_key(emote_id);
+                state.remove("emotes", &key);
+            }
+            _ => {}
+        }
         Ok(())
     }
 }
@@ -55,6 +73,10 @@ mod tests {
             image_url: "https://cdn.example.com/blobwave.png".into(),
             created_at_micros: 1_000_000,
             created_by_user_id: 42,
+            display_name: "Blob Wave".into(),
+            artist: "Blob Artist".into(),
+            category: "custom".into(),
+            kind: "sticker".into(),
         }
     }
 

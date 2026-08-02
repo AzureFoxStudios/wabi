@@ -1,37 +1,34 @@
-# Add-ons Bundle
+# Add-ons (legacy top-level tree)
 
-This folder contains add-ons that are not installed by default.
+**Canonical addons live under `core/addons/*/plugin.json`** (Rust crates) and are
+exposed by the server as `GET /api/addons` / `GET /api/addons/{id}`.
 
-- `addons/packages/`:
-  packaged add-ons (`.wabi-plugin` / `.wabip`) for sharing and test installs.
-- `addons/source/`:
-  source folders for the bundled add-ons.
+Schema: `docs/addons/plugin-schema.md`.
 
-Wabi runtime loads installed add-ons only from `plugins/`.
-That means this repo currently ships in an "uninstalled add-ons" state.
+## What remains in this folder
 
-## Install an add-on locally
+Historical / experimental trees that are **not** the live Rust addon platform:
 
-Copy one add-on source folder into `plugins/` and restart backend.
+- `content/`, `media/`, `compliance/` — older layout sketches
+- `payments-*` — reference / ported payment modules (server has its own payments API)
 
-PowerShell example:
+They are **not** loaded via runtime package install.
 
-```powershell
-Copy-Item -Recurse -Force addons/source/model-viewer plugins/model-viewer
-```
+## Dead Node layer (A5 — archived)
 
-Or use the helper script for test plugins:
+Moved to `archive/addons-dead-node-layer/`:
 
-```powershell
-npm run plugin:install:test -- model-viewer
-```
+- `packages/` — old `.wabip` / `.wabi-plugin` install packages
+- `source/` — old Node/TS plugin sources
 
-## Re-package/sign
+There is **no** `POST /api/plugins/install`, no copy-into-`plugins/` workflow, and
+no remote frontend import. Frontend modules load only via static bundled
+allowlists (`BUNDLED_ADDON_LOADERS` in `frontend/src/lib/addons/loader.ts`).
 
-Use the signing tools from repo root:
+## Live path (do this)
 
-```bash
-npm run plugin:keygen -- --out-dir .wabi-keys
-npm run plugin:sign -- --plugin addons/source/model-viewer --private-key .wabi-keys/<key-id>.private.pem
-npm run plugin:verify -- --plugin addons/source/model-viewer --strict
-```
+1. Add or edit `core/addons/<id>/plugin.json` (canonical schema).
+2. Wire the Rust crate under `core/addons/<id>/backend` and optional
+   `wabi-server` Cargo feature.
+3. List it from `GET /api/addons` (`core/crates/wabi-server/src/api/addons.rs`).
+4. Gate UI with `hasAddonCapability('<id>')` from `$lib/addonInventory`.

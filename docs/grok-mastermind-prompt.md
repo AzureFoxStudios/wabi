@@ -77,6 +77,28 @@ subprocess.run(['opencode', 'run', open('/tmp/opencode-task-prompt.txt').read(),
 31. [x] **Unused deps** (finding 31) — remove `@giphy/js-components` + `@types/marked` (keep `@giphy/js-fetch-api` for GifPicker).
 32. [x] **Incomplete controls** (finding 32) — voice drag permission prop; screenshot MIME preserved; reaction TODO removed (wired); ConnectionBadge listener cleanup (with D21).
 
+## Showcase Prep Worklist (2026-08-01)
+
+**Design source of truth:** `docs/plans/2026-08-01-showcase-prep.md`
+**Living kanban (tick checkboxes + progress log here):** `docs/showcase-prep-kanban.md`
+
+Scope locked. Dispatch the kanban's cards one-at-a-time. Locked decisions: **CodeMirror 6** for the Lore editor (desktop-only; web = previews), **no git bridge** (external tools connect via CLI/SDK + token), **no scope cuts**, Lore/code = **add-on only** (non-coders never see code tools), lore north star = "people work together infinitely easier."
+
+- **WAVE 0** — Addon system coherence: A1–A6. **Prerequisite for W1/W6.** First dispatch = A1.
+- **WAVE 1** — Lore reachable E2E: L1–L8.
+- **WAVE 2** — Math: M1 KaTeX in `markdown.ts`.
+- **WAVE 3** — Channels: C1–C3.
+- **WAVE 4** — Calling: V1–V5.
+- **WAVE 5** — Notes 3 layers: N1–N4.
+- **WAVE 6** — Lore collab workspace: W6a–W6g.
+- **WAVE 7** — Recording → Lore: REC1–REC3.
+- **WAVE 8** — Business → Planning channel: BZ1–BZ4.
+- **WAVE 9** — Profiles & banner overlays: PR1–PR4.
+- **WAVE 10** — Visual polish: P1–P4 (P4 deferred).
+- **WAVE 11** — Branding: B1–B4.
+- **WAVE 12** — Post-polish backlog (deferred): Steam, native mobile, 3D preview.
+- **WAVE 13** — Stretch only after W0–W11 green. Design: `docs/hermes-bot-platform-design.md`. **H0** done. **H1a** bot identity+token, **H1b** real webhook delivery + bot post, **H1c** Hermes as one normal bot. Security checklist must pass. Balloon → W12 S4/S5. Not a showcase blocker.
+
 ## Ground rules
 
 - **Plan first, code second.** For each round, produce a brief plan; dispatch; review the diff; report. Ronin wants to see the plan before bulk edits.

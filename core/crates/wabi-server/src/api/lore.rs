@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tracing::info;
 
 use crate::auth_extractor::AuthUser;
-use crate::error::AppError;
+use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
@@ -53,7 +53,7 @@ async fn ensure_channel_member(
     Ok(())
 }
 
-async fn lore_service(state: &AppState) -> Result<Arc<wabi_lore::LoreService>, AppError> {
+async fn lore_service(state: &AppState) -> Result<Arc<wabi_lore::LoreService>> {
     state
         .lore_service
         .read()
@@ -68,7 +68,7 @@ async fn create_repo(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     let channel_id = payload["channelId"].as_i64().unwrap_or(0);
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let repo_name = payload["repoName"].as_str().unwrap_or("default");
@@ -91,7 +91,7 @@ async fn get_repo(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(channel_id): Path<i64>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     match lore.get_repo(channel_id).await {
@@ -104,7 +104,7 @@ async fn delete_repo(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(channel_id): Path<i64>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     lore.delete_repo(channel_id).await?;
@@ -128,7 +128,7 @@ async fn snapshot(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Json(payload): Json<SnapshotPayload>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     let revision = lore.commit_staged(channel_id, &payload.message, auth.user_id).await?;
@@ -156,7 +156,7 @@ async fn list_files(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Query(query): Query<ListFilesQuery>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     let files = lore.list_files(channel_id, query.prefix.as_deref()).await?;
@@ -175,7 +175,7 @@ async fn upload_file(
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<UploadQuery>,
     body: axum::body::Bytes,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let message = query.message.unwrap_or_else(|| "Upload via API".into());
     let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
@@ -223,7 +223,7 @@ async fn upload_recording(
     auth: AuthUser,
     Query(query): Query<UploadRecordingQuery>,
     body: axum::body::Bytes,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     let lore = lore_service(&state).await?;
     let channel_name = lore.recordings_channel_name().to_string();
 
@@ -352,7 +352,7 @@ async fn download_file(
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<DownloadQuery>,
     headers: axum::http::HeaderMap,
-) -> Result<axum::response::Response, AppError> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let tmp_path = cache_path(channel_id, &path, query.revision.as_deref());
     tokio::fs::create_dir_all(tmp_path.parent().unwrap_or(std::path::Path::new("."))).await?;
@@ -427,7 +427,7 @@ async fn delete_file(
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Json(payload): Json<DeleteFilePayload>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let message = payload.message.unwrap_or_else(|| "Deleted via API".into());
 
@@ -444,7 +444,7 @@ async fn lock_file(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     lore.lock_file(channel_id, &path, auth.user_id).await?;
@@ -456,7 +456,7 @@ async fn unlock_file(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     lore.unlock_file(channel_id, &path).await?;
@@ -470,7 +470,7 @@ async fn repo_history(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(channel_id): Path<i64>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     let history = lore.file_history(channel_id, "").await?;
@@ -481,7 +481,7 @@ async fn file_level_history(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     let history = lore.file_level_history(channel_id, &path).await?;
@@ -499,7 +499,7 @@ async fn file_diff(
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<DiffQuery>,
-) -> Result<axum::response::Response, AppError> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     let diff = lore.file_diff(channel_id, &path, &query.from, &query.to).await?;
@@ -513,7 +513,7 @@ async fn list_branches(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(channel_id): Path<i64>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     let branches = lore.list_branches(channel_id).await?;
@@ -525,7 +525,7 @@ async fn create_branch(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Json(payload): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let branch_name = payload["name"].as_str().unwrap_or("feature");
     let base_revision = payload["baseRevision"].as_str();
@@ -540,7 +540,7 @@ async fn merge_branch(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path((channel_id, branch_name)): Path<(i64, String)>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     lore.merge_branch(channel_id, &branch_name).await?;
