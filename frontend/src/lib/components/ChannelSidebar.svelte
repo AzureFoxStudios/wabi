@@ -97,6 +97,7 @@
 	let isForumSectionExpanded = true;
 	let isWikiSectionExpanded = true;
 	let isLoreSectionExpanded = true;
+	let isPlanningSectionExpanded = true;
 	let collapsedCategories = new Set<string>();
 	function toggleCategory(id: string) {
 		if (collapsedCategories.has(id)) collapsedCategories.delete(id);
@@ -188,9 +189,12 @@
 	$: wikiChannelsAll = $channels.filter(ch => ch.type === 'wiki').filter(ch => !shouldHideChannelFromList(ch));
 	$: wikiCategoryMap = groupByCategory(wikiChannelsAll, $channels);
 	// L2: Asset Storage (lore) — never mix into text list
-	$: loreChannelsAll = $channels.filter(ch => ch.type === 'lore' || (ch as any).asset_storage === true).filter(ch => !shouldHideChannelFromList(ch));
+	$: loreChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return t === 'lore' || (ch as any).asset_storage === true; }).filter(ch => !shouldHideChannelFromList(ch));
 	$: loreCategoryMap = groupByCategory(loreChannelsAll, $channels);
-	$: workspaceChannelCount = textChannelsAll.length + groupChannels.length + voiceChannels.length + galleryChannelsAll.length + forumChannelsAll.length + wikiChannelsAll.length + loreChannelsAll.length;
+	// BZ3: Planning channels render the Planner workspace (center stage).
+	$: planningChannelsAll = $channels.filter(ch => (ch.type as string | undefined) === 'planning').filter(ch => !shouldHideChannelFromList(ch));
+	$: planningCategoryMap = groupByCategory(planningChannelsAll, $channels);
+	$: workspaceChannelCount = textChannelsAll.length + groupChannels.length + voiceChannels.length + galleryChannelsAll.length + forumChannelsAll.length + wikiChannelsAll.length + loreChannelsAll.length + planningChannelsAll.length;
 	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
 	$: canTogglePersistMessages = $currentUser?.highestRole === 'owner';
 	$: canManageWatchQueue = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
@@ -216,8 +220,8 @@
 		document.addEventListener('pointerdown', onPtr); document.addEventListener('keydown', onKey);
 		// A6: gate Asset Storage create option on server lore capability
 		void hasAddonCapability('lore').then((ok) => {
-			loreAvailable = ok;
-			if (!ok && newChannelType === 'lore') newChannelType = 'text';
+	loreAvailable = ok;
+	if (!ok && newChannelType === 'lore') newChannelType = 'text';
 		});
 		return () => { document.removeEventListener('pointerdown', onPtr); document.removeEventListener('keydown', onKey); };
 	});
@@ -256,12 +260,13 @@
 	function handleVoiceChannelDragLeave(chId: string) { if (voiceDropTargetChannelId === chId) voiceDropTargetChannelId = null; }
 	function handleVoiceChannelDrop(e: DragEvent, chId: string) { if (!draggedVoiceMember || draggedVoiceMember.channelId === chId) return; e.preventDefault(); e.stopPropagation(); moveUserToVoiceChannel(draggedVoiceMember.userId, chId); draggedVoiceMember = null; voiceDropTargetChannelId = null; }
 	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') { voiceDurationMode = mode; try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {} }
-	function toggleSection(s: 'text' | 'voice' | 'gallery' | 'forum' | 'wiki' | 'lore') {
+	function toggleSection(s: 'text' | 'voice' | 'gallery' | 'forum' | 'wiki' | 'lore' | 'planning') {
 		if (s === 'text') isTextSectionExpanded = !isTextSectionExpanded;
 		else if (s === 'gallery') isGallerySectionExpanded = !isGallerySectionExpanded;
 		else if (s === 'forum') isForumSectionExpanded = !isForumSectionExpanded;
 		else if (s === 'wiki') isWikiSectionExpanded = !isWikiSectionExpanded;
 		else if (s === 'lore') isLoreSectionExpanded = !isLoreSectionExpanded;
+		else if (s === 'planning') isPlanningSectionExpanded = !isPlanningSectionExpanded;
 		else isVoiceSectionExpanded = !isVoiceSectionExpanded;
 	}
 
@@ -281,15 +286,15 @@
 	function handleChannelDragStart(e: DragEvent, channelId: string) {
 		draggedChannelId = channelId;
 		if (e.dataTransfer) {
-			e.dataTransfer.effectAllowed = 'move';
-			e.dataTransfer.setData('text/plain', channelId);
-			// Ghost stays readable; row itself dims via is-dragging.
-			try {
-				const row = e.currentTarget as HTMLElement | null;
-				if (row) e.dataTransfer.setDragImage(row, 16, 16);
-			} catch {
-				/* setDragImage optional */
-			}
+	e.dataTransfer.effectAllowed = 'move';
+	e.dataTransfer.setData('text/plain', channelId);
+	// Ghost stays readable; row itself dims via is-dragging.
+	try {
+		const row = e.currentTarget as HTMLElement | null;
+		if (row) e.dataTransfer.setDragImage(row, 16, 16);
+	} catch {
+		/* setDragImage optional */
+	}
 		}
 	}
 
@@ -299,8 +304,8 @@
 		const dragged = allCh.find((c) => c.id === draggedChannelId);
 		const target = allCh.find((c) => c.id === channelId);
 		if (!dragged || !target || !sameChannelFamily(dragged, target)) {
-			if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
-			return;
+	if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+	return;
 		}
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
@@ -312,8 +317,8 @@
 
 	function handleChannelDragLeave(channelId: string) {
 		if (dropTargetChannelId === channelId) {
-			dropTargetChannelId = null;
-			dropPosition = null;
+	dropTargetChannelId = null;
+	dropPosition = null;
 		}
 	}
 
@@ -321,28 +326,28 @@
 		e.preventDefault();
 		e.stopPropagation();
 		const clearDrag = () => {
-			draggedChannelId = null;
-			dropTargetChannelId = null;
-			dropPosition = null;
+	draggedChannelId = null;
+	dropTargetChannelId = null;
+	dropPosition = null;
 		};
 		if (!draggedChannelId || draggedChannelId === targetChannelId) {
-			clearDrag();
-			return;
+	clearDrag();
+	return;
 		}
 		const allCh = $channels;
 		const draggedIdx = allCh.findIndex((c) => c.id === draggedChannelId);
 		const targetIdx = allCh.findIndex((c) => c.id === targetChannelId);
 		if (draggedIdx === -1 || targetIdx === -1) {
-			clearDrag();
-			return;
+	clearDrag();
+	return;
 		}
 
 		const dragged = allCh[draggedIdx];
 		const target = allCh[targetIdx];
 		// R5: refuse cross-type drops (text≠voice≠gallery…)
 		if (!sameChannelFamily(dragged, target)) {
-			clearDrag();
-			return;
+	clearDrag();
+	return;
 		}
 
 		const targetParentId = target.parentId ?? null;
@@ -351,61 +356,61 @@
 		const orders: { id: string; position: number; parentId: string | null }[] = [];
 
 		const sectionOf = (parentId: string | null, type: string | null | undefined) =>
-			allCh
-				.filter(
-					(c) =>
-						(c.parentId ?? null) === parentId &&
-						sameChannelFamily({ type: c.type }, { type })
-				)
-				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+	allCh
+		.filter(
+			(c) =>
+				(c.parentId ?? null) === parentId &&
+				sameChannelFamily({ type: c.type }, { type })
+		)
+		.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 
 		if (sourceParentId === targetParentId) {
-			// Same category: reindex one list, honor before/after
-			const sectionChs = sectionOf(targetParentId, dragged.type);
-			const fromIdx = sectionChs.findIndex((c) => c.id === dragged.id);
-			const toIdx = sectionChs.findIndex((c) => c.id === target.id);
-			if (fromIdx === -1 || toIdx === -1) {
-				clearDrag();
-				return;
-			}
-			const [moved] = sectionChs.splice(fromIdx, 1);
-			let insertAt = toIdx;
-			if (fromIdx < toIdx) {
-				// Removal shifted indices left of original toIdx
-				insertAt = pos === 'after' ? toIdx : toIdx - 1;
-			} else {
-				insertAt = pos === 'after' ? toIdx + 1 : toIdx;
-			}
-			insertAt = Math.max(0, Math.min(sectionChs.length, insertAt));
-			sectionChs.splice(insertAt, 0, moved);
-			sectionChs.forEach((ch, i) => {
-				orders.push({ id: ch.id, position: i, parentId: targetParentId });
-			});
+	// Same category: reindex one list, honor before/after
+	const sectionChs = sectionOf(targetParentId, dragged.type);
+	const fromIdx = sectionChs.findIndex((c) => c.id === dragged.id);
+	const toIdx = sectionChs.findIndex((c) => c.id === target.id);
+	if (fromIdx === -1 || toIdx === -1) {
+		clearDrag();
+		return;
+	}
+	const [moved] = sectionChs.splice(fromIdx, 1);
+	let insertAt = toIdx;
+	if (fromIdx < toIdx) {
+		// Removal shifted indices left of original toIdx
+		insertAt = pos === 'after' ? toIdx : toIdx - 1;
+	} else {
+		insertAt = pos === 'after' ? toIdx + 1 : toIdx;
+	}
+	insertAt = Math.max(0, Math.min(sectionChs.length, insertAt));
+	sectionChs.splice(insertAt, 0, moved);
+	sectionChs.forEach((ch, i) => {
+		orders.push({ id: ch.id, position: i, parentId: targetParentId });
+	});
 		} else {
-			// Cross-category same type: move into target parent, reindex both sections
-			const targetSection = sectionOf(targetParentId, dragged.type).filter(
-				(c) => c.id !== dragged.id
-			);
-			const toIdx = targetSection.findIndex((c) => c.id === target.id);
-			const insertAt =
-				toIdx === -1
-					? targetSection.length
-					: pos === 'after'
-						? toIdx + 1
-						: toIdx;
-			targetSection.splice(Math.max(0, insertAt), 0, dragged);
-			targetSection.forEach((ch, i) => {
-				orders.push({ id: ch.id, position: i, parentId: targetParentId });
-			});
+	// Cross-category same type: move into target parent, reindex both sections
+	const targetSection = sectionOf(targetParentId, dragged.type).filter(
+		(c) => c.id !== dragged.id
+	);
+	const toIdx = targetSection.findIndex((c) => c.id === target.id);
+	const insertAt =
+		toIdx === -1
+			? targetSection.length
+			: pos === 'after'
+				? toIdx + 1
+				: toIdx;
+	targetSection.splice(Math.max(0, insertAt), 0, dragged);
+	targetSection.forEach((ch, i) => {
+		orders.push({ id: ch.id, position: i, parentId: targetParentId });
+	});
 
-			const fromSection = sectionOf(sourceParentId, dragged.type).filter(
-				(c) => c.id !== dragged.id
-			);
-			fromSection.forEach((ch, i) => {
-				if (!orders.some((o) => o.id === ch.id)) {
-					orders.push({ id: ch.id, position: i, parentId: sourceParentId });
-				}
-			});
+	const fromSection = sectionOf(sourceParentId, dragged.type).filter(
+		(c) => c.id !== dragged.id
+	);
+	fromSection.forEach((ch, i) => {
+		if (!orders.some((o) => o.id === ch.id)) {
+			orders.push({ id: ch.id, position: i, parentId: sourceParentId });
+		}
+	});
 		}
 
 		if (orders.length > 0) reorderChannels(orders);
@@ -433,24 +438,24 @@
 		createChannelError = '';
 		creatingChannel = true;
 		try {
-			await createChannel(channelName, newChannelDescription.trim(), newChannelType, newChannelForceSpoiler);
-			newChannelName = '';
-			newChannelDescription = '';
-			newChannelType = 'text';
-			newChannelForceSpoiler = false;
-			showCreateInput = false;
+	await createChannel(channelName, newChannelDescription.trim(), newChannelType, newChannelForceSpoiler);
+	newChannelName = '';
+	newChannelDescription = '';
+	newChannelType = 'text';
+	newChannelForceSpoiler = false;
+	showCreateInput = false;
 		} catch (error) {
-			createChannelError = error instanceof Error ? error.message : 'Failed to create channel.';
+	createChannelError = error instanceof Error ? error.message : 'Failed to create channel.';
 		} finally {
-			creatingChannel = false;
+	creatingChannel = false;
 		}
 	}
 	function toggleCreateInputForType(t: CreateableChannelType) {
 		if (t === 'lore' && !loreAvailable) return;
 		if (showCreateInput && newChannelType === t) {
-			showCreateInput = false;
-			createChannelError = '';
-			return;
+	showCreateInput = false;
+	createChannelError = '';
+	return;
 		}
 		newChannelType = t;
 		createChannelError = '';
@@ -469,9 +474,9 @@
 	function toggleChannelBookmark(ch: Channel) { isChannelBookmarked(ch) ? unpinChannel(ch.id) : pinChannel(ch.id); }
 	function openChannelFloatingPanel(ch: Channel) {
 		floatingPanelStore.openFloatingPanel({
-			kind: 'channel-chat',
-			title: `#${ch.name}`,
-			payload: { channelId: ch.id, channelName: ch.name }
+	kind: 'channel-chat',
+	title: `#${ch.name}`,
+	payload: { channelId: ch.id, channelName: ch.name }
 		});
 	}
 
@@ -481,24 +486,24 @@
 		const noun = ch.type === 'group' ? 'Group' : 'Channel';
 		const followed = sup && followedChannelIds.has(ch.id);
 		const items: ContextMenuItem[] = [
-			{ id: 'open-floating-panel', label: 'Open floating panel', icon: 'message-circle', onSelect: () => openChannelFloatingPanel(ch) },
-			{ id: 'open-os-window', label: 'Open OS window', icon: 'external-window', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) },
-			{ id: 'windowing-divider', type: 'separator' },
-			{ id: 'pin-channel', label: isChannelBookmarked(ch) ? 'Remove Bookmark' : 'Bookmark Channel', icon: 'pin', onSelect: () => toggleChannelBookmark(ch) },
-			{ id: 'pinned-messages', label: 'Pinned Messages', icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) },
-			{ id: 'toggle-mute-channel', label: isChannelLocallyMuted(ch.id) ? 'Unmute Channel' : 'Mute Channel', onSelect: () => toggleServerMutedChannelId(ch.id) },
-			{ id: 'channel-settings', label: 'Channel Settings', icon: 'settings', onSelect: () => handleOpenChannelSettings(ch) }
+	{ id: 'open-floating-panel', label: 'Open floating panel', icon: 'message-circle', onSelect: () => openChannelFloatingPanel(ch) },
+	{ id: 'open-os-window', label: 'Open OS window', icon: 'external-window', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) },
+	{ id: 'windowing-divider', type: 'separator' },
+	{ id: 'pin-channel', label: isChannelBookmarked(ch) ? 'Remove Bookmark' : 'Bookmark Channel', icon: 'pin', onSelect: () => toggleChannelBookmark(ch) },
+	{ id: 'pinned-messages', label: 'Pinned Messages', icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) },
+	{ id: 'toggle-mute-channel', label: isChannelLocallyMuted(ch.id) ? 'Unmute Channel' : 'Mute Channel', onSelect: () => toggleServerMutedChannelId(ch.id) },
+	{ id: 'channel-settings', label: 'Channel Settings', icon: 'settings', onSelect: () => handleOpenChannelSettings(ch) }
 		];
 		if (sup) items.unshift(
-			{ id: 'follow-feed', label: 'Open Follow Feed', leading: '≈', hint: $currentServerFollowedChannels.length > 0 ? `${$currentServerFollowedChannels.length} followed` : undefined, disabled: $currentServerFollowedChannels.length === 0, onSelect: openFollowingView },
-			{ id: 'follow-alerts', label: followed ? 'Cycle Follow Alerts' : `Follow ${noun} With Alerts`, leading: '!', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
-			{ id: 'toggle-follow', label: followed ? `Unfollow ${noun}` : `Follow ${noun}`, leading: followed ? '★' : '☆', onSelect: () => toggleChannelFollowState(ch.id) },
-			{ id: 'follow-divider', type: 'separator' }
+	{ id: 'follow-feed', label: 'Open Follow Feed', leading: '≈', hint: $currentServerFollowedChannels.length > 0 ? `${$currentServerFollowedChannels.length} followed` : undefined, disabled: $currentServerFollowedChannels.length === 0, onSelect: openFollowingView },
+	{ id: 'follow-alerts', label: followed ? 'Cycle Follow Alerts' : `Follow ${noun} With Alerts`, leading: '!', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
+	{ id: 'toggle-follow', label: followed ? `Unfollow ${noun}` : `Follow ${noun}`, leading: followed ? '★' : '☆', onSelect: () => toggleChannelFollowState(ch.id) },
+	{ id: 'follow-divider', type: 'separator' }
 		);
 		if (ch.type === 'text' || ch.type === 'public' || !ch.type) items.splice(1, 0, { id: 'create-thread', label: 'Create Thread', icon: 'message-circle', onSelect: () => handleCreateThread(ch) });
 		if (ch.type === 'voice' && !ch.isBreakout) {
-			items.push({ id: 'voice-divider', type: 'separator' });
-			items.push(hasBreakoutRooms(ch.id) ? { id: 'close-breakout-rooms', label: 'Close Breakout Rooms', icon: 'archive-restore', onSelect: () => handleCloseBreakoutRooms(ch) } : { id: 'create-breakout-rooms', label: 'Create Breakout Rooms', icon: 'archive', onSelect: () => handleCreateBreakoutRooms(ch) });
+	items.push({ id: 'voice-divider', type: 'separator' });
+	items.push(hasBreakoutRooms(ch.id) ? { id: 'close-breakout-rooms', label: 'Close Breakout Rooms', icon: 'archive-restore', onSelect: () => handleCloseBreakoutRooms(ch) } : { id: 'create-breakout-rooms', label: 'Create Breakout Rooms', icon: 'archive', onSelect: () => handleCreateBreakoutRooms(ch) });
 		}
 		if (ch.id !== 'general' && ch.id !== 'voice' && !ch.isBreakout && canCreateChannel) items.push({ id: 'danger-divider', type: 'separator' }, { id: 'delete-channel', label: 'Delete Channel', icon: 'trash-2', danger: true, onSelect: () => handleDeleteChannel(ch.id) });
 		return items;
@@ -509,23 +514,23 @@
 	<div class="top-section" class:has-banner={Boolean(currentServerBannerUrl)} style:--sidebar-banner-image={currentServerBannerUrl ? `url('${currentServerBannerUrl}')` : 'none'}>
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<button type="button" class="server-identity" on:click={() => dispatch('openServerSwitcher')}>
-			<div class="logo">
-				{#if serverIdentityIconUrl && !serverIdentityImageFailed}
-					<img src={serverIdentityIconUrl} alt={`${currentServerLabel} icon`} class="logo-img server-logo-img" on:error={() => (serverIdentityImageFailed = true)} />
-				{:else}
-					<img src="/wabi-logo-small.webp" alt="Wabi" class="logo-img brand-logo-img" />
-				{/if}
-			</div>
-			{#if !isCompactSidebar}
-				<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong></div>
-			{/if}
+	<div class="logo">
+		{#if serverIdentityIconUrl && !serverIdentityImageFailed}
+			<img src={serverIdentityIconUrl} alt={`${currentServerLabel} icon`} class="logo-img server-logo-img" on:error={() => (serverIdentityImageFailed = true)} />
+		{:else}
+			<img src="/wabi-logo-small.webp" alt="Wabi" class="logo-img brand-logo-img" />
+		{/if}
+	</div>
+	{#if !isCompactSidebar}
+		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong></div>
+	{/if}
 		</button>
 		{#if sidebarWidth < 170 && !isCompactSidebar}
-			<div class="header-buttons">
-				<button class="control-btn compact-settings-btn" on:click={() => dispatch('openSettings')} title="User Settings">
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-				</button>
-			</div>
+	<div class="header-buttons">
+		<button class="control-btn compact-settings-btn" on:click={() => dispatch('openSettings')} title="User Settings">
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+		</button>
+	</div>
 		{/if}
 	</div>
 
@@ -533,175 +538,204 @@
 
 	<div class="channel-list">
 		{#if $displayEnhancementSettingsStore.serverCounterEnabled}
-			<div class="workspace-counter-chip" title="Server channel count"><span class="workspace-counter-label">Server</span><span class="workspace-counter-value">{workspaceChannelCount} channels</span></div>
+	<div class="workspace-counter-chip" title="Server channel count"><span class="workspace-counter-label">Server</span><span class="workspace-counter-value">{workspaceChannelCount} channels</span></div>
 		{/if}
 		{#if $displayEnhancementSettingsStore.readAllNotificationsButtonEnabled && totalUnreadNotifications > 0}
-			<div class="channel-list-actions"><button class="clear-unread-btn" on:click={clearAllUnreadNotifications}>Clear Unread ({totalUnreadNotifications})</button></div>
+	<div class="channel-list-actions"><button class="clear-unread-btn" on:click={clearAllUnreadNotifications}>Clear Unread ({totalUnreadNotifications})</button></div>
 		{/if}
 
 		<div class="section-heading-row">
-			<button class="section-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => toggleSection('text')}>
-				<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-				<span class="section-toggle-label">Text Channels</span><span class="section-count">{textChannelsAll.length + groupChannels.length}</span>
-			</button>
-			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('text')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
+	<button class="section-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => toggleSection('text')}>
+		<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+		<span class="section-toggle-label">Text Channels</span><span class="section-count">{textChannelsAll.length + groupChannels.length}</span>
+	</button>
+	{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('text')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
 		{#if isTextSectionExpanded}
-			{#each textCategoryMap.categories as cat (cat.id)}
-				<div class="category-row">
-					<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
-						<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-						<span class="category-name">{cat.name}</span>
-					</button>
-				</div>
-				{#if !collapsedCategories.has(cat.id)}
-					<div class="category-channels" data-category-id={cat.id}>
-						<TextChannelList textChannels={cat.channels} groupChannels={[]} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
-					</div>
-				{/if}
-			{/each}
-			<TextChannelList textChannels={textCategoryMap.uncategorized} {groupChannels} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+	{#each textCategoryMap.categories as cat (cat.id)}
+		<div class="category-row">
+			<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+				<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+				<span class="category-name">{cat.name}</span>
+			</button>
+		</div>
+		{#if !collapsedCategories.has(cat.id)}
+			<div class="category-channels" data-category-id={cat.id}>
+				<TextChannelList textChannels={cat.channels} groupChannels={[]} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+			</div>
+		{/if}
+	{/each}
+	<TextChannelList textChannels={textCategoryMap.uncategorized} {groupChannels} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 		{/if}
 
 		<div class="section-heading-row">
-			<button class="section-toggle" type="button" aria-expanded={isVoiceSectionExpanded} on:click={() => toggleSection('voice')}>
-				<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-				<span class="section-toggle-label">Voice Channels</span><span class="section-count">{allVoiceChannelsAll.length}</span>
-			</button>
-			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('voice')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
+	<button class="section-toggle" type="button" aria-expanded={isVoiceSectionExpanded} on:click={() => toggleSection('voice')}>
+		<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+		<span class="section-toggle-label">Voice Channels</span><span class="section-count">{allVoiceChannelsAll.length}</span>
+	</button>
+	{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('voice')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
 		{#if isVoiceSectionExpanded}
-			{#each voiceCategoryMap.categories as cat (cat.id)}
-				<div class="category-row">
-					<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
-						<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-						<span class="category-name">{cat.name}</span>
-					</button>
-				</div>
-				{#if !collapsedCategories.has(cat.id)}
-					<div class="category-channels" data-category-id={cat.id}>
-						<VoiceChannelList voiceChannels={cat.channels} allVoiceChannels={allVoiceChannelsAll} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {followedChannelIds} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} />
-					</div>
-				{/if}
-			{/each}
-			<VoiceChannelList {voiceChannels} allVoiceChannels={voiceCategoryMap.uncategorized} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {followedChannelIds} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} />
+	{#each voiceCategoryMap.categories as cat (cat.id)}
+		<div class="category-row">
+			<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+				<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+				<span class="category-name">{cat.name}</span>
+			</button>
+		</div>
+		{#if !collapsedCategories.has(cat.id)}
+			<div class="category-channels" data-category-id={cat.id}>
+				<VoiceChannelList voiceChannels={cat.channels} allVoiceChannels={allVoiceChannelsAll} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {followedChannelIds} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} />
+			</div>
+		{/if}
+	{/each}
+	<VoiceChannelList {voiceChannels} allVoiceChannels={voiceCategoryMap.uncategorized} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {followedChannelIds} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} />
 		{/if}
 
 		{#if galleryChannelsAll.length > 0}
-			<div class="section-heading-row">
-				<button class="section-toggle" type="button" aria-expanded={isGallerySectionExpanded} on:click={() => toggleSection('gallery')}>
-					<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-					<span class="section-toggle-label">Gallery</span><span class="section-count">{galleryChannelsAll.length}</span>
+	<div class="section-heading-row">
+		<button class="section-toggle" type="button" aria-expanded={isGallerySectionExpanded} on:click={() => toggleSection('gallery')}>
+			<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+			<span class="section-toggle-label">Gallery</span><span class="section-count">{galleryChannelsAll.length}</span>
+		</button>
+		{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('gallery')} title="Create gallery channel" aria-label="Create gallery channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
+	</div>
+	{#if isGallerySectionExpanded}
+		{#each galleryCategoryMap.categories as cat (cat.id)}
+			<div class="category-row">
+				<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+					<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+					<span class="category-name">{cat.name}</span>
 				</button>
-				{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('gallery')} title="Create gallery channel" aria-label="Create gallery channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 			</div>
-			{#if isGallerySectionExpanded}
-				{#each galleryCategoryMap.categories as cat (cat.id)}
-					<div class="category-row">
-						<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
-							<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-							<span class="category-name">{cat.name}</span>
-						</button>
-					</div>
-					{#if !collapsedCategories.has(cat.id)}
-						<div class="category-channels" data-category-id={cat.id}>
-							<GalleryChannelList galleryChannels={cat.channels} {liveWhiteboardChannelIds} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
-						</div>
-					{/if}
-				{/each}
-				<GalleryChannelList galleryChannels={galleryCategoryMap.uncategorized} {liveWhiteboardChannelIds} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+			{#if !collapsedCategories.has(cat.id)}
+				<div class="category-channels" data-category-id={cat.id}>
+					<GalleryChannelList galleryChannels={cat.channels} {liveWhiteboardChannelIds} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+				</div>
 			{/if}
+		{/each}
+		<GalleryChannelList galleryChannels={galleryCategoryMap.uncategorized} {liveWhiteboardChannelIds} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+	{/if}
 		{/if}
 
 		<!-- C3: Forum section -->
 		<div class="section-heading-row">
-			<button class="section-toggle" type="button" aria-expanded={isForumSectionExpanded} on:click={() => toggleSection('forum')}>
-				<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-				<span class="section-toggle-label">Forums</span><span class="section-count">{forumChannelsAll.length}</span>
-			</button>
-			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput && newChannelType === 'forum'} on:click={() => toggleCreateInputForType('forum')} title="Create forum channel" aria-label="Create forum channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
+	<button class="section-toggle" type="button" aria-expanded={isForumSectionExpanded} on:click={() => toggleSection('forum')}>
+		<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+		<span class="section-toggle-label">Forums</span><span class="section-count">{forumChannelsAll.length}</span>
+	</button>
+	{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput && newChannelType === 'forum'} on:click={() => toggleCreateInputForType('forum')} title="Create forum channel" aria-label="Create forum channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
 		{#if isForumSectionExpanded}
-			{#if forumChannelsAll.length === 0}
-				<div class="runtime-note" style="padding: 0.35rem 0.75rem; opacity: 0.7;">No forum channels yet.</div>
-			{:else}
-				{#each forumCategoryMap.categories as cat (cat.id)}
-					<div class="category-row">
-						<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
-							<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-							<span class="category-name">{cat.name}</span>
-						</button>
-					</div>
-					{#if !collapsedCategories.has(cat.id)}
-						<div class="category-channels" data-category-id={cat.id}>
-							<ForumChannelList forumChannels={cat.channels} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
-						</div>
-					{/if}
-				{/each}
-				<ForumChannelList forumChannels={forumCategoryMap.uncategorized} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+	{#if forumChannelsAll.length === 0}
+		<div class="runtime-note" style="padding: 0.35rem 0.75rem; opacity: 0.7;">No forum channels yet.</div>
+	{:else}
+		{#each forumCategoryMap.categories as cat (cat.id)}
+			<div class="category-row">
+				<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+					<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+					<span class="category-name">{cat.name}</span>
+				</button>
+			</div>
+			{#if !collapsedCategories.has(cat.id)}
+				<div class="category-channels" data-category-id={cat.id}>
+					<ForumChannelList forumChannels={cat.channels} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+				</div>
 			{/if}
+		{/each}
+		<ForumChannelList forumChannels={forumCategoryMap.uncategorized} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+	{/if}
 		{/if}
 
 		<!-- C3: Wiki section -->
 		<div class="section-heading-row">
-			<button class="section-toggle" type="button" aria-expanded={isWikiSectionExpanded} on:click={() => toggleSection('wiki')}>
-				<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-				<span class="section-toggle-label">Wiki</span><span class="section-count">{wikiChannelsAll.length}</span>
-			</button>
-			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput && newChannelType === 'wiki'} on:click={() => toggleCreateInputForType('wiki')} title="Create wiki channel" aria-label="Create wiki channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
+	<button class="section-toggle" type="button" aria-expanded={isWikiSectionExpanded} on:click={() => toggleSection('wiki')}>
+		<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+		<span class="section-toggle-label">Wiki</span><span class="section-count">{wikiChannelsAll.length}</span>
+	</button>
+	{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput && newChannelType === 'wiki'} on:click={() => toggleCreateInputForType('wiki')} title="Create wiki channel" aria-label="Create wiki channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
 		{#if isWikiSectionExpanded}
-			{#if wikiChannelsAll.length === 0}
-				<div class="runtime-note" style="padding: 0.35rem 0.75rem; opacity: 0.7;">No wiki channels yet.</div>
-			{:else}
-				{#each wikiCategoryMap.categories as cat (cat.id)}
-					<div class="category-row">
-						<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
-							<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-							<span class="category-name">{cat.name}</span>
-						</button>
-					</div>
-					{#if !collapsedCategories.has(cat.id)}
-						<div class="category-channels" data-category-id={cat.id}>
-							<WikiChannelList wikiChannels={cat.channels} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
-						</div>
-					{/if}
-				{/each}
-				<WikiChannelList wikiChannels={wikiCategoryMap.uncategorized} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+	{#if wikiChannelsAll.length === 0}
+		<div class="runtime-note" style="padding: 0.35rem 0.75rem; opacity: 0.7;">No wiki channels yet.</div>
+	{:else}
+		{#each wikiCategoryMap.categories as cat (cat.id)}
+			<div class="category-row">
+				<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+					<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+					<span class="category-name">{cat.name}</span>
+				</button>
+			</div>
+			{#if !collapsedCategories.has(cat.id)}
+				<div class="category-channels" data-category-id={cat.id}>
+					<WikiChannelList wikiChannels={cat.channels} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+				</div>
 			{/if}
+		{/each}
+		<WikiChannelList wikiChannels={wikiCategoryMap.uncategorized} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+	{/if}
 		{/if}
 
 		{#if loreAvailable || loreChannelsAll.length > 0}
-			<div class="section-heading-row">
-				<button class="section-toggle" type="button" aria-expanded={isLoreSectionExpanded} on:click={() => toggleSection('lore')}>
-					<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-					<span class="section-toggle-label">Asset Storage</span><span class="section-count">{loreChannelsAll.length}</span>
-				</button>
-				{#if canCreateChannel && loreAvailable}<button class="section-add-btn" class:active={showCreateInput && newChannelType === 'lore'} on:click={() => toggleCreateInputForType('lore')} title="Create Asset Storage channel" aria-label="Create Asset Storage channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
-			</div>
-			{#if isLoreSectionExpanded}
-				{#if loreChannelsAll.length === 0}
-					<div class="runtime-note" style="padding: 0.35rem 0.75rem; opacity: 0.7;">No asset storage channels yet.</div>
-				{:else}
-					{#each loreCategoryMap.categories as cat (cat.id)}
-						<div class="category-row">
-							<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
-								<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-								<span class="category-name">{cat.name}</span>
-							</button>
-						</div>
-						{#if !collapsedCategories.has(cat.id)}
-							<div class="category-channels" data-category-id={cat.id}>
-								<LoreChannelList loreChannels={cat.channels} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
-							</div>
-						{/if}
-					{/each}
-					<LoreChannelList loreChannels={loreCategoryMap.uncategorized} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+	<div class="section-heading-row">
+		<button class="section-toggle" type="button" aria-expanded={isLoreSectionExpanded} on:click={() => toggleSection('lore')}>
+			<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+			<span class="section-toggle-label">Asset Storage</span><span class="section-count">{loreChannelsAll.length}</span>
+		</button>
+		{#if canCreateChannel && loreAvailable}<button class="section-add-btn" class:active={showCreateInput && newChannelType === 'lore'} on:click={() => toggleCreateInputForType('lore')} title="Create Asset Storage channel" aria-label="Create Asset Storage channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
+	</div>
+	{#if isLoreSectionExpanded}
+		{#if loreChannelsAll.length === 0}
+			<div class="runtime-note" style="padding: 0.35rem 0.75rem; opacity: 0.7;">No asset storage channels yet.</div>
+		{:else}
+			{#each loreCategoryMap.categories as cat (cat.id)}
+				<div class="category-row">
+					<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+						<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+						<span class="category-name">{cat.name}</span>
+					</button>
+				</div>
+				{#if !collapsedCategories.has(cat.id)}
+					<div class="category-channels" data-category-id={cat.id}>
+						<LoreChannelList loreChannels={cat.channels} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+					</div>
 				{/if}
-			{/if}
+			{/each}
+			<LoreChannelList loreChannels={loreCategoryMap.uncategorized} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+		{/if}
+		{/if}
 		{/if}
 
-		<div class="dm-hub-entry">
+		<!-- BZ3: Planning channels render the Planner workspace (center stage). -->
+		<div class="section-heading-row">
+		<button class="section-toggle" type="button" aria-expanded={isPlanningSectionExpanded} on:click={() => toggleSection('planning')}>
+			<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+			<span class="section-toggle-label">Planning</span><span class="section-count">{planningChannelsAll.length}</span>
+		</button>
+		{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput && newChannelType === 'planning'} on:click={() => toggleCreateInputForType('planning')} title="Create planning channel" aria-label="Create planning channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
+		</div>
+		{#if isPlanningSectionExpanded}
+		{#if planningChannelsAll.length === 0}
+			<div class="runtime-note" style="padding: 0.35rem 0.75rem; opacity: 0.7;">No planning channels yet.</div>
+		{:else}
+			{#each planningCategoryMap.categories as cat (cat.id)}
+				<div class="category-row">
+					<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+						<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+						<span class="category-name">{cat.name}</span>
+					</button>
+				</div>
+				{#if !collapsedCategories.has(cat.id)}
+					<div class="category-channels" data-category-id={cat.id}>
+						<LoreChannelList loreChannels={cat.channels} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+					</div>
+				{/if}
+			{/each}
+			<LoreChannelList loreChannels={planningCategoryMap.uncategorized} {dropTargetClass} {isChannelDragging} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+		{/if}
+		{/if}
+
+				<div class="dm-hub-entry">
 			<button class="dm-hub-btn" type="button" on:click={openDmHub} title="Direct Messages">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
 				<span>Direct Messages</span>

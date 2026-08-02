@@ -24,6 +24,7 @@
 	import {
 		uploadLoreFile,
 		downloadLoreFile,
+		getSignedLoreUrl,
 		deleteLoreFile,
 		lockLoreFile,
 		unlockLoreFile,
@@ -37,6 +38,12 @@
 	} from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
 	import { layoutStore } from '$lib/layoutStore';
+	import { currentUser } from '$lib/socket';
+
+	/** L8: workspace-role gates — Owner/Admin/Developer edit; Artist asset-write; Viewer read-only. */
+	$: loreRole = ($currentUser?.highestRole || '').toLowerCase();
+	$: canEditLore = ['owner', 'admin', 'developer'].includes(loreRole);
+	$: canAssetWriteLore = canEditLore || loreRole === 'artist';
 
 	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
 	$: repo = $loreRepo;
@@ -368,15 +375,27 @@
 		if (!token || !chId) return;
 
 		try {
-			const blob = await downloadLoreFile(token, chId, file.path);
-			const url = URL.createObjectURL(blob);
+			// L7: signed URL → direct web save (no Bearer header needed on the link)
+			const signedUrl = await getSignedLoreUrl(token, chId, file.path);
 			const a = document.createElement('a');
-			a.href = url;
+			a.href = signedUrl;
 			a.download = file.path.split('/').pop() || file.path;
+			a.target = '_blank';
+			a.rel = 'noopener';
 			a.click();
-			URL.revokeObjectURL(url);
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Download failed');
+			console.warn('[LoreChannel] signed URL failed, falling back to blob', err);
+			try {
+				const blob = await downloadLoreFile(token, chId, file.path);
+				const url = URL.createObjectURL(blob);
+				const a = document.createElement('a');
+				a.href = url;
+				a.download = file.path.split('/').pop() || file.path;
+				a.click();
+				URL.revokeObjectURL(url);
+			} catch (err2) {
+				alert(err2 instanceof Error ? err2.message : 'Download failed');
+			}
 		}
 	}
 
@@ -526,16 +545,20 @@
 			>
 				Notes
 			</button>
+			{#if canEditLore}
 			<button class="lore-btn lore-btn-sm" on:click={() => showSnapshot = !showSnapshot}>
 				Snapshot
 			</button>
+			{/if}
+			{#if canEditLore}
 			<button class="lore-btn lore-btn-sm" on:click={() => showBranchCreate = !showBranchCreate}>
 				New Branch
 			</button>
+			{/if}
 		</div>
 	</header>
 
-	{#if showSnapshot}
+	{#if canEditLore && showSnapshot}
 		<div class="lore-panel">
 			<h4>Create Snapshot</h4>
 			<div class="lore-panel-row">
@@ -553,7 +576,7 @@
 		</div>
 	{/if}
 
-	{#if showBranchCreate}
+	{#if canEditLore && showBranchCreate}
 		<div class="lore-panel">
 			<h4>Create Branch</h4>
 			<div class="lore-panel-row">
@@ -573,6 +596,7 @@
 
 	<div class="lore-body">
 		<div class="lore-main">
+			{#if canAssetWriteLore}
 			<div
 				class="lore-upload-zone"
 				class:lore-drag-over={dragOver}
@@ -621,6 +645,7 @@
 					style="display: none"
 				/>
 			</div>
+			{/if}
 
 			<div class="lore-content">
 				{#if currentFolder}
@@ -769,6 +794,7 @@
 											<line x1="12" y1="15" x2="12" y2="3"/>
 										</svg>
 									</button>
+									{#if canAssetWriteLore}
 									<button
 										class="lore-action-btn"
 										title={file.lockedBy ? 'Unlock' : 'Lock'}
@@ -776,8 +802,8 @@
 									>
 										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
 											{#if file.lockedBy}
-												<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-												<path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+											<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+											<path d="M7 11V7a5 5 0 0 1 10 0v4"/>
 											{:else}
 												<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
 												<path d="M7 11V7a5 5 0 0 1 10 0v4"/>
@@ -785,6 +811,8 @@
 											{/if}
 										</svg>
 									</button>
+									{/if}
+									{#if canAssetWriteLore}
 									<button
 										class="lore-action-btn lore-action-danger"
 										title="Delete"
@@ -795,6 +823,7 @@
 											<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
 										</svg>
 									</button>
+									{/if}
 								</span>
 							</div>
 						{/each}
@@ -891,10 +920,14 @@
 					<!-- Actions -->
 					<div class="lore-preview-actions">
 						<button class="lore-btn lore-btn-sm" on:click={() => handleDownload(selectedFile!)}>Download</button>
+						{#if canAssetWriteLore}
 						<button class="lore-btn lore-btn-sm" on:click={() => handleLock(selectedFile!)}>
 							{selectedFile.lockedBy ? 'Unlock' : 'Lock'}
 						</button>
+						{/if}
+						{#if canAssetWriteLore}
 						<button class="lore-btn lore-btn-sm lore-btn-danger" on:click={() => handleDelete(selectedFile!)}>Delete</button>
+						{/if}
 					</div>
 
 					<!-- Revision history -->

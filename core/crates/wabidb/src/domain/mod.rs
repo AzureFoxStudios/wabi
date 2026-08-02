@@ -114,6 +114,9 @@ pub enum ChannelKind {
     /// Lore asset storage channel (versioned binary assets; gates on wabi-lore).
     /// Stable wire value: channel_type "lore". Append-only — never renumber.
     Lore = 11,
+    /// Planning channel — surfaces the Planner business/workspace view.
+    /// Stable wire value: channel_type "planning". Append-only — never renumber.
+    Planning = 12,
 }
 
 impl Channel {
