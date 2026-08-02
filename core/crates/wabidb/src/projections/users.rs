@@ -38,6 +38,7 @@ impl From<UserRecord> for crate::domain::User {
             password_hash: r.password_hash,
             is_registered: r.is_registered,
             is_active: r.is_active,
+            is_bot: false,
             created_at_micros: r.created_at_micros,
             last_seen_micros: r.last_seen_micros,
             profile_picture: r.profile_picture,

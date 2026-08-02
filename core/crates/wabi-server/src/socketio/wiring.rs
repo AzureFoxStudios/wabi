@@ -6,6 +6,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
         connected_users: Arc::new(RwLock::new(HashMap::new())),
         voice_channels: Arc::new(RwLock::new(HashMap::new())),
         group_call_sessions: Arc::new(RwLock::new(HashMap::new())),
+        breakout_rooms: Arc::new(RwLock::new(HashMap::new())),
     };
 
     // Spawn the periodic sweep task for stale Socket.IO state. Safety

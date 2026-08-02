@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { _ as t } from '$lib/i18n';
+	import { brandName } from '$lib/branding';
 	import { currentUser, updateProfile } from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
@@ -116,7 +117,7 @@
 	function makeCurrentLocalWabiDefault(): void {
 		if (!currentLocalWabiAccountKey) return;
 		setDefaultLocalWabiAccount(currentLocalWabiAccountKey);
-		linkedWabiImportStatus = 'This account is now the default local Wabi profile source on this device.';
+		linkedWabiImportStatus = `This account is now the default local ${brandName} profile source on this device.`;
 	}
 
 	async function importProfileFromSelectedLocalWabiAccount(): Promise<void> {
@@ -214,7 +215,7 @@
 		</div>
 		<div class="profile-hero-copy">
 			<div class="profile-hero-kicker">Profile</div>
-			<h3>{displayNameDraft || $currentUser?.username || 'Your Wabi profile'}</h3>
+			<h3>{displayNameDraft || $currentUser?.username || `Your ${brandName} profile`}</h3>
 			<p>
 				{#if $currentUser?.handle}
 					@{$currentUser.handle}
@@ -255,11 +256,11 @@
 
 {#if $currentUser?.dbUserId}
 	<div class="settings-section">
-		<h3>Multi-Wabi Account Import</h3>
+		<h3>Multi-{brandName} Account Import</h3>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Default Local Wabi Account</span>
-				<span class="setting-description">Choose which locally linked Wabi account should be treated as your default source profile on this device.</span>
+				<span class="setting-label">Default Local {brandName} Account</span>
+				<span class="setting-description">Choose which locally linked {brandName} account should be treated as your default source profile on this device.</span>
 			</div>
 			<div class="runtime-note">
 				Current default:
@@ -277,7 +278,7 @@
 		</div>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Import Profile From Another Local Wabi Account</span>
+				<span class="setting-label">Import Profile From Another Local {brandName} Account</span>
 				<span class="setting-description">Copy the other account's display name and profile picture into this server account. This stays local to this device until you choose to import.</span>
 			</div>
 			{#if otherLocalWabiAccounts.length > 0}
@@ -305,7 +306,7 @@
 				</button>
 			{:else}
 				<div class="runtime-note">
-					No other registered Wabi accounts have been seen on this device yet.
+					No other registered {brandName} accounts have been seen on this device yet.
 				</div>
 			{/if}
 			{#if linkedWabiImportStatus}
@@ -367,7 +368,7 @@
 	<div class="setting-item-full">
 		<div class="setting-info">
 			<span class="setting-label">Saved Payment References</span>
-			<span class="setting-description">Save non-sensitive payment references for providers this server already exposes, so Wabi can reuse them when you make or request payment.</span>
+			<span class="setting-description">Save non-sensitive payment references for providers this server already exposes, so {brandName} can reuse them when you make or request payment.</span>
 		</div>
 		<button class="pfp-upload-btn" on:click={openPaymentConnectionsSafe} disabled={!$currentUser?.dbUserId}>
 			{$currentUser?.dbUserId ? 'Manage References' : 'Sign In Required'}

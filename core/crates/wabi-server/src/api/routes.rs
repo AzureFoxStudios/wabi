@@ -6,9 +6,9 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 use super::{
-    addons, admin, albums, auth, blobs, calls, channels, emoji, forum, gallery, incidents, jobs,
-    lan, media, mesh, messages, nodes, operator, payments, places, preview, public, standby, sync,
-    upload, user, wiki,
+    addons, admin, albums, auth, blobs, bots, calls, channels, emoji, forum, gallery, incidents,
+    jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, public, standby,
+    sync, upload, user, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
 
@@ -22,6 +22,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/setup", public::setup_routes(state.clone()))
         // Auth routes
         .nest("/auth", auth::routes(state.clone()))
+        // Bot account routes (owner-only token lifecycle)
+        .nest("/bot", bots::routes(state.clone()))
         // User routes
         .nest("/user", user::routes(state.clone()))
         // Channel routes

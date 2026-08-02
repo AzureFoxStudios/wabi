@@ -101,18 +101,18 @@
 		display: inline-block;
 		margin-top: 0.35rem;
 		padding: 0.2rem 0.5rem;
-		background: color-mix(in srgb, var(--warning-color, #e6b800) 22%, transparent);
-		color: var(--warning-color, #e6b800);
-		border: 1px solid color-mix(in srgb, var(--warning-color, #e6b800) 45%, transparent);
+		background: color-mix(in srgb, var(--color-warning, #e6b800) 22%, transparent);
+		color: var(--color-warning, #e6b800);
+		border: 1px solid color-mix(in srgb, var(--color-warning, #e6b800) 45%, transparent);
 		font-size: var(--text-xs);
 		border-radius: var(--radius-sm);
 		font-weight: var(--font-weight-medium);
 	}
 
 	.spoiler-channel-badge-revealed {
-		background: color-mix(in srgb, var(--success-color, #2e9e5b) 22%, transparent);
-		color: var(--success-color, #2e9e5b);
-		border-color: color-mix(in srgb, var(--success-color, #2e9e5b) 45%, transparent);
+		background: color-mix(in srgb, var(--color-success, #2e9e5b) 22%, transparent);
+		color: var(--color-success, #2e9e5b);
+		border-color: color-mix(in srgb, var(--color-success, #2e9e5b) 45%, transparent);
 	}
 
 

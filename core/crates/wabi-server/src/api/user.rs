@@ -42,6 +42,8 @@ struct UserResponse {
     username: String,
     email: Option<String>,
     is_guest: bool,
+    /// True when the account is a bot service account (BOT badge).
+    is_bot: bool,
     created_at: i64,
     is_owner: bool,
 }
@@ -57,6 +59,8 @@ struct PublicUserProfileResponse {
     display_name: Option<String>,
     avatar_url: Option<String>,
     status_message: Option<String>,
+    /// True when the account is a bot service account (BOT badge).
+    is_bot: bool,
     created_at: i64,
 }
 
@@ -73,6 +77,7 @@ async fn get_current_user(
     if let Some(user) = state.wdb.get_user(auth.user_id as u64).await? {
         let (username, _handle, created_at_ms) = wdb_user_to_response(&user);
         let is_owner = *state.owner_user_id.read().await == Some(auth.user_id);
+        let is_bot = state.is_bot_user(auth.user_id as u64).await;
         Ok(Json(UserResponse {
             user_id: auth.user_id,
             username,
@@ -80,6 +85,7 @@ async fn get_current_user(
             // back to handle/display_name.
             email: None,
             is_guest: auth.is_guest,
+            is_bot,
             created_at: created_at_ms,
             is_owner,
         }))
@@ -89,6 +95,7 @@ async fn get_current_user(
             username: auth.username,
             email: None,
             is_guest: auth.is_guest,
+            is_bot: false,
             created_at: 0,
             is_owner: false,
         }))
@@ -149,6 +156,7 @@ async fn get_user_profile(
 ) -> Result<Json<PublicUserProfileResponse>> {
     if let Some(user) = state.wdb.get_user(id as u64).await? {
         let (username, _handle, created_at_ms) = wdb_user_to_response(&user);
+        let is_bot = state.is_bot_user(id as u64).await;
         Ok(Json(PublicUserProfileResponse {
             user_id: id,
             username,
@@ -158,6 +166,7 @@ async fn get_user_profile(
             display_name: None,
             avatar_url: None,
             status_message: None,
+            is_bot,
             created_at: created_at_ms,
         }))
     } else {

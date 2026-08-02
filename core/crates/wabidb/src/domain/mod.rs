@@ -20,6 +20,10 @@ pub struct User {
     pub password_hash: String,
     pub is_registered: bool,
     pub is_active: bool,
+    /// True when this is a bot service account (opaque-token auth, no password).
+    /// Orthogonal to RBAC roles — `highestRole` is unaffected.
+    #[serde(default)]
+    pub is_bot: bool,
     pub created_at_micros: i64,
     pub last_seen_micros: i64,
     pub profile_picture: Option<String>,
@@ -43,6 +47,7 @@ impl User {
             password_hash: password_hash.into(),
             is_registered: true,
             is_active: true,
+            is_bot: false,
             created_at_micros: now,
             last_seen_micros: now,
             profile_picture: None,
@@ -759,6 +764,7 @@ mod tests {
         assert_eq!(u.username, "alice");
         assert!(u.is_registered);
         assert!(u.is_active);
+        assert!(!u.is_bot);
         assert!(u.created_at_micros > 0);
     }
 

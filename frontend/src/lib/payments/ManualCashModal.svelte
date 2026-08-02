@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import BaseModal from '../components/BaseModal.svelte';
+	import { brandName } from '$lib/branding';
 	import { getAuthToken } from '$lib/authSession';
 	import {
 		cancelManualCashSettlement,
@@ -160,7 +161,7 @@
 	<div slot="header" class="sheet-header">
 		<h2>Manual Cash Trade</h2>
 		<p>
-			Trust-based cash tracking for <strong>{targetLabel}</strong>. Wabi cannot verify physical exchange. Only mark it
+			Trust-based cash tracking for <strong>{targetLabel}</strong>. {brandName} cannot verify physical exchange. Only mark it
 			complete after cash changed hands.
 		</p>
 	</div>

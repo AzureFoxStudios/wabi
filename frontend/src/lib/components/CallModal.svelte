@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { socket, getSocket, users, currentUser, currentChannel } from '$lib/socket';
+	import { brandName } from '$lib/branding';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
 		incomingCall,
@@ -383,7 +384,7 @@
 		await answerCall($socket, $incomingCall.userId, $incomingCall.isVideoCall, {
 			channelId: $incomingCall.channelId,
 			channelName: $incomingCall.channelName,
-			localDisplayName: $currentUser?.username || 'Wabi User'
+			localDisplayName: $currentUser?.username || `${brandName} User`
 		});
 	}
 

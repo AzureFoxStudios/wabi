@@ -5,6 +5,7 @@
 		setHideMutedCategoriesEnabled, setReadAllNotificationsButtonEnabled,
 		setServerCounterEnabled
 	} from '$lib/displayEnhancements';
+	import { brandName } from '$lib/branding';
 	import { activeServerSettings, clearServerMutedChannelIds } from '$lib/serverSettings';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
 	import type { AddonSectionId } from '../addonSettingsRegistry';
@@ -79,7 +80,7 @@
 			<div class="setting-item-full">
 				<div class="setting-info">
 					<span class="setting-label">HideMutedCategories</span>
-					<span class="setting-description">Wabi translation: hide locally muted channels from the sidebar channel list.</span>
+					<span class="setting-description">{brandName} translation: hide locally muted channels from the sidebar channel list.</span>
 				</div>
 				<div class="runtime-note">Locally muted channels: {mutedChannelCount}</div>
 				<div class="settings-row-actions">
@@ -124,7 +125,7 @@
 		{#if localAddonControlMatches('better_nsfw_tag')}
 			<div class="setting-item-full">
 				<div class="setting-info">
-					<span class="setting-label">BetterNsfwTag (Wabi translation)</span>
+					<span class="setting-label">BetterNsfwTag ({brandName} translation)</span>
 					<span class="setting-description">Highlight NSFW-like channels in the sidebar with a high-visibility warning tag.</span>
 				</div>
 				<div class="settings-row-actions">

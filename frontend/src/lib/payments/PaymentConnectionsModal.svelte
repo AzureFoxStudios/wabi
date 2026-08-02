@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import BaseModal from '../components/BaseModal.svelte';
+	import { brandName } from '$lib/branding';
 	import { getAuthToken } from '$lib/authSession';
 	import {
 		deletePaymentAccountLink,
@@ -174,7 +175,7 @@
 		if (isBitcoinProvider(provider)) {
 			return 'For personal Bitcoin QR requests, save your own Bitcoin address here. Server donations use the server donation Bitcoin address separately.';
 		}
-		return 'Optional. If you leave the advanced account field blank in a payment request, Wabi reuses this saved reference for this provider.';
+		return `Optional. If you leave the advanced account field blank in a payment request, ${brandName} reuses this saved reference for this provider.`;
 	}
 
 	async function loadProviders(): Promise<void> {
@@ -274,7 +275,7 @@
 <BaseModal isOpen={isOpen} onClose={onClose} width="760px" {overlayZIndex}>
 	<div slot="header" class="sheet-header">
 		<h2>Saved Payment References</h2>
-		<p>Providers appear here automatically when the backend has an active payment plugin. Save a non-sensitive payment reference only when you want Wabi to reuse it for that provider.</p>
+		<p>Providers appear here automatically when the backend has an active payment plugin. Save a non-sensitive payment reference only when you want {brandName} to reuse it for that provider.</p>
 	</div>
 
 	<div class="sheet-body">

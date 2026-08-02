@@ -125,6 +125,14 @@
 	--font-size-2xl: 1.5rem;     /* 24px */
 	--font-size-3xl: 2rem;       /* 32px */
 
+	/* --text-* aliases (re-homed from src/app.css, which is unimported) */
+	--text-xs: calc(var(--font-size-xs) * var(--app-font-scale));      /* 11px */
+	--text-sm: calc(var(--font-size-sm) * var(--app-font-scale));      /* 13px */
+	--text-base: calc(var(--font-size-base) * var(--app-font-scale));  /* 14px */
+	--text-lg: calc(var(--font-size-lg) * var(--app-font-scale));      /* 16px */
+	--text-xl: calc(var(--font-size-xl) * var(--app-font-scale));      /* 20px */
+	--text-2xl: calc(var(--font-size-2xl) * var(--app-font-scale));    /* 24px */
+
 	--font-weight-light: 300;
 	--font-weight-regular: 400;
 	--font-weight-medium: 500;
@@ -327,4 +335,41 @@
 	--icon-sm: 16px;
 	--icon-md: 20px;
 	--icon-lg: 24px;
+
+	/* ========================================================================
+	   MISSING-TOKEN PATCH (defined here so they resolve at runtime; legacy block
+	   order ensures they win over the earlier semantic definitions)
+	   ======================================================================== */
+
+	/* Status hover variants (undefined → no hover before) */
+	--color-info-hover: color-mix(in srgb, var(--color-info, #3b82f6) 85%, #ffffff);
+	--color-success-hover: color-mix(in srgb, var(--color-success, #22c55e) 85%, #ffffff);
+	--color-danger-hover: color-mix(in srgb, var(--color-danger, #ef4444) 85%, #ffffff);
+	--color-warning-hover: color-mix(in srgb, var(--color-warning, #f59e0b) 85%, #ffffff);
+
+	/* Warning surfaces used by pinned messages + deletion timers */
+	--bg-warning: rgba(var(--color-warning-rgb, 245, 158, 11), 0.12);
+	--bg-warning-light: rgba(var(--color-warning-rgb, 245, 158, 11), 0.18);
+	--border-warning: rgba(var(--color-warning-rgb, 245, 158, 11), 0.28);
+
+	/* Modal text */
+	--modal-text-secondary: var(--text-secondary, #b3b3ff);
+	--modal-text-muted: var(--text-muted, #9999ff);
+
+	/* Pinned message surfaces */
+	--pinned-bg: var(--surface-base, #24243e);
+	--pinned-border: color-mix(in srgb, var(--accent-primary-color, #6366f1) 22%, transparent);
+	--pinned-text-dark: var(--bg-sunken, #0f0c29);
+
+	/* Glass/overlay helpers */
+	--color-glass-black-25: rgba(0, 0, 0, 0.25);
+
+	/* Accent stat/role colors (admin overview, notes, status dots) */
+	--accent-blue: #3498db;
+	--accent-green: #4a9e5c;
+	--accent-purple: #9b59b6;
+	--accent-red: #d71921;
+
+	/* DM-hub / settings accent border (was undefined → silent no-op) */
+	--accent-color: var(--accent-primary-color, #6366f1);
 }

@@ -1,13 +1,14 @@
 <script lang="ts">
 	import FloatingPanel from './FloatingPanel.svelte';
 	import FloatingPanelGhost from './FloatingPanelGhost.svelte';
+	import { brandName } from '$lib/branding';
 	import { ghostRect, ghostVisible, panels } from '$lib/windowing/floatingPanelStore';
 	import type { FloatingPanelState } from '$lib/windowing/types';
 
 	function describePanel(panel: FloatingPanelState): string {
 		if (panel.kind === 'channel-chat') {
 			const name = panel.payload.channelName || panel.payload.channelId || 'channel';
-			return `This is Wabi's in-webview sub-window shell for #${name}. Full channel chat embedding is the next windowing task; this shell proves open, drag, resize, snap, restore, and close behavior without faking message state.`;
+			return `This is ${brandName}'s in-webview sub-window shell for #${name}. Full channel chat embedding is the next windowing task; this shell proves open, drag, resize, snap, restore, and close behavior without faking message state.`;
 		}
 		if (panel.kind === 'server-map') return 'Server map floating panel shell.';
 		return 'Workspace floating panel shell.';

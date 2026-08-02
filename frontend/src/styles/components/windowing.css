@@ -1,7 +1,7 @@
 .floating-panel-layer {
 	position: fixed;
 	inset: 0;
-	z-index: 1100;
+	z-index: var(--z-popout, 1200);
 	pointer-events: none;
 }
 
@@ -12,7 +12,7 @@
 	min-width: 320px;
 	min-height: 240px;
 	max-width: calc(100vw - 16px);
-	max-height: calc(100vh - 16px);
+	max-height: calc(100dvh - 16px);
 	background: color-mix(in srgb, var(--surface-app, #1a1a2e) 92%, black 8%);
 	border: 1px solid color-mix(in srgb, var(--border-subtle, #302b63) 72%, var(--accent-primary, #6366f1) 28%);
 	border-radius: 16px;
@@ -198,7 +198,7 @@
 
 .floating-panel-ghost {
 	position: fixed;
-	z-index: 1099;
+	z-index: var(--z-overlay, 1000);
 	border: 2px dashed color-mix(in srgb, var(--accent-primary, #6366f1) 70%, transparent);
 	border-radius: 14px;
 	background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent);

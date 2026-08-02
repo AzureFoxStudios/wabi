@@ -1,5 +1,6 @@
 import type { User } from '$lib/socket';
 import { get } from 'svelte/store';
+import { brandName } from './branding';
 import { currentUser, updateProfile } from './socket';
 import {
 	getLocalWabiAccountByKey,
@@ -94,7 +95,7 @@ export async function applyLocalWabiProfileImport(
 			success: false,
 			importedFields: [],
 			skippedFields: [],
-			errors: ['No valid local Wabi account is available to import from.']
+			errors: [`No valid local ${brandName} account is available to import from.`]
 		};
 	}
 

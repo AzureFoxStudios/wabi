@@ -4,6 +4,7 @@
  */
 
 import { get } from 'svelte/store';
+import { brandName } from './branding';
 import { audioProcessingRuntimeStatus } from './callingStateStores';
 import {
 	CAMERA_CONSTRAINTS,
@@ -240,7 +241,7 @@ export function assertMediaDevicesAvailable(kind: 'microphone' | 'camera' | 'med
 			? `This page is not a secure context (${host}). Browsers hide the microphone/camera API on plain HTTP LAN URLs.`
 			: 'navigator.mediaDevices is unavailable in this browser.';
 		throw new Error(
-			`${reason} Open Wabi via http://127.0.0.1:5173 or https://… to use ${kind}/calls. ` +
+			`${reason} Open ${brandName} via http://127.0.0.1:5173 or https://… to use ${kind}/calls. ` +
 				`Do not use http://192.168.x.x or http://100.x.x.x without HTTPS.`
 		);
 	}

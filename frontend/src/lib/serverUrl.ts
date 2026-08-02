@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
+import { brandConfig } from '$lib/branding';
 
 const PERSISTED_URL_KEY = 'wabi.serverUrl';
 const PERSISTED_REMEMBER_KEY = 'wabi.serverUrlRemember';
@@ -100,7 +101,7 @@ export function getConfiguredServerRememberPreference(): boolean {
 export function setConfiguredServerUrl(value: string, remember: boolean): string {
 	const normalized = normalizeServerUrl(migrateLegacyLocalPort(value));
 	if (!normalized) {
-		throw new Error('Enter a valid domain, for example wabi.chat or https://staging.wabi.chat');
+		throw new Error(`Enter a valid domain, for example ${brandConfig.domain} or https://staging.${brandConfig.domain}`);
 	}
 
 	if (browser) {
@@ -192,7 +193,7 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 		if (import.meta.env.DEV) {
 			return { url: `${protocol}//${hostname}:3000`, source: 'dev_tauri' };
 		}
-		return { url: 'https://wabi.chat', source: 'prod_tauri' };
+		return { url: `https://${brandConfig.domain}`, source: 'prod_tauri' };
 	}
 
 	// 3. Vite dev server — use the page's hostname with backend port 3001

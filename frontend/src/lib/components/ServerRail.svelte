@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
+	import { brandName } from '$lib/branding';
 	import { centerPanelView } from '$lib/layoutStoreStates';
 	import { followUnreadCountsByServer } from '$lib/followingSnapshots';
 	import {
@@ -209,10 +210,10 @@
 		<button
 			type="button"
 			class="rail-home"
-			title="Wabi — open server switcher"
+			title="{brandName} — open server switcher"
 			on:click={() => dispatch('manage')}
 		>
-			<img src="/wabi-logo-small.webp" alt="Wabi" class="server-avatar-image server-avatar-image--logo" />
+			<img src="/wabi-logo-small.webp" alt={brandName} class="server-avatar-image server-avatar-image--logo" />
 		</button>
 
 		{#if !mobile}

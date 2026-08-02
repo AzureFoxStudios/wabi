@@ -1,3 +1,5 @@
+import { brandName } from '$lib/branding';
+
 export interface Command {
 	name: string;
 	description: string;
@@ -99,7 +101,7 @@ export const COMMANDS: Command[] = [
 	},
 	{
 		name: 'mainchat',
-		description: 'Return to the main Wabi Chat',
+		description: `Return to the main ${brandName} Chat`,
 		usage: '/mainchat',
 		aliases: ['main', 'chat', 'home'],
 		execute: (args, flags) => {

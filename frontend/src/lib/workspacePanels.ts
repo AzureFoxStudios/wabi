@@ -1,4 +1,5 @@
 import { derived, get, writable } from 'svelte/store';
+import { brandName } from '$lib/branding';
 import type { User } from '$lib/socket-types';
 import {
 	DEFAULT_WORKSPACE_PANEL_IDS,
@@ -278,7 +279,7 @@ export function coercePluginWorkspacePanels(plugin: WorkspacePanelPluginRecord):
 				source: 'addon',
 				fallbackBehavior: declaration.fallbackBehavior || {
 					title: `${label} is not available in this build`,
-					message: 'The add-on declared a workspace panel, but Wabi does not have a trusted frontend component for it yet.'
+					message: `The add-on declared a workspace panel, but ${brandName} does not have a trusted frontend component for it yet.`
 				},
 				sortOrder: declaration.sortOrder ?? 300 + index
 			};

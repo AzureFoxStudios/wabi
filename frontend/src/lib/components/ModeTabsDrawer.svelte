@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { channelUnreadCounts, channels, currentChannel, joinChannel, joinVoiceChannel } from '$lib/socket';
+	import { brandName } from '$lib/branding';
 	import { mobileTabQueue, type MobileQueueTab } from '$lib/mobileTabQueue';
 	import { currentSavedServer, savedServers, switchToSavedServerChannel } from '$lib/savedServers';
 	import { allServerFollowedChannels, getCurrentFollowServerUrl, unfollowChannel } from '$lib/following';
@@ -17,7 +18,7 @@
 	$: serverScopedChannels = $channels.filter(isServerScopedChannel);
 	$: channelById = new Map(serverScopedChannels.map((channel) => [channel.id, channel] as const));
 	$: serverIconUrl = $currentSavedServer?.effectiveIconUrl || null;
-	$: serverIconLabel = ($currentSavedServer?.effectiveName || 'Wabi').trim().charAt(0).toUpperCase() || 'W';
+	$: serverIconLabel = ($currentSavedServer?.effectiveName || brandName).trim().charAt(0).toUpperCase() || 'W';
 	$: activeFollowServerUrl = getCurrentFollowServerUrl();
 	$: snapshotByKey = new Map($followedChannelSnapshots.map((snapshot) => [`${snapshot.serverUrl}::${snapshot.channelId}`, snapshot] as const));
 	$: followedServerGroups = (buildFollowedServerGroups as any)($allServerFollowedChannels, $savedServers, snapshotByKey, activeFollowServerUrl, $currentSavedServer, channelById, $channelUnreadCounts, $currentChannel);

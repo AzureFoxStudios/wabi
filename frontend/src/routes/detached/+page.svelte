@@ -9,6 +9,7 @@
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
 	import { startTimedThemeModeScheduler } from '$lib/timedThemeMode';
 	import { readDetachedPanelState } from '$lib/detachedPanels';
+	import { brandName } from '$lib/branding';
 	import { canAccessWorkspacePanel, getWorkspacePanelManifest } from '$lib/workspacePanels';
 	import { currentUser } from '$lib/socket';
 	import { isDesktopTauri } from '$lib/tauri-platform';
@@ -35,6 +36,8 @@
 			bootError = 'Invalid detached panel request.';
 			return;
 		}
+
+		document.title = brandName;
 
 		const username = getStoredUsername();
 		const token = getAuthToken() || undefined;

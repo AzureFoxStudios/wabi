@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { setConfiguredServerUrl } from '$lib/serverUrl';
+	import { brandConfig, brandName } from '$lib/branding';
 
 	export let serverDomain = '';
 	export let rememberServer = true;
@@ -25,14 +26,14 @@
 
 <div class="connection-box">
 	<p class="connection-kicker">Server connection</p>
-	<h3>Connect to a Wabi domain</h3>
+	<h3>Connect to a {brandName} domain</h3>
 	<p class="connection-copy">Point this client at your self-hosted server. You can change it later from the login screen.</p>
 	<label class="connection-field">
 		<span>Domain or URL</span>
 		<input
 			type="text"
 			bind:value={serverDomain}
-			placeholder="wabi.chat or https://staging.wabi.chat"
+			placeholder="{brandConfig.domain} or https://staging.{brandConfig.domain}"
 			use:focusOnMount
 			disabled={loading}
 		/>

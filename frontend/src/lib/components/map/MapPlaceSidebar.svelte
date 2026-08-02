@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { brandName } from '$lib/branding';
 	import { placeRegistryLoading } from '$lib/placeRegistry';
 	import type { PlaceRecord } from '$lib/placeRegistry';
 	import { resolvePlaceAssetUrl } from '$lib/placeRegistry';
@@ -34,7 +35,7 @@
 	<div class="map-sidebar-header">
 		<div>
 			<h2>Server Map</h2>
-			<p>Places shared by this Wabi server.</p>
+			<p>Places shared by this {brandName} server.</p>
 		</div>
 		<button class="ghost-button" type="button" on:click={() => dispatch('refresh')} disabled={loading || $placeRegistryLoading}>
 			{loading || $placeRegistryLoading ? 'Refreshing...' : 'Refresh'}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
+	import { brandName } from '$lib/branding';
 
 	const isDevBuild = import.meta.env.DEV;
 	const MEMORY_TELEMETRY_KEY = 'wabi_debug_memory_telemetry';
@@ -58,7 +59,7 @@
 <div class="settings-section">
 	<h3>{$_('settings.sections.about')}</h3>
 	<div class="about-info">
-		<p><strong>Wabi Chat</strong></p>
+		<p><strong>{brandName} Chat</strong></p>
 		<p>Privacy-first ephemeral chat. No tracking. No data collection.</p>
 		<p>Server stores nothing permanently. You control your data.</p>
 		<p class="version">Version 1.0.0</p>

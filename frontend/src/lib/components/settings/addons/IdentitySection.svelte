@@ -5,6 +5,7 @@
 		setUserNotesEnabled, setRemoveNicknamesEnabled, setLocalNicknamesEnabled,
 		setStaffTagEnabled, setTopRoleEverywhereEnabled
 	} from '$lib/displayEnhancements';
+	import { brandName } from '$lib/branding';
 	import { clearAllLocalNicknames, localNicknamesStore } from '$lib/localNicknames';
 	import {
 		MAX_CUSTOM_STATUS_PRESETS, addCustomStatusPreset, customStatusPresetsStore,
@@ -146,7 +147,7 @@
 		{#if localAddonControlMatches('custom_status_presets')}
 			<div class="setting-item-full">
 				<div class="setting-info">
-					<span class="setting-label">CustomStatusPresets (Wabi translation)</span>
+					<span class="setting-label">CustomStatusPresets ({brandName} translation)</span>
 					<span class="setting-description">Save reusable presence presets and apply them directly from the sidebar status menu.</span>
 				</div>
 				<div class="settings-row-actions">
@@ -297,7 +298,7 @@
 		{#if localAddonControlMatches('local_nicknames')}
 			<div class="setting-item-full">
 				<div class="setting-info">
-					<span class="setting-label">LocalNicknames (Wabi translation)</span>
+					<span class="setting-label">LocalNicknames ({brandName} translation)</span>
 					<span class="setting-description">Set private per-user nicknames that only appear on this device in chat headers, popouts, and the user list.</span>
 				</div>
 				<div class="runtime-note">Local nicknames saved: {localNicknameCount}</div>

@@ -13,6 +13,7 @@ use wabidb::engine::wabi_store::WabiStore;
 use crate::api::upload::UploadState;
 use crate::blacklist::BlacklistManager;
 use crate::blobs::BlobRegistry;
+use crate::bot_registry::BotRegistry;
 use crate::config::ServerConfig;
 use crate::jobs::JobQueue;
 use crate::nodes::NodeRegistry;
@@ -64,6 +65,8 @@ pub struct AppState {
     pub job_queue: JobQueue,
     /// Content-addressed blob registry
     pub blob_registry: BlobRegistry,
+    /// Bot account registry (opaque-token lifecycle: create/rotate/disable)
+    pub bot_registry: BotRegistry,
     /// Ownership registry for files under `/uploads/` (ops metadata, not authz)
     pub upload_registry: UploadRegistry,
     /// Media room routing registry (voice/video assignment to helper nodes)
@@ -153,6 +156,7 @@ impl AppState {
         let job_queue =
             JobQueue::new_persistent(PathBuf::from(&config.data_dir).join("job_queue.json"));
         let blob_registry = BlobRegistry::new_persistent(PathBuf::from(&config.data_dir));
+        let bot_registry = BotRegistry::new_persistent(PathBuf::from(&config.data_dir));
         let upload_registry = UploadRegistry::new_persistent(PathBuf::from(&config.data_dir));
         let media_registry =
             crate::media::MediaRoomRegistry::new_persistent(PathBuf::from(&config.data_dir));
@@ -225,6 +229,7 @@ impl AppState {
             node_registry,
             job_queue,
             blob_registry,
+            bot_registry,
             upload_registry,
             media_registry,
             sio_broadcast_tx,
@@ -364,6 +369,11 @@ impl AppState {
             Some(owner) => owner == user_id,
             None => false,
         }
+    }
+
+    /// Returns true if `user_id` is a registered bot account.
+    pub async fn is_bot_user(&self, user_id: u64) -> bool {
+        self.bot_registry.is_bot(user_id).await
     }
 
     /// Returns true if the user holds `role` (or a higher role) in the

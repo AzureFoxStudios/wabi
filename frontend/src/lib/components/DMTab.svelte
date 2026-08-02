@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { channels, channelMessages, currentUser, users, serverMembers, createDM, deleteDM, leaveGroup, socket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
+	import { brandName } from '$lib/branding';
 	import { NOTES_DM_ID } from '$lib/layoutStore';
 	import { startCall, startGroupCall, type GroupCallRingingTarget } from '$lib/calling';
 	import { longpress } from '$lib/actions/longpress';
@@ -199,7 +200,7 @@
 			}
 
 			await startGroupCall($socket, channel.id, channel.name || 'Group', withVideo, {
-				localDisplayName: $currentUser?.username || 'Wabi User',
+				localDisplayName: $currentUser?.username || `${brandName} User`,
 				invitees: Array.from(invitees.values())
 			});
 		} catch (error) {

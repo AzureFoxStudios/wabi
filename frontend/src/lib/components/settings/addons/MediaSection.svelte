@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { emojis } from '$lib/socket';
+	import { brandName } from '$lib/branding';
 	import type { Emoji } from '$lib/socket';
 	import { displayEnhancementSettingsStore, setEmojiStatisticsEnabled, setSpotifyControlsEnabled } from '$lib/displayEnhancements';
 	import { getReverseImageSearchProvider, setReverseImageSearchProvider, type ReverseImageSearchProvider } from '$lib/imageUtilities';
@@ -231,7 +232,7 @@
 		{#if localAddonControlMatches('spotify_controls')}
 			<div class="setting-item-full">
 				<div class="setting-info">
-					<span class="setting-label">SpotifyControls (Wabi translation)</span>
+					<span class="setting-label">SpotifyControls ({brandName} translation)</span>
 					<span class="setting-description">Render playable Spotify mini-controls for Spotify track/album/playlist links directly in chat.</span>
 				</div>
 				<div class="settings-row-actions">
@@ -335,7 +336,7 @@
 					</button>
 				</div>
 				{#if quickReactionCustomEmojiEntries.length === 0}
-					<div class="runtime-note">No custom quick reactions configured. Wabi will fall back to smart defaults.</div>
+					<div class="runtime-note">No custom quick reactions configured. {brandName} will fall back to smart defaults.</div>
 				{:else}
 					<div class="quick-reaction-settings-list">
 						{#each quickReactionCustomEmojiEntries as emoji (emoji.id)}

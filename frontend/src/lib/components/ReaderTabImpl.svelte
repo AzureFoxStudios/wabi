@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { browser } from '$app/environment';
+	import { brandName } from '$lib/branding';
 	import '$lib/prism-theme.css';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { READER_ADDON_ID } from '$lib/readerWorkspace';
@@ -534,7 +535,7 @@
 						<button class="reader-action-btn primary" type="button" on:click={openFilePicker}>Open File</button>
 						<button class="reader-action-btn" type="button" on:click={openImagePicker}>Open Images</button>
 						<button class="reader-action-btn" type="button" on:click={() => openImportPanel('markdown')}>Paste Markdown</button>
-						<button class="reader-action-btn subtle" type="button" on:click={() => openReaderDocument('Reader Welcome', '# Reader Mode\n\nWabi now has a dedicated long-form reading surface.\n\nUse it for essays, books, issue drafts, and documentation.\n\n## Suggested next steps\n\n- Import a `.md`, `.txt`, or `.html` file\n- Adjust width and typography\n- Re-open recent documents from the toolbar\n- Import images for manga/comic viewing\n', 'markdown', 'generated')}>
+						<button class="reader-action-btn subtle" type="button" on:click={() => openReaderDocument('Reader Welcome', `# Reader Mode\n\n${brandName} now has a dedicated long-form reading surface.\n\nUse it for essays, books, issue drafts, and documentation.\n\n## Suggested next steps\n\n- Import a \`.md\`, \`.txt\`, or \`.html\` file\n- Adjust width and typography\n- Re-open recent documents from the toolbar\n- Import images for manga/comic viewing\n`, 'markdown', 'generated')}>
 							Load Sample
 						</button>
 					</div>

@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { brandName } from './branding';
 import { socket, connected, connectionState } from './socketConnectionState';
 import type { Channel, Message, User } from './socket-types';
 
@@ -179,7 +180,7 @@ function createSeedMessages(now: number, username: string): Record<string, Messa
 		general: [
 			{
 				id: 'local-welcome-1',
-				user: 'Wabi Local',
+				user: `${brandName} Local`,
 				userId: 'system',
 				senderStableId: 'system',
 				color: '#98D8C8',

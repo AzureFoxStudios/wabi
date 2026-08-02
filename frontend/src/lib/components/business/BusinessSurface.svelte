@@ -2,6 +2,7 @@
 	import { onMount, createEventDispatcher } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { browser } from '$app/environment';
+	import { brandName } from '$lib/branding';
 	import '$lib/business/theme.css';
 	import {
 		todos,
@@ -196,7 +197,7 @@
 		<article class="biz-control-card biz-control-card--hero">
 			<div class="biz-card-topline">
 				<span>LOCAL · BUSINESS HUB</span>
-				<span>WABI · OWNER SPACE</span>
+				<span>{brandName.toUpperCase()} · OWNER SPACE</span>
 			</div>
 			<div class="biz-hero-metric">
 				<span class="biz-hero-number">{quickStats.todayCount}</span>

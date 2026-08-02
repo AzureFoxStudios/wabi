@@ -1,5 +1,6 @@
 import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
+import { brandName } from './branding';
 import { showToast } from './toast';
 import { disconnectWabidbCall, connectWabidbCall } from './callingWabidb';
 import {
@@ -1016,8 +1017,8 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 
 export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	if (!socket.connected) {
-		callOfflineNotice.set('No connection to server. Calls require an active connection to the Wabi server.');
-		throw new Error('No connection to server. Calls require an active connection to the Wabi server.');
+		callOfflineNotice.set('No connection to server. Calls require an active connection to the ${brandName} server.');
+		throw new Error('No connection to server. Calls require an active connection to the ${brandName} server.');
 	}
 
 	if (activeVoiceChannelId === channelId) {
@@ -1051,7 +1052,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		startPerformanceGuard();
 		initStorefwdDeps(socket);
 		if (activeTransport === 'sfu') {
-			await connectLivekitSfu(channelId, 'Wabi User');
+			await connectLivekitSfu(channelId, `${brandName} User`);
 		}
 		if (activeTransport === 'storefwd') {
 			// Storefwd is passive — no connection setup, just subscribe
@@ -1062,7 +1063,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			// Default transport: wabidb/socket.io opus relay. Guarded so a
 			// relay failure doesn't abort the whole channel join.
 			try {
-				await connectWabidbCall(socket, channelId, 'Wabi User');
+				await connectWabidbCall(socket, channelId, `${brandName} User`);
 			} catch (wabidbErr) {
 				console.error('[Calling] wabiDB voice connection failed:', wabidbErr);
 			}
@@ -1181,8 +1182,8 @@ export async function startCall(
 ) {
 	try {
 		if (!socket.connected) {
-			callOfflineNotice.set('No connection to server. Calls require an active connection to the Wabi server.');
-			throw new Error('No connection to server. Calls require an active connection to the Wabi server.');
+			callOfflineNotice.set('No connection to server. Calls require an active connection to the ${brandName} server.');
+			throw new Error('No connection to server. Calls require an active connection to the ${brandName} server.');
 		}
 
 		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
@@ -1291,14 +1292,14 @@ async function enterEstablishedGroupCall(
 
 	const activeTransport = await resolveActiveTransport(channelId);
 	if (activeTransport === 'sfu') {
-		await connectLivekitSfu(channelId, localDisplayName || 'Wabi User');
+		await connectLivekitSfu(channelId, localDisplayName || `${brandName} User`);
 	} else if (activeTransport === 'wabidb' && options.socket) {
 		try {
-			await connectWabidbCall(options.socket, channelId, localDisplayName || 'Wabi User');
+			await connectWabidbCall(options.socket, channelId, localDisplayName || `${brandName} User`);
 		} catch (error) {
 			console.warn('[Calling] wabiDB connection failed, attempting SFU fallback:', error);
 			try {
-				await connectLivekitSfu(channelId, localDisplayName || 'Wabi User');
+				await connectLivekitSfu(channelId, localDisplayName || `${brandName} User`);
 			} catch (sfuError) {
 				console.error('[Calling] Both wabiDB and SFU failed, will use P2P:', sfuError);
 			}
@@ -1327,8 +1328,8 @@ export async function startGroupCall(
 ) {
 	try {
 		if (!socket.connected) {
-			callOfflineNotice.set('No connection to server. Calls require an active connection to the Wabi server.');
-			throw new Error('No connection to server. Calls require an active connection to the Wabi server.');
+			callOfflineNotice.set('No connection to server. Calls require an active connection to the ${brandName} server.');
+			throw new Error('No connection to server. Calls require an active connection to the ${brandName} server.');
 		}
 
 		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
@@ -1362,7 +1363,7 @@ export async function startGroupCall(
 			isVideoCall,
 			startedAt: Date.now(),
 			scope: 'group',
-			localDisplayName: options.localDisplayName?.trim() || 'Wabi User'
+			localDisplayName: options.localDisplayName?.trim() || `${brandName} User`
 		});
 
 		const useExperimentalWabidb = shouldUseExperimentalWabidbCall('group');
@@ -1448,7 +1449,7 @@ export async function answerCall(
 			await enterEstablishedGroupCall(
 				options.channelId,
 				options.channelName || options.channelId,
-				options.localDisplayName?.trim() || 'Wabi User',
+				options.localDisplayName?.trim() || `${brandName} User`,
 				{ playJoinSound: true, socket }
 			);
 		} else {
@@ -1579,7 +1580,7 @@ export async function handleGroupCallParticipantJoined(
 ): Promise<void> {
 	const pending = get(outgoingCall);
 	const activeGroup = get(activeGroupCall);
-	const localDisplayName = pending?.localDisplayName || 'Wabi User';
+	const localDisplayName = pending?.localDisplayName || `${brandName} User`;
 	const isSameActiveGroup = get(callMode) === 'group' && activeGroup?.id === data.channelId;
 	if (data.stableUserId) {
 		removeGroupCallRingingTarget(data.stableUserId);
@@ -2044,7 +2045,7 @@ function handleMediaError(error: DOMException | Error, action: string) {
 		message.includes('127.0.0.1');
 	if (insecure) {
 		showToast(
-			`Cannot ${action === 'starting' ? 'start' : 'answer'} call: mic/camera API is blocked. Open Wabi at http://127.0.0.1:5173 (or HTTPS), not a plain LAN IP over HTTP.`,
+			`Cannot ${action === 'starting' ? 'start' : 'answer'} call: mic/camera API is blocked. Open ${brandName} at http://127.0.0.1:5173 (or HTTPS), not a plain LAN IP over HTTP.`,
 			'error'
 		);
 		return;

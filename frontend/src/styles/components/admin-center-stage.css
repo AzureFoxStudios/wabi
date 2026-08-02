@@ -5,7 +5,7 @@
   width: 100%;
   background: var(--surface-app, #0d0d1a);
   color: var(--text-primary, #e8e8e8);
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-family: var(--font-sans);
   overflow: hidden;
 }
 
@@ -55,26 +55,26 @@
 
 .admin-role-tag {
   font-size: 9px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(52, 152, 219, 0.15);
-  color: #64b5f6;
-  border: 1px solid rgba(52, 152, 219, 0.3);
+  background: var(--accent-info-soft);
+  color: var(--text-info, #64b5f6);
+  border: 1px solid color-mix(in srgb, var(--color-info) 30%, transparent);
 }
 
 .admin-role-owner {
-  background: rgba(244, 67, 54, 0.15) !important;
-  color: #ff8a80 !important;
-  border-color: rgba(244, 67, 54, 0.3) !important;
+  background: var(--accent-danger-soft) !important;
+  color: var(--text-danger, #ff8a80) !important;
+  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent) !important;
 }
 
 .admin-role-admin {
-  background: rgba(255, 193, 7, 0.15) !important;
-  color: #ffd54f !important;
-  border-color: rgba(255, 193, 7, 0.3) !important;
+  background: var(--accent-warning-soft) !important;
+  color: var(--text-warning, #ffd54f) !important;
+  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent) !important;
 }
 
 .admin-role-label {
@@ -151,13 +151,13 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #4a9e5c;
+  background: var(--color-success, #4a9e5c);
   animation: wabi-admin-pulse-glow 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .admin-footer-text {
   font-size: 9px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-disabled, #666);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -198,7 +198,7 @@
 
 .admin-topbar-badge {
   font-size: 9px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--surface-hover, #222);
@@ -223,13 +223,13 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #4a9e5c;
+  background: var(--color-success, #4a9e5c);
   animation: wabi-admin-pulse-glow 2.4s infinite;
 }
 
 .admin-topbar-stat {
   font-size: 11px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-secondary, #999);
 }
 
@@ -241,7 +241,7 @@
 
 .admin-topbar-clock {
   font-size: 13px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-heading, #fff);
   font-variant-numeric: tabular-nums;
 }
@@ -356,7 +356,7 @@
 
 .admin-stat-label {
   font-size: 10px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.15em;
   color: var(--text-disabled, #666);
@@ -407,7 +407,7 @@
 
 .admin-section-label {
   font-size: 10px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.15em;
   color: var(--text-disabled, #666);
@@ -466,7 +466,7 @@
 
 .admin-ring-label {
   font-size: 9px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-secondary, #999);
@@ -505,7 +505,7 @@
 
 .admin-live-text {
   font-size: 9px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   font-weight: 700;
   color: var(--accent-red, #d71921);
   letter-spacing: 0.1em;
@@ -537,7 +537,7 @@
 
 .admin-activity-action {
   font-size: 9px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   font-weight: 700;
   width: 40px;
   flex: none;
@@ -569,7 +569,7 @@
 
 .admin-activity-time {
   font-size: 9px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-disabled, #666);
   flex: none;
 }
@@ -603,7 +603,7 @@
 
 .admin-role-bar-count {
   font-size: 12px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-secondary, #999);
   width: 60px;
   text-align: right;
@@ -637,7 +637,7 @@
 
 .admin-top-rank {
   font-size: 16px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-disabled, #666);
   width: 24px;
   text-align: center;
@@ -685,19 +685,19 @@
 
 .admin-top-msgs {
   font-size: 10px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-disabled, #666);
 }
 
 .admin-top-xp {
   font-size: 10px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--accent-primary, #6366f1);
 }
 
 /* ─── Role Badge ─────────────────────────────────────────────────── */
 .admin-role-badge {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-radius: 999px;
@@ -754,7 +754,7 @@
   height: 400px;
   color: var(--text-disabled, #666);
   font-size: 14px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   border: 1px dashed var(--border-subtle, #333);
   border-radius: 16px;
 }
@@ -798,8 +798,8 @@
 }
 
 .admin-payment-on .admin-payment-dot {
-  background: #4a9e5c;
-  box-shadow: 0 0 8px rgba(74, 158, 92, 0.6);
+  background: var(--color-success, #4a9e5c);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-success, #4a9e5c) 60%, transparent);
 }
 
 .admin-payment-state {
@@ -815,7 +815,7 @@
 
 .admin-payment-chip {
   font-size: 10px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 4px 10px;
@@ -826,9 +826,9 @@
 }
 
 .admin-payment-chip-on {
-  background: rgba(74, 158, 92, 0.12);
-  border-color: rgba(74, 158, 92, 0.4);
-  color: #81c784;
+  background: color-mix(in srgb, var(--color-success, #4a9e5c) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-success, #4a9e5c) 40%, transparent);
+  color: color-mix(in srgb, var(--color-success, #4a9e5c) 80%, #ffffff);
 }
 
 /* ─── Animations ───────────────────────────────────────────────────
