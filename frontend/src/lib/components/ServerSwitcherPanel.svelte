@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { followUnreadCountsByServer } from '$lib/followingSnapshots';
+	import { brandConfig } from '$lib/branding';
 	import ModeTabsDrawer from './ModeTabsDrawer.svelte';
 	import {
 		currentSavedServer,
@@ -1001,7 +1002,7 @@
 							type="text"
 							bind:this={addServerInput}
 							bind:value={manualServerUrl}
-							placeholder="wabi.chat or https://staging.example.com"
+							placeholder="{brandConfig.domain} or https://staging.example.com"
 							on:keydown={(event) => event.key === 'Enter' && handleOpenManualServer()}
 						/>
 					</label>

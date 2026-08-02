@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { displayEnhancementSettingsStore, setBetterSearchPageEnabled, setGoogleSearchReplaceEnabled } from '$lib/displayEnhancements';
+	import { brandName } from '$lib/branding';
 	import { getSearchEngineProvider, getCustomSearchEngineTemplate, setCustomSearchEngineTemplate, setSearchEngineProvider, type SearchEngineProvider } from '$lib/searchEngineJump';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
 	import type { AddonSectionId } from '../addonSettingsRegistry';
@@ -98,7 +99,7 @@
 		{#if localAddonControlMatches('google_search_replace')}
 			<div class="setting-item-full">
 				<div class="setting-info">
-					<span class="setting-label">GoogleSearchReplace (Wabi translation)</span>
+					<span class="setting-label">GoogleSearchReplace ({brandName} translation)</span>
 					<span class="setting-description">Add a quick "Search on Web" action from the in-chat search bar so users can continue the same query in a browser.</span>
 				</div>
 				<div class="settings-row-actions">

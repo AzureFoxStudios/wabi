@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::error::AppError;
 use crate::state::AppState;
+use wabidb::engine::wabi_store::WabiStore;
 
 /// Header carrying a short-lived step-up token (issued by POST /api/auth/stepup)
 /// that must accompany destructive admin operations.
@@ -38,6 +39,8 @@ pub struct AuthUser {
     pub username: String,
     pub is_guest: bool,
     pub jti: String,
+    /// True when authenticated with an opaque `Bot <token>` credential.
+    pub is_bot: bool,
 }
 
 impl AuthUser {
@@ -51,6 +54,7 @@ impl AuthUser {
             username: claims.username,
             is_guest: claims.is_guest,
             jti: claims.jti,
+            is_bot: false,
         })
     }
 }
@@ -68,6 +72,34 @@ async fn decode_token(token: &str, jwt_secret: &str) -> Result<JwtClaims, AppErr
     decode::<JwtClaims>(token, &key, &validation)
         .map(|data| data.claims)
         .map_err(|e| AppError::Unauthorized(format!("invalid token: {}", e)))
+}
+
+/// Resolve a `Bot <opaque-token>` credential against the bot registry and
+/// build the corresponding `AuthUser`. Returns Ok(None) for unknown/disabled
+/// tokens, Err when the bot account row cannot be loaded.
+async fn bot_auth_user(
+    app_state: &AppState,
+    token: &str,
+) -> Result<Option<AuthUser>, AppError> {
+    let Some(bot_user_id) = app_state.bot_registry.authenticate(token).await else {
+        return Ok(None);
+    };
+    let username = match app_state.wdb.get_user(bot_user_id).await {
+        Ok(Some(user)) => user.username,
+        Ok(None) => return Ok(None),
+        Err(e) => {
+            return Err(AppError::Internal(format!(
+                "failed to load bot user {bot_user_id}: {e}"
+            )));
+        }
+    };
+    Ok(Some(AuthUser {
+        user_id: bot_user_id as i64,
+        username,
+        is_guest: false,
+        jti: String::new(),
+        is_bot: true,
+    }))
 }
 
 impl<S> FromRequestParts<S> for AuthUser
@@ -93,6 +125,17 @@ where
             .map_err(|_| {
                 AppError::Unauthorized("invalid authorization header".into()).into_response()
             })?;
+
+        // Bot credentials: `Bot <opaque-token>` — resolved against the bot
+        // registry, never a JWT. The token only ever authenticates the bot
+        // account it was minted for.
+        if let Some(bot_token) = auth_header.strip_prefix("Bot ") {
+            return match bot_auth_user(&app_state, bot_token).await {
+                Ok(Some(auth)) => Ok(auth),
+                Ok(None) => Err(AppError::Unauthorized("invalid bot token".into()).into_response()),
+                Err(e) => Err(e.into_response()),
+            };
+        }
 
         let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
             AppError::Unauthorized("missing Bearer prefix".into()).into_response()
@@ -135,6 +178,12 @@ where
         };
 
         let Some(token) = auth_str.strip_prefix("Bearer ") else {
+            // Also accept `Bot <opaque-token>` credentials.
+            if let Some(bot_token) = auth_str.strip_prefix("Bot ") {
+                return Ok(OptionalAuthUser(
+                    bot_auth_user(&app_state, bot_token).await.unwrap_or(None),
+                ));
+            }
             return Ok(OptionalAuthUser(None));
         };
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PaymentAccountLink } from '$lib/api';
+	import { brandName } from '$lib/branding';
 	import { maskReference } from '$lib/payments/paymentSheetHelpers';
 
 	export let selectedAccountLink: PaymentAccountLink | null = null;
@@ -64,7 +65,7 @@
 			<p class="hint">Loading your saved payment references...</p>
 		{:else if selectedAccountLink}
 			<p class="hint">
-				Wabi will reuse
+				{brandName} will reuse
 				<code>{selectedAccountLink.displayLabel || selectedAccountLink.providerAccountRef}</code>
 				for this provider unless you turn on the one-off override below.
 			</p>

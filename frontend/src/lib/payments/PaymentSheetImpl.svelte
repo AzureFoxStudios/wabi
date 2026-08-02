@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import PaymentSheetBody from './PaymentSheetBody.svelte';
+	import { brandName } from '$lib/branding';
 	import { getAuthToken } from '$lib/authSession';
 	import { subscribePaymentRealtimeEvent } from '$lib/payments/paymentRealtime';
 	import {
@@ -554,10 +555,10 @@
 
 	function getMissingDirectReferenceMessage(): string {
 		if (isThaiPromptPayDraft) {
-			return 'Thai PromptPay requests need your own PromptPay number before Wabi can build the QR. Save it in Saved Payment References or enter it as a one-off number.';
+			return `Thai PromptPay requests need your own PromptPay number before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off number.`;
 		}
 		if (isBitcoinQrDraft) {
-			return 'Bitcoin QR requests need your own Bitcoin address before Wabi can build the QR. Save it in Saved Payment References or enter it as a one-off address.';
+			return `Bitcoin QR requests need your own Bitcoin address before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off address.`;
 		}
 		return 'A saved payment reference is required for this request.';
 	}

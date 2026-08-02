@@ -1,10 +1,10 @@
 @media (max-width: 768px) {
 	.app-container {
-		height: calc(100vh - var(--mobile-nav-height));
+		height: calc(100dvh - var(--mobile-nav-height));
 		height: calc(100dvh - var(--mobile-nav-height));
 	}
 	.app-container.in-call {
-		height: 100vh;
+		height: 100dvh;
 		height: 100dvh;
 	}
 	.user-panel-toggle, .resize-handle { display: none; }
@@ -39,7 +39,7 @@
 		top: 0;
 		left: 0;
 		width: 100% !important;
-		height: calc(100vh - var(--mobile-nav-height));
+		height: calc(100dvh - var(--mobile-nav-height));
 		height: calc(100dvh - var(--mobile-nav-height));
 		z-index: var(--z-modal);
 		background: var(--surface-app);
@@ -65,7 +65,7 @@
 		right: 0;
 		left: auto;
 		width: 100%;
-		height: calc(100vh - var(--mobile-nav-height));
+		height: calc(100dvh - var(--mobile-nav-height));
 		height: calc(100dvh - var(--mobile-nav-height));
 		z-index: var(--z-modal);
 		background: var(--surface-app);

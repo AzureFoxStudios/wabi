@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { brandName } from '$lib/branding';
 import { getSocket, joinChannel, joinVoiceChannel } from '$lib/socket';
 import {
 	currentSavedServer,
@@ -48,7 +49,7 @@ export function computeDrawerState(
 	const serverScopedChannels = (channels as any).filter(isServerScopedChannel);
 	const channelById = new Map(serverScopedChannels.map((channel) => [channel.id, channel] as const));
 	const serverIconUrl = currentSavedServer?.effectiveIconUrl || null;
-	const serverIconLabel = (currentSavedServer?.effectiveName || 'Wabi').trim().charAt(0).toUpperCase() || 'W';
+	const serverIconLabel = (currentSavedServer?.effectiveName || brandName).trim().charAt(0).toUpperCase() || 'W';
 	const activeFollowServerUrl = getCurrentFollowServerUrl();
 	const snapshotByKey = new Map(
 		followedSnapshots.map((snapshot) => [`${snapshot.serverUrl}::${snapshot.channelId}`, snapshot] as const)

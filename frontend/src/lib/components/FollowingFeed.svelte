@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { brandName } from '$lib/branding';
 	import { channels, channelMessages, channelUnreadCounts, currentChannel, joinChannel, type Channel } from '$lib/socket';
 	import {
 		FOLLOW_ALERT_LEVEL_LABELS,
@@ -157,7 +158,7 @@
 		<section class="following-stream" aria-label="Recent posts from followed channels">
 			<div class="stream-header">
 				<h2>Recent from all followed servers</h2>
-				<p>Preview snapshots only. Wabi is not loading whole extra communities into RAM for this view.</p>
+				<p>Preview snapshots only. {brandName} is not loading whole extra communities into RAM for this view.</p>
 			</div>
 
 			{#if snapshotFeedItems.length === 0}

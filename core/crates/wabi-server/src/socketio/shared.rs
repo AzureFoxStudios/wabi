@@ -91,6 +91,24 @@ pub struct GroupCallSession {
 #[allow(dead_code)]
 pub type GroupCallSessions = Arc<RwLock<HashMap<String, GroupCallSession>>>;
 
+/// An in-memory breakout room session. WabiDB has no breakout table yet, so
+/// breakout metadata (which voice channels are breakouts, under which parent)
+/// lives here and is lost on server restart. The channels themselves are
+/// persisted to WabiDB as ordinary voice channels.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct BreakoutRoomState {
+    pub id: String,
+    pub name: String,
+    pub parent_channel_id: String,
+    pub breakout_index: u32,
+    pub created_at_micros: i64,
+}
+
+/// parent_channel_id → breakout rooms created under it.
+#[allow(dead_code)]
+pub type BreakoutRooms = Arc<RwLock<HashMap<String, Vec<BreakoutRoomState>>>>;
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct SioState {
@@ -98,6 +116,7 @@ pub struct SioState {
     pub connected_users: ConnectedUsers,
     pub voice_channels: VoiceChannels,
     pub group_call_sessions: GroupCallSessions,
+    pub breakout_rooms: BreakoutRooms,
 }
 
 /// Periodic sweep of stale Socket.IO state. Safety net for on_disconnect

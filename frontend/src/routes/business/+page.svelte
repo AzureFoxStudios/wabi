@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { brandName } from '$lib/branding';
 	import { openPlannerSurface } from '$lib/plannerWorkspace';
 </script>
 
 <svelte:head>
-	<title>Planner · Wabi</title>
+	<title>Planner · {brandName}</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FrontendAppMetadataPolicy } from '$lib/api';
+	import { brandName } from '$lib/branding';
 	import { sanitizeAccentColor } from '$lib/cssSanitize';
 
 	export let frontendAppMetadata: FrontendAppMetadataPolicy;
@@ -234,7 +235,7 @@
 					</div>
 					<div>
 						<strong>{frontendAppMetadata.displayName || 'Client display name preview'}</strong>
-						<span>{frontendAppMetadata.description || 'This controls what the Wabi frontend shows in the rail, header, and switcher.'}</span>
+						<span>{frontendAppMetadata.description || `This controls what the ${brandName} frontend shows in the rail, header, and switcher.`}</span>
 					</div>
 				</div>
 			</div>

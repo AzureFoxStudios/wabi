@@ -7,6 +7,7 @@
 	import { setStoredHomeExperienceMode, type HomeExperienceMode } from '$lib/homeExperience';
 	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl } from '$lib/serverUrl';
+	import { brandName } from '$lib/branding';
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
 	import LoginQRModal from '$lib/components/login/LoginQRModal.svelte';
 	import LoginConnectionPrompt from '$lib/components/login/LoginConnectionPrompt.svelte';
@@ -134,12 +135,12 @@
 
 		<div class="login-box" class:login-box-default={!activeLaunchPageConfig} style={launchCardStyle}>
 			<div class="login-brand-panel">
-				<img src={activeLaunchPageConfig?.logoUrl || '/wabi-logo.webp'} alt={activeLaunchPageConfig?.brandName || 'Wabi'} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} />
+				<img src={activeLaunchPageConfig?.logoUrl || '/wabi-logo.webp'} alt={activeLaunchPageConfig?.brandName || brandName} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} />
 				{#if activeLaunchPageConfig}
 					<h2 class="launch-headline">{activeLaunchPageConfig.headline}</h2>
 					<p class="launch-subheadline">{activeLaunchPageConfig.subheadline}</p>
 				{:else}
-					<h1 class="login-title">Wabi</h1>
+					<h1 class="login-title">{brandName}</h1>
 				{/if}
 			</div>
 
@@ -175,7 +176,7 @@
 					{:else if showHomeExperiencePrompt}
 						<div class="experience-prompt">
 							<h3>Choose your default home view</h3>
-							<p>Pick how Wabi should open by default. You can change this any time in Settings.</p>
+							<p>Pick how {brandName} should open by default. You can change this any time in Settings.</p>
 							<div class="experience-actions">
 								<button type="button" class="auth-btn auth-btn-primary" disabled={loading} on:click={() => completeRegistrationHomeExperience('conversations')}>
 									Conversation-first

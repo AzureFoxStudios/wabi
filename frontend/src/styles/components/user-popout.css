@@ -1,7 +1,7 @@
 	.popout-container {
 		position: fixed;
 		width: min(380px, calc(100vw - 16px));
-		max-height: min(680px, calc(100vh - 16px));
+		max-height: min(680px, calc(100dvh - 16px));
 		background:
 			linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 96%, transparent), color-mix(in srgb, var(--surface-app) 96%, transparent)),
 			var(--surface-base);
@@ -89,7 +89,7 @@
 
 	.popout-body {
 		padding: 12px 18px 18px;
-		max-height: calc(min(680px, 100vh - 16px) - 92px);
+		max-height: calc(min(680px, 100dvh - 16px) - 92px);
 		overflow-y: auto;
 	}
 

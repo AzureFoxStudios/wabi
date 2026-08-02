@@ -4,6 +4,7 @@
  */
 
 import { browser } from '$app/environment';
+import { brandName } from '$lib/branding';
 import type { Message } from '$lib/socket-types';
 import { isDesktopTauri } from '$lib/tauri-platform';
 import { sendTauriDesktopNotification } from '$lib/tauri-notifications';
@@ -180,7 +181,7 @@ export function showNotification(
 	}
 
 	if (!title) {
-		title = fallbackTitle || userPrefix || 'Wabi';
+		title = fallbackTitle || userPrefix || brandName;
 	}
 	if (!body) {
 		body = fallbackBody || 'New activity';

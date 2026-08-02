@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ as t } from '$lib/i18n';
+	import { brandName } from '$lib/branding';
 	import { getAuthToken } from '$lib/authSession';
 	import { saveUserSettings } from '$lib/api';
 	import ThemeCustomizer from '../ThemeCustomizer.svelte';
@@ -257,7 +258,7 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Home View</span>
-			<span class="setting-description">Choose whether Wabi opens focused on conversations or the community panel</span>
+			<span class="setting-description">Choose whether {brandName} opens focused on conversations or the community panel</span>
 		</div>
 		<select class="theme-select" value={homeExperienceMode} on:change={(e) => updateHomeExperienceMode(e.currentTarget.value as HomeExperienceMode)}>
 			<option value="conversations">Conversation-first</option>

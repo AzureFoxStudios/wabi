@@ -4,6 +4,7 @@ pub mod addons;
 pub mod admin;
 pub mod operator;
 pub mod albums;
+pub mod bots;
 pub mod calls;
 pub mod auth;
 pub mod blobs;

@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { brandName } from '$lib/branding';
 import { formatMinorAmount, parseMajorAmountInput } from '$lib/payments/paymentAmounts';
 import {
 	getPaymentAccess,
@@ -81,10 +82,10 @@ export async function savePaymentQrImage(source: string, intentId?: string): Pro
 export async function sharePaymentTarget(target: string, activeIntent: PaymentIntent | null): Promise<PaymentActionResult> {
 	if (!target) return { actionError: 'No payment target is available to share.' };
 
-	const title = 'Wabi payment request';
+	const title = `${brandName} payment request`;
 	const text = activeIntent
 		? `Pay ${formatMinorAmount(activeIntent.amountMinor, activeIntent.currency)}`
-		: 'Wabi payment request';
+		: `${brandName} payment request`;
 
 	if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
 		try {

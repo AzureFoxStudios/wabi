@@ -19,6 +19,7 @@
 	import { get } from 'svelte/store';
 	import { onMount, onDestroy } from 'svelte';
 	import { _ } from '$lib/i18n';
+	import { brandName } from '$lib/branding';
 	import UserPopoutActions from './UserPopoutActions.svelte';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import {
@@ -111,7 +112,7 @@
 		const rows: ConnectionRow[] = [];
 		if (candidate.handle) {
 			rows.push({
-				label: 'Wabi',
+				label: brandName,
 				value: `@${candidate.handle}`
 			});
 		}

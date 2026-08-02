@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { isDesktopTauri } from '$lib/tauri-platform';
+import { brandName } from '$lib/branding';
 
 export type DetachedPanelKind = 'channel-chat' | 'server-map' | 'workspace-panel';
 
@@ -36,15 +37,15 @@ function makeDetachedUrl(state: DetachedPanelState): string {
 
 function makeDetachedTitle(state: DetachedPanelState): string {
 	if (state.kind === 'channel-chat') {
-		return state.channelName ? `Wabi - #${state.channelName}` : 'Wabi - Detached Channel';
+		return state.channelName ? `${brandName} - #${state.channelName}` : `${brandName} - Detached Channel`;
 	}
 	if (state.kind === 'server-map') {
-		return 'Wabi - Map';
+		return `${brandName} - Map`;
 	}
 	if (state.kind === 'workspace-panel') {
-		return state.panelId ? `Wabi - ${state.panelId}` : 'Wabi - Detached Panel';
+		return state.panelId ? `${brandName} - ${state.panelId}` : `${brandName} - Detached Panel`;
 	}
-	return 'Wabi - Detached Panel';
+	return `${brandName} - Detached Panel`;
 }
 
 export async function openDetachedPanel(state: DetachedPanelState): Promise<void> {

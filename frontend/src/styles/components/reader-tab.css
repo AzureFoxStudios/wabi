@@ -481,7 +481,7 @@
 
 	.reader-shell.fullscreen-mode .reader-document-viewport {
 		padding: 0;
-		height: 100vh;
+		height: 100dvh;
 	}
 
 	.reader-shell.fullscreen-mode .reader-document {
@@ -592,7 +592,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 12000;
+		z-index: var(--z-lightbox, 12000);
 		cursor: pointer;
 	}
 

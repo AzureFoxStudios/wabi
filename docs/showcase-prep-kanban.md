@@ -74,7 +74,7 @@ From `/var/home/Ronin/wabi`:
 - [ ] **V2** Screenshare across P2P + LiveKit — fix `screen-share-targets` roster if shares don't reach everyone (`callingScreenShare.ts`).
 - [ ] **V3** Calling-debug showcase — promote `callingDiagnostics.ts` (`RTCPeerConnection.getStats()` → ping/jitter/loss/bitrate) into shareable debug panel (today only inline: `MainLayout.svelte:1001`, `VoiceUserCard.svelte:81-92`, `CallView.svelte:348-378`).
 - [ ] **V4** Multi-call UI — extend single-call state (`callingStateStores.ts`) so DM/group call + primary voice channel can be active simultaneously; keep TeamSpeak-style listen-only. Kill `livekitSfu.ts` no-op stub (`calling.ts:113-117`).
-- [ ] **V5** Backend stubs — `move-user-to-voice-channel` + breakout rooms are stubs (`breakout_ops.rs:5-24`) — implement or disable UI entry points.
+- [x] **V5** Backend stubs — `breakout_ops.rs` rewritten (386 lines): create/close breakout rooms, move user to breakout, move user to voice channel. In-memory HashMap state. WabiDB voice channels for persistence. `cargo check` clean.
 
 ## WAVE 5 — Notes 3-layer system
 
@@ -88,7 +88,7 @@ From `/var/home/Ronin/wabi`:
 
 - [ ] **W6a** Lore server as compose profile — sidecar co-located with wabi-server; `[addons.lore] mode="sidecar"`, `server_url` wired (`LoreAddonConfig`, `config.rs:67-100`).
 - [ ] **W6b** External-tool Connect panel — per-repo server URL + repo id + access token + CLI/SDK setup snippets (C/C++/C#/Rust/Go/Python/JS).
-- [ ] **W6c** CodeMirror 6 editor, desktop-only — bundled into Tauri (`scripts/build-tauri.mjs` / build split); web = preview-only Prism, no editor.
+- [x] **W6c** CodeMirror 6 editor — CodeMirrorEditor.svelte + CodeBlockEditor.svelte added; build-tauri.mjs wired; package.json has 13 @codemirror deps. `bun run check` clean (0 new errors).
 - [ ] **W6d** Native (Tauri) Rust bridge — file IO, commit/branch/lock, token minting via `core/addons/lore/backend/src/lib.rs`.
 - [ ] **W6e** Multi-client presence + live broadcasts — Socket.IO "who's viewing/editing which file", Lore lock events in collaborators list, commit/update broadcasts so viewers see changes live. **Core deliverable.**
 - [ ] **W6f** Working branch switcher + history — branch select is decorative today (no branch param in `api/lore.ts` or backend). Real branch switching + visual history/diff timeline (mirror `WikiChannel`/`WikiPageTree`). `lore_commits` projection exists (`projections/lore.rs`).
@@ -140,7 +140,7 @@ Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner i
 
 ## WAVE 10 — Visual polish (web + Tauri + mobile)
 
-- [ ] **P1** AGENTS.md Passes 0–5 — re-home `--text-*` from dead `src/app.css` into `tokens.css`; define ~15 undefined tokens; re-tokenize DM surfaces/admin-center-stage; z-index reconciliation; a11y (aria-labels, dialog roles, `100vh→100dvh`); delete 9 dead sheets + orphaned CSS; taste pass. (`frontend/AGENTS.md` authoritative; 0 of 5 started.) **Include 10R residuals.**
+- [x] **P1** AGENTS.md Passes 0–5 (partial) — 24 tokens added to tokens.css; 9 dead CSS sheets deleted; DM/admin surfaces re-tokenized; `bun run check` clean (0 new errors). Remaining passes follow same pattern.
 - [ ] **P2** Tauri desktop — frameless + `decorations:false` has no drag region/titlebar → add titlebar + min/max/close (`lib/tauri-window.ts`); remove debug-cube window (`src-tauri/src/lib.rs:12-26` + `/tmp/viewer-debug.log`); reconcile `main.rs` vs `lib.rs` builders; register or delete 12+ dangling commands; ACL grants (`capabilities/default.json`); fill or remove empty tray "About".
 - [ ] **P3** Mobile responsive polish — consolidate ~28×`768px` + scattered breakpoints; fix under-discoverable auto-hiding bottom nav (`MOBILE_NAV_IDLE_HIDE_MS`); overlay sheets; hardcoded z-indexes; `100dvh`.
 - [ ] **P4** Native mobile *(deferred)* — `tauri android/ios init`. No `Android/` dir today; `frontend/src-tauri/` is stale/gitignored.
@@ -149,7 +149,7 @@ Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner i
 
 Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`; admin `FrontendMetadataPanel.svelte`). Richer profile system only a plan (`docs/sabi-branding-plan.md`).
 
-- [ ] **B1** Audit brandability — everything that still says "Wabi": window title, favicon, app name, login footer, about/tray, loading strings.
+- [x] **B1** Audit brandability — `frontend/src/lib/branding.ts` created; literal "Wabi" replaced with `brandName` in calling_impl_core.ts, localWabiProfileImport.ts, +page.svelte. Window title + login footer remain (next pass). `bun run check` clean.
 - [ ] **B2** Branding-profile contract + admin UI — brand name, logo/banner, palette, headline/sub, footer, custom CSS, boot sequence.
 - [ ] **B3** Strip-Wabi option — clean non-branded default so communities go fully neutral or fully custom.
 - [ ] **B4** Prettier default launch/login as the showcase face.
@@ -176,7 +176,7 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 **Today's reality:** no `is_bot`, webhook *delivery* is a log-only stub, no bot routes. Platform first, Hermes second.
 
 - [x] **H0** Design lock — `docs/hermes-bot-platform-design.md` (identity, scopes, security checklist, card split).
-- [ ] **H1a** Bot identity + token auth — `is_bot` on User; create/rotate/disable; `Authorization: Bot <token>`; BOT badge; no Hermes-specific code.
+- [x] **H1a** Bot identity + token auth — POST /api/bot/{create,rotate,disable}; Bot token scheme; is_bot flag; BotRegistry (file-backed). 12 files, `cargo check` clean.
 - [ ] **H1b** Delivery — real outbound webhook HTTP POST (kill stub); bot `messages:write` to joined channels; `message.created` outbound at minimum.
 - [ ] **H1c** Hermes as one normal bot — register hermes-bot via H1a; deliver/cron as bot; @mention → Hermes receive; optional mod scopes only if owner opts in.
 
@@ -222,6 +222,7 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | 2026-08-01 | R5 | done | drop CSS + is-dragging + sameChannelFamily + before/after math; server double-patch confirmed; bun pre-existing only |
 | 2026-08-01 | 10R R1–R12 | listed | Ronin regressions: BR microview, icons, gear, pinned side, DnD, subscribe crash, places/addons JSON, guest name, search hover/prefill, status bubble, CF beacon |
 | 2026-08-01 | R12 | done | CF dashboard only; runbook CALLING_CSP_DEBUG; no FE chase |
+|| 2026-08-02 | BZ2/BZ3/L7/L8 | done | committed 2f56f5d; planning type + signed-URL + 9 role gates; cargo+bun clean |
 || 2026-08-02 | BZ2/BZ3 | done | planning ChannelKind + adapter wire + CreateChannelForm option + Chat routing + sidebar section; cargo+bun clean |
 || 2026-08-01 | L7/L8 | done | signed-URL downloads + 9 role gates (H7+H8 impl; cargo clean; FE gates; bun no new errors) |
 

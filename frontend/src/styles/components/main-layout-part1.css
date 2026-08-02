@@ -8,7 +8,7 @@
 }
 .app-container {
 	display: flex;
-	height: 100vh;
+	height: 100dvh;
 	height: 100dvh;
 	overflow: hidden;
 	position: relative;
@@ -22,7 +22,7 @@
 }
 
 .app-container.in-call {
-	height: 100vh;
+	height: 100dvh;
 	height: 100dvh;
 }
 
@@ -91,7 +91,7 @@
 }
 
 .server-rail-container :global(.server-rail) {
-	height: 100vh;
+	height: 100dvh;
 	height: 100dvh;
 }
 
@@ -116,7 +116,7 @@
 	flex-shrink: 1;
 	flex-basis: 320px;
 	position: relative;
-	height: 100vh;
+	height: 100dvh;
 	height: 100dvh;
 	background: var(--surface-base);
 	border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
@@ -145,7 +145,7 @@
 	width: 8px;
 	border-left: 2px solid rgba(var(--accent-primary-rgb, 120, 120, 255), 0.25);
 	background: linear-gradient(to right, rgba(0,0,0,0.1), transparent);
-	z-index: 1200;
+	z-index: var(--z-popout, 1200);
 }
 
 .app-container.obvious-grab-rails .resize-handle {

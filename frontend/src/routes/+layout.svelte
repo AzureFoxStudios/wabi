@@ -12,6 +12,7 @@
 	import { chatStorage } from '$lib/storage';
 	import { get } from 'svelte/store';
 	import { initI18n } from '$lib/i18n';
+	import { applyBranding } from '$lib/branding';
 	import { openWabiDB, getWabiDB } from '$lib/wabidb';
 import { drainOutboundQueue } from '$lib/wabidb/drain';
 
@@ -57,6 +58,8 @@ function isLocalPreviewHost(): boolean {
 
 	onMount(async () => {
 		startupMark('layout:onMount:start');
+
+		applyBranding();
 
 		void initEmojis();
 

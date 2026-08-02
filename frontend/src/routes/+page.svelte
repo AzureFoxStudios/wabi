@@ -32,6 +32,7 @@
 		type HomeExperienceMode
 	} from '$lib/homeExperience';
 	import { _ } from '$lib/i18n';
+	import { brandName } from '$lib/branding';
 	import { startDesktopHelperLifecycle, stopDesktopHelperService } from '$lib/desktopHelper';
 	import { startFollowNotificationPoller } from '$lib/followNotifier';
 	import { animationQuality } from '$lib/motion/animationQuality';
@@ -363,7 +364,7 @@
 				profileImportPromptTargetKey = preview.targetKey;
 				profileImportPromptMessage =
 					`Import your display name and profile picture from ${preview.sourceLabel}? ` +
-					`If the display name is unavailable on this server, Wabi will still try the picture.`;
+					`If the display name is unavailable on this server, ${brandName} will still try the picture.`;
 				showProfileImportPrompt = true;
 			}
 			pendingPostLoginProfileImportCheck = false;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import BaseModal from '../components/BaseModal.svelte';
+	import { brandName } from '$lib/branding';
 	import PaymentIntentCard from './PaymentIntentCard.svelte';
 	import PaymentReferencePanel from './PaymentReferencePanel.svelte';
 	import PaymentRouteControls from './PaymentRouteControls.svelte';
@@ -101,17 +102,17 @@
 	function getSheetIntro(): string {
 		if (isThaiPromptPayDraft) {
 			return isServerDonationDraft
-				? 'Enter the amount. Wabi will build a PromptPay donation QR for this server.'
-				: 'Enter the amount. Wabi will build a PromptPay QR from your saved PromptPay number.';
+				? `Enter the amount. ${brandName} will build a PromptPay donation QR for this server.`
+				: `Enter the amount. ${brandName} will build a PromptPay QR from your saved PromptPay number.`;
 		}
 		if (isBitcoinQrDraft) {
 			return isServerDonationDraft
-				? 'Enter the amount. Wabi will build a Bitcoin donation QR for this server.'
-				: 'Enter the amount. Wabi will build a Bitcoin QR from your saved Bitcoin address.';
+				? `Enter the amount. ${brandName} will build a Bitcoin donation QR for this server.`
+				: `Enter the amount. ${brandName} will build a Bitcoin QR from your saved Bitcoin address.`;
 		}
 		if (isThaiQrIntent) return 'Share or save the QR, then wait for confirmation.';
 		if (isBitcoinQrIntent) return 'Share or save the QR, then wait for on-chain confirmation.';
-		return 'Create a non-custodial payment request. Wabi does not store cards or bank credentials and does not move the money itself.';
+		return `Create a non-custodial payment request. ${brandName} does not store cards or bank credentials and does not move the money itself.`;
 	}
 
 	function getTargetHeaderLabel(): string {
@@ -130,18 +131,18 @@
 		if (!selectedProvider || !selectedMethod) return null;
 		if (selectedProvider.pluginId === 'th-payments' && selectedMethod.id === 'promptpay_qr') {
 			if (isServerDonationDraft) {
-				return 'PromptPay QR creates a donation request using the server donation PromptPay number. Wabi does not mark it paid just because the app returned.';
+				return `PromptPay QR creates a donation request using the server donation PromptPay number. ${brandName} does not mark it paid just because the app returned.`;
 			}
-			return 'PromptPay QR creates a payment request using your saved PromptPay number or a one-off PromptPay number. Wabi does not mark it paid just because the app returned.';
+			return `PromptPay QR creates a payment request using your saved PromptPay number or a one-off PromptPay number. ${brandName} does not mark it paid just because the app returned.`;
 		}
 		if (selectedProvider.pluginId === 'th-payments' && selectedMethod.id === 'psp_checkout') {
 			return 'This route can become fully verified when a Thai PSP adapter is configured. Without that adapter, PromptPay QR is the safer fallback.';
 		}
 		if (selectedProvider.pluginId === 'btc-payments' && selectedMethod.id === 'bitcoin_qr') {
 			if (isServerDonationDraft) {
-				return 'Bitcoin QR creates a donation request using the server donation Bitcoin address. Wabi does not mark it paid just because a wallet opened or returned.';
+				return `Bitcoin QR creates a donation request using the server donation Bitcoin address. ${brandName} does not mark it paid just because a wallet opened or returned.`;
 			}
-			return 'Bitcoin QR creates a payment request using your saved Bitcoin address or a one-off Bitcoin address. Wabi does not mark it paid just because a wallet opened or returned.';
+			return `Bitcoin QR creates a payment request using your saved Bitcoin address or a one-off Bitcoin address. ${brandName} does not mark it paid just because a wallet opened or returned.`;
 		}
 		if (selectedProvider.pluginId === 'btc-payments' && selectedMethod.id === 'lightning_checkout') {
 			if (String(selectedMethod.notes || '').toLowerCase().includes('local test')) {
@@ -157,19 +158,19 @@
 
 	function getMissingDirectReferenceMessage(): string {
 		if (isThaiPromptPayDraft) {
-			return 'Thai PromptPay requests need your own PromptPay number before Wabi can build the QR. Save it in Saved Payment References or enter it as a one-off number.';
+			return `Thai PromptPay requests need your own PromptPay number before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off number.`;
 		}
 		if (isBitcoinQrDraft) {
-			return 'Bitcoin QR requests need your own Bitcoin address before Wabi can build the QR. Save it in Saved Payment References or enter it as a one-off address.';
+			return `Bitcoin QR requests need your own Bitcoin address before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off address.`;
 		}
 		return 'A saved payment reference is required for this request.';
 	}
 
 	function getQrExternalConfirmationHint(): string {
 		if (activeIntent?.pluginId === 'btc-payments') {
-			return 'Scanning or copying this QR opens the wallet flow. Wabi keeps the request pending until it gets real confirmation or the request expires.';
+			return `Scanning or copying this QR opens the wallet flow. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
 		}
-		return 'Scanning this QR opens the bank/payment app flow. Wabi keeps the request pending until it gets real confirmation or the request expires.';
+		return `Scanning this QR opens the bank/payment app flow. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
 	}
 </script>
 

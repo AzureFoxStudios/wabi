@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
+	import { brandName } from '$lib/branding';
 	import {
 		channels,
 		currentChannel,
@@ -121,7 +122,7 @@
 		return ids;
 	})();
 	$: primaryVoiceChannelId = runtimeActiveVoiceChannelId || $listeningVoiceChannels[0] || null;
-	$: currentServerLabel = $currentSavedServer?.effectiveName || (() => { try { return new URL(resolveServerUrl().url).hostname; } catch { return 'Wabi'; } })();
+	$: currentServerLabel = $currentSavedServer?.effectiveName || (() => { try { return new URL(resolveServerUrl().url).hostname; } catch { return brandName; } })();
 	$: currentServerBannerUrl = $currentSavedServer?.effectiveBannerUrl || null;
 	$: serverIdentityIconUrl = $currentSavedServer?.effectiveIconUrl || null;
 	$: if (serverIdentityIconUrl !== lastServerIdentityIconUrl) { lastServerIdentityIconUrl = serverIdentityIconUrl; serverIdentityImageFailed = false; }
@@ -518,7 +519,7 @@
 		{#if serverIdentityIconUrl && !serverIdentityImageFailed}
 			<img src={serverIdentityIconUrl} alt={`${currentServerLabel} icon`} class="logo-img server-logo-img" on:error={() => (serverIdentityImageFailed = true)} />
 		{:else}
-			<img src="/wabi-logo-small.webp" alt="Wabi" class="logo-img brand-logo-img" />
+			<img src="/wabi-logo-small.webp" alt={brandName} class="logo-img brand-logo-img" />
 		{/if}
 	</div>
 	{#if !isCompactSidebar}

@@ -1,4 +1,5 @@
 import type { PaymentIntent, PaymentIntentStatus } from '../api';
+import { brandName } from '../branding';
 
 export type PaymentVerificationMode =
 	| 'provider_verified'
@@ -95,7 +96,7 @@ export function getPaymentIntentStatusHelp(
 	switch (verificationMode) {
 		case 'provider_verified':
 			if (intent.status === 'pending') {
-				return 'Wabi is waiting for the external payment provider webhook or status API.';
+				return `${brandName} is waiting for the external payment provider webhook or status API.`;
 			}
 			if (intent.status === 'succeeded') {
 				return 'Confirmed by the external payment provider.';
@@ -104,9 +105,9 @@ export function getPaymentIntentStatusHelp(
 		case 'external_confirmation':
 			if (intent.status === 'pending') {
 				if (intent.pluginId === 'btc-payments') {
-					return 'Wabi created the request, but the wallet or external processor must confirm settlement. Wallet return alone is not proof of payment.';
+					return `${brandName} created the request, but the wallet or external processor must confirm settlement. Wallet return alone is not proof of payment.`;
 				}
-				return 'Wabi created the request, but the bank app or external processor must confirm settlement. App return alone is not proof of payment.';
+				return `${brandName} created the request, but the bank app or external processor must confirm settlement. App return alone is not proof of payment.`;
 			}
 			if (intent.status === 'succeeded') {
 				if (intent.pluginId === 'btc-payments') {

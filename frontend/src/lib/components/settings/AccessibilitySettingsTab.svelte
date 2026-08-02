@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
+	import { brandName } from '$lib/branding';
 	import {
 		getStoredAccessibilitySettings,
 		updateAccessibilitySettings,
@@ -183,7 +184,7 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Better Animations Pass</span>
-			<span class="setting-description">BetterAnimations-style channel/message/popout motion across Wabi</span>
+			<span class="setting-description">BetterAnimations-style channel/message/popout motion across {brandName}</span>
 		</div>
 		<button class="toggle-btn" class:active={animationPassEnabled} on:click={toggleAnimationPass}>
 			{animationPassEnabled ? 'ON' : 'OFF'}
