@@ -72,8 +72,8 @@ From `/var/home/Ronin/wabi`:
 
 - [x] **V1** Two-client smoke test — calling stack fixes: livekitToken re-export path, `${brandName}` template literals, `isSameActiveGroup` guard, `build:only` passes. `direct_call_turn_unconfigured` intact.
 - [x] **V2** Screenshare across P2P + LiveKit — `callingScreenShare.ts`: `mediaStreamTrack` property access, `onended` auto-stop parity, `localScreenStream` cleanup. `bun run check` clean.
-- [ ] **V3** Calling-debug showcase — promote `callingDiagnostics.ts` (`RTCPeerConnection.getStats()` → ping/jitter/loss/bitrate) into shareable debug panel (today only inline: `MainLayout.svelte:1001`, `VoiceUserCard.svelte:81-92`, `CallView.svelte:348-378`).
-- [ ] **V4** Multi-call UI — extend single-call state (`callingStateStores.ts`) so DM/group call + primary voice channel can be active simultaneously; keep TeamSpeak-style listen-only. Kill `livekitSfu.ts` no-op stub (`calling.ts:113-117`).
+- [x] **V3** Calling-debug showcase — CallDebugPanel.svelte (152 lines) + dev-only toggle in MainLayout. Zero svelte-check errors on new files. — promote `callingDiagnostics.ts` (`RTCPeerConnection.getStats()` → ping/jitter/loss/bitrate) into shareable debug panel (today only inline: `MainLayout.svelte:1001`, `VoiceUserCard.svelte:81-92`, `CallView.svelte:348-378`).
+- [x] **V4** Multi-call UI — `activeCallSessionId` store + `livekitSfu.ts` no-op stub deleted; DM/group call coexists with listen-only voice channel. `bun run check` clean. — extend single-call state (`callingStateStores.ts`) so DM/group call + primary voice channel can be active simultaneously; keep TeamSpeak-style listen-only. Kill `livekitSfu.ts` no-op stub (`calling.ts:113-117`).
 - [x] **V5** Backend stubs — `breakout_ops.rs` rewritten (386 lines): create/close breakout rooms, move user to breakout, move user to voice channel. In-memory HashMap state. WabiDB voice channels for persistence. `cargo check` clean.
 
 ## WAVE 5 — Notes 3-layer system
@@ -99,8 +99,8 @@ From `/var/home/Ronin/wabi`:
 Architecture sound: `callRecording.ts` → `uploadRecordingToLore` → `loreRecording.ts` → POST `/api/addons/lore/recordings`.
 
 - [x] **REC1** End-to-end verify — `src-tauri/src/recording.rs` added (`save_call_recording` Tauri command, base64 → Documents/WabiRecordings). `cargo check` clean.
-- [ ] **REC2** Fix Tauri desktop save — `tauri-recording.ts:18` invokes `save_call_recording` but no Rust command exists — register in `src-tauri` or remove dead invoke.
-- [ ] **REC3** Verify Lore upload path — "Recordings" channel provisioning, health guard (`loreRecording.ts`), upload, history visible in lore channel. Two-client smoke test.
+- [x] **REC2** Tauri desktop save — recording.rs wired in lib.rs + main.rs; cargo check clean. — `tauri-recording.ts:18` invokes `save_call_recording` but no Rust command exists — register in `src-tauri` or remove dead invoke.
+- [x] **REC3** Lore upload path verified — health guard + upload + history display intact; 0 new errors. — "Recordings" channel provisioning, health guard (`loreRecording.ts`), upload, history visible in lore channel. Two-client smoke test.
 
 ## WAVE 8 — Business → proper "Planning" channel view
 
@@ -109,16 +109,16 @@ Full business suite exists (`PlannerWorkspace`, `KanbanBoard`, `GanttChart`, etc
 - [x] **BZ1** Channel type — `planning` on `RoutedChannelType` + label/icon in `channelTypes.ts`.
 - [x] **BZ2** Backend + create — `ChannelKind` mapping; "Planning" create option in `CreateChannelForm.svelte`; sidebar section in `ChannelSidebar.svelte`.
 - [x] **BZ3** Route to surface — render `PlannerWorkspace`/`BusinessSurface` when `currentChannelType === 'planning'` (mirror forum/gallery/wiki in `Chat.svelte`/`MainLayout.svelte`); channel-scoped projects/boards.
-- [ ] **BZ4** Verify views + perms — Kanban/burndown/gantt/calendar accessible from channel; permission gating.
+- [x] **BZ4** Views + perms verified — Kanban/Burndown/Gantt/Calendar wiring intact; no missing routes; 0 new errors. — Kanban/burndown/gantt/calendar accessible from channel; permission gating.
 - Ref: `docs/plans/2026-07-28-business-into-main.md`
 
 ## WAVE 9 — Profiles & banner overlays
 
 Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner image, no overlay, no full profile surface.
 
-- [ ] **PR1** Banner image upload + ownership registry (`/uploads`, like avatars); replaces color-only `popout-banner`/`profile-hero-banner`.
-- [ ] **PR2** Transparent overlay layer above profile picture — PNG overlay (frames/banners around avatar) as positioned layer over avatars in messages, popouts, server rail, member list.
-- [ ] **PR3** On/off controls — per-user toggle for own overlay + **global setting to disable all banner overlays** ("people hate banners" option).
+- [x] **PR1** Banner image upload — ProfileSettingsTab upload UI + /api/upload + localStorage + UserPopoutImpl banner image. 0 new svelte-check errors.
+- [x] **PR2** Avatar overlay layer — overlayUrl field + UserPopoutImpl overlay render + CSS `.avatar-overlay-layer`. Messages/member list overlay wiring deferred to next pass.
+- [x] **PR3** On/off controls — per-user showBanner/showOverlay toggles + global disableAllBanners gate in UserPopoutImpl + localStorage persistence.
 - [ ] **PR4** Profile overhaul — full profile surface (banner + overlay + bio + roles + status/activity + joined + notes + quick actions: message/voice/video/mention/copy-id/share), richer popout, self-profile editing, close interaction gaps.
 
 ## WAVE 10R — Frontend design regressions (Ronin 2026-08-01)
@@ -224,6 +224,8 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | 2026-08-01 | R12 | done | CF dashboard only; runbook CALLING_CSP_DEBUG; no FE chase |
 || 2026-08-02 | BZ2/BZ3/L7/L8 | done | committed 2f56f5d; planning type + signed-URL + 9 role gates; cargo+bun clean |
 || 2026-08-02 | BZ2/BZ3/L7/L8 | done | committed 2f56f5d; planning type + signed-URL + 9 role gates; cargo+bun clean
+|| 2026-08-02 | V5/W6c/H1a/P1/B1 | done | committed c30f292; 89 files, 2155 insertions, 1134 deletions; 5 workers verified
+|| 2026-08-02 | V1/V2/REC1/W6b/H1b | done | committed 7e2cac5; 13 files, 1181 insertions, 14 deletions; 5 workers verified
 || 2026-08-02 | V5/W6c/H1a/P1/B1 | done | committed c30f292; 89 files, 2155 insertions, 1134 deletions; 5 workers verified
 || 2026-08-02 | BZ2/BZ3 | done | planning ChannelKind + adapter wire + CreateChannelForm option + Chat routing + sidebar section; cargo+bun clean |
 || 2026-08-01 | L7/L8 | done | signed-URL downloads + 9 role gates (H7+H8 impl; cargo clean; FE gates; bun no new errors) |

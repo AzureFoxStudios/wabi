@@ -138,6 +138,7 @@ export {
 	callConnectionDiagnostics,
 	activeVoiceChannel,
 	activeGroupCall,
+	activeCallSessionId,
 	callMode,
 	channelCallPanelOpen,
 	voiceChannelNotice,
@@ -166,6 +167,7 @@ import {
 	callConnectionDiagnostics,
 	activeVoiceChannel,
 	activeGroupCall,
+	activeCallSessionId,
 	callMode,
 	channelCallPanelOpen,
 	voiceChannelNotice,
@@ -204,6 +206,18 @@ let spatialAudioEngine: SpatialAudioEngine | null = null;
 let spatialFallbackNoticeShown = false;
 const callSpatialSeatMap = new Map<string, number>();
 const shareSpatialSeatMap = new Map<string, number>();
+
+// Multi-call session keys. `activeCallSessionId` tracks the DM/group call while
+// `activeVoiceChannelId` tracks the primary voice channel. Both can be non-null
+// at once so a call can coexist with a listen-only (TeamSpeak-style) voice
+// channel.
+function directCallSessionKey(targetUserId: string): string {
+	return `direct:${targetUserId}`;
+}
+
+function groupCallSessionKey(channelId: string): string {
+	return `group:${channelId}`;
+}
 
 initLivekitDeps({
 	shouldSendAudioToChannel,
@@ -432,6 +446,11 @@ async function addTrackWithOptimizations(pc: RTCPeerConnection, track: MediaStre
 function shouldTransmitToChannel(channelId?: string): boolean {
 	if (!channelId) return true;
 	if (get(voiceTransmitMode) === 'all-listening') return true;
+	// While a DM/group call is active, the primary voice channel becomes
+	// listen-only (TeamSpeak style): audio goes to the call, not the channel.
+	if (get(activeCallSessionId)) {
+		return get(activeGroupCall)?.id === channelId;
+	}
 	if (activeVoiceChannelId === channelId) return true;
 	return get(activeGroupCall)?.id === channelId;
 }
@@ -552,6 +571,7 @@ function finalizeLocalCallEndState(): void {
 	channelCallPanelOpen.set(false);
 	activeVoiceChannel.set(null);
 	activeGroupCall.set(null);
+	activeCallSessionId.set(null);
 	groupCallRingingTargets.set([]);
 	callMode.set(null);
 	outgoingCall.set(null);
@@ -601,6 +621,60 @@ function finalizeLocalCallEndState(): void {
 	}
 	void disconnectLivekitSfu();
 	void disconnectWabidbCall();
+}
+
+// Tears down only the DM/group call session, preserving an active primary voice
+// channel so listen-only (TeamSpeak-style) voice survives the call. Falls back
+// to a full teardown when no voice channel is running, keeping the legacy
+// single-call behavior intact.
+function teardownCallSessionOnly(): void {
+	if (!activeVoiceChannelId) {
+		finalizeLocalCallEndState();
+		return;
+	}
+
+	const callKeys: string[] = [];
+	peerConnections.forEach((state, key) => {
+		if (state.type === 'call') {
+			callKeys.push(key);
+		}
+	});
+	callKeys.forEach((key) => cleanupPeerConnection(key));
+
+	activeCalls.set([]);
+	screenShares.set([]);
+	for (const timerId of remoteVideoMuteDebounceTimers.values()) {
+		clearTimeout(timerId);
+	}
+	remoteVideoMuteDebounceTimers.clear();
+	callParticipants.clear();
+	voiceParticipantLabels.clear();
+	stopAllRemoteSpeakingMonitors();
+
+	activeCallSessionId.set(null);
+	activeGroupCall.set(null);
+	outgoingCall.set(null);
+	incomingCall.set(null);
+	groupCallRingingTargets.set([]);
+	channelCallPanelOpen.set(false);
+
+	if (peerConnections.size === 0) {
+		connectionState.set('idle');
+		stopCallDiagnosticsPolling('idle');
+	}
+	// A live SFU/wabidb voice transport survives the call teardown; reflect it.
+	if (getLivekitRoom() || get(sfuMediaActive)) {
+		connectionState.set('connected');
+	}
+
+	// Return to normal voice-channel mode. The local stream and transport stay
+	// alive so listen-only voice keeps working, and transmit re-enables.
+	callMode.set('channel');
+	isInCall.set(true);
+	isMuted.set(false);
+	isVideoOff.set(true);
+	syncSpatialAudioGraph();
+	void syncLocalAudioState();
 }
 
 // ============================================================================
@@ -1033,6 +1107,10 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		await leaveVoiceChannel(socket, activeVoiceChannelId);
 	}
 
+	// Joining a voice channel while a DM/group call is active keeps the call
+	// running and makes the channel listen-only (TeamSpeak-style).
+	const alreadyInCall = Boolean(get(activeCallSessionId));
+
 	try {
 		await prefetchTurnCredentials().catch((err) => {
 			console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
@@ -1040,16 +1118,20 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		const activeTransport = await resolveActiveTransport(channelId);
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
-		callMode.set('channel');
+		if (!alreadyInCall) {
+			callMode.set('channel');
+			isInCall.set(true);
+			isMuted.set(false);
+			isVideoOff.set(true);
+			startLocalSpeakingMonitor(stream);
+			startPerformanceGuard();
+		}
 		activeVoiceChannel.set({ id: channelId, name: channelId });
 		listeningVoiceChannels.set([channelId]);
-		incomingCall.set(null);
+		if (!get(incomingCall) && !get(outgoingCall)) {
+			incomingCall.set(null);
+		}
 		pushVoiceChannelNotice(`Joined voice: ${channelId}`);
-		isInCall.set(true);
-		isMuted.set(false);
-		isVideoOff.set(true);
-		startLocalSpeakingMonitor(stream);
-		startPerformanceGuard();
 		initStorefwdDeps(socket);
 		if (activeTransport === 'sfu') {
 			await connectLivekitSfu(channelId, `${brandName} User`);
@@ -1086,7 +1168,9 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			setActiveMediaGatewaySessionId(null);
 		}
 		handleMediaError(error as DOMException, 'starting');
-		isInCall.set(false);
+		if (!get(activeCallSessionId)) {
+			isInCall.set(false);
+		}
 		throw error;
 	}
 }
@@ -1106,7 +1190,15 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	pushVoiceChannelNotice(`Left voice: ${channelId}`);
 	playCallActionSound('leave');
 
-  const stream = get(localStream);
+	// Multi-call: leaving the primary voice channel keeps the DM/group call
+	// alive. The shared local stream and transport belong to the call now.
+	if (get(activeCallSessionId)) {
+		activeVoiceChannel.set(null);
+		void syncLocalAudioState();
+		return;
+	}
+
+	const stream = get(localStream);
 	if (stream) {
 		stream.getTracks().forEach(track => track.stop());
 		localStream.set(null);
@@ -1186,7 +1278,7 @@ export async function startCall(
 			throw new Error(`No connection to server. Calls require an active connection to the ${brandName} server.`);
 		}
 
-		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
+		if (get(activeCallSessionId) || get(outgoingCall) || get(incomingCall)) {
 			throw new Error('A call is already active or ringing');
 		}
 
@@ -1205,8 +1297,13 @@ export async function startCall(
 
 		callMode.set('direct');
 		channelCallPanelOpen.set(false);
-		activeVoiceChannel.set(null);
+		// Keep an active primary voice channel as a listen-only backdrop
+		// (TeamSpeak style) instead of tearing it down.
+		if (!activeVoiceChannelId) {
+			activeVoiceChannel.set(null);
+		}
 		activeGroupCall.set(null);
+		activeCallSessionId.set(directCallSessionKey(targetUserId));
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
 		connectionState.set('signaling');
@@ -1244,12 +1341,16 @@ export async function startCall(
 		console.error('Error starting call:', error);
 		callOfflineNotice.set('Could not start the call. Check your connection and try again.');
 		const leakedStream = get(localStream);
-		if (leakedStream) {
+		if (leakedStream && !activeVoiceChannelId) {
 			leakedStream.getTracks().forEach(track => track.stop());
 			localStream.set(null);
 		}
 		handleMediaError(error as DOMException, 'starting');
-		isInCall.set(false);
+		activeCallSessionId.set(null);
+		outgoingCall.set(null);
+		if (!activeVoiceChannelId) {
+			isInCall.set(false);
+		}
 		throw error;
 	}
 }
@@ -1270,8 +1371,13 @@ async function enterEstablishedGroupCall(
 		isInCall.set(true);
 		callMode.set('group');
 		channelCallPanelOpen.set(true);
-		activeVoiceChannel.set(null);
+		// Keep an active primary voice channel as a listen-only backdrop
+		// (TeamSpeak style) instead of tearing it down.
+		if (!activeVoiceChannelId) {
+			activeVoiceChannel.set(null);
+		}
 		activeGroupCall.set({ id: channelId, name: channelName });
+		activeCallSessionId.set(groupCallSessionKey(channelId));
 		connectionState.set('signaling');
 		isMuted.set(false);
 		isVideoOff.set(!Boolean(stream?.getVideoTracks()[0]));
@@ -1332,7 +1438,7 @@ export async function startGroupCall(
 			throw new Error(`No connection to server. Calls require an active connection to the ${brandName} server.`);
 		}
 
-		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
+		if (get(activeCallSessionId) || get(outgoingCall) || get(incomingCall)) {
 			throw new Error('A call is already active or ringing');
 		}
 
@@ -1350,8 +1456,13 @@ export async function startGroupCall(
 
 		callMode.set('group');
 		channelCallPanelOpen.set(false);
-		activeVoiceChannel.set(null);
+		// Keep an active primary voice channel as a listen-only backdrop
+		// (TeamSpeak style) instead of tearing it down.
+		if (!activeVoiceChannelId) {
+			activeVoiceChannel.set(null);
+		}
 		activeGroupCall.set({ id: channelId, name: channelName });
+		activeCallSessionId.set(groupCallSessionKey(channelId));
 		groupCallRingingTargets.set(options.invitees || []);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
@@ -1391,12 +1502,17 @@ export async function startGroupCall(
 		console.error('Error starting group call:', error);
 		callOfflineNotice.set('Could not start the call. Check your connection and try again.');
 		handleMediaError(error as DOMException, 'starting');
-		isInCall.set(false);
-		localStream.set(null);
-		outgoingCall.set(null);
+		activeCallSessionId.set(null);
 		activeGroupCall.set(null);
+		outgoingCall.set(null);
 		groupCallRingingTargets.set([]);
-		callMode.set(null);
+		if (!activeVoiceChannelId) {
+			isInCall.set(false);
+			localStream.set(null);
+			callMode.set(null);
+		} else {
+			callMode.set('channel');
+		}
 		throw error;
 	}
 }
@@ -1411,8 +1527,13 @@ export function beginEstablishedDirectCall(): boolean {
 	isInCall.set(true);
 	callMode.set('direct');
 	channelCallPanelOpen.set(true);
-	activeVoiceChannel.set(null);
+	// Keep an active primary voice channel as a listen-only backdrop
+	// (TeamSpeak style) instead of tearing it down.
+	if (!activeVoiceChannelId) {
+		activeVoiceChannel.set(null);
+	}
 	activeGroupCall.set(null);
+	activeCallSessionId.set(directCallSessionKey(pending.targetUserId || ''));
 	connectionState.set('signaling');
 	outgoingCall.set(null);
 	if (stream) {
@@ -1457,8 +1578,13 @@ export async function answerCall(
 			isInCall.set(true);
 			callMode.set('direct');
 			channelCallPanelOpen.set(true);
-			activeVoiceChannel.set(null);
+			// Keep an active primary voice channel as a listen-only backdrop
+			// (TeamSpeak style) instead of tearing it down.
+			if (!activeVoiceChannelId) {
+				activeVoiceChannel.set(null);
+			}
 			activeGroupCall.set(null);
+			activeCallSessionId.set(directCallSessionKey(callerId));
 			connectionState.set('signaling');
 			isMuted.set(false);
 			isVideoOff.set(!isVideoCall);
@@ -1485,11 +1611,16 @@ export async function answerCall(
 		console.error('Error answering call:', error);
 		callOfflineNotice.set('Could not answer the call. Check your connection and try again.');
 		handleMediaError(error as DOMException, 'answering');
-		isInCall.set(false);
-		localStream.set(null);
-		activeGroupCall.set(null);
+		activeCallSessionId.set(null);
 		groupCallRingingTargets.set([]);
-		callMode.set(null);
+		if (!activeVoiceChannelId) {
+			isInCall.set(false);
+			localStream.set(null);
+			activeGroupCall.set(null);
+			callMode.set(null);
+		} else {
+			callMode.set('channel');
+		}
 		throw error;
 	}
 }
@@ -1521,7 +1652,7 @@ export function handleIncomingCallCancelled(callerId: string, channelId?: string
 		pendingOutgoing.scope !== 'group' &&
 		pendingOutgoing.targetUserId === callerId
 	) {
-		finalizeLocalCallEndState();
+		teardownCallSessionOnly();
 		return;
 	}
 
@@ -1571,7 +1702,7 @@ export function handleRemoteDirectCallEnded(userId: string): void {
 	}
 
 	playCallActionSound('leave');
-	finalizeLocalCallEndState();
+	teardownCallSessionOnly();
 }
 
 export async function handleGroupCallParticipantJoined(
@@ -1633,6 +1764,7 @@ export function endCall(socket: Socket) {
 	const endingVoiceChannelId = activeVoiceChannelId;
 	const endingListeningChannels = get(listeningVoiceChannels);
 	const endingGroupCall = get(activeGroupCall);
+	const endingCallSessionId = get(activeCallSessionId);
 	const participantIds = new Set<string>(callParticipants);
 
 	peerConnections.forEach((state) => {
@@ -1660,6 +1792,17 @@ export function endCall(socket: Socket) {
 		socket.emit('call-end', {
 			participants: Array.from(participantIds)
 		});
+	}
+
+	// Multi-call: ending a DM/group call keeps a distinct primary voice channel
+	// alive as a listen-only backdrop (TeamSpeak style). If the call's channel
+	// IS the voice channel (e.g. a group call on a voice channel), tear down
+	// everything as before.
+	const groupCallChannelId = endingMode === 'group' ? endingGroupCall?.id : null;
+	const voiceChannelIsSameAsCall = endingVoiceChannelId != null && endingVoiceChannelId === groupCallChannelId;
+	if (endingCallSessionId && endingVoiceChannelId && !voiceChannelIsSameAsCall) {
+		teardownCallSessionOnly();
+		return;
 	}
 
 	finalizeLocalCallEndState();
@@ -1978,6 +2121,7 @@ export function cleanupAllConnections() {
 	channelCallPanelOpen.set(false);
 	activeVoiceChannel.set(null);
 	activeGroupCall.set(null);
+	activeCallSessionId.set(null);
 	callMode.set(null);
 	connectionState.set('idle');
 	spatialAudioRuntimeStatus.update((state) => ({

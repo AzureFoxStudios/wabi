@@ -7,6 +7,8 @@ use tauri::{
     Manager,
 };
 
+mod recording;
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to Wabi!", name)
@@ -32,7 +34,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_platform,
-            open_external_url
+            open_external_url,
+            recording::save_call_recording
         ])
         .setup(|app| {
             // Create system tray

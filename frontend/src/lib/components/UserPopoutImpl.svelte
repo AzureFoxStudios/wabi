@@ -51,6 +51,7 @@
 	let userNoteStatus = '';
 	let lastLoadedUserId = '';
 	let profileExpanded = false;
+	let disableAllBanners = false;
 	type ConnectionRow = { label: string; value: string; url?: string };
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
@@ -391,6 +392,9 @@
 		<!-- Banner/Header Area -->
 		<div class="popout-banner" style="--banner-color: {user.color || 'var(--pfp-banner)'}">
 			<div class="banner-gradient"></div>
+			{#if user.bannerUrl && user.showBanner !== false && !disableAllBanners}
+				<img src={user.bannerUrl} alt="Profile banner" class="popout-banner-img" />
+			{/if}
 		</div>
 
 		<!-- Avatar overlapping banner -->

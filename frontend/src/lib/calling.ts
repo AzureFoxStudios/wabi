@@ -7,7 +7,7 @@
  * - callingStateStores.ts: Svelte stores for state management
  * - audioCapture.ts: Audio capture, DSP, and constraints
  * - audioMonitoring.ts: Speaking detection and audio analysis
- * - livekitToken.ts: LiveKit token refresh logic
+ * - callingLivekitTokenRefresh.ts: LiveKit token refresh logic
  * - calling_impl.ts: Implementation (temporary during refactoring)
  */
 
@@ -73,6 +73,7 @@ export {
 	callConnectionDiagnostics,
 	activeVoiceChannel,
 	activeGroupCall,
+	activeCallSessionId,
 	callMode,
 	channelCallPanelOpen,
 	voiceChannelNotice,

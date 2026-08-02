@@ -19,6 +19,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import FollowingFeed from '$lib/components/FollowingFeed.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
+	import CallDebugPanel from '$lib/components/CallDebugPanel.svelte';
 	import Settings from '$lib/components/Settings.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
@@ -70,6 +71,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let resizingChannel = false;
 	let resizingRight = false;
 	let showVoiceDebugDetails = false;
+	let showCallDebugPanel = false;
+	// Dev-only gate: the floating calling-diagnostics overlay must never ship to regular users.
+	const callDebugPanelEnabled = import.meta.env.DEV;
 	let showServerSwitcher = false;
 	let mobileNavVisible = false;
 	let mobileNavIdleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1044,6 +1048,36 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</button>
 	{/if}
 
+	{#if callDebugPanelEnabled}
+		<button
+			type="button"
+			class="call-debug-toggle"
+			class:active={showCallDebugPanel}
+			on:click={() => (showCallDebugPanel = !showCallDebugPanel)}
+			title="Toggle calling diagnostics"
+			aria-label="Toggle calling diagnostics"
+			aria-expanded={showCallDebugPanel}
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+			</svg>
+		</button>
+		{#if showCallDebugPanel}
+			<div class="call-debug-overlay">
+				<CallDebugPanel open title="Calling Debug" />
+				<button
+					type="button"
+					class="call-debug-close"
+					on:click={() => (showCallDebugPanel = false)}
+					aria-label="Close calling diagnostics"
+					title="Close calling diagnostics"
+				>
+					×
+				</button>
+			</div>
+		{/if}
+	{/if}
+
 	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel}
 		<div class="voice-channel-strip" role="status" aria-live="polite" transition:fly={{ y: 20, duration: 220 }}>
 			<button
@@ -1256,5 +1290,79 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		border-radius: 12px;
 		overflow: hidden;
 		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+	}
+
+	/* Dev-only calling-diagnostics overlay (gated by import.meta.env.DEV) */
+	.call-debug-toggle {
+		position: fixed;
+		left: 8px;
+		bottom: 8px;
+		z-index: var(--z-sticky, 100);
+		width: 32px;
+		height: 32px;
+		border-radius: 8px;
+		border: 1px solid var(--border-subtle);
+		background: var(--surface-base, #24243e);
+		color: var(--text-secondary, #b3b3ff);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.18s ease;
+		opacity: 0.5;
+	}
+
+	.call-debug-toggle:hover,
+	.call-debug-toggle.active {
+		opacity: 1;
+		background: var(--accent-primary-color);
+		color: var(--text-inverse, #fff);
+		border-color: var(--accent-primary-color);
+	}
+
+	.call-debug-overlay {
+		position: fixed;
+		left: 8px;
+		bottom: 48px;
+		z-index: var(--z-sticky, 100);
+	}
+
+	.call-debug-overlay > :global(.call-debug-panel) {
+		max-height: min(70dvh, 480px);
+		overflow: auto;
+	}
+
+	.call-debug-close {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		width: 22px;
+		height: 22px;
+		line-height: 1;
+		border-radius: 999px;
+		border: 1px solid var(--border-subtle);
+		background: var(--surface-base, #24243e);
+		color: var(--text-secondary, #b3b3ff);
+		font-size: 1rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.call-debug-close:hover {
+		background: var(--accent-danger-soft, rgba(239, 68, 68, 0.2));
+		color: var(--color-danger, #ef4444);
+		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.5);
+	}
+
+	@media (max-width: 768px) {
+		.call-debug-toggle {
+			bottom: calc(var(--mobile-nav-height, 56px) + 8px);
+		}
+
+		.call-debug-overlay {
+			bottom: calc(var(--mobile-nav-height, 56px) + 48px);
+		}
 	}
 </style>
