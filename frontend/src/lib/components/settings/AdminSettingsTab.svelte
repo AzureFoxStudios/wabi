@@ -23,6 +23,7 @@
 	import AdminSettingsPayments from './admin/AdminSettingsPayments.svelte';
 	import AdminSettingsCommunityNodes from './admin/AdminSettingsCommunityNodes.svelte';
 	import AdminUserList from './admin/AdminUserList.svelte';
+	import BrandingSettings from './admin/BrandingSettings.svelte';
 	import {
 		MB,
 		bytesToMbInput,
@@ -232,6 +233,8 @@
 		communityNodeWhitelistCandidates={communityNodeWhitelistCandidates as any}
 		communityAnnouncementChannelOptions={communityAnnouncementChannelOptions as any}
 	/>
+
+	<BrandingSettings canManageBranding={canManageAdmin} />
 
 	<AdminUserList
 		{sortedAdminUsers}
