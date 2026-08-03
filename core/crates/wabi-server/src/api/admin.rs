@@ -19,7 +19,7 @@ use tokio::sync::RwLock;
 use crate::api::payments::{
     extract_user_id, is_admin_user, json_error, PaymentUserBlock,
 };
-use crate::auth_extractor::{verify_stepup_token, STEPUP_HEADER};
+use crate::auth_extractor::{verify_stepup_token, AuthUser, STEPUP_HEADER};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
@@ -618,6 +618,44 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/recovery-codes", post(recovery_codes))
         .layer(axum::Extension(policy_store))
         .with_state(state)
+}
+
+// ─── Public user directory (GET /api/users) ────────────────────────────────
+
+/// One row of the user directory consumed by the business kanban board /
+/// task panels (`RegisteredUser` in the frontend).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisteredUserRow {
+    pub user_id: i64,
+    pub username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_picture: Option<String>,
+    pub color: String,
+}
+
+/// GET /api/users — list registered users for assignee pickers.
+///
+/// Any authenticated client (member or guest) may list the user directory;
+/// it only exposes the same fields already broadcast over the presence socket
+/// (username, avatar, color). Returns a JSON array (never the SPA HTML
+/// fallthrough) so the frontend's `response.json()` does not throw.
+pub async fn list_users(
+    _auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+) -> crate::error::Result<Json<Vec<RegisteredUserRow>>> {
+    let users = state.wdb.list_users().await?;
+    Ok(Json(
+        users
+            .into_iter()
+            .map(|u| RegisteredUserRow {
+                user_id: u.user_id as i64,
+                username: u.username,
+                profile_picture: u.profile_picture,
+                color: u.color,
+            })
+            .collect(),
+    ))
 }
 
 // ─── Auth helpers ───────────────────────────────────────────────────────────

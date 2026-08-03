@@ -164,24 +164,26 @@ fn sanitize_avatar_url(input: &str) -> Option<String> {
 }
 
 /// Build a full `UserView` (with profile fields) for broadcast.
-async fn build_user_view(state: &SioState, db_user_id: i64, username: &str, color: &str) -> Value {
+///
+/// The profile fields are passed in (not re-read from the store) because
+/// `update_user` commits through WabiDB's async projection dispatcher: a
+/// read issued immediately after a write can race the dispatcher and return
+/// the stale pre-update row. Broadcasting that stale row (e.g. a missing
+/// `profilePicture`) makes clients merge the old value over the optimistic
+/// one — the avatar "doesn't stick". Callers merge the just-applied patch
+/// into the previous profile and pass the merged values here.
+async fn build_user_view(
+    state: &SioState,
+    db_user_id: i64,
+    username: &str,
+    color: &str,
+    profile_picture: Option<String>,
+    username_font: Option<String>,
+    bio: Option<String>,
+    status_message: Option<String>,
+) -> Value {
     let owner_id = *state.app.owner_user_id.read().await;
     let role = highest_role(if db_user_id > 0 { Some(db_user_id) } else { None }, owner_id);
-
-    let (profile_picture, username_font, bio, status_message) = if db_user_id > 0 {
-        if let Ok(Some(user)) = state.app.wdb.get_user(db_user_id as u64).await {
-            (
-                user.profile_picture,
-                user.username_font.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
-                user.bio,
-                user.status_message,
-            )
-        } else {
-            (None, None, None, None)
-        }
-    } else {
-        (None, None, None, None)
-    };
 
     let stable_id = if db_user_id > 0 {
         format!("user-{}", db_user_id)
@@ -201,7 +203,7 @@ async fn build_user_view(state: &SioState, db_user_id: i64, username: &str, colo
         "dbUserId": if db_user_id > 0 { Some(db_user_id) } else { None },
         "roles": [role],
         "highestRole": role,
-        "usernameFont": username_font,
+        "usernameFont": username_font.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
     })
 }
 
@@ -305,19 +307,64 @@ async fn on_update_profile(
         updates.color = Some(format!("\0{}", v));
     }
 
+    // Snapshot the pre-update profile BEFORE the write. `update_user` persists
+    // through the async projection dispatcher, so a post-write read can race it
+    // and broadcast a stale view (e.g. missing a just-uploaded profile picture),
+    // which clients merge over the optimistic value (B6 fix).
+    let current = state
+        .app
+        .wdb
+        .get_user(db_user_id as u64)
+        .await
+        .ok()
+        .flatten();
+    let color = current
+        .as_ref()
+        .map(|u| u.color.clone())
+        .unwrap_or_else(|| "#98D8C8".to_string());
+
+    // Mirror the merge semantics of `WdbAdapter::update_user` /
+    // `UsersProjection::apply` so the broadcast view reflects the just-applied
+    // patch regardless of projection timing.
+    let merged_profile_picture = updates
+        .profile_picture
+        .clone()
+        .or_else(|| current.as_ref().and_then(|u| u.profile_picture.clone()));
+    let merged_username_font = updates
+        .username_font
+        .clone()
+        .or_else(|| current.as_ref().and_then(|u| u.username_font.clone()));
+    let merged_bio = updates
+        .bio
+        .clone()
+        .or_else(|| current.as_ref().and_then(|u| u.bio.clone()));
+    let merged_status_message = updates
+        .status_message
+        .clone()
+        .or_else(|| current.as_ref().and_then(|u| u.status_message.clone()));
+    let merged_color = updates
+        .color
+        .as_deref()
+        .map(|c| c.strip_prefix('\0').unwrap_or(c).to_string())
+        .unwrap_or_else(|| color.clone());
+    let merged_username = updates
+        .username
+        .clone()
+        .unwrap_or_else(|| username.clone());
+
     match state.app.wdb.update_user(db_user_id as u64, updates).await {
         Ok(()) => {
-            let color = state
-                .app
-                .wdb
-                .get_user(db_user_id as u64)
-                .await
-                .ok()
-                .flatten()
-                .map(|u| u.color)
-                .unwrap_or_else(|| "#98D8C8".to_string());
-
-            let view = build_user_view(&state, db_user_id, &username, &color).await;
+            let view = build_user_view(
+                &state,
+                db_user_id,
+                &merged_username,
+                &merged_color,
+                merged_profile_picture,
+                merged_username_font,
+                merged_bio,
+                merged_status_message,
+            )
+            .await;
             let _ = socket.emit("profile-updated", &view);
             let _ = io.to(format!("user-{}", db_user_id)).emit("user-updated", &view);
             let _ = socket.broadcast().emit("user-updated", &view);
