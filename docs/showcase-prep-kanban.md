@@ -151,14 +151,14 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 
 - [x] **B1** Audit brandability — `frontend/src/lib/branding.ts` created; literal "Wabi" replaced with `brandName` in calling_impl_core.ts, localWabiProfileImport.ts, +page.svelte. Window title + login footer remain (next pass). `bun run check` clean.
 - [x] **B2** Branding-profile contract — extended `branding.ts` (headline/subheadline/footer/customCss/palette) + `BrandingSettings.svelte` admin UI + `UserPopoutImpl` banner render + visibility toggles.
-- [ ] **B3** Strip-Wabi option — clean non-branded default so communities go fully neutral or fully custom.
-- [ ] **B4** Prettier default launch/login as the showcase face.
+- [x] **B3** Strip-Wabi option — `neutralBrandConfig` + `useNeutralBranding` server flag + `injectNeutralBranding()`/`getEffectiveBrandConfig()` wired into Login.svelte; neutral palette tokens + `neutral-branding.css` overrides. 7ba3d3e.
+- [x] **B4** Prettier default launch/login — LaunchPanel.svelte typography/spacing/CTA polish; login.css refined (token-based typography, button shadows, 769-1100px responsive block). 7ba3d3e.
 
 ## WAVE 12 — Post-polish backlog (deferred, not cut)
 
-- [ ] **S1** Steam addon — rich-presence "currently playing" badge, `steam://run`/lobby join links, opt-in game status (`docs/steam-integration-proposal.md`). **After** minimum polish.
+- [x] **S1** Steam addon — `steam.rs` backend (GET /api/steam/status, /rich-presence, 60s cache, opt-in 404, 4 tests); `steam://run/` link detection in messages.rs (4 tests); `SteamStatus`/`SteamJoinLink` protocol types; `SteamStatusBadge.svelte` + `SteamJoinButton.svelte` + `steamStatusStore.ts` + `steam-status.css`. 7 passed. 7ba3d3e.
 - [ ] **S2** Native mobile (tauri android/ios) — separate track.
-- [ ] **S3** 3D/asset preview polish (model-viewer addon).
+- [x] **S3** 3D/asset preview polish (model-viewer addon) — fullscreen toggle on ModelViewerShell + ModelViewer3D wiring, Escape key. 75044d1.
 
 ---
 
