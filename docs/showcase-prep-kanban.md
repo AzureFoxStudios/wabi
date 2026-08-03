@@ -129,7 +129,7 @@ Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner i
 - [x] **R3** Settings gear — 28×28 btn / 16px SVG; no `font-size:1.5rem` on gear. part1 + **part3** (loads last) + compact + profile aligned. Ronin browser verify owed.
 - [x] **R4** Pinned messages — drawer beside channel list via sidebar rect + `navDock` flip; surface tokens (no white); mobile full-bleed. `PinnedMessagesModal.svelte`. Ronin browser verify owed.
 - [x] **R5** Channel drag-reorder — drop CSS (info line), `is-dragging` row dim, `sameChannelFamily` cross-type refuse, before/after insert math + cross-category reindex; lists bind is-dragging; server double-patch (`update_settings`+`update`) confirmed; `channels-reordered` client already wired. Ronin browser verify owed.
-- [x] **R6** Boot crash `e.subscribe is not a function` — **parked (no FE fix)**. Static: no smoking-gun non-store `.subscribe`; `layoutStore.subscribe` exists; crash in Svelte runtime chunk `DP1StNsd.js`. Needs Ronin live stack + source map after hard refresh / STATIC_BUILD. **P0 if still on Tim after deploy+refresh.**
+- [x] **R6** Boot crash `e.subscribe is not a function` — **fixed (8210876)**. Root cause: CSP `script-src` missing `'unsafe-eval'`, blocking SvelteKit's eval-based runtime chunking. Added `'unsafe-eval'` to Caddyfile.tunnel CSP → crash resolved, forum/wiki channels load.
 - [x] **R7a** Client HTML/JSON guards — `parseApiJson`/`isJsonContentType` in `api/utils.ts`; `placeStore` + `addonInventory` + `addonDetection` soft-fail on SPA 200 HTML/empty and `markEndpointUnsupported`. Stops console `JSON.parse` spam. bun pre-existing bun:test only.
 - [x] **R7b** Server code — `GET /api/places` stub JSON `{places:[]}` in `api/places.rs` + nest in `routes.rs`/`mod.rs` (`cargo check -p wabi-server` ok). `/api/addons` already nested in source (`addons.rs`). **Tim live still 200 text/html** until binary redeploy (R7a client guards hold). Ops: ship binary; prove `curl -sI :3001/api/places` + `/api/addons` → application/json.
 - [x] **R8** Guest shows "unknown" — init synthesizes provisional guest `currentUser`; `user-joined` promotes self; ProfileCard `displayUsername`/`Guest` guards.
@@ -211,7 +211,7 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | 2026-08-01 | R4 | done | sidebar-edge reanchor + navDock flip; surface tokens; mobile full; bun pre-existing bun:test only |
 | 2026-08-01 | R7a | done | parseApiJson guards place/addons; SPA HTML soft-fail; bun pre-existing bun:test only |
 | 2026-08-01 | R7b | code done | places stub + routes; Tim HTML until binary deploy; R7a guards hold |
-| 2026-08-01 | R6 | parked | static clean; DP1=Svelte runtime; needs live stack+sourcemap |
+||| 2026-08-03 | R6+B6 | done | committed 94647a6: CSP unsafe-eval (R6 e.subscribe fix); avatar persistence race condition fix (B6: build_user_view avoids stale projection read); GET /api/users endpoint for KanbanBoard |
 | 2026-08-01 | R1 | done | notes+DM microview; scratchpad+DM slot; drag-collapse; ^ caret; NOTES_DM_ID guard; bun pre-existing bun:test only |
 | 2026-08-01 | R2/R3/R10 | done | hash box+typed icons; gear 28/16 part1+part3+compact+profile; addon-filter autofill guards; bun pre-existing bun:test only |
 | 2026-08-01 | N4 | done | kill dblclick cycle; soften auto-heal; bun pre-existing only |
@@ -244,7 +244,7 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | W7 Recording | 3 | pending |
 | W8 Planning | 4 | BZ1 done; BZ2–BZ4 free |
 | W9 Profiles | 4 | pending |
-| W10R Regressions | 13 | R1–R5+R7a+R7b-code+R8–R12 board-closed (f30f292); R6 parked live; R7b Tim deploy owed; CSP unsafe-eval fix (8210876) |
+| W10R Regressions | 13 | R1–R5+R7a+R7b-code+R8–R12 board-closed (f30f292); R6 fixed (8210876, CSP unsafe-eval); R7b Tim deploy owed; CSP unsafe-eval fix (8210876) |
 | W10 Polish | 4 (1 deferred) | pending |
 | W11 Branding | 4 | B1+B2+B3+B4 done (7ba3d3e + b011aa8); S1 Steam addon Phase 1+2 done |
 | W12 Backlog | 5 | deferred; S1 done |
