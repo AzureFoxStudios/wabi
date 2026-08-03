@@ -244,7 +244,7 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | W7 Recording | 3 | pending |
 | W8 Planning | 4 | BZ1 done; BZ2–BZ4 free |
 | W9 Profiles | 4 | pending |
-| W10R Regressions | 13 | R1–R5+R7a+R7b-code+R8–R12 board-closed; R6 parked live; R7b Tim deploy owed |
+| W10R Regressions | 13 | R1–R5+R7a+R7b-code+R8–R12 board-closed (f30f292); R6 parked live; R7b Tim deploy owed; CSP unsafe-eval fix (8210876) |
 | W10 Polish | 4 (1 deferred) | pending |
 | W11 Branding | 4 | B1+B2+B3+B4 done (7ba3d3e + b011aa8); S1 Steam addon Phase 1+2 done |
 | W12 Backlog | 5 | deferred; S1 done |
