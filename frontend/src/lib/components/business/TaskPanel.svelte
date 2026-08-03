@@ -4,6 +4,7 @@
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
 	import { getLocalMockUsers, isLocalMockApiMode } from '$lib/localMockApi';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { getAuthToken } from '$lib/authSession';
 
 	export let onClose: (() => void) | undefined = undefined;
 	import { onMount, tick } from 'svelte';
@@ -55,11 +56,14 @@
 		}
 
 		try {
-			const response = await fetch(`${getServerUrl()}/api/users`);
+			const authToken = getAuthToken();
+			const response = await fetch(`${getServerUrl()}/api/users`, {
+				headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+			});
 			if (response.ok) {
 				const data = await response.json();
 				console.log('[TaskPanel] Fetched users:', data);
-				registeredUsers = data;
+				registeredUsers = Array.isArray(data) ? data : [];
 				filteredUsers = registeredUsers;
 			} else {
 				console.error('[TaskPanel] Failed to fetch users:', response.status);

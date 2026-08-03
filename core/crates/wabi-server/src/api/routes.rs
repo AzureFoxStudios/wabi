@@ -67,6 +67,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/steam", steam::routes(state.clone()));
 
     router
+        // User directory for assignee pickers (kanban board / task panels)
+        .route("/users", axum::routing::get(admin::list_users))
         // Media room routing (helper-node SFU assignment)
         .nest("/media", media::routes(state.clone()))
         // Job queue routes

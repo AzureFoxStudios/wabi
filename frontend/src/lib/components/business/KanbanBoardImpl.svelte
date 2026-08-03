@@ -3,6 +3,7 @@
 	import { currentUser } from '$lib/socket';
 	import { getLocalMockUsers, isLocalMockApiMode } from '$lib/localMockApi';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { getAuthToken } from '$lib/authSession';
 	import { onMount } from 'svelte';
 	import {
 		todos,
@@ -63,11 +64,14 @@
 		}
 
 		try {
-			const response = await fetch(`${getServerUrl()}/api/users`);
+			const authToken = getAuthToken();
+			const response = await fetch(`${getServerUrl()}/api/users`, {
+				headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+			});
 			if (response.ok) {
 				const data = await response.json();
 				console.log('[KanbanBoard] Fetched users:', data);
-				registeredUsers = data;
+				registeredUsers = Array.isArray(data) ? data : [];
 				filteredUsers = registeredUsers;
 			} else {
 				console.error('[KanbanBoard] Failed to fetch users:', response.status);
