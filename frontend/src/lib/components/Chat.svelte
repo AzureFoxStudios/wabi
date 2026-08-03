@@ -60,6 +60,7 @@
 	import LoreChannel from './LoreChannel.svelte';
 	import ForumChannel from './ForumChannel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
+import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
@@ -82,6 +83,7 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) return 'model' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) return 'map' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) return 'media' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID)) return 'planner' as const;
 		return 'messages' as const;
 	})();
 
