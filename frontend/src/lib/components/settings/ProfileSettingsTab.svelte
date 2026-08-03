@@ -6,6 +6,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { changePassword, getUserSettings } from '$lib/api';
+	import { clearActiveCustomStatusPreset } from '$lib/customStatusPresets';
 	import {
 		defaultLocalWabiAccountStore,
 		getLocalWabiAccountDisplayLabel,
@@ -13,13 +14,11 @@
 		localWabiAccountListStore,
 		markLocalWabiImportPromptHandled,
 		setDefaultLocalWabiAccount,
-		getSuggestedLocalWabiImportSourceAccount,
-		type LocalWabiAccountRecord
+		getSuggestedLocalWabiImportSourceAccount
 	} from '$lib/localWabiAccounts';
 	import {
 		applyLocalWabiProfileImport,
-		getLocalWabiProfileImportPreview,
-		type LocalWabiProfileImportPreview
+		getLocalWabiProfileImportPreview
 	} from '$lib/localWabiProfileImport';
 	import UsernameFontCustomizer from '../UsernameFontCustomizer.svelte';
 
@@ -30,33 +29,36 @@
 		openServerDonation: void;
 	}>();
 
-	export let passwordChangeRequest = 0;
-	let lastHandledPasswordChangeRequest = 0;
+	let { passwordChangeRequest = 0 } = $props();
+	let lastHandledPasswordChangeRequest = $state(0);
 
 	// ── Display name ──
-	let displayNameDraft = '';
-	let updatingDisplayName = false;
+	let displayNameDraft = $state('');
+	let updatingDisplayName = $state(false);
 
-	$: if (!updatingDisplayName && $currentUser?.username && displayNameDraft === '') {
-		displayNameDraft = $currentUser.username;
-	}
+	$effect(() => {
+		if (!updatingDisplayName && $currentUser?.username && displayNameDraft === '') {
+			displayNameDraft = $currentUser.username;
+		}
+	});
 
 	// ── Local Wabi accounts ──
-	let currentLocalWabiAccountKey = '';
-	let currentLocalWabiAccountIsDefault = false;
-	let otherLocalWabiAccounts: LocalWabiAccountRecord[] = [];
-	let linkedWabiImportPreview = null;
-	let linkedWabiImportSourceKey = '';
-	let linkedWabiImportStatus = '';
-	let linkedWabiImporting = false;
+	let linkedWabiImportSourceKey = $state('');
+	let linkedWabiImportStatus = $state('');
+	let linkedWabiImporting = $state(false);
 
-	$: currentLocalWabiAccountKey = getLocalWabiAccountKey($currentUser, getServerUrl());
-	$: currentLocalWabiAccountIsDefault =
-		Boolean(currentLocalWabiAccountKey) && $defaultLocalWabiAccountStore?.key === currentLocalWabiAccountKey;
-	$: otherLocalWabiAccounts = $localWabiAccountListStore.filter(
-		(account) => account.key !== currentLocalWabiAccountKey
+	const currentLocalWabiAccountKey = $derived(getLocalWabiAccountKey($currentUser, getServerUrl()));
+	const currentLocalWabiAccountIsDefault = $derived(
+		Boolean(currentLocalWabiAccountKey) && $defaultLocalWabiAccountStore?.key === currentLocalWabiAccountKey
 	);
-	$: {
+	const otherLocalWabiAccounts = $derived(
+		$localWabiAccountListStore.filter((account) => account.key !== currentLocalWabiAccountKey)
+	);
+	const linkedWabiImportPreview = $derived(
+		getLocalWabiProfileImportPreview(linkedWabiImportSourceKey, $currentUser)
+	);
+
+	$effect(() => {
 		const selectedStillValid = otherLocalWabiAccounts.some(
 			(account) => account.key === linkedWabiImportSourceKey
 		);
@@ -66,21 +68,45 @@
 				otherLocalWabiAccounts[0]?.key ||
 				'';
 		}
-	}
-	$: linkedWabiImportPreview = getLocalWabiProfileImportPreview(linkedWabiImportSourceKey, $currentUser);
+	});
 
 	// ── Password change ──
-	let currentPasswordDraft = '';
-	let newPasswordDraft = '';
-	let confirmNewPasswordDraft = '';
-	let currentPasswordInput: HTMLInputElement | null = null;
-	let mustChangeOwnPassword = false;
-	let changingPassword = false;
+	let currentPasswordDraft = $state('');
+	let newPasswordDraft = $state('');
+	let confirmNewPasswordDraft = $state('');
+	let currentPasswordInput = $state<HTMLInputElement | null>(null);
+	let mustChangeOwnPassword = $state(false);
+	let changingPassword = $state(false);
 
-	$: if (passwordChangeRequest > lastHandledPasswordChangeRequest) {
-		lastHandledPasswordChangeRequest = passwordChangeRequest;
-		void focusPasswordChangeForm();
+	// ── PR4: Profile status + about me (self-edit) ──
+	let bioDraft = $state('');
+	let bioStatus = $state('');
+
+	$effect(() => {
+		if ($currentUser?.bio && bioDraft === '') {
+			bioDraft = $currentUser.bio;
+		}
+	});
+
+	function changeStatus(newStatus: 'active' | 'away' | 'busy') {
+		clearActiveCustomStatusPreset();
+		updateProfile({ status: newStatus });
+		if ($currentUser) $currentUser = { ...$currentUser, status: newStatus };
 	}
+
+	function saveBio() {
+		const next = bioDraft.trim();
+		updateProfile({ bio: next });
+		if ($currentUser) $currentUser = { ...$currentUser, bio: next };
+		bioStatus = next ? 'Bio saved.' : 'Bio cleared.';
+	}
+
+	$effect(() => {
+		if (passwordChangeRequest > lastHandledPasswordChangeRequest) {
+			lastHandledPasswordChangeRequest = passwordChangeRequest;
+			void focusPasswordChangeForm();
+		}
+	});
 
 	// ── PR1/PR2/PR3: Banner / overlay upload + visibility ──
 	let bannerUploading = $state(false);
@@ -358,6 +384,66 @@
 		<button class="pfp-upload-btn" on:click={updateDisplayName} disabled={updatingDisplayName}>
 			{updatingDisplayName ? 'Saving...' : 'Save Display Name'}
 		</button>
+	</div>
+</div>
+
+<div class="settings-section">
+	<h3>Profile Status</h3>
+	<div class="setting-item-full">
+		<div class="setting-info">
+			<span class="setting-label">Set your presence</span>
+			<span class="setting-description">Choose how you appear to other users across the server.</span>
+		</div>
+		<div class="status-option-row">
+			<button
+				type="button"
+				class="status-option-btn"
+				class:active={$currentUser?.status === 'active'}
+				on:click={() => changeStatus('active')}
+			>
+				<span class="status-option-dot" style="background-color: var(--status-online)"></span>
+				Active
+			</button>
+			<button
+				type="button"
+				class="status-option-btn"
+				class:active={$currentUser?.status === 'away'}
+				on:click={() => changeStatus('away')}
+			>
+				<span class="status-option-dot" style="background-color: var(--status-away)"></span>
+				Away
+			</button>
+			<button
+				type="button"
+				class="status-option-btn"
+				class:active={$currentUser?.status === 'busy'}
+				on:click={() => changeStatus('busy')}
+			>
+				<span class="status-option-dot" style="background-color: var(--status-busy)"></span>
+				Busy
+			</button>
+		</div>
+	</div>
+</div>
+
+<div class="settings-section">
+	<h3>About Me</h3>
+	<div class="setting-item-full">
+		<div class="setting-info">
+			<span class="setting-label">Bio</span>
+			<span class="setting-description">Shown on your profile popout for other users.</span>
+		</div>
+		<textarea
+			class="emoji-name-input bio-input"
+			rows="3"
+			maxlength="500"
+			bind:value={bioDraft}
+			placeholder="Write a short line about yourself…"
+		></textarea>
+		<button class="pfp-upload-btn" on:click={saveBio}>
+			Save Bio
+		</button>
+		{#if bioStatus}<div class="runtime-note">{bioStatus}</div>{/if}
 	</div>
 </div>
 
