@@ -31,6 +31,8 @@ export type { MessageType } from './generated/MessageType';
 export type { MessageView } from './generated/MessageView';
 export type { OfflineMessagesEvent } from './generated/OfflineMessagesEvent';
 export type { SessionView } from './generated/SessionView';
+export type { SteamJoinLink } from './generated/SteamJoinLink';
+export type { SteamStatus } from './generated/SteamStatus';
 export type { UsernameFont } from './generated/UsernameFont';
 export type { UserLeftEvent } from './generated/UserLeftEvent';
 export type { UserStatus } from './generated/UserStatus';

@@ -11,7 +11,7 @@
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
 	import LoginQRModal from '$lib/components/login/LoginQRModal.svelte';
 	import LoginConnectionPrompt from '$lib/components/login/LoginConnectionPrompt.svelte';
-	import { buildLaunchPageStyles } from '$lib/components/loginHelpers';
+	import { buildLaunchPageStyles, injectNeutralBranding, getEffectiveBrandConfig } from '$lib/components/loginHelpers';
 	import './login.css';
 
 	const dispatch = createEventDispatcher<{
@@ -40,6 +40,9 @@
 
 	$: selectedLocale = $currentLocale || 'en';
 	$: activeLaunchPageConfig = launchPageConfig?.enabled ? launchPageConfig : null;
+	// B3: when no launch page is configured, fall back to the neutral brand config
+	// (strip-Wabi) if the server opted in, otherwise the default brand.
+	$: fallbackBrand = getEffectiveBrandConfig();
 	$: launchStyles = activeLaunchPageConfig
 		? buildLaunchPageStyles({
 				enabled: true,
@@ -113,6 +116,7 @@
 	function focusOnMount(node: HTMLInputElement) { node.focus(); return {}; }
 
 	onMount(() => {
+		injectNeutralBranding();
 		void getLaunchPageConfig().then((config) => { launchPageConfig = config; }).catch((err) => { console.warn('[Login] Failed to load launch page config:', err); });
 		void getSetupStatus().then((status) => { if (status.setupRequired) { wizardMode = true; authMode = 'register'; } });
 		const configured = getConfiguredServerUrl();
@@ -135,7 +139,7 @@
 
 		<div class="login-box" class:login-box-default={!activeLaunchPageConfig} style={launchCardStyle}>
 			<div class="login-brand-panel">
-				<img src={activeLaunchPageConfig?.logoUrl || '/wabi-logo.webp'} alt={activeLaunchPageConfig?.brandName || brandName} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} />
+				<img src={activeLaunchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.webp'} alt={activeLaunchPageConfig?.brandName || fallbackBrand.name || brandName} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} />
 				{#if activeLaunchPageConfig}
 					<h2 class="launch-headline">{activeLaunchPageConfig.headline}</h2>
 					<p class="launch-subheadline">{activeLaunchPageConfig.subheadline}</p>
