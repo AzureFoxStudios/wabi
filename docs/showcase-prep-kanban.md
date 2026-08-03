@@ -119,7 +119,7 @@ Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner i
 - [x] **PR1** Banner image upload — ProfileSettingsTab upload UI + /api/upload + localStorage + UserPopoutImpl banner image. 0 new svelte-check errors.
 - [x] **PR2** Avatar overlay layer — overlayUrl field + UserPopoutImpl overlay render + CSS `.avatar-overlay-layer`. Messages/member list overlay wiring deferred to next pass.
 - [x] **PR3** On/off controls — per-user showBanner/showOverlay toggles + global disableAllBanners gate in UserPopoutImpl + localStorage persistence.
-- [ ] **PR4** Profile overhaul — full profile surface (banner + overlay + bio + roles + status/activity + joined + notes + quick actions: message/voice/video/mention/copy-id/share), richer popout, self-profile editing, close interaction gaps.
+- [x] **PR4** Profile overhaul — banner + status/activity + quick actions (copy ID/mention/share) on ProfileCard; ProfileSettingsTab converted to Svelte 5 runes + self-edit (status/bio); richer popout already in place (UserPopoutImpl). 75044d1 + 41647d2.
 
 ## WAVE 10R — Frontend design regressions (Ronin 2026-08-01)
 *User-reported. Fix during design/polish work — do not drop. Prefer real-browser verify (Ronin), not headless.*
@@ -142,7 +142,7 @@ Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner i
 
 - [x] **P1** AGENTS.md Passes 0–5 (partial) — 24 tokens added to tokens.css; 9 dead CSS sheets deleted; DM/admin surfaces re-tokenized; `bun run check` clean (0 new errors). Remaining passes follow same pattern.
 - [x] **P2** Tauri desktop — removed `livekitSfu.ts` no-op stub + `livekitToken.ts`; wired `save_call_recording` in lib.rs + main.rs; `cargo check` clean.
-- [ ] **P3** Mobile responsive polish — consolidate ~28×`768px` + scattered breakpoints; fix under-discoverable auto-hiding bottom nav (`MOBILE_NAV_IDLE_HIDE_MS`); overlay sheets; hardcoded z-indexes; `100dvh`.
+- [x] **P3** Mobile responsive polish — centralized `--mobile-breakpoint: 768px` token + `mobile-breakpoints.css`; bottom-nav auto-hide fix (slide + grabber + reappear on touch/swipe); z-index tokens (`--z-dropdown`, `--z-sticky`). 41647d2. Remaining: feature-specific mobile sheets left co-located to preserve cascade.
 - [ ] **P4** Native mobile *(deferred)* — `tauri android/ios init`. No `Android/` dir today; `frontend/src-tauri/` is stale/gitignored.
 
 ## WAVE 11 — Branding (login/launch per-community)
