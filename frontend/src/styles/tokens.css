@@ -258,6 +258,23 @@
 	--mobile-breakpoint: 768px;
 
 	/* ========================================================================
+	   NEUTRAL (UNBRANDED) PALETTE
+	   B3 strip-Wabi mode: gray-only palette used by the launch/login overrides
+	   in neutral-branding.css when a server opts into `useNeutralBranding`.
+	   No indigo/accent tint — fully neutral.
+	   ======================================================================== */
+	--neutral-accent: #a1a1aa;
+	--neutral-accent-strong: #c8c8cf;
+	--neutral-muted: #71717a;
+	--neutral-surface: #18181b;
+	--neutral-surface-raised: #27272a;
+	--neutral-surface-sunken: #101012;
+	--neutral-border: rgba(255, 255, 255, 0.12);
+	--neutral-text: #e4e4e7;
+	--neutral-text-secondary: #a1a1aa;
+	--neutral-text-muted: #71717a;
+
+	/* ========================================================================
 	   LEGACY ALIASES (backward compatibility — can remove once all components
 	   migrate to semantic tokens above)
 	   ======================================================================== */

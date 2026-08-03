@@ -935,6 +935,8 @@
 }
 
 /* Tight final login polish pass. */
+/* B4: this block is the canonical launch/login baseline — width constraints,
+   pill restyles and CTA shadows. Additive B3/B4 refinements live below it. */
 .login-auth-panel,
 .auth-form,
 .auth-divider,
@@ -957,7 +959,7 @@
 
 .auth-btn-primary:hover:not(:disabled) {
 	transform: none;
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary-color) 22%, transparent), 0 0 30px color-mix(in srgb, var(--accent-secondary-color) 0.3%, transparent), 0 8px 24px rgba(0, 0, 0, 0.2);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary-color) 26%, transparent), 0 12px 30px color-mix(in srgb, var(--accent-secondary-color) 32%, transparent), 0 10px 26px rgba(0, 0, 0, 0.24);
 }
 
 .server-pill-btn {
@@ -1102,13 +1104,13 @@
 
 .auth-btn-primary {
 	transform: none !important;
-	transition: background 0.18s ease, box-shadow 0.18s ease !important;
-	box-shadow: 0 0 24px color-mix(in srgb, var(--accent-secondary-color) 24%, transparent) !important;
+	transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease !important;
+	box-shadow: 0 8px 28px color-mix(in srgb, var(--accent-secondary-color) 26%, transparent) !important;
 }
 
 .auth-btn-primary:hover:not(:disabled) {
-	transform: none !important;
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary-color) 22%, transparent), 0 0 34px color-mix(in srgb, var(--accent-secondary-color) 0.34%, transparent) !important;
+	transform: translateY(-1px) !important;
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary-color) 26%, transparent), 0 14px 34px color-mix(in srgb, var(--accent-secondary-color) 34%, transparent), 0 10px 26px rgba(0, 0, 0, 0.24) !important;
 }
 
 
@@ -1121,4 +1123,126 @@
 	border-color: color-mix(in srgb, var(--accent-primary-color) 34%, transparent);
 	background: color-mix(in srgb, var(--accent-primary-color) 0.075%, transparent);
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary-color) 8%, transparent), 0 0 24px color-mix(in srgb, var(--accent-secondary-color) 0.16%, transparent);
+}
+
+/* ==========================================================================
+   B4 — final launch/login polish (typography, spacing, buttons).
+   Additive refinements over the "tight final polish pass" block above.
+   Uses design tokens from tokens.css; extends, never overrides destructively.
+   ========================================================================== */
+
+/* ---- Typography hierarchy ---- */
+.auth-heading {
+	font-weight: var(--font-weight-bold);
+	letter-spacing: -0.03em;
+	line-height: var(--line-height-tight);
+}
+
+.auth-subheading {
+	margin-bottom: 1.1rem;
+	line-height: var(--line-height-normal);
+}
+
+.field-caption {
+	font-weight: var(--font-weight-semibold);
+	letter-spacing: 0.06em;
+}
+
+.login-intro {
+	line-height: var(--line-height-relaxed);
+}
+
+.launch-headline {
+	font-size: var(--text-lg);
+	font-weight: var(--font-weight-semibold);
+}
+
+.launch-subheadline {
+	font-size: var(--text-sm);
+	line-height: var(--line-height-normal);
+}
+
+/* ---- Auth form spacing (tighter, token-based) ---- */
+.auth-form {
+	gap: 0.62rem;
+}
+
+.login-box input {
+	margin-bottom: 0.6rem;
+}
+
+.auth-alt-prompt {
+	margin-top: 0.7rem;
+}
+
+.auth-divider {
+	margin: 0.9rem 0;
+}
+
+/* ---- Buttons (primary / secondary / ghost) ---- */
+.auth-btn {
+	border-radius: var(--radius-lg);
+}
+
+.auth-btn-primary {
+	font-weight: var(--font-weight-bold);
+	letter-spacing: 0.01em;
+}
+
+.auth-btn-secondary {
+	font-weight: var(--font-weight-semibold);
+}
+
+.auth-btn-ghost {
+	font-weight: var(--font-weight-medium);
+}
+
+/* ---- Responsive balance between the 769px two-column layout and mobile ---- */
+@media (min-width: 769px) and (max-width: 1100px) {
+	.login-box-default {
+		gap: clamp(1.25rem, 3vw, 2rem);
+	}
+
+	.login-title {
+		font-size: clamp(2.9rem, 7vw, 4.2rem);
+	}
+
+	.login-shell.has-launch {
+		gap: 1rem;
+	}
+}
+
+/* ==========================================================================
+   B3 — neutral (strip-Wabi) login refinements.
+   The token-level swaps (--accent-*/--launch-*, logo + title swap) live in
+   neutral-branding.css; these login-specific retunes complete the neutral look.
+   ========================================================================== */
+html[data-neutral-branding] .login-container {
+	background:
+		radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.06), transparent 34rem),
+		radial-gradient(circle at 12% 82%, rgba(255, 255, 255, 0.05), transparent 28rem),
+		linear-gradient(135deg, var(--neutral-surface) 0%, var(--neutral-surface-sunken) 100%) !important;
+}
+
+html[data-neutral-branding] .auth-btn-primary {
+	background: linear-gradient(135deg, var(--neutral-accent-strong), var(--neutral-accent)) !important;
+	color: var(--neutral-surface-sunken) !important;
+}
+
+html[data-neutral-branding] .auth-btn-primary:hover:not(:disabled) {
+	box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 14px 34px rgba(0, 0, 0, 0.32) !important;
+}
+
+html[data-neutral-branding] .auth-btn-secondary {
+	background: color-mix(in srgb, var(--neutral-accent) 8%, transparent);
+	border-color: color-mix(in srgb, var(--neutral-accent) 24%, transparent);
+}
+
+html[data-neutral-branding] .remember-row input[type='checkbox']:checked {
+	background: var(--neutral-accent);
+	border-color: var(--neutral-accent-strong);
+}
+
+html[data-neutral-branding] .handle-prefix {
+	color: var(--neutral-text-secondary);
 }

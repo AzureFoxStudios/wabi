@@ -1,5 +1,43 @@
 import type { HomeExperienceMode } from '$lib/homeExperience';
 import { sanitizeAccentColor, sanitizeCustomCss, sanitizeCssUrl } from '$lib/cssSanitize';
+import { selectBrandConfig, type BrandConfig } from '$lib/branding';
+import { currentSavedServer } from '$lib/savedServerStore';
+import { get } from 'svelte/store';
+
+// ============================================================================
+// B3 — neutral (strip-Wabi) branding
+// ============================================================================
+
+/** True when the currently connected saved server opted into neutral branding. */
+export function isNeutralBrandingEnabled(): boolean {
+	return get(currentSavedServer)?.useNeutralBranding === true;
+}
+
+/**
+ * Effective brand config for the launch/login page. When the connected server
+ * opts into neutral branding, this swaps `brandConfig` for `neutralBrandConfig`
+ * (empty name, generic gray glyph, neutral palette — no hardcoded "Wabi").
+ */
+export function getEffectiveBrandConfig(): BrandConfig {
+	return selectBrandConfig(isNeutralBrandingEnabled());
+}
+
+/**
+ * Injects neutral branding at launch. Sets/removes `data-neutral-branding` on
+ * <html> so neutral-branding.css / login.css can strip the hardcoded "Wabi"
+ * logo + title and neutralize the accent palette. Idempotent; safe to call
+ * repeatedly. When `useNeutral` is omitted, auto-detects from the active server.
+ */
+export function injectNeutralBranding(useNeutral?: boolean): void {
+	if (typeof document === 'undefined') return;
+	const enabled = useNeutral ?? isNeutralBrandingEnabled();
+	const root = document.documentElement;
+	if (enabled) {
+		root.setAttribute('data-neutral-branding', '');
+	} else {
+		root.removeAttribute('data-neutral-branding');
+	}
+}
 
 export interface LoginValidationResult {
 	valid: boolean;

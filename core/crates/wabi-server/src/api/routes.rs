@@ -8,7 +8,7 @@ use crate::state::AppState;
 use super::{
     addons, admin, albums, auth, blobs, bots, calls, channels, emoji, forum, gallery, incidents,
     jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, public, standby,
-    sync, upload, user, wiki,
+    steam, sync, upload, user, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
 
@@ -62,7 +62,9 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Places registry (R7b) — always JSON, never SPA HTML fallthrough.
         .nest("/places", places::routes(state.clone()))
         // Emoji / sticker upload routes
-        .nest("/emoji", emoji::routes(state.clone()));
+        .nest("/emoji", emoji::routes(state.clone()))
+        // Steam addon routes (opt-in; 404 when STEAM_API_KEY is unset)
+        .nest("/steam", steam::routes(state.clone()));
 
     router
         // Media room routing (helper-node SFU assignment)

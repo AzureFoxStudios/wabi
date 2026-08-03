@@ -45,7 +45,8 @@ export function sanitizeServerEntry(value: unknown, fallbackOrder: number): Save
 		launchPageBranding:
 			input.launchPageBranding && typeof input.launchPageBranding === 'object' && !Array.isArray(input.launchPageBranding)
 				? (input.launchPageBranding as SavedServerEntry['launchPageBranding'])
-				: null
+				: null,
+		useNeutralBranding: input.useNeutralBranding === true
 	};
 }
 

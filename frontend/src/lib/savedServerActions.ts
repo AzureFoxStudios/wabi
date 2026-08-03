@@ -10,8 +10,9 @@ import { getLaunchPageConfigFrom, getPublicFrontendAppMetadata } from './api';
 import { getAuthToken, getGuestSessionId, getStoredDbUserId, getStoredUsername } from './authSession';
 import { getConfiguredServerRememberPreference, normalizeServerUrl, resolveServerUrl, setConfiguredServerUrl } from './serverUrl';
 import { setPendingChannelNavigation } from './pendingServerNavigation';
-import { updateEntry, withMutableState, moveEntryInOrderedList, savedServersState, buildStateRailItems } from './savedServerStore';
+import { updateEntry, withMutableState, moveEntryInOrderedList, savedServersState, currentSavedServer, buildStateRailItems } from './savedServerStore';
 import { sortEntries, normalizeAlias, createFolderId, getLastFolderMemberUrl, getFolderMembers } from './savedServerUtils';
+import { injectNeutralBranding } from './components/loginHelpers';
 
 async function refreshSavedServerMetadata(url: string): Promise<void> {
 	const normalizedUrl = normalizeServerUrl(url);
@@ -65,6 +66,7 @@ export function recordSuccessfulServerConnection(details?: {
 		frontendMetadata: entry?.frontendMetadata || null,
 		launchPageBranding: entry?.launchPageBranding || null
 	}));
+	injectNeutralBranding(getUseNeutralBranding());
 	void refreshSavedServerMetadata(normalizedUrl);
 }
 
@@ -263,6 +265,11 @@ export function openUnsavedServer(url: string): void {
 	switchToSavedServer(url);
 }
 
+/** B3 — whether the currently active saved server opts into neutral branding. */
+export function getUseNeutralBranding(): boolean {
+	return get(currentSavedServer)?.useNeutralBranding === true;
+}
+
 export function initializeCurrentServerMetadata(): void {
 	if (!browser || building) return;
 	const currentUrl = normalizeServerUrl(get(savedServersState).entries[0]?.url || '');
@@ -273,4 +280,5 @@ export function initializeCurrentServerMetadata(): void {
 			void refreshSavedServerMetadata(currentUrl);
 		}
 	}
+	injectNeutralBranding(getUseNeutralBranding());
 }

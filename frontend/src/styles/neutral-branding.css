@@ -1,0 +1,54 @@
+/**
+ * neutral-branding.css
+ * B3 — strip-Wabi mode. When the connected server opts into neutral branding,
+ * loginHelpers.injectNeutralBranding() sets `data-neutral-branding` on <html>.
+ * These rules then drop the hardcoded "Wabi" logo + title and neutralize the
+ * launch/login palette to the gray `--neutral-*` tokens (tokens.css).
+ *
+ * Scoped to the login/launch page only — the rest of the app is untouched.
+ */
+
+/* Neutralize the launch/login accent tokens. `!important` wins over the
+   inline `--launch-*` styles applied by Login.svelte from the server palette
+   and over themeManager's runtime root-level accent overrides. */
+html[data-neutral-branding] .login-container {
+	--accent: var(--neutral-accent) !important;
+	--accent-hover: var(--neutral-accent-strong) !important;
+	--accent-primary: var(--neutral-accent) !important;
+	--accent-secondary: var(--neutral-accent-strong) !important;
+	--accent-primary-color: var(--neutral-accent) !important;
+	--accent-secondary-color: var(--neutral-accent-strong) !important;
+	--accent-gradient: linear-gradient(135deg, var(--neutral-accent-strong), var(--neutral-accent)) !important;
+	--text-on-accent: var(--neutral-surface-sunken) !important;
+	--launch-accent: var(--neutral-accent) !important;
+	--launch-bg-top: var(--neutral-surface) !important;
+	--launch-bg-bottom: var(--neutral-surface-sunken) !important;
+	--launch-text: var(--neutral-text) !important;
+	--launch-card-bg: rgba(16, 16, 18, 0.85) !important;
+}
+
+/* Drop the hardcoded "Wabi" logo; render a generic neutral mark instead. */
+html[data-neutral-branding] .login-logo {
+	display: none !important;
+}
+
+html[data-neutral-branding] .login-brand-panel::before {
+	content: '';
+	display: block;
+	width: 88px;
+	height: 88px;
+	flex: 0 0 88px;
+	margin-bottom: 1rem;
+	background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect width='96' height='96' rx='22' fill='%23a1a1aa'/><path d='M24 34a8 8 0 0 1 8-8h32a8 8 0 0 1 8 8v18a8 8 0 0 1-8 8H45l-13 11v-11h-8a8 8 0 0 1-8-8z' fill='%23101012'/></svg>") center / contain no-repeat;
+	filter: none;
+}
+
+/* No hardcoded product name on the default (non-launch) login. */
+html[data-neutral-branding] .login-title {
+	display: none;
+}
+
+html[data-neutral-branding] .login-kicker,
+html[data-neutral-branding] .auth-eyebrow {
+	color: var(--neutral-text-secondary) !important;
+}

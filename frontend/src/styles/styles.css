@@ -65,6 +65,7 @@
 @import './components/diary-view.css';
 @import './components/surfaces.css';
 @import './components/forum.css';
+@import './components/steam-status.css';
 @import './components/wiki.css';
 @import './components/gallery-channel.css';
 @import './components/gallery-feedback.css';
@@ -79,6 +80,7 @@
 @import './mobile.css';
 @import './accessibility.css';
 @import './polish.css';
+@import './neutral-branding.css';
 
 /* =============================================================================
    CENTER STAGE CHAT + SETTINGS — Discord-like cozy (default)

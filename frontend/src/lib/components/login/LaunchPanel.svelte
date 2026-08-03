@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { LaunchPageConfig } from '$lib/api';
-	export let config: LaunchPageConfig;
+
+	let { config }: { config: LaunchPageConfig } = $props();
 </script>
 
 <section class="launch-panel">
@@ -35,79 +36,89 @@
 		backdrop-filter: blur(14px);
 		-webkit-backdrop-filter: blur(14px);
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.12));
-		border-radius: 16px;
-		padding: 2rem;
-		color: var(--launch-text);
+		border-radius: var(--radius-xl, 16px);
+		padding: clamp(1.5rem, 3vw, 2.25rem);
+		color: var(--launch-text, var(--text-heading));
 		display: flex;
 		flex-direction: column;
-		gap: 0.9rem;
+		gap: 0.85rem;
 	}
 
 	.launch-hero-image {
 		width: 100%;
 		max-height: 220px;
 		object-fit: cover;
-		border-radius: 12px;
+		border-radius: var(--radius-lg, 12px);
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.15));
 	}
 
 	.launch-brand {
-		font-size: 0.82rem;
-		letter-spacing: 0.12em;
+		font-size: var(--text-xs);
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		color: rgba(255, 255, 255, 0.78);
-		font-weight: 700;
+		color: color-mix(in srgb, var(--launch-text, #ffffff) 72%, transparent);
+		font-weight: var(--font-weight-semibold);
 	}
 
 	.launch-panel h1 {
 		margin: 0;
-		font-size: clamp(1.5rem, 2.3vw, 2.2rem);
-		line-height: 1.2;
+		font-size: clamp(1.55rem, 2.4vw, 2.35rem);
+		line-height: var(--line-height-tight);
+		letter-spacing: -0.02em;
+		font-weight: var(--font-weight-bold);
 	}
 
 	.launch-panel p {
 		margin: 0;
-		color: rgba(255, 255, 255, 0.84);
-		line-height: 1.55;
+		color: color-mix(in srgb, var(--launch-text, #ffffff) 82%, transparent);
+		line-height: var(--line-height-relaxed);
+		font-size: var(--text-base);
 	}
 
 	.launch-primary-cta {
 		align-self: flex-start;
 		text-decoration: none;
-		color: var(--color-border);
-		background: var(--launch-accent);
-		padding: 0.7rem 1rem;
-		border-radius: 10px;
-		font-weight: 700;
-		transition: transform 0.2s ease;
+		color: var(--neutral-surface-sunken, #101012);
+		background: var(--launch-accent, var(--accent-primary-color));
+		padding: 0.72rem 1.25rem;
+		border-radius: var(--radius-lg, 12px);
+		font-weight: var(--font-weight-bold);
+		font-size: var(--text-sm);
+		letter-spacing: 0.01em;
+		box-shadow: 0 8px 24px color-mix(in srgb, var(--launch-accent, var(--accent-primary-color)) 26%, transparent);
+		transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out), filter var(--duration-fast) var(--ease-out);
 	}
 
 	.launch-primary-cta:hover {
 		transform: translateY(-1px);
+		filter: brightness(1.06);
+		box-shadow: 0 12px 30px color-mix(in srgb, var(--launch-accent, var(--accent-primary-color)) 34%, transparent);
 	}
 
 	.launch-highlights {
 		list-style: none;
 		padding: 0;
-		margin: 0.25rem 0 0 0;
+		margin: 0.35rem 0 0 0;
 		display: grid;
-		gap: 0.65rem;
+		gap: 0.6rem;
 	}
 
 	.launch-highlights li {
 		display: grid;
 		gap: 0.2rem;
 		padding-left: 0.9rem;
-		border-left: 2px solid rgba(255, 255, 255, 0.26);
+		border-left: 2px solid color-mix(in srgb, var(--launch-text, #ffffff) 26%, transparent);
 	}
 
 	.launch-highlights strong {
-		font-size: 0.94rem;
+		font-size: var(--text-sm);
+		font-weight: var(--font-weight-semibold);
 	}
 
 	.launch-highlights span {
-		font-size: 0.84rem;
-		color: rgba(255, 255, 255, 0.75);
+		font-size: var(--text-xs);
+		color: color-mix(in srgb, var(--launch-text, #ffffff) 72%, transparent);
+		line-height: 1.5;
 	}
 
 	@media (max-width: 768px) {

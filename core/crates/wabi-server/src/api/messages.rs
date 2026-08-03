@@ -16,6 +16,61 @@ use crate::error::Result;
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
+/// Detect every `steam://run/<appid>` deep link in a message's text.
+/// Steam AppIDs are unsigned 32-bit integers; a leading `0` is kept as-is
+/// (the scheme is a launch link, not a numeric comparison).
+pub fn find_steam_join_appids(content: &str) -> Vec<u32> {
+    let Ok(re) = regex::Regex::new(r"steam://run/(\d+)") else {
+        return Vec::new();
+    };
+    let mut appids = Vec::new();
+    for caps in re.captures_iter(content) {
+        if let Some(m) = caps.get(1) {
+            if let Ok(appid) = m.as_str().parse::<u32>() {
+                if !appids.contains(&appid) {
+                    appids.push(appid);
+                }
+            }
+        }
+    }
+    appids
+}
+
+/// Broadcast a `steam_join` Socket.IO event for every `steam://run/<appid>`
+/// deep link found in a message. This lets connected clients render an inline
+/// "Join Game" button the moment the message lands, without re-scanning text.
+/// Fire-and-forget: a missing SocketIo handle is not a hard error.
+async fn emit_steam_join_events(
+    state: &AppState,
+    channel_id: &str,
+    message_id: &str,
+    username: &str,
+    user_id: u64,
+    content: &str,
+) {
+    let appids = find_steam_join_appids(content);
+    if appids.is_empty() {
+        return;
+    }
+    let mut sio_rx = state.sio_broadcast_tx.subscribe();
+    if let Ok(io) = sio_rx.recv().await {
+        for appid in appids {
+            let payload = json!({
+                "appid": appid,
+                "messageId": message_id,
+                "channelId": channel_id,
+                "username": username,
+                "userId": format!("user-{}", user_id),
+            });
+            let ch = channel_id.to_string();
+            let io = io.clone();
+            tokio::spawn(async move {
+                let _ = io.to(ch).emit("steam_join", &payload).await;
+            });
+        }
+    }
+}
+
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/{channel_id}", axum::routing::get(get_messages))
@@ -187,6 +242,17 @@ async fn send_message(
         },
     );
 
+    // Steam addon: emit `steam_join` for any `steam://run/<appid>` deep link.
+    emit_steam_join_events(
+        &state,
+        &req.channel_id,
+        &message_id,
+        &sender_username,
+        sender_id,
+        &req.content,
+    )
+    .await;
+
     Ok(Json(MessageResponse {
         id: message_id,
         channel_id: req.channel_id,
@@ -200,3 +266,37 @@ async fn send_message(
         files: vec![],
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_single_steam_run_link() {
+        assert_eq!(
+            find_steam_join_appids("join me: steam://run/1086940"),
+            vec![1086940]
+        );
+    }
+
+    #[test]
+    fn finds_multiple_unique_steam_run_links() {
+        assert_eq!(
+            find_steam_join_appids("a: steam://run/1086940 b: steam://run/553850 a: steam://run/1086940"),
+            vec![1086940, 553850]
+        );
+    }
+
+    #[test]
+    fn ignores_non_steam_urls() {
+        assert!(find_steam_join_appids("https://store.steampowered.com/app/1086940").is_empty());
+        assert!(find_steam_join_appids("steam://joinlobby/1086940/abc/123").is_empty());
+        assert!(find_steam_join_appids("no links here").is_empty());
+    }
+
+    #[test]
+    fn handles_empty_string() {
+        assert!(find_steam_join_appids("").is_empty());
+    }
+}
+

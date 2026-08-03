@@ -1,0 +1,95 @@
+/* Steam addon — status badge (inline in message headers) + Join Game button */
+
+.steam-status-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: 8px;
+	padding: 1px 8px 1px 5px;
+	border: 1px solid rgba(99, 102, 241, 0.35);
+	border-radius: var(--radius-full, 9999px);
+	background: linear-gradient(180deg, rgba(99, 102, 241, 0.16), rgba(99, 102, 241, 0.08));
+	color: var(--text-secondary, #b3b3ff);
+	font-size: 11px;
+	line-height: 1.5;
+	font-weight: 500;
+	white-space: nowrap;
+	vertical-align: middle;
+	max-width: 220px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.steam-status-icon {
+	display: inline-flex;
+	color: #66c0f4;
+	flex-shrink: 0;
+}
+
+.steam-status-text {
+	display: inline-flex;
+	align-items: center;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.steam-status-game {
+	color: inherit;
+	text-decoration: none;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.steam-status-game:hover {
+	color: var(--text-heading, #e0e0ff);
+	text-decoration: underline;
+}
+
+.steam-join-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.steam-join-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 12px;
+	border: 1px solid rgba(99, 102, 241, 0.45);
+	border-radius: var(--radius-md, 8px);
+	background: linear-gradient(180deg, #3d4268, #2b2f4d);
+	color: var(--text-heading, #e0e0ff);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition:
+		border-color 0.15s ease,
+		background 0.15s ease,
+		transform 0.1s ease;
+}
+
+.steam-join-button:hover {
+	border-color: var(--accent-primary, #6366f1);
+	background: linear-gradient(180deg, #464c78, #333a5e);
+}
+
+.steam-join-button:active {
+	transform: translateY(1px);
+}
+
+.steam-join-button:focus-visible {
+	outline: 2px solid var(--accent-primary, #6366f1);
+	outline-offset: 2px;
+}
+
+.steam-join-icon {
+	display: inline-flex;
+	color: #66c0f4;
+}
+
+.steam-join-label {
+	white-space: nowrap;
+}

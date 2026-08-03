@@ -33,6 +33,8 @@ export interface SavedServerEntry {
 	hasGuestSession: boolean;
 	frontendMetadata: FrontendAppMetadataPolicy | null;
 	launchPageBranding: Pick<LaunchPageConfig, 'brandName' | 'logoUrl' | 'heroImageUrl' | 'subheadline' | 'palette'> | null;
+	/** B3 — opt this server into the neutral (strip-Wabi) branding on launch. */
+	useNeutralBranding?: boolean;
 }
 
 export interface SavedServerView extends SavedServerEntry {

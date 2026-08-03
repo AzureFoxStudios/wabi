@@ -13,6 +13,7 @@
 	} from './messageItemUtils';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
 	import UnfurlCard from '$lib/components/UnfurlCard.svelte';
+	import SteamJoinButton from '$lib/components/plugins/SteamJoinButton.svelte';
 	import type { MessageEntity } from '$lib/socket';
 
 	export let message: Message;
@@ -297,4 +298,6 @@
 	{#if firstObjectEntity}
 		<UnfurlCard entity={firstObjectEntity} />
 	{/if}
+
+	<SteamJoinButton {messageText} />
 </div>
