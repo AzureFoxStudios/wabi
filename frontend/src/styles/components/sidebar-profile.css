@@ -24,10 +24,82 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		height: var(--app-chrome-height);
+		height: auto;
 		min-height: var(--app-chrome-height);
 		position: relative;
 		box-sizing: border-box;
+	}
+
+	/* PR4: banner strip behind the avatar. Positioned inside the card so it
+	   never clips the absolutely-positioned status popup. */
+	.profile-card-banner {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 14px;
+		background-size: cover;
+		background-position: center;
+		opacity: 0.85;
+		pointer-events: none;
+	}
+
+	.profile-card-banner::after {
+		content: "";
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 14px;
+		background: linear-gradient(180deg, rgba(var(--surface-base-rgb, 26, 26, 46), 0.2), rgba(var(--surface-base-rgb, 26, 26, 46), 0.95));
+	}
+
+	.profile-card .profile-info {
+		position: relative;
+	}
+
+	/* PR4: status/activity line under the handle. */
+	.activity-line {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		min-width: 0;
+		line-height: 1.1;
+		margin-top: 1px;
+	}
+
+	.activity-line .activity-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		flex: 0 0 7px;
+		background: var(--status-online, #22c55e);
+	}
+
+	.activity-line .activity-dot.away {
+		background: var(--status-away, #f59e0b);
+	}
+
+	.activity-line .activity-dot.busy {
+		background: var(--status-busy, #ef4444);
+	}
+
+	.activity-line .activity-dot.offline {
+		background: var(--status-offline, #708090);
+	}
+
+	.activity-line .activity-label {
+		color: var(--text-secondary);
+		font-size: 0.68rem;
+		white-space: nowrap;
+	}
+
+	.activity-line .activity-status {
+		color: var(--text-muted);
+		font-size: 0.68rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 
@@ -75,7 +147,7 @@
 		border-radius: 8px;
 		padding: 6px;
 		box-shadow: 0 4px 12px var(--shadow-lg, rgba(0, 0, 0, 0.3));
-		z-index: 100;
+		z-index: var(--z-sticky);
 		min-width: 140px;
 	}
 

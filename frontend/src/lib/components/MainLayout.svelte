@@ -150,6 +150,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	onMount(() => {
+		// P3: on mobile the bottom nav starts visible, then auto-hides after
+		// the idle timeout and reappears on interaction (grabber, swipe, touch).
+		if ($layoutStore.isMobile && !$layoutStore.isInCall) {
+			mobileNavVisible = true;
+			scheduleMobileNavIdleHide();
+		}
+
 		mobileTabQueue.registerAddonTab({
 			id: MODEL_VIEWPORT_ADDON_ID,
 			label: '3D Viewport',
@@ -465,6 +472,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			swipePreviewTarget = nearLeftEdge ? 'channels' : 'users';
 			swipePreviewActive = true;
 			swipePreviewOffsetX = nearLeftEdge ? 0 : 0;
+		}
+
+		// P3: reappear on interaction — touching the content brings the hidden
+		// bottom nav back (it then auto-hides again after the idle timeout).
+		// Touches on buttons (incl. the grabber) were already bailed out above.
+		if (!mobileNavVisible && !$layoutStore.isInCall) {
+			showMobileNav();
 		}
 	}
 

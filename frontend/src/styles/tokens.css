@@ -249,6 +249,15 @@
 	--app-chrome-opacity: 1;
 
 	/* ========================================================================
+	   MOBILE BREAKPOINT
+	   Single source of truth for the primary mobile breakpoint value. Plain
+	   CSS media queries cannot reference a custom property, so the consolidated
+	   mobile rules live in one place: components/mobile-breakpoints.css. Keep
+	   this value in sync with that file when the breakpoint ever changes.
+	   ======================================================================== */
+	--mobile-breakpoint: 768px;
+
+	/* ========================================================================
 	   LEGACY ALIASES (backward compatibility — can remove once all components
 	   migrate to semantic tokens above)
 	   ======================================================================== */

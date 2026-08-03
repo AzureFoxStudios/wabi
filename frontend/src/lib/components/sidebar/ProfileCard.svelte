@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import { currentUser, updateProfile, roleDefinitions } from '$lib/socket';
 	import { isMuted as callMuted, isDeafened as callDeafened, toggleMute, toggleDeafen } from '$lib/calling';
-	import { clearActiveCustomStatusPreset } from '$lib/customStatusPresets';
+	import { clearActiveCustomStatusPreset, customStatusPresetsStore, getActiveCustomStatusPreset } from '$lib/customStatusPresets';
+	import { brandName } from '$lib/branding';
 	import { FALLBACK_ROLE_LABELS } from './channelSidebarHelpers';
 
 	export let sidebarWidth: number;
@@ -10,6 +11,20 @@
 	const dispatch = createEventDispatcher();
 
 	let showStatusPopup = false;
+	let disableAllBanners = false;
+
+	const BANNER_VISIBILITY_KEY = 'wabi:profile:visibility';
+
+	onMount(() => {
+		try {
+			const raw = localStorage.getItem(BANNER_VISIBILITY_KEY);
+			if (!raw) return;
+			const v = JSON.parse(raw);
+			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+		} catch {
+			// ignore malformed local state
+		}
+	});
 
 	$: currentUserRoleLabel = (() => {
 		if (!$currentUser) return '';
@@ -32,6 +47,20 @@
 	})();
 	$: avatarInitial = (displayUsername.charAt(0) || 'G').toUpperCase();
 
+	// PR4: richer status/activity line — status label + active custom status preset.
+	$: activityLabel = (() => {
+		const status = $currentUser?.status;
+		if (status === 'away') return 'Away';
+		if (status === 'busy') return 'Busy';
+		if (status === 'offline') return 'Offline';
+		return 'Active';
+	})();
+	$: activeCustomStatus = getActiveCustomStatusPreset($customStatusPresetsStore);
+	$: cardBannerUrl =
+		$currentUser?.bannerUrl && $currentUser.showBanner !== false && !disableAllBanners
+			? $currentUser.bannerUrl
+			: '';
+
 	function openProfilePopout(event: Event): void {
 		dispatch('openProfilePopout', event);
 	}
@@ -45,10 +74,37 @@
 		updateProfile({ status: newStatus });
 		showStatusPopup = false;
 	}
+
+	function copyUserId(): void {
+		const id = $currentUser?.id;
+		if (!id || !navigator.clipboard) return;
+		navigator.clipboard.writeText(id).catch(() => {});
+	}
+
+	function copyMention(): void {
+		const handle = ($currentUser?.handle || '').trim();
+		const mention = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
+		if (!mention || !navigator.clipboard) return;
+		navigator.clipboard.writeText(mention).catch(() => {});
+	}
+
+	function shareProfile(): void {
+		const handle = ($currentUser?.handle || '').trim();
+		const identity = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
+		const text = `${identity} — ${brandName} profile`;
+		if (navigator.share) {
+			navigator.share({ title: identity, text }).catch(() => {});
+		} else if (navigator.clipboard) {
+			navigator.clipboard.writeText(text).catch(() => {});
+		}
+	}
 </script>
 
 {#if $currentUser}
 	<div class="profile-card">
+		{#if cardBannerUrl}
+			<div class="profile-card-banner" style="background-image: url({cardBannerUrl});" aria-hidden="true"></div>
+		{/if}
 		<div class="profile-info">
 			<button class="avatar-container" on:click={openProfilePopout}>
 				{#if $currentUser.profilePicture}
@@ -77,6 +133,13 @@
 					<span class="self-role-badge">{currentUserRoleLabel}</span>
 				</div>
 				<div class="user-tag">@{displayHandle}</div>
+				<div class="activity-line">
+					<span class="activity-dot" class:away={$currentUser.status === 'away'} class:busy={$currentUser.status === 'busy'} class:offline={$currentUser.status === 'offline'}></span>
+					<span class="activity-label">{activityLabel}</span>
+					{#if activeCustomStatus?.label}
+						<span class="activity-status">{activeCustomStatus.label}</span>
+					{/if}
+				</div>
 			</div>
 		</div>
 
@@ -126,6 +189,27 @@
 				</svg>
 			</button>
 			{#if sidebarWidth >= 170}
+				<button
+					class="control-btn"
+					on:click={copyMention}
+					title="Copy mention"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path></svg>
+				</button>
+				<button
+					class="control-btn"
+					on:click={copyUserId}
+					title="Copy user ID"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>
+				</button>
+				<button
+					class="control-btn"
+					on:click={shareProfile}
+					title="Share profile"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+				</button>
 				<button
 					class="control-btn"
 					on:click={() => dispatch('openSettings')}
