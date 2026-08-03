@@ -62,6 +62,7 @@
   let setAnimationSpeedRuntime: ((speed: number) => void) | null = null;
   let setAnimationLoopRuntime: ((mode: AnimationLoopMode) => void) | null = null;
   let startViewer: () => void = () => {};
+  let isFullscreen = false;
 
   async function shouldUseWorker(ext: string): Promise<boolean> {
     const decision = await resolveWorkerDecision(src, ext, threadMode);
@@ -137,6 +138,16 @@
   function toggleHideUi(): void {
     hideUi = !hideUi;
     if (hideUi) menuOpen = false;
+  }
+
+  function toggleFullscreen(): void {
+    if (!host) return;
+    if (isFullscreen) {
+      document.exitFullscreen?.();
+    } else {
+      host.requestFullscreen?.();
+    }
+    isFullscreen = !isFullscreen;
   }
 
   function handleWindowClick(): void {
@@ -825,7 +836,7 @@
   });
 </script>
 
-<svelte:window on:click={handleWindowClick} />
+<svelte:window on:click={handleWindowClick} on:keydown={(e) => e.key === 'Escape' && isFullscreen && toggleFullscreen()} />
 
 <ModelViewerShell
   {viewMode}
@@ -839,6 +850,8 @@
   onStartViewer={startViewer}
   onViewModeChange={setViewMode}
   onToggleHideUi={toggleHideUi}
+  onToggleFullscreen={toggleFullscreen}
+  bind:isFullscreen
 >
   <canvas slot="canvas" bind:this={canvas} aria-label={`3D model viewer for ${fileName}`}></canvas>
 
