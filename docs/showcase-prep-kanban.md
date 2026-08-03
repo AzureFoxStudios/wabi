@@ -246,8 +246,8 @@ Launch-page branding exists (`/api/public/launch-page` → `LaunchPanel.svelte`;
 | W9 Profiles | 4 | pending |
 | W10R Regressions | 13 | R1–R5+R7a+R7b-code+R8–R12 board-closed; R6 parked live; R7b Tim deploy owed |
 | W10 Polish | 4 (1 deferred) | pending |
-| W11 Branding | 4 | pending |
-| W12 Backlog | 5 | deferred |
-| W13 Bot platform | H0 done; H1a–c stretch | after green |
+| W11 Branding | 4 | B1+B2+B3+B4 done (7ba3d3e + b011aa8); S1 Steam addon Phase 1+2 done |
+| W12 Backlog | 5 | deferred; S1 done |
+| W13 Bot platform | H0 done; H1a–c done (c027200) | after green |
 | **Active total** | **~62** | |
 | **+ stretch/backlog** | **+8** | |
