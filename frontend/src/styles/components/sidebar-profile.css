@@ -210,3 +210,30 @@
 		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.45);
 		color: var(--color-danger, #ef4444);
 	}
+
+	.profile-card .profile-controls .control-btn.share-copied {
+		position: relative;
+	}
+
+	.share-copied-badge {
+		position: absolute;
+		top: -8px;
+		right: -4px;
+		background: var(--accent-primary, #6366f1);
+		color: #fff;
+		font-size: 9px;
+		font-weight: 700;
+		padding: 2px 4px;
+		border-radius: 3px;
+		white-space: nowrap;
+		animation: fade-in 0.2s ease, fade-out 0.2s ease 1.8s;
+	}
+
+	@keyframes fade-in {
+		from { opacity: 0; transform: scale(0.8); }
+		to { opacity: 1; transform: scale(1); }
+	}
+	@keyframes fade-out {
+		from { opacity: 1; transform: scale(1); }
+		to { opacity: 0; transform: scale(0.8); }
+	}
