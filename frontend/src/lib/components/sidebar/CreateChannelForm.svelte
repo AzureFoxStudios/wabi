@@ -38,6 +38,7 @@
 		if (type === 'stage') return 'Stage';
 		if (type === 'lore') return 'Asset Storage';
 		if (type === 'planning') return 'Planning';
+		if (type === 'category') return 'Category';
 		return 'Text';
 	}
 </script>
@@ -61,6 +62,8 @@
 				? 'gallery'
 				: newChannelType === 'planning'
 				? 'planning-board'
+				: newChannelType === 'category'
+				? 'folder-name'
 				: 'channel-name'}
 			on:keydown={(e) => e.key === 'Enter' && !creatingChannel && onSubmit()}
 		/>
@@ -77,6 +80,7 @@
 				onTypeChange((e.currentTarget as HTMLSelectElement).value as CreateableChannelType)}
 		>
 			<option value="text">Text Channel</option>
+			<option value="category">Category</option>
 			<option value="voice">Voice Channel</option>
 			<option value="gallery">Gallery Channel</option>
 			<option value="forum">Forum Channel</option>
@@ -90,6 +94,8 @@
 			<p class="create-channel-hint">
 				Asset Storage uses the Lore add-on for versioned binary assets (CAD, 3D, large files).
 			</p>
+		{:else if newChannelType === 'category'}
+			<p class="create-channel-hint">Category folders group channels. Drag channel rows onto a folder to nest them inside it.</p>
 		{:else if newChannelType === 'planning'}
 			<p class="create-channel-hint">Planning channels surface the Planner workspace: kanban, Gantt, calendar, and task boards scoped to this channel.</p>
 		{:else if newChannelType === 'forum'}

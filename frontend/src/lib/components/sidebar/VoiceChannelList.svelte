@@ -20,7 +20,7 @@
 	export let nowMs: number;
 	export let followedChannelIds: Set<string>;
 
-	export let onVoiceChannelClick: (channelId: string) => void;
+	export let onVoiceChannelClick: (channelId: string, event?: MouseEvent) => void;
 	export let onChannelRightClick: (event: MouseEvent, channel: Channel) => void;
 	export let onChannelLongPress: (event: TouchEvent, channel: Channel) => void;
 	export let onToggleChannelFollow: (channelId: string, event?: Event) => void;
@@ -167,7 +167,7 @@
 		use:longpress={{ onLongPress: (e) => onChannelLongPress(e, channel) }}
 	>
 		<div class="voice-channel-main">
-			<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => onVoiceChannelClick(channel.id)}>
+			<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(e) => onVoiceChannelClick(channel.id, e)}>
 				<span class="hash voice-icon" aria-hidden="true">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
 				</span>
@@ -270,7 +270,7 @@
 			on:contextmenu={(e) => onChannelRightClick(e, breakout)}
 			use:longpress={{ onLongPress: (e) => onChannelLongPress(e, breakout) }}
 		>
-			<button class="channel-btn" data-abbrev={breakout.name.charAt(0).toUpperCase()} on:click={() => onVoiceChannelClick(breakout.id)}>
+			<button class="channel-btn" data-abbrev={breakout.name.charAt(0).toUpperCase()} on:click={(e) => onVoiceChannelClick(breakout.id, e)}>
 				<span class="breakout-prefix" aria-hidden="true">&gt;</span>
 				<span class="voice-channel-name">{breakout.name}</span>
 				{#if isVoiceChannelBeingRecorded(breakout.id)}
