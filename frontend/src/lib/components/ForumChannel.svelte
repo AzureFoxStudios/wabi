@@ -170,9 +170,6 @@
 <div class="forum-channel">
 	<SurfaceHeader
 		title={activeChannel?.name || 'Forum'}
-		description="Forum"
-		primaryLabel={canCurrentUserPost ? '+ New Thread' : undefined}
-		onPrimary={canCurrentUserPost ? handleNewThread : undefined}
 	/>
 
 	<SurfaceToolbar
@@ -187,7 +184,11 @@
 		]}
 		onSearch={handleSearch}
 		onPill={handlePill}
-	/>
+	>
+		{#if canCurrentUserPost}
+			<button class="surface-toolbar-primary" on:click={handleNewThread}>+ New Thread</button>
+		{/if}
+	</SurfaceToolbar>
 
 	<div class="forum-body">
 		{#if isLoading}

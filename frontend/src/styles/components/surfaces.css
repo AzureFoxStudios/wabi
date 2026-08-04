@@ -105,6 +105,24 @@
 	cursor: pointer;
 }
 
+.surface-toolbar-primary {
+	margin-left: auto;
+	padding: 6px 12px;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--accent-primary);
+	background: var(--accent-primary);
+	color: var(--text-on-accent, #fff);
+	font-size: var(--font-size-sm);
+	font-weight: 600;
+	cursor: pointer;
+	transition: background var(--duration-fast), transform var(--duration-fast);
+}
+
+.surface-toolbar-primary:hover {
+	background: var(--accent-primary-hover, var(--accent-primary));
+	transform: translateY(-1px);
+}
+
 .surface-body {
 	flex: 1;
 	overflow: auto;
