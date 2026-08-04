@@ -4,6 +4,7 @@
 	import { isMuted as callMuted, isDeafened as callDeafened, toggleMute, toggleDeafen } from '$lib/calling';
 	import { clearActiveCustomStatusPreset, customStatusPresetsStore, getActiveCustomStatusPreset } from '$lib/customStatusPresets';
 	import { brandName } from '$lib/branding';
+import { resolveServerUrl } from '$lib/serverUrl';
 	import { FALLBACK_ROLE_LABELS } from './channelSidebarHelpers';
 
 	export let sidebarWidth: number;
@@ -12,6 +13,7 @@
 
 	let showStatusPopup = false;
 	let disableAllBanners = false;
+	let shareCopied = false;
 
 	const BANNER_VISIBILITY_KEY = 'wabi:profile:visibility';
 
@@ -91,11 +93,18 @@
 	function shareProfile(): void {
 		const handle = ($currentUser?.handle || '').trim();
 		const identity = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
-		const text = `${identity} — ${brandName} profile`;
+		const text = `${identity} on ${brandName}`;
+		const url = `${resolveServerUrl().url}/@${handle || displayUsername}`;
 		if (navigator.share) {
-			navigator.share({ title: identity, text }).catch(() => {});
+			navigator.share({ title: identity, text, url }).catch(() => {
+				navigator.clipboard.writeText(url).catch(() => {});
+			});
 		} else if (navigator.clipboard) {
-			navigator.clipboard.writeText(text).catch(() => {});
+			navigator.clipboard.writeText(url).then(() => {
+				// Brief visual feedback
+				shareCopied = true;
+				setTimeout(() => shareCopied = false, 2000);
+			}).catch(() => {});
 		}
 	}
 </script>
@@ -204,18 +213,22 @@
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>
 				</button>
 				<button
-					class="control-btn"
-					on:click={shareProfile}
-					title="Share profile"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-				</button>
+						class="control-btn"
+						class:share-copied={shareCopied}
+						on:click={shareProfile}
+						title="Share profile"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+						{#if shareCopied}
+							<span class="share-copied-badge">Copied!</span>
+						{/if}
+					</button>
 				<button
 					class="control-btn"
 					on:click={() => dispatch('openSettings')}
 					title="User Settings"
 				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 10v6M4.93 4.93l4.24 4.24m-4.24 10.28l4.24-4.24M23 12h-6m0 0v6m0-6V6a6 6 0 0 0-12 0v12a6 6 0 0 0 12 0v-6"></path></svg>
 				</button>
 			{/if}
 		</div>
