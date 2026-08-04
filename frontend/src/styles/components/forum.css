@@ -31,6 +31,31 @@
 	letter-spacing: 0.05em;
 	border-bottom: 1px solid var(--border-subtle);
 	flex-shrink: 0;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.forum-new-thread-btn {
+	width: 28px;
+	height: 28px;
+	border-radius: var(--radius-full);
+	border: 1px solid var(--accent-primary);
+	background: var(--accent-primary);
+	color: var(--text-on-accent, #fff);
+	font-size: 16px;
+	font-weight: 700;
+	line-height: 1;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	transition: background var(--duration-fast), transform var(--duration-fast);
+}
+
+.forum-new-thread-btn:hover {
+	background: var(--accent-primary-hover, var(--accent-primary));
+	transform: scale(1.05);
 }
 
 .forum-category-list {

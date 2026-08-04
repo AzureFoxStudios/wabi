@@ -367,6 +367,7 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) mobileTabQueue.closeAddonTab(MODEL_VIEWPORT_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) mobileTabQueue.closeAddonTab(MEDIA_ALBUMS_ADDON_ID);
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID)) mobileTabQueue.closeAddonTab(PLANNER_ADDON_ID);
 	}
 </script>
 
@@ -445,8 +446,10 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 			}
 		}}
 	>
-		{#if isLiveChannel}
+		>{#if isLiveChannel}
 			<LiveChannelView channel={currentChannelData} />
+		{:else if selectedWorkspaceView === 'planner'}
+			<PlannerWorkspace />
 		{:else if currentChannelType === 'gallery'}
 			<GalleryChannel />
 		{:else if currentChannelType === 'lore'}
