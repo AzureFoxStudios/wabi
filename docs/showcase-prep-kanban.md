@@ -136,7 +136,7 @@ Today: color-only banner (`--pfp-banner`), bio links, roles, status. No banner i
 - [x] **R9** Chat search sticky auto-focus — `chat/ChatHeader.svelte` removed `on:mouseenter={onOpenSearch}`; click/focus only (`on:focus` + collapsed 36px input).
 - [x] **R10** Settings addon search — `addonSearchQuery` stays `''`; input `name="addon-filter"` + autocomplete/lp/1p off. **Best-effort** vs browser autofill — Ronin hard-refresh confirm owed.
 - [x] **R11** Status bubble size (BL user) — 18px→10px token in `status-system.css` + `sidebar-core-part3.css`; profile-card + avatar-wrap dots; glow 12→6px.
-- [x] **R12** CF Insights beacon — not in app bundle (`app.html` clean). CSP correctly blocks `static.cloudflareinsights.com/beacon.min.js`. Fix: CF dashboard → Web Analytics / Insights off for wabi.chat (or stop inject). Runbook: `docs/CALLING_CSP_DEBUG_2026-07-15.md`. Console noise only unless it blocks boot.
+- [x] **R12** CF Insights beacon — injected at Cloudflare edge, not in app bundle. Console CORS noise only (app works despite it). Fix via Cloudflare Dashboard → Web Analytics off for wabi.chat. See `docs/CALLING_CSP_DEBUG_2026-07-15.md`.
 
 ## WAVE 10 — Visual polish (web + Tauri + mobile)
 
