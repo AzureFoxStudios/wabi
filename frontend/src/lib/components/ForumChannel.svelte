@@ -184,11 +184,7 @@
 		]}
 		onSearch={handleSearch}
 		onPill={handlePill}
-	>
-		{#if canCurrentUserPost}
-			<button class="surface-toolbar-primary" on:click={handleNewThread}>+ New Thread</button>
-		{/if}
-	</SurfaceToolbar>
+	/>
 
 	<div class="forum-body">
 		{#if isLoading}
@@ -203,7 +199,12 @@
 			</div>
 		{:else}
 			<div class="forum-category-pane">
-				<div class="forum-category-header">Categories</div>
+				<div class="forum-category-header">
+					<span>Categories</span>
+					{#if canCurrentUserPost}
+						<button class="forum-new-thread-btn" on:click={handleNewThread} title="New Thread">+</button>
+					{/if}
+				</div>
 				<div class="forum-category-list">
 					<button
 						class="forum-category-item"
@@ -236,10 +237,6 @@
 			</div>
 
 			<div class="forum-post-list">
-				<div class="forum-post-list-header">
-					{activeCategory || 'All'} Threads
-					<span class="forum-post-list-header-count">{categorizedThreads.length} total</span>
-				</div>
 				{#if categorizedThreads.length === 0}
 					<div class="forum-empty">
 						<span>No threads found</span>
