@@ -539,11 +539,19 @@
 		const mentionTokenEl = target.closest('.mention-token');
 		if (!(mentionTokenEl instanceof HTMLElement)) return;
 		const mentionText = mentionTokenEl.textContent || '';
-		const user = getUserByMentionValue(mentionText);
-		if (!user) return;
 		event.preventDefault();
 		event.stopPropagation();
-		openUserPopoutForUser(user, mentionTokenEl);
+		const user = getUserByMentionValue(mentionText);
+		const username = user?.username || mentionText.replace(/^@/, '').trim();
+		if (!username) return;
+		if (browser && navigator.clipboard) {
+			try {
+				await navigator.clipboard.writeText(username);
+			} catch {
+				// no-op
+			}
+		}
+		showToast('Copied!', 'info', 1200);
 	}
 
 	function canUseRevealAllSpoilers(): boolean {

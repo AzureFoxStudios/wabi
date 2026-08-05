@@ -7,7 +7,7 @@ import { get } from 'svelte/store';
 	import { getWabiDB } from '$lib/wabidb';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
-	import { refreshSavedServer } from '$lib/savedServers';
+	import { refreshSavedServer, currentSavedServer } from '$lib/savedServers';
 	import { getServerUrl, resolveServerUrl } from '$lib/serverUrl';
 	import {
 		clearAdminPaymentUserBlock,
@@ -606,6 +606,7 @@ import { get } from 'svelte/store';
 			left.bannerUrl === right.bannerUrl &&
 			left.accentColor === right.accentColor &&
 			left.description === right.description &&
+			left.tagline === right.tagline &&
 			left.launchPageFallbackEnabled === right.launchPageFallbackEnabled
 		);
 	}
@@ -645,6 +646,8 @@ import { get } from 'svelte/store';
 			{adminCount}
 			{modCount}
 			{guestCount}
+			serverName={$currentSavedServer?.effectiveName || ''}
+			serverTagline={$currentSavedServer?.effectiveTagline || ''}
 		/>
 
 		{#if canManageRoles}

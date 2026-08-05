@@ -660,7 +660,10 @@
       "message": "Message",
       "edit_profile": "Edit Profile",
       "view_full_profile": "View Full Profile",
-      "copy_user_id": "Copy User ID"
+      "mute": "Mute",
+      "deafen": "Deafen",
+      "settings": "Settings",
+      "share_profile": "Share Profile"
     }
   }
 }

@@ -50,6 +50,7 @@
 			left.bannerUrl === right.bannerUrl &&
 			left.accentColor === right.accentColor &&
 			left.description === right.description &&
+			left.tagline === right.tagline &&
 			left.launchPageFallbackEnabled === right.launchPageFallbackEnabled
 		);
 	}
@@ -96,6 +97,10 @@
 			<label class="frontend-metadata-wide">
 				Description
 				<input type="text" value={frontendAppMetadata.description || ''} placeholder="Short line for the server switcher banner" on:input={(e) => onMetadataChange({ ...frontendAppMetadata, description: (e.currentTarget as HTMLInputElement).value || null })} />
+			</label>
+			<label class="frontend-metadata-wide">
+				Tagline
+				<input type="text" value={frontendAppMetadata.tagline || ''} placeholder="e.g. Small, fast, self-hosted" on:input={(e) => onMetadataChange({ ...frontendAppMetadata, tagline: (e.currentTarget as HTMLInputElement).value || null })} />
 			</label>
 			<details class="frontend-metadata-manual frontend-metadata-wide">
 				<summary>Advanced asset URLs</summary>

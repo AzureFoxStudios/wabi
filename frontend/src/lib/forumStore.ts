@@ -229,6 +229,56 @@ export async function markSolution(
 	}
 }
 
+export async function updateForumPost(
+	channelId: string,
+	threadId: string,
+	postId: string,
+	patch: { title?: string; body?: string; tags?: string[]; category?: string }
+): Promise<ForumPost | null> {
+	try {
+		const current =
+			get(forumThreads).find((t) => t.post_id === postId) ||
+			(get(forumPostsByThread).get(threadId) || []).find((p) => p.post_id === postId);
+		const res = await fetch(
+			`${apiBase()}/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(threadId)}/posts/${encodeURIComponent(postId)}`,
+			{
+				method: 'PUT',
+				headers: headers(),
+				body: JSON.stringify({
+					body: patch.body ?? current?.body ?? '',
+					title: patch.title ?? null,
+					tags: patch.tags ?? null,
+					category: patch.category ?? null,
+				}),
+			}
+		);
+		if (!res.ok) throw new Error(`Failed to update post: ${res.statusText}`);
+		const post: ForumPost = await res.json();
+		updatePostInStore(threadId, post);
+		return post;
+	} catch (err) {
+		forumError.set(err instanceof Error ? err.message : 'Failed to update post');
+		return null;
+	}
+}
+
+export async function renameForumCategory(
+	channelId: string,
+	from: string,
+	to: string
+): Promise<boolean> {
+	const name = to.trim();
+	if (!name || name === from) return false;
+	const targets = get(forumThreads).filter((t) => categorizeThread(t) === from);
+	let ok = true;
+	for (const t of targets) {
+		const updated = await updateForumPost(channelId, t.thread_id, t.post_id, { category: name });
+		if (!updated) ok = false;
+	}
+	if (ok && targets.length > 0) await loadThreads(channelId);
+	return ok && targets.length > 0;
+}
+
 function updatePostInStore(threadId: string, updated: ForumPost): void {
 	forumPostsByThread.update((map) => {
 		const next = new Map(map);
@@ -269,7 +319,7 @@ export function formatForumTime(micros: number): string {
 }
 
 export function getDefaultCategories(): ForumCategory[] {
-	return ['Bug', 'Feature', 'Discussion'];
+	return ['General', 'Bug', 'Feature', 'Discussion'];
 }
 
 export function categorizeThread(post: ForumPost): string {

@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { brandName } from '$lib/branding';
-import { getSocket, joinChannel, joinVoiceChannel } from '$lib/socket';
+import { getSocket, joinVoiceChannel, switchChannel } from '$lib/socket';
 import {
 	currentSavedServer,
 	savedServers,
@@ -120,7 +120,7 @@ export async function selectChannel(
 		setDrawerOpen(false);
 		return;
 	}
-	joinChannel(item.channelId);
+	switchChannel(item.channelId);
 	setDrawerOpen(false);
 }
 

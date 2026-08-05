@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { channelUnreadCounts, channels, currentChannel, joinChannel, joinVoiceChannel } from '$lib/socket';
+	import { channelUnreadCounts, channels, currentChannel, joinVoiceChannel, switchChannel } from '$lib/socket';
 	import { brandName } from '$lib/branding';
 	import { mobileTabQueue, type MobileQueueTab } from '$lib/mobileTabQueue';
 	import { currentSavedServer, savedServers, switchToSavedServerChannel } from '$lib/savedServers';
@@ -34,7 +34,7 @@
 	async function selectChannel(item: DrawerChannelItem): Promise<void> {
 		if (item.serverUrl !== activeFollowServerUrl) { switchToSavedServerChannel(item.serverUrl, item.channelId); setDrawerOpen(false); return; }
 		if (item.channelType === 'voice') { try { await joinVoiceChannel(item.channelId); } catch (error) { console.error('Failed to join voice channel from server shortcuts:', error); } setDrawerOpen(false); return; }
-		joinChannel(item.channelId);
+		switchChannel(item.channelId);
 		setDrawerOpen(false);
 	}
 	function removeSavedChannel(item: DrawerChannelItem): void { unfollowChannel(item.channelId, item.serverUrl); }

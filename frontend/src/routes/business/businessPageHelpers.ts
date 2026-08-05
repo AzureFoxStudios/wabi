@@ -3,7 +3,7 @@ import { getAuthToken } from '$lib/authSession';
 import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from '$lib/business/snapshot';
 import { sanitizeBusinessData } from '$lib/business/validation';
 import { grantLocalMockGuestAccess, isLocalMockApiMode } from '$lib/localMockApi';
-import { joinChannel } from '$lib/socket';
+import { switchChannel } from '$lib/socket';
 import { showToast } from '$lib/toast';
 
 export type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
@@ -116,5 +116,5 @@ export function handleImportFileInput(event: Event, onImport: (data: unknown) =>
 }
 
 export function handleChatChannelSwitch(channelId: string): void {
-	joinChannel(channelId);
+	switchChannel(channelId);
 }

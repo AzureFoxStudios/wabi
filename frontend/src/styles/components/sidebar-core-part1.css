@@ -209,6 +209,16 @@
 	}
 
 
+	.server-tagline {
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 100%;
+	}
+
+
 	/* Scope: channel-row settings button. The same class name is used by
    KanbanBoardImpl for column settings, so we must scope to avoid
    cross-surface contamination (sidebar-core is loaded before kanban in

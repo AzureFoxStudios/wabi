@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { brandName } from '$lib/branding';
-	import { channels, channelMessages, channelUnreadCounts, currentChannel, joinChannel, type Channel } from '$lib/socket';
+	import { channels, channelMessages, channelUnreadCounts, currentChannel, switchChannel, type Channel } from '$lib/socket';
 	import {
 		FOLLOW_ALERT_LEVEL_LABELS,
 		allServerFollowedChannels,
@@ -45,7 +45,7 @@
 	$: totalFollowCount = $allServerFollowedChannels.length;
 
 	function openChannel(channelId: string): void {
-		joinChannel(channelId);
+		switchChannel(channelId);
 		dispatch('openChannel', { channelId });
 	}
 
