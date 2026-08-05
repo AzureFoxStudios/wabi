@@ -303,39 +303,16 @@ impl AppState {
         }
     }
 
-    fn owner_file(data_dir: &str) -> PathBuf {
-        PathBuf::from(data_dir).join("server_owner.json")
-    }
-
-    /// Legacy migration source. The authoritative owner is now persisted in
-    /// the WDB store (see `load_owner` / `claim_ownership`); this only reads
-    /// the old JSON file once, to migrate existing deployments.
-    fn load_owner_from_disk(data_dir: &str) -> Option<i64> {
-        let path = Self::owner_file(data_dir);
-        let content = std::fs::read_to_string(path).ok()?;
-        let v: serde_json::Value = serde_json::from_str(&content).ok()?;
-        v.get("owner_user_id")?.as_i64()
-    }
-
-    /// Load the owner from the authoritative WDB store. Falls back to the
-    /// legacy JSON file for one-time migration, adopting it into the store.
-    async fn load_owner(wdb: &WdbAdapter, data_dir: &str) -> Option<i64> {
+    /// Load the owner from the authoritative WDB store.
+    async fn load_owner(wdb: &WdbAdapter, _data_dir: &str) -> Option<i64> {
         match wdb.get_owner_user_id().await {
-            Ok(Some(id)) => return Some(id as i64),
-            Ok(None) => {}
-            Err(e) => tracing::warn!("[setup] failed to read owner from store: {e}"),
-        }
-        if let Some(id) = Self::load_owner_from_disk(data_dir) {
-            tracing::warn!(
-                "[setup] migrating legacy server_owner.json -> WDB store (owner_user_id={})",
-                id
-            );
-            if let Err(e) = wdb.claim_owner(id as u64).await {
-                tracing::error!("[setup] failed to migrate owner into store: {e}");
+            Ok(Some(id)) => Some(id as i64),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!("[setup] failed to read owner from store: {e}");
+                None
             }
-            return Some(id);
         }
-        None
     }
 
     /// Returns true if the server has no owner yet (first-run state).

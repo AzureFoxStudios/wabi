@@ -40,7 +40,7 @@ export const wikiLoadingStore = wikiLoading;
 export const wikiErrorStore = wikiError;
 
 function apiBase(): string {
-	return `${getServerUrl()}/api/channels`;
+	return `${getServerUrl()}/api/wiki`;
 }
 
 function headers(): Record<string, string> {
@@ -66,7 +66,7 @@ export async function loadWiki(channelId: string): Promise<void> {
 
 	try {
 		const res = await fetch(
-			`${apiBase()}/${encodeURIComponent(channelId)}/wiki/pages`,
+			`${apiBase()}/${encodeURIComponent(channelId)}/pages`,
 			{ headers: headers() }
 		);
 		if (!res.ok) throw new Error(`Failed to load wiki: ${res.statusText}`);
@@ -96,7 +96,7 @@ export async function loadWiki(channelId: string): Promise<void> {
 export async function loadRevisions(channelId: string, pageId: string): Promise<void> {
 	try {
 		const res = await fetch(
-			`${apiBase()}/${encodeURIComponent(channelId)}/wiki/pages/${encodeURIComponent(pageId)}/revisions`,
+			`${apiBase()}/${encodeURIComponent(channelId)}/pages/${encodeURIComponent(pageId)}/revisions`,
 			{ headers: headers() }
 		);
 		if (!res.ok) throw new Error(`Failed to load revisions: ${res.statusText}`);
@@ -124,7 +124,7 @@ export async function createWikiPage(
 ): Promise<WikiPage | null> {
 	try {
 		const res = await fetch(
-			`${apiBase()}/${encodeURIComponent(channelId)}/wiki/pages`,
+			`${apiBase()}/${encodeURIComponent(channelId)}/pages`,
 			{
 				method: 'POST',
 				headers: headers(),
@@ -148,7 +148,7 @@ export async function updateWikiPage(
 ): Promise<WikiPage | null> {
 	try {
 		const res = await fetch(
-			`${apiBase()}/${encodeURIComponent(channelId)}/wiki/pages/${encodeURIComponent(pageId)}`,
+			`${apiBase()}/${encodeURIComponent(channelId)}/pages/${encodeURIComponent(pageId)}`,
 			{
 				method: 'PUT',
 				headers: headers(),

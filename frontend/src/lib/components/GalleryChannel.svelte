@@ -10,9 +10,11 @@
 		formatGalleryTime,
 		getCreatorInitial,
 		getGalleryItemKind,
+		uploadGalleryImages,
 		type GalleryItem,
 		type GalleryCreator,
 	} from '$lib/galleryStore';
+	import { _ } from '$lib/i18n';
 	import GalleryLightbox from './GalleryLightbox.svelte';
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { openShareModal } from '$lib/shareStore';
@@ -31,6 +33,12 @@
 	let lightboxVisible = false;
 	let lightboxIndex = 0;
 	let lightboxItems: GalleryItem[] = [];
+
+	let uploadInputElement: HTMLInputElement | null = null;
+	let isUploading = false;
+	let uploadErrorText: string | null = null;
+	let isDragOver = false;
+	let dragDepth = 0;
 
 	initObjectRefRegistry();
 
@@ -195,12 +203,75 @@
 		toggleCreatorFilter(creator);
 	}
 
+	function triggerUploadPicker() {
+		uploadInputElement?.click();
+	}
+
+	async function handleUploadInputChange(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const files = input.files ? Array.from(input.files) : [];
+		input.value = '';
+		if (files.length === 0) return;
+		await runGalleryUpload(files);
+	}
+
+	function handleDragEnter(event: DragEvent) {
+		event.preventDefault();
+		dragDepth++;
+		isDragOver = true;
+	}
+
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+	}
+
+	function handleDragLeave(event: DragEvent) {
+		event.preventDefault();
+		dragDepth = Math.max(0, dragDepth - 1);
+		if (dragDepth === 0) isDragOver = false;
+	}
+
+	async function handleDrop(event: DragEvent) {
+		event.preventDefault();
+		dragDepth = 0;
+		isDragOver = false;
+		const files = Array.from(event.dataTransfer?.files || []);
+		if (files.length === 0) return;
+		await runGalleryUpload(files);
+	}
+
+	async function runGalleryUpload(files: File[]) {
+		if (!$currentChannel || isUploading) return;
+		const images = files.filter((file) => file.type.startsWith('image/'));
+		if (images.length === 0) return;
+		const channel = $channels.find((ch) => ch.id === $currentChannel) || null;
+		isUploading = true;
+		uploadErrorText = null;
+		try {
+			const result = await uploadGalleryImages($currentChannel, images, channel?.name);
+			if (result.errors.length > 0) {
+				uploadErrorText = result.errors[0];
+			}
+		} finally {
+			isUploading = false;
+		}
+	}
+
 	onDestroy(() => {
 		if (observer) observer.disconnect();
 	});
 </script>
 
-<div class="gallery-channel">
+<div
+	class="gallery-channel"
+	class:drop-active={isDragOver}
+	role="group"
+	on:dragenter={handleDragEnter}
+	on:dragover={handleDragOver}
+	on:dragleave={handleDragLeave}
+	on:drop={handleDrop}
+>
 	<header class="gallery-header">
 		<div class="gallery-header-left">
 			<span class="gallery-hash">#</span>
@@ -216,6 +287,30 @@
 		</div>
 		<div class="gallery-header-actions">
 			<input
+				class="gallery-upload-input"
+				type="file"
+				accept="image/*"
+				multiple
+				bind:this={uploadInputElement}
+				on:change={handleUploadInputChange}
+			/>
+			<button
+				class="gallery-upload-btn"
+				class:busy={isUploading}
+				disabled={isUploading || !$currentChannel}
+				on:click={triggerUploadPicker}
+				aria-label={$_('gallery_upload')}
+				title={$_('gallery_upload')}
+			>
+				{#if isUploading}
+					<span class="gallery-upload-spinner"></span>
+				{:else}
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+						<path d="M12 5v14M5 12h14"/>
+					</svg>
+				{/if}
+			</button>
+			<input
 				type="text"
 				class="gallery-search"
 				placeholder="Search works..."
@@ -223,6 +318,23 @@
 			/>
 		</div>
 	</header>
+
+	{#if uploadErrorText}
+		<div class="gallery-upload-error" role="alert">{uploadErrorText}</div>
+	{/if}
+
+	{#if isDragOver}
+		<div class="gallery-dropzone" aria-hidden="true">
+			<div class="gallery-dropzone-inner">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+					<path d="M12 16V7"/>
+					<path d="M8 11l4-4 4 4"/>
+					<path d="M5 19h14"/>
+				</svg>
+				<span>{$_('gallery_drop_hint')}</span>
+			</div>
+		</div>
+	{/if}
 
 	<div class="gallery-content">
 		{#if isLoading}

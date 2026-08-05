@@ -665,5 +665,7 @@
       "settings": "Ajustes",
       "share_profile": "Compartir perfil"
     }
-  }
+  },
+  "gallery_upload": "Subir imagen",
+  "gallery_drop_hint": "Suelta la imagen aquí"
 }

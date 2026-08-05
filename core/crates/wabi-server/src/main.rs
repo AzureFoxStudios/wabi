@@ -45,6 +45,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use serde_json::json;
 use clap::Parser;
 use rust_embed::RustEmbed;
 use wabidb::engine::wabi_store::WabiStore;
@@ -942,6 +943,18 @@ async fn serve_static(uri: axum::extract::OriginalUri) -> impl IntoResponse {
             ([(CONTENT_TYPE, mime.as_ref()), (CACHE_CONTROL, cache)], content.data).into_response()
         }
         None => {
+            // API paths that reach the static fallback are genuinely missing
+            // routes. Return 404 JSON so the frontend's optional-endpoint
+            // guards (isEndpointUnsupported) can degrade gracefully instead
+            // of crashing on HTML.
+            if path == "api" || path.starts_with("api/") {
+                return (
+                    StatusCode::NOT_FOUND,
+                    [(CONTENT_TYPE, "application/json")],
+                    axum::Json(json!({ "error": "not_found" })),
+                )
+                    .into_response();
+            }
             // SPA fallback
             match StaticAssets::get("index.html") {
                 Some(content) => (
