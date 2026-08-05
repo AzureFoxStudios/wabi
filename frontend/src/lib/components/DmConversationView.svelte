@@ -157,7 +157,7 @@
     padding: 0;
   }
   .dm-header-back:hover {
-    background: rgba(255,255,255,0.08);
+    background: color-mix(in srgb, var(--text-heading, #e0e0ff) 8%, transparent);
     color: var(--text-heading, #e0e0ff);
   }
 
@@ -186,20 +186,20 @@
   }
 
   .dm-badge {
-    padding: 1px 5px;
+    padding: var(--space-0, 0) var(--space-1, 4px);
     border-radius: var(--radius-sm, 4px);
-    background: var(--accent-primary, #6366f1);
+    background: var(--accent-primary-color, #6366f1);
     color: #fff;
     font-weight: var(--font-weight-semibold, 600);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    font-size: 10px;
+    font-size: var(--font-size-xs, 11px);
   }
 
   .dm-header-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: var(--space-1, 4px);
     flex-shrink: 0;
   }
 
@@ -217,7 +217,7 @@
     padding: 0;
   }
   .dm-header-action:hover {
-    background: rgba(255,255,255,0.08);
+    background: color-mix(in srgb, var(--text-heading, #e0e0ff) 8%, transparent);
     color: var(--text-heading, #e0e0ff);
   }
 

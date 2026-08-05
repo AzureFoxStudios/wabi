@@ -773,8 +773,8 @@
 	.dm-active-header {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
-		padding: 0.3rem 0.5rem;
+		gap: var(--space-2, 8px);
+		padding: var(--space-1, 4px) var(--space-2, 8px);
 		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
 	}
@@ -782,7 +782,7 @@
 	.dm-header-primary {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
+		gap: var(--space-2, 8px);
 		min-width: 0;
 		flex: 1;
 	}
@@ -791,7 +791,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-start;
-		gap: 0.45rem;
+		gap: var(--space-2, 8px);
 		min-width: 0;
 		flex: 1;
 		text-align: left;
@@ -800,7 +800,7 @@
 	.dm-header-title {
 		display: block;
 		text-align: left;
-		font-size: 0.86rem;
+		font-size: var(--font-size-base, 14px);
 		font-weight: 600;
 		color: var(--text-primary);
 		white-space: nowrap;
@@ -811,7 +811,7 @@
 	.dm-header-actions-inline {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
+		gap: var(--space-2, 8px);
 		margin-left: auto;
 	}
 
@@ -824,7 +824,7 @@
 		margin-left: auto;
 		background: none;
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: var(--radius-md, 8px);
 		color: var(--text-secondary);
 		cursor: pointer;
 	}
@@ -837,23 +837,23 @@
 	.dm-call-actions {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
+		gap: var(--space-2, 8px);
 	}
 
 	.dm-call-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.35rem;
+		gap: var(--space-2, 8px);
 		height: 28px;
 		padding: 0 0.55rem;
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: var(--radius-md, 8px);
 		background: var(--bg-secondary);
 		color: var(--text-secondary);
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 11px);
 		font-weight: 600;
 		cursor: pointer;
-		transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+		transition: background var(--duration-fast, 150ms) ease, color var(--duration-fast, 150ms) ease, border-color var(--duration-fast, 150ms) ease;
 	}
 
 	.dm-call-btn svg {
@@ -865,7 +865,7 @@
 	.dm-call-btn:hover {
 		background: var(--bg-hover);
 		color: var(--text-primary);
-		border-color: var(--accent);
+		border-color: var(--accent-primary-color, #6366f1);
 	}
 
 	.dm-back-btn {
@@ -877,7 +877,7 @@
 		padding: 0;
 		background: none;
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: var(--radius-md, 8px);
 		color: var(--text-secondary);
 		cursor: pointer;
 	}
@@ -898,12 +898,12 @@
 		border: 1px solid var(--border);
 		color: var(--text-secondary);
 		cursor: pointer;
-		border-radius: 6px;
+		border-radius: var(--radius-md, 8px);
 	}
 
 	.dm-delete-btn:hover {
-		color: #f44336;
-		background: rgba(244, 67, 54, 0.1);
+		color: var(--color-danger, #ef4444);
+		background: var(--color-danger-bg, rgba(var(--color-danger-rgb, 239, 68, 68), 0.15));
 	}
 
 	.dm-settings-btn:hover {
@@ -912,10 +912,10 @@
 	}
 
 	.dm-header-pill {
-		padding: 0.15rem 0.4rem;
+		padding: var(--space-1, 4px) var(--space-2, 8px);
 		border: 1px solid var(--border);
-		border-radius: 999px;
-		font-size: 0.62rem;
+		border-radius: var(--radius-full, 9999px);
+		font-size: var(--font-size-xs, 11px);
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
 		color: var(--text-secondary);
@@ -925,10 +925,10 @@
 	.dm-header-pill-open {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.3rem;
-		color: #ff8a80;
-		border-color: rgba(255, 138, 128, 0.45);
-		background: rgba(255, 82, 82, 0.14);
+		gap: var(--space-1, 4px);
+		color: var(--color-danger, #ef4444);
+		border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+		background: var(--color-danger-bg, rgba(var(--color-danger-rgb, 239, 68, 68), 0.15));
 	}
 
 	.dm-tab-messages {
@@ -948,13 +948,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0.65rem 0.65rem 0.55rem;
+		padding: var(--space-3, 12px) var(--space-3, 12px) var(--space-2, 8px);
 		border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
 		flex-shrink: 0;
 	}
 
 	.dm-tab-title {
-		font-size: 0.8rem;
+		font-size: var(--font-size-sm, 13px);
 		font-weight: 600;
 		color: var(--text-secondary);
 		text-transform: uppercase;
@@ -963,7 +963,7 @@
 
 	.dm-header-actions {
 		display: flex;
-		gap: 0.375rem;
+		gap: var(--space-2, 8px);
 		align-items: center;
 	}
 
@@ -975,10 +975,10 @@
 		justify-content: center;
 		background: none;
 		border: none;
-		border-radius: 6px;
+		border-radius: var(--radius-md, 8px);
 		color: var(--text-secondary);
 		cursor: pointer;
-		opacity: 0.72;
+		opacity: var(--opacity-70, 0.7);
 	}
 
 	.dm-new-btn svg {
@@ -988,7 +988,7 @@
 	}
 
 	.dm-new-btn .plus-glyph {
-		font-size: 1.15rem;
+		font-size: var(--font-size-xl, 20px);
 		font-weight: 700;
 		line-height: 0.95;
 		transform: translateY(-0.5px);
@@ -1002,20 +1002,20 @@
 
 	/* New DM panel */
 	.dm-new-panel {
-		padding: 0.45rem 0.55rem 0.55rem;
+		padding: var(--space-2, 8px) var(--space-2, 8px) var(--space-2, 8px);
 		border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 		flex-shrink: 0;
 	}
 
 	.dm-search {
 		width: 100%;
-		padding: 0.5rem 0.625rem;
+		padding: var(--space-2, 8px) var(--space-3, 12px);
 		border: 1px solid var(--border);
 		background: var(--bg-primary);
 		color: var(--text-primary);
-		border-radius: 6px;
-		font-size: 0.85rem;
-		margin-bottom: 0.375rem;
+		border-radius: var(--radius-md, 8px);
+		font-size: var(--font-size-base, 14px);
+		margin-bottom: var(--space-2, 8px);
 	}
 
 	.dm-search::placeholder { color: var(--text-secondary); }
@@ -1028,14 +1028,14 @@
 	.dm-new-user {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-2, 8px);
 		width: 100%;
-		padding: 0.375rem 0.5rem;
+		padding: var(--space-2, 8px) var(--space-2, 8px);
 		background: none;
 		border: none;
 		color: var(--text-primary);
 		cursor: pointer;
-		border-radius: 4px;
+		border-radius: var(--radius-sm, 4px);
 		text-align: left;
 	}
 
@@ -1054,7 +1054,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.75rem;
+		font-size: var(--font-size-sm, 13px);
 		font-weight: 600;
 		color: white;
 	}
@@ -1066,62 +1066,62 @@
 	}
 
 	.dm-new-name {
-		font-size: 0.85rem;
+		font-size: var(--font-size-base, 14px);
 		font-weight: 500;
 	}
 
 	.dm-new-handle {
-		font-size: 0.7rem;
+		font-size: var(--font-size-xs, 11px);
 		color: var(--text-secondary);
 	}
 
 	.dm-empty-search {
-		padding: 0.75rem;
+		padding: var(--space-3, 12px);
 		text-align: center;
 		color: var(--text-secondary);
-		font-size: 0.8rem;
+		font-size: var(--font-size-sm, 13px);
 	}
 
 	/* Conversation list */
 	.dm-conversations {
 		flex: 1;
 		overflow-y: auto;
-		padding: 0.35rem 0.3rem 0.55rem;
+		padding: var(--space-1, 4px) var(--space-1, 4px) var(--space-2, 8px);
 	}
 
 	.dm-conv-item {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-2, 8px);
 		width: 100%;
-		padding: 0.55rem 0.5rem;
+		padding: var(--space-2, 8px) var(--space-2, 8px);
 		background: transparent;
 		border: 1px solid transparent;
 		color: var(--text-primary);
 		cursor: pointer;
-		border-radius: 12px;
+		border-radius: var(--radius-lg, 12px);
 		text-align: left;
 		position: relative;
-		transition: background 0.15s ease, border-color 0.15s ease;
+		transition: background var(--duration-fast, 150ms) ease, border-color var(--duration-fast, 150ms) ease;
 	}
 
 	.dm-conv-item:hover {
-		background: color-mix(in srgb, var(--accent) 8%, transparent);
-		border-color: color-mix(in srgb, var(--accent) 20%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color, #6366f1) 8%, transparent);
+		border-color: color-mix(in srgb, var(--accent-primary-color, #6366f1) 20%, transparent);
 	}
 
 	.dm-conv-item.selected {
-		background: color-mix(in srgb, var(--accent) 12%, transparent);
-		border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color, #6366f1) 12%, transparent);
+		border-color: color-mix(in srgb, var(--accent-primary-color, #6366f1) 30%, transparent);
 	}
 
 	.dm-conv-item-pinned {
-		background: color-mix(in srgb, var(--accent) 10%, transparent);
-		border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color, #6366f1) 10%, transparent);
+		border-color: color-mix(in srgb, var(--accent-primary-color, #6366f1) 24%, transparent);
 	}
 
 	.dm-conv-item-pinned:hover {
-		background: color-mix(in srgb, var(--accent) 14%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color, #6366f1) 14%, transparent);
 	}
 
 	.dm-conv-close-btn {
@@ -1134,18 +1134,18 @@
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		border-radius: 4px;
-		transition: color 0.15s, background 0.15s;
+		border-radius: var(--radius-sm, 4px);
+		transition: color var(--duration-fast, 150ms), background var(--duration-fast, 150ms);
 	}
 
 	.dm-conv-actions {
 		display: flex;
 		align-items: center;
-		gap: 0.25rem;
+		gap: var(--space-1, 4px);
 		opacity: 0;
 		pointer-events: none;
-		transition: opacity 0.15s ease;
-		margin-left: 0.25rem;
+		transition: opacity var(--duration-fast, 150ms) ease;
+		margin-left: var(--space-1, 4px);
 	}
 
 	.dm-conv-action-btn {
@@ -1158,8 +1158,8 @@
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		border-radius: 4px;
-		transition: color 0.15s, background 0.15s;
+		border-radius: var(--radius-sm, 4px);
+		transition: color var(--duration-fast, 150ms), background var(--duration-fast, 150ms);
 	}
 
 	.dm-conv-action-btn:hover {
@@ -1174,8 +1174,8 @@
 	}
 
 	.dm-conv-close-btn:hover {
-		color: #f44336;
-		background: rgba(244, 67, 54, 0.1);
+		color: var(--color-danger, #ef4444);
+		background: var(--color-danger-bg, rgba(var(--color-danger-rgb, 239, 68, 68), 0.15));
 	}
 
 	.dm-conv-avatar-wrap {
@@ -1197,7 +1197,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.8rem;
+		font-size: var(--font-size-sm, 13px);
 		font-weight: 600;
 		color: white;
 	}
@@ -1209,13 +1209,13 @@
 		width: 15px;
 		height: 15px;
 		border-radius: 50%;
-		background: #b71c1c;
+		background: var(--color-danger, #ef4444);
 		color: #fff;
-		border: 1px solid rgba(0, 0, 0, 0.45);
+		border: 1px solid var(--surface-sunken, #0f0c29);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+		box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
 	}
 
 	.dm-conv-status-dot {
@@ -1238,27 +1238,26 @@
 		flex-direction: column;
 		min-width: 0;
 		flex: 1;
-		gap: 2px;
+		gap: var(--space-1, 4px);
 	}
 
 	.dm-conv-top {
 		display: flex;
 		align-items: baseline;
 		justify-content: flex-start;
-		gap: 0.25rem;
+		gap: var(--space-1, 4px);
 	}
 
 	.dm-conv-pin {
-		font-size: 0.6rem;
+		font-size: var(--font-size-xs, 11px);
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
-		color: var(--accent);
-		opacity: 0.78;
+		color: var(--accent-primary-color, #6366f1);
 	}
 
 	.dm-conv-name {
-		font-size: 0.85rem;
+		font-size: var(--font-size-base, 14px);
 		font-weight: 500;
 		white-space: nowrap;
 		overflow: hidden;
@@ -1266,14 +1265,14 @@
 	}
 
 	.dm-conv-time {
-		font-size: 0.65rem;
+		font-size: var(--font-size-xs, 11px);
 		color: var(--text-secondary);
 		flex-shrink: 0;
 		margin-left: auto;
 	}
 
 	.dm-conv-preview {
-		font-size: 0.75rem;
+		font-size: var(--font-size-sm, 13px);
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
@@ -1283,12 +1282,12 @@
 	.dm-group-conv-preview {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.28rem;
+		gap: var(--space-1, 4px);
 	}
 
 	.dm-group-row-icon {
 		flex-shrink: 0;
-		opacity: 0.82;
+		opacity: var(--opacity-80, 0.8);
 	}
 
 
@@ -1297,33 +1296,33 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 2rem 1rem;
+		gap: var(--space-3, 12px);
+		padding: var(--space-8, 32px) var(--space-4, 16px);
 		color: var(--text-secondary);
-		font-size: 0.85rem;
+		font-size: var(--font-size-base, 14px);
 	}
 
 	.dm-start-btn {
-		padding: 0.5rem 1rem;
+		padding: var(--space-2, 8px) var(--space-4, 16px);
 		background: var(--accent);
 		color: white;
 		border: none;
-		border-radius: 6px;
+		border-radius: var(--radius-md, 8px);
 		cursor: pointer;
-		font-size: 0.8rem;
+		font-size: var(--font-size-sm, 13px);
 		font-weight: 500;
 	}
 
-	.dm-start-btn:hover { opacity: 0.85; }
+	.dm-start-btn:hover { opacity: var(--opacity-90, 0.9); }
 
 	@media (max-width: 768px) {
 		.dm-conv-item {
-			padding: 0.625rem 0.5rem;
+			padding: var(--space-3, 12px) var(--space-2, 8px);
 			min-height: 52px;
 		}
 
 		.dm-conv-actions {
-			opacity: 1;
+		opacity: var(--opacity-100, 1);
 			pointer-events: auto;
 		}
 
@@ -1338,12 +1337,17 @@
 			height: 40px;
 		}
 
-		.dm-conv-name { font-size: 1rem; }
-		.dm-conv-preview { font-size: 0.85rem; }
+		.dm-conv-name { 		font-size: var(--font-size-lg, 16px); }
+		.dm-conv-preview { font-size: var(--font-size-base, 14px); }
 
 		.dm-new-user {
-			padding: 0.625rem 0.5rem;
+			padding: var(--space-3, 12px) var(--space-2, 8px);
 			min-height: 44px;
 		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.dm-conv-item, .dm-conv-close-btn, .dm-conv-action-btn, .dm-conv-actions,
+		.dm-call-btn, .dm-new-btn { transition: none; }
 	}
 </style>
