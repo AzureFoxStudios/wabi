@@ -2,17 +2,17 @@
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { channelMessages, channels, currentChannel, currentUser, editMessage, emojis, getDMOtherUser, sendMessage, sendTyping, userLookup, users, type Emoji, type Message, type MessageEntity, type User } from '$lib/socket';
-	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import { pinChannel, unpinChannel } from '$lib/socket';
-	import { _, currentLocale } from '$lib/i18n';
-	import { layoutStore } from '$lib/layoutStore';
+	import { _ } from '$lib/i18n';
+	import { isMobile } from '$lib/layoutStoreStates';
 	import { showToast } from '$lib/toast';
 	import { getMatchingCommands, type Command } from '$lib/commands';
 	import { getAuthToken } from '$lib/authSession';
 	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
 	import { gifCaptionerSettingsStore } from '$lib/gifCaptionerSettings';
 	import { previewUnicodeEmojiConversion, unicodeEmojiSettingsStore } from '$lib/unicodeEmojis';
-	import { loadPlaceRegistry, placeRegistry, rebaseMessageEntitiesForText, reconcileMessageEntities, splitEntitiesForChunks } from '$lib/placeRegistry';
+	import { placeRegistry } from '$lib/placeStore';
+	import { loadPlaceRegistry, rebaseMessageEntitiesForText, reconcileMessageEntities, splitEntitiesForChunks } from '$lib/placeRegistry';
 	import { createDM, dmPanelSignal, getDMChannelIdForUser, serverMembers } from '$lib/socket';
 	import { openFullMapTab } from '$lib/mapWorkspace';
 	import { openModelViewportSurface } from '$lib/modelViewportTab';
@@ -45,7 +45,12 @@
 	export let onOpenManualCash: () => void;
 
 	const dispatch = createEventDispatcher();
-	type SendChatMessage = (channelId: string, text: string, type: string, opts?: Record<string, unknown>) => void;
+	type SendChatMessage = (
+		channelId: string,
+		text: string,
+		type: string,
+		opts?: Record<string, unknown>
+	) => void | Promise<{ ok: boolean; reason?: string } | void>;
 	const sendChatMessage = sendMessage as unknown as SendChatMessage;
 	const resolveDmChannelId = "" as unknown as (u: User | null, t: User) => string;
 	const openExistingDmSignal = dmPanelSignal as unknown as { set(v: { channelId: string; otherUser: User }): void };
@@ -182,43 +187,164 @@
 	function cancelEdit() { editingMessage = null; messageInput = ''; resetComposerEntityState(); if (textareaElement) textareaElement.style.height = 'auto'; }
 	function cancelReply() { replyingTo = null; }
 	function clearAfterSend() { messageInput = ''; resetComposerEntityState(); showMentionSuggestions = false; showMediaMenu = false; sendCooldownMessage = ''; sendTyping(false, effectiveChannel); if (typingTimeout) clearTimeout(typingTimeout); if (textareaElement) textareaElement.style.height = 'auto'; textareaElement?.focus(); }
-	function handleSubmit() {
+	async function handleSubmit() {
 		const hasFiles = selectedFiles.length > 0;
 		const hasText = Boolean(messageInput.trim());
 		if (!hasFiles && !hasText) return;
-		if (sendCooldownUntil > Date.now()) { sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.'; return; }
-		if (hasFiles) { void uploadSelectedFiles(); return; }
-		if (editingMessage) { editMessage(effectiveChannel, editingMessage.id, messageInput.trim()); editingMessage = null; }
-		else {
-			const processed = processOutgoingText(messageInput.trim(), { writeUpperCaseEnabled, unicodeEmojisEnabled, emojis: $emojis as unknown as Emoji[] });
-			if (processed.blocked) { showToast(processed.reason, 'warning'); return; }
-			if (!processed.text) { showToast('Message is empty after processing.', 'warning'); return; }
-			const now = Date.now();
-			const burst = checkSendBurst(manualSendTimestamps, now, SEND_BURST_LIMIT, SEND_BURST_WINDOW_MS);
-			manualSendTimestamps = burst.updatedTimestamps;
-			if (!burst.allowed) { sendCooldownUntil = now + SEND_BURST_COOLDOWN_MS; sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.'; if (sendCooldownTimer) clearTimeout(sendCooldownTimer); sendCooldownTimer = setTimeout(() => { sendCooldownUntil = 0; sendCooldownMessage = ''; sendCooldownTimer = null; }, SEND_BURST_COOLDOWN_MS); return; }
-			if (processed.text.startsWith('/')) { void onExecuteCommand(processed.text); messageInput = ''; resetComposerEntityState(); return; }
-			const normalizedEntities = resolveOutgoingPlaceEntities(processed.text);
-			if (splitLargeMessagesEnabled && processed.text.length > splitLargeMessagesChunkSize) {
-				const chunks = splitMessageForSending(processed.text, splitLargeMessagesChunkSize);
-				if (chunks.length === 0) { showToast('Unable to split message into chunks.', 'error'); return; }
-				const chunkEntities = splitEntitiesForChunks(processed.text, chunks, normalizedEntities);
-				for (const [i, chunk] of chunks.entries()) sendChatMessage(effectiveChannel, chunk, 'text', { replyTo: i === 0 ? replyingTo?.id : undefined, isSpoiler: markAsSpoiler, entities: chunkEntities[i] });
-			} else {
-				const kind = detectMessageKind(processed.text, $emojis as unknown as Emoji[]);
-				if (kind.type === 'emoji') sendChatMessage(effectiveChannel, processed.text, 'emoji', { emojiUrl: kind.emojiUrl, emojiName: kind.emojiName, replyTo: replyingTo?.id, isSpoiler: markAsSpoiler });
-				else sendChatMessage(effectiveChannel, processed.text, 'text', { replyTo: replyingTo?.id, isSpoiler: markAsSpoiler, entities: normalizedEntities });
-			}
-			replyingTo = null;
+		if (sendCooldownUntil > Date.now()) {
+			sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.';
+			return;
 		}
+		if (hasFiles) {
+			void uploadSelectedFiles();
+			return;
+		}
+		if (editingMessage) {
+			editMessage(effectiveChannel, editingMessage.id, messageInput.trim());
+			editingMessage = null;
+			clearAfterSend();
+			return;
+		}
+
+		const processed = processOutgoingText(messageInput.trim(), {
+			writeUpperCaseEnabled,
+			unicodeEmojisEnabled,
+			emojis: $emojis as unknown as Emoji[]
+		});
+		if (processed.blocked) {
+			showToast(processed.reason, 'warning');
+			return;
+		}
+		if (!processed.text) {
+			showToast('Message is empty after processing.', 'warning');
+			return;
+		}
+
+		const now = Date.now();
+		const burst = checkSendBurst(manualSendTimestamps, now, SEND_BURST_LIMIT, SEND_BURST_WINDOW_MS);
+		manualSendTimestamps = burst.updatedTimestamps;
+		if (!burst.allowed) {
+			sendCooldownUntil = now + SEND_BURST_COOLDOWN_MS;
+			sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.';
+			if (sendCooldownTimer) clearTimeout(sendCooldownTimer);
+			sendCooldownTimer = setTimeout(() => {
+				sendCooldownUntil = 0;
+				sendCooldownMessage = '';
+				sendCooldownTimer = null;
+			}, SEND_BURST_COOLDOWN_MS);
+			return;
+		}
+
+		if (processed.text.startsWith('/')) {
+			void onExecuteCommand(processed.text);
+			messageInput = '';
+			resetComposerEntityState();
+			return;
+		}
+
+		if (!effectiveChannel) {
+			showToast('No channel selected.', 'error');
+			return;
+		}
+
+		const normalizedEntities = resolveOutgoingPlaceEntities(processed.text);
+		const replyId = replyingTo?.id;
+		const spoiler = markAsSpoiler;
+
+		const payloads: Array<{ text: string; type: string; opts: Record<string, unknown> }> = [];
+		if (splitLargeMessagesEnabled && processed.text.length > splitLargeMessagesChunkSize) {
+			const chunks = splitMessageForSending(processed.text, splitLargeMessagesChunkSize);
+			if (chunks.length === 0) {
+				showToast('Unable to split message into chunks.', 'error');
+				return;
+			}
+			const chunkEntities = splitEntitiesForChunks(processed.text, chunks, normalizedEntities);
+			for (const [i, chunk] of chunks.entries()) {
+				payloads.push({
+					text: chunk,
+					type: 'text',
+					opts: {
+						replyTo: i === 0 ? replyId : undefined,
+						isSpoiler: spoiler,
+						entities: chunkEntities[i]
+					}
+				});
+			}
+		} else {
+			const kind = detectMessageKind(processed.text, $emojis as unknown as Emoji[]);
+			if (kind.type === 'emoji') {
+				payloads.push({
+					text: processed.text,
+					type: 'emoji',
+					opts: {
+						emojiUrl: kind.emojiUrl,
+						emojiName: kind.emojiName,
+						replyTo: replyId,
+						isSpoiler: spoiler
+					}
+				});
+			} else {
+				payloads.push({
+					text: processed.text,
+					type: 'text',
+					opts: {
+						replyTo: replyId,
+						isSpoiler: spoiler,
+						entities: normalizedEntities
+					}
+				});
+			}
+		}
+
+		// Await each send so a dead socket does not clear the draft.
+		for (const payload of payloads) {
+			const result = await Promise.resolve(
+				sendChatMessage(effectiveChannel, payload.text, payload.type, payload.opts)
+			);
+			if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+				const reason = (result as { reason?: string }).reason;
+				if (reason === 'no_socket') {
+					showToast('Not connected — message not sent. Reconnecting…', 'error');
+				} else if (reason === 'no_channel') {
+					showToast('No channel selected.', 'error');
+				} else {
+					showToast('Message not sent.', 'error');
+				}
+				return; // keep draft + reply + spoiler
+			}
+		}
+
+		replyingTo = null;
+		// Per-message spoiler is sticky only while the channel forces spoilers.
+		if (!channelForceSpoiler) markAsSpoiler = false;
 		clearAfterSend();
 	}
-	function handleGifSelect(event: CustomEvent<string>) {
+		async function handleGifSelect(event: CustomEvent<string>) {
 		const caption = resolveOutgoingAttachmentCaption();
 		if (caption === null) return;
-		sendChatMessage(effectiveChannel, caption, 'gif', { gifUrl: event.detail, replyTo: replyingTo?.id, isSpoiler: markAsSpoiler, entities: resolveOutgoingPlaceEntities(caption) });
+		if (!effectiveChannel) {
+			showToast('No channel selected.', 'error');
+			return;
+		}
+		const result = await Promise.resolve(
+			sendChatMessage(effectiveChannel, caption, 'gif', {
+				gifUrl: event.detail,
+				replyTo: replyingTo?.id,
+				isSpoiler: markAsSpoiler,
+				entities: resolveOutgoingPlaceEntities(caption)
+			})
+		);
+		if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+			showToast('Not connected — GIF not sent.', 'error');
+			return;
+		}
 		replyingTo = null;
-		if (gifCaptionerDedicatedCaptionFieldEnabled) gifCaptionInput = ''; else { messageInput = ''; resetComposerEntityState(); }
+		if (!channelForceSpoiler) markAsSpoiler = false;
+		if (gifCaptionerDedicatedCaptionFieldEnabled) gifCaptionInput = '';
+		else {
+			messageInput = '';
+			resetComposerEntityState();
+		}
 		showMentionSuggestions = false;
 		showEmojiPicker = false;
 		showMediaMenu = false;
@@ -260,8 +386,12 @@
 		try {
 			const captionEntities = resolveOutgoingPlaceEntities(messageInput.trim());
 			const spec = await orchestrateUpload({ files: selectedFiles, channelId: effectiveChannel, channelType: activeChannel?.type || 'channel', dmChannelId: activeChannel?.type === 'dm' ? activeChannel.id : undefined, dmOtherDbUserId, authToken, messageInput: messageInput.trim(), replyToId: replyingTo?.id, markAsSpoiler, captionEntities, createAlbum: createAlbumFromUpload, albumName: uploadAlbumName, albumScopeType: (albumScope?.scopeType ?? null) as any, albumScopeId: albumScope?.scopeId ?? null, getCompressionMetadata: f => videoCompressionController?.getCompressionMetadata(f), onProgress: pct => { uploadProgress = pct; } });
-			sendChatMessage(effectiveChannel, spec.text, spec.type, spec.options);
-			messageInput = ''; resetComposerEntityState(); replyingTo = null; clearFilePreviews(); textareaElement?.focus();
+			const result = await Promise.resolve(sendChatMessage(effectiveChannel, spec.text, spec.type, spec.options));
+			if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+				showToast('Upload finished but message not sent — not connected.', 'error');
+				return;
+			}
+			messageInput = ''; resetComposerEntityState(); replyingTo = null; if (!channelForceSpoiler) markAsSpoiler = false; clearFilePreviews(); textareaElement?.focus();
 		} catch (error) { console.error('Upload error:', error); showToast('Failed to upload files. Please try again.', 'error'); } finally { isUploading = false; uploadStatusLabel = ''; uploadProgress = 0; }
 	}
 	async function handlePhotoCapture(event: CustomEvent<Blob>) { const blob = event.detail; const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }); if (file.size > 10 * 1024 * 1024) { showToast('Photo too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showCameraCapture = false; showMediaMenu = false; }
@@ -285,7 +415,7 @@
 <CameraCapture isOpen={showCameraCapture} on:close={() => (showCameraCapture = false)} on:capture={handlePhotoCapture} />
 <AudioRecorder isOpen={showAudioRecorder} on:close={() => (showAudioRecorder = false)} on:send={handleAudioSend} />
 
-<div class="input-wrapper" class:hidden={$layoutStore.isMobile && !composerVisible}>
+<div class="input-wrapper" class:hidden={$isMobile && !composerVisible}>
 	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
 	{#if filePreviews.length > 0 && !isUploading}		<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
@@ -293,20 +423,20 @@
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
 	<div class="input-container">
 		<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
-		<textarea bind:this={textareaElement} bind:value={messageInput} on:paste={handlePaste} on:input={() => { handleInput(); handleInputChange(); }} on:keydown={handleKeyDown} on:focus={() => { isTextareaFocused = true; composerVisible = true; }} on:blur={() => { isTextareaFocused = false; }} placeholder={$layoutStore.isMobile ? 'Message...' : $_('chat.compose.placeholder')} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} rows="1"></textarea>
+		<textarea bind:this={textareaElement} bind:value={messageInput} on:paste={handlePaste} on:input={() => { handleInput(); handleInputChange(); }} on:keydown={handleKeyDown} on:focus={() => { isTextareaFocused = true; composerVisible = true; }} on:blur={() => { isTextareaFocused = false; }} placeholder={$isMobile ? 'Message...' : $_('chat.compose.placeholder')} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} rows="1"></textarea>
 		{#if composerCharCounterEnabled && composerCharCounterVisible}<span class="composer-char-counter" class:warn={composerCharCounterWarn} class:visible={composerCharCounterVisible}>{composerCharCount}/{composerInputMaxLength}</span>{/if}
-		<button bind:this={emojiPickerButton} class="input-icon-button" on:click|stopPropagation={() => { showEmojiPicker = !showEmojiPicker; if (showEmojiPicker) { ensureEmojiPickerLoaded(); showMediaMenu = false; } }} title={$_('chat.compose.add_emoji')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg></button>
+		<button bind:this={emojiPickerButton} class="input-icon-button" on:click|stopPropagation={() => { showEmojiPicker = !showEmojiPicker; if (showEmojiPicker) { ensureEmojiPickerLoaded(); showMediaMenu = false; } }} title={$_('chat.compose.add_emoji')} aria-label={$_('chat.compose.add_emoji')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg></button>
 		<div class="input-buttons-right">
 			{#if paymentButtonEnabled}
-				<button class="input-icon-button" on:click={() => onOpenPaymentSheet()} title="Create payment request"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M2.5 10h19"></path><path d="M7.5 15h4"></path></svg></button>
-				{#if isDMChannel}<button class="input-icon-button" on:click={onOpenManualCash} title="Record manual cash trade"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a2 2 0 0 1 2-2h4"></path><path d="M16 13v4a2 2 0 0 1-2 2h-4"></path><path d="M5 12h4"></path><path d="M15 12h4"></path><path d="m9 9 2 3-2 3"></path><path d="m15 9-2 3 2 3"></path></svg></button>{/if}
+				<button class="input-icon-button" on:click={() => onOpenPaymentSheet()} title="Create payment request" aria-label="Create payment request"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M2.5 10h19"></path><path d="M7.5 15h4"></path></svg></button>
+				{#if isDMChannel}<button class="input-icon-button" on:click={onOpenManualCash} title="Record manual cash trade" aria-label="Record manual cash trade"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a2 2 0 0 1 2-2h4"></path><path d="M16 13v4a2 2 0 0 1-2 2h-4"></path><path d="M5 12h4"></path><path d="M15 12h4"></path><path d="m9 9 2 3-2 3"></path><path d="m15 9-2 3 2 3"></path></svg></button>{/if}
 			{/if}
 			<div class="media-menu-container" bind:this={mediaMenuContainer}>
 				<button class="input-icon-button add-button" on:click|stopPropagation={() => { showMediaMenu = !showMediaMenu; if (showMediaMenu) showEmojiPicker = false; }} title={$_('chat.compose.add_media')} aria-label={$_('chat.compose.add_media')}><span aria-hidden="true">+</span></button>
 				{#if showMediaMenu}<div class="media-menu"><button class="media-menu-item" on:click={() => { showMediaMenu = false; fileInput?.click(); }}>{$_('chat.compose.upload_file')}</button>{#if supportsMediaCapture()}<button class="media-menu-item" on:click={() => { showMediaMenu = false; showCameraCapture = true; }}>{$_('chat.compose.take_photo')}</button><button class="media-menu-item" on:click={() => { showMediaMenu = false; showAudioRecorder = true; }}>{$_('chat.compose.record_audio')}</button>{/if}</div>{/if}
 			</div>
 		</div>
-		<button class="send-button" on:click={handleSubmit} disabled={(selectedFiles.length === 0 && !messageInput.trim()) || sendCooldownUntil > Date.now() || isUploading} title={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></button>
+		<button class="send-button" on:click={handleSubmit} disabled={(selectedFiles.length === 0 && !messageInput.trim()) || sendCooldownUntil > Date.now() || isUploading} title={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')} aria-label={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></button>
 	</div>
 	{#if unicodeEmojisEnabled && unicodeComposerPreviewTokens > 0 && unicodeComposerPreview !== messageInput}<div class="unicode-conversion-hint">Unicode preview: {unicodeComposerPreview}</div>{/if}
 	{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}<div class="gif-caption-draft-row"><input type="text" class="gif-caption-draft-input input input-sm" bind:value={gifCaptionInput} maxlength={MAX_GIF_CAPTION_LENGTH} placeholder="GIF caption (used when sending from GIF picker)" /><span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>{gifCaptionDraftLength}/{MAX_GIF_CAPTION_LENGTH}</span></div>{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}<div class="unicode-conversion-hint">GIF caption preview: {unicodeGifCaptionPreview}</div>{/if}{:else if gifCaptionerEnabled && showEmojiPicker}<div class="gif-caption-hint">GIF caption uses composer text (max {MAX_GIF_CAPTION_LENGTH} characters).</div>{/if}

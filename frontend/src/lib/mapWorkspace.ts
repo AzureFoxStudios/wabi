@@ -1,7 +1,8 @@
 import { derived, get, writable } from 'svelte/store';
 import { layoutStore } from '$lib/layoutStore';
 import { mobileTabQueue } from '$lib/mobileTabQueue';
-import { getPlaceById, loadPlaceRegistry, placeRegistry, type PlaceRecord } from '$lib/placeRegistry';
+import { getPlaceById, loadPlaceRegistry, type PlaceRecord } from '$lib/placeRegistry';
+import { placeRegistry } from '$lib/placeStore';
 
 export const MAP_ADDON_ID = 'server-map';
 
