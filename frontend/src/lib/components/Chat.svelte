@@ -32,7 +32,9 @@
 	import ManualCashModal from '$lib/payments/ManualCashModal.svelte';
 	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
 	import { layoutStore } from '$lib/layoutStore';
-	import { callMode, isInCall, outgoingCall, startCall } from '$lib/calling';
+	import { isMobile } from '$lib/layoutStoreStates';
+	import { callMode, isInCall, outgoingCall } from '$lib/callingStateStores';
+	import { startCall } from '$lib/calling';
 	import { _, currentLocale } from '$lib/i18n';
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { animationPassStore } from '$lib/animationPass';
@@ -433,7 +435,7 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		class:surface-hidden={chatSurface !== 'messages'}
 		on:scroll={(e) => {
 			// Mobile composer auto-hide on scroll
-			if ($layoutStore.isMobile) {
+			if ($isMobile) {
 				const currentScrollTop = e.currentTarget.scrollTop;
 				const scrollDelta = lastScrollTop - currentScrollTop;
 				// Show when scrolling down or at top, hide when scrolling up
@@ -489,10 +491,11 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		{/if}
 	</div>
 
-		{#if channelUsesChatStream && !isLiveChannel && chatSurface === 'messages' && !($layoutStore.isMobile && $isInCall)}
+		{#if channelUsesChatStream && !isLiveChannel && chatSurface === 'messages' && !($isMobile && $isInCall)}
 			<ChatComposer
 				bind:this={chatComposer}
 				{isDMChannel}
+				channelId={$currentChannel}
 				{paymentButtonEnabled}
 				bind:replyingTo
 				bind:composerVisible

@@ -13,7 +13,9 @@
 
 import { derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { isInCall } from '$lib/calling';
+// Import the store module directly — the calling.ts barrel pulls in WebRTC/LiveKit
+// and can leave live bindings half-initialized during circular startup.
+import { isInCall } from '$lib/callingStateStores';
 import {
 	isMobile,
 	layoutState,
@@ -351,12 +353,15 @@ const layout = derived(
 // ============================================================================
 
 export const layoutStore = {
-	subscribe: layout.subscribe,
-	layoutState: { subscribe: layoutState.subscribe },
-	activeWorkspace: { subscribe: activeWorkspace.subscribe },
+	// Method form keeps `subscribe` bound correctly for Svelte store_get.
+	subscribe(run: (value: any) => void, invalidate?: (value?: any) => void) {
+		return layout.subscribe(run, invalidate);
+	},
+	layoutState: { subscribe: layoutState.subscribe.bind(layoutState) },
+	activeWorkspace: { subscribe: activeWorkspace.subscribe.bind(activeWorkspace) },
 	dockActions,
 	navDock,
-	isResizing: { subscribe: isResizing.subscribe },
+	isResizing: { subscribe: isResizing.subscribe.bind(isResizing) },
 	channelSidebarWidth,
 	rightPanelWidth,
 	isResizingChannel,
