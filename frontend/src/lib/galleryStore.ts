@@ -2,7 +2,14 @@ import { writable, derived, get } from 'svelte/store';
 import { getAuthToken } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
 import { currentUser, users, type User } from '$lib/socket';
-import { listMediaAlbums, listMediaAlbumItems, type MediaAlbum, type MediaAlbumItem } from '$lib/api';
+import {
+	listMediaAlbums,
+	listMediaAlbumItems,
+	createMediaAlbum,
+	addMediaAlbumItem,
+	type MediaAlbum,
+	type MediaAlbumItem
+} from '$lib/api';
 
 export interface GalleryItem {
 	id: string;
@@ -192,4 +199,111 @@ export function formatGalleryTime(timestamp: number): string {
 	} catch {
 		return `${days}d ago`;
 	}
+}
+
+export interface GalleryUploadResult {
+	uploaded: number;
+	errors: string[];
+}
+
+async function uploadGalleryAsset(
+	token: string,
+	file: File
+): Promise<{ fileUrl: string; fileName: string; fileSize: number }> {
+	const formData = new FormData();
+	formData.append('file', file, file.name);
+
+	const response = await fetch(`${getServerUrl()}/api/upload`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`
+		},
+		body: formData
+	});
+
+	if (!response.ok) {
+		let detail = '';
+		try {
+			const payload = await response.json();
+			detail = payload?.error || '';
+		} catch {
+			detail = await response.text();
+		}
+		throw new Error(detail || `Upload failed (${response.status})`);
+	}
+
+	const payload = await response.json();
+	const fileUrl = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
+	if (!fileUrl) {
+		throw new Error('Upload did not return a file URL.');
+	}
+
+	return {
+		fileUrl,
+		fileName: typeof payload?.fileName === 'string' ? payload.fileName : file.name,
+		fileSize:
+			typeof payload?.fileSize === 'number' && Number.isFinite(payload.fileSize)
+				? payload.fileSize
+				: file.size
+	};
+}
+
+export async function uploadGalleryImages(
+	channelId: string,
+	files: File[],
+	channelName?: string
+): Promise<GalleryUploadResult> {
+	const result: GalleryUploadResult = { uploaded: 0, errors: [] };
+	const token = getAuthToken();
+	if (!token || !channelId) {
+		result.errors.push('Not signed in');
+		return result;
+	}
+
+	const images = files.filter((file) => file.type.startsWith('image/'));
+	if (images.length === 0) {
+		result.errors.push('No image files selected');
+		return result;
+	}
+
+	try {
+		const albums = await listMediaAlbums(token, 'channel', channelId, 200);
+		let targetAlbum =
+			albums.length > 0
+				? albums.reduce(
+						(latest, album) => (album.updatedAt > latest.updatedAt ? album : latest),
+						albums[0]
+					)
+				: null;
+		if (!targetAlbum) {
+			targetAlbum = await createMediaAlbum(token, {
+				scopeType: 'channel',
+				scopeId: channelId,
+				name: channelName?.trim() ? channelName.trim() : 'Gallery'
+			});
+		}
+
+		for (const file of images) {
+			try {
+				const uploaded = await uploadGalleryAsset(token, file);
+				await addMediaAlbumItem(token, targetAlbum.id, {
+					attachmentUrl: uploaded.fileUrl,
+					attachmentName: uploaded.fileName,
+					attachmentSize: uploaded.fileSize,
+					attachmentMime: file.type || null
+				});
+				result.uploaded++;
+			} catch (error) {
+				result.errors.push(error instanceof Error ? error.message : `Failed to upload ${file.name}`);
+			}
+		}
+	} catch (error) {
+		result.errors.push(error instanceof Error ? error.message : 'Failed to upload to gallery');
+	}
+
+	if (result.uploaded > 0) {
+		await loadGallery(channelId);
+	}
+
+	return result;
 }

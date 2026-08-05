@@ -665,5 +665,7 @@
       "settings": "Settings",
       "share_profile": "Share Profile"
     }
-  }
+  },
+  "gallery_upload": "Upload image",
+  "gallery_drop_hint": "Drop image here"
 }

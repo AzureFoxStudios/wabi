@@ -505,6 +505,7 @@ impl From<crate::projections::album_items::AlbumItemRecord> for AlbumItem {
 
 /// A wiki page in a wiki channel.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct WikiPage {
     pub page_id: String,
     pub channel_id: String,
@@ -539,6 +540,7 @@ impl From<crate::projections::wiki::WikiPageRecord> for WikiPage {
 
 /// A wiki revision (edit history entry).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct WikiRevision {
     pub revision_id: String,
     pub page_id: String,
