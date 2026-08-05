@@ -317,12 +317,6 @@
 		}
 	}
 
-	function copyUserId() {
-		if (user && browser) {
-			navigator.clipboard.writeText(user.id);
-		}
-	}
-
 	function getStatusColor(status: string) {
 		switch (status) {
 			case 'active': return 'var(--status-online)';
@@ -407,7 +401,6 @@
 						{popoutDisplayName.charAt(0).toUpperCase()}
 					</div>
 				{/if}
-				<div class="status-badge" style="--status-color: {getStatusColor(user.status)}"></div>
 			</div>
 		</div>
 
@@ -552,16 +545,17 @@
 			<UserPopoutActions
 				{isOwnProfile}
 				{profileExpanded}
+				{user}
 				{localNickname}
 				localNicknamesEnabled={$displayEnhancementSettingsStore.localNicknamesEnabled}
 				onOpenDM={openDM}
 				onOpenFullProfile={openFullProfile}
+				onOpenSettings={openFullProfile}
 				onVoiceCall={handleVoiceCall}
 				onVideoCall={handleVideoCall}
 				onScreenShare={handleScreenShare}
 				onSetLocalNickname={promptSetLocalNickname}
 				onClearLocalNickname={clearLocalNickname}
-				onCopyUserId={copyUserId}
 			/>
 		</div>
 	</div>

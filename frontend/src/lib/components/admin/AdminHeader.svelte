@@ -9,6 +9,8 @@
 	export let adminCount: number;
 	export let modCount: number;
 	export let guestCount: number;
+	export let serverName: string = '';
+	export let serverTagline: string = '';
 
 	function getRoleLabel(roleName: string): string {
 		const labels: Record<string, string> = {
@@ -23,6 +25,12 @@
 </script>
 
 <div class="admin-header">
+	{#if serverName}
+	<div class="admin-server-identity">
+		<span class="admin-server-name">{serverName}</span>
+		{#if serverTagline}<span class="admin-server-tagline">{serverTagline}</span>{/if}
+	</div>
+	{/if}
 	<div class="admin-title-row">
 		<h3>{$_('admin.title')}</h3>
 		<span class="admin-role-indicator">{$_('admin.you')}: {getRoleLabel(currentUserHighestRole || 'member')}</span>

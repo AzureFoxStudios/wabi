@@ -83,6 +83,7 @@ pub struct FrontendAppMetadataPolicy {
     #[serde(rename = "accentColor")]
     pub accent_color: Option<String>,
     pub description: Option<String>,
+    pub tagline: Option<String>,
     #[serde(rename = "launchPageFallbackEnabled")]
     pub launch_page_fallback_enabled: bool,
 }
@@ -95,6 +96,7 @@ impl Default for FrontendAppMetadataPolicy {
             banner_url: None,
             accent_color: None,
             description: None,
+            tagline: None,
             launch_page_fallback_enabled: true,
         }
     }

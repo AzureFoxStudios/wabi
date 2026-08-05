@@ -76,17 +76,6 @@
 		color: white;
 	}
 
-	.status-badge {
-		position: absolute;
-		bottom: 4px;
-		right: 4px;
-		width: 16px;
-		height: 16px;
-		border-radius: 50%;
-		border: 4px solid var(--surface-base);
-		box-sizing: content-box;
-	}
-
 	.popout-body {
 		padding: 12px 18px 18px;
 		max-height: calc(min(680px, 100dvh - 16px) - 92px);
@@ -491,7 +480,7 @@
 
 	.popout-banner { background: var(--banner-color, var(--pfp-banner, var(--accent-primary-color))); }
 	.popout-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
-	.status-badge, .status-indicator { background-color: var(--status-color); }
+	.status-indicator { background-color: var(--status-color); }
 
 /* PR1: uploaded banner image */
 .popout-banner-img {
@@ -521,4 +510,62 @@
 	background-position: center;
 	background-repeat: no-repeat;
 	pointer-events: none;
+}
+
+/* Own-profile voice controls + share (C: popout UX) */
+.voice-actions {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.voice-btn {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 8px 0;
+	border: none;
+	border-radius: 12px;
+	background: var(--surface-raised);
+	color: var(--text-secondary);
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.voice-btn:hover:not(:disabled) {
+	color: var(--text-heading);
+	background: var(--surface-hover);
+}
+
+.voice-btn.active {
+	background: color-mix(in srgb, var(--accent-primary-color) 20%, var(--surface-raised));
+	color: var(--accent-primary-color);
+}
+
+.voice-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.share-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	width: 100%;
+	padding: 10px 16px;
+	margin-bottom: 8px;
+	border: none;
+	border-radius: 12px;
+	background: var(--surface-raised);
+	color: var(--text-heading);
+	font-size: 0.875rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.share-btn:hover {
+	background: var(--surface-hover);
 }

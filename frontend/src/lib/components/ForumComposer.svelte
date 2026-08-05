@@ -1,18 +1,25 @@
 <script lang="ts">
 	export let placeholder = 'Write a reply... Ctrl+Enter to post';
 	export let showTitle = false;
-	export let onSubmit: (body: string, title?: string) => void;
+	export let categoryOptions: string[] = [];
+	export let onSubmit: (body: string, title?: string, category?: string) => void;
 	export let onCancel: (() => void) | undefined = undefined;
 
 	let titleValue = '';
+	let categoryValue = '';
 	let bodyValue = '';
 	let previewMode = false;
 
 	function handleSubmit() {
 		if (!bodyValue.trim()) return;
-		onSubmit(bodyValue.trim(), showTitle ? titleValue.trim() || undefined : undefined);
+		onSubmit(
+			bodyValue.trim(),
+			showTitle ? titleValue.trim() || undefined : undefined,
+			showTitle ? categoryValue.trim() || undefined : undefined
+		);
 		bodyValue = '';
 		titleValue = '';
+		categoryValue = '';
 		previewMode = false;
 	}
 
@@ -32,6 +39,18 @@
 			placeholder="Thread title..."
 			bind:value={titleValue}
 		/>
+		<input
+			type="text"
+			class="forum-new-thread-category"
+			placeholder="Category (optional)"
+			bind:value={categoryValue}
+			list="forum-category-options"
+		/>
+		<datalist id="forum-category-options">
+			{#each categoryOptions as cat}
+				<option value={cat}></option>
+			{/each}
+		</datalist>
 	{/if}
 	<div class="forum-composer-tabs">
 		<button

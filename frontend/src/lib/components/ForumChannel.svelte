@@ -13,6 +13,7 @@
 		createPost,
 		votePost,
 		markSolution,
+		renameForumCategory,
 		findAuthor,
 		formatForumTime,
 		getDefaultCategories,
@@ -56,7 +57,93 @@
 		}
 	}
 
-	$: categories = getDefaultCategories();
+	$: categories = (() => {
+		const seen = new Set<string>();
+		const out: string[] = [];
+		for (const cat of [...getDefaultCategories(), ...customCategories]) {
+			if (!seen.has(cat)) {
+				seen.add(cat);
+				out.push(cat);
+			}
+		}
+		for (const t of allThreads) {
+			const cat = categorizeThread(t);
+			if (!seen.has(cat)) {
+				seen.add(cat);
+				out.push(cat);
+			}
+		}
+		return out;
+	})();
+
+	let customCategories: string[] = [];
+	let addCategoryMode = false;
+	let newCategoryName = '';
+	let editingCategory: string | null = null;
+	let editingCategoryValue = '';
+
+	function customCategoriesKey(channelId: string): string {
+		return `wabi-forum-custom-categories:${channelId}`;
+	}
+
+	function loadCustomCategories(channelId: string): string[] {
+		try {
+			const raw = localStorage.getItem(customCategoriesKey(channelId));
+			if (!raw) return [];
+			const parsed = JSON.parse(raw);
+			return Array.isArray(parsed)
+				? parsed.filter((c): c is string => typeof c === 'string')
+				: [];
+		} catch {
+			return [];
+		}
+	}
+
+	function saveCustomCategories() {
+		if (!$currentChannel) return;
+		try {
+			localStorage.setItem(
+				customCategoriesKey($currentChannel),
+				JSON.stringify(customCategories)
+			);
+		} catch {
+			// storage unavailable
+		}
+	}
+
+	function startCategoryRename(cat: string) {
+		editingCategory = cat;
+		editingCategoryValue = cat;
+	}
+
+	function cancelCategoryRename() {
+		editingCategory = null;
+		editingCategoryValue = '';
+	}
+
+	async function commitCategoryRename() {
+		const from = editingCategory;
+		const to = editingCategoryValue.trim();
+		cancelCategoryRename();
+		if (!from || !to || to === from) return;
+		if (customCategories.includes(from)) {
+			customCategories = customCategories.map((c) => (c === from ? to : c));
+			saveCustomCategories();
+		}
+		if (activeCategory === from) activeCategory = to;
+		if ($currentChannel) await renameForumCategory($currentChannel, from, to);
+	}
+
+	function commitAddCategory() {
+		const name = newCategoryName.trim();
+		addCategoryMode = false;
+		newCategoryName = '';
+		if (!name) return;
+		if (!customCategories.includes(name)) {
+			customCategories = [...customCategories, name];
+			saveCustomCategories();
+		}
+	}
 	$: categorizedThreads = allThreads.filter((t) => {
 		if (activeCategory && activeCategory !== 'all' && categorizeThread(t) !== activeCategory) return false;
 		if (searchQuery) {
@@ -98,6 +185,7 @@
 	}
 
 	$: if ($currentChannel) {
+		customCategories = loadCustomCategories($currentChannel);
 		loadThreads($currentChannel);
 	}
 
@@ -134,11 +222,12 @@
 		showNewThread = false;
 	}
 
-	async function handleCreateNewThread(body: string, title?: string) {
+	async function handleCreateNewThread(body: string, title?: string, category?: string) {
 		if (!$currentChannel) return;
-		const post = await createThread($currentChannel, body, title);
+		const post = await createThread($currentChannel, body, title, undefined, category || undefined);
 		if (post) {
 			showNewThread = false;
+			if (category) activeCategory = category;
 			selectThread(post);
 		}
 	}
@@ -201,9 +290,15 @@
 			<div class="forum-category-pane">
 				<div class="forum-category-header">
 					<span>Categories</span>
-					{#if canCurrentUserPost}
-						<button class="forum-new-thread-btn" on:click={handleNewThread} title="New Thread">+</button>
-					{/if}
+					<div class="forum-category-header-actions">
+						{#if canCurrentUserPost}
+							<button
+								class="forum-add-category-btn"
+								on:click={() => (addCategoryMode = true)}
+								title="Add category"
+							>+</button>
+						{/if}
+					</div>
 				</div>
 				<div class="forum-category-list">
 					<button
@@ -216,27 +311,83 @@
 						<span class="forum-category-count">{allThreads.length}</span>
 					</button>
 					{#each categories as cat}
-						<button
-							class="forum-category-item"
-							class:active={activeCategory === cat}
-							on:click={() => handleFilterByCategory(cat)}
-						>
-							<span
-								class="forum-category-dot"
-								style="background: {cat === 'Bug'
-									? 'var(--color-danger)'
-									: cat === 'Feature'
-										? 'var(--color-success)'
-										: 'var(--accent-primary)'};"
-							></span>
-							{cat}
-							<span class="forum-category-count">{categoryCounts.get(cat) || 0}</span>
-						</button>
+						<div class="forum-category-row">
+							{#if editingCategory === cat}
+								<input
+									class="forum-category-rename-input"
+									bind:value={editingCategoryValue}
+									placeholder="New name..."
+									on:click={(e) => e.stopPropagation()}
+									on:keydown={(e) => {
+										if (e.key === 'Enter') commitCategoryRename();
+										if (e.key === 'Escape') cancelCategoryRename();
+									}}
+								/>
+								<button class="forum-category-rename-btn" on:click={commitCategoryRename} title="Save">&#10003;</button>
+								<button class="forum-category-rename-btn" on:click={cancelCategoryRename} title="Cancel">&#10005;</button>
+							{:else}
+								<button
+									class="forum-category-item"
+									class:active={activeCategory === cat}
+									on:click={() => handleFilterByCategory(cat)}
+								>
+									<span
+										class="forum-category-dot"
+										style="background: {cat === 'Bug'
+											? 'var(--color-danger)'
+											: cat === 'Feature'
+												? 'var(--color-success)'
+												: 'var(--accent-primary)'};"
+									></span>
+									{cat}
+									<span class="forum-category-count">{categoryCounts.get(cat) || 0}</span>
+								</button>
+								{#if canCurrentUserPost}
+									<button
+										class="forum-category-edit-btn"
+										title="Rename category"
+										on:click={() => startCategoryRename(cat)}
+									>&#9998;</button>
+								{/if}
+							{/if}
+						</div>
 					{/each}
+					{#if addCategoryMode}
+						<div class="forum-category-row">
+							<input
+								class="forum-category-rename-input"
+								bind:value={newCategoryName}
+								placeholder="Category name..."
+								on:click={(e) => e.stopPropagation()}
+								on:keydown={(e) => {
+									if (e.key === 'Enter') commitAddCategory();
+									if (e.key === 'Escape') {
+										addCategoryMode = false;
+										newCategoryName = '';
+									}
+								}}
+							/>
+							<button class="forum-category-rename-btn" on:click={commitAddCategory} title="Add">&#10003;</button>
+							<button
+								class="forum-category-rename-btn"
+								on:click={() => {
+									addCategoryMode = false;
+									newCategoryName = '';
+								}}
+								title="Cancel"
+							>&#10005;</button>
+						</div>
+					{/if}
 				</div>
 			</div>
 
 			<div class="forum-post-list">
+				<div class="forum-post-list-header">
+					<span>{activeCategory || 'Threads'}</span>
+					{#if canCurrentUserPost}
+						<button class="forum-new-thread-btn" on:click={handleNewThread} title="New Thread">+</button>
+					{/if}
+				</div>
 				{#if categorizedThreads.length === 0}
 					<div class="forum-empty">
 						<span>No threads found</span>
@@ -262,6 +413,7 @@
 					</div>
 					<ForumComposer
 						showTitle={true}
+						categoryOptions={categories}
 						placeholder="Write your post... Use **bold** `code` @mentions"
 						onSubmit={handleCreateNewThread}
 						onCancel={handleCancelNewThread}

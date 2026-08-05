@@ -4,7 +4,7 @@
 	import {
 		channels,
 		currentChannel,
-		joinChannel,
+		switchChannel,
 		createChannel,
 		createThread,
 		deleteChannel,
@@ -126,6 +126,7 @@
 	$: currentServerLabel = $currentSavedServer?.effectiveName || (() => { try { return new URL(resolveServerUrl().url).hostname; } catch { return brandName; } })();
 	$: currentServerBannerUrl = $currentSavedServer?.effectiveBannerUrl || null;
 	$: serverIdentityIconUrl = $currentSavedServer?.effectiveIconUrl || null;
+	$: currentServerTagline = $currentSavedServer?.effectiveTagline || null;
 	$: if (serverIdentityIconUrl !== lastServerIdentityIconUrl) { lastServerIdentityIconUrl = serverIdentityIconUrl; serverIdentityImageFailed = false; }
 	$: followedChannelIds = new Set($currentServerFollowedChannels.map(e => e.channelId));
 	$: followedChannelPreferences = new Map($currentServerFollowedChannels.map(e => [e.channelId, e]));
@@ -235,7 +236,7 @@
 
 	$: if (activeView === 'chat') markMessagesAsRead();
 
-	function handleChannelClick(id: string) { activeView = 'chat'; glimpseChannelId = null; joinChannel(id); if ($callMode === 'channel') channelCallPanelOpen.set(false); dispatch('close'); if ($selectedDmChannelId) layoutStore.closeDM(); }
+	function handleChannelClick(id: string) { activeView = 'chat'; glimpseChannelId = null; switchChannel(id); if ($callMode === 'channel') channelCallPanelOpen.set(false); dispatch('close'); if ($selectedDmChannelId) layoutStore.closeDM(); }
 	function clearAllUnreadNotifications() { for (const id of Object.keys($channelUnreadCounts)) markChannelAsRead(id); markMessagesAsRead(); }
 	function openFollowingView() { activeView = 'following'; glimpseChannelId = null; dispatch('close'); }
 	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('close'); }
@@ -614,7 +615,7 @@
 		{/if}
 	</div>
 	{#if !isCompactSidebar}
-		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong></div>
+		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong>{#if currentServerTagline}<span class="server-tagline">{currentServerTagline}</span>{/if}</div>
 	{/if}
 		</button>
 		{#if sidebarWidth < 170 && !isCompactSidebar}

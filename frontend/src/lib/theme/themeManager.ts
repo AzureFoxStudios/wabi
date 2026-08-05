@@ -82,20 +82,16 @@ const SEMANTIC_MAP: Record<string, string> = {
 	'--accent-gradient': '--gradient-accent',
 	'--accent-glow': '--accent-rgb',
 
-	// RGB aliases — enable rgba() to track theme changes
+	// RGB aliases — enable rgba() to track theme changes.
+	// NOTE: the *_Rgb keys themselves (--text-secondary-rgb, --text-inverse-rgb,
+	// --color-{success,info,warning,danger}-rgb, --border-rgb) are set directly
+	// in step 1 from theme.colors, so they must NOT be aliased to themselves.
 	'--surface-app-rgb': '--bg-primary-rgb',
 	'--surface-base-rgb': '--bg-secondary-rgb',
 	'--surface-raised-rgb': '--bg-tertiary-rgb',
 	'--text-heading-rgb': '--text-primary-rgb',
-	'--text-secondary-rgb': '--text-secondary-rgb',
 	'--text-muted-rgb': '--text-tertiary-rgb',
-	'--text-inverse-rgb': '--text-inverse-rgb',
 	'--accent-primary-rgb': '--accent-rgb',
-	'--color-success-rgb': '--color-success-rgb',
-	'--color-info-rgb': '--color-info-rgb',
-	'--color-warning-rgb': '--color-warning-rgb',
-	'--color-danger-rgb': '--color-danger-rgb',
-	'--border-rgb': '--border-rgb',
 
 	// NOTE: self-referencing entries removed (e.g. '--text-secondary': '--text-secondary',
 	// '--accent-hover': '--accent-hover', '--status-*': '--status-*', '--color-*': '--color-*').
