@@ -17,7 +17,7 @@
 		align-items: center;
 		justify-content: center;
 		z-index: var(--z-lightbox);
-		padding: 2rem;
+		padding: var(--space-8);
 	}
 
 
@@ -25,10 +25,10 @@
 		max-width: 80vw;
 		max-height: 80vh;
 		object-fit: contain;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		cursor: default;
 		transform-origin: center center;
-		transition: transform 0.15s ease;
+		transition: transform var(--duration-fast) ease;
 	}
 
 
@@ -43,14 +43,14 @@
 		align-items: center;
 		justify-content: center;
 		z-index: var(--z-lightbox);
-		padding: 2rem;
+		padding: var(--space-8);
 	}
 
 
 	.enlarged-video {
 		max-width: 85vw;
 		max-height: 85vh;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		cursor: default;
 	}
 
@@ -95,7 +95,7 @@
 		align-items: center;
 		gap: 0.35rem;
 		padding: 0.35rem;
-		border-radius: 10px;
+		border-radius: var(--radius-md);
 		background: var(--surface-hover, rgba(17, 23, 35, 0.86));
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.18));
 		backdrop-filter: blur(8px);
@@ -105,19 +105,19 @@
 	.toolbar-btn {
 		min-width: 36px;
 		height: 32px;
-		padding: 0 0.55rem;
-		border-radius: 8px;
+		padding: 0 var(--space-2);
+		border-radius: var(--radius-md);
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.22));
 		background: var(--surface-hover, rgba(255, 255, 255, 0.08));
 		color: var(--text-inverse, #fff);
-		font-size: 0.75rem;
+		font-size: var(--text-sm);
 		font-weight: 700;
 		text-decoration: none;
 		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		transition: background 0.15s ease;
+		transition: background var(--duration-fast) ease;
 	}
 
 
@@ -138,8 +138,8 @@
 		display: flex;
 		flex-direction: column;
 		min-width: 180px;
-		padding: 0.35rem;
-		border-radius: 10px;
+		padding: var(--space-1);
+		border-radius: var(--radius-md);
 		background: var(--surface-hover, rgba(14, 20, 30, 0.95));
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.2));
 		box-shadow: 0 12px 24px var(--shadow-lg, rgba(0, 0, 0, 0.35));
@@ -152,8 +152,8 @@
 		background: transparent;
 		color: var(--text-inverse, #fff);
 		text-align: left;
-		padding: 0 0.55rem;
-		border-radius: 7px;
+		padding: 0 var(--space-2);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 	}
 
@@ -170,11 +170,11 @@
 		width: 36px;
 		height: 32px;
 		min-width: 36px;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.22));
 		background: rgba(17, 23, 35, 0.86);
 		color: var(--text-inverse, #fff);
-		font-size: 0.9rem;
+		font-size: var(--text-base);
 		transform: none;
 	}
 
@@ -198,9 +198,9 @@
 		right: calc(100% + 0.45rem);
 		top: 0;
 		min-width: 250px;
-		gap: 0.35rem;
-		padding: 0.8rem;
-		border-radius: 10px;
+		gap: var(--space-1);
+		padding: var(--space-3);
+		border-radius: var(--radius-md);
 		background: var(--surface-hover, rgba(14, 20, 30, 0.92));
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.2));
 		color: var(--text-inverse, #fff);
@@ -229,7 +229,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		transition: all 0.2s;
+		transition: all var(--duration-normal);
 		font-weight: 300;
 		line-height: 1;
 	}
@@ -249,7 +249,7 @@
 		padding: 0.5rem 1rem;
 		background: var(--surface-modal-overlay, rgba(0, 0, 0, 0.7));
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.3));
-		border-radius: 20px;
+		border-radius: var(--radius-full);
 		color: var(--text-inverse, #fff);
 		font-size: var(--text-base);
 		font-weight: 500;
@@ -264,12 +264,12 @@
 		padding: 0.75rem 1.5rem;
 		background: var(--surface-hover, rgba(255, 255, 255, 0.1));
 		border: 2px solid var(--surface-hover, rgba(255, 255, 255, 0.3));
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		color: var(--text-inverse, #fff);
 		text-decoration: none;
 		font-size: var(--text-base);
 		font-weight: 500;
-		transition: all 0.2s;
+		transition: all var(--duration-normal);
 	}
 
 

@@ -27,7 +27,7 @@
 	.gallery-item {
 		position: relative;
 		aspect-ratio: 1;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		overflow: hidden;
 		min-width: 0;
 		background: var(--surface-app);
@@ -51,7 +51,7 @@
 	}
 
 	.gallery-file-icon {
-		font-size: 1.65rem;
+		font-size: var(--text-2xl);
 		background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
 	}
 
@@ -63,7 +63,7 @@
 		padding: 0.28rem 0.36rem;
 		background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.72));
 		color: white;
-		font-size: 0.66rem;
+		font-size: var(--text-xs);
 		line-height: 1.2;
 	}
 
@@ -83,10 +83,10 @@
 		min-width: 22px;
 		padding: 0;
 		border: 1px solid rgba(255, 255, 255, 0.22);
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 		background: rgba(0, 0, 0, 0.58);
 		color: white;
-		font-size: 0.74rem;
+		font-size: var(--text-xs);
 		line-height: 1;
 		cursor: pointer;
 	}
@@ -95,7 +95,7 @@
 		width: 100%;
 		min-height: 34px;
 		border: none;
-		border-radius: 9px;
+		border-radius: var(--radius-md);
 		background: var(--accent-primary-color);
 		color: white;
 		font-weight: 700;
@@ -108,7 +108,7 @@
 		gap: 0.55rem;
 		margin: -0.15rem 0 0.9rem;
 		padding: 0.75rem 0.85rem;
-		border-radius: 14px;
+		border-radius: var(--radius-lg);
 		border: 1px solid rgba(var(--accent-rgb), 0.18);
 		background: rgba(var(--accent-rgb), 0.06);
 	}
@@ -118,7 +118,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.5rem;
-		font-size: 0.85rem;
+		font-size: var(--text-base);
 		color: var(--text-heading);
 	}
 
@@ -130,7 +130,7 @@
 
 
 	.upload-album-field span {
-		font-size: 0.76rem;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-secondary);
 	}
@@ -144,7 +144,7 @@
 	.upload-album-name {
 		height: 36px;
 		border: 1px solid var(--border-subtle);
-		border-radius: 10px;
+		border-radius: var(--radius-md);
 		background: var(--surface-app);
 		color: var(--text-heading);
 		padding: 0 0.75rem;
@@ -153,7 +153,7 @@
 
 
 	.upload-album-hint {
-		font-size: 0.72rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 	}
 

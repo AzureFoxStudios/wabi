@@ -42,7 +42,7 @@
 	.translated-text::-webkit-scrollbar-thumb,
 	.role-gate-description::-webkit-scrollbar-thumb {
 		background: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%);
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 	}
 
 
@@ -81,12 +81,12 @@
 	.markdown-content .mention-token {
 		display: inline-block;
 		padding: 0.05rem 0.34rem;
-		border-radius: 0.4rem;
+		border-radius: var(--radius-md);
 		background: color-mix(in srgb, var(--accent-primary-color) 20%, transparent);
 		color: color-mix(in srgb, var(--accent-primary-color) 70%, var(--text-heading) 30%);
 		font-weight: 600;
 		cursor: pointer;
-		transition: background 0.18s ease;
+		transition: background var(--duration-fast) ease;
 	}
 
 

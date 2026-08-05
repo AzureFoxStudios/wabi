@@ -6,10 +6,10 @@
 .reply-preview {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	margin-bottom: 2px;
+	gap: var(--space-2);
+	margin-bottom: var(--space-1);
 	padding: 1px 0 1px 8px;
-	font-size: 12px;
+	font-size: var(--text-sm);
 	line-height: 1.15;
 	cursor: pointer;
 	opacity: 0.9;
@@ -23,7 +23,7 @@
 	width: 2px;
 	height: 12px;
 	background: var(--accent-primary-color, var(--accent-primary));
-	border-radius: 999px;
+	border-radius: var(--radius-full);
 	flex-shrink: 0;
 	align-self: center;
 }
@@ -31,21 +31,21 @@
 .reply-content {
 	display: flex;
 	align-items: baseline;
-	gap: 5px;
+	gap: var(--space-1);
 	min-width: 0;
 	flex: 1;
 }
 
 .reply-username {
 	font-weight: 600;
-	font-size: 12px;
+	font-size: var(--text-sm);
 	white-space: nowrap;
 	color: inherit;
 }
 
 .reply-text {
 	color: var(--text-muted, var(--text-secondary));
-	font-size: 12px;
+	font-size: var(--text-sm);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
