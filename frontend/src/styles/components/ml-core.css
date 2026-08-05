@@ -51,7 +51,7 @@
 	border-radius: 0;
 	background: transparent;
 	margin-bottom: 0.05rem;
-	transition: all 0.25s ease;
+	transition: all var(--duration-normal) ease;
 	position: relative;
 	margin-left: 0;
 	padding-left: 0.4rem;
@@ -171,7 +171,7 @@
 		animation: highlight-pulse 2s ease-out;
 		border: none;
 		border-left: 3px solid var(--accent-primary-color);
-		z-index: 0;
+		z-index: var(--z-base);
 		box-shadow: 0 0 0 9999px rgba(var(--accent-rgb), var(--opacity-subtle));
 	}
 
@@ -205,8 +205,8 @@
 		gap: 4px;
 		margin: 0 0 4px 0;
 		padding: 1px 8px 1px 6px;
-		border-radius: 999px;
-		font-size: 0.72rem;
+		border-radius: var(--radius-full);
+		font-size: var(--text-xs);
 		font-weight: 600;
 		line-height: 1.4;
 		color: var(--color-warning, #e0a000);
@@ -310,7 +310,7 @@
 
 
 	.timestamp {
-		font-size: 11px;
+		font-size: var(--text-xs);
 		font-weight: 500;
 		color: var(--text-secondary);
 		margin-left: 0.35rem;
@@ -332,8 +332,8 @@
 		align-items: center;
 		margin-left: 0.25rem;
 		padding: 0.08rem 0.38rem;
-		border-radius: 999px;
-		font-size: 0.64rem;
+		border-radius: var(--radius-full);
+		font-size: var(--text-xs);
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
@@ -413,7 +413,7 @@
 
 	.more-count {
 		color: var(--text-heading);
-		font-size: 2rem;
+		font-size: var(--font-size-3xl);
 		font-weight: 700;
 		text-shadow: 0 2px 4px rgba(0, 0, 0, var(--opacity-strong));
 	}
@@ -442,7 +442,7 @@
 	cursor: pointer;
 	font-size: var(--text-base);
 	font-weight: 500;
-	transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+	transition: background-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease, transform var(--duration-fast) ease;
 }
 
 
@@ -479,7 +479,7 @@
 .no-more-messages {
 	text-align: center;
 	color: var(--text-secondary);
-	font-size: 13px;
+	font-size: var(--text-sm);
 	padding: 8px 12px 4px;
 	opacity: 0.75;
 }
@@ -505,7 +505,7 @@
 .embedded-image {
 	display: block;
 	cursor: pointer;
-	transition: opacity 0.2s;
+	transition: opacity var(--duration-normal);
 }
 
 
@@ -683,7 +683,7 @@ html[data-message-density='cozy'] .avatar,
 html[data-message-density='cozy'] .avatar-placeholder {
 	width: 40px !important;
 	height: 40px !important;
-	font-size: 15px !important;
+	font-size: var(--text-lg) !important;
 }
 
 
@@ -752,7 +752,7 @@ html[data-message-density='compact'] .message-header .header-left {
 html[data-message-density='compact'] .message-header .timestamp {
 	order: -1 !important;
 	margin: 0 0.16rem 0 0 !important;
-	font-size: 0.68rem !important;
+	font-size: var(--text-xs) !important;
 	opacity: 0.66 !important;
 }
 
@@ -761,7 +761,7 @@ html[data-message-density='compact'] .message-header .username {
 	max-width: 8rem !important;
 	overflow: hidden !important;
 	text-overflow: ellipsis !important;
-	font-size: 0.86rem !important;
+	font-size: var(--text-base) !important;
 	font-weight: 650 !important;
 }
 

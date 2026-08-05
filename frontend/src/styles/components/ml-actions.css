@@ -19,10 +19,10 @@
 	opacity: 1;
 	visibility: visible;
 	transform: translateY(0) scale(1);
-	transition: opacity 0.18s ease-out, visibility 0.18s ease-out, transform 0.18s ease-out;
-	padding: 0 5px;
-	height: 32px;
-}
+		transition: opacity var(--duration-fast) ease-out, visibility var(--duration-fast) ease-out, transform var(--duration-fast) ease-out;
+		padding: 0 var(--space-1);
+		height: 32px;
+	}
 
 /* Keep hover/focus highlight, but default to visible on desktop. */
 .message:not(:hover):not(:focus-within) .message-actions {
@@ -59,11 +59,11 @@
 	align-items: center;
 	justify-content: center;
 	padding: 2px;
-	border-radius: var(--radius-sm);
-	transition: background-color 0.18s ease, transform 0.12s ease;
-	font-size: 1rem;
-	line-height: 1;
-}
+		border-radius: var(--radius-sm);
+		transition: background-color var(--duration-fast) ease, transform var(--duration-instant) ease;
+		font-size: var(--text-lg);
+		line-height: 1;
+	}
 
 .quick-reaction-btn:hover {
 	background-color: var(--surface-raised);
@@ -77,16 +77,16 @@
 }
 
 
-.timestamp-action {
-	font-size: 0.75rem;
-	color: var(--text-secondary);
-	white-space: nowrap;
-	margin-right: 5px; /* Space between timestamp and first button */
-	/* Added for better visibility against background */
-	background-color: var(--surface-base);
-	padding: 0 5px;
-	border-radius: var(--radius-sm);
-}
+	.timestamp-action {
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		margin-right: var(--space-1); /* Space between timestamp and first button */
+		/* Added for better visibility against background */
+		background-color: var(--surface-base);
+		padding: 0 var(--space-1);
+		border-radius: var(--radius-sm);
+	}
 
 
 .action-btn {
@@ -95,21 +95,21 @@
 	color: var(--text-secondary);
 	padding: 0.25rem; /* Adjusted padding for smaller buttons */
 	cursor: pointer;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 1rem;
-	transition: color 0.18s ease, background-color 0.18s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: var(--text-lg);
+		transition: color var(--duration-fast) ease, background-color var(--duration-fast) ease;
 	height: 28px; /* Fixed height for icon */
 	width: 28px; /* Fixed width for icon */
 	border-radius: var(--radius-sm);
 }
 
 
-.utility-btn {
-	font-size: 0.8rem;
-	font-weight: 700;
-}
+	.utility-btn {
+		font-size: var(--text-sm);
+		font-weight: 700;
+	}
 
 
 .action-btn:hover {

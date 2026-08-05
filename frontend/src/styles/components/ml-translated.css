@@ -9,7 +9,7 @@
 		margin-top: 0.35rem;
 		padding: 0.4rem 0.5rem;
 		border: 1px dashed var(--border-subtle);
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		background: color-mix(in srgb, var(--surface-raised) 90%, var(--accent-primary-color) 10%);
 	}
 
@@ -21,7 +21,7 @@
 
 	.translated-label {
 		display: inline-block;
-		font-size: 0.65rem;
+		font-size: var(--text-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: var(--text-secondary);

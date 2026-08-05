@@ -16,7 +16,7 @@
 		height: 22px;
 		border: none;
 		background: none;
-		border-radius: 6px;
+		border-radius: var(--radius-sm);
 		padding: 0;
 		display: inline-flex;
 		align-items: center;
@@ -53,9 +53,9 @@
 		padding: 0.25rem 0.5rem;
 		background: var(--surface-raised);
 		border: 1px solid var(--border-subtle);
-		border-radius: 12px;
+		border-radius: var(--radius-lg);
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all var(--duration-normal);
 		font-size: var(--text-xs);
 		color: var(--text-secondary);
 	}

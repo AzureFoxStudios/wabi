@@ -103,7 +103,7 @@
 .messages,
 .message-list,
 .chat-messages {
-	padding: 4px 0 16px !important;
+	padding: var(--space-1) 0 var(--space-4) !important;
 }
 
 /* ----- Cozy (default density) ----- */
@@ -111,13 +111,13 @@ html[data-message-density='cozy'] .message,
 html:not([data-message-density]) .message {
 	display: flex !important;
 	align-items: flex-start !important;
-	gap: 16px !important;
+	gap: var(--space-4) !important;
 	/* Discord cozy: thin vertical pad, group air via margin-top */
-	padding: 2px 16px !important;
+	padding: 2px var(--space-4) !important;
 	margin: 0 !important;
 	border-radius: 0 !important;
 	position: relative;
-	transition: background 150ms ease;
+	transition: background var(--duration-fast) ease;
 }
 
 /* Discord groupStart ≈ 1.0625rem between different authors */
@@ -268,8 +268,8 @@ html[data-message-density='compact'] .message .avatar-placeholder {
 .input-wrapper .input-container {
 	background: var(--surface-base) !important;
 	border: 1px solid transparent !important;
-	border-radius: 12px !important;
-	transition: border-color 180ms ease, box-shadow 180ms ease, background 150ms ease !important;
+	border-radius: var(--radius-lg) !important;
+	transition: border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease, background var(--duration-fast) ease !important;
 }
 
 .composer:focus-within,
@@ -341,7 +341,7 @@ html[data-message-density='compact'] .message .avatar-placeholder {
 .edit-mode {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--space-2);
 	width: 100%;
 	max-width: 100%;
 	margin-top: 2px;
@@ -353,15 +353,15 @@ html[data-message-density='compact'] .message .avatar-placeholder {
 	max-height: 240px !important;
 	resize: vertical !important;
 	box-sizing: border-box !important;
-	padding: 10px 12px !important;
-	border-radius: 8px !important;
+	padding: var(--space-2) var(--space-3) !important;
+	border-radius: var(--radius-md) !important;
 	border: 1px solid color-mix(in srgb, var(--border-subtle, var(--border)) 80%, transparent) !important;
 	background: var(--surface-raised, var(--surface-base)) !important;
 	color: var(--text-heading, #e8eef7) !important;
 	-webkit-text-fill-color: var(--text-heading, #e8eef7) !important;
 	caret-color: var(--accent-primary-color, var(--accent-primary)) !important;
 	font: inherit !important;
-	font-size: 1rem !important;
+	font-size: var(--text-lg) !important;
 	line-height: 1.375 !important;
 	outline: none !important;
 }
@@ -382,18 +382,18 @@ html[data-message-density='compact'] .message .avatar-placeholder {
 	display: flex;
 	justify-content: flex-end;
 	align-items: center;
-	gap: 8px;
+	gap: var(--space-2);
 }
 
 .edit-cancel,
 .edit-save {
 	border: none;
-	border-radius: 6px;
-	padding: 6px 12px;
-	font-size: 13px;
+	border-radius: var(--radius-sm);
+	padding: var(--space-1) var(--space-3);
+	font-size: var(--text-sm);
 	font-weight: 600;
 	cursor: pointer;
-	transition: background 120ms ease, opacity 120ms ease;
+	transition: background var(--duration-instant) ease, opacity var(--duration-instant) ease;
 }
 
 .edit-cancel {

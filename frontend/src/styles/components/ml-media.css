@@ -9,7 +9,7 @@
 	.inline-image {
 		max-width: 450px;
 		max-height: 400px;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		object-fit: contain;
 		display: block;
@@ -19,7 +19,7 @@
 	.inline-video {
 		max-width: 450px;
 		max-height: 400px;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		display: block;
 	}
@@ -28,7 +28,7 @@
 	.gif {
 		max-width: 400px;
 		max-height: 350px;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		display: block;
 	}
@@ -58,8 +58,8 @@
 
 	.gif-caption.style-card {
 		border: 1px solid var(--border-subtle);
-		border-radius: 8px;
-		padding: 0.38rem 0.5rem;
+		border-radius: var(--radius-md);
+		padding: var(--space-1) var(--space-2);
 		background: color-mix(in srgb, var(--surface-raised) 85%, transparent);
 	}
 

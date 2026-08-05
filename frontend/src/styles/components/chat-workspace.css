@@ -9,9 +9,9 @@
 		border: 1px solid var(--border-subtle);
 		background: color-mix(in srgb, var(--surface-base) 92%, transparent);
 		color: var(--text-secondary);
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 		padding: 0.45rem 0.75rem;
-		font-size: 0.78rem;
+		font-size: var(--text-sm);
 		font-weight: var(--font-weight-semibold);
 		cursor: pointer;
 		transition: all var(--duration-fast);
@@ -29,9 +29,9 @@
 	.workspace-view-actions {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.4rem;
-		padding: 0.18rem;
-		border-radius: 999px;
+		gap: var(--space-1);
+		padding: var(--space-1);
+		border-radius: var(--radius-full);
 		border: 1px solid var(--border-subtle);
 		background: color-mix(in srgb, var(--surface-base) 88%, transparent);
 	}
@@ -44,17 +44,17 @@
 		width: 32px;
 		height: 32px;
 		padding: 0;
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 		border: 1px solid transparent;
 		background: transparent;
 		color: var(--text-secondary);
 		cursor: pointer;
 		transition:
-			width 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
-			transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
-			background-color 0.16s ease,
-			border-color 0.16s ease,
-			color 0.16s ease;
+			width var(--duration-normal) var(--ease-bounce),
+			transform var(--duration-normal) var(--ease-bounce),
+			background-color var(--duration-fast) ease,
+			border-color var(--duration-fast) ease,
+			color var(--duration-fast) ease;
 		transform-origin: center;
 		overflow: hidden;
 	}
@@ -100,7 +100,7 @@
 		justify-content: center;
 		margin: 0 auto 1rem;
 		border: 1px solid var(--border-subtle);
-		border-radius: 12px;
+		border-radius: var(--radius-lg);
 		background: var(--surface-raised);
 		color: var(--accent-primary-color);
 	}
@@ -121,7 +121,7 @@
 	.channel-mode-placeholder__kicker {
 		display: block;
 		margin-bottom: 0.45rem;
-		font-size: 0.78rem;
+		font-size: var(--text-sm);
 		font-weight: var(--font-weight-semibold);
 		color: var(--text-muted);
 		text-transform: uppercase;
@@ -132,7 +132,7 @@
 	.channel-mode-placeholder h2 {
 		margin: 0 0 0.55rem;
 		color: var(--text-heading);
-		font-size: 1.25rem;
+		font-size: var(--text-xl);
 		line-height: 1.25;
 	}
 

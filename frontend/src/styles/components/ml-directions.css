@@ -7,8 +7,8 @@
 
 	.directions-card {
 		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, var(--border-subtle) 82%);
-		border-radius: 12px;
-		padding: 0.8rem 0.9rem;
+		border-radius: var(--radius-lg);
+		padding: var(--space-3) var(--space-3);
 		background:
 			linear-gradient(160deg, color-mix(in srgb, var(--accent-primary-color) 10%, var(--surface-raised) 90%), var(--surface-raised));
 		display: grid;
@@ -30,16 +30,16 @@
 
 
 	.directions-card-kicker {
-		font-size: 0.68rem;
+		font-size: var(--text-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--text-secondary);
-		margin-bottom: 0.18rem;
+		margin-bottom: var(--space-1);
 	}
 
 
 	.directions-card-title {
-		font-size: 0.96rem;
+		font-size: var(--text-lg);
 		font-weight: 700;
 		color: var(--text-heading);
 		word-break: break-word;
@@ -47,7 +47,7 @@
 
 
 	.directions-card-expiry {
-		font-size: 0.72rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		white-space: nowrap;
 	}
@@ -62,9 +62,9 @@
 	.directions-detail-row {
 		display: grid;
 		grid-template-columns: 88px minmax(0, 1fr);
-		gap: 0.5rem;
+		gap: var(--space-2);
 		align-items: start;
-		font-size: 0.84rem;
+		font-size: var(--text-sm);
 	}
 
 
@@ -89,14 +89,14 @@
 
 	.directions-card-btn {
 		border: 1px solid var(--border-subtle);
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 		background: var(--surface-app);
 		color: var(--text-heading);
-		padding: 0.38rem 0.72rem;
-		font-size: 0.8rem;
+		padding: var(--space-1) var(--space-2);
+		font-size: var(--text-sm);
 		font-weight: 600;
 		cursor: pointer;
-		transition: background 0.18s ease, border-color 0.18s ease;
+		transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease;
 	}
 
 
@@ -114,23 +114,23 @@
 
 	.role-gate-card {
 		border: 1px solid var(--border-subtle);
-		border-radius: 10px;
-		padding: 0.65rem 0.75rem;
+		border-radius: var(--radius-md);
+		padding: var(--space-2) var(--space-3);
 		background: var(--surface-raised);
 	}
 
 
 	.role-gate-label {
-		font-size: 0.68rem;
+		font-size: var(--text-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: var(--text-secondary);
-		margin-bottom: 0.3rem;
+		margin-bottom: var(--space-1);
 	}
 
 
 	.role-gate-title {
-		font-size: 0.92rem;
+		font-size: var(--text-base);
 		font-weight: 700;
 		color: var(--text-heading);
 	}
@@ -148,7 +148,7 @@
 
 
 	.role-gate-hint {
-		margin-top: 0.45rem;
-		font-size: 0.72rem;
+		margin-top: var(--space-1);
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 	}

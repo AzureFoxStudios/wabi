@@ -21,8 +21,8 @@
 		transform: translate(-50%, -50%);
 		color: color-mix(in srgb, var(--text-heading) 78%, var(--text-secondary));
 		pointer-events: none;
-		z-index: 3;
-		transition: left 220ms ease, color 140ms ease;
+		z-index: var(--z-sticky);
+		transition: left var(--duration-normal) ease, color var(--duration-fast) ease;
 	}
 
 
@@ -53,10 +53,10 @@
 		cursor: pointer;
 		opacity: 0.95;
 		transition:
-			width 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
-			opacity 180ms ease,
-			padding 220ms ease,
-			border-color 140ms ease;
+			width var(--duration-slow) var(--ease-bounce),
+			opacity var(--duration-fast) ease,
+			padding var(--duration-normal) ease,
+			border-color var(--duration-fast) ease;
 	}
 
 
@@ -110,9 +110,9 @@
 
 	.search-history-btn {
 		border: none;
-		border-radius: 10px;
+		border-radius: var(--radius-md);
 		padding: 0.2rem 0.55rem;
-		font-size: 0.72rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		background: var(--surface-raised);
 		cursor: pointer;
@@ -129,7 +129,7 @@
 	.search-results-toolbar {
 		position: sticky;
 		top: 0;
-		z-index: 3;
+		z-index: var(--z-sticky);
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
@@ -137,7 +137,7 @@
 		padding: 0.4rem 0.55rem;
 		margin: -0.35rem -0.2rem 0.45rem;
 		border: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-		border-radius: 10px;
+		border-radius: var(--radius-md);
 		background: color-mix(in srgb, var(--surface-base) 90%, transparent);
 		backdrop-filter: blur(6px);
 	}
@@ -152,9 +152,9 @@
 
 	.search-toolbar-btn {
 		border: none;
-		border-radius: 10px;
+		border-radius: var(--radius-md);
 		padding: 0.2rem 0.55rem;
-		font-size: 0.72rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		background: var(--surface-raised);
 		cursor: pointer;

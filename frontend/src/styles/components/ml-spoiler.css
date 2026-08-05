@@ -10,7 +10,7 @@
 		filter: blur(20px);
 		cursor: pointer;
 		position: relative;
-		transition: filter 0.2s ease;
+		transition: filter var(--duration-normal) ease;
 	}
 
 
@@ -23,12 +23,12 @@
 		background: rgba(0, 0, 0, var(--opacity-heavy));
 		color: var(--text-heading);
 		padding: 0.5rem 1rem;
-		border-radius: 4px;
-		font-size: 0.875rem;
+		border-radius: var(--radius-sm);
+		font-size: var(--text-base);
 		font-weight: 600;
 		white-space: nowrap;
 		pointer-events: none;
-		z-index: 1;
+		z-index: var(--z-base);
 	}
 
 

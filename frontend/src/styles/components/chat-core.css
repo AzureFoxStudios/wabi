@@ -28,12 +28,12 @@
 			left: 50%;
 			bottom: 4px;
 			transform: translateX(-50%);
-			font-size: 0.66rem;
+			font-size: var(--text-xs);
 			letter-spacing: 0.03em;
 			color: var(--text-secondary);
 			opacity: 0.5;
 			pointer-events: none;
-			z-index: 20;
+			z-index: var(--z-sticky);
 			white-space: nowrap;
 		}
 
@@ -45,14 +45,14 @@
 		background-color: rgba(0, 0, 0, calc(1 - var(--background-image-opacity, 1)));
 		filter: blur(var(--background-image-blur, 0px));
 		pointer-events: none;
-		z-index: 0;
+		z-index: var(--z-base);
 	}
 
 
 	.messages,
 	.whiteboard-surface {
 		position: relative;
-		z-index: 1;
+		z-index: var(--z-base);
 		height: 100%;
 	}
 
@@ -221,14 +221,14 @@ textarea:focus-visible {
 
 	textarea::-webkit-scrollbar-thumb {
 		background: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%);
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 	}
 
 
 	.gif-caption-hint {
 		width: 100%;
 		padding: 0 0.22rem;
-		font-size: 0.68rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 	}
 
@@ -236,10 +236,10 @@ textarea:focus-visible {
 	.file-gallery, .upload-progress-bar {
 		width: 100%;
 		box-sizing: border-box;
-		padding: 0.55rem 0.65rem;
+		padding: var(--space-2) var(--space-3);
 		background: var(--surface-base);
 		border-bottom: 1px solid var(--border-subtle);
-		border-radius: 12px 12px 0 0;
+		border-radius: var(--radius-lg) var(--radius-lg) var(--radius-none) var(--radius-none);
 	}
 
 
