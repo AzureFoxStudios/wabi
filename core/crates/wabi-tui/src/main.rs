@@ -7,6 +7,7 @@ mod ui;
 
 use anyhow::Result;
 use app::App;
+use std::time::{Duration, Instant};
 
 /// Restores terminal to a usable state on drop, including during panics.
 struct TerminalGuard;
@@ -77,11 +78,35 @@ async fn run_app(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     app: &mut App,
 ) -> Result<()> {
-    loop {
-        app.poll_bg();
-        terminal.draw(|frame| ui::render(frame, app))?;
+    let mut last_draw = Instant::now()
+        .checked_sub(Duration::from_secs(60))
+        .unwrap_or_else(Instant::now);
 
-        if crossterm::event::poll(std::time::Duration::from_millis(50))? {
+    loop {
+        // Drain network/bg results first so dirty is accurate.
+        app.poll_bg();
+
+        let frame_ms = app.config.frame_ms();
+        let frame_budget = Duration::from_millis(frame_ms);
+        let due_for_frame = last_draw.elapsed() >= frame_budget;
+
+        // Redraw only when something changed OR the FPS budget says so.
+        // E-ink: low fps => fewer full terminal paints (ghosting / power).
+        if app.dirty || due_for_frame {
+            terminal.draw(|frame| ui::render(frame, app))?;
+            app.dirty = false;
+            last_draw = Instant::now();
+        }
+
+        // Sleep up to the remaining frame budget (or a short slice) waiting for keys.
+        // Always wake often enough to process bg results, but never busier than fps.
+        let wait = frame_budget
+            .checked_sub(last_draw.elapsed())
+            .unwrap_or(Duration::from_millis(1))
+            .min(Duration::from_millis(frame_ms.max(1)))
+            .max(Duration::from_millis(1));
+
+        if crossterm::event::poll(wait)? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 if key.kind == crossterm::event::KeyEventKind::Press {
                     match app.handle_key(key.code) {
@@ -90,6 +115,9 @@ async fn run_app(
                         Err(e) => app.set_error(e.to_string()),
                     }
                 }
+            } else {
+                // Resize etc. — force paint
+                app.mark_dirty();
             }
         }
 
@@ -97,6 +125,7 @@ async fn run_app(
             if let Err(e) = app.do_connect().await {
                 app.set_error(e.to_string());
             }
+            app.mark_dirty();
         }
     }
 

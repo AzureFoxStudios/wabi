@@ -675,6 +675,9 @@ fn render_help(frame: &mut Frame) {
         Line::from("  :           command palette"),
         Line::from("  :goto name  jump channel"),
         Line::from("  :logout     drop token"),
+        Line::from("  :fps N      UI refresh rate (e-ink: 1-5)"),
+        Line::from("  :poll N     chat poll seconds"),
+        Line::from("  :eink       preset 2fps + 8s poll"),
         Line::from("  q           quit"),
         Line::from(""),
         Line::from(Span::styled(
