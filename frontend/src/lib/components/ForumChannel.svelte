@@ -22,7 +22,6 @@
 		type ForumPost,
 	} from '$lib/forumStore';
 	import SurfaceHeader from './SurfaceHeader.svelte';
-	import SurfaceToolbar from './SurfaceToolbar.svelte';
 	import ForumPostRow from './ForumPostRow.svelte';
 	import ForumReply from './ForumReply.svelte';
 	import ForumComposer from './ForumComposer.svelte';
@@ -261,20 +260,6 @@
 		title={activeChannel?.name || 'Forum'}
 	/>
 
-	<SurfaceToolbar
-		searchPlaceholder="Search threads..."
-		pills={[
-			{ key: 'all', label: 'All', active: !activeCategory },
-			...categories.map((cat) => ({
-				key: cat,
-				label: cat,
-				active: activeCategory === cat,
-			})),
-		]}
-		onSearch={handleSearch}
-		onPill={handlePill}
-	/>
-
 	<div class="forum-body">
 		{#if isLoading}
 			<div class="forum-loading">
@@ -383,7 +368,7 @@
 
 			<div class="forum-post-list">
 				<div class="forum-post-list-header">
-					<span>{activeCategory || 'Threads'}</span>
+					<span>{activeCategory || 'All'} Threads <span class="forum-post-list-header-count">{categorizedThreads.length}</span></span>
 					{#if canCurrentUserPost}
 						<button class="forum-new-thread-btn" on:click={handleNewThread} title="New Thread">+</button>
 					{/if}

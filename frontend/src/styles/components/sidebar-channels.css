@@ -663,8 +663,8 @@
 		transition: transform var(--duration-fast);
 	}
 
-	.category-row[aria-expanded="false"] .category-chevron {
-		transform: rotate(-90deg);
+	.category-toggle[aria-expanded="true"] .category-chevron {
+		transform: rotate(90deg);
 	}
 
 	.category-folder-icon {
