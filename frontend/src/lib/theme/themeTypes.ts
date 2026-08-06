@@ -98,6 +98,10 @@ export interface ThemeGradients {
 export interface AmbientConfig {
 	effect: string;
 	color?: string;
+	/** Secondary effect color (used by multi-color effects like Balatro). */
+	color2?: string;
+	/** Tertiary effect color (used by multi-color effects like Balatro). */
+	color3?: string;
 	intensity?: number;
 	size?: number;
 	speed?: number;
