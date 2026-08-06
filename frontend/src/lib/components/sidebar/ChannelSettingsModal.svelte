@@ -46,6 +46,24 @@ import { get } from 'svelte/store';
 		sock.emit('clear-channel-messages', { channelId: channel.id });
 	}
 
+	/** Clear this channel's history only on this browser (IndexedDB/local cache). */
+	async function clearLocalMessagesOnly(): Promise<void> {
+		if (channel.type === 'dm') return;
+		const confirmed = window.confirm(
+			`Clear local cache for #${channel.name} on this device only?\n\nOther members keep their history. Server history is unchanged.`
+		);
+		if (!confirmed) return;
+		try {
+			const { chatStorage } = await import('$lib/storage');
+			const { channelMessages } = await import('$lib/socket');
+			await chatStorage.clearChannelMessages(channel.id);
+			channelMessages.update((state) => ({ ...state, [channel.id]: [] }));
+		} catch (err) {
+			console.warn('[channel-settings] local clear failed', err);
+			window.alert('Could not clear local messages. Check console for details.');
+		}
+	}
+
 	function chooseRetention(next: RetentionChoice): void {
 		const prev = effectiveAutoDelete;
 		if (next === prev) return;
@@ -407,36 +425,28 @@ import { get } from 'svelte/store';
 				<div class="setting-group danger-zone">
 					<span class="setting-label">Purge channel history</span>
 					<p class="setting-description">
-						Permanently delete every message in this channel for all members. Direct messages are never
-						affected. Attachment files on disk are not deleted. Use this when turning off keep-forever
-						or wiping local/server chat data for the channel.
+						Server purge removes history for everyone. Local only clears this browser’s cache for the
+						channel (server and other members unchanged). Attachments on disk are not deleted.
 					</p>
-					<button class="clear-messages-btn" type="button" on:click={clearAllMessages}>
-						Purge all messages
-					</button>
+					<div class="purge-actions">
+						<button class="clear-messages-btn" type="button" on:click={clearAllMessages}>Purge all</button>
+						<button class="clear-messages-btn local-only" type="button" on:click={clearLocalMessagesOnly}>Local only</button>
+					</div>
 				</div>
 			{/if}
 
-			{#if channel.type !== 'dm'}
-					<div class="setting-group">
-						<label class="setting-label">
-							<input
-								type="checkbox"
-								bind:checked={tempPersistMessages}
-								class="setting-checkbox"
-								disabled={!canTogglePersistMessages}
-							/>
-							Persist Messages Locally (Owner Only)
-						</label>
-						<p class="setting-description">
-							Save messages to your browser's local storage so you can see them after the server restarts.
-							Each client controls their own message history.
-						</p>
-						{#if !canTogglePersistMessages}
-							<p class="setting-description">Only workspace owners can change this setting.</p>
-						{/if}
-					</div>
-				{/if}
+			{#if channel.type !== 'dm' && canTogglePersistMessages}
+				<div class="setting-group">
+					<label class="inline-check">
+						<input type="checkbox" bind:checked={tempPersistMessages} class="setting-checkbox" />
+						<span>Keep offline cache on this device</span>
+					</label>
+					<p class="setting-description">
+						When on, this browser may retain channel messages across restarts. Separate from purge —
+						Storage settings can still wipe local data.
+					</p>
+				</div>
+			{/if}
 
 				{#if channel.type !== 'dm' && channel.type !== 'voice'}
 					<div class="setting-group">
@@ -587,22 +597,64 @@ import { get } from 'svelte/store';
 
 <style>
 	.danger-zone {
-		border: 1px solid var(--danger-color, #e2484d);
-		border-radius: 8px;
-		padding: 12px;
-		margin-top: 8px;
+		border: 1px solid color-mix(in srgb, var(--color-danger, #e2484d) 45%, transparent);
+		border-radius: var(--radius-lg, 12px);
+		padding: 0.95rem 1rem;
+		margin-top: 0.5rem;
+		background: color-mix(in srgb, var(--color-danger, #e2484d) 8%, transparent);
 	}
+
+	.purge-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.55rem;
+		margin-top: 0.75rem;
+	}
+
 	.clear-messages-btn {
-		margin-top: 8px;
-		background: var(--danger-color, #e2484d);
+		margin-top: 0;
+		background: var(--color-danger, #e2484d);
 		color: #fff;
 		border: none;
-		border-radius: 6px;
-		padding: 8px 14px;
-		font-weight: 600;
+		border-radius: var(--radius-md, 8px);
+		padding: 0.55rem 0.95rem;
+		font-weight: 650;
 		cursor: pointer;
+		transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 	}
+
 	.clear-messages-btn:hover {
-		filter: brightness(0.92);
+		filter: brightness(1.05);
+		transform: translateY(-1px);
+		box-shadow: 0 8px 18px color-mix(in srgb, var(--color-danger, #e2484d) 28%, transparent);
+	}
+
+	.clear-messages-btn.local-only {
+		background: transparent;
+		color: var(--text-heading);
+		border: 1px solid color-mix(in srgb, var(--color-danger, #e2484d) 40%, transparent);
+	}
+
+	.clear-messages-btn.local-only:hover {
+		background: color-mix(in srgb, var(--color-danger, #e2484d) 12%, transparent);
+		box-shadow: none;
+	}
+
+	.inline-check {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
+		cursor: pointer;
+		font-weight: 600;
+		color: var(--text-heading);
+		user-select: none;
+	}
+
+	.inline-check input {
+		width: 16px;
+		height: 16px;
+		margin: 0;
+		accent-color: var(--accent-secondary-color, #818cf8);
 	}
 </style>

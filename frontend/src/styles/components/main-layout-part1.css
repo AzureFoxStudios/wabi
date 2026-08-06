@@ -111,17 +111,22 @@
 	border-left: none;
 }
 
-/* Desktop Right Panel */
+/* Desktop Right Panel — width comes from layoutStore via style:width.
+   flex-basis must NOT be fixed or it locks the panel and ignores resize. */
 .right-panel-container {
-	flex-shrink: 1;
-	flex-basis: 320px;
+	flex: 0 0 auto;
 	position: relative;
 	height: 100dvh;
-	height: 100dvh;
-	background: var(--surface-base);
-	border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--surface-raised) 40%, transparent),
+			color-mix(in srgb, var(--surface-base) 96%, transparent)
+		),
+		var(--surface-base);
+	border-left: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
 	min-width: 0;
-	max-width: min(480px, 45vw);
+	max-width: min(720px, 55vw);
 }
 
 /* Resize handles */
@@ -129,23 +134,35 @@
 	position: absolute;
 	top: 0;
 	bottom: 0;
-	width: 6px;
+	width: 8px;
 	padding: 0;
 	border: 0;
 	background: transparent;
 	cursor: col-resize;
 	z-index: var(--z-sticky);
-	transition: background 0.2s;
+	transition: background 0.15s ease;
 }
-.resize-handle:hover { background: var(--accent-primary-color); opacity: 0.5; }
+
+.resize-handle:hover,
+.resize-handle:focus-visible {
+	background: color-mix(in srgb, var(--accent-secondary-color, var(--accent-primary-color)) 45%, transparent);
+	outline: none;
+}
+
+.resize-handle:active {
+	background: color-mix(in srgb, var(--accent-secondary-color, var(--accent-primary-color)) 70%, transparent);
+}
 .resize-handle-channel { right: -3px; }
 .resize-handle-right {
-	/* Make right resize more obvious and draggable */
 	left: -4px;
-	width: 8px;
-	border-left: 2px solid rgba(var(--accent-primary-rgb, 120, 120, 255), 0.25);
-	background: linear-gradient(to right, rgba(0,0,0,0.1), transparent);
+	width: 10px;
+	border-left: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
 	z-index: var(--z-popout, 1200);
+}
+.resize-handle-right:hover,
+.resize-handle-right:focus-visible {
+	border-left-color: color-mix(in srgb, var(--accent-secondary-color) 55%, transparent);
+	background: color-mix(in srgb, var(--accent-secondary-color, var(--accent-primary-color)) 35%, transparent);
 }
 
 .app-container.obvious-grab-rails .resize-handle {

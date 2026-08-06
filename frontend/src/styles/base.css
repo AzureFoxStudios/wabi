@@ -70,23 +70,62 @@ a:hover {
 	box-shadow: var(--shadow-focus-ring);
 }
 
-/* Scrollbar */
+/* Scrollbar — thin, theme-connected, not a chunky gradient bar */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: color-mix(in srgb, var(--accent-primary-color) 28%, transparent) transparent;
+}
+
 ::-webkit-scrollbar {
-	width: var(--space-2);
-	height: var(--space-2);
+	width: 8px;
+	height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-	background: rgba(var(--surface-app-rgb), var(--opacity-strong));
+	background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-	background: var(--gradient-scrollbar, var(--surface-raised));
+	background: color-mix(in srgb, var(--accent-primary-color) 22%, var(--surface-raised, #302b63) 40%);
 	border-radius: var(--radius-full);
+	border: 2px solid transparent;
+	background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: var(--gradient-scrollbar-hover, var(--accent-primary-color));
+	background: color-mix(in srgb, var(--accent-secondary-color, var(--accent-primary-color)) 55%, transparent);
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+/* Message list / main chat — even quieter until hover */
+.message-list,
+.messages,
+.messages-pane,
+.chat-messages,
+.channel-messages {
+	scrollbar-width: thin;
+	scrollbar-color: color-mix(in srgb, var(--accent-primary-color) 18%, transparent) transparent;
+}
+
+.message-list::-webkit-scrollbar-thumb,
+.messages::-webkit-scrollbar-thumb,
+.messages-pane::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb,
+.channel-messages::-webkit-scrollbar-thumb {
+	background: color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
+}
+
+.message-list:hover::-webkit-scrollbar-thumb,
+.messages:hover::-webkit-scrollbar-thumb,
+.messages-pane:hover::-webkit-scrollbar-thumb,
+.chat-messages:hover::-webkit-scrollbar-thumb,
+.channel-messages:hover::-webkit-scrollbar-thumb {
+	background: color-mix(in srgb, var(--accent-secondary-color, var(--accent-primary-color)) 40%, transparent);
 }
 
 /* Screen-reader only */
