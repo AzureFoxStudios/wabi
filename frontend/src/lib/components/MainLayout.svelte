@@ -38,6 +38,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
 	import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 	import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
+	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
 	import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import {
 		getServerScopedUserKey,
@@ -112,6 +113,51 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: isPlannerTabActive = $activeTabId === PLANNER_TAB_TOKEN;
 	const NOTES_TAB_TOKEN = mobileTabQueue.toAddonTabId(NOTES_ADDON_ID);
 	$: isNotesTabActive = $activeTabId === NOTES_TAB_TOKEN;
+	$: workspaceActiveView = (() => {
+		if (isModelViewportTabActive) return 'model' as const;
+		if (isReaderTabActive) return 'reader' as const;
+		if (isMediaAlbumsTabActive) return 'media' as const;
+		if (isMapTabActive) return 'map' as const;
+		if (isPlannerTabActive) return 'planner' as const;
+		if (isNotesTabActive) return 'notes' as const;
+		return 'messages' as const;
+	})();
+
+	function closeAllAddonTabs(): void {
+		mobileTabQueue.closeAddonTab(READER_ADDON_ID);
+		mobileTabQueue.closeAddonTab(MODEL_VIEWPORT_ADDON_ID);
+		mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
+		mobileTabQueue.closeAddonTab(MEDIA_ALBUMS_ADDON_ID);
+		mobileTabQueue.closeAddonTab(PLANNER_ADDON_ID);
+		mobileTabQueue.closeAddonTab(NOTES_ADDON_ID);
+	}
+
+	function handleWorkspaceViewSelect(view: string): void {
+		switch (view) {
+			case 'messages':
+			case 'whiteboard':
+				closeAllAddonTabs();
+				break;
+			case 'reader':
+				mobileTabQueue.openAddonTab(READER_ADDON_ID);
+				break;
+			case 'model':
+				mobileTabQueue.openAddonTab(MODEL_VIEWPORT_ADDON_ID);
+				break;
+			case 'map':
+				mobileTabQueue.openAddonTab(MAP_ADDON_ID);
+				break;
+			case 'media':
+				mobileTabQueue.openAddonTab(MEDIA_ALBUMS_ADDON_ID);
+				break;
+			case 'planner':
+				mobileTabQueue.openAddonTab(PLANNER_ADDON_ID);
+				break;
+			case 'notes':
+				mobileTabQueue.openAddonTab(NOTES_ADDON_ID);
+				break;
+		}
+	}
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
 	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
@@ -944,6 +990,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<div class="main-content">
 		<div class="chat-stack">
 			<div class="chat-surface">
+				{#if isModelViewportTabActive || isReaderTabActive || isMediaAlbumsTabActive || isMapTabActive || isPlannerTabActive || isNotesTabActive}
+					<WorkspaceViewBar activeView={workspaceActiveView} onSelectView={handleWorkspaceViewSelect} />
+				{/if}
 				{#if isModelViewportTabActive}
 					<ModelViewportTab />
 				{:else if isReaderTabActive}
