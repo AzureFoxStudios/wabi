@@ -12,7 +12,6 @@
 	import { chatStorage } from '$lib/storage';
 	import { get } from 'svelte/store';
 	import { initI18n } from '$lib/i18n';
-	import { applyBranding, selectBrandConfig } from '$lib/branding';
 	import { isNeutralBrandingEnabled } from '$lib/components/loginHelpers';
 	import { openWabiDB, getWabiDB } from '$lib/wabidb';
 	import { drainOutboundQueue } from '$lib/wabidb/drain';
@@ -60,8 +59,10 @@ function isLocalPreviewHost(): boolean {
 	onMount(async () => {
 		startupMark('layout:onMount:start');
 
-		const neutral = isNeutralBrandingEnabled();
-		applyBranding(selectBrandConfig(neutral), { neutral });
+		// Re-assert brand from saved server without clobbering the early boot
+		// snapshot (anti-flicker). injectNeutralBranding respects boot lock.
+		const { injectNeutralBranding } = await import('$lib/components/loginHelpers');
+		injectNeutralBranding(isNeutralBrandingEnabled());
 
 		void initEmojis();
 

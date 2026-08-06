@@ -93,6 +93,8 @@ export type BootBrandSnapshot = {
 	brandName?: string;
 	logoUrl?: string;
 	accent?: string;
+	/** Intentionally override a locked boot brand (rare). */
+	force?: boolean;
 };
 
 declare global {
@@ -107,15 +109,33 @@ declare global {
 /** Push brand into the pre-app boot shell (if still mounted). */
 export function applyBootShellBrand(snapshot: BootBrandSnapshot): void {
 	if (typeof window === 'undefined') return;
-	window.__WABI_BOOT_BRAND__ = snapshot;
-	if (typeof window.__applyWabiBootBrand === 'function') {
-		window.__applyWabiBootBrand(snapshot);
+	// Keep the last committed snapshot for late readers, but the shell lock
+	// inside __applyWabiBootBrand is the real anti-flicker guard.
+	if (snapshot.force || !window.__WABI_BOOT_BRAND__) {
+		window.__WABI_BOOT_BRAND__ = snapshot;
 	} else {
-		window.dispatchEvent(new CustomEvent('wabi:boot-brand', { detail: snapshot }));
+		// Merge upward: never drop a custom logo because a default Wabi config arrived late.
+		const prev = window.__WABI_BOOT_BRAND__;
+		const nextIsDefaultWabi =
+			!snapshot.neutral && !snapshot.logoUrl && (!snapshot.brandName || snapshot.brandName === 'Wabi');
+		const prevIsCustom = Boolean(prev.neutral || prev.logoUrl || (prev.brandName && prev.brandName !== 'Wabi'));
+		if (prevIsCustom && nextIsDefaultWabi && !snapshot.force) {
+			// Keep prev; still poke apply so ready-state is set if needed.
+			if (typeof window.__applyWabiBootBrand === 'function') {
+				window.__applyWabiBootBrand(prev);
+			}
+			return;
+		}
+		window.__WABI_BOOT_BRAND__ = { ...prev, ...snapshot };
+	}
+	if (typeof window.__applyWabiBootBrand === 'function') {
+		window.__applyWabiBootBrand(window.__WABI_BOOT_BRAND__);
+	} else {
+		window.dispatchEvent(new CustomEvent('wabi:boot-brand', { detail: window.__WABI_BOOT_BRAND__ }));
 	}
 }
 
-export function applyBranding(config: BrandConfig = brandConfig, options?: { neutral?: boolean }): void {
+export function applyBranding(config: BrandConfig = brandConfig, options?: { neutral?: boolean; force?: boolean }): void {
 	if (typeof window === 'undefined') return;
 	const neutral = options?.neutral === true || !config.name;
 
@@ -130,10 +150,24 @@ export function applyBranding(config: BrandConfig = brandConfig, options?: { neu
 		icon.href = config.faviconUrl;
 	}
 
+	// Prefer already-captured localStorage boot brand over a bare default Wabi
+	// config so layout onMount doesn't flash Wabi over the server icon.
+	const existing = window.__WABI_BOOT_BRAND__;
+	const isDefaultWabi =
+		!neutral &&
+		config.name === brandConfig.name &&
+		(config.bootLogoUrl === brandConfig.bootLogoUrl || config.logoUrl === brandConfig.logoUrl);
+
+	if (!options?.force && isDefaultWabi && existing && (existing.neutral || existing.logoUrl || (existing.brandName && existing.brandName !== 'Wabi'))) {
+		applyBootShellBrand({ ...existing, force: false });
+		return;
+	}
+
 	applyBootShellBrand({
 		neutral,
 		brandName: config.name || '',
 		logoUrl: config.bootLogoUrl || config.logoUrl || '',
-		accent: config.palette?.accent || ''
+		accent: config.palette?.accent || '',
+		force: options?.force === true
 	});
 }
