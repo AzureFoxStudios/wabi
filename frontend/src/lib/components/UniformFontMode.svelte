@@ -176,35 +176,35 @@
 <style>
 	.uniform-font-mode {
 		background: var(--surface-base);
-		border-radius: 8px;
-		padding: 16px;
-		margin-bottom: 16px;
+		border-radius: var(--radius-md);
+		padding: var(--space-4);
+		margin-bottom: var(--space-4);
 	}
 
 	h3 {
-		margin: 0 0 4px 0;
-		font-size: 1rem;
-		font-weight: 600;
+		margin: 0 0 var(--space-1) 0;
+		font-size: var(--font-size-lg);
+		font-weight: var(--font-weight-semibold);
 		color: var(--text-heading);
 	}
 
 	.description {
-		margin: 0 0 16px 0;
-		font-size: 0.875rem;
+		margin: 0 0 var(--space-4) 0;
+		font-size: var(--font-size-base);
 		color: var(--text-secondary);
 	}
 
 	.toggle-section {
-		margin-bottom: 16px;
+		margin-bottom: var(--space-4);
 	}
 
 	.toggle-label {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-2);
 		cursor: pointer;
 		color: var(--text-heading);
-		font-size: 0.9rem;
+		font-size: var(--font-size-base);
 	}
 
 	input[type='checkbox'] {
@@ -216,26 +216,26 @@
 
 	.font-settings {
 		background: var(--surface-app);
-		border-radius: 6px;
-		padding: 12px;
-		margin-bottom: 12px;
+		border-radius: var(--radius-md);
+		padding: var(--space-3);
+		margin-bottom: var(--space-3);
 	}
 
 	.preview-section {
-		margin-bottom: 12px;
+		margin-bottom: var(--space-3);
 	}
 
 	.preview-label {
-		margin: 0 0 8px 0;
-		font-size: 0.875rem;
+		margin: 0 0 var(--space-2) 0;
+		font-size: var(--font-size-base);
 		color: var(--text-secondary);
-		font-weight: 500;
+		font-weight: var(--font-weight-medium);
 	}
 
 	.preview-box {
 		border: 1px solid var(--surface-raised);
-		border-radius: 6px;
-		padding: 12px;
+		border-radius: var(--radius-md);
+		padding: var(--space-3);
 		text-align: center;
 		min-height: 2em;
 		display: flex;
@@ -246,31 +246,31 @@
 	.controls-section {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-		gap: 12px;
-		margin-bottom: 12px;
+		gap: var(--space-3);
+		margin-bottom: var(--space-3);
 	}
 
 	.control-group {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	label {
-		font-size: 0.875rem;
-		font-weight: 500;
+		font-size: var(--font-size-base);
+		font-weight: var(--font-weight-medium);
 		color: var(--text-secondary);
 	}
 
 	select {
 		background: var(--surface-base);
 		border: 1px solid var(--surface-raised);
-		border-radius: 6px;
+		border-radius: var(--radius-md);
 		color: var(--text-heading);
-		padding: 8px 12px;
-		font-size: 0.875rem;
+		padding: var(--space-2) var(--space-3);
+		font-size: var(--font-size-base);
 		cursor: pointer;
-		transition: border-color 0.2s;
+		transition: border-color var(--duration-fast);
 	}
 
 	select:hover {
@@ -280,17 +280,17 @@
 	select:focus {
 		outline: none;
 		border-color: var(--accent-primary-color);
-		box-shadow: 0 0 0 2px rgba(var(--accent-primary, 100, 150, 255), 0.1);
+		box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
 	}
 
 	.btn {
-		padding: 8px 16px;
+		padding: var(--space-2) var(--space-4);
 		border: none;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 500;
+		border-radius: var(--radius-md);
+		font-size: var(--font-size-base);
+		font-weight: var(--font-weight-medium);
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all var(--duration-fast);
 		width: 100%;
 	}
 
@@ -311,13 +311,13 @@
 	.toast {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		margin-top: 12px;
-		padding: 12px 16px;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		animation: slideUp 0.3s ease-out;
+		gap: var(--space-3);
+		margin-top: var(--space-3);
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-md);
+		font-size: var(--font-size-base);
+		font-weight: var(--font-weight-medium);
+		animation: slideUp var(--duration-normal) var(--ease-out);
 	}
 
 	.toast-success {
@@ -334,7 +334,7 @@
 
 	.toast-icon {
 		font-weight: bold;
-		font-size: 1rem;
+		font-size: var(--font-size-lg);
 	}
 
 	.toast-text {

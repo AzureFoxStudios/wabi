@@ -21,7 +21,7 @@
 		align-items: center;
 		justify-content: center;
 		z-index: var(--z-settings-shell);
-		padding: clamp(0.65rem, 2vw, 1.5rem);
+		padding: clamp(var(--space-3), 2vw, var(--space-6));
 		backdrop-filter: blur(12px) saturate(1.08);
 	}
 
@@ -31,7 +31,7 @@
 			linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 96%, transparent), color-mix(in srgb, var(--surface-app) 96%, transparent)),
 			var(--surface-base);
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, rgba(var(--accent-rgb), 0.25));
-		border-radius: 22px;
+		border-radius: var(--radius-2xl);
 		width: min(1120px, 96vw);
 		max-width: 1120px;
 		max-height: min(90vh, 940px);
@@ -53,13 +53,13 @@
 		background:
 			radial-gradient(circle at top left, rgba(var(--accent-rgb), 0.14), transparent 32%),
 			color-mix(in srgb, var(--surface-base) 94%, transparent);
-		z-index: 1;
+		z-index: var(--z-sticky);
 	}
 
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: clamp(1.15rem, 2vw, 1.5rem);
+		font-size: clamp(var(--font-size-lg), 2vw, var(--font-size-2xl));
 		color: var(--text-heading);
 		display: flex;
 		align-items: center;

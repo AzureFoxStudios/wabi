@@ -6,15 +6,15 @@
 	.settings-section {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: var(--space-3);
 	}
 
 
 	.settings-section h3 {
 		margin: 0;
-		font-size: 0.82rem;
+		font-size: var(--font-size-sm);
 		color: var(--text-heading);
-		font-weight: 750;
+		font-weight: var(--font-weight-bold);
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 	}
@@ -24,14 +24,14 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: 1rem;
-		padding: 0.85rem 0.95rem;
+		gap: var(--space-4);
+		padding: var(--space-3) var(--space-4);
 		background:
 			linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 82%, transparent), color-mix(in srgb, var(--surface-base) 92%, transparent)),
 			var(--surface-raised);
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
-		border-radius: 14px;
-		transition: background 0.2s, border-color 0.2s, transform 0.2s;
+		border-radius: var(--radius-lg);
+		transition: background var(--duration-fast), border-color var(--duration-fast), transform var(--duration-fast);
 	}
 
 
@@ -46,20 +46,20 @@
 	.setting-item-stack {
 		flex-direction: column;
 		align-items: stretch;
-		gap: 0.8rem;
+		gap: var(--space-3);
 	}
 
 
 	.settings-subsection {
-		margin-top: 1.2rem;
-		padding-top: 1rem;
+		margin-top: var(--space-5);
+		padding-top: var(--space-4);
 		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);
 	}
 
 
 	.subsection-label {
-		font-size: 0.78rem;
-		font-weight: 700;
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-bold);
 		text-transform: uppercase;
 		letter-spacing: 0.07em;
 		color: var(--text-muted);
@@ -69,10 +69,10 @@
 
 	.auto-badge {
 		display: inline-block;
-		padding: 0.12rem 0.48rem;
-		border-radius: 20px;
-		font-size: 0.72rem;
-		font-weight: 600;
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-full);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
 		background: color-mix(in srgb, var(--accent-color) 20%, transparent);
 		color: var(--accent-color);
 		vertical-align: middle;
@@ -83,20 +83,20 @@
 	.setting-info {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: var(--space-1);
 		flex: 1;
 	}
 
 
 	.setting-label {
-		font-size: 0.95rem;
-		font-weight: 500;
+		font-size: var(--font-size-lg);
+		font-weight: var(--font-weight-medium);
 		color: var(--text-heading);
 	}
 
 
 	.setting-description {
-		font-size: 0.8rem;
+		font-size: var(--font-size-sm);
 		color: var(--text-secondary);
 	}
 
@@ -113,13 +113,13 @@
 		background: color-mix(in srgb, var(--surface-base) 92%, transparent);
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
 		border-radius: 999px;
-		padding: 0.48rem 0.78rem;
+		padding: var(--space-2) var(--space-3);
 		color: var(--text-secondary);
-		font-size: 0.76rem;
-		font-weight: 800;
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-bold);
 		letter-spacing: 0.04em;
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all var(--duration-fast);
 		min-width: 58px;
 	}
 
@@ -140,10 +140,10 @@
 	.save-indicator {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0;
+		gap: var(--space-2);
+		padding: var(--space-2) 0;
 		color: var(--text-secondary);
-		font-size: 0.85rem;
+		font-size: var(--font-size-sm);
 	}
 
 
@@ -153,8 +153,8 @@
 
 
 	.customizer-container {
-		margin-top: 1.5rem;
-		padding-top: 1.5rem;
+		margin-top: var(--space-6);
+		padding-top: var(--space-6);
 		border-top: 1px solid rgba(var(--accent-rgb), 0.1);
 	}
 
@@ -450,8 +450,8 @@
 	}
 
 	.setting-item-nested {
-		padding-left: 0.55rem;
-		border-left: 2px solid color-mix(in srgb, var(--accent-color, #5b8def) 30%, transparent);
+		padding-left: var(--space-2);
+		border-left: var(--border-width-md) solid color-mix(in srgb, var(--accent-color, #5b8def) 30%, transparent);
 	}
 
 
@@ -494,13 +494,13 @@
 
 
 	.action-btn {
-		padding: 0.72rem 0.95rem;
-		border-radius: 10px;
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-md);
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
-		font-size: 0.88rem;
-		font-weight: 700;
+		font-size: var(--font-size-base);
+		font-weight: var(--font-weight-bold);
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all var(--duration-fast);
 		text-align: left;
 	}
 
@@ -518,17 +518,17 @@
 
 
 	.action-btn.small {
-		padding: 0.42rem 0.72rem;
-		font-size: 0.8rem;
-		border-radius: 8px;
+		padding: var(--space-2) var(--space-3);
+		font-size: var(--font-size-sm);
+		border-radius: var(--radius-md);
 	}
 
 
 	.settings-row-actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.55rem;
-		margin-bottom: 0.55rem;
+		gap: var(--space-2);
+		margin-bottom: var(--space-2);
 	}
 
 
