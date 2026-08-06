@@ -543,7 +543,28 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
     let all: Vec<Value> = if !session_msgs.is_empty() {
         let mut msgs = session_msgs;
         msgs.sort_by_key(|m| m.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0));
-        msgs
+        // Collapse duplicate message ids — duplicate keys crash Svelte keyed each.
+        // Keep the LAST occurrence so the most recent merged row wins, and
+        // preserve messages without ids instead of silently dropping them.
+        let mut seen = std::collections::HashSet::new();
+        msgs.into_iter()
+            .rev()
+            .filter(|m| {
+                let id = m
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                if id.is_empty() {
+                    true
+                } else {
+                    seen.insert(id)
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
     } else {
         // Fall back to WDB for persisted messages when the in-memory
         // session cache is empty (e.g. after page reload). Map the domain
