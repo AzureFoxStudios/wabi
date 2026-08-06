@@ -441,31 +441,31 @@
 		align-items: center;
 		justify-content: center;
 		height: 100%;
-		gap: 0.75rem;
-		padding: 2rem;
+		gap: var(--space-3);
+		padding: var(--space-8);
 		text-align: center;
 		color: var(--text-secondary, #b3b3ff);
 	}
 
 	.whiteboard-empty-icon {
-		width: 64px;
-		height: 64px;
+		width: var(--space-16);
+		height: var(--space-16);
 		color: var(--text-muted, #9999ff);
-		opacity: 0.5;
+		opacity: var(--opacity-50);
 	}
 
 	.whiteboard-empty-title {
-		font-size: 1.1rem;
-		font-weight: 700;
+		font-size: var(--font-size-lg);
+		font-weight: var(--font-weight-bold);
 		color: var(--text-heading, #e0e0ff);
 		margin: 0;
 	}
 
 	.whiteboard-empty-desc {
-		font-size: 0.85rem;
+		font-size: var(--font-size-sm);
 		max-width: 320px;
 		margin: 0;
-		line-height: 1.5;
+		line-height: var(--line-height-normal);
 	}
 
 	@media (max-width: 720px) {

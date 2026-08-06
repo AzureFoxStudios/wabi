@@ -82,25 +82,25 @@
 		justify-content: center;
 		height: 100%;
 		text-align: center;
-		padding: 2rem;
+		padding: var(--space-8);
 	}
 
 	.empty-icon {
 		color: var(--biz-text-muted, #64748b);
-		margin-bottom: 1.5rem;
-		opacity: 0.5;
+		margin-bottom: var(--space-6);
+		opacity: var(--opacity-50);
 	}
 
 	.empty-state h2 {
-		margin: 0 0 0.75rem 0;
-		font-size: 1.5rem;
+		margin: 0 0 var(--space-3) 0;
+		font-size: var(--font-size-2xl);
 		color: var(--biz-text-primary, #f1f5f9);
 	}
 
 	.empty-state p {
 		color: var(--biz-text-secondary, #94a3b8);
 		max-width: 400px;
-		margin: 0 0 1.5rem 0;
+		margin: 0 0 var(--space-6) 0;
 		line-height: 1.6;
 	}
 

@@ -395,7 +395,7 @@
 
 	.empty-state {
 		text-align: center;
-		padding: 3rem;
+		padding: var(--space-12);
 		color: var(--text-secondary, #888);
 	}
 

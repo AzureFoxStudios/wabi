@@ -80,12 +80,12 @@
 .subtitle { color: var(--text-secondary, #cbd5e1); font-size: 0.78rem; }
 .detail { color: var(--text-inverse, #e2e8f0); font-size: 0.82rem; line-height: 1.45; }
 .empty {
-	padding: 0.85rem;
-	border-radius: 12px;
+	padding: var(--space-3);
+	border-radius: var(--radius-lg);
 	background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.48);
 	border: 1px dashed rgba(var(--text-muted-rgb, 148, 163, 184), 0.18);
 	color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.72);
-	font-size: 0.8rem;
+	font-size: var(--font-size-sm);
 	line-height: 1.45;
 }
 .note-form { display: grid; gap: 0.45rem; }

@@ -155,7 +155,7 @@
 .empty-message {
 	text-align: center;
 	color: var(--biz-text-muted, #64748b);
-	padding: 1rem 0;
+	padding: var(--space-4) 0;
 }
 
 .event-list {

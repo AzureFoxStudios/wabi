@@ -114,10 +114,10 @@
 	}
 
 	.empty-state {
-		padding: 0.65rem;
+		padding: var(--space-3);
 		border: 1px dashed var(--border-subtle);
-		border-radius: 9px;
-		font-size: 0.78rem;
+		border-radius: var(--radius-md);
+		font-size: var(--font-size-sm);
 		color: var(--text-secondary);
 		text-align: center;
 	}

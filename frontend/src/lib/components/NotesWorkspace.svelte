@@ -506,10 +506,10 @@
 	}
 
 	.notes-empty {
-		font-size: 0.8rem;
+		font-size: var(--font-size-sm);
 		color: var(--text-secondary);
 		text-align: center;
-		padding: 1rem 0.5rem;
+		padding: var(--space-4) var(--space-2);
 	}
 
 	.notes-editor {

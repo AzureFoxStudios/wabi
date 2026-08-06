@@ -195,9 +195,9 @@
 		align-items: center;
 		justify-content: center;
 		border: 1px dashed var(--border-subtle);
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		color: var(--text-secondary);
-		font-size: 0.85rem;
+		font-size: var(--font-size-sm);
 	}
 
 	.empty-actions {
