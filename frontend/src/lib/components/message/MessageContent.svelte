@@ -18,24 +18,12 @@
 
 	export let message: Message;
 	export let messageText: string;
-
-	// Spoiler layering (most specific wins, except server unspoil overrides all):
-	//   1. message.isSpoiler          (manual, per message)
-	//   2. channel.forceSpoiler       (per channel)
-	//   3. activeServerSpoilAll       (per server, local)
-	//   4. spoilerAllMessagesEnabled  (global, device-wide, local)
-	// A server "unspoil all" override forces everything visible, even on
-	// spoiler channels / individually spoiled messages ("server is king").
-	$: effectiveSpoiler = $activeServerUnspoilAll
-		? false
-		: (message.isSpoiler ||
-				(channels.find((ch) => ch.id === currentChannel)?.forceSpoiler ?? false) ||
-				$activeServerSpoilAll ||
-				$displayEnhancementSettingsStore.spoilerAllMessagesEnabled);
 	export let albumAnnouncementUploadName: string | null;
 	export let translatedText: string | undefined;
 	export let translationLoading: boolean;
 	export let gifCaptionStyleClass: string;
+	// Plain settings snapshot from parent (unwrapped store value) — NOT a store.
+	// Never auto-subscribe this prop or Svelte will throw.
 	export let displayEnhancementSettingsStore: any;
 	export let currentChannel: string;
 	export let channels: Channel[];
@@ -43,6 +31,19 @@
 	export let onOpenFullMapTab: (placeId: string, options: any) => void;
 	export let onOpenPreferredMapSurface: (placeId: string, options: any) => void;
 	export let onOpenDirectionsExternal: (url?: string) => void;
+
+	// Spoiler layering (most specific wins, except server unspoil overrides all):
+	//   1. message.isSpoiler          (manual, per message)
+	//   2. channel.forceSpoiler       (per channel)
+	//   3. activeServerSpoilAll       (per server, local)
+	//   4. spoilerAllMessagesEnabled  (global, device-wide, local)
+	// A server "unspoil all" override forces everything visible.
+	$: effectiveSpoiler = $activeServerUnspoilAll
+		? false
+		: (message.isSpoiler ||
+				(channels.find((ch) => ch.id === currentChannel)?.forceSpoiler ?? false) ||
+				$activeServerSpoilAll ||
+				Boolean(displayEnhancementSettingsStore?.spoilerAllMessagesEnabled));
 	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean) => void;
 	export let onTriggerAlbumUpload: (meta: any) => void;
 	export let onOpenAlbumPanel: () => void;
