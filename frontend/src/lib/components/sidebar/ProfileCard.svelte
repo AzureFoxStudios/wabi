@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
-	import { currentUser, updateProfile, roleDefinitions } from '$lib/socket';
-	import { isMuted as callMuted, isDeafened as callDeafened, toggleMute, toggleDeafen } from '$lib/calling';
+	import { currentUser, updateProfile, roleDefinitions, getSocket } from '$lib/socket';
+	import { isMuted as callMuted, isDeafened as callDeafened, toggleMute, toggleDeafen, isInCall, endCall } from '$lib/calling';
 	import { clearActiveCustomStatusPreset, customStatusPresetsStore, getActiveCustomStatusPreset } from '$lib/customStatusPresets';
-	import { brandName } from '$lib/branding';
-import { resolveServerUrl } from '$lib/serverUrl';
 	import { FALLBACK_ROLE_LABELS } from './channelSidebarHelpers';
 
 	export let sidebarWidth: number;
@@ -77,36 +75,38 @@ import { resolveServerUrl } from '$lib/serverUrl';
 		showStatusPopup = false;
 	}
 
-	function copyUserId(): void {
-		const id = $currentUser?.id;
-		if (!id || !navigator.clipboard) return;
-		navigator.clipboard.writeText(id).catch(() => {});
-	}
-
-	function copyMention(): void {
-		const handle = ($currentUser?.handle || '').trim();
-		const mention = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
-		if (!mention || !navigator.clipboard) return;
-		navigator.clipboard.writeText(mention).catch(() => {});
-	}
-
-	function shareProfile(): void {
-		const handle = ($currentUser?.handle || '').trim();
-		const identity = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
-		const text = `${identity} on ${brandName}`;
-		const url = `${resolveServerUrl().url}/@${handle || displayUsername}`;
-		if (navigator.share) {
-			navigator.share({ title: identity, text, url }).catch(() => {
-				navigator.clipboard.writeText(url).catch(() => {});
-			});
-		} else if (navigator.clipboard) {
-			navigator.clipboard.writeText(url).then(() => {
-				// Brief visual feedback
-				shareCopied = true;
-				setTimeout(() => shareCopied = false, 2000);
-			}).catch(() => {});
-		}
-	}
+	// -- Removed from the bottom-left profile card (relocated elsewhere later).
+	//    The code is kept so the functionality can be re-homed, not lost.
+	// function copyUserId(): void {
+	// 	const id = $currentUser?.id;
+	// 	if (!id || !navigator.clipboard) return;
+	// 	navigator.clipboard.writeText(id).catch(() => {});
+	// }
+	//
+	// function copyMention(): void {
+	// 	const handle = ($currentUser?.handle || '').trim();
+	// 	const mention = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
+	// 	if (!mention || !navigator.clipboard) return;
+	// 	navigator.clipboard.writeText(mention).catch(() => {});
+	// }
+	//
+	// function shareProfile(): void {
+	// 	const handle = ($currentUser?.handle || '').trim();
+	// 	const identity = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
+	// 	const text = `${identity} on ${brandName}`;
+	// 	const url = `${resolveServerUrl().url}/@${handle || displayUsername}`;
+	// 	if (navigator.share) {
+	// 		navigator.share({ title: identity, text, url }).catch(() => {
+	// 			navigator.clipboard.writeText(url).catch(() => {});
+	// 		});
+	// 	} else if (navigator.clipboard) {
+	// 		navigator.clipboard.writeText(url).then(() => {
+	// 			// Brief visual feedback
+	// 			shareCopied = true;
+	// 			setTimeout(() => shareCopied = false, 2000);
+	// 		}).catch(() => {});
+	// 	}
+	// }
 </script>
 
 {#if $currentUser}
@@ -200,37 +200,21 @@ import { resolveServerUrl } from '$lib/serverUrl';
 			{#if sidebarWidth >= 170}
 				<button
 					class="control-btn"
-					on:click={copyMention}
-					title="Copy mention"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path></svg>
-				</button>
-				<button
-					class="control-btn"
-					on:click={copyUserId}
-					title="Copy user ID"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>
-				</button>
-				<button
-						class="control-btn"
-						class:share-copied={shareCopied}
-						on:click={shareProfile}
-						title="Share profile"
-					>
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-						{#if shareCopied}
-							<span class="share-copied-badge">Copied!</span>
-						{/if}
-					</button>
-				<button
-					class="control-btn"
 					on:click={() => dispatch('openSettings')}
 					title="User Settings"
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
 				</button>
+				{#if $isInCall}
+					<button
+						class="control-btn control-btn-danger"
+						on:click={() => endCall(getSocket())}
+						title="End call"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+					</button>
+				{/if}
 			{/if}
-		</div>
-	</div>
-{/if}
+			</div>
+			</div>
+			{/if}

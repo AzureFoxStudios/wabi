@@ -63,7 +63,9 @@
 	import ForumChannel from './ForumChannel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
+import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
 import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
+import KeepNotesView from './KeepNotesView.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
 	import { formatTypingUsers, getVisibleTypingUsers } from './chat/typing';
@@ -86,6 +88,7 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) return 'map' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) return 'media' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID)) return 'planner' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(NOTES_ADDON_ID)) return 'notes' as const;
 		return 'messages' as const;
 	})();
 
@@ -370,6 +373,7 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) mobileTabQueue.closeAddonTab(MEDIA_ALBUMS_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID)) mobileTabQueue.closeAddonTab(PLANNER_ADDON_ID);
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(NOTES_ADDON_ID)) mobileTabQueue.closeAddonTab(NOTES_ADDON_ID);
 	}
 </script>
 
@@ -452,6 +456,8 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 			<LiveChannelView channel={currentChannelData} />
 		{:else if selectedWorkspaceView === 'planner'}
 			<PlannerWorkspace />
+		{:else if selectedWorkspaceView === 'notes'}
+			<KeepNotesView />
 		{:else if currentChannelType === 'gallery'}
 			<GalleryChannel />
 		{:else if currentChannelType === 'lore'}

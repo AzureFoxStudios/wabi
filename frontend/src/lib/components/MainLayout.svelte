@@ -37,6 +37,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { READER_ADDON_ID } from '$lib/readerWorkspace';
 	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
 	import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
+	import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
 	import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import {
 		getServerScopedUserKey,
@@ -109,6 +110,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: isMapTabActive = $activeTabId === MAP_TAB_TOKEN;
 	$: isMediaAlbumsTabActive = $activeTabId === MEDIA_ALBUMS_TAB_TOKEN;
 	$: isPlannerTabActive = $activeTabId === PLANNER_TAB_TOKEN;
+	const NOTES_TAB_TOKEN = mobileTabQueue.toAddonTabId(NOTES_ADDON_ID);
+	$: isNotesTabActive = $activeTabId === NOTES_TAB_TOKEN;
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
 	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
@@ -181,6 +184,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			id: PLANNER_ADDON_ID,
 			label: 'Planner',
 			shortLabel: 'Planner'
+		});
+		mobileTabQueue.registerAddonTab({
+			id: NOTES_ADDON_ID,
+			label: 'Notes',
+			shortLabel: 'Notes'
 		});
 
 		// Optional deep-link: #admin opens the full dashboard for staff.
@@ -261,6 +269,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 		if (typeof window !== 'undefined') {
 			window.addEventListener('keydown', handleQuickScratchpadKeydown);
+			// Resize drag tracking for channel sidebar + right panel. Without these
+			// window-level listeners the handles set the resizing flag but nothing
+			// ever tracks the pointer, so neither panel can be dragged or drag-closed.
+			window.addEventListener('mousemove', handleMouseMove);
+			window.addEventListener('mouseup', stopResize);
 		}
 	});
 
@@ -270,6 +283,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		mobileTabQueue.unregisterAddonTab(MAP_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(MEDIA_ALBUMS_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(PLANNER_ADDON_ID);
+		mobileTabQueue.unregisterAddonTab(NOTES_ADDON_ID);
 		if (mobileNavIdleTimer) {
 			clearTimeout(mobileNavIdleTimer);
 			mobileNavIdleTimer = null;
@@ -279,6 +293,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			unsubscribeFriendPresence = null;
 		}
 		window.removeEventListener('keydown', handleQuickScratchpadKeydown);
+		window.removeEventListener('mousemove', handleMouseMove);
+		window.removeEventListener('mouseup', stopResize);
 	});
 
 	function getPresenceObserverKey(user: User | null | undefined, serverUrl: string): string {
@@ -763,35 +779,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 {#if $centerPanelView === 'admin'}
 	<AdminCenterStage />
-{:else if $centerPanelView === 'notes'}
-<!-- N3: full notes center stage (same KeepNotes storage as right panel; not compact). -->
-<div class="notes-center-stage">
-	<header class="notes-center-header">
-		<button
-			type="button"
-			class="notes-center-back"
-			on:click={() => layoutStore.setCenterPanelView('chat')}
-			title="Back to chat"
-		>
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-				<path d="M19 12H5M12 19l-7-7 7-7" />
-			</svg>
-			<span>Back</span>
-		</button>
-		<span class="notes-center-title">Notes</span>
-		<button
-			type="button"
-			class="notes-center-dock"
-			on:click={() => layoutStore.showNotesTab()}
-			title="Open notes in right panel"
-		>
-			Dock
-		</button>
-	</header>
-	<div class="notes-center-body">
-		<KeepNotesView />
-	</div>
-</div>
 {:else}
 {#if $layoutStore.isMobile && !$layoutStore.isInCall}
 	{#if !mobileNavVisible}
@@ -967,6 +954,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					<MapWorkspace variant="full" />
 				{:else if isPlannerTabActive}
 					<PlannerWorkspace variant="full" />
+				{:else if isNotesTabActive}
+					<KeepNotesView />
 				{:else if $layoutStore.centerDmChannelId || activeView === 'dm'}
 					<div class="center-dm-layout">
 						<div class="center-dm-list">
@@ -1230,62 +1219,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		.center-dm-layout:not(:has(.center-dm-thread .dm-conversation)) .center-dm-list {
 			display: flex;
 		}
-	}
-
-	/* N3: full notes center stage (mirrors admin stage shell, same KeepNotes store) */
-	.notes-center-stage {
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-		min-height: 0;
-		background: var(--surface-base, #12121c);
-		color: var(--text-heading, #e8eef7);
-	}
-
-	.notes-center-header {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.65rem 1rem;
-		border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-		background: var(--surface-raised, #1a1a2e);
-		flex-shrink: 0;
-	}
-
-	.notes-center-back,
-	.notes-center-dock {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		padding: 0.35rem 0.65rem;
-		border-radius: 6px;
-		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
-		background: transparent;
-		color: var(--text-secondary, #94a3b8);
-		font-size: 0.85rem;
-		cursor: pointer;
-		transition: background 0.15s, color 0.15s;
-	}
-
-	.notes-center-back:hover,
-	.notes-center-dock:hover {
-		background: var(--surface-hover, rgba(255, 255, 255, 0.08));
-		color: var(--text-heading, #e8eef7);
-	}
-
-	.notes-center-title {
-		flex: 1;
-		font-weight: 600;
-		font-size: 1rem;
-		color: var(--text-heading, #e8eef7);
-	}
-
-	.notes-center-body {
-		flex: 1;
-		min-height: 0;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
 	}
 
 	/* N1: floating QuickScratchpad overlay */
