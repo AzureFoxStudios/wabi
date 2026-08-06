@@ -1,34 +1,64 @@
-//! Terminal UI rendering
+//! Terminal UI — multi-screen admin/power layout.
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Tabs, Wrap},
     Frame,
 };
 
-use crate::app::{App, AppMode};
+use crate::app::{App, AppMode, FocusPane, Screen};
+
+// Wabi-ish indigo palette for the terminal.
+const C_BG: Color = Color::Rgb(26, 26, 46);
+const C_PANEL: Color = Color::Rgb(36, 36, 62);
+const C_ACCENT: Color = Color::Rgb(99, 102, 241);
+const C_ACCENT2: Color = Color::Rgb(129, 140, 248);
+const C_TEXT: Color = Color::Rgb(224, 224, 255);
+const C_MUTED: Color = Color::Rgb(153, 153, 255);
+const C_OK: Color = Color::Rgb(74, 222, 128);
+const C_WARN: Color = Color::Rgb(251, 191, 36);
+const C_ERR: Color = Color::Rgb(248, 113, 113);
 
 pub fn render(frame: &mut Frame, app: &App) {
+    let root = frame.area();
+    // paint base
+    frame.render_widget(
+        Block::default().style(Style::default().bg(C_BG).fg(C_TEXT)),
+        root,
+    );
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .margin(1)
         .constraints([
-            Constraint::Length(3), // Header
-            Constraint::Min(0),    // Main content
-            Constraint::Length(3), // Input/status
+            Constraint::Length(3), // header + tabs
+            Constraint::Min(0),
+            Constraint::Length(3), // footer
         ])
-        .split(frame.area());
+        .split(root);
 
     render_header(frame, app, chunks[0]);
-    render_main(frame, app, chunks[1]);
+    match app.screen {
+        Screen::Chat => render_chat(frame, app, chunks[1]),
+        Screen::Users => render_users(frame, app, chunks[1]),
+        Screen::Server => render_server(frame, app, chunks[1]),
+        Screen::Logs => render_logs(frame, app, chunks[1]),
+    }
     render_footer(frame, app, chunks[2]);
 
     if app.mode == AppMode::ServerSetup {
         render_server_setup(frame, app);
     } else if app.mode == AppMode::Login || app.mode == AppMode::LoginLoading {
         render_login_form(frame, app);
+    } else if app.mode == AppMode::Command {
+        render_command_bar(frame, app);
+    } else if app.mode == AppMode::Prompt {
+        render_prompt(frame, app);
+    }
+
+    if app.show_help || app.mode == AppMode::Help {
+        render_help(frame);
     }
 
     if let Some(error) = &app.error {
@@ -37,96 +67,154 @@ pub fn render(frame: &mut Frame, app: &App) {
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
-    let status_line = if let Some(ref user) = app.user {
-        vec![Line::from(vec![
-            Span::styled(" ● ", Style::default().fg(Color::Green)),
-            Span::styled(&user.username, Style::default().fg(Color::Green)),
-            Span::raw(" | "),
-            Span::raw(&app.status),
-        ])]
-    } else {
-        vec![Line::from(vec![
-            Span::styled(" ○ ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Not logged in", Style::default().fg(Color::DarkGray)),
-            Span::raw(" | "),
-            Span::raw(&app.status),
-        ])]
+    let tabs = ["1 Chat", "2 Users", "3 Server", "4 Logs"];
+    let selected = match app.screen {
+        Screen::Chat => 0,
+        Screen::Users => 1,
+        Screen::Server => 2,
+        Screen::Logs => 3,
     };
 
+    let user_bit = if let Some(ref u) = app.user {
+        let role = u
+            .highest_role
+            .as_deref()
+            .unwrap_or("member");
+        format!("● {} ({})", u.username, role)
+    } else {
+        "○ guest".into()
+    };
+
+    let title = format!(" Wabi TUI  ·  {}  ·  {} ", user_bit, app.status);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(C_ACCENT))
+        .title(Span::styled(
+            title,
+            Style::default().fg(C_ACCENT2).add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(C_PANEL));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let tab_titles: Vec<Line> = tabs
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let style = if i == selected {
+                Style::default()
+                    .fg(C_BG)
+                    .bg(C_ACCENT2)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(C_MUTED)
+            };
+            Line::from(Span::styled(format!(" {t} "), style))
+        })
+        .collect();
+
     frame.render_widget(
-        Paragraph::new(status_line).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
-                .title(" Wabi TUI v0.1.0 "),
-        ),
-        area,
+        Tabs::new(tab_titles)
+            .select(selected)
+            .divider(" ")
+            .style(Style::default().fg(C_MUTED)),
+        inner,
     );
 }
 
-fn render_main(frame: &mut Frame, app: &App, area: Rect) {
-    let main_chunks = Layout::default()
+fn render_chat(frame: &mut Frame, app: &App, area: Rect) {
+    let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
+        .constraints([
+            Constraint::Percentage(22),
+            Constraint::Percentage(58),
+            Constraint::Percentage(20),
+        ])
         .split(area);
 
-    render_channels(frame, app, main_chunks[0]);
-    render_messages(frame, app, main_chunks[1]);
+    render_channels(frame, app, cols[0]);
+    render_messages(frame, app, cols[1]);
+    render_chat_side(frame, app, cols[2]);
+}
+
+fn pane_border(focused: bool) -> Style {
+    if focused {
+        Style::default().fg(C_ACCENT2)
+    } else {
+        Style::default().fg(Color::Rgb(70, 70, 110))
+    }
 }
 
 fn render_channels(frame: &mut Frame, app: &App, area: Rect) {
-    // Subtract 2 for top/bottom borders.
-    let visible_height = area.height.saturating_sub(2) as usize;
-
+    let focused = app.focus == FocusPane::Left && app.screen == Screen::Chat;
+    let visible = area.height.saturating_sub(2) as usize;
+    let list = app.filtered_channels();
     let active_idx = app
         .active_channel
         .as_ref()
-        .and_then(|id| app.channels.iter().position(|c| &c.id == id))
+        .and_then(|id| list.iter().position(|c| &c.id == id))
         .unwrap_or(0);
-
-    // Compute start offset so the active channel is always visible.
-    let start = if active_idx < visible_height {
+    let start = if active_idx < visible {
         0
     } else {
-        active_idx + 1 - visible_height
+        active_idx + 1 - visible
     };
 
-    let items: Vec<ListItem> = app
-        .channels
+    let items: Vec<ListItem> = list
         .iter()
         .enumerate()
         .skip(start)
-        .take(visible_height)
-        .map(|(_, channel)| {
-            let active = Some(&channel.id) == app.active_channel.as_ref();
+        .take(visible)
+        .map(|(_, ch)| {
+            let active = Some(&ch.id) == app.active_channel.as_ref();
             let style = if active {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(C_ACCENT2)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default()
+                Style::default().fg(C_TEXT)
             };
-            let prefix = if active { "▶ " } else { "  " };
-            ListItem::new(format!("{}#{}", prefix, channel.name)).style(style)
+            let kind = match ch.channel_type.as_str() {
+                "voice" => "🔊",
+                "dm" => "✉",
+                "forum" => "◫",
+                "gallery" => "▣",
+                "wiki" => "◈",
+                _ => "#",
+            };
+            let mark = if active { "▶" } else { " " };
+            ListItem::new(format!("{mark}{kind}{}", ch.name)).style(style)
         })
         .collect();
+
+    let filter = if app.channel_filter.is_empty() {
+        String::new()
+    } else {
+        format!(" /{}", app.channel_filter)
+    };
 
     frame.render_widget(
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White))
-                .title(" Channels "),
+                .border_style(pane_border(focused))
+                .title(format!(" Channels{filter} "))
+                .style(Style::default().bg(C_PANEL).fg(C_TEXT)),
         ),
         area,
     );
 }
 
 fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
-    // Subtract 2 for borders, then at least 1 row for content.
-    let visible_height = area.height.saturating_sub(2) as usize;
-
-    let channel_name = app.active_channel.as_deref().unwrap_or("general");
+    let focused = app.focus == FocusPane::Center && app.screen == Screen::Chat;
+    let visible = area.height.saturating_sub(2) as usize;
+    let channel_name = app
+        .active_channel
+        .as_ref()
+        .and_then(|id| app.channels.iter().find(|c| &c.id == id))
+        .map(|c| c.name.as_str())
+        .unwrap_or("—");
 
     let lines: Vec<Line> = if let Some(msgs) = app
         .active_channel
@@ -134,61 +222,44 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         .and_then(|id| app.messages.get(id))
     {
         let total = msgs.len();
-        // msg_scroll=0 → tail of list; scroll > 0 → further back in history.
         let end = total.saturating_sub(app.msg_scroll);
-        let start = end.saturating_sub(visible_height);
-
+        let start = end.saturating_sub(visible.max(1));
         msgs[start..end]
             .iter()
             .map(|msg| {
                 let time = chrono::DateTime::from_timestamp(msg.timestamp / 1000, 0)
                     .map(|dt| dt.format("%H:%M").to_string())
-                    .unwrap_or_else(|| "??:??".to_string());
-
-                // If message contains an uploaded file (content starts with /uploads/ or
-                // message_type is not "text"), show a spoiler line instead of raw URL.
+                    .unwrap_or_else(|| "??:??".into());
                 let text_display = if msg.text.starts_with("/uploads/") {
                     let filename = std::path::Path::new(&msg.text)
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or(&msg.text);
-                    let label = match msg.message_type.as_str() {
-                        "audio" => "AUDIO",
-                        "gif" => "GIF",
-                        _ => "SPOILER",
-                    };
-                    format!("[{}: {} \u{2014} click to view in browser]", label, filename)
-                } else if msg.message_type != "text" && !msg.text.is_empty() {
-                    let label = match msg.message_type.as_str() {
-                        "audio" => "AUDIO",
-                        _ => "SPOILER",
-                    };
-                    format!("[{}: {} \u{2014} click to view in browser]", label, msg.text)
+                    format!("[file: {filename}]")
                 } else {
                     msg.text.clone()
                 };
-
                 Line::from(vec![
-                    Span::styled(format!("[{}] ", time), Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("[{time}] "), Style::default().fg(C_MUTED)),
                     Span::styled(
                         format!("{}: ", msg.sender_name),
-                        Style::default().fg(Color::Green),
+                        Style::default().fg(C_OK).add_modifier(Modifier::BOLD),
                     ),
-                    Span::raw(text_display),
+                    Span::styled(text_display, Style::default().fg(C_TEXT)),
                 ])
             })
             .collect()
     } else {
         vec![Line::from(Span::styled(
-            "No messages yet — press 'i' to start typing",
-            Style::default().fg(Color::DarkGray),
+            "No messages — i to type, l to login",
+            Style::default().fg(C_MUTED),
         ))]
     };
 
-    let scroll_hint = if app.msg_scroll > 0 {
-        format!(" #{} (↑{}) ", channel_name, app.msg_scroll)
+    let scroll = if app.msg_scroll > 0 {
+        format!(" ↑{}", app.msg_scroll)
     } else {
-        format!(" #{} ", channel_name)
+        String::new()
     };
 
     frame.render_widget(
@@ -196,10 +267,280 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::White))
-                    .title(scroll_hint),
+                    .border_style(pane_border(focused))
+                    .title(format!(" #{channel_name}{scroll} "))
+                    .style(Style::default().bg(C_PANEL)),
             )
             .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn render_chat_side(frame: &mut Frame, app: &App, area: Rect) {
+    let focused = app.focus == FocusPane::Right && app.screen == Screen::Chat;
+    let ch = app
+        .active_channel
+        .as_ref()
+        .and_then(|id| app.channels.iter().find(|c| &c.id == id));
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "CHANNEL",
+            Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    if let Some(c) = ch {
+        lines.push(Line::from(format!("#{}", c.name)));
+        lines.push(Line::from(Span::styled(
+            format!("type: {}", c.channel_type),
+            Style::default().fg(C_MUTED),
+        )));
+        if let Some(d) = &c.description {
+            if !d.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    d.as_str(),
+                    Style::default().fg(C_TEXT),
+                )));
+            }
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "id",
+            Style::default().fg(C_MUTED),
+        )));
+        lines.push(Line::from(
+            c.id.chars().take(18).collect::<String>(),
+        ));
+    } else {
+        lines.push(Line::from("none selected"));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "KEYS",
+        Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from("j/k channels"));
+    lines.push(Line::from("i compose"));
+    lines.push(Line::from("Space focus"));
+    lines.push(Line::from(": commands"));
+    lines.push(Line::from("? help"));
+
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(pane_border(focused))
+                .title(" Detail ")
+                .style(Style::default().bg(C_PANEL).fg(C_TEXT)),
+        ),
+        area,
+    );
+}
+
+fn render_users(frame: &mut Frame, app: &App, area: Rect) {
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .split(area);
+
+    let list = app.filtered_users();
+    let items: Vec<ListItem> = list
+        .iter()
+        .enumerate()
+        .map(|(i, u)| {
+            let sel = i == app.selected_user;
+            let style = if sel {
+                Style::default()
+                    .fg(C_BG)
+                    .bg(C_ACCENT2)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(C_TEXT)
+            };
+            let mark = if sel { "▶ " } else { "  " };
+            ListItem::new(format!("{mark}{}  #{}", u.username, u.user_id)).style(style)
+        })
+        .collect();
+
+    let filter = if app.user_filter.is_empty() {
+        String::new()
+    } else {
+        format!(" /{}", app.user_filter)
+    };
+
+    frame.render_widget(
+        List::new(items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(C_ACCENT))
+                .title(format!(" Users ({}){filter} ", list.len()))
+                .style(Style::default().bg(C_PANEL)),
+        ),
+        cols[0],
+    );
+
+    let mut detail = vec![Line::from(Span::styled(
+        "SELECTED",
+        Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
+    ))];
+    if let Some(u) = list.get(app.selected_user) {
+        detail.push(Line::from(format!("user: {}", u.username)));
+        detail.push(Line::from(format!("id:   {}", u.user_id)));
+        detail.push(Line::from(format!("color:{}", u.color)));
+        detail.push(Line::from(""));
+        detail.push(Line::from(Span::styled(
+            "ADMIN ACTIONS",
+            Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
+        )));
+        if app.is_adminish() {
+            detail.push(Line::from(Span::styled(
+                "p  reset password (temp)",
+                Style::default().fg(C_WARN),
+            )));
+            detail.push(Line::from(Span::styled(
+                "c  clear login lockout",
+                Style::default().fg(C_WARN),
+            )));
+        } else {
+            detail.push(Line::from(Span::styled(
+                "(login as admin/owner)",
+                Style::default().fg(C_MUTED),
+            )));
+        }
+    } else {
+        detail.push(Line::from("No users loaded — press r"));
+    }
+    detail.push(Line::from(""));
+    detail.push(Line::from("j/k move  / filter  r refresh"));
+
+    frame.render_widget(
+        Paragraph::new(detail).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(C_ACCENT2))
+                .title(" User ops ")
+                .style(Style::default().bg(C_PANEL).fg(C_TEXT)),
+        ),
+        cols[1],
+    );
+}
+
+fn render_server(frame: &mut Frame, app: &App, area: Rect) {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .split(area);
+
+    let top = vec![
+        Line::from(Span::styled(
+            "CONNECTION",
+            Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!("url     {}", app.config.server_url)),
+        Line::from(format!(
+            "auth    {}",
+            if app.config.token.is_some() {
+                "token present"
+            } else {
+                "none"
+            }
+        )),
+        Line::from(format!(
+            "role    {}",
+            app.user
+                .as_ref()
+                .and_then(|u| u.highest_role.as_deref())
+                .unwrap_or("—")
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "HEALTH",
+            Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(if app.health_blob.is_empty() {
+            "—".into()
+        } else {
+            app.health_blob.chars().take(200).collect::<String>()
+        }),
+        Line::from(""),
+        Line::from(Span::styled(
+            "s switch server   o logout   r refresh",
+            Style::default().fg(C_MUTED),
+        )),
+    ];
+
+    frame.render_widget(
+        Paragraph::new(top).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(C_ACCENT))
+                .title(" Server ")
+                .style(Style::default().bg(C_PANEL).fg(C_TEXT)),
+        ),
+        rows[0],
+    );
+
+    let mut stats_lines = vec![Line::from(Span::styled(
+        "ADMIN DASHBOARD STATS",
+        Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
+    ))];
+    if let Some(s) = &app.stats {
+        stats_lines.extend([
+            Line::from(format!("users      {}  (online {})", s.total_users, s.online_users)),
+            Line::from(format!("channels   {}", s.total_channels)),
+            Line::from(format!("messages   {}", s.total_messages)),
+            Line::from(format!("roles      {}", s.total_roles)),
+            Line::from(format!("emojis     {}", s.total_emojis)),
+            Line::from(format!("banned     {}  muted {}", s.banned_users, s.muted_users)),
+            Line::from(format!("reports    {}", s.open_reports)),
+        ]);
+    } else {
+        stats_lines.push(Line::from(Span::styled(
+            "No stats yet (needs admin token). Press r.",
+            Style::default().fg(C_MUTED),
+        )));
+    }
+
+    frame.render_widget(
+        Paragraph::new(stats_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(C_ACCENT2))
+                .title(" Stats ")
+                .style(Style::default().bg(C_PANEL).fg(C_TEXT)),
+        ),
+        rows[1],
+    );
+}
+
+fn render_logs(frame: &mut Frame, app: &App, area: Rect) {
+    let lines: Vec<Line> = app
+        .logs
+        .iter()
+        .rev()
+        .take(area.height.saturating_sub(2) as usize)
+        .map(|l| Line::from(Span::styled(l.as_str(), Style::default().fg(C_TEXT))))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+
+    frame.render_widget(
+        Paragraph::new(if lines.is_empty() {
+            vec![Line::from(Span::styled(
+                "No log lines yet.",
+                Style::default().fg(C_MUTED),
+            ))]
+        } else {
+            lines
+        })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(C_ACCENT))
+                .title(" Event log ")
+                .style(Style::default().bg(C_PANEL)),
+        ),
         area,
     );
 }
@@ -210,50 +551,159 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title(" Type message (Enter=send, Esc=cancel) "),
+                    .border_style(Style::default().fg(C_OK))
+                    .title(" Compose · Enter send · Esc cancel ")
+                    .style(Style::default().bg(C_PANEL)),
             )
-            .style(Style::default().fg(Color::White)),
-        AppMode::LoginLoading => Paragraph::new("Authenticating... please wait").block(
+            .style(Style::default().fg(C_TEXT)),
+        AppMode::LoginLoading => Paragraph::new("Authenticating…").block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow)),
+                .border_style(Style::default().fg(C_WARN))
+                .style(Style::default().bg(C_PANEL)),
         ),
-        AppMode::Normal => Paragraph::new(vec![Line::from(vec![
-            if app.user.is_some() {
-                Span::styled("● ", Style::default().fg(Color::Green))
-            } else {
-                Span::styled("○ ", Style::default().fg(Color::DarkGray))
-            },
-            Span::raw("i=type  j/k=channels  l=login  PgUp/Dn=scroll  ?=help  q=quit"),
-        ])])
+        AppMode::Command => Paragraph::new(format!(":{}", app.command)).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(C_ACCENT2))
+                .title(" Command ")
+                .style(Style::default().bg(C_PANEL)),
+        ),
+        AppMode::Normal => Paragraph::new(Line::from(vec![
+            Span::styled(
+                if app.user.is_some() { "● " } else { "○ " },
+                Style::default().fg(if app.user.is_some() { C_OK } else { C_MUTED }),
+            ),
+            Span::styled(
+                "Tab screens  :cmd  i type  l login  r refresh  ? help  q quit",
+                Style::default().fg(C_MUTED),
+            ),
+        ]))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White)),
+                .border_style(Style::default().fg(Color::Rgb(70, 70, 110)))
+                .style(Style::default().bg(C_PANEL)),
         ),
-        _ => Paragraph::new("Tab=switch  Enter=submit  Esc=cancel").block(
+        _ => Paragraph::new("Esc cancel").block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White)),
+                .style(Style::default().bg(C_PANEL).fg(C_MUTED)),
         ),
     };
-
     frame.render_widget(footer, area);
+}
+
+fn render_command_bar(frame: &mut Frame, app: &App) {
+    // footer already shows command; also dim overlay hint top
+    let area = Rect {
+        x: frame.area().x + 2,
+        y: frame.area().y + 3,
+        width: frame.area().width.saturating_sub(4),
+        height: 3,
+    };
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(format!(":{}", app.command)).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(C_ACCENT2))
+                .title(" :chat :users :server :logs :filter x :ufilter x :goto name :refresh :logout :help "),
+        ),
+        area,
+    );
+}
+
+fn render_prompt(frame: &mut Frame, app: &App) {
+    let area = centered_rect(50, 28, frame.area());
+    frame.render_widget(Clear, area);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([Constraint::Length(1), Constraint::Length(3), Constraint::Length(1)])
+        .split(area);
+    frame.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(C_WARN))
+            .title(format!(" {} ", app.prompt_title))
+            .style(Style::default().bg(C_PANEL)),
+        area,
+    );
+    frame.render_widget(
+        Paragraph::new(app.prompt.as_str())
+            .block(Block::default().borders(Borders::ALL).title(" value ")),
+        rows[1],
+    );
+    frame.render_widget(
+        Paragraph::new("Enter confirm · Esc cancel").style(Style::default().fg(C_MUTED)),
+        rows[2],
+    );
+}
+
+fn render_help(frame: &mut Frame) {
+    let area = centered_rect(70, 70, frame.area());
+    frame.render_widget(Clear, area);
+    let text = vec![
+        Line::from(Span::styled(
+            "Wabi TUI — power user guide",
+            Style::default().fg(C_ACCENT2).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("SCREENS"),
+        Line::from("  1 / Tab     Chat"),
+        Line::from("  2           Users (admin ops)"),
+        Line::from("  3           Server health + stats"),
+        Line::from("  4           Event log"),
+        Line::from(""),
+        Line::from("CHAT"),
+        Line::from("  j/k ↑↓      channels"),
+        Line::from("  i           compose message"),
+        Line::from("  PgUp/PgDn   scroll history"),
+        Line::from("  Space       cycle focus panes"),
+        Line::from("  / or :filter name"),
+        Line::from(""),
+        Line::from("USERS (admin/owner)"),
+        Line::from("  j/k         select user"),
+        Line::from("  p           reset password (temp)"),
+        Line::from("  c           clear login lockout"),
+        Line::from("  :ufilter x  filter users"),
+        Line::from(""),
+        Line::from("GLOBAL"),
+        Line::from("  l           login"),
+        Line::from("  r / F5      refresh"),
+        Line::from("  :           command palette"),
+        Line::from("  :goto name  jump channel"),
+        Line::from("  :logout     drop token"),
+        Line::from("  q           quit"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Esc / ? closes this help",
+            Style::default().fg(C_MUTED),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(C_ACCENT2))
+                .title(" Help ")
+                .style(Style::default().bg(C_PANEL).fg(C_TEXT)),
+        ),
+        area,
+    );
 }
 
 fn render_server_setup(frame: &mut Frame, app: &App) {
     let area = centered_rect(56, 40, frame.area());
     frame.render_widget(Clear, area);
-
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Wabi — Connect to a server ")
-        .style(Style::default().fg(Color::Cyan));
-
+        .title(" Connect to Wabi ")
+        .border_style(Style::default().fg(C_ACCENT2))
+        .style(Style::default().bg(C_PANEL));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
@@ -263,55 +713,37 @@ fn render_server_setup(frame: &mut Frame, app: &App) {
             Constraint::Length(2),
         ])
         .split(inner);
-
     frame.render_widget(
-        Paragraph::new("Enter your Wabi server URL:").style(Style::default().fg(Color::White)),
+        Paragraph::new("Server URL (https://wabi.chat or host:port)"),
         rows[0],
     );
-
     let display = if app.server_input.is_empty() {
-        Span::styled("https://", Style::default().fg(Color::DarkGray))
+        Span::styled("https://", Style::default().fg(C_MUTED))
     } else {
-        Span::styled(
-            app.server_input.as_str(),
-            Style::default().fg(Color::Yellow),
-        )
+        Span::styled(app.server_input.as_str(), Style::default().fg(C_WARN))
     };
     frame.render_widget(
         Paragraph::new(Line::from(display))
             .block(Block::default().borders(Borders::ALL).title(" URL ")),
         rows[1],
     );
-
     frame.render_widget(
-        Paragraph::new("Enter to connect   Esc to quit")
-            .style(Style::default().fg(Color::DarkGray)),
+        Paragraph::new("Enter connect · Esc cancel/quit").style(Style::default().fg(C_MUTED)),
         rows[2],
     );
 }
 
-fn render_error_popup(frame: &mut Frame, error: &str) {
-    let area = centered_rect(50, 30, frame.area());
+fn render_login_form(frame: &mut Frame, app: &App) {
+    let area = centered_rect(50, 42, frame.area());
     frame.render_widget(Clear, area);
-
     frame.render_widget(
-        Paragraph::new(error)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red))
-                    .title(" Error — Esc to dismiss "),
-            )
-            .style(Style::default().fg(Color::White))
-            .wrap(Wrap { trim: true }),
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(C_ACCENT2))
+            .title(" Login ")
+            .style(Style::default().bg(C_PANEL)),
         area,
     );
-}
-
-fn render_login_form(frame: &mut Frame, app: &App) {
-    let area = centered_rect(50, 40, frame.area());
-    frame.render_widget(Clear, area);
-
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
@@ -322,68 +754,71 @@ fn render_login_form(frame: &mut Frame, app: &App) {
         ])
         .split(area);
 
-    let (username_style, password_style, user_text, pass_text, hint_text) =
-        if app.mode == AppMode::LoginLoading {
-            (
-                Style::default().fg(Color::DarkGray),
-                Style::default().fg(Color::DarkGray),
-                app.login_username.clone(),
-                "*".repeat(app.login_password.len()),
-                "Authenticating... please wait".to_string(),
-            )
-        } else {
-            (
-                if app.login_field == 0 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::White)
-                },
-                if app.login_field == 1 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::White)
-                },
-                app.login_username.clone(),
-                "*".repeat(app.login_password.len()),
-                "Tab=switch field  Enter=submit  Esc=cancel".to_string(),
-            )
-        };
+    let loading = app.mode == AppMode::LoginLoading;
+    let user_style = if !loading && app.login_field == 0 {
+        Style::default().fg(C_WARN)
+    } else {
+        Style::default().fg(C_MUTED)
+    };
+    let pass_style = if !loading && app.login_field == 1 {
+        Style::default().fg(C_WARN)
+    } else {
+        Style::default().fg(C_MUTED)
+    };
+    let pass = if loading {
+        "*".repeat(app.login_password.len().max(1))
+    } else {
+        "*".repeat(app.login_password.len())
+    };
+    let hint = if loading {
+        "Authenticating…"
+    } else {
+        "Tab fields · Enter submit · Esc cancel"
+    };
 
     frame.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title(" Login to Wabi "),
-        area,
-    );
-
-    frame.render_widget(
-        Paragraph::new(user_text.as_str())
+        Paragraph::new(app.login_username.as_str())
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(username_style)
+                    .border_style(user_style)
                     .title(" Username "),
             )
-            .style(Style::default().fg(Color::White)),
+            .style(Style::default().fg(C_TEXT)),
         chunks[0],
     );
-
     frame.render_widget(
-        Paragraph::new(pass_text.as_str())
+        Paragraph::new(pass.as_str())
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(password_style)
+                    .border_style(pass_style)
                     .title(" Password "),
             )
-            .style(Style::default().fg(Color::White)),
+            .style(Style::default().fg(C_TEXT)),
         chunks[1],
     );
-
     frame.render_widget(
-        Paragraph::new(hint_text.as_str()).style(Style::default().fg(Color::DarkGray)),
+        Paragraph::new(hint).style(Style::default().fg(C_MUTED)),
         chunks[2],
+    );
+}
+
+fn render_error_popup(frame: &mut Frame, error: &str) {
+    let area = centered_rect(55, 28, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(error)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(C_ERR))
+                    .title(" Notice · Esc ")
+                    .style(Style::default().bg(C_PANEL)),
+            )
+            .style(Style::default().fg(C_TEXT))
+            .wrap(Wrap { trim: true }),
+        area,
     );
 }
 

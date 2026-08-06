@@ -1,65 +1,100 @@
-#!/bin/bash
-# Wabi TUI - Quick Start Guide
+# Wabi TUI
 
-## Build
-cd /home/Ronin/Desktop/Wabi/dotronin-worktree/wabi
+Full-screen terminal client for **admin / power users**.
+
+Indigo-styled multi-screen shell:
+
+| Screen | Key | Purpose |
+|--------|-----|---------|
+| Chat | `1` | Channels, messages, compose |
+| Users | `2` | Directory + admin password/lockout ops |
+| Server | `3` | Health, connection, admin stats |
+| Logs | `4` | Local event log |
+
+## Build / run
+
+```bash
 cargo build -p wabi-tui --release
-
-## Install (adds to PATH via cargo)
-cargo install --path core/crates/wabi-tui
-
-## Run
-wabi-tui
-# or directly:
 ./target/release/wabi-tui
 
-## First Run
-On first launch you will be prompted to enter your Wabi server URL.
-The URL is saved to ~/.config/wabi/config.toml for subsequent runs.
+# or
+cargo install --path core/crates/wabi-tui
+wabi-tui
+```
 
-## Config file location
-# ~/.config/wabi/config.toml
-# File is created with mode 0600 (owner-only read/write).
+## Config
 
-## Key Bindings
-# q          - Quit
-# i          - Enter input mode (type message)
-# j / ↓      - Next channel
-# k / ↑      - Previous channel
-# PgUp       - Scroll messages up (history)
-# PgDn       - Scroll messages down (latest)
-# Enter      - Refresh messages (in normal mode)
-# r / F5     - Full refresh (reload channels)
-# Esc        - Cancel input / dismiss popup / return to normal mode
-# l          - Open login dialog
-# ?          - Show key binding help
+`~/.config/wabi/config.toml` (mode `0600`)
 
-## Example config (~/.config/wabi/config.toml)
-# server_url = "https://chat.example.com"
-# username = "ronin"
+```toml
+server_url = "https://wabi.chat"
+username = "ronin"
+# token is written after login
+```
 
-## Troubleshooting
+## Keys
 
-# Terminal messed up after crash?
-reset
+**Global**
 
-# Or manually:
-tput sgr0      # Reset colors
-tput cnorm     # Show cursor
+| Key | Action |
+|-----|--------|
+| `Tab` / `1-4` | Switch screens |
+| `:` | Command palette |
+| `l` | Login |
+| `r` / `F5` | Refresh current screen |
+| `?` | Help |
+| `q` | Quit |
+| `Esc` | Dismiss popup / cancel |
 
-# Debug logging
-RUST_LOG=debug ./target/release/wabi-tui 2>/tmp/wabi-tui.log
+**Chat**
 
-## Current Status
-✅ Builds successfully
-✅ First-run server URL prompt
-✅ Connects to server (health check before login)
-✅ Login with username + password (non-blocking background request)
-✅ Displays channel list with auto-scroll
-✅ Displays messages with PgUp/PgDn scrollback
-✅ Send messages (requires login; instant optimistic display)
-✅ Bearer auth on all API requests
-✅ Keyboard navigation
-✅ Panic-safe terminal cleanup
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Channels |
+| `i` | Compose |
+| `PgUp` / `PgDn` | History |
+| `Space` | Cycle focus (channels / messages / detail) |
+| `/` | Start `:filter …` |
 
-❌ No real-time updates (WebSocket polling — TODO)
+**Users** (admin/owner)
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Select user |
+| `p` | Reset password (temporary) |
+| `c` | Clear login lockout |
+
+**Server**
+
+| Key | Action |
+|-----|--------|
+| `s` | Switch server URL |
+| `o` | Logout (drop token) |
+
+## Commands (`:`)
+
+```
+:chat :users :server :logs
+:filter <text>     channel name filter
+:ufilter <text>    user filter
+:goto <name>       jump to channel
+:refresh :logout :help
+```
+
+## Debug
+
+Logs go to `$TMPDIR/wabi-tui.log` (not stderr).
+
+```bash
+RUST_LOG=debug ./target/release/wabi-tui
+tail -f /tmp/wabi-tui.log
+```
+
+## Status
+
+- Login + bearer auth
+- Channels / messages / send (3s poll)
+- Users directory
+- Admin: stats, reset password, clear lockout
+- Command palette + multi-screen shell
+- No WebSocket yet (poll-based live updates)

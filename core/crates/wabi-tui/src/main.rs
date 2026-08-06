@@ -1,4 +1,4 @@
-//! Wabi TUI - Terminal chat client
+//! Wabi TUI — terminal admin / power-user client
 
 mod api;
 mod app;
@@ -25,16 +25,27 @@ impl Drop for TerminalGuard {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
+    // Log to file so stderr doesn't trash the TUI.
+    let log_path = std::env::temp_dir().join("wabi-tui.log");
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .ok();
+
+    let subscriber = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive("wabi_tui=info".parse().unwrap()),
         )
         .with_target(false)
-        .with_thread_ids(false)
-        .with_file(false)
-        .with_line_number(false)
-        .init();
+        .with_ansi(false);
+
+    if let Some(f) = log_file {
+        subscriber.with_writer(std::sync::Mutex::new(f)).init();
+    } else {
+        subscriber.with_writer(std::io::sink).init();
+    }
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(
@@ -43,7 +54,6 @@ async fn main() -> Result<()> {
         crossterm::event::EnableMouseCapture,
     )?;
 
-    // Guard ensures terminal is restored even if the code below panics.
     let _guard = TerminalGuard;
 
     let backend = ratatui::backend::CrosstermBackend::new(std::io::stdout());
@@ -55,7 +65,8 @@ async fn main() -> Result<()> {
     drop(_guard);
 
     if let Err(err) = res {
-        eprintln!("Error: {:?}", err);
+        eprintln!("Error: {err:?}");
+        eprintln!("Log: {}", log_path.display());
         std::process::exit(1);
     }
 
@@ -67,13 +78,9 @@ async fn run_app(
     app: &mut App,
 ) -> Result<()> {
     loop {
-        // Drain background results before drawing so the frame is always fresh.
         app.poll_bg();
-
         terminal.draw(|frame| ui::render(frame, app))?;
 
-        // Non-blocking poll: if no key arrives within 50 ms we loop and redraw,
-        // which lets background API results appear without waiting for input.
         if crossterm::event::poll(std::time::Duration::from_millis(50))? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 if key.kind == crossterm::event::KeyEventKind::Press {
@@ -91,7 +98,6 @@ async fn run_app(
                 app.set_error(e.to_string());
             }
         }
-        // Login runs entirely in background via tokio::spawn — nothing to await here.
     }
 
     Ok(())
