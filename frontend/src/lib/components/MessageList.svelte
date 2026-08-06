@@ -1714,7 +1714,21 @@
 		const boundedLimit = Math.min(Math.max(messageRenderLimit, MESSAGE_RENDER_BATCH), MESSAGE_RENDER_MAX);
 		messageRenderLimit = boundedLimit;
 		visibleMessageStart = Math.max(0, messages.length - boundedLimit);
-		visibleMessages = messages.slice(visibleMessageStart);
+		// Final guard: never feed duplicate keys into the keyed {#each}.
+		// Prefer clientMessageId so optimistic→accepted does not change the key
+		// (changing keys makes Svelte recycle the wrong row — "new eats old").
+		const slice = messages.slice(visibleMessageStart);
+		const seen = new Set<string>();
+		const unique: Message[] = [];
+		for (let i = 0; i < slice.length; i++) {
+			const m = slice[i];
+			const key =
+				String(m.clientMessageId || m.id || m.clientNonce || '').trim() || `__idx_${i}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			unique.push(m);
+		}
+		visibleMessages = unique;
 	}
 
 	async function handleLoadMore() {
@@ -1767,7 +1781,7 @@
 	</div>
 {/if}
 
-{#each visibleMessages as message, localIndex (message.id ?? message.clientNonce ?? `__missing_${localIndex}`)}
+{#each visibleMessages as message, localIndex (message.clientMessageId || message.id || message.clientNonce || `__missing_${localIndex}`)}
 	{@const index = visibleMessageStart + localIndex}
 	{@const author = getUserByMessageAuthor(message)}
 	{@const displayUsername = getMessageDisplayUsername(message, author)}

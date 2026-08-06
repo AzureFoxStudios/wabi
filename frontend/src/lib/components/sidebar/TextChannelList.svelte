@@ -58,7 +58,7 @@
 	export let onChannelDragEnd: () => void = () => {};
 </script>
 
-{#each textChannels as channel (channel.id)}
+{#each textChannels as channel, channelIndex (channel.id || `text-ch-${channelIndex}`)}
 	<div
 		class="channel-item text-channel-item"
 		class:active={$currentChannel === channel.id}
@@ -134,7 +134,7 @@
 				</div>
 				{#if glimpseChannelMessages.length > 0}
 					<div class="channel-glimpse-messages">
-						{#each glimpseChannelMessages as message (message.id)}
+						{#each glimpseChannelMessages as message, messageIndex (message.id || message.clientMessageId || `glimpse-${messageIndex}`)}
 							<div class="channel-glimpse-message">
 								<div class="channel-glimpse-meta">
 									<strong>{message.user}</strong>
@@ -183,7 +183,7 @@
 
 {#if groupChannels.length > 0}
 	<div class="section-header section-subheader">Group Chats</div>
-	{#each groupChannels as channel (channel.id)}
+	{#each groupChannels as channel, groupIndex (channel.id || `group-ch-${groupIndex}`)}
 		<div
 			class="channel-item text-channel-item"
 			class:active={$currentChannel === channel.id}
@@ -256,7 +256,7 @@
 					</div>
 					{#if glimpseChannelMessages.length > 0}
 						<div class="channel-glimpse-messages">
-							{#each glimpseChannelMessages as message (message.id)}
+							{#each glimpseChannelMessages as message, messageIndex (message.id || message.clientMessageId || `glimpse-${messageIndex}`)}
 								<div class="channel-glimpse-message">
 									<div class="channel-glimpse-meta">
 										<strong>{message.user}</strong>

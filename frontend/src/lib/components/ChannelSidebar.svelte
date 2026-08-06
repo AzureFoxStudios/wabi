@@ -160,8 +160,15 @@
 		const categoryChannels = all
 			.filter((c) => (c.type as string | undefined) === 'category')
 			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
-		const categoryIds = new Set(categoryChannels.map((c) => c.id));
-		const categories = categoryChannels.map((cat) => ({
+		const seenCat = new Set<string>();
+		const uniqueCats = categoryChannels.filter((c) => {
+			const id = String(c.id || '').trim();
+			if (!id || seenCat.has(id)) return false;
+			seenCat.add(id);
+			return true;
+		});
+		const categoryIds = new Set(uniqueCats.map((c) => c.id));
+		const categories = uniqueCats.map((cat) => ({
 			id: cat.id,
 			name: cat.name,
 			channel: cat,
