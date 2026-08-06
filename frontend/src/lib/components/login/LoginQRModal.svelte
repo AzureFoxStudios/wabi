@@ -72,38 +72,38 @@
 	}
 
 	.qr-modal {
-		background: rgba(20, 20, 30, 0.3);
+		background: color-mix(in srgb, var(--surface-modal) 30%, transparent);
 		backdrop-filter: blur(16px);
 		-webkit-backdrop-filter: blur(16px);
 		padding: 2rem;
-		border-radius: 20px;
+		border-radius: var(--radius-2xl);
 		text-align: center;
 		max-width: 90%;
 		border: 1px solid var(--surface-hover, rgba(255, 255, 255, 0.1));
-		box-shadow: 0 8px 32px var(--shadow-lg, rgba(0, 0, 0, 0.3));
+		box-shadow: var(--shadow-xl);
 	}
 
 	.qr-modal h2 {
 		margin: 0 0 1.5rem 0;
-		color: var(--launch-accent, var(--accent-primary-color));
-		font-size: 1.5rem;
+		color: var(--launch-accent, var(--accent-secondary-color));
+		font-size: var(--font-size-2xl);
 	}
 
 	.url {
-		font-family: 'Consolas', monospace;
-		font-size: 0.85rem;
+		font-family: var(--font-mono);
+		font-size: var(--font-size-sm);
 		word-break: break-all;
 		margin: 1rem 0;
 		color: var(--text-secondary);
 		background: var(--surface-raised);
 		padding: 0.5rem;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 	}
 
 	.room-input input {
 		width: 100%;
 		padding: 0.9rem;
-		border-radius: 12px;
+		border-radius: var(--radius-lg);
 		border: none;
 		background: var(--surface-raised);
 		color: var(--text-heading);
@@ -115,9 +115,9 @@
 		padding: 0.75rem 1.5rem;
 		margin: 0.5rem;
 		border: none;
-		border-radius: 12px;
+		border-radius: var(--radius-lg);
 		cursor: pointer;
-		font-weight: 600;
+		font-weight: var(--font-weight-semibold);
 	}
 
 	.qr-actions button:first-child {

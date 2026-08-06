@@ -55,9 +55,9 @@
 
 	.connection-kicker {
 		margin: 0 0 0.35rem;
-		color: var(--launch-accent, var(--accent-primary-color));
-		font-size: 0.72rem;
-		font-weight: 750;
+		color: var(--launch-accent, var(--accent-secondary-color));
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-bold);
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
 	}
@@ -72,7 +72,7 @@
 	.connection-copy {
 		margin: 0 0 1.25rem;
 		color: var(--text-secondary);
-		font-size: 0.92rem;
+		font-size: var(--font-size-base);
 		line-height: 1.55;
 	}
 
@@ -86,7 +86,7 @@
 		margin: 0 0 0.38rem;
 		color: var(--text-secondary);
 		font-size: 0.76rem;
-		font-weight: 720;
+		font-weight: var(--font-weight-semibold);
 		letter-spacing: 0.055em;
 		text-transform: uppercase;
 	}
@@ -97,17 +97,17 @@
 		gap: 0.6rem;
 		margin: 0.1rem 0 1rem 0;
 		color: var(--text-secondary);
-		font-size: 0.9rem;
+		font-size: var(--font-size-base);
 	}
 
 	.remember-row input[type='checkbox'] {
-		width: 16px;
-		height: 16px;
+		width: 18px;
+		height: 18px;
 		min-height: 0;
 		margin: 0;
 		padding: 0;
 		flex-shrink: 0;
-		border-radius: 5px;
+		border-radius: var(--radius-sm);
 		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 30%, transparent);
 		background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
 		accent-color: var(--launch-accent, var(--accent-primary-color));
@@ -117,7 +117,7 @@
 		width: 100%;
 		padding: 0.875rem 1rem;
 		font-size: 1rem;
-		border-radius: 12px;
+		border-radius: var(--radius-lg);
 		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
 		background: color-mix(in srgb, var(--surface-raised) 88%, color-mix(in srgb, var(--surface-sunken) 72%, transparent));
 		color: var(--text-heading);
@@ -148,12 +148,12 @@
 	.join-btn {
 		width: 100%;
 		padding: 0.875rem 1rem;
-		font-size: 1rem;
-		font-weight: 740;
+		font-size: var(--font-size-lg);
+		font-weight: var(--font-weight-bold);
 		background: linear-gradient(135deg, var(--accent-primary-color, var(--accent-primary)), var(--accent-secondary-color, var(--launch-accent, var(--accent-secondary))));
 		color: var(--text-on-accent, #ffffff);
 		border: none;
-		border-radius: 12px;
+		border-radius: var(--radius-lg);
 		cursor: pointer;
 		margin-bottom: 0.75rem;
 		transition: all 0.18s ease;
@@ -173,12 +173,12 @@
 	}
 
 	.error-message {
-		background: rgba(239, 68, 68, 0.1);
-		border: 1px solid rgb(239, 68, 68);
-		color: #fca5a5;
+		background: rgba(var(--color-danger-rgb), 0.12);
+		border: 1px solid rgba(var(--color-danger-rgb), 0.3);
+		color: var(--color-danger);
 		padding: 0.75rem 1rem;
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		margin-bottom: 1rem;
-		font-size: 0.9rem;
+		font-size: var(--font-size-base);
 	}
 </style>

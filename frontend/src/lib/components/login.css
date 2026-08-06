@@ -37,7 +37,7 @@
 	backdrop-filter: blur(16px);
 	-webkit-backdrop-filter: blur(16px);
 	padding: 2.5rem;
-	border-radius: 24px;
+	border-radius: var(--radius-2xl);
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 16%, transparent);
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -74,7 +74,7 @@
 	backdrop-filter: blur(18px);
 	-webkit-backdrop-filter: blur(18px);
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 0.17%, transparent);
-	border-radius: 22px;
+	border-radius: var(--radius-2xl);
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 	padding: clamp(1.35rem, 3vw, 2rem);
 	text-align: center;
@@ -113,15 +113,6 @@
 	to { opacity: 1; transform: scale(1); }
 }
 
-.login-kicker {
-	margin: 0 0 0.4rem;
-	color: var(--accent-primary-color);
-	font-size: 0.78rem;
-	font-weight: 700;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
-}
-
 .login-title {
 	margin: 0;
 	color: var(--text-heading);
@@ -129,14 +120,6 @@
 	line-height: 0.92;
 	letter-spacing: -0.08em;
 	text-shadow: 0 20px 70px color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
-}
-
-.login-intro {
-	max-width: 25rem;
-	margin: 1rem 0 0;
-	color: var(--text-secondary);
-	font-size: clamp(1rem, 1.6vw, 1.15rem);
-	line-height: 1.65;
 }
 
 .launch-headline {
@@ -154,32 +137,8 @@
 
 .launch-footer-note {
 	margin: 0.6rem 0 0;
-	font-size: 0.8rem;
+	font-size: var(--font-size-sm);
 	color: var(--text-secondary);
-}
-
-.auth-eyebrow {
-	margin: 0 0 0.35rem;
-	color: var(--accent-primary-color);
-	font-size: 0.72rem;
-	font-weight: 700;
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
-}
-
-.auth-heading {
-	margin: 0 0 0.25rem 0;
-	font-size: 1.4rem;
-	font-weight: 760;
-	color: var(--text-heading);
-	letter-spacing: -0.025em;
-}
-
-.auth-subheading {
-	margin: 0 0 1.35rem 0;
-	font-size: 0.92rem;
-	color: var(--text-secondary);
-	line-height: 1.5;
 }
 
 .auth-form {
@@ -199,7 +158,7 @@
 	margin: 0 0 0.38rem;
 	color: var(--text-secondary);
 	font-size: 0.76rem;
-	font-weight: 720;
+	font-weight: var(--font-weight-semibold);
 	letter-spacing: 0.055em;
 	text-transform: uppercase;
 }
@@ -210,7 +169,7 @@
 }
 
 .field-label:focus-within .field-caption {
-	color: var(--accent-primary-color);
+	color: var(--accent-secondary-color);
 }
 
 .password-wrapper {
@@ -252,7 +211,7 @@
 
 .auth-alt-prompt {
 	margin: 1rem 0 0 0;
-	font-size: 0.88rem;
+	font-size: var(--font-size-base);
 	color: var(--text-secondary);
 	text-align: center;
 }
@@ -260,9 +219,9 @@
 .auth-link {
 	background: none;
 	border: none;
-	color: var(--accent-primary-color);
-	font-size: 0.88rem;
-	font-weight: 650;
+	color: var(--accent-secondary-color);
+	font-size: var(--font-size-base);
+	font-weight: var(--font-weight-semibold);
 	cursor: pointer;
 	padding: 0;
 	text-decoration: none;
@@ -271,26 +230,7 @@
 	-webkit-appearance: none;
 }
 
-.auth-link:hover { color: var(--accent-primary-color); text-decoration: underline; }
-
-.forgot-link {
-	color: var(--text-secondary);
-	font-size: 0.88rem;
-	font-weight: 500;
-	text-decoration: none;
-	transition: color var(--duration-fast) ease;
-}
-
-.forgot-link:hover {
-	color: var(--accent-primary-color);
-	text-decoration: underline;
-}
-
-.forgot-link:focus-visible {
-	outline: 2px solid color-mix(in srgb, var(--accent-primary-color) 75%, transparent);
-	outline-offset: 2px;
-	border-radius: var(--radius-sm);
-}
+.auth-link:hover { color: var(--accent-secondary-color); text-decoration: underline; }
 
 .auth-divider {
 	display: flex;
@@ -308,7 +248,7 @@
 }
 
 .auth-divider span {
-	font-size: 0.72rem;
+	font-size: var(--font-size-xs);
 	color: var(--text-muted);
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
@@ -332,8 +272,8 @@
 	color: var(--text-secondary);
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 16%, transparent);
 	border-radius: 999px;
-	font-size: 0.88rem;
-	font-weight: 650;
+	font-size: var(--font-size-base);
+	font-weight: var(--font-weight-semibold);
 	cursor: pointer;
 	transition: all 0.18s ease;
 	appearance: none;
@@ -368,7 +308,7 @@
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
 	border-radius: 999px;
 	padding: 0.3rem 0.7rem;
-	font-size: 0.78rem;
+	font-size: var(--font-size-sm);
 	cursor: pointer;
 	transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 	appearance: none;
@@ -432,7 +372,7 @@
 
 .server-pill-btn:hover,
 .server-pill-btn:focus-visible {
-	color: var(--accent-primary-color);
+	color: var(--accent-secondary-color);
 	background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
 	border-color: color-mix(in srgb, var(--accent-primary-color) 0.28%, transparent);
 	outline: none;
@@ -442,7 +382,7 @@
 	width: 100%;
 	padding: 0.875rem 1rem;
 	font-size: 1rem;
-	border-radius: 12px;
+	border-radius: var(--radius-lg);
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
 	background: color-mix(in srgb, var(--surface-raised) 86%, color-mix(in srgb, var(--surface-sunken) 72%, transparent));
 	color: var(--text-heading) !important;
@@ -474,9 +414,9 @@
 .auth-btn {
 	width: 100%;
 	padding: 0.875rem 1rem;
-	font-size: 1rem;
+	font-size: var(--font-size-lg);
 	font-weight: 700;
-	border-radius: 12px;
+	border-radius: var(--radius-lg);
 	cursor: pointer;
 	transition: all 0.18s ease;
 	border: none;
@@ -527,8 +467,8 @@
 	color: var(--text-secondary);
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
 	padding: 0.55rem 0.85rem;
-	font-size: 0.85rem;
-	font-weight: 650;
+	font-size: var(--font-size-sm);
+	font-weight: var(--font-weight-semibold);
 }
 
 .auth-btn-ghost:hover:not(:disabled) {
@@ -544,7 +484,7 @@
 	gap: 0.6rem;
 	margin: 0.1rem 0 1rem 0;
 	color: var(--text-secondary);
-	font-size: 0.88rem;
+	font-size: var(--font-size-base);
 	text-align: left;
 }
 
@@ -555,7 +495,7 @@
 	margin: 0;
 	padding: 0 !important;
 	flex-shrink: 0;
-	border-radius: 5px;
+	border-radius: var(--radius-sm);
 	border: 1.5px solid color-mix(in srgb, var(--accent-primary-color) 30%, transparent);
 	background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
 	accent-color: var(--accent-secondary-color);
@@ -585,16 +525,16 @@
 .handle-input-wrapper {
 	display: flex;
 	align-items: center;
-	background: rgba(10, 25, 41, 0.68);
+	background: color-mix(in srgb, var(--surface-sunken) 68%, transparent);
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
-	border-radius: 12px;
+	border-radius: var(--radius-lg);
 	margin-bottom: 0.875rem;
 	overflow: hidden;
 }
 
 .handle-prefix {
 	padding: 0 0 0 1rem;
-	font-size: 1rem;
+	font-size: var(--font-size-lg);
 	color: var(--text-secondary);
 	font-weight: 700;
 	user-select: none;
@@ -625,13 +565,13 @@
 
 .experience-prompt { text-align: left; margin-bottom: 0.75rem; }
 .experience-prompt h3 { margin: 0 0 0.5rem 0; font-size: 1.1rem; color: var(--text-heading); }
-.experience-prompt p { margin: 0 0 1rem 0; font-size: 0.9rem; color: var(--text-secondary); }
+.experience-prompt p { margin: 0 0 1rem 0; font-size: var(--font-size-base); color: var(--text-secondary); }
 .experience-actions { display: flex; flex-direction: column; gap: 0.75rem; }
 
 .wizard { text-align: left; }
-.wizard h3 { margin: 0 0 0.5rem 0; font-size: 1.2rem; color: var(--text-heading); text-align: center; }
-.wizard-subtitle { margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--text-secondary); text-align: center; }
-.wizard-note { margin: 0.75rem 0 0 0; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; }
+.wizard h3 { margin: 0 0 0.5rem 0; font-size: var(--font-size-xl); color: var(--text-heading); text-align: center; }
+.wizard-subtitle { margin: 0 0 1.25rem 0; font-size: var(--font-size-base); color: var(--text-secondary); text-align: center; }
+.wizard-note { margin: 0.75rem 0 0 0; font-size: var(--font-size-sm); color: var(--text-secondary); line-height: 1.5; }
 .wizard-note-standalone { margin-top: 0; text-align: center; }
 
 @media (max-height: 700px) {
@@ -642,8 +582,6 @@
 	.login-auth-panel { padding: 1.2rem; }
 	.login-box input { padding: 0.65rem 0.85rem; font-size: 0.95rem; margin-bottom: 0.65rem; }
 	.auth-btn { padding: 0.65rem 0.85rem; font-size: 0.95rem; }
-	.auth-heading { font-size: 1.15rem; }
-	.auth-subheading { margin-bottom: 1rem; }
 	.auth-divider { margin: 0.875rem 0; }
 }
 
@@ -671,19 +609,18 @@
 
 	.login-shell.has-launch .login-box {
 		padding: 1.5rem;
-		border-radius: 18px;
+		border-radius: var(--radius-xl);
 	}
 
 	.login-auth-panel {
 		padding: 1.35rem;
-		border-radius: 18px;
+		border-radius: var(--radius-xl);
 	}
 
 	.login-logo { height: min(180px, 20vh); margin-bottom: 1rem; }
 	.login-logo.login-logo-compact { height: 72px; margin-bottom: 0.75rem; }
 	.login-title { font-size: clamp(2.7rem, 16vw, 4.2rem); }
-	.login-intro { margin-top: 0.75rem; font-size: 0.95rem; }
-	.login-box input { padding: 0.75rem 0.875rem; font-size: 16px; border-radius: 10px; min-height: 48px; }
+	.login-box input { padding: 0.75rem 0.875rem; font-size: 16px; border-radius: var(--radius-lg); min-height: 48px; }
 	.auth-btn { padding: 0.75rem 0.875rem; font-size: 1rem; min-height: 48px; }
 	.auth-footer-row { flex-direction: column; align-items: stretch; gap: 0.6rem; }
 	.server-pill { width: 100%; justify-content: space-between; }
@@ -744,7 +681,7 @@
 
 .guest-expand {
 	padding: 0.74rem 0.9rem;
-	border-radius: 12px;
+	border-radius: var(--radius-lg);
 }
 
 .auth-footer-row {
@@ -765,7 +702,7 @@
 	min-height: 38px;
 	padding: 0.35rem 0.75rem;
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 0.13%, transparent);
-	border-radius: 12px;
+	border-radius: var(--radius-lg);
 	background: color-mix(in srgb, var(--accent-primary-color) 0.035%, transparent);
 }
 
@@ -779,9 +716,9 @@
 	background: transparent;
 	color: var(--text-secondary);
 	border: 0;
-	border-radius: 8px;
+	border-radius: var(--radius-md);
 	padding: 0.24rem 0;
-	font-size: 0.82rem;
+	font-size: var(--font-size-sm);
 	font-weight: 600;
 }
 
@@ -791,7 +728,7 @@
 	border: 0;
 	border-radius: 0;
 	background: transparent;
-	font-size: 0.82rem;
+	font-size: var(--font-size-sm);
 	justify-content: center;
 	gap: 0.35rem;
 	line-height: 1.35;
@@ -805,10 +742,10 @@
 .server-pill-btn {
 	background: transparent;
 	border: 0;
-	color: var(--accent-primary-color);
-	font-size: 0.82rem;
+	color: var(--accent-secondary-color);
+	font-size: var(--font-size-sm);
 	padding: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-md);
 }
 
 .login-box input {
@@ -862,7 +799,7 @@
 		justify-content: center !important;
 		align-self: center;
 		width: max-content;
-		font-size: 0.88rem;
+		font-size: var(--font-size-base);
 		margin-top: -0.05rem;
 	}
 
@@ -909,7 +846,7 @@
 		align-self: flex-start;
 		width: max-content;
 		white-space: normal;
-		font-size: 0.82rem;
+		font-size: var(--font-size-sm);
 	}
 
 	.remember-row span {
@@ -967,7 +904,7 @@
 	border: 0;
 	border-radius: 0;
 	padding: 0;
-	color: var(--accent-primary-color);
+	color: var(--accent-secondary-color);
 	text-decoration: none;
 	text-underline-offset: 0.18em;
 }
@@ -977,7 +914,7 @@
 	background: transparent !important;
 	box-shadow: none !important;
 	border-color: transparent;
-	color: var(--accent-primary-color);
+	color: var(--accent-secondary-color);
 	text-decoration: underline;
 }
 
@@ -1088,7 +1025,7 @@
 	transition: none !important;
 	box-shadow: none !important;
 	background: transparent !important;
-	color: var(--accent-primary-color) !important;
+	color: var(--accent-secondary-color) !important;
 	font: inherit !important;
 	font-weight: 700 !important;
 	letter-spacing: inherit !important;
@@ -1132,24 +1069,9 @@
    ========================================================================== */
 
 /* ---- Typography hierarchy ---- */
-.auth-heading {
-	font-weight: var(--font-weight-bold);
-	letter-spacing: -0.03em;
-	line-height: var(--line-height-tight);
-}
-
-.auth-subheading {
-	margin-bottom: 1.1rem;
-	line-height: var(--line-height-normal);
-}
-
 .field-caption {
 	font-weight: var(--font-weight-semibold);
 	letter-spacing: 0.06em;
-}
-
-.login-intro {
-	line-height: var(--line-height-relaxed);
 }
 
 .launch-headline {
