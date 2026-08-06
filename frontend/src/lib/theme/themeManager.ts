@@ -176,12 +176,16 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, unif
 	if (ambient) {
 		root.style.setProperty('--bg-effect-effect', ambient.effect);
 		root.style.setProperty('--bg-effect-color', ambient.color || theme.colors.accentHex);
+		root.style.setProperty('--bg-effect-color2', ambient.color2 || theme.colors.accentSecondaryHex);
+		root.style.setProperty('--bg-effect-color3', ambient.color3 || theme.colors.modalBg);
 		root.style.setProperty('--bg-effect-intensity', String(ambient.intensity ?? 0.3));
 		root.style.setProperty('--bg-effect-size', String(ambient.size ?? 1));
 		root.style.setProperty('--bg-effect-speed', String(ambient.speed ?? 1));
 	} else {
 		root.style.setProperty('--bg-effect-effect', 'none');
 		root.style.setProperty('--bg-effect-color', theme.colors.accentHex);
+		root.style.setProperty('--bg-effect-color2', theme.colors.accentSecondaryHex);
+		root.style.setProperty('--bg-effect-color3', theme.colors.modalBg);
 		root.style.setProperty('--bg-effect-intensity', '0');
 		root.style.setProperty('--bg-effect-size', '1');
 		root.style.setProperty('--bg-effect-speed', '1');

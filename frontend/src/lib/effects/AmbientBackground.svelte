@@ -9,6 +9,10 @@
 	import { EmbersEffect } from './built-in/embers';
 	import { CyberpunkGridEffect } from './built-in/cyberpunk-grid';
 	import { StormEffect } from './built-in/storm';
+	import { BalatroEffect } from './built-in/balatro';
+	import { SpireEffect } from './built-in/spire';
+	import { WarpEffect } from './built-in/warp';
+	import { MatrixRainEffect } from './built-in/matrix';
 	import type { EffectConfig } from './types';
 
 	if (browser) {
@@ -19,6 +23,10 @@
 		effectsRegistry.register(new EmbersEffect());
 		effectsRegistry.register(new CyberpunkGridEffect());
 		effectsRegistry.register(new StormEffect());
+		effectsRegistry.register(new BalatroEffect());
+		effectsRegistry.register(new SpireEffect());
+		effectsRegistry.register(new WarpEffect());
+		effectsRegistry.register(new MatrixRainEffect());
 	}
 
 	let canvas: HTMLCanvasElement;
@@ -28,10 +36,23 @@
 	let currentEffectId = '';
 	let currentConfig: EffectConfig = {
 		color: '#6366f1',
+		color2: '#006bb4',
+		color3: '#162325',
 		intensity: 0,
 		size: 1,
 		speed: 1,
 	};
+
+	const watermarkSuits = [
+		{ glyph: '♠', left: '6%', top: '12%', size: '22vh', color: 'rgba(246, 240, 226, 0.045)', rotate: '-12deg' },
+		{ glyph: '♥', left: '82%', top: '18%', size: '18vh', color: 'rgba(222, 68, 59, 0.05)', rotate: '9deg' },
+		{ glyph: '♦', left: '18%', top: '68%', size: '16vh', color: 'rgba(222, 68, 59, 0.05)', rotate: '-5deg' },
+		{ glyph: '♣', left: '74%', top: '70%', size: '20vh', color: 'rgba(246, 240, 226, 0.04)', rotate: '14deg' },
+		{ glyph: '♥', left: '45%', top: '8%', size: '12vh', color: 'rgba(222, 68, 59, 0.04)', rotate: '-20deg' },
+		{ glyph: '♠', left: '42%', top: '80%', size: '12vh', color: 'rgba(246, 240, 226, 0.035)', rotate: '7deg' },
+		{ glyph: '♣', left: '3%', top: '42%', size: '10vh', color: 'rgba(246, 240, 226, 0.03)', rotate: '-8deg' },
+		{ glyph: '♦', left: '88%', top: '45%', size: '10vh', color: 'rgba(222, 68, 59, 0.04)', rotate: '16deg' },
+	];
 
 	let reducedMotion = false;
 	let canvasWidth = 0;
@@ -44,6 +65,8 @@
 			id: style.getPropertyValue('--bg-effect-effect').trim() || 'none',
 			config: {
 				color: style.getPropertyValue('--bg-effect-color').trim() || '#6366f1',
+				color2: style.getPropertyValue('--bg-effect-color2').trim() || '#006bb4',
+				color3: style.getPropertyValue('--bg-effect-color3').trim() || '#162325',
 				intensity: parseFloat(style.getPropertyValue('--bg-effect-intensity')) || 0,
 				size: parseFloat(style.getPropertyValue('--bg-effect-size')) || 1,
 				speed: parseFloat(style.getPropertyValue('--bg-effect-speed')) || 1,
@@ -62,9 +85,9 @@
 		canvas.height = h * dpr;
 		canvas.style.width = `${w}px`;
 		canvas.style.height = `${h}px`;
+		const effect = effectsRegistry.get(currentEffectId);
 		const ctx = canvas.getContext('2d');
 		if (ctx) ctx.scale(dpr, dpr);
-		const effect = effectsRegistry.get(currentEffectId);
 		if (effect) effect.resize(w, h);
 	}
 
@@ -135,9 +158,17 @@
 					switchEffect();
 					break;
 				}
+				// The effects tab applies tweaks as inline style vars (no theme
+				// change) — live-switch when the active effect id changes.
+				if (m.type === 'attributes' && m.attributeName === 'style') {
+					if (readConfig().id !== currentEffectId) {
+						switchEffect();
+					}
+					break;
+				}
 			}
 		});
-		observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+		observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style'] });
 	});
 
 	onDestroy(() => {
@@ -155,6 +186,19 @@
 	aria-hidden="true"
 ></canvas>
 
+<div
+	class="balatro-watermark"
+	class:visible={currentEffectId === 'balatro'}
+	aria-hidden="true"
+>
+	{#each watermarkSuits as suit (suit.glyph + suit.left + suit.top)}
+		<span
+			class="balatro-suit"
+			style="left: {suit.left}; top: {suit.top}; font-size: {suit.size}; color: {suit.color}; transform: rotate({suit.rotate});"
+		>{suit.glyph}</span>
+	{/each}
+</div>
+
 <style>
 	canvas {
 		position: fixed;
@@ -168,5 +212,21 @@
 		   Using -1 here previously hid the canvas behind body's fill, so the
 		   effect only showed in the 16px margins (reading as "below the chat"). */
 		z-index: 0;
+	}
+	.balatro-watermark {
+		position: fixed;
+		inset: 0;
+		pointer-events: none;
+		z-index: 0;
+		overflow: hidden;
+		display: none;
+	}
+	.balatro-watermark.visible {
+		display: block;
+	}
+	.balatro-suit {
+		position: absolute;
+		line-height: 1;
+		user-select: none;
 	}
 </style>

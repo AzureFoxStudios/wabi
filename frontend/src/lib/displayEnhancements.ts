@@ -22,7 +22,8 @@ export function isValidMessageTimestamp(timestamp: unknown): boolean {
  */
 export function isRenderableMessage(message: Message | null | undefined): boolean {
 	if (!message) return false;
-	if (!message.id) return false;
+	// Empty string is not a usable id — it also collides in keyed {#each} blocks.
+	if (!message.id || !String(message.id).trim()) return false;
 	// Soft-deleted messages (orphaned/ghost rows) must never render as chat rows.
 	if (message.isDeleted) return false;
 	if (!isValidMessageTimestamp(message.timestamp)) return false;

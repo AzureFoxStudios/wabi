@@ -11,6 +11,8 @@
 
 	let selectedEffect = 'none';
 	let effectColor = '#6366f1';
+	let effectColor2 = '#006bb4';
+	let effectColor3 = '#162325';
 	let effectIntensity = 0;
 	let effectSize = 1;
 	let effectSpeed = 1;
@@ -26,6 +28,8 @@
 			const style = getComputedStyle(document.documentElement);
 			selectedEffect = ambient.effect || 'none';
 			effectColor = ambient.color || style.getPropertyValue('--bg-effect-color').trim() || '#6366f1';
+			effectColor2 = ambient.color2 || style.getPropertyValue('--bg-effect-color2').trim() || '#006bb4';
+			effectColor3 = ambient.color3 || style.getPropertyValue('--bg-effect-color3').trim() || '#162325';
 			effectIntensity = (ambient.intensity ?? parseFloat(style.getPropertyValue('--bg-effect-intensity'))) || 0;
 			effectSize = (ambient.size ?? parseFloat(style.getPropertyValue('--bg-effect-size'))) || 1;
 			effectSpeed = (ambient.speed ?? parseFloat(style.getPropertyValue('--bg-effect-speed'))) || 1;
@@ -45,6 +49,8 @@
 		const root = document.documentElement;
 		root.style.setProperty('--bg-effect-effect', selectedEffect);
 		root.style.setProperty('--bg-effect-color', effectColor);
+		root.style.setProperty('--bg-effect-color2', effectColor2);
+		root.style.setProperty('--bg-effect-color3', effectColor3);
 		root.style.setProperty('--bg-effect-intensity', String(effectIntensity));
 		root.style.setProperty('--bg-effect-size', String(effectSize));
 		root.style.setProperty('--bg-effect-speed', String(effectSpeed));
@@ -58,6 +64,8 @@
 				ambient: {
 					effect: selectedEffect,
 					color: effectColor,
+					color2: effectColor2,
+					color3: effectColor3,
 					intensity: effectIntensity,
 					size: effectSize,
 					speed: effectSpeed,
@@ -100,6 +108,8 @@
 				effectsRegistry.register(instance);
 				selectedEffect = instance.id;
 				effectColor = instance.defaultConfig?.color || effectColor;
+				effectColor2 = instance.defaultConfig?.color2 || effectColor2;
+				effectColor3 = instance.defaultConfig?.color3 || effectColor3;
 				effectIntensity = instance.defaultConfig?.intensity ?? effectIntensity;
 				effectSize = instance.defaultConfig?.size ?? effectSize;
 				effectSpeed = instance.defaultConfig?.speed ?? effectSpeed;
@@ -117,6 +127,8 @@
 		const effect = effectsRegistry.get(id);
 		if (effect?.defaultConfig) {
 			effectColor = effect.defaultConfig.color || effectColor;
+			effectColor2 = effect.defaultConfig.color2 || effectColor2;
+			effectColor3 = effect.defaultConfig.color3 || effectColor3;
 			effectIntensity = effect.defaultConfig.intensity ?? effectIntensity;
 			effectSize = effect.defaultConfig.size ?? effectSize;
 			effectSpeed = effect.defaultConfig.speed ?? effectSpeed;
@@ -149,6 +161,32 @@
 		<input
 			type="color"
 			bind:value={effectColor}
+			on:change={applyEffect}
+			class="color-picker"
+		/>
+	</div>
+
+	<div class="setting-item">
+		<div class="setting-info">
+			<span class="setting-label">Color 2</span>
+			<span class="setting-description">Secondary color (Balatro's blue)</span>
+		</div>
+		<input
+			type="color"
+			bind:value={effectColor2}
+			on:change={applyEffect}
+			class="color-picker"
+		/>
+	</div>
+
+	<div class="setting-item">
+		<div class="setting-info">
+			<span class="setting-label">Color 3</span>
+			<span class="setting-description">Tertiary color (Balatro's dark base)</span>
+		</div>
+		<input
+			type="color"
+			bind:value={effectColor3}
 			on:change={applyEffect}
 			class="color-picker"
 		/>
