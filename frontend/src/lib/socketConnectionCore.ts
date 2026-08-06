@@ -83,6 +83,20 @@ function dedupeMessagesKeepOrder(items: Message[]): Message[] {
 	return out;
 }
 
+/** Collapse list items that would crash Svelte keyed {#each} blocks. */
+function dedupeByIdKey<T extends { id?: string | null }>(items: T[]): T[] {
+	const seen = new Set<string>();
+	const out: T[] = [];
+	for (const item of items) {
+		const key = String(item?.id ?? '').trim();
+		if (!key) continue;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(item);
+	}
+	return out;
+}
+
 
 import {
 	users,
