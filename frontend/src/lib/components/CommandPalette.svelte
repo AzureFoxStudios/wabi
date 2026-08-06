@@ -81,29 +81,29 @@
 		bottom: 100%;
 		left: 0;
 		right: 0;
-		background: var(--surface-base, var(--surface-raised, #2a2a2e));
-		border: 1px solid var(--border-subtle, var(--surface-base, #333));
+		background: var(--surface-base, #1a1a2e);
+		border: 1px solid var(--border-subtle, #24243e);
 		border-bottom: none;
-		border-radius: 8px 8px 0 0;
-		max-height: 300px;
+		border-radius: var(--radius-md, 8px) var(--radius-md, 8px) 0 0;
+		max-height: var(--popover-max-height, 300px);
 		overflow-y: auto;
-		z-index: 100;
-		box-shadow: 0 -4px 12px var(--color-glass-black-25);
+		z-index: var(--z-popover, 500);
+		box-shadow: var(--shadow-top, 0 -4px 12px rgba(0, 0, 0, 0.25));
 	}
 
 	.command-item {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-1, 4px);
 		width: 100%;
-		padding: 12px 16px;
+		padding: var(--space-3, 12px) var(--space-4, 16px);
 		background: transparent;
 		border: none;
-		border-bottom: 1px solid var(--border-subtle, var(--surface-base, #333));
-		color: var(--text-heading, var(--text-inverse, #e0e0e0));
+		border-bottom: 1px solid var(--border-subtle, #24243e);
+		color: var(--text-heading, #e0e0ff);
 		text-align: left;
 		cursor: pointer;
-		transition: background 0.15s;
+		transition: background var(--duration-fast, 150ms) ease;
 	}
 
 	.command-item:last-child {
@@ -112,32 +112,42 @@
 
 	.command-item:hover,
 	.command-item.selected {
-		background: var(--surface-raised, var(--surface-raised, #3a3a3e));
+		background: var(--surface-raised, #24243e);
+	}
+
+	.command-item:active {
+		background: var(--surface-active, #0f0c29);
 	}
 
 	.command-name {
-		font-weight: 600;
-		font-size: 0.95rem;
-		color: var(--color-info, var(--color-info, #6366f1));
+		font-weight: var(--font-weight-semibold, 600);
+		font-size: var(--text-base, 14px);
+		color: var(--color-info, #3b82f6);
 		display: flex;
-		gap: 8px;
+		gap: var(--space-2, 8px);
 		align-items: center;
 	}
 
 	.aliases {
-		font-weight: 400;
-		font-size: 0.8rem;
-		color: var(--text-secondary, var(--text-muted, #a0a0a0));
+		font-weight: var(--font-weight-regular, 400);
+		font-size: var(--text-sm, 13px);
+		color: var(--text-secondary, #b3b3ff);
 	}
 
 	.command-desc {
-		font-size: 0.85rem;
-		color: var(--text-secondary, var(--text-muted, #a0a0a0));
+		font-size: var(--text-sm, 13px);
+		color: var(--text-secondary, #b3b3ff);
 	}
 
 	.command-usage {
-		font-size: 0.8rem;
-		color: var(--text-muted, #808080);
-		font-family: 'Monaco', 'Menlo', monospace;
+		font-size: var(--text-xs, 11px);
+		color: var(--text-muted, #9999ff);
+		font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.command-item {
+			transition: none;
+		}
 	}
 </style>

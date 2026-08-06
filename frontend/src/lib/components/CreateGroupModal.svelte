@@ -43,6 +43,12 @@
 		selectedUsers = [];
 	}
 
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && isOpen) {
+			closeModal();
+		}
+	}
+
 	function getStatusColor(status: string) {
 		switch (status) {
 			case 'active': return 'var(--status-online)';
@@ -53,18 +59,16 @@
 	}
 </script>
 
+<svelte:window on:keydown={handleKeydown} />
+
 {#if isOpen}
-	<div
-		class="modal-overlay"
-		role="button"
-		tabindex="0"
-		on:click={closeModal}
-		on:keydown={(e) => { if (e.key === 'Escape') closeModal(); }}
-	></div>
-	<div class="modal">
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="modal-overlay" on:click={closeModal}></div>
+	<div class="modal" role="dialog" aria-modal="true" tabindex="-1">
 		<div class="modal-header">
 			<h2>Create Group</h2>
-			<button class="close-btn" on:click={closeModal}>x</button>
+			<button class="close-btn" on:click={closeModal} aria-label="Close">x</button>
 		</div>
 
 		<div class="group-name-container">
@@ -135,7 +139,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: var(--modal-overlay);
+		background: var(--surface-overlay, rgba(0, 0, 0, 0.6));
 		z-index: var(--z-modal);
 	}
 
@@ -146,16 +150,16 @@
 		width: 400px;
 		height: 100vh;
 		height: 100dvh;
-		background: var(--modal-bg);
+		background: var(--surface-modal, #0f0c29);
 		z-index: var(--z-modal-surface);
 		display: flex;
 		flex-direction: column;
-		box-shadow: -4px 0 12px rgba(0, 0, 0, 0.3);
+		box-shadow: var(--shadow-drawer-right, -8px 0 28px rgba(0, 0, 0, 0.35));
 	}
 
 	.modal-header {
-		padding: 1.5rem;
-		border-bottom: 1px solid var(--ui-bg-light);
+		padding: var(--space-6, 1.5rem);
+		border-bottom: 1px solid var(--border-subtle, #24243e);
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -163,16 +167,16 @@
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: var(--text-primary);
+		font-size: var(--text-xl, 1.25rem);
+		font-weight: var(--font-weight-semibold, 600);
+		color: var(--text-heading, #e0e0ff);
 	}
 
 	.close-btn {
 		background: transparent;
 		border: none;
 		color: var(--text-secondary);
-		font-size: 1.5rem;
+		font-size: var(--text-2xl, 1.5rem);
 		cursor: pointer;
 		padding: 0;
 		width: 32px;
@@ -180,77 +184,79 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		transition: all var(--duration-fast, 150ms);
 	}
 
 	.close-btn:hover {
 		color: var(--text-primary);
-		background: var(--ui-bg-light);
+		background: var(--surface-raised, #24243e);
 	}
 
 	.group-name-container {
-		padding: 1rem 1.5rem 0.5rem;
+		padding: var(--space-4, 1rem) var(--space-6, 1.5rem) var(--space-2, 0.5rem);
 	}
 
 	.group-name-input {
 		width: 100%;
-		padding: 0.75rem;
-		background: var(--ui-bg-lighter);
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		color: var(--text-primary);
-		font-size: 0.9rem;
+		padding: var(--space-3, 0.75rem);
+		background: var(--surface-base, #1a1a2e);
+		border: 1px solid var(--border-subtle, #24243e);
+		border-radius: var(--radius-md, 8px);
+		color: var(--text-heading, #e0e0ff);
+		font-size: var(--text-base, 0.875rem);
 	}
 
 	.group-name-input:focus {
 		outline: none;
-		border-color: var(--accent);
+		border-color: var(--accent-primary-color, #6366f1);
 	}
 
 	.selected-chips {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.375rem;
-		padding: 0.5rem 1.5rem;
+		gap: var(--space-2, 0.5rem);
+		padding: var(--space-2, 0.5rem) var(--space-6, 1.5rem);
 	}
 
 	.chip {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.25rem;
-		padding: 0.25rem 0.5rem;
-		background: var(--accent);
-		color: white;
-		border-radius: 12px;
-		font-size: 0.8rem;
-		font-weight: 500;
+		gap: var(--space-1, 0.25rem);
+		padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
+		background: var(--accent-primary-color, #6366f1);
+		color: var(--text-on-accent, #0f0c29);
+		border-radius: var(--radius-lg, 12px);
+		font-size: var(--text-sm, 0.8125rem);
+		font-weight: var(--font-weight-medium, 500);
 	}
 
 	.chip-remove {
 		background: none;
 		border: none;
-		color: rgba(255,255,255,0.8);
+		color: var(--text-on-accent, #0f0c29);
 		cursor: pointer;
 		padding: 0 2px;
-		font-size: 0.85rem;
+		font-size: var(--text-sm, 0.8125rem);
 		line-height: 1;
 	}
 
 	.chip-remove:hover {
-		color: white;
+		color: var(--text-on-accent, #0f0c29);
+		opacity: var(--opacity-80, 0.8);
 	}
 
 	.search-container {
-		padding: 0.5rem 1.5rem;
-		border-bottom: 1px solid var(--ui-bg-light);
+		padding: var(--space-2, 0.5rem) var(--space-6, 1.5rem);
+		border-bottom: 1px solid var(--border-subtle, #24243e);
 	}
 
 	.search-container input {
 		width: 100%;
-		padding: 0.75rem;
-		background: var(--ui-bg-lighter);
+		padding: var(--space-3, 0.75rem);
+		background: var(--surface-base, #1a1a2e);
 		border: none;
-		color: var(--text-primary);
-		font-size: 0.9rem;
+		color: var(--text-heading, #e0e0ff);
+		font-size: var(--text-base, 0.875rem);
 	}
 
 	.search-container input:focus {
@@ -260,11 +266,11 @@
 	.user-list {
 		flex: 1;
 		overflow-y: auto;
-		padding: 0.5rem;
+		padding: var(--space-2, 0.5rem);
 	}
 
 	.no-users {
-		padding: 2rem;
+		padding: var(--space-8, 2rem);
 		text-align: center;
 		color: var(--text-secondary);
 	}
@@ -272,19 +278,19 @@
 	.user-item {
 		display: flex;
 		align-items: center;
-		gap: 1rem;
-		padding: 0.75rem;
+		gap: var(--space-4, 1rem);
+		padding: var(--space-3, 0.75rem);
 		width: 100%;
 		background: transparent;
 		border: none;
 		cursor: pointer;
-		transition: background 0.2s;
+		transition: background var(--duration-fast, 150ms);
 		text-align: left;
-		color: var(--text-primary);
+		color: var(--text-heading, #e0e0ff);
 	}
 
 	.user-item:hover {
-		background: var(--ui-bg-light);
+		background: var(--surface-raised, #24243e);
 	}
 
 	.user-avatar-container {
@@ -296,7 +302,7 @@
 	.user-avatar-placeholder {
 		width: 32px;
 		height: 32px;
-		border-radius: 50%;
+		border-radius: var(--radius-full, 9999px);
 		object-fit: cover;
 	}
 
@@ -304,19 +310,19 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-weight: 600;
+		font-weight: var(--font-weight-semibold, 600);
 		color: white;
-		font-size: 0.8rem;
+		font-size: var(--text-sm, 0.8125rem);
 	}
 
 	.status-indicator {
 		position: absolute;
 		bottom: 0;
 		right: 0;
-		width: 12px;
-		height: 12px;
+		width: var(--space-3, 12px);
+		height: var(--space-3, 12px);
 		border-radius: 50%;
-		border: 2px solid var(--modal-bg);
+		border: 2px solid var(--surface-modal, #0f0c29);
 	}
 
 	.user-info {
@@ -325,41 +331,41 @@
 	}
 
 	.username {
-		font-size: 0.95rem;
-		font-weight: 500;
-		color: var(--text-primary);
+		font-size: var(--text-base, 0.875rem);
+		font-weight: var(--font-weight-medium, 500);
+		color: var(--text-heading, #e0e0ff);
 	}
 
 	.handle {
-		font-size: 0.8rem;
+		font-size: var(--text-sm, 0.8125rem);
 		color: var(--text-secondary);
 	}
 
 	.modal-footer {
-		padding: 1rem 1.5rem;
-		border-top: 1px solid var(--ui-bg-light);
+		padding: var(--space-4, 1rem) var(--space-6, 1.5rem);
+		border-top: 1px solid var(--border-subtle, #24243e);
 	}
 
 	.create-btn {
 		width: 100%;
-		padding: 0.75rem;
-		background: var(--accent);
-		color: white;
+		padding: var(--space-3, 0.75rem);
+		background: var(--accent-primary-color, #6366f1);
+		color: var(--text-on-accent, #0f0c29);
 		border: none;
-		border-radius: 6px;
-		font-size: 0.9rem;
-		font-weight: 600;
+		border-radius: var(--radius-md, 8px);
+		font-size: var(--text-base, 0.875rem);
+		font-weight: var(--font-weight-semibold, 600);
 		cursor: pointer;
-		transition: opacity 0.15s;
+		transition: opacity var(--duration-fast, 150ms);
 	}
 
 	.create-btn:disabled {
-		opacity: 0.4;
+		opacity: var(--opacity-40, 0.4);
 		cursor: default;
 	}
 
 	.create-btn:hover:not(:disabled) {
-		opacity: 0.85;
+		opacity: var(--opacity-90, 0.9);
 	}
 
 	@media (max-width: 768px) {

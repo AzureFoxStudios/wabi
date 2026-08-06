@@ -60,7 +60,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: var(--surface-overlay, rgba(15, 12, 41, 0.85));
+		background: var(--surface-overlay, rgba(0, 0, 0, 0.6));
 		z-index: var(--modal-z-index, var(--z-modal));
 		display: flex;
 		backdrop-filter: blur(8px);
@@ -82,16 +82,16 @@
 	}
 
 	.modal-content {
-		background: var(--surface-modal, var(--gradient-dialog-dark));
+		background: var(--surface-modal, #0f0c29);
 		border-radius: var(--radius-lg);
 		max-width: var(--modal-width);
 		width: 100%;
-		max-height: 90vh;
+		max-height: 90dvh;
 		overflow-y: auto;
 		position: relative;
-		animation: modalEnter 0.2s ease-out;
-		border: 1px solid rgba(179, 179, 255, 0.2);
-		box-shadow: 0 8px 32px rgba(255, 0, 255, 0.15);
+		animation: modalEnter var(--duration-normal, 250ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+		border: 1px solid var(--border-default, rgba(179, 179, 255, 0.15));
+		box-shadow: var(--shadow-xl);
 	}
 
 	.right-panel .modal-content {
@@ -100,37 +100,37 @@
 		height: 100dvh;
 		max-height: none;
 		border-radius: 0;
-		animation: slideIn 0.25s ease-out;
+		animation: slideIn var(--duration-normal, 250ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
 	}
 
 	.modal-close {
 		position: absolute;
-		top: 1rem;
-		right: 1rem;
+		top: var(--space-4, 1rem);
+		right: var(--space-4, 1rem);
 		background: transparent;
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		width: 32px;
-		height: 32px;
+		width: var(--space-8, 32px);
+		height: var(--space-8, 32px);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 6px;
-		transition: all 0.2s;
+		border-radius: var(--radius-md, 8px);
+		transition: all var(--duration-fast, 150ms);
 		padding: 0;
-		z-index: 10;
+		z-index: var(--z-dropdown, 200);
 	}
 
 	.modal-close svg {
-		width: 24px;
-		height: 24px;
+		width: var(--icon-lg, 24px);
+		height: var(--icon-lg, 24px);
 		stroke: currentColor;
 		stroke-width: 2;
 	}
 
 	.modal-close:hover {
-		background: var(--surface-hover, rgba(255, 0, 255, 0.2));
+		background: var(--surface-hover, #302b63);
 		color: var(--text-heading);
 	}
 
@@ -156,7 +156,7 @@
 
 	@media (max-width: 768px) {
 		.modal-content {
-			max-width: calc(100vw - 2rem);
+			max-width: calc(100vw - var(--space-8, 2rem));
 			max-height: 85dvh;
 		}
 

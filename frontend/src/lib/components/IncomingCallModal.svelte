@@ -14,7 +14,7 @@
 	export let onOpenRingingMenu: (event: MouseEvent, target: { stableUserId: string; username: string }) => void;
 </script>
 
-<div class="call-modal-overlay">
+<div class="call-modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
 	<div class="incoming-call-modal">
 		<div class="caller-info">
 			<div class="caller-avatar">{caller.username.charAt(0).toUpperCase()}</div>
