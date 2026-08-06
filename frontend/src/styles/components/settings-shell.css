@@ -1,67 +1,96 @@
 /* ==========================================================================
-   SETTINGS — SHELL STYLES
-   Extracted from settings.css
-   ========================================================================== */
-
-/* ==========================================================================
-   SETTINGS COMPONENT STYLES
-   Extracted from Settings.svelte — migrated to shared design system.
+   SETTINGS — SHELL
+   Glass modal shell aligned with login/boot theme language.
    ========================================================================== */
 
 .modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background:
-			radial-gradient(circle at 16% 12%, rgba(var(--accent-rgb), 0.18), transparent 34%),
-			var(--surface-overlay, var(--surface-modal-overlay, rgba(0, 0, 0, 0.72)));
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-settings-shell);
-		padding: clamp(var(--space-3), 2vw, var(--space-6));
-		backdrop-filter: blur(12px) saturate(1.08);
-	}
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-settings-shell);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: clamp(var(--space-3), 2.5vw, var(--space-6));
+	background:
+		radial-gradient(ellipse 48rem 32rem at 18% 8%, color-mix(in srgb, var(--accent-primary-color) 16%, transparent), transparent 62%),
+		radial-gradient(ellipse 40rem 28rem at 88% 92%, color-mix(in srgb, var(--accent-secondary-color) 12%, transparent), transparent 60%),
+		color-mix(in srgb, var(--surface-sunken) 72%, transparent);
+	backdrop-filter: blur(16px) saturate(1.12);
+	-webkit-backdrop-filter: blur(16px) saturate(1.12);
+	animation: settingsOverlayIn 0.22s var(--ease-out, ease-out);
+}
 
+@keyframes settingsOverlayIn {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
 
+.modal-content {
+	width: min(1120px, 96vw);
+	max-width: 1120px;
+	max-height: min(90vh, 940px);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	border-radius: var(--radius-2xl);
+	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 16%, var(--border-subtle, rgba(255, 255, 255, 0.08)));
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--surface-raised) 78%, transparent),
+			color-mix(in srgb, var(--surface-sunken) 68%, transparent)
+		),
+		color-mix(in srgb, var(--surface-base) 88%, transparent);
+	backdrop-filter: blur(22px) saturate(1.12);
+	-webkit-backdrop-filter: blur(22px) saturate(1.12);
+	box-shadow:
+		0 32px 90px rgba(0, 0, 0, 0.42),
+		0 2px 8px rgba(0, 0, 0, 0.2),
+		inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	animation: settingsPanelIn 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes settingsPanelIn {
+	from { opacity: 0; transform: translateY(12px) scale(0.985); }
+	to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 1rem;
+	padding: 1.15rem 1.35rem;
+	border-bottom: 1px solid color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
+	position: sticky;
+	top: 0;
+	z-index: var(--z-sticky, 10);
+	background:
+		radial-gradient(ellipse 28rem 12rem at 0% 0%, color-mix(in srgb, var(--accent-primary-color) 14%, transparent), transparent 70%),
+		color-mix(in srgb, var(--surface-base) 82%, transparent);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+}
+
+.modal-header h2 {
+	margin: 0;
+	font-size: clamp(var(--font-size-lg), 2vw, var(--font-size-2xl));
+	font-weight: var(--font-weight-bold);
+	color: var(--text-heading);
+	display: flex;
+	align-items: center;
+	gap: 0.7rem;
+	letter-spacing: -0.01em;
+}
+
+.modal-header .header-icon {
+	color: var(--accent-secondary-color, var(--accent-primary-color));
+	filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent-secondary-color) 35%, transparent));
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.modal-overlay,
 	.modal-content {
-		background:
-			linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 96%, transparent), color-mix(in srgb, var(--surface-app) 96%, transparent)),
-			var(--surface-base);
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, rgba(var(--accent-rgb), 0.25));
-		border-radius: var(--radius-2xl);
-		width: min(1120px, 96vw);
-		max-width: 1120px;
-		max-height: min(90vh, 940px);
-		overflow: hidden;
-		box-shadow: 0 30px 90px var(--shadow-xl, var(--surface-modal-overlay, rgba(0, 0, 0, 0.45)));
-		display: flex;
-		flex-direction: column;
+		animation: none;
 	}
-
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.1rem 1.25rem;
-		border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
-		position: sticky;
-		top: 0;
-		background:
-			radial-gradient(circle at top left, rgba(var(--accent-rgb), 0.14), transparent 32%),
-			color-mix(in srgb, var(--surface-base) 94%, transparent);
-		z-index: var(--z-sticky);
-	}
-
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: clamp(var(--font-size-lg), 2vw, var(--font-size-2xl));
-		color: var(--text-heading);
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
+}

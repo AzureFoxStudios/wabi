@@ -1,47 +1,64 @@
 /* ==========================================================================
    SETTINGS — CORE STYLES
-   Extracted from settings.css
+   Section cards + rows — glass / accent language shared with login.
    ========================================================================== */
 
 	.settings-section {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: 0.85rem;
 	}
-
 
 	.settings-section h3 {
-		margin: 0;
-		font-size: var(--font-size-sm);
-		color: var(--text-heading);
+		margin: 0 0 0.15rem;
+		font-size: var(--font-size-xs);
+		color: var(--text-secondary);
 		font-weight: var(--font-weight-bold);
-		letter-spacing: 0.08em;
+		letter-spacing: 0.1em;
 		text-transform: uppercase;
 	}
-
 
 	.setting-item {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		gap: var(--space-4);
-		padding: var(--space-3) var(--space-4);
+		padding: 0.95rem 1.05rem;
 		background:
-			linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 82%, transparent), color-mix(in srgb, var(--surface-base) 92%, transparent)),
-			var(--surface-raised);
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+			linear-gradient(
+				180deg,
+				color-mix(in srgb, var(--surface-raised) 72%, transparent),
+				color-mix(in srgb, var(--surface-sunken) 52%, transparent)
+			);
+		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
 		border-radius: var(--radius-lg);
-		transition: background var(--duration-fast), border-color var(--duration-fast), transform var(--duration-fast);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+		transition:
+			background var(--duration-fast) var(--ease-out, ease),
+			border-color var(--duration-fast) var(--ease-out, ease),
+			box-shadow var(--duration-fast) var(--ease-out, ease),
+			transform var(--duration-fast) var(--ease-out, ease);
 	}
-
 
 	.setting-item:hover {
 		background:
-			linear-gradient(180deg, color-mix(in srgb, var(--surface-hover) 70%, transparent), color-mix(in srgb, var(--surface-base) 90%, transparent)),
-			var(--surface-raised);
-		border-color: color-mix(in srgb, var(--border-subtle) 64%, rgba(var(--accent-rgb), 0.25));
+			linear-gradient(
+				180deg,
+				color-mix(in srgb, var(--surface-raised) 82%, transparent),
+				color-mix(in srgb, var(--surface-sunken) 58%, transparent)
+			);
+		border-color: color-mix(in srgb, var(--accent-primary-color) 24%, transparent);
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.06),
+			0 10px 28px color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
 	}
 
+	.setting-item:focus-within {
+		border-color: color-mix(in srgb, var(--accent-secondary-color) 42%, transparent);
+		box-shadow:
+			0 0 0 3px color-mix(in srgb, var(--accent-secondary-color) 16%, transparent),
+			inset 0 1px 0 rgba(255, 255, 255, 0.06);
+	}
 
 	.setting-item-stack {
 		flex-direction: column;
@@ -49,23 +66,20 @@
 		gap: var(--space-3);
 	}
 
-
 	.settings-subsection {
 		margin-top: var(--space-5);
 		padding-top: var(--space-4);
-		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);
+		border-top: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, transparent);
 	}
-
 
 	.subsection-label {
-		font-size: var(--font-size-sm);
+		font-size: var(--font-size-xs);
 		font-weight: var(--font-weight-bold);
 		text-transform: uppercase;
-		letter-spacing: 0.07em;
+		letter-spacing: 0.09em;
 		color: var(--text-muted);
-		margin: 0 0 0.7rem 0.1rem;
+		margin: 0 0 0.75rem 0.1rem;
 	}
-
 
 	.auto-badge {
 		display: inline-block;
@@ -73,33 +87,31 @@
 		border-radius: var(--radius-full);
 		font-size: var(--font-size-xs);
 		font-weight: var(--font-weight-semibold);
-		background: color-mix(in srgb, var(--accent-color) 20%, transparent);
-		color: var(--accent-color);
+		background: color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
+		color: var(--accent-secondary-color, var(--accent-primary-color));
 		vertical-align: middle;
 		margin-left: 0.4rem;
 	}
 
-
 	.setting-info {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
+		gap: 0.28rem;
 		flex: 1;
+		min-width: 0;
 	}
-
 
 	.setting-label {
-		font-size: var(--font-size-lg);
-		font-weight: var(--font-weight-medium);
+		font-size: var(--font-size-base);
+		font-weight: var(--font-weight-semibold);
 		color: var(--text-heading);
 	}
-
 
 	.setting-description {
 		font-size: var(--font-size-sm);
 		color: var(--text-secondary);
+		line-height: 1.45;
 	}
-
 
 	.warning-text {
 		margin: 0 0 0.35rem;
@@ -108,10 +120,9 @@
 		font-weight: 600;
 	}
 
-
 	.toggle-btn {
-		background: color-mix(in srgb, var(--surface-base) 92%, transparent);
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
+		background: color-mix(in srgb, var(--surface-sunken) 55%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 16%, transparent);
 		border-radius: 999px;
 		padding: var(--space-2) var(--space-3);
 		color: var(--text-secondary);
