@@ -1714,19 +1714,23 @@
 		const boundedLimit = Math.min(Math.max(messageRenderLimit, MESSAGE_RENDER_BATCH), MESSAGE_RENDER_MAX);
 		messageRenderLimit = boundedLimit;
 		visibleMessageStart = Math.max(0, messages.length - boundedLimit);
-		// Final guard: never feed duplicate keys into the keyed {#each}.
-		// Prefer clientMessageId so optimistic→accepted does not change the key
-		// (changing keys makes Svelte recycle the wrong row — "new eats old").
+		// Prefer stable server id once accepted; optimistic rows keep clientMessageId.
+		// Keep LAST of a key so reconcile wins without dropping distinct messages.
 		const slice = messages.slice(visibleMessageStart);
+		const keyOf = (msg: Message, i: number) => {
+			const id = String(msg?.id ?? '').trim();
+			if (id && !id.startsWith('optimistic:')) return id;
+			return String(msg?.clientMessageId || id || msg?.clientNonce || '').trim() || `__idx_${i}`;
+		};
+		const lastByKey = new Map<string, Message>();
+		for (let i = 0; i < slice.length; i++) lastByKey.set(keyOf(slice[i], i), slice[i]);
 		const seen = new Set<string>();
 		const unique: Message[] = [];
 		for (let i = 0; i < slice.length; i++) {
-			const m = slice[i];
-			const key =
-				String(m.clientMessageId || m.id || m.clientNonce || '').trim() || `__idx_${i}`;
+			const key = keyOf(slice[i], i);
 			if (seen.has(key)) continue;
 			seen.add(key);
-			unique.push(m);
+			unique.push(lastByKey.get(key) || slice[i]);
 		}
 		visibleMessages = unique;
 	}
@@ -1781,7 +1785,7 @@
 	</div>
 {/if}
 
-{#each visibleMessages as message, localIndex (message.clientMessageId || message.id || message.clientNonce || `__missing_${localIndex}`)}
+{#each visibleMessages as message, localIndex ((message.id && !String(message.id).startsWith('optimistic:') ? message.id : null) || message.clientMessageId || message.id || message.clientNonce || `__missing_${localIndex}`)}
 	{@const index = visibleMessageStart + localIndex}
 	{@const author = getUserByMessageAuthor(message)}
 	{@const displayUsername = getMessageDisplayUsername(message, author)}

@@ -179,8 +179,13 @@ impl WabiStore for WdbAdapter {
             channel_id,
             uuid::Uuid::new_v4()
         );
+        // Canonical wire/DB id: UUID. Must be stamped into the record BEFORE
+        // commit so projection, session_messages, and socket emits agree.
+        // Using only commit_seq caused client keyed {#each} collapses when
+        // ids collided ("new message eats old").
+        let message_id = format!("msg_{}", uuid::Uuid::new_v4().simple());
         let record = MessageRecord {
-            message_id: String::new(), // projection overrides from commit_seq
+            message_id: message_id.clone(),
             channel_id: channel_id.to_string(),
             author_user_id: user_id,
             author_device_id: String::new(),
@@ -194,7 +199,7 @@ impl WabiStore for WdbAdapter {
             files: files.to_vec(),
         };
         let payload = encode_record(&record);
-        let seq = self
+        let _seq = self
             .run(
                 user_id,
                 "send_message",
@@ -206,7 +211,7 @@ impl WabiStore for WdbAdapter {
                 Some(idem),
             )
             .await?;
-        Ok(format!("msg_{:x}", seq))
+        Ok(message_id)
     }
 
     async fn create_user(

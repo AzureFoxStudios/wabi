@@ -21,6 +21,69 @@ import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } f
 import { isRenderableMessage } from '$lib/displayEnhancements';
 import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
 import { recordSuccessfulServerConnection } from './savedServerActions';
+
+
+/** Stable identity for message list rows. Prefer server id once accepted. */
+function messageRowKey(message: Message, index = 0): string {
+	const id = String(message?.id ?? '').trim();
+	if (id && !id.startsWith('optimistic:')) return id;
+	const cmid = String(message?.clientMessageId ?? message?.clientNonce ?? '').trim();
+	if (cmid) return cmid;
+	if (id) return id;
+	return `__missing_${index}`;
+}
+
+function isSameMessageRow(candidate: Message, incoming: Message): boolean {
+	if (
+		candidate.clientMessageId &&
+		incoming.clientMessageId &&
+		candidate.clientMessageId === incoming.clientMessageId
+	) {
+		return true;
+	}
+	if (candidate.id && incoming.id && candidate.id === incoming.id) {
+		if (
+			candidate.clientMessageId &&
+			incoming.clientMessageId &&
+			candidate.clientMessageId !== incoming.clientMessageId
+		) {
+			return false;
+		}
+		return true;
+	}
+	return false;
+}
+
+function mergeMessageRow(candidate: Message, incoming: Message): Message {
+	return {
+		...candidate,
+		...incoming,
+		clientMessageId: incoming.clientMessageId || candidate.clientMessageId,
+		id: incoming.id || candidate.id,
+		deliveryState: undefined,
+		deliveryError: undefined
+	};
+}
+
+function dedupeMessagesKeepOrder(items: Message[]): Message[] {
+	const byKey = new Map<string, Message>();
+	items.forEach((m, i) => {
+		if (!isRenderableMessage(m)) return;
+		byKey.set(messageRowKey(m, i), m);
+	});
+	const seen = new Set<string>();
+	const out: Message[] = [];
+	items.forEach((m, i) => {
+		if (!isRenderableMessage(m)) return;
+		const key = messageRowKey(m, i);
+		if (seen.has(key)) return;
+		seen.add(key);
+		out.push(byKey.get(key) || m);
+	});
+	return out;
+}
+
+
 import {
 	users,
 	serverMembers,
@@ -462,7 +525,7 @@ export class SocketManager {
 			roleDefinitions?: unknown[];
 			voiceState?: Record<string, unknown>;
 		}) => {
-			const nextChannels = normalizeChannelList(payload?.channels);
+			const nextChannels = dedupeByIdKey(normalizeChannelList(payload?.channels));
 			channels.set(nextChannels);
 			_updatePinnedChannels();
 
@@ -549,13 +612,30 @@ export class SocketManager {
 
 		sock.on('channel-messages', (payload: { channelId?: string; messages?: Message[] }) => {
 			if (!payload?.channelId) return;
-			const sanitized = Array.isArray(payload.messages)
-				? payload.messages.filter((m) => isRenderableMessage(m))
-				: [];
-			channelMessages.update((state) => ({
-				...state,
-				[payload.channelId as string]: sanitized
-			}));
+			const raw = Array.isArray(payload.messages) ? payload.messages : [];
+			const sanitized = dedupeMessagesKeepOrder(raw);
+			channelMessages.update((state) => {
+				const channelId = payload.channelId as string;
+				const previous = state[channelId] || [];
+				const serverIds = new Set(sanitized.map((m) => String(m.id || '').trim()).filter(Boolean));
+				const serverClientIds = new Set(
+					sanitized
+						.map((m) => m.clientMessageId)
+						.filter((id): id is string => Boolean(id && String(id).trim()))
+				);
+				const pendingLocal = previous.filter((m) => {
+					if (m.deliveryState !== 'sending' && m.deliveryState !== 'failed') return false;
+					const mid = String(m.id || '').trim();
+					if (mid && serverIds.has(mid)) return false;
+					if (m.clientMessageId && serverClientIds.has(m.clientMessageId)) return false;
+					return true;
+				});
+				const merged =
+					pendingLocal.length > 0
+						? dedupeMessagesKeepOrder([...sanitized, ...pendingLocal])
+						: sanitized;
+				return { ...state, [channelId]: merged };
+			});
 		});
 
 		sock.on('message', (payload: { channelId?: string; message?: Message }) => {
@@ -569,13 +649,15 @@ export class SocketManager {
 			channelMessages.update((state) => {
 				const existing = state[channelId] || [];
 				const duplicateIndex = existing.findIndex((candidate) =>
-					candidate.id === message.id ||
-					(Boolean(message.clientMessageId) && candidate.clientMessageId === message.clientMessageId)
+					isSameMessageRow(candidate, message)
 				);
-				const next = duplicateIndex >= 0
-					? existing.map((candidate, index) => index === duplicateIndex ? { ...candidate, ...message, deliveryState: undefined, deliveryError: undefined } : candidate)
-					: [...existing, message];
-				return { ...state, [channelId]: next };
+				const next =
+					duplicateIndex >= 0
+						? existing.map((candidate, index) =>
+								index === duplicateIndex ? mergeMessageRow(candidate, message) : candidate
+							)
+						: [...existing, message];
+				return { ...state, [channelId]: dedupeMessagesKeepOrder(next) };
 			});
 		});
 
@@ -586,17 +668,19 @@ export class SocketManager {
 			timestamp?: number;
 		}) => {
 			if (!payload?.channelId || !payload.clientMessageId) return;
+			const patch: Partial<Message> = {
+				deliveryState: undefined,
+				deliveryError: undefined
+			};
+			if (payload.messageId) patch.id = payload.messageId;
+			if (typeof payload.timestamp === 'number' && Number.isFinite(payload.timestamp)) {
+				patch.timestamp = payload.timestamp;
+			}
 			_updateOptimisticMessage(
 				payload.channelId,
 				(message) => message.clientMessageId === payload.clientMessageId,
-				{
-					id: payload.messageId,
-					timestamp: payload.timestamp,
-					deliveryState: undefined,
-					deliveryError: undefined
-				}
+				patch
 			);
-			// Reconcile the corresponding queued outbound action.
 			const db = getWabiDB();
 			if (db && payload.clientMessageId) {
 				db.markSyncedByClientId(payload.clientMessageId).catch(() => {});

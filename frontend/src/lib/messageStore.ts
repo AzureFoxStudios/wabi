@@ -110,38 +110,93 @@ export function retryMessagePersistence(channelId: string, messageId: string): v
 	sock.emit('retry-message', { channelId, messageId });
 }
 
+export type SendMessageResult =
+	| { ok: true; clientMessageId: string; queuedOffline?: boolean }
+	| { ok: false; reason: 'no_socket' | 'empty' | 'no_channel' };
+
+/**
+ * Send a chat message. Returns a result so the composer can keep the draft
+ * when the socket is missing instead of silently clearing the input.
+ */
 export async function sendMessage(
 	channelId: string,
 	content: string,
 	type: MessageType = 'text',
 	options: Record<string, unknown> = {}
-): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
+): Promise<SendMessageResult> {
+	if (!channelId) return { ok: false, reason: 'no_channel' };
 
 	const trimmed = content.trim();
-	if (!trimmed && type === 'text') return;
+	// Non-text types (gif/file/emoji) may have empty text with media in options.
+	if (!trimmed && type === 'text') return { ok: false, reason: 'empty' };
+
+	const sock = getSocket();
+	const online = get(connected);
+	const db = getWabiDB();
+	// Offline with local queue: allow enqueue without a live socket.
+	if (!sock && !(db && !online)) {
+		return { ok: false, reason: 'no_socket' };
+	}
 
 	const clientMessageId = createClientMessageId(channelId);
 	const me = get(currentUser);
+	// Prefer stable user-<dbId> so optimistic rows match server echoes and isOwnMessage.
+	const stableId =
+		(typeof me?.dbUserId === 'number' && me.dbUserId > 0
+			? `user-${me.dbUserId}`
+			: null) ||
+		me?.id ||
+		sock?.id ||
+		'local';
+
+	// Only lift known message fields from options — avoid polluting the row with
+	// upload metadata keys the renderer does not expect on text messages.
+	const {
+		replyTo,
+		isSpoiler,
+		entities,
+		gifUrl,
+		emojiUrl,
+		emojiName,
+		fileUrl,
+		fileName,
+		fileSize,
+		files,
+		attachmentEncryption,
+		attachmentStorage,
+		encrypted,
+		iv
+	} = options as Partial<Message>;
+
 	const optimisticMessage: Message = {
 		id: clientMessageId,
 		clientMessageId,
 		user: me?.username || 'You',
-		userId: me?.id || sock.id || 'local',
-		senderStableId: me?.id || sock.id || 'local',
+		userId: stableId,
+		senderStableId: stableId,
 		color: me?.color || '#98D8C8',
 		text: trimmed,
 		timestamp: Date.now(),
 		type,
 		deliveryState: 'sending',
-		...(options as Partial<Message>)
+		...(replyTo !== undefined ? { replyTo } : {}),
+		...(isSpoiler !== undefined ? { isSpoiler } : {}),
+		...(entities !== undefined ? { entities } : {}),
+		...(gifUrl !== undefined ? { gifUrl } : {}),
+		...(emojiUrl !== undefined ? { emojiUrl } : {}),
+		...(emojiName !== undefined ? { emojiName } : {}),
+		...(fileUrl !== undefined ? { fileUrl } : {}),
+		...(fileName !== undefined ? { fileName } : {}),
+		...(fileSize !== undefined ? { fileSize } : {}),
+		...(files !== undefined ? { files } : {}),
+		...(attachmentEncryption !== undefined ? { attachmentEncryption } : {}),
+		...(attachmentStorage !== undefined ? { attachmentStorage } : {}),
+		...(encrypted !== undefined ? { encrypted } : {}),
+		...(iv !== undefined ? { iv } : {})
 	};
 
 	appendOptimisticMessage(channelId, optimisticMessage);
 
-	const db = getWabiDB();
-	const online = get(connected);
 	if (db && !online) {
 		await db.enqueue({
 			scopeId: 'corechat',
@@ -153,16 +208,18 @@ export async function sendMessage(
 			(m) => m.clientMessageId === clientMessageId,
 			{ deliveryState: 'failed', deliveryError: 'Queued — will send when online' }
 		);
-		return;
+		return { ok: true, clientMessageId, queuedOffline: true };
 	}
 
-	sock.emit('message', {
+	// sock is defined here (guarded above unless offline queue path returned).
+	sock!.emit('message', {
 		channelId,
 		text: trimmed,
 		type,
 		clientMessageId,
 		...options
 	});
+	return { ok: true, clientMessageId };
 }
 
 export async function editMessage(channelId: string, messageId: string, newText: string): Promise<void> {
