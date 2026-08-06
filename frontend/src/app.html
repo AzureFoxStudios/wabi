@@ -124,14 +124,23 @@
 				height: 76px;
 				object-fit: contain;
 				filter: invert(1) drop-shadow(0 14px 30px rgba(0, 0, 0, 0.4));
-				animation: wabi-boot-logo-breathe 2.4s ease-in-out infinite;
+				/* Stay invisible until data-boot-ready — prevents Wabi→server flicker */
 				opacity: 0;
+				visibility: hidden;
+			}
+
+			#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__logo {
+				visibility: visible;
 				animation-name: wabi-boot-logo-in, wabi-boot-logo-breathe;
-				animation-duration: 0.55s, 2.4s;
+				animation-duration: 0.45s, 2.4s;
 				animation-timing-function: ease-out, ease-in-out;
 				animation-iteration-count: 1, infinite;
 				animation-fill-mode: forwards, none;
-				animation-delay: 0s, 0.55s;
+				animation-delay: 0s, 0.45s;
+			}
+
+			#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__mark {
+				animation: wabi-boot-logo-in 0.45s ease-out forwards, wabi-boot-logo-breathe 2.4s ease-in-out 0.45s infinite;
 			}
 
 			/* Neutral / custom logos that are already light shouldn't be inverted */
@@ -164,8 +173,10 @@
 			}
 
 			#wabi-boot-shell[data-boot-brand='neutral'] .wabi-boot-shell__mark {
+				display: none;
+			}
+			#wabi-boot-shell[data-boot-brand='neutral'][data-boot-ready='1'] .wabi-boot-shell__mark {
 				display: block;
-				animation: wabi-boot-logo-in 0.55s ease-out forwards, wabi-boot-logo-breathe 2.4s ease-in-out 0.55s infinite;
 			}
 
 			.wabi-boot-shell__title {
@@ -286,8 +297,9 @@
 				.wabi-boot-shell__dots span {
 					animation: none !important;
 				}
-				.wabi-boot-shell__logo {
+				#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__logo {
 					opacity: 1;
+					visibility: visible;
 				}
 			}
 		</style>
@@ -355,7 +367,7 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="tap">
-		<div id="wabi-boot-shell" role="status" aria-live="polite" data-boot-brand="wabi" style="--boot-accent: #818cf8">
+		<div id="wabi-boot-shell" role="status" aria-live="polite" data-boot-brand="pending" style="--boot-accent: #818cf8">
 			<div class="wabi-boot-shell__center" data-boot-state="default">
 				<div class="wabi-boot-shell__default">
 					<div class="wabi-boot-shell__stage" aria-hidden="true">
@@ -363,13 +375,13 @@
 						<span class="wabi-boot-shell__ring"></span>
 						<img
 							id="wabi-boot-logo"
-							src="%sveltekit.assets%/wabi-logo.png"
 							alt=""
 							class="wabi-boot-shell__logo"
+							decoding="async"
 						/>
 						<span class="wabi-boot-shell__mark" aria-hidden="true"></span>
 					</div>
-					<div id="wabi-boot-title" class="wabi-boot-shell__title">Starting Wabi</div>
+					<div id="wabi-boot-title" class="wabi-boot-shell__title" data-empty="true">Starting</div>
 					<div class="wabi-boot-shell__dots" aria-hidden="true">
 						<span></span>
 						<span></span>
@@ -401,17 +413,48 @@
 					if (center) center.dataset.bootState = 'reconnect';
 				};
 
-				/** Apply brand snapshot to the boot shell (neutral / custom / wabi). */
+				const DEFAULT_WABI_LOGO = '%sveltekit.assets%/wabi-logo.png';
+
+				/**
+				 * Apply brand once and lock. Later calls that try to flip
+				 * custom/neutral → default Wabi are ignored (stops mount flicker).
+				 * Pass { force: true } to intentionally rebrand.
+				 */
 				const applyBootBrand = (snapshot) => {
 					const shell = getShell();
 					if (!shell) return;
 					const logo = document.getElementById('wabi-boot-logo');
 					const title = document.getElementById('wabi-boot-title');
-					const snap = snapshot || window.__WABI_BOOT_BRAND__ || {};
+					const raw = snapshot || window.__WABI_BOOT_BRAND__ || {};
+					const force = raw && raw.force === true;
+					const snap = {
+						neutral: raw.neutral === true,
+						brandName: typeof raw.brandName === 'string' ? raw.brandName.trim() : '',
+						logoUrl: typeof raw.logoUrl === 'string' ? raw.logoUrl.trim() : '',
+						accent: typeof raw.accent === 'string' ? raw.accent.trim() : ''
+					};
+
+					const locked = shell.dataset.bootLocked === '1';
+					const current = shell.dataset.bootBrand || 'pending';
+					const next =
+						snap.neutral ? 'neutral' : (snap.brandName || snap.logoUrl) ? 'custom' : 'wabi';
+
+					// Don't let late app boot overwrite a committed custom/neutral brand
+					// with the default Wabi config (classic flicker path).
+					if (locked && !force) {
+						if ((current === 'custom' || current === 'neutral') && next === 'wabi') {
+							return;
+						}
+						// Same brand family — ignore no-op churn
+						if (current === next && current !== 'pending') {
+							shell.dataset.bootReady = '1';
+							return;
+						}
+					}
 
 					if (snap.neutral) {
 						shell.dataset.bootBrand = 'neutral';
-						shell.style.setProperty('--boot-accent', '#a1a1aa');
+						shell.style.setProperty('--boot-accent', snap.accent || '#a1a1aa');
 						document.documentElement.setAttribute('data-neutral-branding', '');
 						if (title) {
 							title.textContent = 'Starting';
@@ -421,35 +464,49 @@
 							logo.removeAttribute('src');
 							logo.alt = '';
 						}
-						return;
-					}
-
-					const name = typeof snap.brandName === 'string' ? snap.brandName.trim() : '';
-					const logoUrl = typeof snap.logoUrl === 'string' ? snap.logoUrl.trim() : '';
-					const accent = typeof snap.accent === 'string' ? snap.accent.trim() : '';
-
-					if (name || logoUrl) {
+					} else if (snap.brandName || snap.logoUrl) {
 						shell.dataset.bootBrand = 'custom';
+						document.documentElement.removeAttribute('data-neutral-branding');
 						if (title) {
-							title.textContent = name ? `Starting ${name}` : 'Starting';
-							title.dataset.empty = name ? 'false' : 'true';
+							title.textContent = snap.brandName ? ('Starting ' + snap.brandName) : 'Starting';
+							title.dataset.empty = snap.brandName ? 'false' : 'true';
 						}
-						if (logo && logoUrl) {
-							logo.src = logoUrl;
-							logo.alt = name || '';
+						if (logo && snap.logoUrl) {
+							// Only assign src if changed — avoids reload flicker
+							if (logo.getAttribute('src') !== snap.logoUrl) {
+								logo.src = snap.logoUrl;
+							}
+							logo.alt = snap.brandName || '';
 						}
-						if (accent) shell.style.setProperty('--boot-accent', accent);
-						return;
+						if (snap.accent) shell.style.setProperty('--boot-accent', snap.accent);
+					} else {
+						shell.dataset.bootBrand = 'wabi';
+						document.documentElement.removeAttribute('data-neutral-branding');
+						if (title) {
+							title.textContent = 'Starting Wabi';
+							title.dataset.empty = 'false';
+						}
+						if (logo) {
+							if (logo.getAttribute('src') !== DEFAULT_WABI_LOGO) {
+								logo.src = DEFAULT_WABI_LOGO;
+							}
+							logo.alt = 'Wabi';
+						}
+						if (snap.accent) shell.style.setProperty('--boot-accent', snap.accent);
+						else shell.style.setProperty('--boot-accent', '#818cf8');
 					}
 
-					shell.dataset.bootBrand = 'wabi';
-					if (title) {
-						title.textContent = 'Starting Wabi';
-						title.dataset.empty = 'false';
-					}
-					if (logo && !logo.getAttribute('src')) {
-						logo.src = '%sveltekit.assets%/wabi-logo.png';
-					}
+					window.__WABI_BOOT_BRAND__ = {
+						neutral: shell.dataset.bootBrand === 'neutral',
+						brandName: snap.brandName || (shell.dataset.bootBrand === 'wabi' ? 'Wabi' : ''),
+						logoUrl: (logo && logo.getAttribute('src')) || snap.logoUrl || '',
+						accent: shell.style.getPropertyValue('--boot-accent').trim()
+					};
+					shell.dataset.bootLocked = '1';
+					// Reveal on next frame so src swap isn't painted mid-change
+					requestAnimationFrame(() => {
+						shell.dataset.bootReady = '1';
+					});
 				};
 
 				// Expose for app-side rebrand (injectNeutralBranding / applyBranding)
