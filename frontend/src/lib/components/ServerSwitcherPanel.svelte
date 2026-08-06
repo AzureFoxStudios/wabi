@@ -15,6 +15,7 @@
 		renameSavedServerFolder,
 		renameLocalSavedServer,
 		savedServerRailItems,
+		setUseNeutralBranding,
 		switchToSavedServer,
 		type SavedServerRailItem,
 		type SavedServerView
@@ -893,6 +894,18 @@
 														if (event.key === 'Escape') stopEditing();
 													}}
 												/>
+												<label class="switcher-neutral-toggle">
+													<input
+														type="checkbox"
+														checked={server.useNeutralBranding === true}
+														on:change={(event) =>
+															setUseNeutralBranding(
+																server.url,
+																(event.currentTarget as HTMLInputElement).checked
+															)}
+													/>
+													<span>Hide Wabi branding (boot + login)</span>
+												</label>
 												<button type="button" class="switcher-secondary" on:click={() => saveAlias(server.url)}>Save Alias</button>
 												<button type="button" class="switcher-tertiary" on:click={stopEditing}>Cancel</button>
 											</div>

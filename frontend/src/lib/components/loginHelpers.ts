@@ -1,6 +1,6 @@
 import type { HomeExperienceMode } from '$lib/homeExperience';
 import { sanitizeAccentColor, sanitizeCustomCss, sanitizeCssUrl } from '$lib/cssSanitize';
-import { selectBrandConfig, type BrandConfig } from '$lib/branding';
+import { applyBootShellBrand, selectBrandConfig, type BrandConfig } from '$lib/branding';
 import { currentSavedServer } from '$lib/savedServerStore';
 import { get } from 'svelte/store';
 
@@ -25,8 +25,9 @@ export function getEffectiveBrandConfig(): BrandConfig {
 /**
  * Injects neutral branding at launch. Sets/removes `data-neutral-branding` on
  * <html> so neutral-branding.css / login.css can strip the hardcoded "Wabi"
- * logo + title and neutralize the accent palette. Idempotent; safe to call
- * repeatedly. When `useNeutral` is omitted, auto-detects from the active server.
+ * logo + title and neutralize the accent palette. Also rebrands the boot shell
+ * while it is still visible. Idempotent; safe to call repeatedly.
+ * When `useNeutral` is omitted, auto-detects from the active server.
  */
 export function injectNeutralBranding(useNeutral?: boolean): void {
 	if (typeof document === 'undefined') return;
@@ -34,8 +35,18 @@ export function injectNeutralBranding(useNeutral?: boolean): void {
 	const root = document.documentElement;
 	if (enabled) {
 		root.setAttribute('data-neutral-branding', '');
+		applyBootShellBrand({ neutral: true, brandName: '', logoUrl: '', accent: '#a1a1aa' });
 	} else {
 		root.removeAttribute('data-neutral-branding');
+		const brand = getEffectiveBrandConfig();
+		const server = get(currentSavedServer);
+		const launch = server?.launchPageBranding;
+		applyBootShellBrand({
+			neutral: false,
+			brandName: launch?.brandName || brand.name || '',
+			logoUrl: launch?.logoUrl || brand.bootLogoUrl || brand.logoUrl || '',
+			accent: launch?.palette?.accent || brand.palette.accent || ''
+		});
 	}
 }
 

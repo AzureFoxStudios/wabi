@@ -98,7 +98,9 @@ export {
 	refreshSavedServer,
 	switchToSavedServer,
 	switchToSavedServerChannel,
-	openUnsavedServer
+	openUnsavedServer,
+	getUseNeutralBranding,
+	setUseNeutralBranding
 } from './savedServerActions';
 
 // Initialization

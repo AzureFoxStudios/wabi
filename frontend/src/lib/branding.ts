@@ -84,25 +84,56 @@ export function selectBrandConfig(useNeutral: boolean): BrandConfig {
 export const brandName = brandConfig.name;
 
 export function brandDocumentTitle(segment?: string): string {
-	if (!segment) return brandName;
-	return `${segment} · ${brandName}`;
+	if (!segment) return brandName || 'Chat';
+	return brandName ? `${segment} · ${brandName}` : segment;
 }
 
-export function applyBranding(): void {
+export type BootBrandSnapshot = {
+	neutral?: boolean;
+	brandName?: string;
+	logoUrl?: string;
+	accent?: string;
+};
+
+declare global {
+	interface Window {
+		__applyWabiBootBrand?: (snapshot?: BootBrandSnapshot | null) => void;
+		__hideWabiBootShell?: () => void;
+		__enterReconnectMode?: () => void;
+		__WABI_BOOT_BRAND__?: BootBrandSnapshot;
+	}
+}
+
+/** Push brand into the pre-app boot shell (if still mounted). */
+export function applyBootShellBrand(snapshot: BootBrandSnapshot): void {
 	if (typeof window === 'undefined') return;
-	if (!document.title) {
-		document.title = brandName;
+	window.__WABI_BOOT_BRAND__ = snapshot;
+	if (typeof window.__applyWabiBootBrand === 'function') {
+		window.__applyWabiBootBrand(snapshot);
+	} else {
+		window.dispatchEvent(new CustomEvent('wabi:boot-brand', { detail: snapshot }));
 	}
+}
+
+export function applyBranding(config: BrandConfig = brandConfig, options?: { neutral?: boolean }): void {
+	if (typeof window === 'undefined') return;
+	const neutral = options?.neutral === true || !config.name;
+
+	if (config.name) {
+		document.title = config.name;
+	} else if (neutral) {
+		document.title = 'Chat';
+	}
+
 	const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-	if (icon) {
-		icon.href = brandConfig.faviconUrl;
+	if (icon && config.faviconUrl) {
+		icon.href = config.faviconUrl;
 	}
-	const bootTitle = document.querySelector<HTMLElement>('.wabi-boot-shell__title');
-	if (bootTitle && bootTitle.textContent?.includes('Wabi')) {
-		bootTitle.textContent = bootTitle.textContent.replace(/Wabi/g, brandName);
-	}
-	const bootLogo = document.querySelector<HTMLImageElement>('.wabi-boot-shell__logo');
-	if (bootLogo) {
-		bootLogo.src = brandConfig.bootLogoUrl;
-	}
+
+	applyBootShellBrand({
+		neutral,
+		brandName: config.name || '',
+		logoUrl: config.bootLogoUrl || config.logoUrl || '',
+		accent: config.palette?.accent || ''
+	});
 }
