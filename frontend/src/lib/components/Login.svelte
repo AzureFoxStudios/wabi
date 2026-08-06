@@ -138,7 +138,7 @@
 				{ effect: 'cyberpunk-grid', color: '#e879f9', color2: '#22d3ee', intensity: 0.4, speed: 0.9 },
 				{ effect: 'warp', color: '#818cf8', color2: '#f472b6', intensity: 0.42, speed: 0.8 },
 				{ effect: 'spire', color: '#fbbf24', color2: '#f97316', intensity: 0.4, speed: 0.75 },
-				{ effect: 'balatro', color: '#f87171', color2: '#fef3c7', intensity: 0.38, speed: 0.7 }
+				{ effect: 'joker', color: '#f87171', color2: '#fef3c7', intensity: 0.38, speed: 0.7 }
 			];
 			const pick = picks[Math.floor(Math.random() * picks.length)];
 			root.style.setProperty('--bg-effect-effect', pick.effect);

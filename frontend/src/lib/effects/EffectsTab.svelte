@@ -169,7 +169,7 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Color 2</span>
-			<span class="setting-description">Secondary color (Balatro's blue)</span>
+			<span class="setting-description">Secondary color (Joker's blue)</span>
 		</div>
 		<input
 			type="color"
@@ -182,7 +182,7 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Color 3</span>
-			<span class="setting-description">Tertiary color (Balatro's dark base)</span>
+			<span class="setting-description">Tertiary color (Joker's dark base)</span>
 		</div>
 		<input
 			type="color"

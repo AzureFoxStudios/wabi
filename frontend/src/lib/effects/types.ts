@@ -1,8 +1,8 @@
 export interface EffectConfig {
 	color: string;
-	/** Secondary color for effects that blend multiple colors (e.g. Balatro). */
+	/** Secondary color for effects that blend multiple colors (e.g. Joker). */
 	color2?: string;
-	/** Tertiary color for effects that blend multiple colors (e.g. Balatro). */
+	/** Tertiary color for effects that blend multiple colors (e.g. Joker). */
 	color3?: string;
 	intensity: number;
 	size: number;
