@@ -64,46 +64,44 @@
 
 <div class="settings-section">
 	<h3>{$_('settings.sections.server_management')}</h3>
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Local Directions Assist</span>
-			<span class="setting-description">Opt in to use your current location locally when creating directions cards. This is never uploaded to the server.</span>
+	<div class="settings-group-card">
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Directions GPS</span>
+				<span class="setting-description">Use location only on this device for directions cards. Never uploaded.</span>
+			</div>
+			<button class="toggle-btn" class:active={directionsGpsEnabled} on:click={toggleDirectionsGpsAssist} aria-label="Directions GPS"></button>
 		</div>
-		<button class="toggle-btn" class:active={directionsGpsEnabled} on:click={toggleDirectionsGpsAssist}>
-			{directionsGpsEnabled ? 'ON' : 'OFF'}
-		</button>
-	</div>
-	{#if directionsGpsStatus}
-		<div class="runtime-note">{directionsGpsStatus}</div>
-	{/if}
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Business Data Sync Mode</span>
-			<span class="setting-description">Manual mode reduces background sync chatter. Auto mode continuously syncs business data.</span>
+		{#if directionsGpsStatus}
+			<div class="runtime-note">{directionsGpsStatus}</div>
+		{/if}
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Business sync</span>
+				<span class="setting-description">On = continuous auto sync. Off = manual only.</span>
+			</div>
+			<button class="toggle-btn" class:active={businessSyncMode === 'auto'} on:click={toggleBusinessSyncMode} aria-label="Business sync auto"></button>
 		</div>
-		<button class="toggle-btn" class:active={businessSyncMode === 'auto'} on:click={toggleBusinessSyncMode}>
-			{businessSyncMode === 'auto' ? 'AUTO' : 'MANUAL'}
-		</button>
-	</div>
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Sync Business Data Now</span>
-			<span class="setting-description">Pull latest server state, then push your local business updates.</span>
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Sync now</span>
+				<span class="setting-description">Pull server state, then push local business updates.</span>
+			</div>
+			<button class="action-btn" on:click={runBusinessSyncNow} disabled={businessSyncInFlight}>
+				{businessSyncInFlight ? 'Syncing…' : 'Sync'}
+			</button>
 		</div>
-		<button class="action-btn" on:click={runBusinessSyncNow} disabled={businessSyncInFlight}>
-			{businessSyncInFlight ? 'Syncing...' : 'Sync Now'}
-		</button>
-	</div>
-	{#if businessSyncStatus}
-		<div class="runtime-note">{businessSyncStatus}</div>
-	{/if}
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Clear All Server Messages</span>
-			<span class="setting-description">Delete all messages from the server for all users (cannot be undone)</span>
+		{#if businessSyncStatus}
+			<div class="runtime-note">{businessSyncStatus}</div>
+		{/if}
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Purge all server messages</span>
+				<span class="setting-description">Deletes history for everyone. Cannot be undone.</span>
+			</div>
+			<button class="action-btn danger" on:click={() => dispatch('clearServer')}>
+				{$_('settings.actions.clear_server')}
+			</button>
 		</div>
-		<button class="action-btn danger" on:click={() => dispatch('clearServer')}>
-			{$_('settings.actions.clear_server')}
-		</button>
 	</div>
 </div>

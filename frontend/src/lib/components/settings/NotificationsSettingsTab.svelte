@@ -369,7 +369,7 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Desktop Notifications</span>
-			<span class="setting-description">Get notified when you receive new messages</span>
+			<span class="setting-description">Browser alerts for new messages.</span>
 		</div>
 		<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
 			{notificationsEnabled ? 'Enabled' : 'Enable'}
@@ -379,31 +379,25 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Suppress @everyone, @here, and @all</span>
-			<span class="setting-description">Do not notify when broad mentions are used</span>
+			<span class="setting-description">Skip @everyone / @here / @all.</span>
 		</div>
-		<button class="toggle-btn" class:active={suppressEveryoneHereMentions} on:click={toggleSuppressEveryoneHereMentions}>
-			{suppressEveryoneHereMentions ? 'ON' : 'OFF'}
-		</button>
+		<button class="toggle-btn" class:active={suppressEveryoneHereMentions} on:click={toggleSuppressEveryoneHereMentions} aria-label="Suppress everyone mentions"></button>
 	</div>
 
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Suppress All Role @mentions</span>
-			<span class="setting-description">Do not notify when role mentions are used</span>
+			<span class="setting-description">Skip role @mentions.</span>
 		</div>
-		<button class="toggle-btn" class:active={suppressRoleMentions} on:click={toggleSuppressRoleMentions}>
-			{suppressRoleMentions ? 'ON' : 'OFF'}
-		</button>
+		<button class="toggle-btn" class:active={suppressRoleMentions} on:click={toggleSuppressRoleMentions} aria-label="Suppress role mentions"></button>
 	</div>
 
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Show Message Preview</span>
-			<span class="setting-description">If off, desktop notifications use a generic "New message" body.</span>
+			<span class="setting-description">Include message text in the alert.</span>
 		</div>
-		<button class="toggle-btn" class:active={notificationPreviewEnabled} on:click={toggleNotificationPreview}>
-			{notificationPreviewEnabled ? 'ON' : 'OFF'}
-		</button>
+		<button class="toggle-btn" class:active={notificationPreviewEnabled} on:click={toggleNotificationPreview} aria-label="Show message preview"></button>
 	</div>
 
 	<div class="setting-item-full">
@@ -412,7 +406,7 @@
 				<svg class="setting-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
 				Notification Sound
 			</span>
-			<span class="setting-description">Choose which sound to play for notifications</span>
+			<span class="setting-description">Alert sound.</span>
 		</div>
 		<div class="sound-options">
 			<button class="sound-option" class:active={notificationSound === '/sounds/ProjectSound.ogg'} on:click={() => updateNotificationSound('/sounds/ProjectSound.ogg')}>
@@ -433,7 +427,7 @@
 	<div class="setting-item-full">
 		<div class="setting-info">
 			<span class="setting-label">Call Ringtone</span>
-			<span class="setting-description">Choose what repeats while an incoming call is ringing.</span>
+			<span class="setting-description">Incoming call loop.</span>
 		</div>
 		<select class="theme-select" bind:value={callRingtoneMode} on:change={(e) => updateCallRingtoneMode(e.currentTarget.value as CallRingtoneMode)}>
 			{#each CALL_RINGTONE_OPTIONS as option}
