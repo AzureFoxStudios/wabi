@@ -533,17 +533,19 @@
 .field-row {
 	display: flex;
 	align-items: center;
-	justify-content: flex-start;
+	justify-content: center;
+	width: 100%;
 }
 
 .remember-row {
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: 0.6rem;
-	margin: 0;
+	margin: 0 auto;
 	color: var(--text-secondary);
 	font-size: var(--font-size-base);
-	text-align: left;
+	text-align: center;
 	cursor: pointer;
 	user-select: none;
 }

@@ -117,22 +117,42 @@
 
 	onMount(() => {
 		injectNeutralBranding();
-		// Login is pre-auth — theme ambient may be "none"/0. Seed a soft default
-		// so AmbientBackground actually paints under the glass card (user loved it).
+		// Login is pre-auth. Always pick a fresh ambient + accent palette so
+		// reloads aren't endless purple constellations.
 		try {
 			const root = document.documentElement;
-			const style = getComputedStyle(root);
-			const effect = style.getPropertyValue('--bg-effect-effect').trim();
-			const intensity = parseFloat(style.getPropertyValue('--bg-effect-intensity')) || 0;
-			if (!effect || effect === 'none' || intensity <= 0) {
-				root.style.setProperty('--bg-effect-effect', 'constellations');
-				root.style.setProperty('--bg-effect-color', style.getPropertyValue('--accent-primary-color').trim() || '#6366f1');
-				root.style.setProperty('--bg-effect-color2', style.getPropertyValue('--accent-secondary-color').trim() || '#818cf8');
-				root.style.setProperty('--bg-effect-intensity', '0.45');
-				root.style.setProperty('--bg-effect-size', '1');
-				root.style.setProperty('--bg-effect-speed', '0.85');
-				root.setAttribute('data-ambient', 'true');
-			}
+			const picks: Array<{
+				effect: string;
+				color: string;
+				color2: string;
+				intensity: number;
+				speed: number;
+			}> = [
+				{ effect: 'constellations', color: '#6366f1', color2: '#a78bfa', intensity: 0.48, speed: 0.85 },
+				{ effect: 'stars', color: '#38bdf8', color2: '#818cf8', intensity: 0.5, speed: 0.9 },
+				{ effect: 'sakura', color: '#f472b6', color2: '#fb7185', intensity: 0.42, speed: 0.75 },
+				{ effect: 'embers', color: '#f59e0b', color2: '#ef4444', intensity: 0.4, speed: 0.8 },
+				{ effect: 'synapse', color: '#22d3ee', color2: '#6366f1', intensity: 0.45, speed: 0.95 },
+				{ effect: 'storm', color: '#94a3b8', color2: '#6366f1', intensity: 0.38, speed: 0.7 },
+				{ effect: 'matrix', color: '#22c55e', color2: '#16a34a', intensity: 0.36, speed: 0.85 },
+				{ effect: 'cyberpunk-grid', color: '#e879f9', color2: '#22d3ee', intensity: 0.4, speed: 0.9 },
+				{ effect: 'warp', color: '#818cf8', color2: '#f472b6', intensity: 0.42, speed: 0.8 },
+				{ effect: 'spire', color: '#fbbf24', color2: '#f97316', intensity: 0.4, speed: 0.75 },
+				{ effect: 'balatro', color: '#f87171', color2: '#fef3c7', intensity: 0.38, speed: 0.7 }
+			];
+			const pick = picks[Math.floor(Math.random() * picks.length)];
+			root.style.setProperty('--bg-effect-effect', pick.effect);
+			root.style.setProperty('--bg-effect-color', pick.color);
+			root.style.setProperty('--bg-effect-color2', pick.color2);
+			root.style.setProperty('--bg-effect-intensity', String(pick.intensity));
+			root.style.setProperty('--bg-effect-size', '1');
+			root.style.setProperty('--bg-effect-speed', String(pick.speed));
+			// Soft-tint UI accents to match the ambient so the whole login coheres
+			// (not just the canvas). Tokens still win post-login via themeManager.
+			root.style.setProperty('--accent-primary-color', pick.color);
+			root.style.setProperty('--accent-secondary-color', pick.color2);
+			root.setAttribute('data-ambient', 'true');
+			root.setAttribute('data-login-ambient', pick.effect);
 		} catch {
 			/* non-fatal */
 		}
