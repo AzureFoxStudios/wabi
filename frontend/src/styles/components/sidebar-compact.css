@@ -29,7 +29,7 @@
 		height: 28px;
 		min-width: 28px;
 		min-height: 28px;
-		border-radius: 6px;
+		border-radius: var(--radius-sm, 4px);
 		background: none;
 		border: none;
 		color: var(--text-secondary);
