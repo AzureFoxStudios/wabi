@@ -4,11 +4,11 @@
 	import { connectionState, type ConnectionState } from '$lib/socketConnectionState';
 
 	/** Finding 21: badge reflects Wabi socket health + browser network, not navigator.onLine alone. */
-	type BadgeStatus = 'online' | 'offline' | 'connecting' | 'reconnecting' | 'unreachable';
+	type BadgeStatus = 'online' | 'offline' | 'connecting' | 'reconnecting' | 'unreachable' | 'idle';
 
 	let browserOnline = true;
 	let socketState: ConnectionState = 'disconnected';
-	let status: BadgeStatus = 'offline';
+	let status: BadgeStatus = 'idle';
 	let unsubSocket: (() => void) | null = null;
 
 	function recompute() {
@@ -31,8 +31,9 @@
 				break;
 			case 'disconnected':
 			default:
-				// Browser online but no live socket — treat as server-unreachable, not "Online"
-				status = 'unreachable';
+				// Idle / pre-auth (login screen) — no socket by design. Don't
+				// scream "Server unreachable" when we simply haven't connected.
+				status = 'idle';
 				break;
 		}
 	}
@@ -52,7 +53,7 @@
 		status = 'offline';
 	}
 
-	const labels: Record<BadgeStatus, string> = {
+	const labels: Record<Exclude<BadgeStatus, 'idle'>, string> = {
 		online: 'Online',
 		offline: 'Offline',
 		connecting: 'Connecting…',
@@ -83,18 +84,30 @@
 	});
 </script>
 
-<div
-	class="badge"
-	class:badge--online={status === 'online'}
-	class:badge--offline={status === 'offline'}
-	class:badge--connecting={status === 'connecting' || status === 'reconnecting'}
-	class:badge--unreachable={status === 'unreachable'}
-	aria-live="polite"
-	role="status"
->
-	<span class="badge__dot" aria-hidden="true"></span>
-	<span class="badge__label">{labels[status]}</span>
-</div>
+{#if status !== 'idle'}
+	<div
+		class="badge"
+		class:badge--online={status === 'online'}
+		class:badge--offline={status === 'offline'}
+		class:badge--connecting={status === 'connecting' || status === 'reconnecting'}
+		class:badge--unreachable={status === 'unreachable'}
+		aria-live="polite"
+		role="status"
+	>
+		<span class="badge__dot" aria-hidden="true"></span>
+		<span class="badge__label">
+			{status === 'online'
+				? labels.online
+				: status === 'offline'
+					? labels.offline
+					: status === 'connecting'
+						? labels.connecting
+						: status === 'reconnecting'
+							? labels.reconnecting
+							: labels.unreachable}
+		</span>
+	</div>
+{/if}
 
 <style>
 	.badge {
