@@ -221,7 +221,7 @@
 					class:active={activeTab === 'notes'}
 					role="tab"
 					aria-selected={activeTab === 'notes'}
-					on:click={() => (activeTab = 'notes')}
+					on:click={() => (activeTab = activeTab === 'notes' ? 'dm' : 'notes')}
 				>
 					Notes
 				</button>
@@ -231,7 +231,7 @@
 					class:active={activeTab === 'dm'}
 					role="tab"
 					aria-selected={activeTab === 'dm'}
-					on:click={() => (activeTab = 'dm')}
+					on:click={() => (activeTab = activeTab === 'dm' ? 'notes' : 'dm')}
 				>
 					{dmLabel ? `DM · ${dmLabel}` : 'DM'}
 				</button>

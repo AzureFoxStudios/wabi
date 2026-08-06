@@ -211,6 +211,17 @@
 		color: var(--color-danger, #ef4444);
 	}
 
+	.profile-card .profile-controls .control-btn.control-btn-danger {
+		color: var(--color-danger, #ef4444);
+		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.35);
+	}
+
+	.profile-card .profile-controls .control-btn.control-btn-danger:hover {
+		background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.18);
+		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.55);
+		color: #fff;
+	}
+
 	.profile-card .profile-controls .control-btn.share-copied {
 		position: relative;
 	}

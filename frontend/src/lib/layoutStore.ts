@@ -144,17 +144,6 @@ const showAdminCenterStage = () => {
 	centerPanelView.set('admin');
 };
 
-/** N3: full-width notes center stage (same storage key as right-panel KeepNotes). */
-const showNotesCenterStage = () => {
-	// Clear stale NOTES_DM_ID selection if any older path left it set.
-	if (get(selectedDmChannelId) === NOTES_DM_ID) {
-		selectedDmChannelId.set(null);
-		dmOtherUser.set(null);
-	}
-	selectedGroupChannel.set(null);
-	centerPanelView.set('notes');
-};
-
 const setCenterPanelView = (view: 'chat' | 'admin' | 'notes') => {
 	centerPanelView.set(view);
 };
@@ -385,7 +374,6 @@ export const layoutStore = {
 	showDMsTab,
 	showAdminTab,
 	showAdminCenterStage,
-	showNotesCenterStage,
 	setCenterPanelView,
 	showMediaTab,
 	showMapTab,

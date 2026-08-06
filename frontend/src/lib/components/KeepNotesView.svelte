@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { currentUser } from '$lib/socket';
 	import { getKeepNotesStorageKey } from '$lib/notesStore';
-	import { layoutStore } from '$lib/layoutStore';
+	import { openNotesSurface } from '$lib/notesWorkspace';
 	import NotesWorkspace from './NotesWorkspace.svelte';
 
 	/** N2: right-panel notes uses compact layout; center/full can omit. */
@@ -16,10 +16,10 @@
 			<button
 				type="button"
 				class="keep-notes-expand"
-				on:click={() => layoutStore.showNotesCenterStage()}
-				title="Open notes full width"
+				on:click={openNotesSurface}
+				title="Open notes in the channel viewer"
 			>
-				Expand
+				Open in viewer
 			</button>
 		</div>
 		<div class="keep-notes-compact-body">
