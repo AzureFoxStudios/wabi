@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
-	import { brandName } from '$lib/branding';
+	import { brandConfig, brandName, selectBrandConfig } from '$lib/branding';
+	import { isNeutralBrandingEnabled } from '$lib/components/loginHelpers';
+	import { onMount } from 'svelte';
 
 	const isDevBuild = import.meta.env.DEV;
 	const MEMORY_TELEMETRY_KEY = 'wabi_debug_memory_telemetry';
@@ -12,6 +14,12 @@
 	let memoryTotalMb = 0;
 	let memoryLimitMb = 0;
 	let memoryUsedPct = 0;
+
+	let activeBrand = brandConfig;
+	let aboutTitle = brandName;
+	let aboutBlurb = '';
+	let aboutFooter = '';
+	let aboutVersion = '1.0.0';
 
 	function sampleMemoryTelemetry() {
 		if (!isDevBuild || !memoryTelemetrySupported) return;
@@ -39,28 +47,50 @@
 	function toggleMemoryTelemetry() {
 		memoryTelemetryEnabled = !memoryTelemetryEnabled;
 		localStorage.setItem(MEMORY_TELEMETRY_KEY, memoryTelemetryEnabled ? 'true' : 'false');
-		if (memoryTelemetryEnabled) {
-			startMemoryTelemetry();
-		} else {
-			stopMemoryTelemetry();
-		}
+		if (memoryTelemetryEnabled) startMemoryTelemetry();
+		else stopMemoryTelemetry();
 	}
 
-	// Init
-	memoryTelemetrySupported = typeof performance !== 'undefined' && Boolean((performance as Performance & { memory?: unknown }).memory);
-	if (isDevBuild) {
-		memoryTelemetryEnabled = localStorage.getItem(MEMORY_TELEMETRY_KEY) === 'true';
-		if (memoryTelemetryEnabled) {
-			startMemoryTelemetry();
+	onMount(() => {
+		const brand = selectBrandConfig(isNeutralBrandingEnabled());
+		activeBrand = brand;
+		aboutTitle = brand.name || brand.shortName || brandName || 'Community';
+		// Prefer branded copy when hosts set it; fall back to a short neutral line.
+		aboutBlurb =
+			(brand.description && brand.description.trim()) ||
+			(brand.tagline && brand.tagline.trim()) ||
+			(brand.subheadline && brand.subheadline.trim()) ||
+			'Self-hosted community chat.';
+		aboutFooter = (brand.footerText && brand.footerText.trim()) || '';
+		try {
+			const v = (document.querySelector('meta[name="wabi-version"]') as HTMLMetaElement | null)?.content;
+			if (v) aboutVersion = v;
+		} catch { /* ignore */ }
+
+		memoryTelemetrySupported =
+			typeof performance !== 'undefined' &&
+			Boolean((performance as Performance & { memory?: unknown }).memory);
+		if (isDevBuild) {
+			memoryTelemetryEnabled = localStorage.getItem(MEMORY_TELEMETRY_KEY) === 'true';
+			if (memoryTelemetryEnabled) startMemoryTelemetry();
 		}
-	}
+	});
 </script>
 
 <div class="settings-section">
 	<h3>{$_('settings.sections.about')}</h3>
-	<div class="about-info">
-		<p><strong>{brandName}</strong> · privacy-first self-hosted chat</p>
-		<p class="version">v1.0.0</p>
+	<div class="about-card">
+		{#if activeBrand.logoSmallUrl || activeBrand.logoUrl}
+			<img class="about-logo" src={activeBrand.logoSmallUrl || activeBrand.logoUrl} alt="" />
+		{/if}
+		<div class="about-copy">
+			<p class="about-title"><strong>{aboutTitle}</strong></p>
+			<p class="about-blurb">{aboutBlurb}</p>
+			{#if aboutFooter}
+				<p class="about-footer">{aboutFooter}</p>
+			{/if}
+			<p class="version">v{aboutVersion}</p>
+		</div>
 	</div>
 	{#if isDevBuild}
 		<div class="setting-item">
@@ -68,7 +98,13 @@
 				<span class="setting-label">Debug memory telemetry</span>
 				<span class="setting-description">DEV: sample JS heap every 2s.</span>
 			</div>
-			<button class="toggle-btn" class:active={memoryTelemetryEnabled} on:click={toggleMemoryTelemetry} disabled={!memoryTelemetrySupported} aria-label="Memory telemetry"></button>
+			<button
+				class="toggle-btn"
+				class:active={memoryTelemetryEnabled}
+				on:click={toggleMemoryTelemetry}
+				disabled={!memoryTelemetrySupported}
+				aria-label="Memory telemetry"
+			></button>
 		</div>
 		{#if memoryTelemetryEnabled && memoryTelemetrySupported}
 			<div class="runtime-note">

@@ -1,24 +1,65 @@
-/* ==========================================================================
-   SETTINGS — ABOUT STYLES
-   Extracted from settings.css
-   ========================================================================== */
+/* SETTINGS — ABOUT */
+.about-card {
+	display: flex;
+	gap: 0.85rem;
+	align-items: flex-start;
+	padding: 0.9rem 1rem;
+	border-radius: var(--radius-xl);
+	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--surface-raised) 70%, transparent),
+			color-mix(in srgb, var(--surface-sunken) 52%, transparent)
+		);
+	margin-bottom: 0.75rem;
+}
 
+.about-logo {
+	width: 44px;
+	height: 44px;
+	border-radius: 12px;
+	object-fit: contain;
+	flex: 0 0 auto;
+	background: color-mix(in srgb, var(--surface-sunken) 50%, transparent);
+}
 
+.about-copy {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
 
-	.about-info {
-		padding: 1rem;
-		background: var(--surface-raised);
-		border-radius: 8px;
-	}
+.about-title {
+	margin: 0;
+	color: var(--text-heading);
+	font-size: 1.05rem;
+}
 
+.about-blurb,
+.about-footer {
+	margin: 0;
+	color: var(--text-secondary);
+	font-size: 0.85rem;
+	line-height: 1.4;
+}
 
-	.about-info p {
-		margin: 0.5rem 0;
-		color: var(--text-secondary);
-	}
+.about-card .version,
+.about-info .version {
+	margin: 0.15rem 0 0;
+	font-size: 0.75rem;
+	color: var(--text-muted);
+	font-weight: 650;
+	letter-spacing: 0.04em;
+}
 
-
-	.about-info p strong {
-		color: var(--text-heading);
-		font-size: 1.1rem;
-	}
+/* legacy */
+.about-info {
+	padding: 0.9rem 1rem;
+	border-radius: var(--radius-xl);
+	background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
+	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
+}
+.about-info p { margin: 0.35rem 0; color: var(--text-secondary); }
+.about-info p strong { color: var(--text-heading); font-size: 1.05rem; }

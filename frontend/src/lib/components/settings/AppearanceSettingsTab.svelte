@@ -246,7 +246,7 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Avatars</span>
-				<span class="setting-description">Who shows a profile picture in chat.</span>
+				<span class="setting-description">In message list.</span>
 			</div>
 			<select class="theme-select" value={chatAvatarMode} on:change={(e) => updateChatAvatarMode(e.currentTarget.value as ChatAvatarMode)}>
 				<option value="off">Off</option>
@@ -257,7 +257,7 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Density</span>
-				<span class="setting-description">Cozy spacing vs compact list.</span>
+				<span class="setting-description">Spacing density.</span>
 			</div>
 			<div class="density-toggle">
 				<button type="button" class="density-btn" class:active={messageDensity === 'cozy'} on:click={() => updateMessageDensity('cozy')}>Default</button>
@@ -267,21 +267,21 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Own messages right</span>
-				<span class="setting-description">Align your bubbles to the right.</span>
+				<span class="setting-description">Your bubbles on the right.</span>
 			</div>
 			<button class="toggle-btn" class:active={ownMessagesOnRight} on:click={toggleOwnMessagesOnRight} aria-label="Own messages on right"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Send button</span>
-				<span class="setting-description">Paper-plane control next to composer.</span>
+				<span class="setting-description">Composer send control.</span>
 			</div>
 			<button class="toggle-btn" class:active={clickableSendEnabled} on:click={toggleClickableSendEnabled} aria-label="Clickable send button"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Deletion timer</span>
-				<span class="setting-description">Last-hour countdown on expiring messages.</span>
+				<span class="setting-description">Expiring-message countdown.</span>
 			</div>
 			<select class="theme-select" value={deletionCountdownMode} on:change={(e) => updateDeletionCountdownMode(e.currentTarget.value as DeletionCountdownMode)}>
 				<option value="off">Off</option>
@@ -298,7 +298,7 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Home view</span>
-				<span class="setting-description">Open on conversations or community.</span>
+				<span class="setting-description">Default home focus.</span>
 			</div>
 			<select class="theme-select" value={homeExperienceMode} on:change={(e) => updateHomeExperienceMode(e.currentTarget.value as HomeExperienceMode)}>
 				<option value="conversations">Conversations</option>
@@ -308,7 +308,7 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Nav dock</span>
-				<span class="setting-description">Sidebar on left or right.</span>
+				<span class="setting-description">Dock side.</span>
 			</div>
 			<select class="theme-select" value={$layoutStore.navDock} on:change={(e) => updateDockSide(e.currentTarget.value as 'left' | 'right')}>
 				<option value="left">Left</option>
@@ -318,7 +318,7 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Conversation layout</span>
-				<span class="setting-description">Which rails stay visible (this device).</span>
+				<span class="setting-description">Visible rails.</span>
 			</div>
 			<select class="theme-select" value={$homeLayout} on:change={(e) => updateHomeLayoutMode(e.currentTarget.value as HomeLayoutMode)}>
 				<option value="server-browser">Full rails</option>
@@ -329,14 +329,14 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Collapse nav</span>
-				<span class="setting-description">Fold the navigation dock.</span>
+				<span class="setting-description">Fold dock.</span>
 			</div>
 			<button class="toggle-btn" class:active={$layoutStore.isNavCollapsed} on:click={toggleDockNavCollapsed} aria-label="Collapse navigation"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Layout preset</span>
-				<span class="setting-description">Saved docking layouts.</span>
+				<span class="setting-description">Saved layouts.</span>
 			</div>
 			<select class="theme-select" value={$layoutStore.activeWorkspace} on:change={(e) => loadWorkspaceByName(e.currentTarget.value)}>
 				{#each $layoutStore.workspaces as workspaceName}
@@ -358,7 +358,7 @@
 		<div class="setting-item setting-item-stack">
 			<div class="setting-info">
 				<span class="setting-label">Chrome opacity (desktop)</span>
-				<span class="setting-description">{Math.round(appChromeOpacity * 100)}% panel transparency.</span>
+				<span class="setting-description">{Math.round(appChromeOpacity * 100)}% panel alpha.</span>
 			</div>
 			<input type="range" min="0.2" max="1" step="0.05" bind:value={appChromeOpacity} on:input={(e) => updateAppChromeOpacity(parseFloat(e.currentTarget.value))} class="volume-slider" />
 		</div>
@@ -371,14 +371,14 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Video compression ({videoCompressionRuntimeLabel})</span>
-				<span class="setting-description">Offer compress on large uploads.</span>
+				<span class="setting-description">Compress large uploads.</span>
 			</div>
 			<button class="toggle-btn" class:active={videoCompressionEnabled} on:click={toggleVideoCompressionEnabled} aria-label="Video compression"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Default preset</span>
-				<span class="setting-description">Used by the upload dialog.</span>
+				<span class="setting-description">Upload dialog default.</span>
 			</div>
 			<select class="theme-select" value={defaultVideoCompressionPreset} on:change={(e) => updateVideoCompressionPreset(e.currentTarget.value as VideoCompressionPresetId)} disabled={!videoCompressionEnabled}>
 				{#each videoCompressionPresetOptions as presetOption}
@@ -417,16 +417,16 @@
 	{#if savingTheme}
 		<div class="save-indicator"><span class="spinner">...</span> Saving theme...</div>
 	{/if}
-	<div class="customizer-container">
+	<div class="customizer-container settings-customizer-slot">
 		<ThemeCustomizer />
 	</div>
 </div>
 
 <div class="settings-section">
-	<div class="customizer-container">
+	<div class="customizer-container settings-customizer-slot">
 		<UniformFontMode />
 	</div>
-	<div class="customizer-container">
+	<div class="customizer-container settings-customizer-slot">
 		<EffectsTab />
 	</div>
 </div>
@@ -438,7 +438,7 @@
 			<div class="setting-info">
 				<span class="setting-label">CSS animations</span>
 				<span class="setting-description">
-					Lighter transitions instead of spring physics.
+					CSS instead of springs.
 					{#if $animationQuality.cssOnly && !$animationQuality.userOverride}
 						<span class="auto-badge">Auto</span>
 					{/if}
@@ -456,7 +456,7 @@
 			<div class="setting-info">
 				<span class="setting-label">Disable new windows</span>
 				<span class="setting-description">
-					Block pop-out panels (less GPU load).
+					No pop-out panels.
 					{#if $animationQuality.disableWindows && !$animationQuality.userOverride}
 						<span class="auto-badge">Auto</span>
 					{/if}
