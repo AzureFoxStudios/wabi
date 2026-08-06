@@ -366,6 +366,7 @@
 
 <div class="settings-section">
 	<h3>{$t('settings.sections.notifications')}</h3>
+	<div class="settings-group-card">
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Desktop Notifications</span>
@@ -398,6 +399,7 @@
 			<span class="setting-description">Include message text in the alert.</span>
 		</div>
 		<button class="toggle-btn" class:active={notificationPreviewEnabled} on:click={toggleNotificationPreview} aria-label="Show message preview"></button>
+	</div>
 	</div>
 
 	<div class="setting-item-full">

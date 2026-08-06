@@ -7,7 +7,9 @@
 		currentUser,
 		removeUserRole,
 		roleDefinitions,
-		users
+		users,
+		serverMembers,
+		type User
 	} from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
 	import { layoutStore } from '$lib/layoutStore';
@@ -61,7 +63,16 @@
 		return labels;
 	})();
 	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
-	$: sortedAdminUsers = [...$users].sort((a, b) => {
+	// Full roster: registered users (serverMembers) merged with live online
+	// users so offline accounts (e.g. a member who can't log in) are still
+	// visible and manageable here.
+	$: rosterUsers = (() => {
+		const byId = new Map<string, User>();
+		for (const u of $serverMembers) byId.set(String(u.dbUserId ?? u.id), u);
+		for (const u of $users) byId.set(String(u.dbUserId ?? u.id), u); // online wins
+		return [...byId.values()];
+	})();
+	$: sortedAdminUsers = [...rosterUsers].sort((a, b) => {
 		const aPriority = a.highestRole === 'owner' ? 3 : a.highestRole === 'admin' ? 2 : a.highestRole === 'mod' ? 1 : 0;
 		const bPriority = b.highestRole === 'owner' ? 3 : b.highestRole === 'admin' ? 2 : b.highestRole === 'mod' ? 1 : 0;
 		if (aPriority !== bPriority) return bPriority - aPriority;
@@ -201,52 +212,72 @@
 	}
 </script>
 
-<div class="settings-section">
-	<h3>{$t('settings.sections.admin_panel')}</h3>
-	<p class="admin-help">Manage live user roles from here or from user right-click menus.</p>
+<div class="settings-section admin-settings-shell">
+	<div class="admin-settings-top">
+		<div>
+			<h3>{$t('settings.sections.admin_panel')}</h3>
+			<p class="admin-help">Roles, limits, branding, and community tools. Full dashboard opens in center stage.</p>
+		</div>
+		<button class="admin-open-dashboard-btn" type="button" on:click={() => layoutStore.showAdminCenterStage()}>
+			<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<rect x="3" y="3" width="7" height="7" rx="1" />
+				<rect x="14" y="3" width="7" height="7" rx="1" />
+				<rect x="14" y="14" width="7" height="7" rx="1" />
+				<rect x="3" y="14" width="7" height="7" rx="1" />
+			</svg>
+			Dashboard
+		</button>
+	</div>
 
-	<button class="admin-open-dashboard-btn" type="button" on:click={() => layoutStore.showAdminCenterStage()}>
-		<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<rect x="3" y="3" width="7" height="7" rx="1" />
-			<rect x="14" y="3" width="7" height="7" rx="1" />
-			<rect x="14" y="14" width="7" height="7" rx="1" />
-			<rect x="3" y="14" width="7" height="7" rx="1" />
-		</svg>
-		Open Admin Dashboard
-	</button>
+	<div class="admin-settings-stack">
+		<section class="admin-block">
+			<h4 class="admin-block-title">People</h4>
+			<AdminUserList
+				{sortedAdminUsers}
+				{canManageTargetUser}
+				{userHasRole}
+				{getRoleLabel}
+				onPromoteAdmin={(u) => promoteUser(u, 'admin')}
+				onRemoveAdmin={(u) => removeRoleFromUser(u, 'admin')}
+				onPromoteMod={(u) => promoteUser(u, 'mod')}
+				onRemoveMod={(u) => removeRoleFromUser(u, 'mod')}
+				onResetToMember={resetUserToMember}
+				onResetPassword={promptAdminPasswordReset}
+				onClearLockout={clearUserLoginLockout}
+			/>
+		</section>
 
-	<UploadLimitsPanel
-		{canManageAdmin}
-		{loadingUploadLimits}
-		{savingUploadLimits}
-		{uploadRoleOrder}
-		{uploadRoleLabels}
-		{uploadLimitInputs}
-		{globalUploadLimitInput}
-		onSave={saveUploadLimits}
-	/>
+		<section class="admin-block">
+			<h4 class="admin-block-title">Uploads</h4>
+			<UploadLimitsPanel
+				{canManageAdmin}
+				{loadingUploadLimits}
+				{savingUploadLimits}
+				{uploadRoleOrder}
+				{uploadRoleLabels}
+				{uploadLimitInputs}
+				{globalUploadLimitInput}
+				onSave={saveUploadLimits}
+			/>
+		</section>
 
-	<AdminSettingsPayments {canManageAdmin} on:openServerDonation={openServerDonation} />
+		<section class="admin-block">
+			<h4 class="admin-block-title">Brand</h4>
+			<BrandingSettings canManageBranding={canManageAdmin} />
+		</section>
 
-	<AdminSettingsCommunityNodes
-		{canManageAdmin}
-		communityNodeWhitelistCandidates={communityNodeWhitelistCandidates as any}
-		communityAnnouncementChannelOptions={communityAnnouncementChannelOptions as any}
-	/>
+		<section class="admin-block">
+			<h4 class="admin-block-title">Money</h4>
+			<AdminSettingsPayments {canManageAdmin} on:openServerDonation={openServerDonation} />
+		</section>
 
-	<BrandingSettings canManageBranding={canManageAdmin} />
-
-	<AdminUserList
-		{sortedAdminUsers}
-		{canManageTargetUser}
-		{userHasRole}
-		{getRoleLabel}
-		onPromoteAdmin={(u) => promoteUser(u, 'admin')}
-		onRemoveAdmin={(u) => removeRoleFromUser(u, 'admin')}
-		onPromoteMod={(u) => promoteUser(u, 'mod')}
-		onRemoveMod={(u) => removeRoleFromUser(u, 'mod')}
-		onResetToMember={resetUserToMember}
-		onResetPassword={promptAdminPasswordReset}
-		onClearLockout={clearUserLoginLockout}
-	/>
+		<section class="admin-block">
+			<h4 class="admin-block-title">Community nodes</h4>
+			<AdminSettingsCommunityNodes
+				{canManageAdmin}
+				communityNodeWhitelistCandidates={communityNodeWhitelistCandidates as any}
+				communityAnnouncementChannelOptions={communityAnnouncementChannelOptions as any}
+			/>
+		</section>
+	</div>
 </div>

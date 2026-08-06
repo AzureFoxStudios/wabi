@@ -333,149 +333,172 @@
 	}
 </script>
 
-<div class="profile-hero-card">
-	<div
-		class="profile-hero-banner"
-		style="background: {($currentUser?.bannerUrl
-			? `center/cover url(${$currentUser.bannerUrl})`
-			: ($currentUser?.color || 'var(--pfp-banner, var(--accent-primary-color))'))};"
-	></div>
-	<div class="profile-hero-main">
-		<div class="profile-hero-avatar-wrap">
-			{#if $currentUser?.profilePicture}
-				<img src={$currentUser.profilePicture} alt="Current profile" class="profile-hero-avatar" />
-			{:else}
-				<div
-					class="profile-hero-avatar profile-hero-avatar-fallback"
-					style="--avatar-color: {$currentUser?.color || 'var(--accent-primary-color)'}"
-				>
-					{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
-				</div>
-			{/if}
-			<span
-				class="profile-hero-status"
-				class:away={$currentUser?.status === 'away'}
-				class:busy={$currentUser?.status === 'busy'}
-				class:offline={!$currentUser || $currentUser.status === 'offline'}
-			></span>
-		</div>
-		<div class="profile-hero-copy">
-			<div class="profile-hero-kicker">You</div>
-			<h3>{displayNameDraft || $currentUser?.username || `Your ${brandName} profile`}</h3>
-			<p>
-				{#if $currentUser?.handle}
-					@{$currentUser.handle}
-				{:else if $currentUser?.dbUserId}
-					Registered account
-				{:else}
-					Temporary local account
-				{/if}
-			</p>
-		</div>
-		<div class="profile-hero-actions">
-			<button type="button" class="profile-hero-action" on:click={() => dispatch('openAvatarEditor')}>
-				Edit avatar
-			</button>
-			<button
-				type="button"
-				class="profile-hero-action secondary"
-				on:click={() => document.getElementById('banner-file-input')?.click()}
-				disabled={bannerUploading}
-			>
-				{bannerUploading ? 'Uploading…' : 'Edit banner'}
-			</button>
-		</div>
-	</div>
-</div>
-
 <input type="file" accept="image/*" id="banner-file-input" class="hidden-file-input" />
 <input type="file" accept="image/png" id="overlay-file-input" class="hidden-file-input" />
 
-<div class="settings-section">
-	<h3>Identity</h3>
-	<div class="settings-group-card">
-		<div class="setting-item-full">
-			<div class="setting-info">
-				<span class="setting-label">Display name</span>
-				<span class="setting-description">Shown in chat, calls, and notifications.</span>
-			</div>
-			<div class="setting-inline-save">
-				<input type="text" class="emoji-name-input" maxlength="32" bind:value={displayNameDraft} placeholder="Display name" />
-				<button class="pfp-upload-btn" on:click={updateDisplayName} disabled={updatingDisplayName}>
-					{updatingDisplayName ? 'Saving…' : 'Save'}
-				</button>
-			</div>
+<div class="profile-mock">
+	<button
+		type="button"
+		class="profile-mock-banner"
+		class:is-empty={!$currentUser?.bannerUrl}
+		style={$currentUser?.bannerUrl
+			? `background-image: url(${$currentUser.bannerUrl})`
+			: `background: linear-gradient(135deg, ${$currentUser?.color || 'var(--accent-secondary-color)'}, var(--accent-primary-color))`}
+		on:click={() => document.getElementById('banner-file-input')?.click()}
+		disabled={bannerUploading}
+		title="Change banner"
+		aria-label="Change banner"
+	>
+		<span class="profile-mock-banner-hint">{bannerUploading ? 'Uploading…' : 'Change banner'}</span>
+	</button>
+
+	<div class="profile-mock-body">
+		<div class="profile-mock-avatar-stack">
+			<button
+				type="button"
+				class="profile-mock-avatar-btn"
+				on:click={() => dispatch('openAvatarEditor')}
+				title="Change avatar"
+				aria-label="Change avatar"
+			>
+				{#if $currentUser?.profilePicture}
+					<img src={$currentUser.profilePicture} alt="" class="profile-mock-avatar" />
+				{:else}
+					<span
+						class="profile-mock-avatar profile-mock-avatar-fallback"
+						style="--avatar-color: {$currentUser?.color || 'var(--accent-primary-color)'}"
+					>
+						{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
+					</span>
+				{/if}
+				{#if $currentUser?.overlayUrl && showOverlayLocal && !disableAllBannersLocal}
+					<span class="profile-mock-overlay" style="background-image: url({$currentUser.overlayUrl})"></span>
+				{/if}
+				<span
+					class="profile-mock-status"
+					class:away={$currentUser?.status === 'away'}
+					class:busy={$currentUser?.status === 'busy'}
+					class:offline={!$currentUser || $currentUser.status === 'offline'}
+				></span>
+			</button>
+			<button
+				type="button"
+				class="profile-mock-overlay-slot"
+				class:is-empty={!$currentUser?.overlayUrl}
+				on:click={() => document.getElementById('overlay-file-input')?.click()}
+				disabled={overlayUploading}
+				title={overlayUploading ? 'Uploading…' : ($currentUser?.overlayUrl ? 'Replace overlay' : 'Upload overlay PNG')}
+				aria-label="Upload avatar overlay"
+			>
+				{#if $currentUser?.overlayUrl}
+					<span class="profile-mock-overlay-thumb" style="background-image: url({$currentUser.overlayUrl})"></span>
+				{:else}
+					<span class="profile-mock-overlay-empty" aria-hidden="true"></span>
+				{/if}
+			</button>
 		</div>
 
-		<div class="setting-item-full">
-			<div class="setting-info">
-				<span class="setting-label">Status</span>
-				<span class="setting-description">How you appear to others.</span>
-			</div>
-			<div class="status-option-row">
-				<button type="button" class="status-option-btn" class:active={$currentUser?.status === 'active'} on:click={() => changeStatus('active')}>
-					<span class="status-option-dot" style="background-color: var(--status-online)"></span>
-					Active
+		<div class="profile-mock-identity">
+			<div class="profile-mock-name-row">
+				<input
+					type="text"
+					class="profile-mock-name"
+					maxlength="32"
+					bind:value={displayNameDraft}
+					placeholder="Display name"
+					aria-label="Display name"
+				/>
+				<button
+					type="button"
+					class="profile-mock-save"
+					on:click={updateDisplayName}
+					disabled={updatingDisplayName || !displayNameDraft.trim() || displayNameDraft.trim() === ($currentUser?.username || '')}
+				>
+					{updatingDisplayName ? '…' : 'Save'}
 				</button>
-				<button type="button" class="status-option-btn" class:active={$currentUser?.status === 'away'} on:click={() => changeStatus('away')}>
-					<span class="status-option-dot" style="background-color: var(--status-away)"></span>
-					Away
+			</div>
+			<p class="profile-mock-handle">
+				{#if $currentUser?.handle}
+					@{$currentUser.handle}
+				{:else if $currentUser?.dbUserId}
+					Registered
+				{:else}
+					Local account
+				{/if}
+			</p>
+			<div class="profile-mock-presence" role="group" aria-label="Presence">
+				<button type="button" class="presence-chip" class:active={$currentUser?.status === 'active'} on:click={() => changeStatus('active')}>
+					<span class="status-option-dot" style="background-color: var(--status-online)"></span> Active
 				</button>
-				<button type="button" class="status-option-btn" class:active={$currentUser?.status === 'busy'} on:click={() => changeStatus('busy')}>
-					<span class="status-option-dot" style="background-color: var(--status-busy)"></span>
-					Busy
+				<button type="button" class="presence-chip" class:active={$currentUser?.status === 'away'} on:click={() => changeStatus('away')}>
+					<span class="status-option-dot" style="background-color: var(--status-away)"></span> Away
+				</button>
+				<button type="button" class="presence-chip" class:active={$currentUser?.status === 'busy'} on:click={() => changeStatus('busy')}>
+					<span class="status-option-dot" style="background-color: var(--status-busy)"></span> Busy
 				</button>
 			</div>
-		</div>
-
-		<div class="setting-item-full">
-			<div class="setting-info">
-				<span class="setting-label">About me</span>
-				<span class="setting-description">Short bio on your profile popout.</span>
-			</div>
-			<textarea class="emoji-name-input bio-input" rows="2" maxlength="500" bind:value={bioDraft} placeholder="A short line about yourself…"></textarea>
-			<div class="setting-inline-save">
-				<button class="pfp-upload-btn" on:click={saveBio}>Save bio</button>
+			<textarea
+				class="profile-mock-bio"
+				rows="2"
+				maxlength="500"
+				bind:value={bioDraft}
+				placeholder="About me…"
+				aria-label="About me"
+				on:blur={saveBio}
+			></textarea>
+			<div class="profile-mock-bio-bar">
+				<button type="button" class="profile-mock-save ghost" on:click={saveBio}>Save bio</button>
 				{#if bioStatus}<span class="runtime-note">{bioStatus}</span>{/if}
+				{#if bannerStatus}<span class="runtime-note">{bannerStatus}</span>{/if}
+				{#if overlayStatus}<span class="runtime-note">{overlayStatus}</span>{/if}
 			</div>
+		</div>
+	</div>
+
+	<div class="profile-mock-toggles" role="group" aria-label="Banner and overlay visibility">
+		<label class="mini-toggle" title="Show my banner in popouts">
+			<input type="checkbox" bind:checked={showBannerLocal} />
+			<span>Banner</span>
+		</label>
+		<label class="mini-toggle" title="Show my avatar overlay">
+			<input type="checkbox" bind:checked={showOverlayLocal} />
+			<span>Overlay</span>
+		</label>
+		<label class="mini-toggle" title="Hide everyone’s banners and overlays on this client">
+			<input type="checkbox" bind:checked={disableAllBannersLocal} />
+			<span>Hide all</span>
+		</label>
+	</div>
+</div>
+
+<div class="settings-section">
+	<div class="settings-group-card tight">
+		<div class="setting-item-full" style="padding-top:0.55rem">
+			<UsernameFontCustomizer />
 		</div>
 	</div>
 </div>
 
 <div class="settings-section">
-	<h3>Look</h3>
-	<div class="settings-group-card">
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Avatar overlay</span>
-				<span class="setting-description">Optional PNG frame. {overlayStatus || ($currentUser?.overlayUrl ? 'Set' : 'None')}</span>
-			</div>
-			<button class="pfp-select-btn" type="button" on:click={() => document.getElementById('overlay-file-input')?.click()} disabled={overlayUploading}>
-				{overlayUploading ? 'Uploading…' : ($currentUser?.overlayUrl ? 'Replace' : 'Upload PNG')}
-			</button>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Show my banner</span>
-				<span class="setting-description">In popouts and member list.</span>
-			</div>
-			<button type="button" class="toggle-btn" class:active={showBannerLocal} aria-pressed={showBannerLocal} on:click={() => (showBannerLocal = !showBannerLocal)} aria-label="Show my banner"></button>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Show my overlay</span>
-				<span class="setting-description">Avatar frame on this account.</span>
-			</div>
-			<button type="button" class="toggle-btn" class:active={showOverlayLocal} aria-pressed={showOverlayLocal} on:click={() => (showOverlayLocal = !showOverlayLocal)} aria-label="Show my overlay"></button>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Hide all banners</span>
-				<span class="setting-description">This client only — hide everyone’s banners & overlays.</span>
-			</div>
-			<button type="button" class="toggle-btn" class:active={disableAllBannersLocal} aria-pressed={disableAllBannersLocal} on:click={() => (disableAllBannersLocal = !disableAllBannersLocal)} aria-label="Hide all banners"></button>
-		</div>
-		{#if bannerStatus}<div class="runtime-note" style="padding:0.35rem 0.1rem">{bannerStatus}</div>{/if}
+	<div class="icon-action-row">
+		<button type="button" class="icon-action" title="Payment requests you created" on:click={openPaymentHistorySafe} disabled={!$currentUser?.dbUserId}>
+			<span class="icon-action-glyph" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18v10H3z"/><path d="M3 10h18"/><path d="M7 15h4"/></svg>
+			</span>
+			<span class="icon-action-label">History</span>
+		</button>
+		<button type="button" class="icon-action" title="Saved non-sensitive payment references" on:click={openPaymentConnectionsSafe} disabled={!$currentUser?.dbUserId}>
+			<span class="icon-action-glyph" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M7 15h2"/></svg>
+			</span>
+			<span class="icon-action-label">Refs</span>
+		</button>
+		<button type="button" class="icon-action" title="Support this server" on:click={() => dispatch('openServerDonation')}>
+			<span class="icon-action-glyph" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg>
+			</span>
+			<span class="icon-action-label">Support</span>
+		</button>
 	</div>
 </div>
 
@@ -491,19 +514,19 @@
 				{#if mustChangeOwnPassword}
 					<p class="warning-text">Temporary password — change it now.</p>
 				{/if}
-				<input type="password" class="emoji-name-input" placeholder="Current password" bind:value={currentPasswordDraft} bind:this={currentPasswordInput} autocomplete="current-password" />
-				<input type="password" class="emoji-name-input" placeholder="New password" bind:value={newPasswordDraft} autocomplete="new-password" />
-				<input type="password" class="emoji-name-input" placeholder="Confirm new password" bind:value={confirmNewPasswordDraft} autocomplete="new-password" />
-				<div class="setting-inline-save">
+				<div class="pwd-grid">
+					<input type="password" class="emoji-name-input" placeholder="Current" bind:value={currentPasswordDraft} bind:this={currentPasswordInput} autocomplete="current-password" />
+					<input type="password" class="emoji-name-input" placeholder="New" bind:value={newPasswordDraft} autocomplete="new-password" />
+					<input type="password" class="emoji-name-input" placeholder="Confirm" bind:value={confirmNewPasswordDraft} autocomplete="new-password" />
 					<button class="pfp-upload-btn" on:click={changeOwnPassword} disabled={changingPassword}>
-						{changingPassword ? 'Updating…' : 'Update password'}
+						{changingPassword ? '…' : 'Update'}
 					</button>
 				</div>
 			</div>
 
 			<div class="setting-item-full">
 				<div class="setting-info">
-					<span class="setting-label">Local accounts on this device</span>
+					<span class="setting-label">Local accounts</span>
 					<span class="setting-description">
 						Default:
 						{$defaultLocalWabiAccountStore
@@ -521,7 +544,7 @@
 					</button>
 				</div>
 				{#if otherLocalWabiAccounts.length > 0}
-					<div class="setting-inline-save" style="margin-top:0.55rem">
+					<div class="setting-inline-save" style="margin-top:0.45rem">
 						<select class="emoji-name-input" bind:value={linkedWabiImportSourceKey}>
 							{#each otherLocalWabiAccounts as account (account.key)}
 								<option value={account.key}>{getLocalWabiAccountDisplayLabel(account)}</option>
@@ -532,57 +555,22 @@
 							on:click={importProfileFromSelectedLocalWabiAccount}
 							disabled={!linkedWabiImportPreview?.canImport || linkedWabiImporting}
 						>
-							{linkedWabiImporting ? 'Importing…' : 'Import look'}
+							{linkedWabiImporting ? '…' : 'Import look'}
 						</button>
 					</div>
 					<div class="runtime-note">
 						{#if linkedWabiImportPreview?.canImport}
 							Can copy: {linkedWabiImportPreview.importableFields.join(', ')}
 						{:else}
-							Nothing new to import from that account.
+							Nothing new from that account.
 						{/if}
 					</div>
 				{:else}
-					<div class="runtime-note">No other local accounts seen yet.</div>
+					<div class="runtime-note">No other local accounts yet.</div>
 				{/if}
 				{#if linkedWabiImportStatus}<div class="runtime-note">{linkedWabiImportStatus}</div>{/if}
 			</div>
 		</div>
 	</div>
 {/if}
-
-<div class="settings-section">
-	<h3>Payments</h3>
-	<div class="settings-group-card">
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">History</span>
-				<span class="setting-description">Requests you created.</span>
-			</div>
-			<button class="pfp-upload-btn" on:click={openPaymentHistorySafe} disabled={!$currentUser?.dbUserId}>
-				{$currentUser?.dbUserId ? 'Open' : 'Sign in'}
-			</button>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Saved references</span>
-				<span class="setting-description">Non-sensitive payment refs for this server.</span>
-			</div>
-			<button class="pfp-upload-btn" on:click={openPaymentConnectionsSafe} disabled={!$currentUser?.dbUserId}>
-				{$currentUser?.dbUserId ? 'Manage' : 'Sign in'}
-			</button>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Support server</span>
-				<span class="setting-description">Donations route if configured.</span>
-			</div>
-			<button class="pfp-upload-btn" on:click={() => dispatch('openServerDonation')}>View</button>
-		</div>
-	</div>
-</div>
-
-<div class="settings-section">
-	<UsernameFontCustomizer />
-</div>
 

@@ -132,10 +132,9 @@
 	<div class="addons-settings-window">
 		<div class="addons-settings-window-header">
 			<div class="setting-info">
-				<span class="setting-label">Local Add-on Controls</span>
+				<span class="setting-label">Local controls</span>
 				<span class="setting-description"
-					>Browse and tune device-local add-on behavior here. Search auto-expands matching sections
-					while you filter.</span
+					>Local device controls. Search expands matches.</span
 				>
 			</div>
 			<div class="addons-settings-toolbar">
@@ -145,7 +144,7 @@
 						type="search"
 						class="theme-select addon-search-input"
 						bind:value={addonSearchQuery}
-						placeholder="Search local add-ons, tools, and settings"
+						placeholder="Filter add-ons…"
 						name="addon-filter"
 						id="settings-addon-filter"
 						autocomplete="off"
