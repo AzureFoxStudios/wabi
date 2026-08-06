@@ -30,6 +30,16 @@ wabi-tui
 server_url = "https://wabi.chat"
 username = "ronin"
 # token is written after login
+fps = 20          # UI redraw target; e-ink try 1–5
+poll_secs = 3     # active-channel message poll
+```
+
+Env overrides: `WABI_TUI_FPS`, `WABI_TUI_POLL_SECS`.
+
+E-ink quick preset inside the app: `:eink` (2 fps, 8s poll) or:
+
+```bash
+WABI_TUI_FPS=2 WABI_TUI_POLL_SECS=8 ./target/release/wabi-tui
 ```
 
 ## Keys
@@ -78,6 +88,9 @@ username = "ronin"
 :filter <text>     channel name filter
 :ufilter <text>    user filter
 :goto <name>       jump to channel
+:fps <n>           UI FPS (0.2–60); e-ink 1–5
+:poll <secs>       chat poll interval
+:eink              2 fps + 8s poll preset
 :refresh :logout :help
 ```
 

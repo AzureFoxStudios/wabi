@@ -135,6 +135,8 @@ pub struct App {
     pub bg_tx: mpsc::Sender<BgMsg>,
     pub bg_rx: mpsc::Receiver<BgMsg>,
     last_poll_ms: u64,
+    /// UI needs a redraw (keys, bg results, timers).
+    pub dirty: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,11 +189,14 @@ pub struct ServerStats {
 
 impl App {
     pub async fn new() -> Result<Self> {
-        let config = if Config::config_path().exists() {
+        let mut config = if Config::config_path().exists() {
             Config::load()?
         } else {
             Config::default()
         };
+        // load() already applies env when from file; default path needs it too.
+        config.apply_env_overrides();
+        config.clamp();
         let mut api = ApiClient::new(&config.server_url);
         if let Some(token) = config.token.clone() {
             api.set_token(token);
@@ -250,6 +255,7 @@ impl App {
             bg_tx,
             bg_rx,
             last_poll_ms: 0,
+            dirty: true,
         };
 
         if app.mode != AppMode::ServerSetup {
@@ -280,6 +286,11 @@ impl App {
         while self.logs.len() > LOG_CAP {
             self.logs.pop_front();
         }
+        self.dirty = true;
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
     }
 
     pub fn filtered_channels(&self) -> Vec<&Channel> {
@@ -392,7 +403,8 @@ impl App {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        if now_ms.saturating_sub(self.last_poll_ms) >= 3000 {
+        let poll_every = self.config.poll_ms();
+        if now_ms.saturating_sub(self.last_poll_ms) >= poll_every {
             if self.screen == Screen::Chat {
                 if let Some(ref ch_id) = self.active_channel {
                     if self.config.token.is_some() {
@@ -404,6 +416,7 @@ impl App {
         }
 
         while let Ok(msg) = self.bg_rx.try_recv() {
+            self.dirty = true;
             match msg {
                 BgMsg::Channels(channels) => {
                     self.channels = channels;
@@ -501,10 +514,12 @@ impl App {
 
     pub fn set_error(&mut self, error: String) {
         self.error = Some(error);
+        self.dirty = true;
     }
 
     pub fn clear_error(&mut self) {
         self.error = None;
+        self.dirty = true;
     }
 
     pub async fn do_connect(&mut self) -> Result<()> {
@@ -531,6 +546,7 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyCode) -> Result<bool> {
+        self.dirty = true;
         if self.error.is_some() && matches!(key, KeyCode::Esc) {
             self.clear_error();
             return Ok(true);
@@ -942,9 +958,62 @@ impl App {
                 }
             }
             "help" => self.show_help = true,
+            "fps" => {
+                if let Some(raw) = parts.next() {
+                    if let Ok(n) = raw.parse::<f32>() {
+                        self.config.fps = n;
+                        self.config.clamp();
+                        let _ = self.config.save();
+                        self.status = format!(
+                            "FPS {:.1} (~{}ms/frame)",
+                            self.config.fps,
+                            self.config.frame_ms()
+                        );
+                        self.log(self.status.clone());
+                    } else {
+                        self.set_error("usage: :fps <0.2-60>".into());
+                    }
+                } else {
+                    self.status = format!(
+                        "FPS {:.1} (~{}ms) — set with :fps N (e-ink try 1-5)",
+                        self.config.fps,
+                        self.config.frame_ms()
+                    );
+                }
+            }
+            "poll" => {
+                if let Some(raw) = parts.next() {
+                    if let Ok(n) = raw.parse::<f32>() {
+                        self.config.poll_secs = n;
+                        self.config.clamp();
+                        let _ = self.config.save();
+                        self.status = format!("Chat poll every {:.1}s", self.config.poll_secs);
+                        self.log(self.status.clone());
+                    } else {
+                        self.set_error("usage: :poll <seconds>".into());
+                    }
+                } else {
+                    self.status = format!(
+                        "Chat poll {:.1}s — set with :poll N",
+                        self.config.poll_secs
+                    );
+                }
+            }
+            "eink" => {
+                // Preset: slow redraw + slower network poll for e-ink / low power.
+                self.config.fps = 2.0;
+                self.config.poll_secs = 8.0;
+                self.config.clamp();
+                let _ = self.config.save();
+                self.status = format!(
+                    "E-ink preset · {:.0} fps · poll {:.0}s",
+                    self.config.fps, self.config.poll_secs
+                );
+                self.log(self.status.clone());
+            }
             "" => {}
             other => self.set_error(format!(
-                "Unknown :{other} — try :chat :users :server :logs :filter :ufilter :goto :refresh :logout :help"
+                "Unknown :{other} — try :chat :users :server :logs :filter :ufilter :goto :refresh :logout :fps :poll :eink :help"
             )),
         }
     }
