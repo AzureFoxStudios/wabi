@@ -45,8 +45,8 @@
 		inset 0 -1px 0 rgba(var(--border-rgb), 0.24),
 		inset 0 1px 0 rgba(var(--text-inverse-rgb, 255, 255, 255), 0.02);
 	transition:
-		background-color 0.18s ease,
-		box-shadow 0.18s ease;
+		background-color var(--duration-fast) var(--ease-out),
+		box-shadow var(--duration-fast) var(--ease-out);
 }
 
 .switcher-row::before {
@@ -125,6 +125,13 @@
 		inset 0 1px 0 rgba(var(--text-inverse-rgb, 255, 255, 255), 0.03);
 }
 
+.switcher-row:focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 2px color-mix(in srgb, var(--row-accent) 40%, transparent),
+		inset 0 -1px 0 color-mix(in srgb, var(--row-accent) 18%, rgba(var(--border-rgb), 0.22));
+}
+
 .switcher-avatar {
 	width: 38px;
 	height: 38px;
@@ -157,7 +164,7 @@
 }
 
 .switcher-tagline {
-	font-size: 0.78rem;
+	font-size: var(--font-size-sm);
 	color: var(--text-muted, rgba(226, 232, 240, 0.62));
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -179,7 +186,7 @@
 	padding: 0;
 	border: 0;
 	background: transparent;
-	font-size: 0.88rem;
+	font-size: var(--font-size-base);
 	color: var(--text-heading);
 	font-weight: 700;
 	text-align: inherit;
@@ -197,7 +204,7 @@
 }
 
 .switcher-badge {
-	font-size: 0.58rem;
+	font-size: var(--font-size-2xs);
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
 	padding: 0.1rem 0.3rem;
@@ -210,7 +217,7 @@
 .switcher-badge--follow-unread {
 	background: var(--accent-danger-soft, var(--accent-danger-soft, rgba(var(--color-danger-rgb, 239, 68, 68), 0.14)));
 	border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.24);
-	color: var(--accent-danger-soft, var(--accent-danger-soft, #fecaca));
+	color: var(--color-danger-hover, #fda4af);
 }
 
 .switcher-side-actions,
@@ -225,7 +232,7 @@
 	align-self: center;
 	justify-content: flex-end;
 	opacity: 0.72;
-	transition: opacity 0.18s ease;
+	transition: opacity var(--duration-fast) var(--ease-out);
 }
 
 .switcher-row:hover .switcher-side-actions,
@@ -239,7 +246,7 @@
 	min-width: 30px;
 	height: 30px;
 	padding: 0 0.38rem;
-	border-radius: 8px;
+	border-radius: var(--radius-md);
 	border: 1px solid transparent;
 	background: transparent;
 	color: var(--text-secondary);
@@ -308,7 +315,7 @@
 	min-width: 132px;
 	max-width: 220px;
 	padding: 0.7rem 0.85rem;
-	border-radius: 16px;
+	border-radius: var(--radius-xl);
 	border: 1px solid rgba(var(--color-info-rgb, 125, 211, 252), 0.28);
 	background: rgba(7, 10, 18, 0.92);
 	box-shadow: 0 18px 36px rgba(var(--surface-app-rgb, 2, 6, 23), 0.34);
@@ -318,7 +325,7 @@
 }
 
 .switcher-drag-ghost strong {
-	font-size: 0.84rem;
+	font-size: var(--font-size-sm);
 	color: var(--text-inverse, var(--text-inverse, #f8fafc));
 	white-space: nowrap;
 	overflow: hidden;
@@ -326,7 +333,7 @@
 }
 
 .switcher-drag-ghost-tag {
-	font-size: 0.64rem;
+	font-size: var(--font-size-2xs);
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
 	color: var(--text-info, #bae6fd);
@@ -336,7 +343,7 @@
 .switcher-secondary,
 .switcher-tertiary {
 	height: 38px;
-	border-radius: 12px;
+	border-radius: var(--radius-lg);
 	padding: 0 0.85rem;
 	border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
 	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.06);
