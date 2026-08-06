@@ -1,66 +1,94 @@
 /* ==========================================================================
-   SETTINGS — MISC STYLES
-   Extracted from settings.css
+   SETTINGS — HEADER CONTROLS
    ========================================================================== */
 
+.header-icon {
+	width: 26px;
+	height: 26px;
+	stroke: currentColor;
+	stroke-width: 2;
+	flex-shrink: 0;
+}
 
+.setting-icon {
+	width: 18px;
+	height: 18px;
+	stroke: currentColor;
+	stroke-width: 2;
+	display: inline;
+	margin-right: 0.5rem;
+}
 
-	.header-icon {
-		width: 28px;
-		height: 28px;
-		stroke: currentColor;
-		stroke-width: 2;
-		flex-shrink: 0;
-	}
+.header-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
 
+.header-locale-label {
+	font-size: var(--font-size-xs);
+	font-weight: var(--font-weight-semibold);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-secondary);
+}
 
-	.setting-icon {
-		width: 18px;
-		height: 18px;
-		stroke: currentColor;
-		stroke-width: 2;
-		display: inline;
-		margin-right: 0.5rem;
-	}
+.header-locale-select {
+	background: color-mix(in srgb, var(--surface-sunken) 55%, transparent);
+	color: var(--text-heading);
+	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 16%, transparent);
+	border-radius: var(--radius-lg);
+	padding: 0.4rem 0.7rem;
+	font-size: var(--font-size-sm);
+	font-weight: var(--font-weight-semibold);
+	cursor: pointer;
+	transition:
+		border-color var(--duration-fast) ease,
+		box-shadow var(--duration-fast) ease,
+		background var(--duration-fast) ease;
+}
 
+.header-locale-select:hover,
+.header-locale-select:focus-visible {
+	outline: none;
+	border-color: color-mix(in srgb, var(--accent-secondary-color) 42%, transparent);
+	background: color-mix(in srgb, var(--surface-sunken) 40%, transparent);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-secondary-color) 16%, transparent);
+}
 
-	.close-btn {
-		background: transparent;
-		border: none;
-		font-size: var(--font-size-2xl);
-		cursor: pointer;
-		color: var(--text-secondary);
-		padding: var(--space-1) var(--space-2);
-		transition: all var(--duration-fast);
-	}
+.close-btn {
+	background: color-mix(in srgb, var(--accent-primary-color) 6%, transparent);
+	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
+	border-radius: var(--radius-md);
+	font-size: var(--font-size-lg);
+	line-height: 1;
+	cursor: pointer;
+	color: var(--text-secondary);
+	padding: 0.4rem 0.55rem;
+	min-width: 36px;
+	min-height: 36px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	transition:
+		color var(--duration-fast) ease,
+		background var(--duration-fast) ease,
+		border-color var(--duration-fast) ease,
+		transform var(--duration-fast) ease;
+}
 
+.close-btn:hover {
+	color: var(--text-heading);
+	background: color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
+	border-color: color-mix(in srgb, var(--accent-primary-color) 24%, transparent);
+	transform: scale(1.04);
+}
 
-	.header-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-	}
-
-
-	.header-locale-label {
-		font-size: var(--font-size-sm);
-		color: var(--text-secondary);
-	}
-
-
-	.header-locale-select {
-		background: var(--surface-app);
-		color: var(--text-heading);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		padding: var(--space-1) var(--space-2);
-		font-size: var(--font-size-sm);
-	}
-
-
-	.close-btn:hover {
-		color: var(--text-heading);
-		transform: scale(1.1);
-	}
+.close-btn:focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 3px color-mix(in srgb, var(--accent-secondary-color) 20%, transparent),
+		0 0 0 1px var(--accent-secondary-color);
+}

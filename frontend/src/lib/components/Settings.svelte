@@ -266,11 +266,10 @@
 {#if isOpen}
 	<div
 		class="modal-overlay"
-		role="button"
-		tabindex="0"
+		role="presentation"
 		on:click={closeModal}
 		on:keydown={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
+			if (event.key === 'Escape') {
 				event.preventDefault();
 				closeModal();
 			}
@@ -278,12 +277,15 @@
 	>
 		<div
 			class="modal-content"
-			role="button"
-			tabindex="0"
+			role="dialog"
+			aria-modal="true"
+			aria-label={$t('settings.title')}
+			tabindex="-1"
 			on:click|stopPropagation
 			on:keydown|stopPropagation={(event) => {
-				if (event.key === 'Enter' || event.key === ' ') {
+				if (event.key === 'Escape') {
 					event.preventDefault();
+					closeModal();
 				}
 			}}
 		>
