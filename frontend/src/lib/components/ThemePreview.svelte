@@ -81,9 +81,9 @@
 
 <style>
 	.preview-wrapper {
-		padding: 1.5rem;
+		padding: var(--space-6);
 		background: var(--surface-base);
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		border: 1px solid rgba(var(--accent-rgb), 0.2);
 		overflow: hidden;
 	}
@@ -91,38 +91,38 @@
 	.preview-container {
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: var(--space-6);
 	}
 
 	.preview-header {
 		text-align: center;
 		border-bottom: 1px solid rgba(var(--accent-rgb), 0.1);
-		padding-bottom: 1rem;
+		padding-bottom: var(--space-4);
 	}
 
 	.preview-header h3 {
-		margin: 0 0 0.25rem 0;
+		margin: 0 0 var(--space-1) 0;
 		color: var(--text-heading);
-		font-size: 1.1rem;
+		font-size: var(--font-size-lg);
 	}
 
 	.preview-header p {
 		margin: 0;
 		color: var(--text-secondary);
-		font-size: 0.85rem;
+		font-size: var(--font-size-sm);
 	}
 
 	.preview-chat {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: var(--space-3);
 		min-height: 120px;
 	}
 
 	.chat-message {
 		display: flex;
 		justify-content: flex-start;
-		margin-bottom: 0.5rem;
+		margin-bottom: var(--space-2);
 	}
 
 	.chat-message.own {
@@ -131,9 +131,9 @@
 
 	.message-bubble {
 		max-width: 70%;
-		padding: 0.75rem 1rem;
+		padding: var(--space-3) var(--space-4);
 		background: var(--ui-bg-lighter);
-		border-radius: 8px;
+		border-radius: var(--radius-md);
 		border: 1px solid rgba(var(--accent-rgb), 0.1);
 	}
 
@@ -145,31 +145,31 @@
 
 	.message-author {
 		display: block;
-		font-size: 0.75rem;
-		font-weight: 600;
-		margin-bottom: 0.25rem;
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
+		margin-bottom: var(--space-1);
 		opacity: 0.7;
 	}
 
 	.message-bubble p {
 		margin: 0;
-		font-size: 0.9rem;
+		font-size: var(--font-size-base);
 		line-height: 1.4;
 	}
 
 	.swatches {
 		display: grid;
 		grid-template-columns: repeat(4, 1fr);
-		gap: 1rem;
-		padding: 1rem;
+		gap: var(--space-4);
+		padding: var(--space-4);
 		background: rgba(var(--accent-rgb), 0.05);
-		border-radius: 6px;
+		border-radius: var(--radius-md);
 	}
 
 	.swatch {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		align-items: center;
 		text-align: center;
 	}
@@ -177,24 +177,24 @@
 	.swatch-color {
 		width: 48px;
 		height: 48px;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 		border: 1px solid rgba(var(--accent-rgb), 0.2);
-		box-shadow: 0 2px 8px var(--shadow-sm, var(--shadow-sm, rgba(0, 0, 0, 0.1)));
+		box-shadow: var(--shadow-sm);
 	}
 
 	.swatch span {
-		font-size: 0.7rem;
+		font-size: var(--font-size-xs);
 		color: var(--text-secondary);
-		font-weight: 500;
+		font-weight: var(--font-weight-medium);
 	}
 
 	.ui-elements {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 0.75rem;
-		padding: 1rem;
+		gap: var(--space-3);
+		padding: var(--space-4);
 		background: rgba(var(--accent-rgb), 0.05);
-		border-radius: 6px;
+		border-radius: var(--radius-md);
 	}
 
 	.preview-button {
@@ -202,16 +202,16 @@
 		background: var(--accent-primary-color);
 		color: white;
 		border: none;
-		border-radius: 4px;
-		font-size: 0.8rem;
-		font-weight: 500;
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-medium);
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all var(--duration-fast);
 	}
 
 	.preview-button:hover {
 		transform: translateY(-1px);
-		box-shadow: 0 4px 8px var(--shadow-sm, var(--shadow-md, var(--shadow-sm, rgba(0, 0, 0, 0.2))));
+		box-shadow: var(--shadow-sm);
 	}
 
 	.preview-input {
@@ -219,9 +219,9 @@
 		background: var(--ui-bg-lighter);
 		color: var(--text-heading);
 		border: 1px solid rgba(var(--accent-rgb), 0.2);
-		border-radius: 4px;
-		font-size: 0.8rem;
-		transition: all 0.2s;
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-sm);
+		transition: all var(--duration-fast);
 	}
 
 	.preview-input:focus {
@@ -232,9 +232,9 @@
 
 	.preview-badge {
 		padding: 0.4rem 0.8rem;
-		border-radius: 4px;
-		font-size: 0.75rem;
-		font-weight: 600;
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
 		text-align: center;
 	}
 

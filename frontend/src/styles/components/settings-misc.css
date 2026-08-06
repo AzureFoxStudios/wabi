@@ -27,11 +27,11 @@
 	.close-btn {
 		background: transparent;
 		border: none;
-		font-size: 1.5rem;
+		font-size: var(--font-size-2xl);
 		cursor: pointer;
 		color: var(--text-secondary);
-		padding: 0.25rem 0.5rem;
-		transition: all 0.2s;
+		padding: var(--space-1) var(--space-2);
+		transition: all var(--duration-fast);
 	}
 
 
@@ -45,7 +45,7 @@
 
 
 	.header-locale-label {
-		font-size: 0.8rem;
+		font-size: var(--font-size-sm);
 		color: var(--text-secondary);
 	}
 
@@ -54,9 +54,9 @@
 		background: var(--surface-app);
 		color: var(--text-heading);
 		border: 1px solid var(--border-subtle);
-		border-radius: 6px;
-		padding: 0.3rem 0.45rem;
-		font-size: 0.8rem;
+		border-radius: var(--radius-md);
+		padding: var(--space-1) var(--space-2);
+		font-size: var(--font-size-sm);
 	}
 
 
