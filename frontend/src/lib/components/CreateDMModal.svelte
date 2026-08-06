@@ -30,6 +30,12 @@
 		searchQuery = '';
 	}
 
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && isOpen) {
+			closeModal();
+		}
+	}
+
 	function getStatusColor(status: string) {
 		switch (status) {
 			case 'active':
@@ -44,23 +50,16 @@
 	}
 </script>
 
+<svelte:window on:keydown={handleKeydown} />
+
 {#if isOpen}
-	<div
-		class="modal-overlay"
-		role="button"
-		tabindex="0"
-		on:click={closeModal}
-		on:keydown={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-				closeModal();
-			}
-		}}
-	></div>
-	<div class="modal">
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="modal-overlay" on:click={closeModal}></div>
+	<div class="modal" role="dialog" aria-modal="true" tabindex="-1">
 		<div class="modal-header">
 			<h2>Start a Direct Message</h2>
-			<button class="close-btn" on:click={closeModal}>×</button>
+			<button class="close-btn" on:click={closeModal} aria-label="Close">&times;</button>
 		</div>
 
 		<div class="search-container">
@@ -106,7 +105,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: var(--modal-overlay);
+		background: var(--surface-overlay, rgba(0, 0, 0, 0.6));
 		z-index: var(--z-modal);
 	}
 
@@ -117,16 +116,16 @@
 		width: 400px;
 		height: 100vh;
 		height: 100dvh;
-		background: var(--modal-bg);
+		background: var(--surface-modal, #0f0c29);
 		z-index: var(--z-modal-surface);
 		display: flex;
 		flex-direction: column;
-		box-shadow: -4px 0 12px rgba(0, 0, 0, 0.3);
+		box-shadow: var(--shadow-drawer-right, -8px 0 28px rgba(0, 0, 0, 0.35));
 	}
 
 	.modal-header {
-		padding: 1.5rem;
-		border-bottom: 1px solid var(--ui-bg-light);
+		padding: var(--space-6, 1.5rem);
+		border-bottom: 1px solid var(--border-subtle, #24243e);
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -134,16 +133,16 @@
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: var(--text-primary);
+		font-size: var(--text-xl, 1.25rem);
+		font-weight: var(--font-weight-semibold, 600);
+		color: var(--text-heading, #e0e0ff);
 	}
 
 	.close-btn {
 		background: transparent;
 		border: none;
 		color: var(--text-secondary);
-		font-size: 2rem;
+		font-size: var(--text-2xl, 1.5rem);
 		cursor: pointer;
 		padding: 0;
 		width: 32px;
@@ -151,27 +150,27 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		transition: all 0.2s;
+		transition: all var(--duration-fast, 150ms);
 	}
 
 	.close-btn:hover {
 		color: var(--text-primary);
-		background: var(--ui-bg-light);
+		background: var(--surface-raised, #24243e);
 		transform: none;
 	}
 
 	.search-container {
-		padding: 1rem 1.5rem;
-		border-bottom: 1px solid var(--ui-bg-light);
+		padding: var(--space-4, 1rem) var(--space-6, 1.5rem);
+		border-bottom: 1px solid var(--border-subtle, #24243e);
 	}
 
 	.search-container input {
 		width: 100%;
-		padding: 0.75rem;
-		background: var(--ui-bg-lighter);
+		padding: var(--space-3, 0.75rem);
+		background: var(--surface-base, #1a1a2e);
 		border: none;
-		color: var(--text-primary);
-		font-size: 0.9rem;
+		color: var(--text-heading, #e0e0ff);
+		font-size: var(--text-base, 0.875rem);
 	}
 
 	.search-container input:focus {
@@ -181,11 +180,11 @@
 	.user-list {
 		flex: 1;
 		overflow-y: auto;
-		padding: 0.5rem;
+		padding: var(--space-2, 0.5rem);
 	}
 
 	.no-users {
-		padding: 2rem;
+		padding: var(--space-8, 2rem);
 		text-align: center;
 		color: var(--text-secondary);
 	}
@@ -193,18 +192,18 @@
 	.user-item {
 		display: flex;
 		align-items: center;
-		gap: 1rem;
-		padding: 0.75rem;
+		gap: var(--space-4, 1rem);
+		padding: var(--space-3, 0.75rem);
 		width: 100%;
 		background: transparent;
 		border: none;
 		cursor: pointer;
-		transition: background 0.2s;
+		transition: background var(--duration-fast, 150ms);
 		text-align: left;
 	}
 
 	.user-item:hover {
-		background: var(--ui-bg-light);
+		background: var(--surface-raised, #24243e);
 	}
 
 	.user-avatar-container {
@@ -219,18 +218,18 @@
 	}
 
 	.user-avatar-placeholder {
-		font-weight: 600;
-		color: var(--text-primary);
+		font-weight: var(--font-weight-semibold, 600);
+		color: var(--text-heading, #e0e0ff);
 	}
 
 	.status-indicator {
 		position: absolute;
 		bottom: 0;
 		right: 0;
-		width: 12px;
-		height: 12px;
+		width: var(--space-3, 12px);
+		height: var(--space-3, 12px);
 		border-radius: 50%;
-		border: 2px solid var(--modal-bg);
+		border: 2px solid var(--surface-modal, #0f0c29);
 	}
 
 	.user-info {
@@ -239,14 +238,14 @@
 	}
 
 	.username {
-		font-size: 0.95rem;
-		font-weight: 500;
-		color: var(--text-primary);
-		margin-bottom: 0.25rem;
+		font-size: var(--text-base, 0.875rem);
+		font-weight: var(--font-weight-medium, 500);
+		color: var(--text-heading, #e0e0ff);
+		margin-bottom: var(--space-1, 0.25rem);
 	}
 
 	.status-text {
-		font-size: 0.8rem;
+		font-size: var(--text-sm, 0.8125rem);
 		color: var(--text-secondary);
 		text-transform: capitalize;
 	}
