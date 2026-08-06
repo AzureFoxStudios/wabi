@@ -1,30 +1,102 @@
-//! Application state and logic
+//! Application state — multi-screen admin/power TUI.
 
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use tokio::sync::mpsc;
 
 use crate::api::ApiClient;
 use crate::config::Config;
 
+const LOG_CAP: usize = 200;
+const MSG_LIMIT: u32 = 80;
+
 #[derive(Debug)]
 pub enum BgMsg {
     Channels(Vec<Channel>),
     Messages(String, Vec<Message>),
+    Users(Vec<RegisteredUser>),
+    Stats(ServerStats),
+    Health(String),
     SendOk(String),
     LoginOk {
         request_id: u64,
         token: String,
         user_id: i64,
         username: String,
+        highest_role: Option<String>,
     },
     LoginErr {
         request_id: u64,
         message: String,
     },
+    ActionOk(String),
     Error(String),
+    Info(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Screen {
+    #[default]
+    Chat,
+    Users,
+    Server,
+    Logs,
+}
+
+impl Screen {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Chat => Self::Users,
+            Self::Users => Self::Server,
+            Self::Server => Self::Logs,
+            Self::Logs => Self::Chat,
+        }
+    }
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Chat => Self::Logs,
+            Self::Users => Self::Chat,
+            Self::Server => Self::Users,
+            Self::Logs => Self::Server,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Chat => "Chat",
+            Self::Users => "Users",
+            Self::Server => "Server",
+            Self::Logs => "Logs",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusPane {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AppMode {
+    #[default]
+    Normal,
+    Input,
+    Login,
+    LoginLoading,
+    ServerSetup,
+    Command,
+    Help,
+    Prompt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptKind {
+    ResetPassword,
+    ConfirmAction,
 }
 
 #[derive(Debug)]
@@ -34,25 +106,34 @@ pub struct App {
     pub user: Option<User>,
     pub channels: Vec<Channel>,
     pub messages: HashMap<String, Vec<Message>>,
+    pub users: Vec<RegisteredUser>,
+    pub stats: Option<ServerStats>,
+    pub health_blob: String,
     pub active_channel: Option<String>,
+    pub selected_user: usize,
     pub input: String,
+    pub command: String,
+    pub prompt: String,
+    pub prompt_kind: Option<PromptKind>,
+    pub prompt_title: String,
+    pub channel_filter: String,
+    pub user_filter: String,
     pub error: Option<String>,
     pub status: String,
     pub mode: AppMode,
+    pub screen: Screen,
+    pub focus: FocusPane,
     pub login_username: String,
     pub login_password: String,
     pub login_field: u8,
     pub pending_connect: bool,
     pub server_input: String,
-    /// Monotonic login attempt id. Incrementing it invalidates older background login results.
     pub login_request_id: u64,
-    /// How many messages to skip from the end (0 = show latest).
     pub msg_scroll: usize,
-    /// Persistent sender — all background tasks hold a clone of this.
+    pub show_help: bool,
+    pub logs: VecDeque<String>,
     pub bg_tx: mpsc::Sender<BgMsg>,
-    /// Receiver drained every frame by poll_bg().
     pub bg_rx: mpsc::Receiver<BgMsg>,
-    /// Monotonic timestamp (millis) of last auto-poll for live updates.
     last_poll_ms: u64,
 }
 
@@ -61,10 +142,10 @@ pub struct User {
     pub id: i64,
     pub username: String,
     pub handle: Option<String>,
+    pub highest_role: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Channel {
     pub id: String,
     pub name: String,
@@ -73,7 +154,6 @@ pub struct Channel {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Message {
     pub id: String,
     pub channel_id: String,
@@ -84,16 +164,25 @@ pub struct Message {
     pub message_type: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum AppMode {
-    #[default]
-    Normal,
-    Input,
-    Login,
-    LoginLoading,
-    #[allow(dead_code)]
-    Register,
-    ServerSetup,
+#[derive(Debug, Clone)]
+pub struct RegisteredUser {
+    pub user_id: i64,
+    pub username: String,
+    pub profile_picture: Option<String>,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ServerStats {
+    pub total_users: u64,
+    pub online_users: u64,
+    pub banned_users: u64,
+    pub muted_users: u64,
+    pub total_channels: u64,
+    pub total_roles: u64,
+    pub total_emojis: u64,
+    pub total_messages: u64,
+    pub open_reports: u64,
 }
 
 impl App {
@@ -111,8 +200,9 @@ impl App {
             id: 0,
             username: username.clone(),
             handle: None,
+            highest_role: None,
         });
-        let (bg_tx, bg_rx) = mpsc::channel(64);
+        let (bg_tx, bg_rx) = mpsc::channel(128);
 
         let first_run = !Config::config_path().exists() || config.server_url.is_empty();
         let mode = if first_run {
@@ -127,15 +217,27 @@ impl App {
             user: remembered_user,
             channels: Vec::new(),
             messages: HashMap::new(),
+            users: Vec::new(),
+            stats: None,
+            health_blob: String::new(),
             active_channel: None,
+            selected_user: 0,
             input: String::new(),
+            command: String::new(),
+            prompt: String::new(),
+            prompt_kind: None,
+            prompt_title: String::new(),
+            channel_filter: String::new(),
+            user_filter: String::new(),
             error: None,
             status: if mode == AppMode::ServerSetup {
-                "Enter your Wabi server URL to get started.".to_string()
+                "Enter your Wabi server URL to get started.".into()
             } else {
-                "Connecting...".to_string()
+                "Connecting…".into()
             },
             mode,
+            screen: Screen::Chat,
+            focus: FocusPane::Left,
             login_username: String::new(),
             login_password: String::new(),
             login_field: 0,
@@ -143,6 +245,8 @@ impl App {
             server_input: String::new(),
             login_request_id: 0,
             msg_scroll: 0,
+            show_help: false,
+            logs: VecDeque::with_capacity(LOG_CAP),
             bg_tx,
             bg_rx,
             last_poll_ms: 0,
@@ -150,17 +254,59 @@ impl App {
 
         if app.mode != AppMode::ServerSetup {
             match app.api.health().await {
-                Ok(_) => {
-                    app.status = format!("Connected to {}", app.config.server_url);
+                Ok(blob) => {
+                    app.health_blob = blob;
+                    app.status = format!("Connected · {}", app.config.server_url);
+                    app.log("health ok");
                     app.spawn_load_channels();
+                    if app.config.token.is_some() {
+                        app.spawn_load_users();
+                        app.spawn_admin_stats();
+                    }
                 }
                 Err(e) => {
-                    app.status = format!("Offline: {}", e);
+                    app.status = format!("Offline: {e}");
+                    app.log(format!("health fail: {e}"));
                 }
             }
         }
 
         Ok(app)
+    }
+
+    pub fn log(&mut self, line: impl Into<String>) {
+        let ts = chrono::Local::now().format("%H:%M:%S");
+        self.logs.push_back(format!("[{ts}] {}", line.into()));
+        while self.logs.len() > LOG_CAP {
+            self.logs.pop_front();
+        }
+    }
+
+    pub fn filtered_channels(&self) -> Vec<&Channel> {
+        let q = self.channel_filter.to_lowercase();
+        self.channels
+            .iter()
+            .filter(|c| q.is_empty() || c.name.to_lowercase().contains(&q) || c.channel_type.to_lowercase().contains(&q))
+            .collect()
+    }
+
+    pub fn filtered_users(&self) -> Vec<&RegisteredUser> {
+        let q = self.user_filter.to_lowercase();
+        self.users
+            .iter()
+            .filter(|u| q.is_empty() || u.username.to_lowercase().contains(&q))
+            .collect()
+    }
+
+    pub fn is_adminish(&self) -> bool {
+        matches!(
+            self.user
+                .as_ref()
+                .and_then(|u| u.highest_role.as_deref())
+                .map(|r| r.to_lowercase())
+                .as_deref(),
+            Some("owner" | "admin")
+        )
     }
 
     pub fn spawn_load_channels(&self) {
@@ -172,7 +318,7 @@ impl App {
                     let _ = tx.send(BgMsg::Channels(ch)).await;
                 }
                 Err(e) => {
-                    let _ = tx.send(BgMsg::Error(format!("Channels: {}", e))).await;
+                    let _ = tx.send(BgMsg::Error(format!("Channels: {e}"))).await;
                 }
             }
         });
@@ -183,28 +329,75 @@ impl App {
         let tx = self.bg_tx.clone();
         let ch_id = channel_id.to_string();
         tokio::spawn(async move {
-            match api.get_messages(&ch_id, 50).await {
+            match api.get_messages(&ch_id, MSG_LIMIT).await {
                 Ok(msgs) => {
                     let _ = tx.send(BgMsg::Messages(ch_id, msgs)).await;
                 }
                 Err(e) => {
-                    let _ = tx.send(BgMsg::Error(format!("Messages: {}", e))).await;
+                    let _ = tx.send(BgMsg::Error(format!("Messages: {e}"))).await;
                 }
             }
         });
     }
 
-    /// Drain all pending background messages and update state.
+    pub fn spawn_load_users(&self) {
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        tokio::spawn(async move {
+            match api.list_users().await {
+                Ok(u) => {
+                    let _ = tx.send(BgMsg::Users(u)).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(BgMsg::Error(format!("Users: {e}"))).await;
+                }
+            }
+        });
+    }
+
+    pub fn spawn_admin_stats(&self) {
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        tokio::spawn(async move {
+            match api.admin_stats().await {
+                Ok(s) => {
+                    let _ = tx.send(BgMsg::Stats(s)).await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(BgMsg::Info(format!("Admin stats unavailable: {e}")))
+                        .await;
+                }
+            }
+        });
+    }
+
+    pub fn spawn_health(&self) {
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        tokio::spawn(async move {
+            match api.health().await {
+                Ok(h) => {
+                    let _ = tx.send(BgMsg::Health(h)).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(BgMsg::Error(format!("Health: {e}"))).await;
+                }
+            }
+        });
+    }
+
     pub fn poll_bg(&mut self) {
-        // Auto-poll for new messages every 3 seconds on the active channel.
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         if now_ms.saturating_sub(self.last_poll_ms) >= 3000 {
-            if let Some(ref ch_id) = self.active_channel {
-                if self.config.token.is_some() {
-                    self.spawn_load_messages(ch_id);
+            if self.screen == Screen::Chat {
+                if let Some(ref ch_id) = self.active_channel {
+                    if self.config.token.is_some() {
+                        self.spawn_load_messages(ch_id);
+                    }
                 }
             }
             self.last_poll_ms = now_ms;
@@ -215,10 +408,11 @@ impl App {
                 BgMsg::Channels(channels) => {
                     self.channels = channels;
                     self.status = if self.channels.is_empty() {
-                        "Connected — no channels visible".into()
+                        "Connected — no channels".into()
                     } else {
                         format!("{} channels", self.channels.len())
                     };
+                    self.log(format!("loaded {} channels", self.channels.len()));
                     if self.active_channel.is_none() {
                         if let Some(ch) = self.channels.first() {
                             let id = ch.id.clone();
@@ -230,6 +424,22 @@ impl App {
                 BgMsg::Messages(ch_id, msgs) => {
                     self.messages.insert(ch_id, msgs);
                 }
+                BgMsg::Users(users) => {
+                    self.log(format!("loaded {} users", users.len()));
+                    self.users = users;
+                    if self.selected_user >= self.users.len() {
+                        self.selected_user = self.users.len().saturating_sub(1);
+                    }
+                }
+                BgMsg::Stats(stats) => {
+                    self.log("admin stats refreshed");
+                    self.stats = Some(stats);
+                }
+                BgMsg::Health(h) => {
+                    self.health_blob = h;
+                    self.status = format!("Healthy · {}", self.config.server_url);
+                    self.log("health refreshed");
+                }
                 BgMsg::SendOk(ch_id) => {
                     self.spawn_load_messages(&ch_id);
                 }
@@ -238,6 +448,7 @@ impl App {
                     token,
                     user_id,
                     username,
+                    highest_role,
                 } => {
                     if self.mode != AppMode::LoginLoading || request_id != self.login_request_id {
                         continue;
@@ -250,10 +461,17 @@ impl App {
                         id: user_id,
                         username: username.clone(),
                         handle: None,
+                        highest_role: highest_role.clone(),
                     });
-                    self.status = format!("Logged in as {}", username);
+                    self.status = format!("Logged in as {username}");
+                    self.log(format!(
+                        "login ok as {username} role={}",
+                        highest_role.as_deref().unwrap_or("?")
+                    ));
                     self.mode = AppMode::Normal;
                     self.spawn_load_channels();
+                    self.spawn_load_users();
+                    self.spawn_admin_stats();
                 }
                 BgMsg::LoginErr {
                     request_id,
@@ -262,11 +480,20 @@ impl App {
                     if self.mode == AppMode::LoginLoading && request_id == self.login_request_id {
                         self.mode = AppMode::Login;
                         self.status = "Not logged in".into();
+                        self.log(format!("login fail: {message}"));
                         self.set_error(message);
                     }
                 }
+                BgMsg::ActionOk(m) => {
+                    self.log(m.clone());
+                    self.status = m;
+                }
                 BgMsg::Error(e) => {
+                    self.log(format!("err: {e}"));
                     self.set_error(e);
+                }
+                BgMsg::Info(m) => {
+                    self.log(m);
                 }
             }
         }
@@ -283,18 +510,20 @@ impl App {
     pub async fn do_connect(&mut self) -> Result<()> {
         self.pending_connect = false;
         match self.api.health().await {
-            Ok(_) => {
+            Ok(h) => {
+                self.health_blob = h;
                 self.status = format!(
                     "Connected to {} — press l to log in",
                     self.config.server_url
                 );
+                self.log("connected");
                 self.mode = AppMode::Login;
                 self.login_username.clear();
                 self.login_password.clear();
                 self.login_field = 0;
             }
             Err(e) => {
-                self.set_error(format!("Could not reach {}: {}", self.config.server_url, e));
+                self.set_error(format!("Could not reach {}: {e}", self.config.server_url));
                 self.mode = AppMode::ServerSetup;
             }
         }
@@ -302,50 +531,159 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyCode) -> Result<bool> {
+        if self.error.is_some() && matches!(key, KeyCode::Esc) {
+            self.clear_error();
+            return Ok(true);
+        }
+        if self.show_help || self.mode == AppMode::Help {
+            if matches!(key, KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')) {
+                self.show_help = false;
+                if self.mode == AppMode::Help {
+                    self.mode = AppMode::Normal;
+                }
+            }
+            return Ok(true);
+        }
+
         match self.mode {
             AppMode::Normal => self.handle_normal_key(key),
             AppMode::Input => self.handle_input_key(key),
             AppMode::Login | AppMode::LoginLoading => self.handle_login_key(key),
             AppMode::ServerSetup => self.handle_server_setup_key(key),
-            AppMode::Register => Ok(true),
+            AppMode::Command => self.handle_command_key(key),
+            AppMode::Prompt => self.handle_prompt_key(key),
+            AppMode::Help => Ok(true),
         }
     }
 
     fn handle_normal_key(&mut self, key: KeyCode) -> Result<bool> {
+        // Global screen / focus keys
         match key {
-            KeyCode::Esc => self.clear_error(),
             KeyCode::Char('q') => return Ok(false),
+            KeyCode::Char('?') => {
+                self.show_help = true;
+                return Ok(true);
+            }
+            KeyCode::Char(':') => {
+                self.mode = AppMode::Command;
+                self.command.clear();
+                return Ok(true);
+            }
+            KeyCode::Tab => {
+                self.screen = self.screen.next();
+                self.status = format!("Screen · {}", self.screen.label());
+                self.on_screen_enter();
+                return Ok(true);
+            }
+            KeyCode::BackTab => {
+                self.screen = self.screen.prev();
+                self.status = format!("Screen · {}", self.screen.label());
+                self.on_screen_enter();
+                return Ok(true);
+            }
+            KeyCode::Char('1') => {
+                self.screen = Screen::Chat;
+                self.on_screen_enter();
+                return Ok(true);
+            }
+            KeyCode::Char('2') => {
+                self.screen = Screen::Users;
+                self.on_screen_enter();
+                return Ok(true);
+            }
+            KeyCode::Char('3') => {
+                self.screen = Screen::Server;
+                self.on_screen_enter();
+                return Ok(true);
+            }
+            KeyCode::Char('4') => {
+                self.screen = Screen::Logs;
+                return Ok(true);
+            }
+            KeyCode::Char('l') | KeyCode::Char('L') => {
+                self.mode = AppMode::Login;
+                self.login_username = self.config.username.clone().unwrap_or_default();
+                self.login_password.clear();
+                self.login_field = if self.login_username.is_empty() { 0 } else { 1 };
+                self.clear_error();
+                return Ok(true);
+            }
+            KeyCode::Char('r') | KeyCode::F(5) => {
+                self.refresh_current();
+                return Ok(true);
+            }
+            KeyCode::Esc => {
+                self.clear_error();
+                return Ok(true);
+            }
+            _ => {}
+        }
+
+        match self.screen {
+            Screen::Chat => self.handle_chat_keys(key),
+            Screen::Users => self.handle_users_keys(key),
+            Screen::Server => self.handle_server_keys(key),
+            Screen::Logs => Ok(true),
+        }
+    }
+
+    fn on_screen_enter(&mut self) {
+        match self.screen {
+            Screen::Users => {
+                if self.users.is_empty() {
+                    self.spawn_load_users();
+                }
+            }
+            Screen::Server => {
+                self.spawn_health();
+                self.spawn_admin_stats();
+            }
+            Screen::Chat => {
+                if self.channels.is_empty() {
+                    self.spawn_load_channels();
+                }
+            }
+            Screen::Logs => {}
+        }
+    }
+
+    fn refresh_current(&mut self) {
+        self.status = "Refreshing…".into();
+        match self.screen {
+            Screen::Chat => {
+                self.spawn_load_channels();
+                if let Some(id) = self.active_channel.clone() {
+                    self.spawn_load_messages(&id);
+                }
+            }
+            Screen::Users => self.spawn_load_users(),
+            Screen::Server => {
+                self.spawn_health();
+                self.spawn_admin_stats();
+            }
+            Screen::Logs => {}
+        }
+    }
+
+    fn handle_chat_keys(&mut self, key: KeyCode) -> Result<bool> {
+        match key {
             KeyCode::Char('i') | KeyCode::Char('I') => {
                 self.mode = AppMode::Input;
             }
-            KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(idx) = self
-                    .active_channel
-                    .as_ref()
-                    .and_then(|id| self.channels.iter().position(|c| &c.id == id))
-                {
-                    if idx + 1 < self.channels.len() {
-                        let next_id = self.channels[idx + 1].id.clone();
-                        self.active_channel = Some(next_id.clone());
-                        self.msg_scroll = 0;
-                        self.spawn_load_messages(&next_id);
-                    }
-                }
+            KeyCode::Char('/') => {
+                self.mode = AppMode::Command;
+                self.command = "filter ".into();
             }
-            KeyCode::Char('k') | KeyCode::Up => {
-                if let Some(idx) = self
-                    .active_channel
-                    .as_ref()
-                    .and_then(|id| self.channels.iter().position(|c| &c.id == id))
-                {
-                    if idx > 0 {
-                        let prev_id = self.channels[idx - 1].id.clone();
-                        self.active_channel = Some(prev_id.clone());
-                        self.msg_scroll = 0;
-                        self.spawn_load_messages(&prev_id);
-                    }
-                }
+            KeyCode::Char('h') | KeyCode::Left => self.focus = FocusPane::Left,
+            KeyCode::Char(' ') => {
+                self.focus = match self.focus {
+                    FocusPane::Left => FocusPane::Center,
+                    FocusPane::Center => FocusPane::Right,
+                    FocusPane::Right => FocusPane::Left,
+                };
             }
+            KeyCode::Char('j') | KeyCode::Down => self.nav_channels(1),
+            KeyCode::Char('k') | KeyCode::Up => self.nav_channels(-1),
             KeyCode::PageUp => {
                 let max = self
                     .active_channel
@@ -353,29 +691,107 @@ impl App {
                     .and_then(|id| self.messages.get(id))
                     .map(|m| m.len().saturating_sub(1))
                     .unwrap_or(0);
-                self.msg_scroll = (self.msg_scroll + 5).min(max);
+                self.msg_scroll = (self.msg_scroll + 8).min(max);
             }
             KeyCode::PageDown => {
-                self.msg_scroll = self.msg_scroll.saturating_sub(5);
+                self.msg_scroll = self.msg_scroll.saturating_sub(8);
             }
-            KeyCode::Enter | KeyCode::Char('r') | KeyCode::F(5) => {
+            KeyCode::Enter => {
                 if let Some(ref ch_id) = self.active_channel.clone() {
-                    self.status = "Refreshing...".to_string();
                     self.spawn_load_messages(ch_id);
                 }
             }
-            KeyCode::Char('l') | KeyCode::Char('L') => {
-                self.mode = AppMode::Login;
-                self.login_username.clear();
-                self.login_password.clear();
-                self.login_field = 0;
-                self.clear_error();
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    fn nav_channels(&mut self, delta: i32) {
+        let list: Vec<String> = self.filtered_channels().into_iter().map(|c| c.id.clone()).collect();
+        if list.is_empty() {
+            return;
+        }
+        let idx = self
+            .active_channel
+            .as_ref()
+            .and_then(|id| list.iter().position(|c| c == id))
+            .unwrap_or(0) as i32;
+        let next = (idx + delta).clamp(0, list.len() as i32 - 1) as usize;
+        let id = list[next].clone();
+        self.active_channel = Some(id.clone());
+        self.msg_scroll = 0;
+        self.spawn_load_messages(&id);
+    }
+
+    fn handle_users_keys(&mut self, key: KeyCode) -> Result<bool> {
+        let n = self.filtered_users().len();
+        match key {
+            KeyCode::Char('j') | KeyCode::Down => {
+                if n > 0 {
+                    self.selected_user = (self.selected_user + 1).min(n - 1);
+                }
             }
-            KeyCode::Char('?') => {
-                self.set_error(
-                    "q=quit  i=input  j/k=channels  l=login  Enter/r=refresh  PgUp/PgDn=scroll"
-                        .into(),
-                );
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.selected_user = self.selected_user.saturating_sub(1);
+            }
+            KeyCode::Char('/') => {
+                self.mode = AppMode::Command;
+                self.command = "ufilter ".into();
+            }
+            KeyCode::Char('p') => {
+                if !self.is_adminish() {
+                    self.set_error("Admin/owner only".into());
+                    return Ok(true);
+                }
+                self.prompt_kind = Some(PromptKind::ResetPassword);
+                self.prompt_title = "New password for selected user".into();
+                self.prompt.clear();
+                self.mode = AppMode::Prompt;
+            }
+            KeyCode::Char('c') => {
+                if !self.is_adminish() {
+                    self.set_error("Admin/owner only".into());
+                    return Ok(true);
+                }
+                if let Some(u) = self.filtered_users().get(self.selected_user).map(|u| (*u).clone()) {
+                    let id = u.user_id;
+                    let name = u.username.clone();
+                    let api = self.api.clone();
+                    let tx = self.bg_tx.clone();
+                    tokio::spawn(async move {
+                        match api.admin_clear_lockout(id).await {
+                            Ok(()) => {
+                                let _ = tx
+                                    .send(BgMsg::ActionOk(format!("Cleared lockout for {name}")))
+                                    .await;
+                            }
+                            Err(e) => {
+                                let _ = tx.send(BgMsg::Error(e.to_string())).await;
+                            }
+                        }
+                    });
+                }
+            }
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    fn handle_server_keys(&mut self, key: KeyCode) -> Result<bool> {
+        match key {
+            KeyCode::Char('s') => {
+                self.mode = AppMode::ServerSetup;
+                self.server_input = self.config.server_url.clone();
+            }
+            KeyCode::Char('o') => {
+                // logout
+                self.config.token = None;
+                let _ = self.config.save();
+                self.api.clear_token();
+                self.user = None;
+                self.stats = None;
+                self.status = "Logged out".into();
+                self.log("logout");
             }
             _ => {}
         }
@@ -388,19 +804,18 @@ impl App {
                 let text = self.input.trim().to_string();
                 if !text.is_empty() {
                     if self.config.token.is_none() {
-                        self.set_error("Not logged in — press l to log in first".into());
+                        self.set_error("Not logged in — press l".into());
                         self.input.clear();
                         self.mode = AppMode::Normal;
                         return Ok(true);
                     }
                     if let Some(ch_id) = self.active_channel.clone() {
-                        // Optimistic: show the message immediately.
                         let display_name = self
                             .user
                             .as_ref()
                             .map(|u| u.username.clone())
                             .or_else(|| self.config.username.clone())
-                            .unwrap_or_else(|| "me".to_string());
+                            .unwrap_or_else(|| "me".into());
                         let user_id = self.user.as_ref().map(|u| u.id).unwrap_or(0);
                         let now_ms = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -410,17 +825,15 @@ impl App {
                             .entry(ch_id.clone())
                             .or_default()
                             .push(Message {
-                                id: format!("local-{}", now_ms),
+                                id: format!("local-{now_ms}"),
                                 channel_id: ch_id.clone(),
                                 sender_id: user_id,
                                 sender_name: display_name,
                                 text: text.clone(),
                                 timestamp: now_ms,
-                                message_type: "text".to_string(),
+                                message_type: "text".into(),
                             });
-                        // Scroll back to latest so the new message is visible.
                         self.msg_scroll = 0;
-
                         let api = self.api.clone();
                         let tx = self.bg_tx.clone();
                         tokio::spawn(async move {
@@ -429,8 +842,7 @@ impl App {
                                     let _ = tx.send(BgMsg::SendOk(ch_id)).await;
                                 }
                                 Err(e) => {
-                                    let _ =
-                                        tx.send(BgMsg::Error(format!("Send failed: {}", e))).await;
+                                    let _ = tx.send(BgMsg::Error(format!("Send failed: {e}"))).await;
                                 }
                             }
                         });
@@ -452,6 +864,140 @@ impl App {
         Ok(true)
     }
 
+    fn handle_command_key(&mut self, key: KeyCode) -> Result<bool> {
+        match key {
+            KeyCode::Esc => {
+                self.mode = AppMode::Normal;
+                self.command.clear();
+            }
+            KeyCode::Enter => {
+                let cmd = self.command.trim().to_string();
+                self.mode = AppMode::Normal;
+                self.command.clear();
+                self.run_command(&cmd);
+            }
+            KeyCode::Char(c) => self.command.push(c),
+            KeyCode::Backspace => {
+                self.command.pop();
+            }
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    fn run_command(&mut self, cmd: &str) {
+        let mut parts = cmd.split_whitespace();
+        let head = parts.next().unwrap_or("").to_lowercase();
+        match head.as_str() {
+            "q" | "quit" => {
+                // handled by returning false from key — set a flag via status
+                self.status = "Press q again to quit".into();
+            }
+            "chat" => {
+                self.screen = Screen::Chat;
+                self.on_screen_enter();
+            }
+            "users" => {
+                self.screen = Screen::Users;
+                self.on_screen_enter();
+            }
+            "server" => {
+                self.screen = Screen::Server;
+                self.on_screen_enter();
+            }
+            "logs" => self.screen = Screen::Logs,
+            "refresh" | "r" => self.refresh_current(),
+            "logout" => {
+                self.config.token = None;
+                let _ = self.config.save();
+                self.api.clear_token();
+                self.user = None;
+                self.log("logout");
+            }
+            "login" => {
+                self.mode = AppMode::Login;
+            }
+            "filter" => {
+                self.channel_filter = parts.collect::<Vec<_>>().join(" ");
+                self.status = format!("Channel filter: {:?}", self.channel_filter);
+            }
+            "ufilter" => {
+                self.user_filter = parts.collect::<Vec<_>>().join(" ");
+                self.selected_user = 0;
+                self.status = format!("User filter: {:?}", self.user_filter);
+            }
+            "goto" => {
+                let name = parts.collect::<Vec<_>>().join(" ").to_lowercase();
+                if let Some(ch) = self
+                    .channels
+                    .iter()
+                    .find(|c| c.name.to_lowercase() == name || c.name.to_lowercase().contains(&name))
+                {
+                    let id = ch.id.clone();
+                    self.screen = Screen::Chat;
+                    self.active_channel = Some(id.clone());
+                    self.spawn_load_messages(&id);
+                } else {
+                    self.set_error(format!("No channel matching '{name}'"));
+                }
+            }
+            "help" => self.show_help = true,
+            "" => {}
+            other => self.set_error(format!(
+                "Unknown :{other} — try :chat :users :server :logs :filter :ufilter :goto :refresh :logout :help"
+            )),
+        }
+    }
+
+    fn handle_prompt_key(&mut self, key: KeyCode) -> Result<bool> {
+        match key {
+            KeyCode::Esc => {
+                self.mode = AppMode::Normal;
+                self.prompt.clear();
+                self.prompt_kind = None;
+            }
+            KeyCode::Enter => {
+                let value = self.prompt.clone();
+                let kind = self.prompt_kind;
+                self.mode = AppMode::Normal;
+                self.prompt.clear();
+                self.prompt_kind = None;
+                if let Some(PromptKind::ResetPassword) = kind {
+                    if value.len() < 6 {
+                        self.set_error("Password must be ≥ 6 chars".into());
+                        return Ok(true);
+                    }
+                    if let Some(u) = self.filtered_users().get(self.selected_user).map(|u| (*u).clone()) {
+                        let id = u.user_id;
+                        let name = u.username.clone();
+                        let api = self.api.clone();
+                        let tx = self.bg_tx.clone();
+                        tokio::spawn(async move {
+                            match api.admin_reset_password(id, &value, true).await {
+                                Ok(()) => {
+                                    let _ = tx
+                                        .send(BgMsg::ActionOk(format!(
+                                            "Password reset for {name} (temporary)"
+                                        )))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(BgMsg::Error(e.to_string())).await;
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            KeyCode::Char(c) => self.prompt.push(c),
+            KeyCode::Backspace => {
+                self.prompt.pop();
+            }
+            _ => {}
+        }
+        Ok(true)
+    }
+
     fn handle_server_setup_key(&mut self, key: KeyCode) -> Result<bool> {
         match key {
             KeyCode::Enter => {
@@ -463,16 +1009,21 @@ impl App {
                 let url = if url.contains("://") {
                     url
                 } else {
-                    format!("https://{}", url)
+                    format!("https://{url}")
                 };
                 self.config.server_url = url.clone();
                 let _ = self.config.save();
                 self.api = ApiClient::new(&url);
                 self.server_input.clear();
-                self.status = format!("Connecting to {}...", url);
+                self.status = format!("Connecting to {url}…");
                 self.pending_connect = true;
             }
-            KeyCode::Esc => return Ok(false),
+            KeyCode::Esc => {
+                if self.config.server_url.is_empty() {
+                    return Ok(false);
+                }
+                self.mode = AppMode::Normal;
+            }
             KeyCode::Char(c) => self.server_input.push(c),
             KeyCode::Backspace => {
                 self.server_input.pop();
@@ -486,21 +1037,15 @@ impl App {
         if self.mode == AppMode::LoginLoading && key != KeyCode::Esc {
             return Ok(true);
         }
-
         match key {
             KeyCode::Esc => {
-                // Esc during LoginLoading abandons waiting for the result;
-                // the background task may still complete but result is discarded.
                 if self.mode == AppMode::LoginLoading {
                     self.login_request_id = self.login_request_id.wrapping_add(1);
                 }
                 self.mode = AppMode::Normal;
                 self.login_password.clear();
             }
-            KeyCode::Tab | KeyCode::Down => {
-                self.login_field ^= 1;
-            }
-            KeyCode::Up => {
+            KeyCode::Tab | KeyCode::Down | KeyCode::Up => {
                 self.login_field ^= 1;
             }
             KeyCode::Enter => {
@@ -508,10 +1053,9 @@ impl App {
                     self.login_field = 1;
                 } else if !self.login_username.is_empty() && !self.login_password.is_empty() {
                     self.mode = AppMode::LoginLoading;
-                    self.status = "Authenticating...".to_string();
+                    self.status = "Authenticating…".into();
                     self.login_request_id = self.login_request_id.wrapping_add(1);
                     let request_id = self.login_request_id;
-                    // Take the password out of the struct immediately to limit its lifetime.
                     let username = self.login_username.clone();
                     let password = std::mem::take(&mut self.login_password);
                     let api = self.api.clone();
@@ -525,6 +1069,7 @@ impl App {
                                         token: r.token,
                                         user_id: r.user_id,
                                         username: r.username,
+                                        highest_role: r.highest_role,
                                     })
                                     .await;
                             }
@@ -532,14 +1077,14 @@ impl App {
                                 let _ = tx
                                     .send(BgMsg::LoginErr {
                                         request_id,
-                                        message: format!("Login failed: {}", e),
+                                        message: format!("Login failed: {e}"),
                                     })
                                     .await;
                             }
                         }
                     });
                 } else {
-                    self.status = "Need username AND password".to_string();
+                    self.status = "Need username AND password".into();
                 }
             }
             KeyCode::Char(c) => {
