@@ -64,7 +64,8 @@ export function recordSuccessfulServerConnection(details?: {
 		hasRegisteredSession: Boolean(getAuthToken(normalizedUrl)),
 		hasGuestSession: Boolean(getGuestSessionId(normalizedUrl)),
 		frontendMetadata: entry?.frontendMetadata || null,
-		launchPageBranding: entry?.launchPageBranding || null
+		launchPageBranding: entry?.launchPageBranding || null,
+		useNeutralBranding: entry?.useNeutralBranding === true
 	}));
 	injectNeutralBranding(getUseNeutralBranding());
 	void refreshSavedServerMetadata(normalizedUrl);
@@ -268,6 +269,25 @@ export function openUnsavedServer(url: string): void {
 /** B3 — whether the currently active saved server opts into neutral branding. */
 export function getUseNeutralBranding(): boolean {
 	return get(currentSavedServer)?.useNeutralBranding === true;
+}
+
+/** B3 — toggle strip-Wabi branding for a saved server (boot shell + login). */
+export function setUseNeutralBranding(url: string, enabled: boolean): void {
+	const normalizedUrl = normalizeServerUrl(url);
+	if (!normalizedUrl) return;
+	updateEntry(normalizedUrl, (entry, entries) => {
+		if (!entry) return null;
+		return {
+			...entry,
+			order: entry.order ?? entries.length,
+			useNeutralBranding: enabled === true
+		};
+	});
+	// Live-apply if this is the active server.
+	const active = get(currentSavedServer);
+	if (active && normalizeServerUrl(active.url) === normalizedUrl) {
+		injectNeutralBranding(enabled === true);
+	}
 }
 
 export function initializeCurrentServerMetadata(): void {

@@ -12,9 +12,10 @@
 	import { chatStorage } from '$lib/storage';
 	import { get } from 'svelte/store';
 	import { initI18n } from '$lib/i18n';
-	import { applyBranding } from '$lib/branding';
+	import { applyBranding, selectBrandConfig } from '$lib/branding';
+	import { isNeutralBrandingEnabled } from '$lib/components/loginHelpers';
 	import { openWabiDB, getWabiDB } from '$lib/wabidb';
-import { drainOutboundQueue } from '$lib/wabidb/drain';
+	import { drainOutboundQueue } from '$lib/wabidb/drain';
 
 	import { updated } from '$app/stores';
 	import { initRelaySelector } from '$lib/relaySelector';
@@ -59,7 +60,8 @@ function isLocalPreviewHost(): boolean {
 	onMount(async () => {
 		startupMark('layout:onMount:start');
 
-		applyBranding();
+		const neutral = isNeutralBrandingEnabled();
+		applyBranding(selectBrandConfig(neutral), { neutral });
 
 		void initEmojis();
 
