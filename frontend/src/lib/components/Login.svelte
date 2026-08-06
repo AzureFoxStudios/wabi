@@ -117,6 +117,25 @@
 
 	onMount(() => {
 		injectNeutralBranding();
+		// Login is pre-auth — theme ambient may be "none"/0. Seed a soft default
+		// so AmbientBackground actually paints under the glass card (user loved it).
+		try {
+			const root = document.documentElement;
+			const style = getComputedStyle(root);
+			const effect = style.getPropertyValue('--bg-effect-effect').trim();
+			const intensity = parseFloat(style.getPropertyValue('--bg-effect-intensity')) || 0;
+			if (!effect || effect === 'none' || intensity <= 0) {
+				root.style.setProperty('--bg-effect-effect', 'constellations');
+				root.style.setProperty('--bg-effect-color', style.getPropertyValue('--accent-primary-color').trim() || '#6366f1');
+				root.style.setProperty('--bg-effect-color2', style.getPropertyValue('--accent-secondary-color').trim() || '#818cf8');
+				root.style.setProperty('--bg-effect-intensity', '0.45');
+				root.style.setProperty('--bg-effect-size', '1');
+				root.style.setProperty('--bg-effect-speed', '0.85');
+				root.setAttribute('data-ambient', 'true');
+			}
+		} catch {
+			/* non-fatal */
+		}
 		void getLaunchPageConfig().then((config) => { launchPageConfig = config; }).catch((err) => { console.warn('[Login] Failed to load launch page config:', err); });
 		void getSetupStatus().then((status) => { if (status.setupRequired) { wizardMode = true; authMode = 'register'; } });
 		const configured = getConfiguredServerUrl();
