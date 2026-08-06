@@ -442,10 +442,10 @@
 }
 
 .empty-list {
-	padding: 16px 10px;
+	padding: var(--space-4) var(--space-3);
 	text-align: center;
 	color: var(--biz-text-muted, #52525b);
-	font-size: 0.78rem;
+	font-size: var(--font-size-sm);
 }
 
 .chat-toggle-btn {

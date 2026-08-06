@@ -48,8 +48,8 @@
 	.empty-message {
 		text-align: center;
 		color: var(--biz-text-muted, #64748b);
-		padding: 2rem 1rem;
-		font-size: 0.9rem;
+		padding: var(--space-8) var(--space-4);
+		font-size: var(--font-size-base);
 	}
 
 	.entry-item {

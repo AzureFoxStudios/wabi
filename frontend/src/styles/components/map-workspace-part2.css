@@ -199,7 +199,7 @@
 		display: grid;
 		place-items: center;
 		min-height: 220px;
-		padding: 1rem;
+		padding: var(--space-4);
 		text-align: center;
 		color: var(--text-secondary, #b0b8d0);
 	}
@@ -207,7 +207,7 @@
 	.visual-fallback-card,
 	.empty-stage-copy {
 		display: grid;
-		gap: 0.75rem;
+		gap: var(--space-3);
 		max-width: 28rem;
 	}
 

@@ -33,10 +33,10 @@
 	}
 
 	.empty-state {
-		padding: 2rem 1rem;
+		padding: var(--space-8) var(--space-4);
 		text-align: center;
 		color: var(--text-secondary);
-		font-size: 0.875rem;
+		font-size: var(--font-size-base);
 	}
 
 	.role-group {

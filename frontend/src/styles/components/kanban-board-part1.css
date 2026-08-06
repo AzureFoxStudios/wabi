@@ -510,12 +510,12 @@
 }
 
 .empty-column {
-	padding: 2rem 1rem;
+	padding: var(--space-8) var(--space-4);
 	text-align: center;
 }
 
 .empty-column p {
 	margin: 0;
 	color: var(--biz-text-muted, #64748b);
-	font-size: 0.85rem;
+	font-size: var(--font-size-sm);
 }

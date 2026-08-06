@@ -358,9 +358,9 @@
 }
 
 .switcher-empty {
-	padding: 1rem;
+	padding: var(--space-4);
 	border: 1px dashed rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
-	border-radius: 18px;
+	border-radius: var(--radius-xl);
 	color: var(--text-secondary);
 	text-align: center;
 }

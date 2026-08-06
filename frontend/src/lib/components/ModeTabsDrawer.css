@@ -163,8 +163,8 @@
 	color: var(--text-secondary, #b3b3ff);
 	opacity: 0.8;
 }
-.drawer-empty { padding: 0.25rem 0.35rem 0.55rem; }
-.drawer-empty p { margin: 0; color: var(--text-secondary, #b3b3ff); font-size: 0.8rem; }
+.drawer-empty { padding: var(--space-1) var(--space-2) var(--space-2); }
+.drawer-empty p { margin: 0; color: var(--text-secondary, #b3b3ff); font-size: var(--font-size-sm); }
 .item-list { display: flex; flex-direction: column; gap: 0.3rem; }
 .item-list-grouped {
 	gap: 0;

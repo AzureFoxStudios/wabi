@@ -78,6 +78,6 @@
 	background: rgba(15, 23, 42, 0.9);
 	color: #e2e8f0;
 }
-.queue-empty { font-size: 0.72rem; color: #94a3b8; }
+.queue-empty { font-size: var(--font-size-xs); color: var(--text-muted); }
 .queue-pending-count { font-size: 0.68rem; color: #94a3b8; }
 .watch-info { font-size: 0.72rem; color: var(--text-secondary, #94a3b8); }
