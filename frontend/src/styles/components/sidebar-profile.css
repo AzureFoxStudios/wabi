@@ -90,13 +90,13 @@
 
 	.activity-line .activity-label {
 		color: var(--text-secondary);
-		font-size: 0.68rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		white-space: nowrap;
 	}
 
 	.activity-line .activity-status {
 		color: var(--text-muted);
-		font-size: 0.68rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -116,7 +116,7 @@
 		align-items: center;
 		gap: 0.35rem;
 		min-width: 0;
-		font-size: 0.88rem;
+		font-size: var(--font-size-base, 0.875rem);
 		font-weight: 700;
 		line-height: 1.1;
 	}
@@ -130,7 +130,7 @@
 
 	.profile-card .user-tag {
 		color: var(--text-secondary);
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		line-height: 1.1;
 	}
 
@@ -144,7 +144,7 @@
 		flex-direction: column;
 		gap: 4px;
 		background: var(--surface-base);
-		border-radius: 8px;
+		border-radius: var(--radius-md, 8px);
 		padding: 6px;
 		box-shadow: 0 4px 12px var(--shadow-lg, rgba(0, 0, 0, 0.3));
 		z-index: var(--z-sticky);
@@ -171,7 +171,7 @@
 		max-width: 24px !important;
 		max-height: 24px !important;
 		padding: 0 !important;
-		border-radius: 6px;
+		border-radius: var(--radius-sm, 4px);
 		border: 1px solid transparent;
 		background: transparent;
 		color: var(--text-secondary);
@@ -221,10 +221,10 @@
 		right: -4px;
 		background: var(--accent-primary, #6366f1);
 		color: #fff;
-		font-size: 9px;
+		font-size: var(--font-size-2xs, 0.5625rem);
 		font-weight: 700;
 		padding: 2px 4px;
-		border-radius: 3px;
+		border-radius: var(--radius-sm, 4px);
 		white-space: nowrap;
 		animation: fade-in 0.2s ease, fade-out 0.2s ease 1.8s;
 	}

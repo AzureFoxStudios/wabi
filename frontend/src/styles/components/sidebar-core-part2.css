@@ -4,12 +4,12 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.2rem;
-		font-size: 0.68rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		font-weight: 600;
 		color: var(--text-secondary);
 		background: rgba(var(--border-rgb), var(--opacity-light));
 		padding: 0.05rem 0.35rem;
-		border-radius: 999px;
+		border-radius: var(--radius-full, 9999px);
 	}
 
 
@@ -19,12 +19,12 @@
 		justify-content: center;
 		margin-left: 0.32rem;
 		padding: 0.06rem 0.38rem;
-		border-radius: 999px;
-		font-size: 0.56rem;
+		border-radius: var(--radius-full, 9999px);
+		font-size: var(--font-size-2xs, 0.5625rem);
 		font-weight: 800;
 		letter-spacing: 0.05em;
 		text-transform: uppercase;
-		color: var(--accent-danger-soft, #fff1f2);
+		color: color-mix(in srgb, var(--text-heading) 88%, var(--color-danger) 12%);
 		background: color-mix(in srgb, var(--color-danger, #dc2626) 74%, var(--surface-raised));
 		border: 1px solid rgba(248, 113, 113, 0.44);
 		flex-shrink: 0;
@@ -33,7 +33,7 @@
 
 	.voice-recording-tag.member {
 		margin-left: 0;
-		font-size: 0.54rem;
+		font-size: var(--font-size-2xs, 0.5625rem);
 		padding: 0.05rem 0.34rem;
 	}
 
@@ -53,9 +53,9 @@
 		background: transparent;
 		border: none;
 		color: var(--text-secondary);
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		padding: 0.14rem 0.2rem;
-		border-radius: 6px;
+		border-radius: var(--radius-sm, 4px);
 		cursor: pointer;
 		min-width: 0;
 		text-align: left;
@@ -70,7 +70,7 @@
 
 
 	.thread-prefix {
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		color: var(--text-muted);
 	}
 
@@ -85,10 +85,10 @@
 
 
 	.thread-privacy {
-		font-size: 0.62rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		color: var(--text-secondary);
 		border: 1px solid rgba(var(--border-rgb), var(--opacity-medium));
-		border-radius: 999px;
+		border-radius: var(--radius-full, 9999px);
 		padding: 0.02rem 0.35rem;
 	}
 
@@ -97,7 +97,7 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.6rem;
+		font-size: var(--font-size-2xs, 0.5625rem);
 		font-weight: 700;
 		color: var(--text-heading);
 	}
@@ -147,15 +147,15 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.5rem;
+		font-size: var(--font-size-2xs, 0.5625rem);
 		font-weight: 700;
-		color: white;
-		background: var(--text-secondary);
+		color: var(--text-heading);
+		background: var(--surface-raised);
 	}
 
 
 	.voice-chip-more {
-		font-size: 0.6rem;
+		font-size: var(--font-size-2xs, 0.5625rem);
 		color: var(--text-secondary);
 		margin-left: 7px;
 		font-weight: 500;
@@ -170,7 +170,7 @@
 		opacity: 1;
 		pointer-events: auto;
 		transform: translateX(0);
-		transition: opacity 0.18s ease, transform 0.18s ease;
+		transition: opacity var(--duration-fast, 150ms) ease, transform var(--duration-fast, 150ms) ease;
 	}
 
 
@@ -181,7 +181,7 @@
 		opacity: 0;
 		overflow: hidden;
 		pointer-events: none;
-		transition: max-width 0.18s ease, opacity 0.18s ease, margin 0.18s ease;
+		transition: max-width var(--duration-fast, 150ms) ease, opacity var(--duration-fast, 150ms) ease, margin var(--duration-fast, 150ms) ease;
 	}
 
 	.voice-channel-item:hover .voice-action-count,
@@ -206,11 +206,11 @@
 		background: transparent;
 		border: none;
 		transition:
-			width 0.18s ease,
-			opacity 0.18s ease,
-			transform 0.18s ease,
-			margin-right 0.18s ease,
-			padding 0.18s ease;
+			width var(--duration-fast, 150ms) ease,
+			opacity var(--duration-fast, 150ms) ease,
+			transform var(--duration-fast, 150ms) ease,
+			margin-right var(--duration-fast, 150ms) ease,
+			padding var(--duration-fast, 150ms) ease;
 	}
 
 	.voice-channel-item:hover .voice-follow-btn,
@@ -247,7 +247,7 @@
 		pointer-events: none;
 		transform: translateX(4px);
 		border: none;
-		border-radius: 999px;
+		border-radius: var(--radius-full, 9999px);
 		background: transparent;
 		color: var(--text-secondary);
 		display: flex;
@@ -255,12 +255,12 @@
 		justify-content: center;
 		cursor: pointer;
 		transition:
-			width 0.18s ease,
-			opacity 0.18s ease,
-			transform 0.18s ease,
-			margin-right 0.18s ease,
-			color 0.18s ease,
-			background 0.18s ease;
+			width var(--duration-fast, 150ms) ease,
+			opacity var(--duration-fast, 150ms) ease,
+			transform var(--duration-fast, 150ms) ease,
+			margin-right var(--duration-fast, 150ms) ease,
+			color var(--duration-fast, 150ms) ease,
+			background var(--duration-fast, 150ms) ease;
 	}
 
 	.voice-channel-item:hover .voice-whiteboard-btn,
@@ -289,7 +289,7 @@
 
 	.breakout-prefix {
 		color: var(--text-muted);
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 	}
 
 
@@ -311,13 +311,13 @@
 		align-items: center;
 		gap: 0.35rem;
 		color: var(--text-secondary);
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		padding: 0.16rem 0.42rem 0.16rem 0.18rem;
-		border-radius: 999px;
+		border-radius: var(--radius-full, 9999px);
 		background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
 		border: 1px solid rgba(var(--border-rgb), 0.25);
 		min-width: 0;
-		transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+		transition: transform var(--duration-fast, 150ms) ease, border-color var(--duration-fast, 150ms) ease, background var(--duration-fast, 150ms) ease;
 	}
 
 
@@ -341,7 +341,7 @@
 	.voice-member-avatar {
 		width: 18px;
 		height: 18px;
-		border-radius: 999px;
+		border-radius: var(--radius-full, 9999px);
 		object-fit: cover;
 		border: 1px solid var(--surface-raised);
 		background: var(--surface-base);
@@ -350,7 +350,7 @@
 
 	.voice-member-avatar.speaking {
 		border-color: var(--status-online, #22c55e);
-		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-online) 35%, transparent);
 		animation: voice-ring-pulse 1.1s ease-in-out infinite;
 	}
 
@@ -367,21 +367,21 @@
 	.voice-member-duration {
 		margin-left: auto;
 		flex: 0 0 auto;
-		font-size: 0.68rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		opacity: 0.72;
 		font-variant-numeric: tabular-nums;
 	}
 
 
 	.voice-usercard {
-		margin: 0.6rem;
-		padding: 0.55rem;
-		border-radius: 10px;
+		margin: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+		padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+		border-radius: var(--radius-md, 8px);
 		background: var(--surface-base);
 		border: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: var(--space-2, 0.5rem);
 	}
 
 
@@ -408,7 +408,7 @@
 	.voice-usercard-title small {
 		display: block;
 		color: var(--text-secondary);
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 	}
 
 
@@ -417,13 +417,13 @@
 		height: 8px;
 		border-radius: 50%;
 		background: var(--status-online, #22c55e);
-		box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.22);
+		box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-online) 22%, transparent);
 	}
 
 
 	.voice-chevron {
 		color: var(--text-secondary);
-		font-size: 0.78rem;
+		font-size: var(--font-size-sm, 0.8125rem);
 	}
 
 
@@ -434,7 +434,7 @@
 		background: rgba(var(--border-rgb), 0.12);
 		border-radius: 8px;
 		padding: 0.5rem;
-		font-size: 0.7rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 	}
 
 
@@ -467,7 +467,7 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.45rem;
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 	}
 
 
@@ -485,7 +485,7 @@
 		color: var(--text-heading);
 		border-radius: 8px;
 		padding: 0.2rem 0.35rem;
-		font-size: 0.72rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 	}
 
 
@@ -497,7 +497,7 @@
 
 
 	.voice-listen-title {
-		font-size: 0.68rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		letter-spacing: 0.05em;
 		text-transform: uppercase;
 		color: var(--text-secondary);
@@ -515,9 +515,9 @@
 		background: rgba(var(--border-rgb), 0.15);
 		border: 1px solid rgba(var(--border-rgb), 0.35);
 		color: var(--text-secondary);
-		border-radius: 999px;
+		border-radius: var(--radius-full, 9999px);
 		padding: 0.18rem 0.48rem;
-		font-size: 0.68rem;
+		font-size: var(--font-size-xs, 0.6875rem);
 		line-height: 1.2;
 		cursor: pointer;
 	}
@@ -540,7 +540,7 @@
 		background: rgba(var(--border-rgb), 0.2);
 		border: 1px solid rgba(var(--border-rgb), 0.4);
 		color: var(--text-heading);
-		border-radius: 999px;
+		border-radius: var(--radius-full, 9999px);
 		width: 36px;
 		height: 36px;
 		display: flex;
