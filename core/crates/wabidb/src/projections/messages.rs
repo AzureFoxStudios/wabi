@@ -237,7 +237,13 @@ impl MessagesProjection {
 
     fn apply_created(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let mut record: MessageRecord = decode_record(&event.payload)?;
-        record.message_id = format!("msg_{:x}", event.commit_seq);
+        // Prefer the id stamped by the writer (UUID). Only fall back to
+        // commit_seq when older producers left message_id empty.
+        // commit_seq-only ids collapse in client keyed lists when anything
+        // reuses a seq ("new message eats old").
+        if record.message_id.trim().is_empty() {
+            record.message_id = format!("msg_{:x}", event.commit_seq);
+        }
         let key = encode_key(&record.channel_id, &record.message_id);
         let value = encode_record(&record);
         state.insert("messages", key, value, event.commit_seq);
