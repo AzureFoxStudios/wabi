@@ -1,6 +1,6 @@
 /* ==========================================================================
    SETTINGS — PROFILE
-   Hero + presence controls aligned with glass/accent shell.
+   Discord-style hero: banner with avatar overlapping bottom-left.
    ========================================================================== */
 
 .profile-hero-card {
@@ -17,47 +17,54 @@
 	box-shadow:
 		0 22px 50px rgba(0, 0, 0, 0.28),
 		inset 0 1px 0 rgba(255, 255, 255, 0.06);
+	margin-bottom: 1rem;
 }
 
+/* Banner is the top strip; avatar sits ON it */
 .profile-hero-banner {
-	height: 92px;
+	position: relative;
+	height: 120px;
 	background: linear-gradient(
 		135deg,
 		var(--accent-secondary-color, #818cf8),
 		var(--accent-primary-color, #6366f1)
 	);
-	filter: saturate(1.05);
 }
 
 .profile-hero-banner::after {
 	content: '';
-	display: block;
-	width: 100%;
-	height: 100%;
+	position: absolute;
+	inset: 0;
 	background:
-		radial-gradient(circle at 18% 24%, rgba(255, 255, 255, 0.28), transparent 28%),
-		linear-gradient(180deg, transparent, color-mix(in srgb, var(--surface-sunken) 72%, transparent));
+		radial-gradient(circle at 18% 24%, rgba(255, 255, 255, 0.26), transparent 30%),
+		linear-gradient(180deg, transparent 40%, rgba(0, 0, 0, 0.28));
+	pointer-events: none;
 }
 
+/* Body below banner holds identity + actions; avatar pulls up over banner */
 .profile-hero-main {
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: end;
-	gap: 1rem;
-	padding: 0 1.1rem 1.1rem;
-	margin-top: -44px;
+	gap: 0.85rem 1rem;
+	padding: 0 1.1rem 1.05rem;
+	/* Pull the row up so avatar overlaps the banner by ~half */
+	margin-top: -48px;
+	position: relative;
+	z-index: 1;
 }
 
 .profile-hero-avatar-wrap {
 	position: relative;
-	width: 96px;
-	height: 96px;
-	padding: 5px;
-	border-radius: 28px;
-	background: color-mix(in srgb, var(--surface-base) 88%, black 12%);
+	width: 92px;
+	height: 92px;
+	padding: 4px;
+	border-radius: 50%;
+	background: var(--surface-base, #1a1a2e);
 	box-shadow:
-		0 14px 32px rgba(0, 0, 0, 0.32),
-		0 0 0 2px color-mix(in srgb, var(--accent-secondary-color) 28%, transparent);
+		0 0 0 4px color-mix(in srgb, var(--surface-base) 92%, black),
+		0 12px 28px rgba(0, 0, 0, 0.4);
+	flex-shrink: 0;
 }
 
 .profile-hero-avatar {
@@ -65,6 +72,7 @@
 	height: 100%;
 	border-radius: 50%;
 	object-fit: cover;
+	display: block;
 }
 
 .profile-hero-avatar-fallback {
@@ -76,17 +84,21 @@
 	font-weight: 800;
 	border-radius: 50%;
 	height: 100%;
-	background: linear-gradient(145deg, var(--accent-secondary-color), var(--accent-primary-color));
+	background: linear-gradient(
+		145deg,
+		var(--avatar-color, var(--accent-secondary-color)),
+		var(--accent-primary-color)
+	);
 }
 
 .profile-hero-status {
 	position: absolute;
-	right: 6px;
-	bottom: 6px;
+	right: 2px;
+	bottom: 2px;
 	width: 18px;
 	height: 18px;
 	border-radius: 999px;
-	border: 4px solid var(--surface-base);
+	border: 3px solid var(--surface-base, #1a1a2e);
 	background: var(--status-online);
 }
 
@@ -98,18 +110,20 @@
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 0.28rem;
+	gap: 0.2rem;
+	/* Align name with bottom half of avatar (below banner edge) */
 	padding-bottom: 0.15rem;
+	padding-top: 2.6rem; /* sit under banner line next to avatar */
 }
 
 .profile-hero-kicker {
 	width: fit-content;
-	padding: 0.18rem 0.55rem;
+	padding: 0.14rem 0.5rem;
 	border-radius: 999px;
 	background: color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 22%, transparent);
 	color: var(--text-secondary);
-	font-size: 0.68rem;
+	font-size: 0.65rem;
 	font-weight: 800;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
@@ -118,23 +132,27 @@
 .profile-hero-copy h3 {
 	margin: 0;
 	color: var(--text-heading);
-	font-size: clamp(1.25rem, 3vw, 1.8rem);
+	font-size: clamp(1.15rem, 2.6vw, 1.55rem);
 	font-weight: 800;
 	letter-spacing: -0.03em;
 	text-transform: none;
+	line-height: 1.15;
 }
 
 .profile-hero-copy p {
 	margin: 0;
 	color: var(--text-secondary);
-	font-size: 0.9rem;
-	line-height: 1.4;
+	font-size: 0.88rem;
+	line-height: 1.35;
 }
 
 .profile-hero-actions {
 	display: flex;
-	align-items: center;
+	align-items: flex-end;
 	justify-content: flex-end;
+	padding-bottom: 0.15rem;
+	padding-top: 2.6rem;
+	gap: 0.45rem;
 }
 
 .profile-hero-action {
@@ -142,9 +160,11 @@
 	background: color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
 	color: var(--text-heading);
 	border-radius: 999px;
-	padding: 0.62rem 0.95rem;
+	padding: 0.55rem 0.9rem;
 	font-weight: 700;
+	font-size: 0.85rem;
 	cursor: pointer;
+	white-space: nowrap;
 	transition:
 		background 0.15s ease,
 		border-color 0.15s ease,
@@ -159,23 +179,30 @@
 	box-shadow: 0 10px 22px color-mix(in srgb, var(--accent-primary-color) 16%, transparent);
 }
 
+.profile-hero-action.secondary {
+	background: transparent;
+	border-color: color-mix(in srgb, var(--border-subtle) 70%, transparent);
+	color: var(--text-secondary);
+}
+
+/* Presence chips */
 .status-option-row {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.5rem;
-	margin-top: 0.35rem;
+	gap: 0.45rem;
+	margin-top: 0.25rem;
 }
 
 .status-option-btn {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.45rem;
-	padding: 0.52rem 0.9rem;
+	gap: 0.4rem;
+	padding: 0.45rem 0.8rem;
 	border-radius: 999px;
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
 	background: color-mix(in srgb, var(--surface-sunken) 48%, transparent);
 	color: var(--text-secondary);
-	font-size: 0.85rem;
+	font-size: 0.82rem;
 	font-weight: 600;
 	cursor: pointer;
 	transition:
@@ -208,12 +235,12 @@
 .bio-input {
 	width: 100%;
 	resize: vertical;
-	min-height: 80px;
+	min-height: 72px;
 	border-radius: var(--radius-lg);
 	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 16%, transparent);
 	background: color-mix(in srgb, var(--surface-sunken) 52%, transparent);
 	color: var(--text-heading);
-	padding: 0.75rem 0.9rem;
+	padding: 0.7rem 0.85rem;
 	font: inherit;
 	line-height: 1.45;
 	transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -225,20 +252,41 @@
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-secondary-color) 18%, transparent);
 }
 
+/* Profile form rows */
+.profile-form-block {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+}
+
+.profile-form-block .setting-label {
+	font-size: 0.9rem;
+}
+
+.profile-form-block .setting-description {
+	font-size: 0.78rem;
+	margin-bottom: 0.15rem;
+}
+
 @media (max-width: 720px) {
 	.profile-hero-main {
 		grid-template-columns: auto minmax(0, 1fr);
-		gap: 0.75rem;
+		gap: 0.65rem;
+	}
+
+	.profile-hero-copy,
+	.profile-hero-actions {
+		padding-top: 2.4rem;
 	}
 
 	.profile-hero-actions {
 		grid-column: 1 / -1;
+		padding-top: 0;
 		justify-content: stretch;
 	}
 
 	.profile-hero-action {
 		width: 100%;
 		text-align: center;
-		justify-content: center;
 	}
 }

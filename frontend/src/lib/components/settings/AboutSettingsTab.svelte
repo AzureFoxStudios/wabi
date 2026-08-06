@@ -59,20 +59,16 @@
 <div class="settings-section">
 	<h3>{$_('settings.sections.about')}</h3>
 	<div class="about-info">
-		<p><strong>{brandName} Chat</strong></p>
-		<p>Privacy-first ephemeral chat. No tracking. No data collection.</p>
-		<p>Server stores nothing permanently. You control your data.</p>
-		<p class="version">Version 1.0.0</p>
+		<p><strong>{brandName}</strong> · privacy-first self-hosted chat</p>
+		<p class="version">v1.0.0</p>
 	</div>
 	{#if isDevBuild}
 		<div class="setting-item">
 			<div class="setting-info">
-				<span class="setting-label">Debug Memory Telemetry</span>
-				<span class="setting-description">DEV only: samples browser JS heap every 2s.</span>
+				<span class="setting-label">Debug memory telemetry</span>
+				<span class="setting-description">DEV: sample JS heap every 2s.</span>
 			</div>
-			<button class="toggle-btn" class:active={memoryTelemetryEnabled} on:click={toggleMemoryTelemetry} disabled={!memoryTelemetrySupported}>
-				{memoryTelemetryEnabled ? 'ON' : 'OFF'}
-			</button>
+			<button class="toggle-btn" class:active={memoryTelemetryEnabled} on:click={toggleMemoryTelemetry} disabled={!memoryTelemetrySupported} aria-label="Memory telemetry"></button>
 		</div>
 		{#if memoryTelemetryEnabled && memoryTelemetrySupported}
 			<div class="runtime-note">

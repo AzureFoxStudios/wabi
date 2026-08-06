@@ -45,6 +45,7 @@
 @import './components/settings-core.css';
 @import './components/settings-shell.css';
 @import './components/settings-nav.css';
+@import './components/settings-controls.css';
 @import './components/settings-profile.css';
 @import './components/settings-appearance.css';
 @import './components/settings-about.css';
