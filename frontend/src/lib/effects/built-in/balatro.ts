@@ -3,12 +3,12 @@ import { createWebGLRenderer, type WebGLRenderer } from './webgl';
 import { createCpuCanvas, type CpuCanvas } from './cpu';
 
 /**
- * Balatro — the iconic paint-swirl background from the hit roguelike
+ * Joker — the iconic paint-swirl background from the hit roguelike
  * deck-builder. A pixelated, spinning flow field: polar rotation plus a
  * 5-iteration sin/cos domain warp blended through three colors.
  *
  * The flow-field domain-warp technique is a widely published graphics
- * approach; the constants are tuned to reproduce the recognizable Balatro
+ * approach; the constants are tuned to reproduce the recognizable Joker
  * look. No game assets are used.
  *
  * Rendered via the shared WebGL renderer into an offscreen canvas that is
@@ -146,10 +146,10 @@ function shadePixel(
 	out[idx + 3] = 255;
 }
 
-export class BalatroEffect implements AmbientEffect {
-	id = 'balatro';
-	name = 'Balatro';
-	description = 'The iconic paint swirl from Balatro — a pixelated spinning flow field in red, blue, and black.';
+export class JokerEffect implements AmbientEffect {
+	id = 'joker';
+	name = 'Joker';
+	description = 'The iconic paint swirl from Joker — a pixelated spinning flow field in red, blue, and black.';
 	usesWebGL = true;
 
 	private renderer: WebGLRenderer | null = null;
@@ -177,7 +177,7 @@ export class BalatroEffect implements AmbientEffect {
 		this.canvas = canvas;
 		this.host2d = canvas.getContext('2d');
 
-		const renderer = createWebGLRenderer(FRAG_SRC, 'balatro');
+		const renderer = createWebGLRenderer(FRAG_SRC, 'joker');
 		if (renderer.ready) {
 			renderer.setSize(this.W * this.dpr, this.H * this.dpr);
 			this.renderer = renderer;
@@ -185,7 +185,7 @@ export class BalatroEffect implements AmbientEffect {
 		} else {
 			this.renderer = null;
 			this.cpu = createCpuCanvas(canvas, this.W, this.H, 6);
-			console.warn('[BalatroEffect] WebGL unavailable — falling back to a low-res CPU renderer.');
+			console.warn('[JokerEffect] WebGL unavailable — falling back to a low-res CPU renderer.');
 		}
 	}
 

@@ -22,7 +22,7 @@ export const forestTheme = allThemes.find(t => t.id === 'forest')!;
 export const emberTheme = allThemes.find(t => t.id === 'ember')!;
 export const sakuraTheme = allThemes.find(t => t.id === 'sakura')!;
 export const spaceTheme = allThemes.find(t => t.id === 'space')!;
-export const balatroTheme = allThemes.find(t => t.id === 'balatro')!;
+export const jokerTheme = allThemes.find(t => t.id === 'joker')!;
 export const spireTheme = allThemes.find(t => t.id === 'spire')!;
 export const matrixTheme = allThemes.find(t => t.id === 'matrix')!;
 export const warpTheme = allThemes.find(t => t.id === 'warp')!;

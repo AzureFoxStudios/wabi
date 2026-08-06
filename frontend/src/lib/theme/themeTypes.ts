@@ -98,9 +98,9 @@ export interface ThemeGradients {
 export interface AmbientConfig {
 	effect: string;
 	color?: string;
-	/** Secondary effect color (used by multi-color effects like Balatro). */
+	/** Secondary effect color (used by multi-color effects like Joker). */
 	color2?: string;
-	/** Tertiary effect color (used by multi-color effects like Balatro). */
+	/** Tertiary effect color (used by multi-color effects like Joker). */
 	color3?: string;
 	intensity?: number;
 	size?: number;

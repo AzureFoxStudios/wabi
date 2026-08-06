@@ -9,7 +9,7 @@
 	import { EmbersEffect } from './built-in/embers';
 	import { CyberpunkGridEffect } from './built-in/cyberpunk-grid';
 	import { StormEffect } from './built-in/storm';
-	import { BalatroEffect } from './built-in/balatro';
+	import { JokerEffect } from './built-in/balatro';
 	import { SpireEffect } from './built-in/spire';
 	import { WarpEffect } from './built-in/warp';
 	import { MatrixRainEffect } from './built-in/matrix';
@@ -23,7 +23,7 @@
 		effectsRegistry.register(new EmbersEffect());
 		effectsRegistry.register(new CyberpunkGridEffect());
 		effectsRegistry.register(new StormEffect());
-		effectsRegistry.register(new BalatroEffect());
+		effectsRegistry.register(new JokerEffect());
 		effectsRegistry.register(new SpireEffect());
 		effectsRegistry.register(new WarpEffect());
 		effectsRegistry.register(new MatrixRainEffect());
@@ -187,13 +187,13 @@
 ></canvas>
 
 <div
-	class="balatro-watermark"
-	class:visible={currentEffectId === 'balatro'}
+	class="joker-watermark"
+	class:visible={currentEffectId === 'joker'}
 	aria-hidden="true"
 >
 	{#each watermarkSuits as suit (suit.glyph + suit.left + suit.top)}
 		<span
-			class="balatro-suit"
+			class="joker-suit"
 			style="left: {suit.left}; top: {suit.top}; font-size: {suit.size}; color: {suit.color}; transform: rotate({suit.rotate});"
 		>{suit.glyph}</span>
 	{/each}
@@ -213,7 +213,7 @@
 		   effect only showed in the 16px margins (reading as "below the chat"). */
 		z-index: 0;
 	}
-	.balatro-watermark {
+	.joker-watermark {
 		position: fixed;
 		inset: 0;
 		pointer-events: none;
@@ -221,10 +221,10 @@
 		overflow: hidden;
 		display: none;
 	}
-	.balatro-watermark.visible {
+	.joker-watermark.visible {
 		display: block;
 	}
-	.balatro-suit {
+	.joker-suit {
 		position: absolute;
 		line-height: 1;
 		user-select: none;

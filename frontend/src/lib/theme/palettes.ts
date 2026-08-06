@@ -202,10 +202,10 @@ export const spacePalette: BasePalette = {
 	ambient: { effect: 'stars', color: '#9cc3ff', intensity: 0.6 },
 };
 
-export const balatroPalette: BasePalette = {
-	id: 'balatro',
-	name: 'Balatro',
-	description: 'Inspired by the hit roguelike deck-builder — red and blue paint swirling over black with a chunky pixel look. Pair it with the m6x11 pixel font via Uniform Font mode.',
+export const jokerPalette: BasePalette = {
+	id: 'joker',
+	name: 'Joker',
+	description: 'Joker energy — red and blue paint over black, chunky pixel vibe. Pair with m6x11 via Uniform Font mode.',
 	bgBase: '#162325',
 	bgRaised: '#202c2e',
 	bgSunken: '#0a0c0d',
@@ -224,7 +224,7 @@ export const balatroPalette: BasePalette = {
 	warning: '#fbbf24',
 	danger: '#ef4444',
 	ambient: {
-		effect: 'balatro',
+		effect: 'joker',
 		color: '#de443b',
 		color2: '#006bb4',
 		color3: '#162325',
@@ -346,7 +346,7 @@ export const ALL_PALETTES: BasePalette[] = [
 	emberPalette,
 	sakuraPalette,
 	spacePalette,
-	balatroPalette,
+	jokerPalette,
 	spirePalette,
 	matrixPalette,
 	warpPalette,
