@@ -171,3 +171,70 @@
 		gap: 1rem;
 	}
 }
+
+/* ---- Form controls inside settings content (theme-connected) ---- */
+.settings-content input[type='text'],
+.settings-content input[type='password'],
+.settings-content input[type='number'],
+.settings-content input[type='email'],
+.settings-content input[type='url'],
+.settings-content input[type='time'],
+.settings-content select,
+.settings-content textarea {
+	background: color-mix(in srgb, var(--surface-sunken) 55%, transparent);
+	color: var(--text-heading);
+	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 16%, transparent);
+	border-radius: var(--radius-lg);
+	padding: 0.65rem 0.85rem;
+	font: inherit;
+	font-size: var(--font-size-sm);
+	transition:
+		border-color var(--duration-fast) ease,
+		box-shadow var(--duration-fast) ease,
+		background var(--duration-fast) ease;
+}
+
+.settings-content input:hover:not(:disabled),
+.settings-content select:hover:not(:disabled),
+.settings-content textarea:hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--accent-primary-color) 30%, transparent);
+}
+
+.settings-content input:focus,
+.settings-content input:focus-visible,
+.settings-content select:focus,
+.settings-content select:focus-visible,
+.settings-content textarea:focus,
+.settings-content textarea:focus-visible {
+	outline: none;
+	border-color: var(--accent-secondary-color, var(--accent-primary-color));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-secondary-color) 18%, transparent);
+	background: color-mix(in srgb, var(--surface-sunken) 40%, transparent);
+}
+
+.settings-content .action-btn,
+.settings-content button.primary,
+.settings-content button.save-btn {
+	border-radius: var(--radius-lg);
+	font-weight: var(--font-weight-bold);
+	cursor: pointer;
+	transition:
+		transform var(--duration-fast) ease,
+		box-shadow var(--duration-fast) ease,
+		background var(--duration-fast) ease;
+}
+
+.settings-content .action-btn:not(.danger):not(.export):not(.import):not(.secondary),
+.settings-content button.primary {
+	background: linear-gradient(135deg, var(--accent-secondary-color), var(--accent-primary-color));
+	color: var(--text-on-accent, var(--text-heading));
+	border: none;
+	padding: 0.6rem 1rem;
+	box-shadow: 0 8px 22px color-mix(in srgb, var(--accent-secondary-color) 22%, transparent);
+}
+
+.settings-content .action-btn:not(.danger):not(.export):not(.import):not(.secondary):hover,
+.settings-content button.primary:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 12px 28px color-mix(in srgb, var(--accent-secondary-color) 30%, transparent);
+}

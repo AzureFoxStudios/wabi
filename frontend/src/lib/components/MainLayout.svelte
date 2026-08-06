@@ -927,6 +927,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		<div
 			class="right-panel-container"
 			style:width="{$layoutStore.rightPanelWidth}px"
+			style:flex-basis="{$layoutStore.rightPanelWidth}px"
+			style:max-width="min(720px, 55vw)"
 		>
 			<!-- Right panel resize handle -->
 			<button
