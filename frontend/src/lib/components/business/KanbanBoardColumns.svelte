@@ -64,7 +64,15 @@
 					>
 						<div class="card-priority" style="background-color: {getPriorityColor(todo.priority)}"></div>
 						<div class="card-content">
-							<h3 class="card-title">{todo.title}</h3>
+							<div class="card-title-row">
+								<h3 class="card-title">{todo.title}</h3>
+								<span class="card-edit-hint" aria-hidden="true">
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+										<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+									</svg>
+								</span>
+							</div>
 							{#if todo.description}
 								<p class="card-description">{todo.description.slice(0, 80)}{todo.description.length > 80 ? '...' : ''}</p>
 							{/if}
@@ -93,9 +101,16 @@
 					</div>
 				{/each}
 				{#if (sortedTodosByColumn[column.id] || []).length === 0}
-					<div class="empty-column">
-						<p>No tasks</p>
-					</div>
+					<button type="button" class="empty-column" on:click={() => openAddModal(column.id)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add a task'}>
+						<span class="empty-column-plus" aria-hidden="true">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+								<line x1="12" y1="5" x2="12" y2="19"/>
+								<line x1="5" y1="12" x2="19" y2="12"/>
+							</svg>
+						</span>
+						<span>Add a task</span>
+						<span class="empty-column-hint">or drop one here</span>
+					</button>
 				{/if}
 			</div>
 		</div>

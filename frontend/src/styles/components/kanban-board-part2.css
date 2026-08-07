@@ -144,8 +144,8 @@ form {
 .assignee-input:focus {
 	outline: none;
 	border-color: var(--biz-accent, #f59e0b);
-	background: rgba(245, 158, 11, 0.05);
-	box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+	background: color-mix(in srgb, var(--biz-accent, #f59e0b) 5%, transparent);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--biz-accent, #f59e0b) 12%, transparent);
 }
 
 .assignee-dropdown {
@@ -246,8 +246,8 @@ form {
 .form-group select:focus {
 	outline: none;
 	border-color: var(--biz-accent, #f59e0b);
-	background: rgba(245, 158, 11, 0.05);
-	box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+	background: color-mix(in srgb, var(--biz-accent, #f59e0b) 5%, transparent);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--biz-accent, #f59e0b) 12%, transparent);
 }
 
 .form-row {
@@ -319,12 +319,12 @@ form {
 	font-weight: 600;
 	transition: all 0.2s;
 	font-size: 0.9rem;
-	box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+	box-shadow: 0 4px 12px color-mix(in srgb, var(--biz-accent, #f59e0b) 35%, transparent);
 }
 
 .submit-btn:hover {
 	transform: translateY(-1px);
-	box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+	box-shadow: 0 6px 20px color-mix(in srgb, var(--biz-accent, #f59e0b) 45%, transparent);
 }
 
 .submit-btn:active {

@@ -16,6 +16,8 @@
 
 	// Props
 	export let isReadOnly = false;
+	export let embedded = false;
+	export let addSignal = 0;
 
 	// Current view state
 	let currentMonth = new Date();
@@ -24,6 +26,13 @@
 	let editingEvent: CalendarEvent | null = null;
 	let selectedDayEvents: CalendarEvent[] = [];
 	let showDayModal = false;
+	let lastAddSignal = 0;
+
+	// Host "New ▾ → event" trigger
+	$: if (addSignal > lastAddSignal) {
+		lastAddSignal = addSignal;
+		openAddModal();
+	}
 
 	// Form state
 	let formTitle = '';
@@ -314,14 +323,24 @@
 
 <div class="calendar-wrapper">
 	<div class="calendar-container">
-		<header class="calendar-header">
-			<div class="header-left">
-				<h1>Calendar</h1>
-			</div>
+		<header class="calendar-header" class:embedded={embedded}>
+			{#if !embedded}
+				<div class="header-left">
+					<h1>Calendar</h1>
+				</div>
+			{/if}
 			<div class="header-center">
-				<button class="nav-btn" on:click={prevMonth}>&larr;</button>
+				<button class="nav-btn icon" aria-label="Previous month" on:click={prevMonth}>
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="15 18 9 12 15 6"/>
+					</svg>
+				</button>
 				<h2 class="month-label">{monthLabel}</h2>
-				<button class="nav-btn" on:click={nextMonth}>&rarr;</button>
+				<button class="nav-btn icon" aria-label="Next month" on:click={nextMonth}>
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="9 18 15 12 9 6"/>
+					</svg>
+				</button>
 			</div>
 			<div class="header-right">
 				<button class="today-btn" on:click={goToToday}>Today</button>
@@ -341,6 +360,9 @@
 				{@const dayEvents = getEventsForDay(day)}
 				{@const dayTasks = getTasksForDay(day)}
 				{@const totalItems = dayEvents.length + dayTasks.length}
+				{@const visibleEvents = dayEvents.slice(0, 3)}
+				{@const visibleTasks = dayTasks.slice(0, Math.max(0, 3 - dayEvents.length))}
+				{@const hiddenCount = totalItems - visibleEvents.length - visibleTasks.length}
 				<div
 					class="day-cell"
 					class:today={isToday(day)}
@@ -358,7 +380,7 @@
 				>
 					<span class="day-number">{day.getDate()}</span>
 					<div class="day-events">
-						{#each dayEvents.slice(0, 2) as event}
+						{#each visibleEvents as event}
 							<button
 								type="button"
 								class="event-pill"
@@ -372,7 +394,7 @@
 								<span class="event-title">{event.title}</span>
 							</button>
 						{/each}
-						{#each dayTasks.slice(0, 2 - Math.min(dayEvents.length, 2)) as task}
+						{#each visibleTasks as task}
 							<button
 								type="button"
 								class="task-pill"
@@ -385,8 +407,8 @@
 								<span class="task-title">{task.title}</span>
 							</button>
 						{/each}
-						{#if totalItems > 2}
-							<div class="more-events">+{totalItems - 2} more</div>
+						{#if hiddenCount > 0}
+							<div class="more-events">+{hiddenCount} more</div>
 						{/if}
 					</div>
 				</div>

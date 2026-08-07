@@ -12,11 +12,21 @@
 
 	// Props
 	export let isReadOnly = false;
+	export let embedded = false;
+	export let addSignal = 0;
 
 	let selectedDate: Date | null = null;
 	let isEditing = false;
 	let currentEntry: DiaryEntry | null = null;
 	let viewingImage: string | null = null;
+	let lastAddSignal = 0;
+
+	// Host "New ▾ → journal entry" trigger
+	$: if (addSignal > lastAddSignal) {
+		lastAddSignal = addSignal;
+		goToToday();
+		startEditing();
+	}
 
 	// Form state
 	let formContent = '';
@@ -246,10 +256,12 @@
 				</div>
 			</header>
 		{:else}
-			<header class="diary-header welcome-header">
-				<h1>Journal</h1>
+			<header class="diary-header welcome-header" class:embedded={embedded}>
+				{#if !embedded}
+					<h1>Journal</h1>
+				{/if}
 				<div class="header-actions">
-					<button class="today-btn primary" on:click={goToToday}>+ New Entry for Today</button>
+					<button class="today-btn primary" on:click={goToToday}>+ New Entry</button>
 				</div>
 			</header>
 		{/if}
@@ -268,7 +280,6 @@
 							</div>
 							<h2>Start Your Journal</h2>
 							<p>Document your thoughts, ideas, and memories. Attach photos of handwritten notes, sketches, or anything that inspires you.</p>
-							<button class="start-btn" on:click={goToToday}>Write Your First Entry</button>
 						</div>
 					{:else}
 						<div class="entries-list-view">

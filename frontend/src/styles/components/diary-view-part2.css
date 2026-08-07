@@ -40,10 +40,17 @@
 		margin: 0;
 	}
 
+	/* Hosted-in-Planner: no "Journal" page title, one centered primary CTA */
+	.welcome-header.embedded {
+		justify-content: center;
+		margin-bottom: 0.75rem;
+	}
+
 	.today-btn.primary {
 		background: var(--biz-accent, #f59e0b);
 		border-color: var(--biz-accent, #f59e0b);
 		color: white;
+		min-height: 36px;
 	}
 
 	.today-btn.primary:hover {

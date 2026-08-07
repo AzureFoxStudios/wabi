@@ -1,19 +1,91 @@
 /* Planner workspace tokens — unified with main app design system */
 
+/* ────────────────────────────────────────────────────────────────────────────
+   Legacy business `--biz-*` compatibility shim.
+   Child views (Kanban/Calendar/Diary) still reference `--biz-*` variables.
+   Mapping them to Wabi's semantic tokens here makes them render with the main
+   indigo/glass theme instead of the old nullframe orange admin palette. The
+   shim is scoped to this surface so nothing outside Planner is affected.
+   ──────────────────────────────────────────────────────────────────────────── */
 .planner-surface {
-	--planner-accent: var(--accent, #f36b21);
-	--planner-accent-soft: var(--accent-soft, rgba(243, 107, 33, 0.16));
-	--planner-bg: var(--surface-base, #0b0c0e);
-	--planner-raised: var(--surface-raised, #12141a);
-	--planner-hover: var(--surface-hover, #1a1d25);
-	--planner-border: var(--border, rgba(255, 255, 255, 0.08));
-	--planner-text: var(--text-heading, #f4f4f5);
-	--planner-text-secondary: var(--text-secondary, #a1a1aa);
-	--planner-text-muted: var(--text-muted, #71717a);
-	--planner-radius-sm: var(--radius-sm, 6px);
-	--planner-radius-md: var(--radius-md, 10px);
-	--planner-font: var(--font, "Inter", system-ui, -apple-system, sans-serif);
-	--planner-font-mono: var(--font-mono, "Geist Mono", "SF Mono", ui-monospace, monospace);
+	--biz-bg-primary: var(--surface-sunken, #0f0c29);
+	--biz-bg-secondary: var(--surface-base, #24243e);
+	--biz-bg-tertiary: var(--surface-raised, #302b63);
+	--biz-bg-card: var(--surface-raised, #302b63);
+	--biz-bg-hover: var(--surface-hover, #302b63);
+
+	--biz-accent: var(--accent-primary-color, #6366f1);
+	--biz-accent-hover: color-mix(in srgb, var(--accent-primary-color, #6366f1) 88%, #ffffff);
+	--biz-accent-soft: color-mix(in srgb, var(--accent-primary-color, #6366f1) 16%, transparent);
+
+	--biz-info: var(--color-info, #3b82f6);
+	--biz-info-soft: color-mix(in srgb, var(--color-info, #3b82f6) 14%, transparent);
+	--biz-success: var(--color-success, #22c55e);
+	--biz-success-soft: color-mix(in srgb, var(--color-success, #22c55e) 14%, transparent);
+	--biz-warning: var(--color-warning, #f59e0b);
+	--biz-warning-soft: color-mix(in srgb, var(--color-warning, #f59e0b) 16%, transparent);
+	--biz-danger: var(--color-danger, #ef4444);
+	--biz-danger-soft: color-mix(in srgb, var(--color-danger, #ef4444) 14%, transparent);
+	--biz-danger-hover: color-mix(in srgb, var(--color-danger, #ef4444) 86%, #ffffff);
+
+	--biz-text-primary: var(--text-heading, #e0e0ff);
+	--biz-text-secondary: var(--text-secondary, #b3b3ff);
+	--biz-text-tertiary: var(--text-muted, #9999ff);
+	--biz-text-muted: color-mix(in srgb, var(--text-muted, #9999ff) 72%, transparent);
+
+	--biz-border: var(--border-subtle, #302b63);
+	--biz-border-light: var(--border-strong, rgba(179, 179, 255, 0.3));
+
+	--biz-shadow-sm: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.35));
+	--biz-shadow-md: var(--shadow-md, 0 10px 30px rgba(0, 0, 0, 0.3));
+	--biz-shadow-lg: var(--shadow-lg, 0 24px 80px rgba(0, 0, 0, 0.4));
+
+	--biz-gradient-card: linear-gradient(135deg, var(--surface-raised, #302b63), var(--surface-base, #24243e));
+	--biz-gradient-accent: linear-gradient(135deg, var(--accent-primary-color, #6366f1), var(--accent-secondary-color, #818cf8));
+	--biz-gradient-header: linear-gradient(90deg, var(--surface-sunken, #0f0c29), var(--surface-base, #24243e));
+	--gradient-loading-business: radial-gradient(ellipse at center, var(--surface-base, #24243e), var(--surface-sunken, #0f0c29));
+	--biz-dot-grid: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.075) 1px, transparent 0);
+	--biz-font-mono: var(--font-mono, monospace);
+
+	/* Priority + column color vars previously shipped on :root by theme.css,
+	   which is only imported on the legacy /business page. Define them here so
+	   the main-app Planner keeps working priority rails / column accents. */
+	--priority-urgent: #ff4d4d;
+	--priority-high: #f97316;
+	--priority-medium: #f59e0b;
+	--priority-low: #35d07f;
+}
+
+/* Scoped utility classes (mirror of legacy theme.css) */
+.planner-surface .priority-urgent { --priority-color: #ff4d4d; }
+.planner-surface .priority-high { --priority-color: #f97316; }
+.planner-surface .priority-medium { --priority-color: #f59e0b; }
+.planner-surface .priority-low { --priority-color: #35d07f; }
+.planner-surface .column-todo { --column-color: #71717a; }
+.planner-surface .column-in-progress { --column-color: #7dd3fc; }
+.planner-surface .column-scrapped { --column-color: #ff4d4d; }
+.planner-surface .column-done { --column-color: #35d07f; }
+.planner-surface .column-ideas { --column-color: #a78bfa; }
+.planner-surface .column-archived { --column-color: #52525b; }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Surface layout
+   ──────────────────────────────────────────────────────────────────────────── */
+.planner-surface {
+	--planner-accent: var(--accent-primary-color, #6366f1);
+	--planner-accent-soft: color-mix(in srgb, var(--accent-primary-color, #6366f1) 16%, transparent);
+	--planner-bg: var(--surface-base, #24243e);
+	--planner-raised: var(--surface-raised, #302b63);
+	--planner-hover: var(--surface-hover, #302b63);
+	--planner-border: var(--border-subtle, #302b63);
+	--planner-text: var(--text-heading, #e0e0ff);
+	--planner-text-secondary: var(--text-secondary, #b3b3ff);
+	--planner-text-muted: var(--text-muted, #9999ff);
+	--planner-radius-sm: var(--radius-sm, 4px);
+	--planner-radius-md: var(--radius-md, 8px);
+	--planner-radius-lg: var(--radius-lg, 12px);
+	--planner-font: var(--font-sans, system-ui, sans-serif);
+	--planner-font-mono: var(--font-mono, monospace);
 }
 
 .planner-surface {
@@ -26,17 +98,20 @@
 	font-family: var(--planner-font);
 }
 
-/* Surface header */
+/* ── Surface header ──────────────────────────────────────────────────────── */
 .planner-header {
-	height: var(--header-h, 48px);
-	padding: 0 16px;
+	height: var(--header-h, 52px);
+	padding: 0 14px;
 	display: flex;
 	align-items: center;
 	gap: 12px;
 	border-bottom: 1px solid var(--planner-border);
-	background: color-mix(in srgb, var(--planner-raised) 85%, transparent);
+	background: color-mix(in srgb, var(--planner-raised) 80%, transparent);
 	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
 	flex-shrink: 0;
+	position: relative;
+	z-index: 20;
 }
 
 .planner-title {
@@ -45,26 +120,28 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
+	white-space: nowrap;
 }
 
-.planner-badge {
+.planner-locality {
 	font-size: 10px;
-	font-weight: 600;
-	padding: 2px 6px;
+	font-weight: 500;
+	color: var(--planner-text-muted);
+	letter-spacing: 0.02em;
+	padding: 2px 7px;
 	border-radius: 999px;
-	background: var(--planner-accent-soft);
-	color: var(--planner-accent);
-	letter-spacing: 0.03em;
+	background: color-mix(in srgb, var(--planner-text-muted) 10%, transparent);
+	border: 1px solid color-mix(in srgb, var(--planner-text-muted) 18%, transparent);
 }
 
 .planner-spacer {
 	flex: 1;
 }
 
-/* Segmented view tabs */
+/* ── Segmented view tabs ─────────────────────────────────────────────────── */
 .planner-tabs {
 	display: inline-flex;
-	background: var(--planner-raised);
+	background: color-mix(in srgb, var(--planner-raised) 70%, transparent);
 	border: 1px solid var(--planner-border);
 	border-radius: var(--planner-radius-md);
 	padding: 3px;
@@ -78,14 +155,19 @@
 	font: inherit;
 	font-size: 13px;
 	font-weight: 500;
-	padding: 6px 14px;
-	border-radius: 7px;
+	min-height: 36px;
+	padding: 0 14px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 6px;
 	cursor: pointer;
 	transition: background 0.12s, color 0.12s;
 }
 
 .planner-tab:hover {
 	color: var(--planner-text);
+	background: color-mix(in srgb, var(--planner-raised) 60%, transparent);
 }
 
 .planner-tab.active {
@@ -94,23 +176,198 @@
 	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
-/* Stats strip */
+/* ── Header actions: New ▾ + Tasks ───────────────────────────────────────── */
+.planner-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.planner-new-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	min-height: 36px;
+	padding: 0 13px;
+	border: none;
+	border-radius: var(--planner-radius-sm);
+	background: var(--planner-accent);
+	color: #ffffff;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: filter 0.12s, background 0.12s;
+}
+
+.planner-new-split {
+	display: inline-flex;
+	align-items: stretch;
+	border-radius: var(--planner-radius-sm);
+	overflow: hidden;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.planner-new-split .planner-new-primary {
+	border-radius: 0;
+	padding-right: 11px;
+}
+
+.planner-new-split .planner-new-caret {
+	border-radius: 0;
+	min-width: 36px;
+	padding: 0;
+	justify-content: center;
+	border-left: 1px solid color-mix(in srgb, #fff 22%, transparent);
+	background: color-mix(in srgb, var(--planner-accent) 88%, #000);
+}
+
+.planner-new-split.open .planner-new-caret,
+.planner-new-split .planner-new-caret:hover,
+.planner-new-split .planner-new-primary:hover {
+	background: var(--biz-accent-hover);
+}
+
+.planner-new-btn:hover,
+.planner-new-btn.open {
+	background: var(--biz-accent-hover);
+}
+
+.planner-caret {
+	display: inline-flex;
+	opacity: 0.85;
+}
+
+.planner-new-wrap {
+	position: relative;
+}
+
+.planner-new-backdrop {
+	position: fixed;
+	inset: 0;
+	background: transparent;
+	border: none;
+	padding: 0;
+	margin: 0;
+	z-index: 40;
+	cursor: default;
+}
+
+.planner-new-menu {
+	position: absolute;
+	top: calc(100% + 8px);
+	right: 0;
+	min-width: 232px;
+	z-index: 50;
+	background: color-mix(in srgb, var(--planner-raised) 96%, transparent);
+	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
+	border: 1px solid var(--planner-border);
+	border-radius: var(--planner-radius-lg);
+	box-shadow: var(--shadow-xl);
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	animation: planner-menu-in 0.12s ease-out;
+}
+
+@keyframes planner-menu-in {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.planner-new-menu button {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	min-height: 38px;
+	padding: 6px 10px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--planner-text);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+	transition: background 0.12s;
+}
+
+.planner-new-menu button:hover,
+.planner-new-menu button.active {
+	background: var(--planner-accent-soft);
+}
+
+.menu-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+
+.menu-label {
+	flex: 1;
+}
+
+.menu-hint {
+	font-size: 11px;
+	color: var(--planner-text-muted);
+}
+
+.planner-tasks-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	min-height: 36px;
+	padding: 0 12px;
+	border: 1px solid var(--planner-border);
+	border-radius: var(--planner-radius-sm);
+	background: color-mix(in srgb, var(--planner-raised) 55%, transparent);
+	color: var(--planner-text-secondary);
+	font: inherit;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.planner-tasks-btn:hover {
+	background: var(--planner-hover);
+	color: var(--planner-text);
+}
+
+.planner-tasks-btn.active {
+	border-color: var(--planner-accent);
+	color: var(--planner-accent);
+	background: var(--planner-accent-soft);
+}
+
+/* ── Honest stats strip (non-zero only) ──────────────────────────────────── */
 .planner-stats {
 	display: flex;
 	gap: 8px;
-	padding: 10px 16px;
-	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+	padding: 8px 16px;
+	border-bottom: 1px solid color-mix(in srgb, var(--planner-border) 70%, transparent);
 	flex-shrink: 0;
 	overflow-x: auto;
 }
 
 .planner-stat {
-	display: flex;
+	display: inline-flex;
 	align-items: center;
-	gap: 6px;
-	padding: 5px 10px;
+	gap: 7px;
+	padding: 4px 11px;
 	border-radius: 999px;
-	background: var(--planner-raised);
+	background: color-mix(in srgb, var(--planner-raised) 70%, transparent);
 	border: 1px solid var(--planner-border);
 	font-size: 12px;
 	color: var(--planner-text-secondary);
@@ -122,12 +379,31 @@
 	font-weight: 600;
 }
 
-/* Viewport for views */
+.planner-stat .stat-label {
+	opacity: 0.9;
+}
+
+.planner-stat.pill-danger strong {
+	color: var(--biz-danger);
+}
+
+.planner-stat.pill-warning strong {
+	color: var(--biz-warning);
+}
+
+/* ── Body + viewport ─────────────────────────────────────────────────────── */
 .planner-body {
 	flex: 1;
 	overflow: hidden;
 	position: relative;
 	min-height: 0;
+	display: flex;
+}
+
+.planner-main {
+	flex: 1;
+	min-width: 0;
+	position: relative;
 }
 
 .planner-view {
@@ -142,37 +418,39 @@
 	display: block;
 }
 
-/* Icon button helpers */
-.planner-icon-btn {
-	width: 32px;
-	height: 32px;
-	border: none;
+/* ── In-surface tasks split ──────────────────────────────────────────────── */
+.planner-task-resizer {
+	width: 5px;
+	flex-shrink: 0;
+	cursor: col-resize;
 	background: transparent;
-	color: var(--planner-text-secondary);
-	border-radius: var(--planner-radius-sm);
-	cursor: pointer;
-	display: grid;
-	place-items: center;
-	font-size: 15px;
+	transition: background 0.12s;
+	margin: 0 -2px;
+	z-index: 10;
 }
 
-.planner-icon-btn:hover {
-	background: var(--planner-hover);
-	color: var(--planner-text);
+.planner-task-resizer:hover,
+.planner-task-resizer:active {
+	background: color-mix(in srgb, var(--planner-accent) 35%, transparent);
 }
 
-.planner-primary-btn {
-	border: none;
-	background: var(--planner-accent);
-	color: #fff;
-	font: inherit;
-	font-size: 13px;
-	font-weight: 600;
-	padding: 7px 14px;
-	border-radius: var(--planner-radius-sm);
-	cursor: pointer;
+.planner-task-panel {
+	flex-shrink: 0;
+	height: 100%;
+	overflow: hidden;
+	border-left: 1px solid var(--planner-border);
+	background: color-mix(in srgb, var(--planner-raised) 45%, var(--planner-bg));
+	display: flex;
+	flex-direction: column;
 }
 
-.planner-primary-btn:hover {
-	background: var(--accent-hover, #ff7a2f);
+/* ── Variants ────────────────────────────────────────────────────────────── */
+.planner-surface.variant-compact .planner-header {
+	height: 44px;
+}
+
+.planner-surface.variant-detached {
+	border-radius: var(--radius-lg);
+	overflow: hidden;
+	box-shadow: var(--shadow-xl);
 }
