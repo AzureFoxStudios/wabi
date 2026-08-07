@@ -1,7 +1,7 @@
 <script lang="ts">
   import { layoutStore } from '$lib/layoutStore';
   import { selectedDmChannelId, dmOtherUser, centerDmChannelId } from '$lib/layoutStoreStates';
-  import { channelMessages, currentUser, channels } from '$lib/socket';
+  import { channelMessages, currentUser, channels, joinChannel } from '$lib/socket';
   import ChatComposer from './chat/ChatComposer.svelte';
   import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
   import { formatTypingUsers } from './chat/typing';
@@ -15,6 +15,7 @@
 
   $: channelId = channelIdProp ?? $selectedDmChannelId;
   $: otherUser = otherUserProp ?? $dmOtherUser;
+  $: if (channelId) joinChannel(channelId);
   $: messages = channelId ? ($channelMessages[channelId] || []) : [];
   $: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
   $: pinnedMessages = messages.filter((m: Message) => m.isPinned);

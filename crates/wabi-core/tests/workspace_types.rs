@@ -50,6 +50,7 @@ fn user_view_serializes_current_public_user_shape() {
             weight: Some("700".to_owned()),
             style: Some("italic".to_owned()),
         }),
+        is_registered: Some(true),
     };
 
     let value = serde_json::to_value(user).unwrap();
@@ -73,7 +74,8 @@ fn user_view_serializes_current_public_user_shape() {
                 "size": "16px",
                 "weight": "700",
                 "style": "italic"
-            }
+            },
+            "isRegistered": true
         })
     );
 }

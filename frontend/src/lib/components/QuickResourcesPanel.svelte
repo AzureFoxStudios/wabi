@@ -7,7 +7,7 @@
 		selectedDmChannelId,
 		dmOtherUser
 	} from '$lib/layoutStoreStates';
-	import { channelMessages, currentUser, sendMessage, type Message, type User } from '$lib/socket';
+	import { channelMessages, currentUser, sendMessage, joinChannel, type Message, type User } from '$lib/socket';
 	import {
 		getQuickScratchpadStorageKey,
 		readScratchpadText,
@@ -109,6 +109,7 @@
 	function openFullDms(): void {
 		if (microDmChannelId && microDmOther) {
 			layoutStore.openDM(microDmChannelId, microDmOther);
+			joinChannel(microDmChannelId);
 		} else {
 			layoutStore.openRightPanel('dms');
 		}

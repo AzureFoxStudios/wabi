@@ -285,22 +285,23 @@ fn row_to_user_view(row: &HashMap<String, Value>, owner_id: Option<i64>) -> Valu
 async fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>, state: &SioState) -> Value {
     let role = highest_role(user.db_user_id, owner_id);
 
-    let (profile_picture, username_font, bio) = if let Some(db_id) = user.db_user_id {
+    let (profile_picture, username_font, bio, is_registered) = if let Some(db_id) = user.db_user_id {
         if db_id > 0 {
             if let Ok(Some(db_user)) = state.app.wdb.get_user(db_id as u64).await {
                 (
                     db_user.profile_picture,
                     db_user.username_font.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
                     db_user.bio,
+                    Some(!db_user.password_hash.is_empty()),
                 )
             } else {
-                (None, None, None)
+                (None, None, None, None)
             }
         } else {
-            (None, None, None)
+            (None, None, None, None)
         }
     } else {
-        (None, None, None)
+        (None, None, None, None)
     };
 
     json!({
@@ -315,6 +316,7 @@ async fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>, sta
         "dbUserId":    user.db_user_id,
         "roles":       [role],
         "highestRole": role,
+        "isRegistered": is_registered,
     })
 }
 

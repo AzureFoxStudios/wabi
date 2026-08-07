@@ -336,6 +336,72 @@ export const warpPalette: BasePalette = {
 	},
 };
 
+export const stormPalette: BasePalette = {
+	id: 'storm',
+	name: 'Storm',
+	description: 'Overcast steel and muted indigo — calm before the squall.',
+	bgBase: '#0f1117',
+	bgRaised: '#181b24',
+	bgSunken: '#0a0c12',
+	bgPrimary: 'linear-gradient(160deg, #0a0c12 0%, #14171f 100%)',
+	textPrimary: '#d8dce6',
+	textSecondary: '#9ca3b4',
+	textMuted: '#6b7280',
+	accent: '#818cf8',
+	accentSecondary: '#6366f1',
+	statusOnline: '#4ade80',
+	statusAway: '#fbbf24',
+	statusBusy: '#ef4444',
+	statusOffline: '#4b5563',
+	success: '#4ade80',
+	info: '#60a5fa',
+	warning: '#fbbf24',
+	danger: '#ef4444',
+	ambient: {
+		effect: 'storm',
+		color: '#94a3b8',
+		color2: '#6366f1',
+		intensity: 0.6,
+		size: 1,
+		speed: 0.7,
+		frostOpacity: 0.85,
+		frostBlur: 10,
+	},
+};
+
+export const synapsePalette: BasePalette = {
+	id: 'synapse',
+	name: 'Synapse',
+	description: 'Neon cyan and electric indigo — neural pathways firing in the dark.',
+	bgBase: '#060a14',
+	bgRaised: '#0d1520',
+	bgSunken: '#030610',
+	bgPrimary: 'linear-gradient(160deg, #030610 0%, #0a1220 100%)',
+	textPrimary: '#d0f0ff',
+	textSecondary: '#7dd3fc',
+	textMuted: '#5b8ab5',
+	accent: '#22d3ee',
+	accentSecondary: '#6366f1',
+	statusOnline: '#4ade80',
+	statusAway: '#fbbf24',
+	statusBusy: '#ef4444',
+	statusOffline: '#3b5970',
+	success: '#4ade80',
+	info: '#22d3ee',
+	warning: '#fbbf24',
+	danger: '#ef4444',
+	ambient: {
+		effect: 'synapse',
+		color: '#22d3ee',
+		color2: '#6366f1',
+		intensity: 0.65,
+		size: 1,
+		speed: 0.95,
+		frostOpacity: 0.82,
+		frostBlur: 10,
+	},
+};
+
 // ===== ALL PALETTES =====
 export const ALL_PALETTES: BasePalette[] = [
 	darkPalette,
@@ -350,6 +416,8 @@ export const ALL_PALETTES: BasePalette[] = [
 	spirePalette,
 	matrixPalette,
 	warpPalette,
+	stormPalette,
+	synapsePalette,
 ];
 
 export const DEFAULT_PALETTE = darkPalette;

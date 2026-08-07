@@ -80,6 +80,9 @@ pub struct UserView {
     pub role_color: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username_font: Option<UsernameFont>,
+    /// False for guest accounts (no password). True for registered users.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_registered: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

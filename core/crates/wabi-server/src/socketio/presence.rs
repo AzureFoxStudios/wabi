@@ -86,9 +86,34 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
 
     let owner_id = *state.app.owner_user_id.read().await;
 
-    // WDB-compat: row_to_user_view expects &HashMap<String, Value>. User is typed.
-    // Empty for v1 — needs row_to_user_view signature update.
-    let server_members: Vec<Value> = Vec::new();
+    // Full registered-user directory (online + offline). The frontend renders
+    // this as the greyed-out "Offline" section (serverMembers minus online
+    // users) and the admin user registry. Previously hardcoded empty, which
+    // made every registered-but-offline account invisible in the People panel.
+    let server_members: Vec<Value> = {
+        let users = state.app.wdb.list_users().await.unwrap_or_default();
+        let mut views = Vec::with_capacity(users.len());
+        for u in users {
+            views.push(
+                build_user_view(
+                    &state,
+                    u.user_id as i64,
+                    &u.username,
+                    &u.color,
+                    u.profile_picture.clone(),
+                    u.username_font.clone(),
+                    u.bio.clone(),
+                    u.status_message.clone(),
+                    // Guest accounts carry an empty password hash (see auth.rs
+                    // guest check) — this is what flags them as guests in the
+                    // roster and admin registry.
+                    !u.password_hash.is_empty(),
+                )
+                .await,
+            );
+        }
+        views
+    };
 
     let online_users: Vec<Value> = {
         let connected = state.connected_users.read().await;
@@ -181,6 +206,7 @@ async fn build_user_view(
     username_font: Option<String>,
     bio: Option<String>,
     status_message: Option<String>,
+    is_registered: bool,
 ) -> Value {
     let owner_id = *state.app.owner_user_id.read().await;
     let role = highest_role(if db_user_id > 0 { Some(db_user_id) } else { None }, owner_id);
@@ -204,6 +230,7 @@ async fn build_user_view(
         "roles": [role],
         "highestRole": role,
         "usernameFont": username_font.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+        "isRegistered": is_registered,
     })
 }
 
@@ -363,6 +390,10 @@ async fn on_update_profile(
                 merged_username_font,
                 merged_bio,
                 merged_status_message,
+                current
+                    .as_ref()
+                    .map(|u| !u.password_hash.is_empty())
+                    .unwrap_or(false),
             )
             .await;
             let _ = socket.emit("profile-updated", &view);

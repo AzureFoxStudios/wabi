@@ -116,6 +116,8 @@ export interface User {
   usernameFont?: Exclude<ProtocolUserView['usernameFont'], null>;
   /// True when this is a bot service account (BOT badge in message headers).
   isBot?: boolean;
+  /// False for guest accounts (no password) — set on roster views.
+  isRegistered?: boolean;
 }
 
 export type VoiceChannelSettings = ProtocolVoiceChannelSettings;
