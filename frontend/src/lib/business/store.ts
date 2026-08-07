@@ -63,9 +63,16 @@ export { generateId } from './utils';
 // Local storage persistence
 const STORAGE_KEY = 'business_data';
 let syncInitScheduled = false;
+let storageLoaded = false;
 
-function loadFromStorage() {
-	if (!browser) return;
+/**
+ * Load persisted business data from localStorage. Runs automatically once on
+ * module import; Planner and Business surfaces may call this again on mount to
+ * guarantee hydration — the guard makes repeat calls a cheap no-op.
+ */
+export function reloadFromStorage() {
+	if (!browser || storageLoaded) return;
+	storageLoaded = true;
 	try {
 		const saved = localStorage.getItem(STORAGE_KEY);
 		if (saved) {
@@ -90,7 +97,7 @@ if (browser) {
 	// Ready flag prevents store subscriptions from triggering sync during init
 	let ready = false;
 
-	loadFromStorage();
+	reloadFromStorage();
 
 	// Save to localStorage and trigger sync on any data change
 	const syncOnChange = () => {

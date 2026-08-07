@@ -18,6 +18,8 @@
 	import SprintModal from './SprintModal.svelte';
 
 	export let isReadOnly = false;
+	export let embedded = false;
+	export let addSignal = 0;
 
 	let selectedProject: Project | null = null;
 	let showProjectModal = false;
@@ -25,6 +27,13 @@
 	let editingProject: Project | null = null;
 	let editingSprint: Sprint | null = null;
 	let expandedProjects: Set<string> = new Set();
+	let lastAddSignal = 0;
+
+	// Host "New ▾ → project" trigger
+	$: if (addSignal > lastAddSignal) {
+		lastAddSignal = addSignal;
+		openProjectModal();
+	}
 
 	let projectName = '';
 	let projectDescription = '';
@@ -198,7 +207,7 @@
 	}
 </script>
 
-<div class="projects-container">
+<div class="projects-container" class:embedded={embedded}>
 	<ProjectSidebar
 		bind:selectedProject
 		bind:expandedProjects

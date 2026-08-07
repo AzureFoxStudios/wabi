@@ -2,6 +2,8 @@
 	import CalendarImpl from './CalendarImpl.svelte';
 
 	export let isReadOnly = false;
+	export let embedded = false;
+	export let addSignal = 0;
 </script>
 
-<CalendarImpl {isReadOnly} />
+<CalendarImpl {isReadOnly} {embedded} {addSignal} />

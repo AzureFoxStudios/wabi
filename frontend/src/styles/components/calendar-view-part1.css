@@ -130,6 +130,20 @@
 	gap: 1rem;
 }
 
+/* Hosted-in-Planner: no page title, one compact secondary toolbar */
+.calendar-header.embedded {
+	justify-content: center;
+	margin-bottom: 0.75rem;
+}
+
+.calendar-header.embedded .header-center {
+	order: 1;
+}
+
+.calendar-header.embedded .header-right {
+	order: 2;
+}
+
 .header-left h1 {
 	margin: 0;
 	font-size: 1.5rem;
@@ -161,6 +175,16 @@
 	transition: all 0.2s;
 }
 
+.nav-btn.icon {
+	width: 36px;
+	height: 36px;
+	min-width: 36px;
+	padding: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
 .nav-btn:hover {
 	background: var(--biz-bg-hover, #2a3a4d);
 	border-color: var(--biz-accent, #f59e0b);
@@ -173,6 +197,7 @@
 
 .today-btn {
 	padding: 0.5rem 1rem;
+	min-height: 36px;
 	background: var(--biz-bg-tertiary, #243044);
 	border: 1px solid var(--biz-border, #2d3a4d);
 	color: var(--biz-text-primary, #f1f5f9);
@@ -187,6 +212,7 @@
 
 .add-btn {
 	padding: 0.5rem 1rem;
+	min-height: 36px;
 	background: var(--biz-accent, #f59e0b);
 	color: white;
 	border: none;
@@ -354,8 +380,15 @@
 
 .more-events {
 	font-size: 0.7rem;
-	color: var(--biz-text-muted, #64748b);
-	padding: 2px 0;
+	font-weight: 600;
+	color: var(--biz-text-secondary, #94a3b8);
+	background: var(--biz-bg-tertiary, #243044);
+	border: 1px solid var(--biz-border, #2d3a4d);
+	border-radius: 4px;
+	padding: 1px 6px;
+	width: fit-content;
+	align-self: flex-start;
+	margin-top: 1px;
 }
 
 /* Modals */

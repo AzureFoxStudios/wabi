@@ -50,8 +50,10 @@
 >
 	<div
 		class="modal"
-		role="button"
-		tabindex="0"
+		role="dialog"
+		aria-modal="true"
+		aria-label={editingTodo ? 'Edit task' : 'Add task'}
+		tabindex="-1"
 		on:click|stopPropagation
 		on:keydown|stopPropagation={(event) => {
 			const tag = (event.target as HTMLElement).tagName;
