@@ -205,6 +205,7 @@ const closeCenterDm = () => {
 
 const closeDM = () => {
 	selectedDmChannelId.set(null);
+	centerDmChannelId.set(null);
 	dmOtherUser.set(null);
 	selectedGroupChannel.set(null);
 };

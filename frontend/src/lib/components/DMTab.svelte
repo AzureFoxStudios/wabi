@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
-	import { channels, channelMessages, currentUser, users, serverMembers, createDM, deleteDM, leaveGroup, socket } from '$lib/socket';
+	import { channels, channelMessages, currentUser, users, serverMembers, createDM, deleteDM, leaveGroup, socket, joinChannel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { brandName } from '$lib/branding';
 	import { NOTES_DM_ID } from '$lib/layoutStore';
@@ -146,6 +146,7 @@
 				layoutStore.openDM(channel.id, other);
 			}
 		}
+		joinChannel(channel.id);
 	}
 
 	function openKeepNotes() {

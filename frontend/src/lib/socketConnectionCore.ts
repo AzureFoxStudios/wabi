@@ -610,18 +610,26 @@ export class SocketManager {
 
 		sock.on('dm-created', (payload: { channel?: Channel; channelId?: string }) => {
 			upsertChannel(payload?.channel);
+			const cid = payload?.channel?.id ?? payload?.channelId;
+			if (cid) joinChannel(cid);
 		});
 
 		sock.on('dm-channel-added', (payload: { channel?: Channel; channelId?: string }) => {
 			upsertChannel(payload?.channel);
+			const cid = payload?.channel?.id ?? payload?.channelId;
+			if (cid) joinChannel(cid);
 		});
 
 		sock.on('group-created', (payload: { channel?: Channel; channelId?: string }) => {
 			upsertChannel(payload?.channel);
+			const cid = payload?.channel?.id ?? payload?.channelId;
+			if (cid) joinChannel(cid);
 		});
 
 		sock.on('group-channel-added', (payload: { channel?: Channel; channelId?: string }) => {
 			upsertChannel(payload?.channel);
+			const cid = payload?.channel?.id ?? payload?.channelId;
+			if (cid) joinChannel(cid);
 		});
 
 		sock.on('channel-messages', (payload: { channelId?: string; messages?: Message[] }) => {

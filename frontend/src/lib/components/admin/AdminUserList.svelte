@@ -36,7 +36,7 @@
 				<div class="admin-user-meta">
 					<span class="admin-user-name">{user.username}</span>
 					<span class="admin-role-badge">{getRoleLabel(user.highestRole || 'member')}</span>
-					{#if !user.dbUserId}
+					{#if !user.dbUserId || user.isRegistered === false}
 						<span class="admin-guest-badge">{getRoleLabel('guest')}</span>
 					{/if}
 					{#if user.dbUserId && isUserPaymentBlocked(user)}

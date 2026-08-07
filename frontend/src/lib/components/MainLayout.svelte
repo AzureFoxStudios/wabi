@@ -22,7 +22,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import CallDebugPanel from '$lib/components/CallDebugPanel.svelte';
 	import Settings from '$lib/components/Settings.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
-	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
+	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
@@ -453,12 +453,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	function openUnreadDM(channel: Channel) {
 		if (channel.type === 'group') {
 			layoutStore.openGroupDM(channel.id, channel);
-			return;
+		} else {
+			const other = getChannelOtherUser(channel);
+			if (other) {
+				layoutStore.openDM(channel.id, other);
+			}
 		}
-		const other = getChannelOtherUser(channel);
-		if (other) {
-			layoutStore.openDM(channel.id, other);
-		}
+		joinChannel(channel.id);
 	}
 
 	function formatUnreadBadge(count: number): string {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
-  import { channels, channelMessages, currentUser, userLookup, channelUnreadCounts, createDM } from '$lib/socket';
+  import { channels, channelMessages, currentUser, userLookup, channelUnreadCounts, createDM, joinChannel } from '$lib/socket';
   import { get } from 'svelte/store';
   import type { Channel, User, Message } from '$lib/socket-types';
   import { getDMOtherUser } from '$lib/userLookupStore';
@@ -90,6 +90,7 @@
     } else if (other) {
       layoutStore.openCenterDm(channel.id, other);
     }
+    joinChannel(channel.id);
   }
 
   function openInSidePanel(channel: Channel) {
@@ -99,6 +100,7 @@
     } else if (other) {
       layoutStore.openDM(channel.id, other);
     }
+    joinChannel(channel.id);
   }
 
   function handleContextMenu(channel: Channel, e: MouseEvent) {
@@ -126,6 +128,7 @@
     );
     if (existing) {
       layoutStore.openCenterDm(existing.id, user);
+      joinChannel(existing.id);
       return;
     }
     createDM(user.id);
@@ -135,6 +138,7 @@
       );
       if (newDM) {
         layoutStore.openCenterDm(newDM.id, user);
+        joinChannel(newDM.id);
         unsubscribe();
       }
     });

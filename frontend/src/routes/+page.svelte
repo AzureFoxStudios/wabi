@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages, currentUser } from '$lib/socket';
+	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages, currentUser, joinChannel } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
 	import Login from '$lib/components/Login.svelte';
 	import LayoutRouter from '$lib/components/LayoutRouter.svelte';
@@ -345,6 +345,7 @@
 	// --- Event Handlers & Logic ---
 	$: if ($dmPanelSignal) {
 		layoutStore.openDM($dmPanelSignal.channelId, $dmPanelSignal.otherUser);
+		joinChannel($dmPanelSignal.channelId);
 		dmPanelSignal.set(null);
 	}
 

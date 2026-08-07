@@ -618,6 +618,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/revoke/token", post(revoke_token))
         .route("/transfer-ownership", post(transfer_ownership))
         .route("/recovery-codes", post(recovery_codes))
+        .route("/users/reset-password", post(reset_user_password))
+        .route("/users/clear-login-lockout", post(clear_login_lockout))
         .layer(axum::Extension(policy_store))
         .with_state(state)
 }
@@ -658,6 +660,103 @@ pub async fn list_users(
             })
             .collect(),
     ))
+}
+
+// ─── Admin user password reset / lockout ───────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct ResetUserPasswordRequest {
+    #[serde(rename = "targetUserId")]
+    target_user_id: i64,
+    #[serde(rename = "newPassword")]
+    new_password: String,
+    // Accepted for frontend compatibility. No must-change-password column
+    // exists on the User row today, so the flag is intentionally not stored.
+    #[allow(dead_code)]
+    temporary: Option<bool>,
+}
+
+/// POST /api/admin/users/reset-password — admin forcibly sets a new password
+/// for a registered user. Revokes all existing tokens for the target so stale
+/// sessions cannot linger. Gated on admin role only (the frontend admin UI
+/// sends no X-Stepup-Token; stepup can be layered on when the UI grows it).
+async fn reset_user_password(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<ResetUserPasswordRequest>,
+) -> Response {
+    if let Err(resp) = admin_auth(&headers, &state).await {
+        return resp;
+    }
+    if req.new_password.len() < 6 {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "Password must be at least 6 characters",
+        );
+    }
+    let user_row = match state.wdb.get_user(req.target_user_id as u64).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return json_error(StatusCode::NOT_FOUND, "User not found"),
+        Err(e) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("get_user failed: {e}"),
+            )
+        }
+    };
+    if user_row.password_hash.is_empty() {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "Target account is guest-only; it has no password to reset",
+        );
+    }
+    let password_hash = match bcrypt::hash(&req.new_password, bcrypt::DEFAULT_COST) {
+        Ok(h) => h,
+        Err(e) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("password hashing failed: {e}"),
+            )
+        }
+    };
+    if let Err(e) = state
+        .wdb
+        .update_user(
+            req.target_user_id as u64,
+            wabidb::domain::UserUpdate {
+                password_hash: Some(password_hash),
+                ..Default::default()
+            },
+        )
+        .await
+    {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("update_user failed: {e}"),
+        );
+    }
+    state.revoke_user(req.target_user_id).await;
+    Json(json!({ "success": true })).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+struct ClearLoginLockoutRequest {
+    #[serde(rename = "targetUserId")]
+    target_user_id: i64,
+}
+
+/// POST /api/admin/users/clear-login-lockout — the frontend admin UI calls
+/// this after a password reset. No login-lockout store exists server-side, so
+/// this is an honest no-op that returns success instead of 404.
+async fn clear_login_lockout(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(_req): Json<ClearLoginLockoutRequest>,
+) -> Response {
+    if let Err(resp) = admin_auth(&headers, &state).await {
+        return resp;
+    }
+    Json(json!({ "success": true, "cleared": true })).into_response()
 }
 
 // ─── Auth helpers ───────────────────────────────────────────────────────────

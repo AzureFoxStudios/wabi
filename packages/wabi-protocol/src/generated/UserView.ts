@@ -2,4 +2,8 @@
 import type { UserStatus } from "./UserStatus";
 import type { UsernameFont } from "./UsernameFont";
 
-export type UserView = { id: string, username: string, color: string, status: UserStatus, handle?: string | null, profilePicture?: string | null, bio?: string | null, joinedAt?: number | null, dbUserId?: number | null, roles?: Array<string> | null, highestRole?: string | null, roleColor?: string | null, usernameFont?: UsernameFont | null, };
+export type UserView = { id: string, username: string, color: string, status: UserStatus, handle?: string | null, profilePicture?: string | null, bio?: string | null, joinedAt?: number | null, dbUserId?: number | null, roles?: Array<string> | null, highestRole?: string | null, roleColor?: string | null, usernameFont?: UsernameFont | null, 
+/**
+ * False for guest accounts (no password). True for registered users.
+ */
+isRegistered?: boolean | null, };

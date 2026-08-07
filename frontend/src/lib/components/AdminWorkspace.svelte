@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 import { get } from 'svelte/store';
 	import { channels, currentUser, assignRole, removeUserRole, type User, updateChannelSettings, sendMessage, channelMessages, connected } from '$lib/socket';
-	import { users } from '$lib/socket';
+	import { users, serverMembers } from '$lib/socket';
 	import { getSocket } from '$lib/socket';
 	import { getWabiDB } from '$lib/wabidb';
 	import { layoutStore } from '$lib/layoutStore';
@@ -189,7 +189,18 @@ import { get } from 'svelte/store';
 	$: if (selectedRuleMessageId && !availableRoleGatePosts.some((message) => message.id === selectedRuleMessageId)) {
 		selectedRuleMessageId = availableRoleGatePosts[0]?.id || '';
 	}
-	$: visibleUsers = $users.filter((u) => {
+	// Full server roster: every registered user (serverMembers) merged with the
+	// live online list (users). Online entries win so their live status/fields
+	// are kept. Without serverMembers the admin registry only ever showed users
+	// currently connected — offline registered accounts were invisible.
+	$: rosterUsers = (() => {
+		const byId = new Map<string, User>();
+		for (const u of $serverMembers) byId.set(String(u.dbUserId ?? u.id), u);
+		for (const u of $users) byId.set(String(u.dbUserId ?? u.id), u); // online wins
+		return [...byId.values()];
+	})();
+
+	$: visibleUsers = rosterUsers.filter((u) => {
 		const q = searchQuery.trim().toLowerCase();
 		if (!q) return true;
 		return u.username.toLowerCase().includes(q) || (u.handle || '').toLowerCase().includes(q);
@@ -201,10 +212,10 @@ import { get } from 'svelte/store';
 		return a.username.localeCompare(b.username);
 	});
 
-	$: ownerCount = $users.filter((u) => u.highestRole === 'owner').length;
-	$: adminCount = $users.filter((u) => u.highestRole === 'admin').length;
-	$: modCount = $users.filter((u) => u.highestRole === 'mod').length;
-	$: guestCount = $users.filter((u) => !u.dbUserId).length;
+	$: ownerCount = rosterUsers.filter((u) => u.highestRole === 'owner').length;
+	$: adminCount = rosterUsers.filter((u) => u.highestRole === 'admin').length;
+	$: modCount = rosterUsers.filter((u) => u.highestRole === 'mod').length;
+	$: guestCount = rosterUsers.filter((u) => !u.dbUserId || u.isRegistered === false).length;
 	$: if (canManageRoles && !compressionLoaded && !compressionLoading && !compressionAttempted) {
 		void refreshCompressionPanel();
 	}
@@ -641,7 +652,7 @@ import { get } from 'svelte/store';
 			currentUserHighestRole={$currentUser?.highestRole}
 			{canManageRoles}
 			{canModerate}
-			usersLength={$users.length}
+			usersLength={rosterUsers.length}
 			{ownerCount}
 			{adminCount}
 			{modCount}

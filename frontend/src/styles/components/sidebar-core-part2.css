@@ -118,6 +118,25 @@
 		min-width: 0;
 	}
 
+	/* Text/forum/gallery/wiki/lore channels: the unified list wraps button +
+	   actions in this grid so the row stays ONE line (label left, hover
+	   actions right). Without it the wrapper is a plain block and the actions
+	   stack onto a second line. */
+	.channel-main {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		flex: 1;
+		min-width: 0;
+		gap: 0.15rem;
+	}
+
+	.channel-main .channel-btn {
+		width: 100%;
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
 	.voice-channel-actions {
 		flex: 0 0 auto;
 		min-width: 0;

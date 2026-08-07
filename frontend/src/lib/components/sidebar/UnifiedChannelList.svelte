@@ -220,7 +220,7 @@
 		on:drop|stopPropagation={(e) => (isVoice ? onVoiceChannelDrop(e, channel.id) : onChannelDrop(e, channel.id))}
 		on:dragend={onChannelDragEnd}
 	>
-		<div class={isVoice ? 'voice-channel-main' : ''}>
+		<div class={isVoice ? 'voice-channel-main' : 'channel-main'}>
 			<button
 				class="channel-btn"
 				data-abbrev={channel.name.charAt(0).toUpperCase()}
