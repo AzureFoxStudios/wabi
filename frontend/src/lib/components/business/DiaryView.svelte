@@ -278,8 +278,11 @@
 									<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
 								</svg>
 							</div>
-							<h2>Start Your Journal</h2>
-							<p>Document your thoughts, ideas, and memories. Attach photos of handwritten notes, sketches, or anything that inspires you.</p>
+							<h2>No journal entries yet</h2>
+							<p>Capture a thought for today. Photos and sketches welcome.</p>
+							{#if !isReadOnly}
+								<button type="button" class="today-btn primary" on:click={goToToday}>Write today’s entry</button>
+							{/if}
 						</div>
 					{:else}
 						<div class="entries-list-view">
