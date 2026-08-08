@@ -100,11 +100,13 @@
 
 /* ── Surface header ──────────────────────────────────────────────────────── */
 .planner-header {
-	height: var(--header-h, 52px);
-	padding: 0 14px;
+	min-height: var(--header-h, 52px);
+	height: auto;
+	padding: 8px 14px;
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	flex-wrap: wrap;
+	gap: 10px 12px;
 	border-bottom: 1px solid var(--planner-border);
 	background: color-mix(in srgb, var(--planner-raised) 80%, transparent);
 	backdrop-filter: blur(12px);
@@ -411,11 +413,60 @@
 	inset: 0;
 	display: none;
 	overflow: auto;
-	padding: 16px;
+	padding: 12px 14px;
 }
 
 .planner-view.active {
 	display: block;
+}
+
+/* Board needs full bleed — no host padding fighting column scroll */
+.planner-view.view-board {
+	padding: 0;
+	overflow: hidden;
+}
+
+.planner-view.view-board.active {
+	display: flex;
+	flex-direction: column;
+}
+
+.planner-view.view-board :global(.kanban-container) {
+	flex: 1;
+	min-height: 0;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
+.planner-view.view-journal {
+	padding: 0;
+}
+
+.menu-dot-calendar {
+	background: var(--planner-accent);
+}
+.menu-dot-board {
+	background: var(--color-info, #3b82f6);
+}
+.menu-dot-journal {
+	background: var(--color-success, #22c55e);
+}
+.menu-dot-projects {
+	background: #a78bfa;
+}
+
+.planner-tab:focus-visible,
+.planner-new-btn:focus-visible,
+.planner-tasks-btn:focus-visible,
+.planner-new-menu button:focus-visible {
+	outline: 2px solid var(--planner-accent);
+	outline-offset: 2px;
+}
+
+.planner-tabs {
+	flex-wrap: wrap;
+	max-width: 100%;
 }
 
 /* ── In-surface tasks split ──────────────────────────────────────────────── */
