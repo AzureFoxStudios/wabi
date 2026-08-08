@@ -126,22 +126,31 @@
 	justify-content: space-between;
 	align-items: center;
 	margin-bottom: 1rem;
-	flex-wrap: wrap;
-	gap: 1rem;
+	flex-wrap: nowrap;
+	gap: 0.75rem;
+	min-width: 0;
 }
 
 /* Hosted-in-Planner: no page title, one compact secondary toolbar */
 .calendar-header.embedded {
-	justify-content: center;
-	margin-bottom: 0.75rem;
+	justify-content: space-between;
+	margin-bottom: 0.5rem;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: thin;
+	row-gap: 0;
 }
 
 .calendar-header.embedded .header-center {
 	order: 1;
+	flex: 1 1 auto;
+	min-width: 0;
+	justify-content: center;
 }
 
 .calendar-header.embedded .header-right {
 	order: 2;
+	flex-shrink: 0;
 }
 
 .header-left h1 {
@@ -153,15 +162,18 @@
 .header-center {
 	display: flex;
 	align-items: center;
-	gap: 1rem;
+	gap: 0.65rem;
+	flex-wrap: nowrap;
+	min-width: 0;
 }
 
 .month-label {
 	margin: 0;
-	font-size: 1.25rem;
-	min-width: 180px;
+	font-size: 1.1rem;
+	min-width: 9.5rem;
 	text-align: center;
 	color: var(--biz-text-primary, #f1f5f9);
+	white-space: nowrap;
 }
 
 .nav-btn {
@@ -192,7 +204,10 @@
 
 .header-right {
 	display: flex;
-	gap: 0.75rem;
+	gap: 0.5rem;
+	align-items: center;
+	flex-wrap: nowrap;
+	flex-shrink: 0;
 }
 
 .today-btn {

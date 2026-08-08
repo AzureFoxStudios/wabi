@@ -437,6 +437,28 @@
 	height: 100%;
 	display: flex;
 	flex-direction: column;
+	padding-top: 0.5rem;
+}
+
+.planner-view.view-board :global(.kanban-board-wrapper) {
+	flex: 1;
+	min-height: 0;
+}
+
+.planner-view.view-calendar {
+	overflow: auto;
+}
+
+.planner-view.view-calendar :global(.calendar-wrapper),
+.planner-view.view-calendar :global(.calendar-container) {
+	min-height: 0;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
+.planner-view.view-calendar :global(.calendar-header) {
+	flex-shrink: 0;
 }
 
 .planner-view.view-journal {

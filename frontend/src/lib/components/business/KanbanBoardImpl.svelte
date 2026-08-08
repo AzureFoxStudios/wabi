@@ -183,16 +183,22 @@
 	}
 
 	function handleBoardWheel(e: WheelEvent) {
-		if (!e.shiftKey && kanbanBoard && kanbanBoard.scrollHeight <= kanbanBoard.clientHeight) {
-			return; // Allow normal vertical scroll if needed
-		}
+		if (!kanbanBoard) return;
+		const canScrollX = kanbanBoard.scrollWidth > kanbanBoard.clientWidth + 2;
+		if (!canScrollX) return;
 
-		if (e.shiftKey || (kanbanBoard && kanbanBoard.scrollHeight <= kanbanBoard.clientHeight)) {
+		// Board is a horizontal lane of columns. Map vertical wheel/trackpad
+		// (and Shift+wheel) to left/right pan — previously inverted logic
+		// returned early when height fit, so horizontal scroll never fired.
+		const mostlyVertical = Math.abs(e.deltaY) >= Math.abs(e.deltaX);
+		if (e.shiftKey || mostlyVertical) {
 			e.preventDefault();
-			if (kanbanBoard) {
-				kanbanBoard.scrollLeft += e.deltaY; // Use deltaY for horizontal scroll
-				updateScrollHints();
-			}
+			const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+			kanbanBoard.scrollLeft += delta;
+			updateScrollHints();
+		} else if (Math.abs(e.deltaX) > 0) {
+			// Native horizontal trackpad — still refresh hints
+			requestAnimationFrame(updateScrollHints);
 		}
 	}
 
