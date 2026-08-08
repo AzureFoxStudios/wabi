@@ -67,9 +67,10 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // File operations
         .route("/repos/{channel_id}/files", axum::routing::get(list_files))
         .route("/repos/{channel_id}/files/{*path}", axum::routing::put(upload_file).get(download_file).delete(delete_file))
-        .route("/repos/{channel_id}/files/{*path}/lock", axum::routing::post(lock_file).delete(unlock_file))
-        .route("/repos/{channel_id}/files/{*path}/history", axum::routing::get(file_level_history))
-        .route("/repos/{channel_id}/files/{*path}/diff", axum::routing::get(file_diff))
+        // File sub-operations — action-first paths avoid {*path} wildcard conflicts
+        .route("/repos/{channel_id}/lock/{*path}", axum::routing::post(lock_file).delete(unlock_file))
+        .route("/repos/{channel_id}/history/{*path}", axum::routing::get(file_level_history))
+        .route("/repos/{channel_id}/diff/{*path}", axum::routing::get(file_diff))
         // L7: signed download URL mint (AuthUser + membership at mint time)
         .route("/repos/{channel_id}/signed-url", axum::routing::get(signed_download_url))
         // Repo history
