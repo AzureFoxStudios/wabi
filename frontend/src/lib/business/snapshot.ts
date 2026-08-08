@@ -11,6 +11,7 @@ import {
 	tags,
 	todos
 } from './state';
+import { beginBatchPersist, endBatchPersist } from './persistGate';
 
 export function getBusinessDataSnapshot(): BusinessDataSnapshot {
 	return {
@@ -27,13 +28,19 @@ export function getBusinessDataSnapshot(): BusinessDataSnapshot {
 }
 
 export function applyBusinessDataSnapshot(data: BusinessDataSnapshot): void {
-	todos.set(data.todos);
-	calendarEvents.set(data.calendarEvents);
-	diaryEntries.set(data.diaryEntries);
-	projects.set(data.projects);
-	sprints.set(data.sprints);
-	kanbanColumns.set(data.kanbanColumns);
-	resources.set(data.resources);
-	tags.set(data.tags);
-	graphEdges.set(data.graphEdges);
+	// One atomic multi-store write — subscribers see suppress via persistGate.
+	beginBatchPersist();
+	try {
+		todos.set(data.todos);
+		calendarEvents.set(data.calendarEvents);
+		diaryEntries.set(data.diaryEntries);
+		projects.set(data.projects);
+		sprints.set(data.sprints);
+		kanbanColumns.set(data.kanbanColumns);
+		resources.set(data.resources);
+		tags.set(data.tags);
+		graphEdges.set(data.graphEdges);
+	} finally {
+		endBatchPersist();
+	}
 }

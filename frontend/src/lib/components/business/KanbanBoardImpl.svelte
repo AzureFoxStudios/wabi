@@ -99,7 +99,6 @@
 		}
 	});
 	$: todosByColumn = (() => {
-		void registeredUsers;
 		return $todos.reduce((acc, todo) => {
 			if (!acc[todo.status]) acc[todo.status] = [];
 			if (filterProject && todo.projectId !== filterProject) return acc;
@@ -109,9 +108,9 @@
 		}, {} as Record<TodoStatus, Todo[]>);
 	})();
 	$: sortedTodosByColumn = Object.fromEntries(
-		Object.entries(todosByColumn).map(([status, todos]) => [
+		Object.entries(todosByColumn).map(([status, colTodos]) => [
 			status,
-			[...todos].sort((a, b) => {
+			[...colTodos].sort((a, b) => {
 				const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
 				if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
 					return priorityOrder[a.priority] - priorityOrder[b.priority];
@@ -120,6 +119,8 @@
 			})
 		])
 	) as Record<TodoStatus, Todo[]>;
+	// O(1) assignee lookup for cards (avoid find() per card)
+	$: userById = new Map(registeredUsers.map((u) => [u.user_id, u]));
 	let kanbanBoard: HTMLElement;
 	let isPanning = false;
 	let panStartX = 0;
@@ -289,8 +290,11 @@
 
 	function getAssigneeName(userId: number | undefined): string {
 		if (!userId) return '';
-		const user = registeredUsers.find(u => u.user_id === userId);
-		return user?.username || '';
+		return userById.get(userId)?.username || '';
+	}
+	function getAssigneeColor(userId: number | undefined): string {
+		if (!userId) return '#888';
+		return userById.get(userId)?.color || '#888';
 	}
 
 	function resetForm() {
@@ -512,10 +516,10 @@
 			{sortedTodosByColumn}
 			{dragOverColumn}
 			{isReadOnly}
-			{registeredUsers}
 			{getPriorityColor}
 			{formatEstimateHours}
 			{getAssigneeName}
+			{getAssigneeColor}
 			{getProjectColor}
 			{getProjectName}
 			{formatDueDate}
