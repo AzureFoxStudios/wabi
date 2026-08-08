@@ -556,3 +556,103 @@
 		{openAddModal}
 	/>
 {/if}
+
+<!-- Scoped header styles: the legacy global todo-list.css (imported LAST in
+     styles.css) re-defines .add-btn/.header-right/.today-btn/.nav-btn with
+     old todo-list colors/layout, which overrode the calendar's own
+     calendar-view-part1.css design. Scoped rules always beat globals, so the
+     calendar header is immune to that cascade fight. -->
+<style>
+	.calendar-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		flex-wrap: nowrap;
+		gap: 0.75rem;
+		min-width: 0;
+	}
+	.calendar-header.embedded {
+		justify-content: space-between;
+		margin-bottom: 0.5rem;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: thin;
+		row-gap: 0;
+	}
+	.header-center {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+	.header-left {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-shrink: 0;
+	}
+	.header-right {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		flex-wrap: nowrap;
+		flex-shrink: 0;
+	}
+	.nav-btn {
+		background: var(--biz-bg-tertiary, #243044);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		color: var(--biz-text-primary, #f1f5f9);
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+	.nav-btn.icon {
+		width: 36px;
+		height: 36px;
+		min-width: 36px;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.nav-btn:hover {
+		background: var(--biz-bg-hover, #2a3a4d);
+		border-color: var(--biz-accent, #f59e0b);
+	}
+	.month-label {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--biz-text-primary, #f1f5f9);
+		white-space: nowrap;
+	}
+	.today-btn {
+		padding: 0.5rem 1rem;
+		min-height: 36px;
+		background: var(--biz-bg-tertiary, #243044);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		color: var(--biz-text-primary, #f1f5f9);
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+	.today-btn:hover {
+		background: var(--biz-bg-hover, #2a3a4d);
+	}
+	.add-btn {
+		padding: 0.5rem 1rem;
+		min-height: 36px;
+		background: var(--biz-accent, #f59e0b);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.2s;
+	}
+	.add-btn:hover {
+		background: var(--biz-accent-hover, #d97706);
+	}
+</style>

@@ -275,6 +275,10 @@
 			createFolderChoice = 'none';
 			createNewFolderName = '';
 			showCreateInput = true;
+			// Same re-probe as toggleCreateInputForType: a flaky mount-time
+			// capability probe must not leave the Code chip disabled when the
+			// form is opened from the LoreWorkspace "New Code Channel" button.
+			void refreshLoreCapability();
 			void tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 		};
 		window.addEventListener('wabi:create-channel', onCreateChannelRequest);
