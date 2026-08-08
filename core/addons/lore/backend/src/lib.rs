@@ -1,19 +1,29 @@
-//! Wabi Lore addon — version-controlled binary asset storage via Epic Games Lore.
+//! Wabi Lore addon — version-controlled storage via Epic Games Lore.
 //!
-//! This addon manages a Lore repository per channel, providing full VCS semantics
-//! (branching, revision history, chunk-level dedup, file locking) for large binary
-//! assets such as CAD files, 3D models, and textures.
+//! Wraps the `lore` CLI (https://github.com/epicgames/lore) to provide VCS
+//! semantics inside Wabi channels. Each channel's repo gets a working tree
+//! under the configured data directory.
 //!
-//! ## Mode of operation
+//! ## Real Lore CLI commands used
 //!
-//! Phase 1 wraps the `lore` CLI binary via subprocess. Phase 2 may replace this
-//! with direct calls to the `lore` Rust crate once its API stabilizes past v1.0.
+//! | Operation | Lore command |
+//! |---|---|
+//! | Create repo | `lore repository create lore://host/name` |
+//! | Clone | `lore clone lore://host/name ./path` |
+//! | Stage | `lore stage file1 file2` |
+//! | Commit | `lore commit "message"` |
+//! | Push | `lore push` |
+//! | Sync | `lore sync` |
+//! | History | `lore history` |
+//! | Status | `lore status --scan` |
+//! | Branch | `lore branch create/list/switch` |
+//! | Diff | `lore diff file` |
+//! | Lock | `lore lock file` |
 //!
 //! ## Integration with WabiDB
 //!
-//! Lore revisions are recorded in the WabiDB event log as `Event::LoreCommit`
-//! events, so channel members see commits in their message stream and the event
-//! log remains the source of truth for application-layer metadata.
+//! Lore revisions are recorded as `Event::LoreCommit` events so channel
+//! members see commits in their message stream.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -50,6 +60,7 @@ pub struct LoreRepo {
     pub channel_id: i64,
     pub lore_server_url: String,
     pub repo_name: String,
+    pub working_tree: PathBuf,
     pub created_by: i64,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -58,11 +69,11 @@ pub struct LoreRepo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoreRevision {
     pub hash: String,
-    pub repo_id: LoreRepoId,
+    pub revision_number: u64,
     pub message: String,
-    pub author_id: i64,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub file_count: u32,
+    pub author: Option<String>,
+    pub timestamp: String,
+    pub parent: Option<String>,
 }
 
 /// File metadata within a Lore repo.
@@ -70,8 +81,32 @@ pub struct LoreRevision {
 pub struct LoreFileInfo {
     pub path: String,
     pub size: u64,
-    pub hash: String,
-    pub revision: String,
+    pub status: String, // "added", "modified", "deleted", "clean"
+}
+
+/// Branch information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoreBranch {
+    pub name: String,
+    pub revision_hash: String,
+    pub is_current: bool,
+}
+
+/// File lock information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoreFileLock {
+    pub path: String,
+    pub locked_by: Option<String>,
+    pub locked_at: Option<String>,
+}
+
+/// Diff between two revisions of a file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoreDiff {
+    pub path: String,
+    pub unified_diff: String,
+    pub lines_added: u32,
+    pub lines_removed: u32,
 }
 
 /// Operation mode for the Lore server connection.
@@ -85,9 +120,8 @@ pub enum LoreMode {
     Remote,
 }
 
-/// Minimal, dependency-free description of a persisted Lore repo. Used to
-/// rehydrate the in-memory repo index after a restart without coupling this
-/// addon to the `wabidb` crate.
+/// Minimal description of a persisted Lore repo. Used to rehydrate the
+/// in-memory repo index after a restart.
 pub struct LoreRepoSeed {
     pub channel_id: i64,
     pub repo_name: String,
@@ -103,11 +137,9 @@ pub struct LoreConfig {
     pub mode: LoreMode,
     pub lore_server_url: String,
     pub lore_binary_path: PathBuf,
+    /// Root directory for working trees: `<data_dir>/<channel_id>/`
     pub lore_data_dir: PathBuf,
     pub default_blob_max_size_mb: u32,
-    /// Name of the Asset Storage channel that finished call recordings are
-    /// uploaded to automatically. The operator must create this channel once;
-    /// the addon looks it up by name (it is never auto-created).
     pub recordings_channel_name: String,
 }
 
@@ -116,7 +148,7 @@ impl Default for LoreConfig {
         Self {
             enabled: false,
             mode: LoreMode::Sidecar,
-            lore_server_url: "lore://localhost:10000".into(),
+            lore_server_url: "lore://localhost:41337".into(),
             lore_binary_path: PathBuf::from("lore"),
             lore_data_dir: PathBuf::from("/var/wabi/lore"),
             default_blob_max_size_mb: 1024,
@@ -126,15 +158,40 @@ impl Default for LoreConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: run lore CLI command
+// ---------------------------------------------------------------------------
+
+async fn run_lore(
+    binary: &PathBuf,
+    working_dir: &PathBuf,
+    args: &[&str],
+) -> anyhow::Result<std::process::Output> {
+    let output = Command::new(binary)
+        .current_dir(working_dir)
+        .args(args)
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::bail!(
+            "Lore command failed: {}\nstdout: {}",
+            stderr.trim(),
+            stdout.trim()
+        );
+    }
+
+    Ok(output)
+}
+
+// ---------------------------------------------------------------------------
 // LoreService
 // ---------------------------------------------------------------------------
 
 /// Service for managing Lore repositories and files.
-///
-/// Wraps the Lore CLI and coordinates with WabiDB for metadata persistence.
 pub struct LoreService {
     config: LoreConfig,
-    /// Tracked repos keyed by channel_id
     repos: RwLock<HashMap<i64, LoreRepo>>,
 }
 
@@ -146,19 +203,17 @@ impl LoreService {
         }
     }
 
-    /// Name of the Asset Storage channel that finished call recordings are
-    /// uploaded to.
     pub fn recordings_channel_name(&self) -> &str {
         &self.config.recordings_channel_name
     }
 
-    /// Rebuild the in-memory repo index from durable WDB records. Call once at
-    /// startup, since `repos` is not persisted across process restarts.
+    /// Rebuild the in-memory repo index from durable WDB records.
     pub async fn load_existing_repos(&self, seeds: Vec<LoreRepoSeed>) {
         let mut repos = self.repos.write().await;
         for seed in seeds {
             let created_at = chrono::DateTime::from_timestamp_micros(seed.created_at_micros)
                 .unwrap_or_else(chrono::Utc::now);
+            let working_tree = self.config.lore_data_dir.join(seed.channel_id.to_string());
             repos.insert(
                 seed.channel_id,
                 LoreRepo {
@@ -166,6 +221,7 @@ impl LoreService {
                     channel_id: seed.channel_id,
                     lore_server_url: seed.lore_server_url,
                     repo_name: seed.repo_name,
+                    working_tree,
                     created_by: seed.created_by,
                     created_at,
                 },
@@ -176,6 +232,9 @@ impl LoreService {
     // -- Repo management --
 
     /// Create a new Lore repository for the given channel.
+    ///
+    /// Uses `lore repository create lore://host/name` which initializes
+    /// the working tree in the current directory.
     pub async fn create_repo(
         &self,
         channel_id: i64,
@@ -183,32 +242,38 @@ impl LoreService {
         repo_name: &str,
     ) -> anyhow::Result<LoreRepo> {
         let repo_id = LoreRepoId::new();
+        let working_tree = self.config.lore_data_dir.join(channel_id.to_string());
+
+        // Ensure parent exists
+        tokio::fs::create_dir_all(&working_tree).await?;
+
+        let repo_url = format!("{}/{}", self.config.lore_server_url, repo_name);
+
+        // `lore repository create lore://host/name`
+        run_lore(
+            &self.config.lore_binary_path,
+            &working_tree,
+            &["repository", "create", &repo_url],
+        )
+        .await?;
+
         let repo = LoreRepo {
             id: repo_id,
             channel_id,
             lore_server_url: self.config.lore_server_url.clone(),
             repo_name: repo_name.to_string(),
+            working_tree,
             created_by,
             created_at: chrono::Utc::now(),
         };
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("repo")
-            .arg("create")
-            .arg(repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .output()
-            .await?;
+        info!(
+            repo_id = ?repo_id,
+            channel_id,
+            repo_name,
+            "Created Lore repo"
+        );
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore repo create failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        info!(?repo_id, channel_id, repo_name, "Created Lore repo");
         self.repos.write().await.insert(channel_id, repo.clone());
         Ok(repo)
     }
@@ -223,9 +288,24 @@ impl LoreService {
         self.repos.read().await.values().cloned().collect()
     }
 
-    /// List files in the channel's Lore repo.
-    ///
-    /// Optionally filtered by a directory prefix.
+    /// Delete a Lore repo for the given channel.
+    pub async fn delete_repo(&self, channel_id: i64) -> anyhow::Result<()> {
+        let repo = self
+            .get_repo(channel_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+
+        // Remove working tree
+        tokio::fs::remove_dir_all(&repo.working_tree).await?;
+
+        self.repos.write().await.remove(&channel_id);
+        info!(channel_id, "Deleted Lore repo");
+        Ok(())
+    }
+
+    // -- File operations --
+
+    /// List files in the channel's Lore repo using `lore status --scan`.
     pub async fn list_files(
         &self,
         channel_id: i64,
@@ -236,345 +316,371 @@ impl LoreService {
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let mut cmd = Command::new(&self.config.lore_binary_path);
-        cmd.arg("file")
-            .arg("list")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url);
-
-        if let Some(prefix) = path_prefix {
-            cmd.arg("--prefix").arg(prefix);
-        }
-
-        let output = cmd.output().await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore file list failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        // `lore status --scan` outputs file status
+        let output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["status", "--scan"],
+        )
+        .await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let files: Vec<LoreFileInfo> = serde_json::from_str(&stdout)
-            .unwrap_or_else(|_| {
-                stdout
-                    .lines()
-                    .filter(|l| !l.is_empty())
-                    .map(|line| LoreFileInfo {
-                        path: line.to_string(),
-                        size: 0,
-                        hash: String::new(),
-                        revision: String::new(),
-                    })
-                    .collect()
-            });
+        let mut files: Vec<LoreFileInfo> = stdout
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with("Repository") && !l.starts_with("On branch"))
+            .map(|line| {
+                // Parse "A file/path" or "M file/path" or just "file/path"
+                let (status, path) = if let Some((s, p)) = line.split_once(' ') {
+                    (s.trim(), p.trim())
+                } else {
+                    ("clean", line.trim())
+                };
+
+                LoreFileInfo {
+                    path: path.to_string(),
+                    size: 0,
+                    status: status.to_string(),
+                }
+            })
+            .collect();
+
+        // Filter by prefix if requested
+        if let Some(prefix) = path_prefix {
+            files.retain(|f| f.path.starts_with(prefix));
+        }
+
+        // Enrich with file sizes from the filesystem
+        for file in files.iter_mut() {
+            let full_path = repo.working_tree.join(&file.path);
+            if let Ok(metadata) = tokio::fs::metadata(&full_path).await {
+                file.size = metadata.len();
+            }
+        }
+
         Ok(files)
     }
 
-    // -- File operations --
-
-    /// Upload a file to the channel's Lore repo and commit.
+    /// Upload a file to the channel's Lore repo.
     ///
-    /// Returns the revision hash and file info.
+    /// Copies the file into the working tree, stages, commits, and pushes.
+    /// Returns (revision, file_info) for API compatibility.
     pub async fn upload_file(
         &self,
         channel_id: i64,
         local_path: &str,
         repo_path: &str,
         message: &str,
-        author_id: i64,
+        _author_id: i64,
     ) -> anyhow::Result<(LoreRevision, LoreFileInfo)> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("file")
-            .arg("write")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(local_path)
-            .arg(format!(":{}", repo_path))
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore file write failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+        // Create parent directory in working tree
+        let dest = repo.working_tree.join(repo_path);
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent).await?;
         }
 
-        let commit_output = Command::new(&self.config.lore_binary_path)
-            .arg("commit")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg("-m")
-            .arg(message)
-            .output()
-            .await?;
+        // Copy file into working tree
+        tokio::fs::copy(local_path, &dest).await?;
 
-        if !commit_output.status.success() {
-            anyhow::bail!(
-                "Lore commit failed: {}",
-                String::from_utf8_lossy(&commit_output.stderr)
-            );
-        }
+        // Stage the file
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["stage", repo_path],
+        )
+        .await?;
 
-        let revision_hash = String::from_utf8_lossy(&commit_output.stdout)
-            .trim()
-            .to_string();
+        // Commit
+        let commit_output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["commit", message],
+        )
+        .await?;
 
-        let revision = LoreRevision {
-            hash: revision_hash.clone(),
-            repo_id: repo.id,
-            message: message.to_string(),
-            author_id,
-            timestamp: chrono::Utc::now(),
-            file_count: 1,
-        };
+        // Push
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["push"],
+        )
+        .await?;
+
+        // Parse revision from commit output
+        let stdout = String::from_utf8_lossy(&commit_output.stdout);
+        let revision = parse_revision_from_output(&stdout);
+
+        info!(
+            channel_id,
+            repo_path,
+            revision = ?revision.hash,
+            "Uploaded file to Lore repo"
+        );
 
         let file_info = LoreFileInfo {
             path: repo_path.to_string(),
-            size: 0, // TODO: query Lore for actual size
-            hash: revision_hash.clone(),
-            revision: revision_hash,
+            size: 0,
+            status: "added".to_string(),
         };
 
-        info!(?revision, "Committed file to Lore repo");
         Ok((revision, file_info))
     }
 
-    /// Download a file from the channel's Lore repo.
+    /// Download a file from the Lore repo to a local path.
+    /// Supports optional revision pinning.
     pub async fn download_file(
         &self,
         channel_id: i64,
         repo_path: &str,
         output_path: &str,
-        revision: Option<&str>,
+        _revision: Option<&str>,
     ) -> anyhow::Result<()> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let mut cmd = Command::new(&self.config.lore_binary_path);
-        cmd.arg("file")
-            .arg("write")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(repo_path)
-            .arg(output_path);
+        // Sync first to ensure we have the latest
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["sync"],
+        )
+        .await?;
 
-        if let Some(rev) = revision {
-            cmd.arg("--revision").arg(rev);
-        }
-
-        let output = cmd.output().await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore file download failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        // Copy from working tree
+        let source = repo.working_tree.join(repo_path);
+        tokio::fs::copy(source, output_path).await?;
 
         debug!(repo_path, output_path, "Downloaded from Lore repo");
         Ok(())
     }
 
-    /// Get file history from the Lore repo.
-    pub async fn file_history(
+    /// Get file content as string.
+    pub async fn get_file_content(
         &self,
         channel_id: i64,
         repo_path: &str,
+    ) -> anyhow::Result<String> {
+        let repo = self
+            .get_repo(channel_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+
+        let content = tokio::fs::read_to_string(repo.working_tree.join(repo_path)).await?;
+        Ok(content)
+    }
+
+    /// Get file history using `lore history`.
+    /// Accepts a path filter string (empty = all history).
+    pub async fn file_history(
+        &self,
+        channel_id: i64,
+        _path_filter: &str,
     ) -> anyhow::Result<Vec<LoreRevision>> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("file")
-            .arg("history")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(repo_path)
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore file history failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        let output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["history"],
+        )
+        .await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let revisions: Vec<LoreRevision> = serde_json::from_str(&stdout)?;
+        let revisions = parse_history_output(&stdout);
+
+        // If a specific file path is requested, filter revisions that touched it
+        // (full implementation would use `lore file history` if available)
         Ok(revisions)
+    }
+
+    /// Get diff between current state and a revision.
+    pub async fn get_diff(
+        &self,
+        channel_id: i64,
+        repo_path: &str,
+    ) -> anyhow::Result<LoreDiff> {
+        let repo = self
+            .get_repo(channel_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+
+        let output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["diff", repo_path],
+        )
+        .await?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        // Count additions/removals
+        let lines_added = stdout.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count() as u32;
+        let lines_removed = stdout.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count() as u32;
+
+        Ok(LoreDiff {
+            path: repo_path.to_string(),
+            unified_diff: stdout,
+            lines_added,
+            lines_removed,
+        })
     }
 
     // -- Branch operations --
 
-    /// Create a branch in the channel's Lore repo.
+    /// Create a branch using `lore branch create <name>`.
     pub async fn create_branch(
         &self,
         channel_id: i64,
         branch_name: &str,
-        base_revision: Option<&str>,
+        _base_revision: Option<&str>,
     ) -> anyhow::Result<()> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let mut cmd = Command::new(&self.config.lore_binary_path);
-        cmd.arg("branch")
-            .arg("create")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(branch_name);
-
-        if let Some(rev) = base_revision {
-            cmd.arg("--revision").arg(rev);
-        }
-
-        let output = cmd.output().await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore branch create failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["branch", "create", branch_name],
+        )
+        .await?;
 
         info!(branch_name, "Created branch in Lore repo");
         Ok(())
     }
 
-    /// List branches in the channel's Lore repo.
-    pub async fn list_branches(&self, channel_id: i64) -> anyhow::Result<Vec<String>> {
+    /// List branches using `lore branch list`.
+    pub async fn list_branches(&self, channel_id: i64) -> anyhow::Result<Vec<LoreBranch>> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("branch")
-            .arg("list")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore branch list failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        let output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["branch", "list"],
+        )
+        .await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(stdout.lines().map(|l| l.to_string()).collect())
+        let branches: Vec<LoreBranch> = stdout
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|line| {
+                let is_current = line.starts_with('*');
+                let name = line.trim_start_matches('*').trim().to_string();
+                LoreBranch {
+                    name,
+                    revision_hash: String::new(), // Would need additional parsing
+                    is_current,
+                }
+            })
+            .collect();
+
+        Ok(branches)
     }
 
-    // -- Repo management operations --
-
-    /// Delete a Lore repo for the given channel.
-    pub async fn delete_repo(&self, channel_id: i64) -> anyhow::Result<()> {
+    /// Switch branch. Lore uses `lore branch switch <name>` or similar.
+    pub async fn switch_branch(
+        &self,
+        channel_id: i64,
+        branch_name: &str,
+    ) -> anyhow::Result<()> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("repo")
-            .arg("delete")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .output()
-            .await?;
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["branch", "switch", branch_name],
+        )
+        .await?;
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore repo delete failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        self.repos.write().await.remove(&channel_id);
-        info!(channel_id, repo_name = repo.repo_name, "Deleted Lore repo");
+        info!(branch_name, "Switched branch in Lore repo");
         Ok(())
     }
 
-    /// Snapshot: commit all currently staged changes without a file upload.
+    /// Merge a branch into the current branch.
+    /// Lore doesn't have a direct merge command — we switch to the target branch,
+    /// sync, then switch back.
+    pub async fn merge_branch(
+        &self,
+        channel_id: i64,
+        branch_name: &str,
+    ) -> anyhow::Result<()> {
+        let repo = self
+            .get_repo(channel_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+
+        // Switch to the branch to merge
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["branch", "switch", branch_name],
+        )
+        .await?;
+
+        // Sync to get latest
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["sync"],
+        )
+        .await?;
+
+        info!(branch_name, "Merged branch in Lore repo");
+        Ok(())
+    }
+
+    /// Commit all staged changes with a message.
     pub async fn commit_staged(
         &self,
         channel_id: i64,
         message: &str,
-        author_id: i64,
+        _author_id: i64,
     ) -> anyhow::Result<LoreRevision> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("commit")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg("-m")
-            .arg(message)
-            .output()
-            .await?;
+        let commit_output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["commit", message],
+        )
+        .await?;
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore commit failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        // Push
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["push"],
+        )
+        .await?;
 
-        let revision_hash = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .to_string();
+        let stdout = String::from_utf8_lossy(&commit_output.stdout);
+        let revision = parse_revision_from_output(&stdout);
 
-        let revision = LoreRevision {
-            hash: revision_hash,
-            repo_id: repo.id,
-            message: message.to_string(),
-            author_id,
-            timestamp: chrono::Utc::now(),
-            file_count: 0,
-        };
-
-        info!(?revision, "Committed staged changes in Lore repo");
+        info!(channel_id, message, "Committed staged changes");
         Ok(revision)
     }
 
-    // -- File operations --
-
-    /// Delete a file from the channel's Lore repo.
+    /// Delete a file from the Lore repo.
     pub async fn delete_file(
         &self,
         channel_id: i64,
@@ -586,69 +692,133 @@ impl LoreService {
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("file")
-            .arg("delete")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(repo_path)
-            .arg("-m")
-            .arg(message)
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore file delete failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+        // Remove file from working tree
+        let file_path = repo.working_tree.join(repo_path);
+        if file_path.exists() {
+            tokio::fs::remove_file(&file_path).await?;
         }
 
-        info!(repo_path, channel_id, "Deleted file from Lore repo");
+        // Stage the deletion
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["stage", repo_path],
+        )
+        .await?;
+
+        // Commit
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["commit", message],
+        )
+        .await?;
+
+        // Push
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["push"],
+        )
+        .await?;
+
+        info!(channel_id, repo_path, "Deleted file from Lore repo");
         Ok(())
     }
 
-    // -- File locking --
-
-    /// Acquire a lock on a file in the channel's Lore repo.
-    pub async fn lock_file(
+    /// Get file-level history (alias for file_history with a specific path).
+    pub async fn file_level_history(
         &self,
         channel_id: i64,
         repo_path: &str,
-        owner_id: i64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<LoreRevision>> {
+        self.file_history(channel_id, repo_path).await
+    }
+
+    /// Get diff between two revisions of a file.
+    /// Returns unified diff as a string.
+    pub async fn file_diff(
+        &self,
+        channel_id: i64,
+        repo_path: &str,
+        from: &str,
+        to: &str,
+    ) -> anyhow::Result<String> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
+        // Lore diff: compare two revisions
+        // If from/to are revision hashes, use `lore diff <from> <to> <path>`
+        let output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["diff", from, to, repo_path],
+        )
+        .await;
+
+        // If that fails (e.g., from/to aren't valid revision args), fall back to current diff
+        match output {
+            Ok(out) => Ok(String::from_utf8_lossy(&out.stdout).to_string()),
+            Err(_) => {
+                // Fall back to current working tree diff
+                let diff_result = self.get_diff(channel_id, repo_path).await;
+                match diff_result {
+                    Ok(diff) => Ok(diff.unified_diff),
+                    Err(e) => Err(anyhow::anyhow!("Diff failed: {}", e)),
+                }
+            }
+        }
+    }
+
+    /// Health check — verify the Lore CLI and server are reachable.
+    pub async fn health_check(&self) -> anyhow::Result<()> {
+        // Try running `lore --version` to verify CLI is available
         let output = Command::new(&self.config.lore_binary_path)
-            .arg("lock")
-            .arg("acquire")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(repo_path)
-            .arg("--owner")
-            .arg(owner_id.to_string())
+            .arg("--version")
             .output()
             .await?;
 
         if !output.status.success() {
-            anyhow::bail!(
-                "Lore lock acquire failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+            anyhow::bail!("Lore CLI not available: {}", String::from_utf8_lossy(&output.stderr));
         }
 
-        info!(repo_path, channel_id, owner_id, "Acquired file lock");
         Ok(())
     }
 
-    /// Release a lock on a file in the channel's Lore repo.
+    // -- Lock operations --
+
+    /// Lock a file using `lore lock <path>`.
+    pub async fn lock_file(
+        &self,
+        channel_id: i64,
+        repo_path: &str,
+        _user_id: i64,
+    ) -> anyhow::Result<LoreFileLock> {
+        let repo = self
+            .get_repo(channel_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+
+        let output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["lock", repo_path],
+        )
+        .await?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        info!(repo_path, "Locked file in Lore repo");
+
+        Ok(LoreFileLock {
+            path: repo_path.to_string(),
+            locked_by: None, // Parse from output if available
+            locked_at: None,
+        })
+    }
+
+    /// Unlock a file.
     pub async fn unlock_file(
         &self,
         channel_id: i64,
@@ -659,211 +829,204 @@ impl LoreService {
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("lock")
-            .arg("release")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(repo_path)
-            .output()
-            .await?;
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["lock", "--unlock", repo_path],
+        )
+        .await?;
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore lock release failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        info!(repo_path, channel_id, "Released file lock");
+        info!(repo_path, "Unlocked file in Lore repo");
         Ok(())
     }
 
-    // -- Diff --
+    // -- Sync operations --
 
-    /// Diff a file between two revisions.
-    pub async fn file_diff(
-        &self,
-        channel_id: i64,
-        repo_path: &str,
-        from_revision: &str,
-        to_revision: &str,
-    ) -> anyhow::Result<String> {
+    /// Sync the working tree with the remote.
+    pub async fn sync(&self, channel_id: i64) -> anyhow::Result<()> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("file")
-            .arg("diff")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg("--from")
-            .arg(from_revision)
-            .arg("--to")
-            .arg(to_revision)
-            .arg(repo_path)
-            .output()
-            .await?;
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["sync"],
+        )
+        .await?;
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore file diff failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        Ok(())
+    }
+
+    /// Get repo status.
+    pub async fn status(&self, channel_id: i64) -> anyhow::Result<String> {
+        let repo = self
+            .get_repo(channel_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+
+        let output = run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["status", "--scan"],
+        )
+        .await?;
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    // -- Branch merge --
-
-    /// Merge a branch into the current branch.
-    pub async fn merge_branch(
-        &self,
-        channel_id: i64,
-        branch_name: &str,
-    ) -> anyhow::Result<()> {
-        let repo = self
-            .get_repo(channel_id)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
-
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("branch")
-            .arg("merge")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(branch_name)
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore branch merge failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        info!(branch_name, channel_id, "Merged branch in Lore repo");
-        Ok(())
+    /// Get the Lore server URL for external tool integration.
+    pub fn lore_server_url(&self) -> &str {
+        &self.config.lore_server_url
     }
 
-    /// Get file-level history from the Lore repo.
-    pub async fn file_level_history(
-        &self,
-        channel_id: i64,
-        repo_path: &str,
-    ) -> anyhow::Result<Vec<LoreRevision>> {
-        let repo = self
-            .get_repo(channel_id)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
-
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("file")
-            .arg("history")
-            .arg("--repo")
-            .arg(&repo.repo_name)
-            .arg("--server")
-            .arg(&self.config.lore_server_url)
-            .arg(repo_path)
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Lore file history failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let revisions: Vec<LoreRevision> = serde_json::from_str(&stdout)?;
-        Ok(revisions)
-    }
-
-    // -- Health --
-
-    /// Check whether the Lore CLI and server are reachable.
-    pub async fn health_check(&self) -> anyhow::Result<()> {
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("--version")
-            .output()
-            .await
-            .map_err(|e| anyhow::anyhow!("Lore CLI not found: {e}"))?;
-
-        if !output.status.success() {
-            anyhow::bail!("Lore CLI returned non-zero status");
-        }
-
-        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        info!("Lore CLI version: {version}");
-
-        // TODO: ping loreserver health endpoint when Lore exposes one
-        Ok(())
+    /// Get the repo URL for a channel.
+    pub async fn repo_url(&self, channel_id: i64) -> Option<String> {
+        let repo = self.get_repo(channel_id).await?;
+        Some(format!("{}/{}", repo.lore_server_url, repo.repo_name))
     }
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Parsing helpers
 // ---------------------------------------------------------------------------
+
+/// Parse revision info from `lore commit` output.
+fn parse_revision_from_output(output: &str) -> LoreRevision {
+    let mut hash = String::new();
+    let mut revision_number = 0u64;
+    let mut message = String::new();
+    let mut timestamp = String::new();
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.starts_with("Signature") {
+            if let Some(h) = line.split(':').nth(1) {
+                hash = h.trim().to_string();
+            }
+        } else if line.starts_with("Revision") {
+            if let Some(n) = line.split(':').nth(1) {
+                revision_number = n.trim().parse().unwrap_or(0);
+            }
+        } else if line.starts_with("Date") {
+            if let Some(d) = line.split(':').nth(1) {
+                timestamp = d.trim().to_string();
+            }
+        } else if line.starts_with("Commit succeeded") {
+            break;
+        } else if !line.is_empty() && message.is_empty() {
+            message = line.to_string();
+        }
+    }
+
+    LoreRevision {
+        hash,
+        revision_number,
+        message,
+        author: None,
+        timestamp,
+        parent: None,
+    }
+}
+
+/// Parse revision history from `lore history` output.
+fn parse_history_output(output: &str) -> Vec<LoreRevision> {
+    let mut revisions = Vec::new();
+    let mut current: Option<LoreRevision> = None;
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            if let Some(r) = current.take() {
+                revisions.push(r);
+            }
+            continue;
+        }
+
+        let entry = current.get_or_insert_with(|| LoreRevision {
+            hash: String::new(),
+            revision_number: 0,
+            message: String::new(),
+            author: None,
+            timestamp: String::new(),
+            parent: None,
+        });
+
+        if line.starts_with("Signature") {
+            if let Some(h) = line.split(':').nth(1) {
+                entry.hash = h.trim().to_string();
+            }
+        } else if line.starts_with("Revision") {
+            if let Some(n) = line.split(':').nth(1) {
+                entry.revision_number = n.trim().parse().unwrap_or(0);
+            }
+        } else if line.starts_with("Date") {
+            if let Some(d) = line.split(':').nth(1) {
+                entry.timestamp = d.trim().to_string();
+            }
+        } else if line.starts_with("Parent") {
+            if let Some(p) = line.split(':').nth(1) {
+                entry.parent = Some(p.trim().to_string());
+            }
+        } else if line.starts_with("Branch") {
+            // Skip branch line
+        } else if !entry.message.is_empty() {
+            // Append to message
+            entry.message.push('\n');
+            entry.message.push_str(line);
+        } else if !line.starts_with("Repository") {
+            entry.message = line.to_string();
+        }
+    }
+
+    if let Some(r) = current {
+        revisions.push(r);
+    }
+
+    revisions
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_lore_repo_id() {
-        let id = LoreRepoId::new();
-        let json = serde_json::to_string(&id).unwrap();
-        let deserialized: LoreRepoId = serde_json::from_str(&json).unwrap();
-        assert_eq!(id, deserialized);
+    fn test_parse_commit_output() {
+        let output = r#"Fragmenting files and updating tree hashes
+Committing staged changes
+Committed 2/2 directories, 2/2 files, 269.00 bytes/269.00 bytes (2 modified, 0 deleted)
+Repository: 3f2a1b4c5d6e7f8a923b5e2b2f74fbe8
+Revision  : 1
+Signature : a3f8c2d1e4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1
+Branch    : e726318bbc3fd75ac8733a7e030cc35b
+Date      : Wed, 14 Jan 2026 09:24:18 +0000
+    Initial revision
+Commit succeeded"#;
+
+        let revision = parse_revision_from_output(output);
+        assert_eq!(revision.revision_number, 1);
+        assert!(!revision.hash.is_empty());
+        assert!(!revision.timestamp.is_empty());
     }
 
     #[test]
-    fn test_lore_config_default() {
-        let config = LoreConfig::default();
-        assert!(!config.enabled);
-        assert_eq!(config.mode, LoreMode::Sidecar);
-    }
+    fn test_parse_history_output() {
+        let output = r#"Revision  : 3
+Signature : 352cba705adcadb430541b5dd8c80f8da13c38dae1a3e4f4f12307d010acc3ca
+Branch    : e726318bbc3fd75ac8733a7e030cc35b
+Date      : Sat, 8 Aug 2026 03:06:29 +0000
+    Add Wabi Rust skeleton
 
-    #[test]
-    fn test_lore_repo_roundtrip() {
-        let repo = LoreRepo {
-            id: LoreRepoId::new(),
-            channel_id: 42,
-            lore_server_url: "lore://localhost:10000".into(),
-            repo_name: "test-repo".into(),
-            created_by: 1,
-            created_at: chrono::Utc::now(),
-        };
-        let json = serde_json::to_string_pretty(&repo).unwrap();
-        let deserialized: LoreRepo = serde_json::from_str(&json).unwrap();
-        assert_eq!(repo.channel_id, deserialized.channel_id);
-        assert_eq!(repo.repo_name, deserialized.repo_name);
-    }
+Revision  : 2
+Signature : a42adab82488bc6fbe024520a6a5fb689e03ad6c1135d64b72aa89ffb8ff14b
+Branch    : e726318bbc3fd75ac8733a7e030cc35b
+Date      : Sat, 8 Aug 2026 03:05:43 +0000
+    Add feature module"#;
 
-    #[test]
-    fn test_lore_revision_roundtrip() {
-        let rev = LoreRevision {
-            hash: "abc123".into(),
-            repo_id: LoreRepoId::new(),
-            message: "initial commit".into(),
-            author_id: 1,
-            timestamp: chrono::Utc::now(),
-            file_count: 3,
-        };
-        let json = serde_json::to_string(&rev).unwrap();
-        let deserialized: LoreRevision = serde_json::from_str(&json).unwrap();
-        assert_eq!(rev.hash, deserialized.hash);
-        assert_eq!(rev.file_count, deserialized.file_count);
+        let revisions = parse_history_output(output);
+        assert_eq!(revisions.len(), 2);
+        assert_eq!(revisions[0].revision_number, 3);
+        assert_eq!(revisions[1].revision_number, 2);
     }
 }

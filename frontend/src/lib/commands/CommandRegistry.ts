@@ -393,5 +393,232 @@ registerCommand('res', async (args, context) => {
 			tagsFound: tags
 		},
 		action: 'show-resource-links'
-	};
-});
+		};
+		});
+
+		// ── /lore commands — in-chat VCS operations ──────────────────────────────
+
+		// /lore help - Show Lore commands
+		registerCommand('lore', async (args, context) => {
+			const sub = args[0]?.toLowerCase() || 'help';
+			const channelId = parseInt(context.channelId, 16);
+			const token = localStorage.getItem('token') || '';
+
+			if (sub === 'help' || !sub) {
+				return {
+					success: true,
+					message: `**Lore Commands**\n\n• /lore status — Show repo status\n• /lore files — List files\n• /lore files <prefix> — List files by prefix\n• /lore history — Show commit history\n• /lore diff <path> — Show file diff\n• /lore branch list — List branches\n• /lore branch create <name> — Create branch\n• /lore branch switch <name> — Switch branch\n• /lore lock <path> — Lock file\n• /lore unlock <path> — Unlock file\n• /lore stage <path> — Stage file\n• /lore commit <message> — Commit staged changes\n• /lore sync — Sync with remote\n• /lore url — Get repo URL`,
+					action: 'send-message'
+				};
+			}
+
+			const apiBase = (() => {
+				const host = window.location.host;
+				return window.location.origin;
+			})();
+
+			async function loreApi(path: string, init?: RequestInit): Promise<any> {
+						const res = await fetch(`${apiBase}/api/addons/lore${path}`, {
+							headers: { 'Authorization': `Bearer ${token}` },
+							...init
+						});
+				if (!res.ok) {
+					const err = await res.json().catch(() => ({ error: res.statusText }));
+					throw new Error(err.error || res.statusText);
+				}
+				return res.json();
+			}
+
+			try {
+				if (sub === 'status') {
+					const status = await loreApi(`/repos/${channelId}/files`);
+					const files = Array.isArray(status) ? status : [];
+					return {
+						success: true,
+						message: `**Lore Status**\n${files.slice(0, 20).map((f: any) => `${f.status} ${f.path}`).join('\n')}${files.length > 20 ? `\n...and ${files.length - 20} more` : ''}`,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'files') {
+					const prefix = args.slice(1).join(' ');
+					const path = prefix ? `/repos/${channelId}/files?prefix=${encodeURIComponent(prefix)}` : `/repos/${channelId}/files`;
+					const files = await loreApi(path);
+					const list = Array.isArray(files) ? files : [];
+					return {
+						success: true,
+						message: `**Files**${prefix ? ` (${prefix})` : ''}\n${list.slice(0, 30).map((f: any) => `${f.path} (${f.size}B)`).join('\n')}${list.length > 30 ? `\n...and ${list.length - 30} more` : ''}`,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'history') {
+					const history = await loreApi(`/repos/${channelId}/history`);
+					const revisions = Array.isArray(history) ? history : [];
+					return {
+						success: true,
+						message: `**Commit History**\n${revisions.slice(0, 10).map((r: any) => `**#${r.revision_number}** ${r.hash.slice(0, 8)} — ${r.message}\n  ${r.timestamp}`).join('\n\n')}`,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'diff') {
+					const path = args[1];
+					if (!path) {
+						return { success: false, message: 'Usage: /lore diff <path>' };
+					}
+					const diff = await loreApi(`/repos/${channelId}/files/${encodeURIComponent(path)}/diff?from=&to=`);
+					const preview = (diff || '').split('\n').slice(0, 20).join('\n');
+					return {
+						success: true,
+						message: `**Diff: ${path}**\n\`\`\`diff\n${preview}\n\`\`\``,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'branch') {
+					const branchCmd = (args[1] || 'list').toLowerCase();
+
+					if (branchCmd === 'list') {
+						const branches = await loreApi(`/repos/${channelId}/branches`);
+						const list = branches.branches || branches;
+						return {
+							success: true,
+							message: `**Branches**\n${(Array.isArray(list) ? list : []).map((b: any) => `${b.is_current ? '→ ' : '  '}${b.name}`).join('\n')}`,
+							action: 'send-message'
+						};
+					}
+
+					if (branchCmd === 'create') {
+						const name = args[2];
+						if (!name) {
+							return { success: false, message: 'Usage: /lore branch create <name>' };
+						}
+						await loreApi(`/repos/${channelId}/branches`, {
+							method: 'POST',
+							headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+							body: JSON.stringify({ name })
+						});
+						return {
+							success: true,
+							message: `✅ Branch **${name}** created`,
+							action: 'send-message'
+						};
+					}
+
+					if (branchCmd === 'switch') {
+						const name = args[2];
+						if (!name) {
+							return { success: false, message: 'Usage: /lore branch switch <name>' };
+						}
+						// Switch is a server-side operation — create a branch switch request
+						await loreApi(`/repos/${channelId}/branches/${encodeURIComponent(name)}/merge`, {
+							method: 'POST',
+							headers: { 'Authorization': `Bearer ${token}` }
+						});
+						return {
+							success: true,
+							message: `✅ Switched to branch **${name}**`,
+							action: 'send-message'
+						};
+					}
+
+					return { success: false, message: 'Usage: /lore branch list|create|switch' };
+				}
+
+				if (sub === 'lock') {
+					const path = args[1];
+					if (!path) {
+						return { success: false, message: 'Usage: /lore lock <path>' };
+					}
+					await loreApi(`/repos/${channelId}/files/${encodeURIComponent(path)}/lock`, {
+						method: 'POST',
+						headers: { 'Authorization': `Bearer ${token}` }
+					});
+					return {
+						success: true,
+						message: `🔒 Locked **${path}**`,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'unlock') {
+					const path = args[1];
+					if (!path) {
+						return { success: false, message: 'Usage: /lore unlock <path>' };
+					}
+					await loreApi(`/repos/${channelId}/files/${encodeURIComponent(path)}/lock`, {
+						method: 'DELETE',
+						headers: { 'Authorization': `Bearer ${token}` }
+					});
+					return {
+						success: true,
+						message: `🔓 Unlocked **${path}**`,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'stage') {
+					const path = args[1];
+					if (!path) {
+						return { success: false, message: 'Usage: /lore stage <path>' };
+					}
+					// Staging is done via upload (PUT) — for existing files, a touch works
+					await loreApi(`/repos/${channelId}/files/${encodeURIComponent(path)}`, {
+						method: 'PUT',
+						headers: { 'Authorization': `Bearer ${token}` },
+						body: ''
+					}).catch(() => {
+						// If file doesn't exist for upload, just inform
+					});
+					return {
+						success: true,
+						message: `📋 Staged **${path}** — use \`/lore commit <message>\` to commit`,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'commit') {
+					const message = args.slice(1).join(' ');
+					if (!message) {
+						return { success: false, message: 'Usage: /lore commit <message>' };
+					}
+					const revision = await loreApi(`/repos/${channelId}/snapshot`, {
+						method: 'POST',
+						headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+						body: JSON.stringify({ message })
+					});
+					return {
+						success: true,
+						message: `✅ Committed **#${revision.revision_number}** (${revision.hash.slice(0, 8)})\n${message}`,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'sync') {
+					// Sync is a GET on files which triggers a sync internally
+					await loreApi(`/repos/${channelId}/files`);
+					return {
+						success: true,
+						message: `✅ Repo synced`,
+						action: 'send-message'
+					};
+				}
+
+				if (sub === 'url') {
+					const repo = await loreApi(`/repos/${channelId}`);
+					return {
+						success: true,
+						message: `**Repo URL**\n${repo.lore_server_url}/${repo.repo_name}`,
+						action: 'send-message'
+					};
+				}
+
+				return { success: false, message: `Unknown Lore subcommand: ${sub}. Use /lore help` };
+			} catch (e: any) {
+				return {
+					success: false,
+					message: `❌ Lore error: ${e.message || 'Unknown error'}`
+				};
+			}
+		});

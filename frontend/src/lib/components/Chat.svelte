@@ -59,7 +59,7 @@
 	import ChatHeader from './chat/ChatHeader.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
 	import GalleryChannel from './GalleryChannel.svelte';
-	import LoreChannel from './LoreChannel.svelte';
+	import LoreChannelShell from './lore/LoreChannelShell.svelte';
 	import ForumChannel from './ForumChannel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
@@ -461,7 +461,7 @@ import KeepNotesView from './KeepNotesView.svelte';
 		{:else if currentChannelType === 'gallery'}
 			<GalleryChannel />
 		{:else if currentChannelType === 'lore'}
-			<LoreChannel />
+			<LoreChannelShell />
 		{:else if currentChannelType === 'forum'}
 			<ForumChannel />
 		{:else if currentChannelType === 'wiki'}

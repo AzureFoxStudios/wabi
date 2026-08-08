@@ -400,7 +400,7 @@ async fn signed_download_url(
     let expires = ttl.clamp(now + 60, now + 3600);
 
     let sig = lore_signature(
-        &state.app.config.jwt_secret,
+        &state.config.jwt_secret,
         channel_id,
         auth.user_id,
         &query.path,
@@ -478,7 +478,7 @@ async fn download_file(
             return Err(AppError::Forbidden("signed URL expired".into()));
         }
         let expected =
-            lore_signature(&state.app.config.jwt_secret, channel_id, uid, &path, expires);
+            lore_signature(&state.config.jwt_secret, channel_id, uid, &path, expires);
         if sig != expected {
             return Err(AppError::Forbidden("invalid signed URL signature".into()));
         }
