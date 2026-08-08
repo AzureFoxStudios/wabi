@@ -371,7 +371,9 @@
 			</div>
 			<div class="header-right">
 				<button class="today-btn" on:click={goToToday}>Today</button>
-				<button class="add-btn" on:click={() => openAddModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add new event'}>+ Add Event</button>
+				{#if !embedded}
+					<button class="add-btn" on:click={() => openAddModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add new event'}>+ Add Event</button>
+				{/if}
 			</div>
 		</header>
 
