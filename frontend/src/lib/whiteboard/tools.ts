@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import type { BoardElement, Point, StrokeElement } from './elementTypes';
+import type { BoardElement, Point, StrokeElement, MathElement } from './elementTypes';
 import { generateElementId } from './elementTypes';
 import { boardStore, type BoardStyle, type ToolType } from './boardStore';
 import {
@@ -13,6 +13,7 @@ import {
 	type BBox
 } from './coords';
 import { resolveWritableWhiteboardLayerId } from './layers';
+import { measureMathElement, preloadMathElement } from './mathRender';
 
 // ---------------------------------------------------------------------------
 // Tool event / interaction interfaces
@@ -38,7 +39,7 @@ export interface ToolInteraction {
 }
 
 export interface ToolHandler {
-	id: ToolType;
+	id: ToolType | 'math';
 	cursor: string;
 	onPointerDown(e: ToolPointerEvent): ToolInteraction | null;
 }
@@ -349,6 +350,84 @@ export function createTextTool(): ToolHandler {
 }
 
 // ---------------------------------------------------------------------------
+// Math tool
+// ---------------------------------------------------------------------------
+
+export interface MathPlacement {
+	x: number;
+	y: number;
+	style: BoardStyle;
+	elementId: string;
+	maxZ: number;
+	layerId: string;
+}
+
+let mathPlacementCallback: ((placement: MathPlacement) => void) | null = null;
+
+export function onMathPlacement(cb: (placement: MathPlacement) => void): () => void {
+	mathPlacementCallback = cb;
+	return () => { mathPlacementCallback = null; };
+}
+
+export function createMathTool(): ToolHandler {
+	return {
+		id: 'math',
+		cursor: 'text',
+		onPointerDown(e) {
+			const state = get(boardStore);
+			const activeLayerId = resolveWritableWhiteboardLayerId(state.layers, state.activeLayerId);
+			const maxZ = state.elements
+				.filter((element) => element.layerId === activeLayerId)
+				.reduce((m, el) => Math.max(m, el.zIndex), 0);
+			if (mathPlacementCallback) {
+				mathPlacementCallback({
+					x: e.boardX,
+					y: e.boardY,
+					style: { ...state.style },
+					elementId: generateElementId(),
+					maxZ: maxZ + 1,
+					layerId: activeLayerId
+				});
+			}
+			return null;
+		}
+	};
+}
+
+/**
+ * Build a MathElement at the given placement from LaTeX + font size. Width and
+ * height come from measureMathElement so the element's bbox matches the
+ * rendered glyph (selection, hit-testing, export). Warms the render cache.
+ */
+export function buildMathElement(placement: MathPlacement, latex: string, fontSize: number): MathElement {
+	const trimmed = latex.trim();
+	const size = measureMathElement(trimmed, fontSize);
+	const style = placement.style;
+	const el: MathElement = {
+		id: placement.elementId,
+		type: 'math',
+		x: placement.x,
+		y: placement.y,
+		width: size.width,
+		height: size.height,
+		rotation: 0,
+		zIndex: placement.maxZ,
+		layerId: placement.layerId,
+		opacity: typeof style.opacity === 'number' ? style.opacity : 1,
+		strokeColor: style.strokeColor,
+		strokeWidth: style.strokeWidth,
+		fillColor: style.fillColor,
+		createdBy: '',
+		updatedAt: Date.now(),
+		locked: false,
+		latex: trimmed,
+		fontSize
+	};
+	preloadMathElement(trimmed, fontSize);
+	return el;
+}
+
+// ---------------------------------------------------------------------------
 // Select tool
 // ---------------------------------------------------------------------------
 
@@ -596,7 +675,7 @@ export function createPanTool(): ToolHandler {
 // Tool registry
 // ---------------------------------------------------------------------------
 
-export function getToolHandler(toolType: ToolType): ToolHandler {
+export function getToolHandler(toolType: ToolType | 'math'): ToolHandler {
 	switch (toolType) {
 		case 'pen': return createPenTool();
 		case 'line': return createLineTool();
@@ -604,6 +683,7 @@ export function getToolHandler(toolType: ToolType): ToolHandler {
 		case 'ellipse': return createEllipseTool();
 		case 'arrow': return createArrowTool();
 		case 'text': return createTextTool();
+		case 'math': return createMathTool();
 		case 'select': return createSelectTool();
 		case 'pan': return createPanTool();
 		default: return createPenTool();
