@@ -136,6 +136,22 @@ function normalizeChannel(raw: Channel | Record<string, unknown> | null | undefi
 		...(raw as Channel),
 		id,
 		type: type as Channel['type'],
+		// Folder nesting (category parent) — accept camel or snake.
+		parentId:
+			(typeof r.parentId === 'string' && r.parentId) ||
+			(typeof r.parent_id === 'string' && r.parent_id) ||
+			undefined,
+		// Threads / breakouts — separate from category parentId.
+		parentChannelId:
+			(typeof r.parentChannelId === 'string' && r.parentChannelId) ||
+			(typeof r.parent_channel_id === 'string' && r.parent_channel_id) ||
+			undefined,
+		position:
+			typeof r.position === 'number'
+				? r.position
+				: typeof r.position === 'string' && r.position.trim() !== ''
+					? Number(r.position)
+					: (raw as Channel).position,
 		// keep a stable flag for sidebar filters even if protocol omits it
 		...(type === 'lore' || assetStorage ? { asset_storage: true } : {})
 	} as Channel;
@@ -754,11 +770,13 @@ export class SocketManager {
 				list.map((ch) => {
 					const update = reorderList.find((r) => r.id === ch.id);
 					if (!update) return ch;
-					return {
-						...ch,
-						...(update.position != null ? { position: update.position } : {}),
-						...(update.parentId !== undefined ? { parentId: update.parentId ?? undefined } : {})
-					};
+					const next: Channel = { ...ch };
+					if (update.position != null) next.position = update.position;
+					// null parentId = leave folder (must clear, not leave stale)
+					if ('parentId' in update) {
+						next.parentId = update.parentId ?? undefined;
+					}
+					return next;
 				})
 			);
 		});

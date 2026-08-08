@@ -882,8 +882,12 @@ impl WabiStore for WdbAdapter {
                 if let Some(desc) = &c.description {
                     row.insert("description".into(), serde_json::json!(desc));
                 }
+                // Category/sidebar nesting uses parent_id → wire as parentId.
+                // Do NOT alias into parent_channel_id (that is threads/breakouts on the FE).
+                row.insert("position".into(), serde_json::json!(c.position));
                 if let Some(parent) = &c.parent_id {
-                    row.insert("parent_channel_id".into(), serde_json::json!(parent));
+                    row.insert("parent_id".into(), serde_json::json!(parent));
+                    row.insert("parentId".into(), serde_json::json!(parent));
                 }
                 row.insert("force_spoiler".into(), serde_json::json!(c.force_spoiler));
                 row.insert(

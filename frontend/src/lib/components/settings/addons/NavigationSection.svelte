@@ -111,8 +111,8 @@
 		{#if localAddonControlMatches('server_counter')}
 			<div class="setting-item-full">
 				<div class="setting-info">
-					<span class="setting-label">ServerCounter (server list)</span>
-					<span class="setting-description">Show a server channel counter above the channel list.</span>
+					<span class="setting-label">Server channel count</span>
+					<span class="setting-description">Optional chip above the channel list showing total channel count. Off by default — the section header already has a count.</span>
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={serverCounterEnabled} on:click={toggleServerCounterAddon}>

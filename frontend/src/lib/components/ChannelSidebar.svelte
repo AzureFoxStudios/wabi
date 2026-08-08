@@ -148,7 +148,7 @@
 	function shouldHideChannelFromList(ch: Channel) { return $displayEnhancementSettingsStore.hideMutedCategoriesEnabled && $currentChannel !== ch.id && isChannelLocallyMuted(ch.id); }
 
 		function sortByPosition(channels: Channel[]): Channel[] {
-		return channels.sort((a, b) => (a.position ?? 999) - (b.position ?? 999) || a.name.localeCompare(b.name));
+		return [...channels].sort((a, b) => (a.position ?? 999) - (b.position ?? 999) || a.name.localeCompare(b.name));
 	}
 
 	/**
@@ -304,6 +304,9 @@
 	let dropTargetChannelId: string | null = null;
 	let dropPosition: 'before' | 'after' | null = null;
 	let dropTargetCategoryId: string | null = null;
+	/** When dragging a category folder itself (reorder folders, not nest channels). */
+	let draggedCategoryId: string | null = null;
+	let dropCategoryPosition: 'before' | 'after' | null = null;
 
 	function sameChannelFamily(a: { type?: string | null }, b: { type?: string | null }): boolean {
 		// Unified sidebar: folders may hold ANY mix of channel types (text, voice,
@@ -314,29 +317,54 @@
 	}
 
 	function handleChannelDragStart(e: DragEvent, channelId: string) {
+		// Don't steal category-folder drags
+		const ch = $channels.find((c) => c.id === channelId);
+		if ((ch?.type as string | undefined) === 'category') return;
+		draggedCategoryId = null;
 		draggedChannelId = channelId;
 		if (e.dataTransfer) {
-	e.dataTransfer.effectAllowed = 'move';
-	e.dataTransfer.setData('text/plain', channelId);
-	// Ghost stays readable; row itself dims via is-dragging.
-	try {
-		const row = e.currentTarget as HTMLElement | null;
-		if (row) e.dataTransfer.setDragImage(row, 16, 16);
-	} catch {
-		/* setDragImage optional */
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', channelId);
+			e.dataTransfer.setData('application/x-wabi-channel', channelId);
+			// Ghost stays readable; row itself dims via is-dragging.
+			try {
+				const row = e.currentTarget as HTMLElement | null;
+				if (row) e.dataTransfer.setDragImage(row, 16, 16);
+			} catch {
+				/* setDragImage optional */
+			}
+		}
 	}
+
+	function handleCategoryFolderDragStart(e: DragEvent, catId: string) {
+		draggedChannelId = null;
+		draggedCategoryId = catId;
+		dropTargetChannelId = null;
+		dropPosition = null;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', catId);
+			e.dataTransfer.setData('application/x-wabi-category', catId);
+			try {
+				const row = e.currentTarget as HTMLElement | null;
+				if (row) e.dataTransfer.setDragImage(row, 12, 12);
+			} catch {
+				/* optional */
+			}
 		}
 	}
 
 	function handleChannelDragOver(e: DragEvent, channelId: string) {
+		// Category folder reorder uses its own handlers
+		if (draggedCategoryId) return;
 		if (!draggedChannelId || draggedChannelId === channelId) return;
 		dropTargetCategoryId = null;
 		const allCh = $channels;
 		const dragged = allCh.find((c) => c.id === draggedChannelId);
 		const target = allCh.find((c) => c.id === channelId);
 		if (!dragged || !target || !sameChannelFamily(dragged, target)) {
-	if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
-	return;
+			if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+			return;
 		}
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
@@ -348,8 +376,8 @@
 
 	function handleChannelDragLeave(channelId: string) {
 		if (dropTargetChannelId === channelId) {
-	dropTargetChannelId = null;
-	dropPosition = null;
+			dropTargetChannelId = null;
+			dropPosition = null;
 		}
 	}
 
@@ -357,29 +385,35 @@
 		e.preventDefault();
 		e.stopPropagation();
 		const clearDrag = () => {
-	draggedChannelId = null;
-	dropTargetChannelId = null;
-	dropPosition = null;
-	dropTargetCategoryId = null;
+			draggedChannelId = null;
+			dropTargetChannelId = null;
+			dropPosition = null;
+			dropTargetCategoryId = null;
+			draggedCategoryId = null;
+			dropCategoryPosition = null;
 		};
+		if (draggedCategoryId) {
+			// Dropping a folder onto a channel: treat as "before/after that channel's parent section" — ignore for now
+			clearDrag();
+			return;
+		}
 		if (!draggedChannelId || draggedChannelId === targetChannelId) {
-	clearDrag();
-	return;
+			clearDrag();
+			return;
 		}
 		const allCh = $channels;
 		const draggedIdx = allCh.findIndex((c) => c.id === draggedChannelId);
 		const targetIdx = allCh.findIndex((c) => c.id === targetChannelId);
 		if (draggedIdx === -1 || targetIdx === -1) {
-	clearDrag();
-	return;
+			clearDrag();
+			return;
 		}
 
 		const dragged = allCh[draggedIdx];
 		const target = allCh[targetIdx];
-		// R5: refuse cross-type drops (text≠voice≠gallery…)
 		if (!sameChannelFamily(dragged, target)) {
-	clearDrag();
-	return;
+			clearDrag();
+			return;
 		}
 
 		const targetParentId = target.parentId ?? null;
@@ -387,62 +421,54 @@
 		const pos = dropPosition ?? 'before';
 		const orders: { id: string; position: number; parentId: string | null }[] = [];
 
-		const sectionOf = (parentId: string | null, type: string | null | undefined) =>
-	allCh
-		.filter(
-			(c) =>
-				(c.parentId ?? null) === parentId &&
-				sameChannelFamily({ type: c.type }, { type })
-		)
-		.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+		// Section = same parent folder only (any type). Exclude category channels.
+		const sectionOf = (parentId: string | null) =>
+			allCh
+				.filter(
+					(c) =>
+						(c.parentId ?? null) === parentId &&
+						(c.type as string | undefined) !== 'category' &&
+						(c.type as string | undefined) !== 'thread_public' &&
+						(c.type as string | undefined) !== 'thread_private'
+				)
+				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 
 		if (sourceParentId === targetParentId) {
-	// Same category: reindex one list, honor before/after
-	const sectionChs = sectionOf(targetParentId, dragged.type);
-	const fromIdx = sectionChs.findIndex((c) => c.id === dragged.id);
-	const toIdx = sectionChs.findIndex((c) => c.id === target.id);
-	if (fromIdx === -1 || toIdx === -1) {
-		clearDrag();
-		return;
-	}
-	const [moved] = sectionChs.splice(fromIdx, 1);
-	let insertAt = toIdx;
-	if (fromIdx < toIdx) {
-		// Removal shifted indices left of original toIdx
-		insertAt = pos === 'after' ? toIdx : toIdx - 1;
-	} else {
-		insertAt = pos === 'after' ? toIdx + 1 : toIdx;
-	}
-	insertAt = Math.max(0, Math.min(sectionChs.length, insertAt));
-	sectionChs.splice(insertAt, 0, moved);
-	sectionChs.forEach((ch, i) => {
-		orders.push({ id: ch.id, position: i, parentId: targetParentId });
-	});
+			const sectionChs = sectionOf(targetParentId);
+			const fromIdx = sectionChs.findIndex((c) => c.id === dragged.id);
+			const toIdx = sectionChs.findIndex((c) => c.id === target.id);
+			if (fromIdx === -1 || toIdx === -1) {
+				clearDrag();
+				return;
+			}
+			const [moved] = sectionChs.splice(fromIdx, 1);
+			let insertAt = toIdx;
+			if (fromIdx < toIdx) {
+				insertAt = pos === 'after' ? toIdx : toIdx - 1;
+			} else {
+				insertAt = pos === 'after' ? toIdx + 1 : toIdx;
+			}
+			insertAt = Math.max(0, Math.min(sectionChs.length, insertAt));
+			sectionChs.splice(insertAt, 0, moved);
+			sectionChs.forEach((ch, i) => {
+				orders.push({ id: ch.id, position: i, parentId: targetParentId });
+			});
 		} else {
-	// Cross-category same type: move into target parent, reindex both sections
-	const targetSection = sectionOf(targetParentId, dragged.type).filter(
-		(c) => c.id !== dragged.id
-	);
-	const toIdx = targetSection.findIndex((c) => c.id === target.id);
-	const insertAt =
-		toIdx === -1
-			? targetSection.length
-			: pos === 'after'
-				? toIdx + 1
-				: toIdx;
-	targetSection.splice(Math.max(0, insertAt), 0, dragged);
-	targetSection.forEach((ch, i) => {
-		orders.push({ id: ch.id, position: i, parentId: targetParentId });
-	});
+			const targetSection = sectionOf(targetParentId).filter((c) => c.id !== dragged.id);
+			const toIdx = targetSection.findIndex((c) => c.id === target.id);
+			const insertAt =
+				toIdx === -1 ? targetSection.length : pos === 'after' ? toIdx + 1 : toIdx;
+			targetSection.splice(Math.max(0, insertAt), 0, dragged);
+			targetSection.forEach((ch, i) => {
+				orders.push({ id: ch.id, position: i, parentId: targetParentId });
+			});
 
-	const fromSection = sectionOf(sourceParentId, dragged.type).filter(
-		(c) => c.id !== dragged.id
-	);
-	fromSection.forEach((ch, i) => {
-		if (!orders.some((o) => o.id === ch.id)) {
-			orders.push({ id: ch.id, position: i, parentId: sourceParentId });
-		}
-	});
+			const fromSection = sectionOf(sourceParentId).filter((c) => c.id !== dragged.id);
+			fromSection.forEach((ch, i) => {
+				if (!orders.some((o) => o.id === ch.id)) {
+					orders.push({ id: ch.id, position: i, parentId: sourceParentId });
+				}
+			});
 		}
 
 		if (orders.length > 0) reorderChannels(orders);
@@ -454,6 +480,8 @@
 		dropTargetChannelId = null;
 		dropPosition = null;
 		dropTargetCategoryId = null;
+		draggedCategoryId = null;
+		dropCategoryPosition = null;
 	}
 
 	/** Move a (non-category) channel so it becomes a child of the given category. */
@@ -465,21 +493,71 @@
 		const orders: { id: string; position: number; parentId: string | null }[] = [];
 
 		const targetList = allCh
-			.filter((c) => (c.parentId ?? null) === catId && c.id !== dragged.id && sameChannelFamily({ type: c.type }, { type: dragged.type }))
+			.filter(
+				(c) =>
+					(c.parentId ?? null) === catId &&
+					c.id !== dragged.id &&
+					(c.type as string | undefined) !== 'category'
+			)
 			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 		targetList.forEach((ch, i) => orders.push({ id: ch.id, position: i, parentId: catId }));
 		orders.push({ id: dragged.id, position: targetList.length, parentId: catId });
 
-		if (sourceParentId && sourceParentId !== catId) {
+		if (sourceParentId !== catId) {
 			const sourceList = allCh
-				.filter((c) => (c.parentId ?? null) === sourceParentId && c.id !== dragged.id && sameChannelFamily({ type: c.type }, { type: dragged.type }))
+				.filter(
+					(c) =>
+						(c.parentId ?? null) === sourceParentId &&
+						c.id !== dragged.id &&
+						(c.type as string | undefined) !== 'category'
+				)
 				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 			sourceList.forEach((ch, i) => orders.push({ id: ch.id, position: i, parentId: sourceParentId }));
 		}
 		if (orders.length > 0) reorderChannels(orders);
 	}
 
+	/** Reorder category folders among themselves (global category position). */
+	function reorderCategoryFolders(fromId: string, toId: string, pos: 'before' | 'after') {
+		const cats = $channels
+			.filter((c) => (c.type as string | undefined) === 'category')
+			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+		const fromIdx = cats.findIndex((c) => c.id === fromId);
+		const toIdx = cats.findIndex((c) => c.id === toId);
+		if (fromIdx === -1 || toIdx === -1 || fromId === toId) return;
+		const next = [...cats];
+		const [moved] = next.splice(fromIdx, 1);
+		let insertAt = toIdx;
+		if (fromIdx < toIdx) {
+			insertAt = pos === 'after' ? toIdx : toIdx - 1;
+		} else {
+			insertAt = pos === 'after' ? toIdx + 1 : toIdx;
+		}
+		insertAt = Math.max(0, Math.min(next.length, insertAt));
+		next.splice(insertAt, 0, moved);
+		// Categories are top-level — parentId stays null
+		const orders = next.map((ch, i) => ({ id: ch.id, position: i, parentId: null as string | null }));
+		reorderChannels(orders);
+	}
+
 	function handleCategoryDragOver(e: DragEvent, catId: string) {
+		// Reordering folders
+		if (draggedCategoryId) {
+			if (draggedCategoryId === catId) {
+				if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+				return;
+			}
+			e.preventDefault();
+			if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+			const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+			const mid = rect.top + rect.height / 2;
+			dropTargetCategoryId = catId;
+			dropCategoryPosition = e.clientY < mid ? 'before' : 'after';
+			dropTargetChannelId = null;
+			dropPosition = null;
+			return;
+		}
+
 		const dragged = draggedChannelId ? $channels.find((c) => c.id === draggedChannelId) : null;
 		if (!dragged || (dragged.type as string | undefined) === 'category' || dragged.id === catId) {
 			if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
@@ -490,25 +568,40 @@
 		dropTargetChannelId = null;
 		dropPosition = null;
 		dropTargetCategoryId = catId;
+		dropCategoryPosition = null;
 	}
 
 	function handleCategoryDragLeave(catId: string) {
-		if (dropTargetCategoryId === catId) dropTargetCategoryId = null;
+		if (dropTargetCategoryId === catId) {
+			dropTargetCategoryId = null;
+			dropCategoryPosition = null;
+		}
 	}
 
 	function handleCategoryDrop(e: DragEvent, catId: string) {
 		e.preventDefault();
 		e.stopPropagation();
-		const dragged = draggedChannelId ? $channels.find((c) => c.id === draggedChannelId) : null;
-		if (dragged) moveChannelToCategory(dragged.id, catId);
+		if (draggedCategoryId) {
+			const pos = dropCategoryPosition ?? 'before';
+			reorderCategoryFolders(draggedCategoryId, catId, pos);
+		} else {
+			const dragged = draggedChannelId ? $channels.find((c) => c.id === draggedChannelId) : null;
+			if (dragged) moveChannelToCategory(dragged.id, catId);
+		}
 		draggedChannelId = null;
 		dropTargetChannelId = null;
 		dropPosition = null;
 		dropTargetCategoryId = null;
+		draggedCategoryId = null;
+		dropCategoryPosition = null;
 	}
 
 	function categoryDropTargetClass(catId: string): string {
-		return dropTargetCategoryId === catId ? 'drop-target' : '';
+		if (dropTargetCategoryId !== catId) return '';
+		if (draggedCategoryId) {
+			return dropCategoryPosition === 'before' ? 'drop-before' : 'drop-after';
+		}
+		return 'drop-target';
 	}
 
 	function dropTargetClass(channelId: string): string {
@@ -518,7 +611,7 @@
 
 	/** R5: lists bind is-dragging on the row being dragged */
 	function isChannelDragging(channelId: string): boolean {
-		return draggedChannelId === channelId;
+		return draggedChannelId === channelId || draggedCategoryId === channelId;
 	}
 	async function handleCreateChannel() {
 		const channelName = newChannelName.trim();
@@ -669,15 +762,38 @@
 		</div>
 		{#if isTextSectionExpanded}
 	{#each unifiedCategoryMap.categories as cat (cat.id)}
-		<div class="category-row" class:drop-target={categoryDropTargetClass(cat.id)} on:dragover|stopPropagation={(e) => handleCategoryDragOver(e, cat.id)} on:dragleave|stopPropagation={() => handleCategoryDragLeave(cat.id)} on:drop|stopPropagation={(e) => handleCategoryDrop(e, cat.id)} on:contextmenu={(e) => handleChannelRightClick(e, cat.channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, cat.channel) }}>
+		<div
+			class="category-row"
+			class:drop-target={categoryDropTargetClass(cat.id) === 'drop-target'}
+			class:drop-before={categoryDropTargetClass(cat.id) === 'drop-before'}
+			class:drop-after={categoryDropTargetClass(cat.id) === 'drop-after'}
+			class:is-dragging={draggedCategoryId === cat.id}
+			draggable="true"
+			title="Drag to reorder folders · Drop channels here to nest"
+			on:dragstart|stopPropagation={(e) => handleCategoryFolderDragStart(e, cat.id)}
+			on:dragover|stopPropagation={(e) => handleCategoryDragOver(e, cat.id)}
+			on:dragleave|stopPropagation={() => handleCategoryDragLeave(cat.id)}
+			on:drop|stopPropagation={(e) => handleCategoryDrop(e, cat.id)}
+			on:dragend={handleChannelDragEnd}
+			on:contextmenu={(e) => handleChannelRightClick(e, cat.channel)}
+			use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, cat.channel) }}
+		>
 			<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+				<span class="category-drag-grip" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
 				<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
 				<span class="category-folder-icon"><svg class="category-folder-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>
 				<span class="category-name">{cat.name}<span class="category-count">{cat.channels.length}</span></span>
 			</button>
 		</div>
 		{#if !collapsedCategories.has(cat.id)}
-			<div class="category-channels" data-category-id={cat.id}>
+			<div
+				class="category-channels"
+				data-category-id={cat.id}
+				class:drop-target={dropTargetCategoryId === cat.id && !draggedCategoryId}
+				on:dragover|stopPropagation={(e) => handleCategoryDragOver(e, cat.id)}
+				on:dragleave|stopPropagation={() => handleCategoryDragLeave(cat.id)}
+				on:drop|stopPropagation={(e) => handleCategoryDrop(e, cat.id)}
+			>
 				<UnifiedChannelList channels={cat.channels} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 			</div>
 		{/if}
