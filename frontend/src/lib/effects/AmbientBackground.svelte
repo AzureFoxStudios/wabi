@@ -44,6 +44,7 @@
 		size: 1,
 		speed: 1,
 	};
+	let hidden = false;
 
 	const watermarkSuits = [
 		{ glyph: '♠', left: '6%', top: '12%', size: '22vh', color: 'rgba(246, 240, 226, 0.045)', rotate: '-12deg' },
@@ -118,17 +119,33 @@
 	}
 
 	function loop(time?: number) {
-		animId = requestAnimationFrame(loop);
 		const now = time ?? performance.now();
 		const dt = now - lastTime;
-		if (dt < 40) return;
+		if (dt < 40) {
+			animId = requestAnimationFrame(loop);
+			return;
+		}
+		if (hidden) {
+			lastTime = now;
+			animId = requestAnimationFrame(loop);
+			return;
+		}
 		lastTime = now;
 		const effect = effectsRegistry.get(currentEffectId);
 		if (effect) effect.render(dt, currentConfig);
+		animId = requestAnimationFrame(loop);
 	}
 
 	function handleResize() {
 		syncSize();
+	}
+
+	function handleVisibility() {
+		hidden = document.hidden;
+		if (!hidden) {
+			// Reset lastTime so we don't get a huge delta on resume
+			lastTime = performance.now();
+		}
 	}
 
 	let observer: MutationObserver | null = null;
@@ -153,6 +170,7 @@
 		switchEffect();
 
 		window.addEventListener('resize', handleResize);
+		document.addEventListener('visibilitychange', handleVisibility);
 
 		observer = new MutationObserver((mutations) => {
 			for (const m of mutations) {
@@ -179,6 +197,7 @@
 		const effect = effectsRegistry.get(currentEffectId);
 		if (effect) effect.destroy();
 		window.removeEventListener('resize', handleResize);
+		document.removeEventListener('visibilitychange', handleVisibility);
 		if (observer) observer.disconnect();
 	});
 </script>
