@@ -3,7 +3,7 @@ import type { BoardElement, Point, StrokeElement } from './elementTypes';
 import type { BBox, Handle } from './coords';
 import { boardToScreen } from './coords';
 import type { WhiteboardLayer } from './boardTypes';
-import { sortWhiteboardLayers } from './layers';
+import { sortWhiteboardLayers, WHITEBOARD_BLEND_MODES } from './layers';
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
 import { strokeWidthAt } from './tools';
@@ -130,6 +130,129 @@ export function renderElements(
 	}
 	ctx.globalAlpha = 1;
 	ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Layer blend compositing (canonical render path)
+// ---------------------------------------------------------------------------
+
+interface LayerOffscreen {
+	canvas: HTMLCanvasElement;
+	ctx: CanvasRenderingContext2D;
+	width: number;
+	height: number;
+	dpr: number;
+}
+
+// Cached per-layer offscreen canvases, keyed by layer id. Recreated only when
+// a layer id is new or the canvas dimensions change; callers trigger full
+// re-renders on element/layer changes (existing render loop).
+const layerCanvasCache = new Map<string, LayerOffscreen>();
+
+function getLayerCanvas(layerId: string, width: number, height: number, dpr: number): LayerOffscreen {
+	const cached = layerCanvasCache.get(layerId);
+	if (cached && cached.width === width && cached.height === height && cached.dpr === dpr) {
+		return cached;
+	}
+	const canvas = document.createElement('canvas');
+	canvas.width = Math.max(1, Math.round(width * dpr));
+	canvas.height = Math.max(1, Math.round(height * dpr));
+	const entry: LayerOffscreen = { canvas, ctx: canvas.getContext('2d')!, width, height, dpr };
+	layerCanvasCache.set(layerId, entry);
+	return entry;
+}
+
+/**
+ * Draw a flat list of elements (no layer filtering) into a transformed context.
+ * Elements are sorted by zIndex within the group; each element's own opacity is
+ * applied via globalAlpha. Used by renderLayersWithBlend to rasterize a single
+ * layer onto its offscreen canvas.
+ */
+function drawElementsToCtx(ctx: CanvasRenderingContext2D, els: BoardElement[], viewport: WhiteboardViewport): void {
+	ctx.save();
+	ctx.scale(viewport.zoom, viewport.zoom);
+	ctx.translate(-viewport.x, -viewport.y);
+	const sorted = [...els].sort((a, b) => a.zIndex - b.zIndex);
+	for (const el of sorted) {
+		ctx.globalAlpha = Math.max(0, Math.min(1, el.opacity ?? 1));
+		switch (el.type) {
+			case 'stroke': renderStroke(ctx, el); break;
+			case 'line': renderLine(ctx, el); break;
+			case 'rect': renderRect(ctx, el); break;
+			case 'ellipse': renderEllipse(ctx, el); break;
+			case 'arrow': renderArrow(ctx, el); break;
+			case 'text': renderText(ctx, el); break;
+			case 'image': renderImage(ctx, el); break;
+		}
+	}
+	ctx.globalAlpha = 1;
+	ctx.restore();
+}
+
+/**
+ * Bottom-to-top layer compositing with per-layer opacity + blend mode.
+ *
+ * Each visible layer is rasterized to its cached offscreen canvas (dpr-scaled),
+ * then composited onto the main context with globalAlpha = layer.opacity and
+ * globalCompositeOperation = layer.blendMode. The grid is intentionally NOT part
+ * of any layer — render it on the main canvas before calling this.
+ */
+export function renderLayersWithBlend(
+	ctx: CanvasRenderingContext2D,
+	elements: BoardElement[],
+	viewport: WhiteboardViewport,
+	layers: WhiteboardLayer[],
+	canvasW: number,
+	canvasH: number,
+	dpr: number
+): void {
+	const layerIds = new Set(layers.map((layer) => layer.id));
+	const orphaned: BoardElement[] = [];
+	const byLayer = new Map<string, BoardElement[]>();
+	for (const el of elements) {
+		const lid = el.layerId || '';
+		if (!layerIds.has(lid)) {
+			orphaned.push(el);
+			continue;
+		}
+		let bucket = byLayer.get(lid);
+		if (!bucket) {
+			bucket = [];
+			byLayer.set(lid, bucket);
+		}
+		bucket.push(el);
+	}
+
+	// Elements whose layerId no longer resolves to a layer render at the bottom
+	// (source-over), mirroring renderElements' layer-order 0 default.
+	if (orphaned.length > 0) {
+		drawElementsToCtx(ctx, orphaned, viewport);
+	}
+
+	for (const layer of sortWhiteboardLayers(layers)) {
+		if (layer.visible === false) continue;
+		const els = byLayer.get(layer.id);
+		if (!els || els.length === 0) continue;
+
+		const off = getLayerCanvas(layer.id, canvasW, canvasH, dpr);
+		off.ctx.clearRect(0, 0, off.canvas.width, off.canvas.height);
+		drawElementsToCtx(off.ctx, els, viewport);
+
+		ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity ?? 1));
+		ctx.globalCompositeOperation = (WHITEBOARD_BLEND_MODES.includes(
+			layer.blendMode as (typeof WHITEBOARD_BLEND_MODES)[number]
+		)
+			? layer.blendMode
+			: 'source-over') as GlobalCompositeOperation;
+		ctx.drawImage(off.canvas, 0, 0, canvasW, canvasH);
+		ctx.globalAlpha = 1;
+		ctx.globalCompositeOperation = 'source-over';
+	}
+
+	// Drop cached offscreens for layers that no longer exist.
+	for (const id of layerCanvasCache.keys()) {
+		if (!layerIds.has(id)) layerCanvasCache.delete(id);
+	}
 }
 
 // ---------------------------------------------------------------------------
