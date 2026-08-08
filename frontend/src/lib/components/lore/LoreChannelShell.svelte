@@ -189,9 +189,41 @@
 		}
 	}
 
+	let contextMenu = $state<{ path: string; x: number; y: number } | null>(null);
+
 	function handleContextMenu(path: string, event: MouseEvent) {
 		event.preventDefault();
-		// TODO: context menu with lock/unlock/delete/compare options
+		contextMenu = { path, x: event.clientX, y: event.clientY };
+	}
+
+	function closeContextMenu() {
+		contextMenu = null;
+	}
+
+	function contextMenuLock() {
+		if (contextMenu) void handleLock(contextMenu.path);
+		closeContextMenu();
+	}
+
+	function contextMenuUnlock() {
+		if (contextMenu) void handleUnlock(contextMenu.path);
+		closeContextMenu();
+	}
+
+	function contextMenuDelete() {
+		if (contextMenu) void handleDelete(contextMenu.path);
+		closeContextMenu();
+	}
+
+	function contextMenuCompare() {
+		const path = contextMenu?.path ?? selectedPath;
+		if (path) {
+			// Preview the file, then open the diff tab against it.
+			selectedPath = path;
+			selectedFileInfo = files.find(f => f.path === path) || null;
+			void handleCompare('HEAD', 'working');
+		}
+		closeContextMenu();
 	}
 
 	async function handleCreateBranch(name: string, from: string) {
@@ -204,11 +236,6 @@
 		} catch (e) {
 			console.error('Failed to create branch:', e);
 		}
-	}
-
-	async function handleDeleteBranch(name: string) {
-		// TODO: wire delete branch API
-		await loadLoreHistory();
 	}
 
 	async function handleSwitchBranch(name: string) {
@@ -234,7 +261,7 @@
 
 		try {
 			const repoPath = `uploads/${file.name}`;
-			await uploadLoreFile(token, channelId, file, repoPath, `Upload ${file.name}`);
+			await uploadLoreFile(token, channelId, repoPath, file, `Upload ${file.name}`);
 			await loadLoreRepo();
 		} catch (e) {
 			console.error('Upload failed:', e);
@@ -362,7 +389,6 @@
 				branches={pickerBranches}
 				currentBranch={currentBranch}
 				onCreate={handleCreateBranch}
-				onDelete={handleDeleteBranch}
 				onSwitch={handleSwitchBranch}
 			/>
 
@@ -643,6 +669,32 @@
 				</div>
 			</div>
 		{/if}
+	{/if}
+
+	<!-- File context menu (right-click a tree node) -->
+	{#if contextMenu}
+		<div class="ctx-backdrop" onclick={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
+		<div
+			class="ctx-menu"
+			style="left: {Math.min(contextMenu.x, window.innerWidth - 200)}px; top: {Math.min(contextMenu.y, window.innerHeight - 200)}px;"
+		>
+			<div class="ctx-item" onclick={contextMenuLock} title="Lock this file for editing">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+				Lock
+			</div>
+			<div class="ctx-item" onclick={contextMenuUnlock} title="Release the lock on this file">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+				Unlock
+			</div>
+			<div class="ctx-item" onclick={contextMenuCompare} title="Compare this file against the latest revision">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></svg>
+				Compare
+			</div>
+			<div class="ctx-item ctx-danger" onclick={contextMenuDelete} title="Delete this file from the repo">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+				Delete
+			</div>
+		</div>
 	{/if}
 
 	<!-- Connect modal (outside repo check so it renders even when no repo) -->
@@ -1047,5 +1099,44 @@
 		.citation-preview-panel {
 			width: 90vw;
 		}
-	}
-</style>
+		}
+
+		/* File context menu */
+		.ctx-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 300;
+		background: transparent;
+		}
+		.ctx-menu {
+		position: fixed;
+		z-index: 301;
+		min-width: 160px;
+		background: var(--surface-raised, #24243e);
+		border: 1px solid var(--border-color, #2a2a4a);
+		border-radius: 8px;
+		padding: 0.25rem;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+		}
+		.ctx-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.45rem 0.6rem;
+		border-radius: 6px;
+		font-size: 0.82rem;
+		color: var(--text-secondary, #b3b3ff);
+		cursor: pointer;
+		}
+		.ctx-item:hover {
+		background: var(--surface-base, #1a1a2e);
+		color: var(--text-heading, #e0e0ff);
+		}
+		.ctx-danger {
+		color: var(--color-danger, #ef4444);
+		}
+		.ctx-danger:hover {
+		background: rgba(239, 68, 68, 0.12);
+		color: #ff6b6b;
+		}
+		</style>

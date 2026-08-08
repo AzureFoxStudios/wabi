@@ -3,17 +3,17 @@
 		branches: { name: string; lastCommit: string; lastCommitAt: number; isTag?: boolean }[];
 		currentBranch: string;
 		onCreate: (name: string, from: string) => void;
-		onDelete: (name: string) => void;
 		onSwitch: (name: string) => void;
 	}
 
-	let { branches, currentBranch, onCreate, onDelete, onSwitch }: Props = $props();
+	// Branch deletion is not supported by the lore backend yet — the
+	// affordance is removed rather than left as a dead button.
+	let { branches, currentBranch, onCreate, onSwitch }: Props = $props();
 
 	let showMenu = $state(false);
 	let showCreate = $state(false);
 	let newName = $state('');
 	let sourceBranch = $state('');
-	let confirmDelete = $state<string | null>(null);
 
 	function timeAgo(ts: number): string {
 		const diff = Date.now() / 1000 - ts;
@@ -35,7 +35,7 @@
 <div class="branch-picker">
 	<button
 		class="branch-trigger"
-		onclick={() => { showMenu = !showMenu; showCreate = false; confirmDelete = null; }}
+		onclick={() => { showMenu = !showMenu; showCreate = false; }}
 		aria-label="Switch branch"
 		aria-expanded={showMenu}
 	>
@@ -70,12 +70,6 @@
 					<button class="btn-create" onclick={handleCreate}>Create</button>
 					<button class="btn-cancel" onclick={() => showCreate = false}>Cancel</button>
 				</div>
-			{:else if confirmDelete}
-				<div class="confirm-delete">
-					<p>Delete <strong>{confirmDelete}</strong>?</p>
-					<button class="btn-confirm" onclick={() => { onDelete(confirmDelete); confirmDelete = null; }}>Delete</button>
-					<button class="btn-cancel" onclick={() => confirmDelete = null}>Cancel</button>
-				</div>
 			{:else}
 				<button class="btn-new" onclick={() => { showCreate = true; }}>
 					+ New branch
@@ -86,7 +80,6 @@
 						class:tag={branch.isTag}
 						role="menuitem"
 						onclick={() => { onSwitch(branch.name); showMenu = false; }}
-						oncontextmenu={(e) => { e.preventDefault(); if (!branch.isTag) confirmDelete = branch.name; }}
 					>
 						<span class="item-name">{branch.name}</span>
 						<span class="item-time" title={branch.lastCommit}>{timeAgo(branch.lastCommitAt)}</span>

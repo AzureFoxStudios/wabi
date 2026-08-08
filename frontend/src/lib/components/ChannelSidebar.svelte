@@ -255,10 +255,13 @@
 		const onPtr = (e: PointerEvent) => { if (!glimpseChannelId) return; const t = e.target as HTMLElement | null; if (!t || glimpsePopover?.contains(t) || t.closest('.channel-btn')) return; glimpseChannelId = null; };
 		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && glimpseChannelId) glimpseChannelId = null; };
 		document.addEventListener('pointerdown', onPtr); document.addEventListener('keydown', onKey);
-		// A6: gate Asset Storage create option on server lore capability
+		// A6: gate Asset Storage create option on server lore capability.
+		// Negative results are NOT cached (see addonInventory) so a flaky
+		// first probe re-runs; the create form renders the Code chip in a
+		// disabled state instead of hiding it, and never force-resets a
+		// selection.
 		void hasAddonCapability('lore').then((ok) => {
 	loreAvailable = ok;
-	if (!ok && newChannelType === 'lore') newChannelType = 'text';
 		});
 		// Allow the LoreWorkspace "New Code Channel" button to open this form
 		// pre-selected for the lore type. Always open the form; the Code chip
