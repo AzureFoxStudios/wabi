@@ -62,10 +62,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route(
             "/boards/{board_id}/document",
-            get(get_board_document),
+            get(get_board_document).put(put_board_document),
         )
-        .route("/boards/{board_id}/document", axum::routing::put(put_board_document))
-        .route("/boards/{board_id}/docstub", axum::routing::put(put_board_document_stub))
         .with_state(state)
 }
 
@@ -565,22 +563,6 @@ async fn put_board_document(
 // ---------------------------------------------------------------------------
 // Auth helpers
 // ---------------------------------------------------------------------------
-
-async fn put_board_document_stub(
-    State(state): State<Arc<AppState>>,
-    Path(board_id): Path<String>,
-    headers: axum::http::HeaderMap,
-    body: axum::body::Bytes,
-) -> Result<Response> {
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "board_id": board_id,
-        "len": body.len(),
-        "h": headers.len(),
-        "state": state.config.data_dir,
-    }))
-    .into_response())
-}
 
 fn extract_user_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> anyhow::Result<i64> {
     use jsonwebtoken::{decode, DecodingKey, Validation};

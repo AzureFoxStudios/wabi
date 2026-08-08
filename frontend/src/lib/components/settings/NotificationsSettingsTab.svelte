@@ -15,6 +15,12 @@
 		CUSTOM_SYNTH_WAVEFORM_OPTIONS,
 		type CallRingtoneMode
 	} from './notificationSettingsHelpers';
+	import {
+		getPushSubscriptionState,
+		sendTestPush,
+		subscribeWebPush,
+		unsubscribeWebPush
+	} from '$lib/pwa/pushClient';
 
 	let notificationsEnabled = true;
 	let suppressEveryoneHereMentions = false;
@@ -32,6 +38,10 @@
 	let callRingtoneSynthImportInput: HTMLInputElement;
 	let callRingtonePreviewTimeout: number | null = null;
 	let callRingtoneSynthEditorExpanded = false;
+	let pushPermission: NotificationPermission | 'unsupported' = 'default';
+	let pushSubscribed = false;
+	let pushBusy = false;
+	let pushStatus = '';
 
 	onMount(() => {
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
@@ -52,7 +62,14 @@
 		callRingtoneVolume = Number.isFinite(storedCallRingtoneVolume)
 			? Math.min(1, Math.max(0, storedCallRingtoneVolume))
 			: 0.65;
+		void refreshPushState();
 	});
+
+	async function refreshPushState(): Promise<void> {
+		const state = await getPushSubscriptionState();
+		pushPermission = state.permission;
+		pushSubscribed = state.subscribed;
+	}
 
 	onDestroy(() => {
 		if (callRingtonePreviewTimeout !== null) {
@@ -344,22 +361,77 @@
 			return;
 		}
 
-		if (Notification.permission === 'granted') {
-			alert('Notifications are already enabled!');
-			return;
+		pushBusy = true;
+		pushStatus = '';
+		try {
+			const permission =
+				Notification.permission === 'granted'
+					? 'granted'
+					: await Notification.requestPermission();
+			if (permission === 'granted') {
+				notificationsEnabled = true;
+				localStorage.setItem('notificationsEnabled', 'true');
+				const sub = await subscribeWebPush();
+				await refreshPushState();
+				if (sub.ok) {
+					pushStatus = 'Push subscribed — background alerts enabled.';
+					new Notification('Wabi', {
+						body: "Notifications + Web Push enabled.",
+						icon: '/icon-192.png'
+					});
+				} else {
+					pushStatus = `Local notifications on; push: ${'reason' in sub ? sub.reason : 'failed'}`;
+					new Notification('Wabi', {
+						body: "Notifications enabled (push subscribe incomplete).",
+						icon: '/icon-192.png'
+					});
+				}
+			} else {
+				notificationsEnabled = false;
+				localStorage.setItem('notificationsEnabled', 'false');
+				pushStatus = 'Permission denied';
+			}
+		} finally {
+			pushBusy = false;
 		}
+	}
 
-		const permission = await Notification.requestPermission();
-		if (permission === 'granted') {
-			notificationsEnabled = true;
-			localStorage.setItem('notificationsEnabled', 'true');
-			new Notification('Community Chat', {
-				body: "Notifications enabled! You'll be notified of new messages.",
-				icon: '/icon-192.png'
-			});
-		} else {
-			notificationsEnabled = false;
-			localStorage.setItem('notificationsEnabled', 'false');
+	async function handleEnablePush(): Promise<void> {
+		pushBusy = true;
+		pushStatus = '';
+		try {
+			const result = await subscribeWebPush();
+			await refreshPushState();
+			pushStatus = result.ok ? 'Push subscribed.' : `Failed: ${'reason' in result ? result.reason : 'failed'}`;
+			if (result.ok) {
+				notificationsEnabled = true;
+				localStorage.setItem('notificationsEnabled', 'true');
+			}
+		} finally {
+			pushBusy = false;
+		}
+	}
+
+	async function handleDisablePush(): Promise<void> {
+		pushBusy = true;
+		pushStatus = '';
+		try {
+			await unsubscribeWebPush();
+			await refreshPushState();
+			pushStatus = 'Push unsubscribed.';
+		} finally {
+			pushBusy = false;
+		}
+	}
+
+	async function handleTestPush(): Promise<void> {
+		pushBusy = true;
+		pushStatus = '';
+		try {
+			const result = await sendTestPush();
+			pushStatus = result.ok ? 'Test push sent — check the tray.' : `Test failed: ${result.reason}`;
+		} finally {
+			pushBusy = false;
 		}
 	}
 </script>
@@ -372,9 +444,33 @@
 			<span class="setting-label">Desktop Notifications</span>
 			<span class="setting-description">Browser alerts for new messages.</span>
 		</div>
-		<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
+		<button class="action-btn" class:active={notificationsEnabled} disabled={pushBusy} on:click={requestNotificationPermission}>
 			{notificationsEnabled ? 'Enabled' : 'Enable'}
 		</button>
+	</div>
+
+	<div class="setting-item">
+		<div class="setting-info">
+			<span class="setting-label">Background push (PWA)</span>
+			<span class="setting-description">
+				Web Push for phone lock-screen alerts. Permission: {pushPermission}.
+				{pushSubscribed ? 'Subscribed.' : 'Not subscribed.'}
+			</span>
+			{#if pushStatus}
+				<span class="setting-description">{pushStatus}</span>
+			{/if}
+		</div>
+		<div style="display:flex;flex-direction:column;gap:0.35rem;min-width:7.5rem;">
+			<button class="action-btn" class:active={pushSubscribed} disabled={pushBusy} on:click={handleEnablePush}>
+				{pushSubscribed ? 'Resubscribe' : 'Enable push'}
+			</button>
+			<button class="action-btn" disabled={pushBusy || !pushSubscribed} on:click={handleTestPush}>
+				Test push
+			</button>
+			<button class="action-btn" disabled={pushBusy || !pushSubscribed} on:click={handleDisablePush}>
+				Disable push
+			</button>
+		</div>
 	</div>
 
 	<div class="setting-item">

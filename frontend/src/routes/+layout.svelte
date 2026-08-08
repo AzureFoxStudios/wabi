@@ -23,6 +23,12 @@
 	import AmbientBackground from '$lib/effects/AmbientBackground.svelte';
 	import ConnectionBadge from '$lib/effects/ConnectionBadge.svelte';
 	import { startSocketErrorToasts, socketToasts } from '$lib/socketErrorToasts';
+	import { startInstallPromptCapture } from '$lib/pwa/installPrompt';
+	import {
+		applyWabiNavTarget,
+		consumeWabiNavFromLocation,
+		listenForServiceWorkerNavigation
+	} from '$lib/pwa/deepLink';
 
 	initI18n();
 	startSocketErrorToasts();
@@ -30,6 +36,8 @@
 let cleanupAutoSave: (() => void) | null = null;
 let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
 let onlineHandler: (() => void) | null = null;
+let cleanupInstallPrompt: (() => void) | null = null;
+let cleanupSwNav: (() => void) | null = null;
 
 function isLocalPreviewHost(): boolean {
 	if (typeof window === 'undefined') return false;
@@ -58,6 +66,13 @@ function isLocalPreviewHost(): boolean {
 
 	onMount(async () => {
 		startupMark('layout:onMount:start');
+
+		cleanupInstallPrompt = startInstallPromptCapture();
+		cleanupSwNav = listenForServiceWorkerNavigation((target) => applyWabiNavTarget(target));
+		const pendingNav = consumeWabiNavFromLocation();
+		if (pendingNav) {
+			window.setTimeout(() => applyWabiNavTarget(pendingNav), 0);
+		}
 
 		// Re-assert brand from saved server without clobbering the early boot
 		// snapshot (anti-flicker). injectNeutralBranding respects boot lock.
@@ -184,6 +199,14 @@ function isLocalPreviewHost(): boolean {
 		// Clean up auto-save on app shutdown
 		if (cleanupAutoSave) {
 			cleanupAutoSave();
+		}
+		if (cleanupInstallPrompt) {
+			cleanupInstallPrompt();
+			cleanupInstallPrompt = null;
+		}
+		if (cleanupSwNav) {
+			cleanupSwNav();
+			cleanupSwNav = null;
 		}
 		if (relayInitTimer) {
 			clearTimeout(relayInitTimer);

@@ -1,12 +1,20 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import { channels, currentUser } from '$lib/socket';
 	import {
 		getChannelBoardId,
 		type WhiteboardPresenceUser
 	} from '$lib/whiteboard/boardTypes';
 	import { createSyncSession, boardSyncError, type SyncSession } from '$lib/whiteboard/boardSync';
-	import { boardStore, policy } from '$lib/whiteboard/boardStore';
+	import { boardStore, policy, selection } from '$lib/whiteboard/boardStore';
+	import { recognizeStrokes } from '$lib/whiteboard/mathRecognition';
+	import {
+		extractStrokeSelection,
+		buildMathElementFromRecognition,
+		type RecognitionDraft
+	} from '$lib/whiteboard/recognitionUi';
+	import type { StrokeElement } from '$lib/whiteboard/elementTypes';
 	import { isTauriRuntime } from '$lib/tauri-platform';
 	import { exportBoardAsJson, exportBoardAsPng } from '$lib/whiteboard/export';
 	import { queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
@@ -14,6 +22,7 @@
 	import WhiteboardCanvas from './WhiteboardCanvas.svelte';
 	import WhiteboardLayerPanel from './WhiteboardLayerPanel.svelte';
 	import WhiteboardToolbar from './WhiteboardToolbar.svelte';
+	import WhiteboardMathRecognize from './WhiteboardMathRecognize.svelte';
 
 	export let channelId = '';
 
@@ -40,11 +49,20 @@
 	let importInput: HTMLInputElement | null = null;
 	let showGrid = true;
 
+	let recognitionDraft: RecognitionDraft | null = null;
+	let selectedForRecognition: StrokeElement[] | null = null;
+
 	const isDesktopClient = isTauriRuntime();
 
 	$: boardSyncErrorText = $boardSyncError;
 	$: desktopRequired = !!boardSyncErrorText && boardSyncErrorText.includes('desktop-only');
 	$: readOnly = !isDesktopClient && (($policy?.writeAccess === 'desktop') || (!!boardSyncErrorText && boardSyncErrorText.includes('read-only')));
+
+	$: selectedStrokeCount = (() => {
+		const sel = $selection;
+		if (!sel || sel.size === 0) return 0;
+		return extractStrokeSelection(get(boardStore)).length;
+	})();
 
 	$: boardId = channelId ? getChannelBoardId(channelId) : '';
 	$: activeChannel = $channels.find((channel) => channel.id === channelId) || null;
@@ -195,6 +213,29 @@
 		input.value = '';
 	}
 
+	function handleRecognizeMath(): void {
+		const strokes = extractStrokeSelection(get(boardStore));
+		if (strokes.length === 0) return;
+		const result = recognizeStrokes(strokes.map((s) => ({ points: s.points })));
+		selectedForRecognition = strokes;
+		recognitionDraft = { latex: result.latex, confidence: result.confidence, partial: result.partial };
+	}
+
+	function clearRecognition(): void {
+		recognitionDraft = null;
+		selectedForRecognition = null;
+	}
+
+	function handleAcceptRecognition(editedLatex: string): void {
+		const strokes = selectedForRecognition;
+		const trimmed = editedLatex.trim();
+		if (strokes && strokes.length > 0 && trimmed) {
+			boardStore.deleteElements(strokes.map((s) => s.id));
+			boardStore.addElement(buildMathElementFromRecognition(strokes, trimmed));
+		}
+		clearRecognition();
+	}
+
 	onMount(() => {
 		mounted = true;
 		ensureCursorCleanupTimer();
@@ -258,15 +299,28 @@
 			</div>
 		</div>
 
-		<button
-			type="button"
-			class="whiteboard-grid-toggle"
-			class:active={showGrid}
-			on:click={() => (showGrid = !showGrid)}
-			aria-pressed={showGrid}
-		>
-			{showGrid ? 'Grid On' : 'Grid Off'}
-		</button>
+		<div class="whiteboard-topbar-actions">
+			<button
+				type="button"
+				class="whiteboard-grid-toggle"
+				class:active={showGrid}
+				on:click={() => (showGrid = !showGrid)}
+				aria-pressed={showGrid}
+			>
+				{showGrid ? 'Grid On' : 'Grid Off'}
+			</button>
+			{#if selectedStrokeCount > 0 && !desktopRequired && !readOnly}
+				<button
+					type="button"
+					class="whiteboard-recognize-btn"
+					title="Recognize the selected strokes as a math formula"
+					on:click={handleRecognizeMath}
+				>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8V5H6l6 7-6 7h12v-3"/></svg>
+					<span>Recognize as math</span>
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	{#if errorMessage && !desktopRequired}
@@ -331,6 +385,16 @@
 			<h3 class="whiteboard-empty-title">No Channel Selected</h3>
 			<p class="whiteboard-empty-desc">Open a channel and switch to its whiteboard tab to start drawing together.</p>
 		</div>
+	{/if}
+
+	{#if recognitionDraft}
+		<WhiteboardMathRecognize
+			latex={recognitionDraft.latex}
+			confidence={recognitionDraft.confidence}
+			partial={recognitionDraft.partial}
+			onAccept={handleAcceptRecognition}
+			onDismiss={clearRecognition}
+		/>
 	{/if}
 </div>
 
@@ -410,6 +474,37 @@
 		background: color-mix(in srgb, var(--accent-primary, #6366f1) 12%, transparent);
 		border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 26%, transparent);
 		color: var(--accent-primary, #6366f1);
+	}
+
+	.whiteboard-topbar-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.whiteboard-recognize-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.3rem 0.68rem;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--accent-primary, #6366f1) 30%, transparent);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 12%, transparent);
+		color: var(--accent-primary, #6366f1);
+		font-size: 0.74rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		cursor: pointer;
+		transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+	}
+
+	.whiteboard-recognize-btn:hover {
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 22%, transparent);
+	}
+
+	.whiteboard-recognize-btn svg {
+		width: 13px;
+		height: 13px;
 	}
 
 	.whiteboard-banner {

@@ -53,6 +53,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	// N1: floating QuickScratchpad
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
+	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
 
 	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
 	export let accountSecurityOpenRequest = 0;
@@ -190,6 +191,92 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		showSettings = true;
 	}
 
+	function openMobileChat(): void {
+		layoutStore.showMobileChannels.set(false);
+		layoutStore.rightPanelView.set('none');
+		activeView = 'chat';
+		layoutStore.closeDM();
+		scheduleMobileNavIdleHide();
+	}
+
+	function openMobileBrowse(): void {
+		layoutStore.rightPanelView.set('none');
+		layoutStore.showMobileChannels.set(true);
+		try {
+			history.pushState({ wabiMobileSheet: 'browse' }, '');
+		} catch {
+			/* ignore */
+		}
+		scheduleMobileNavIdleHide();
+	}
+
+	function openMobileMessages(): void {
+		layoutStore.showMobileChannels.set(false);
+		layoutStore.rightPanelView.set('none');
+		layoutStore.closeDM();
+		activeView = 'dm';
+		try {
+			history.pushState({ wabiMobileSheet: 'messages' }, '');
+		} catch {
+			/* ignore */
+		}
+		scheduleMobileNavIdleHide();
+	}
+
+	function openMobileYou(): void {
+		layoutStore.showMobileChannels.set(false);
+		layoutStore.rightPanelView.set('none');
+		openSettings();
+		try {
+			history.pushState({ wabiMobileSheet: 'you' }, '');
+		} catch {
+			/* ignore */
+		}
+		scheduleMobileNavIdleHide();
+	}
+
+	function handleWabiNavigate(event: Event): void {
+		const detail = (event as CustomEvent).detail || {};
+		if (detail.view === 'chat') {
+			activeView = 'chat';
+			layoutStore.showMobileChannels.set(false);
+			layoutStore.rightPanelView.set('none');
+			if (typeof detail.channelId === 'string' && detail.channelId) {
+				currentChannel.set(detail.channelId);
+				void joinChannel(detail.channelId);
+			}
+			return;
+		}
+		if (detail.view === 'dm' || detail.view === 'messages') {
+			activeView = 'dm';
+			layoutStore.showMobileChannels.set(false);
+			layoutStore.rightPanelView.set('none');
+			if (typeof detail.channelId === 'string' && detail.channelId) {
+				layoutStore.openCenterDm(detail.channelId, null);
+				void joinChannel(detail.channelId);
+			}
+			return;
+		}
+		if (detail.view === 'settings') openSettings();
+	}
+
+	function handleMobilePopState(): void {
+		if (!$layoutStore.isMobile) return;
+		if (showSettings) {
+			showSettings = false;
+			return;
+		}
+		if ($layoutStore.showMobileChannels) {
+			layoutStore.showMobileChannels.set(false);
+			return;
+		}
+		if ($layoutStore.rightPanelView !== 'none') {
+			layoutStore.rightPanelView.set('none');
+			return;
+		}
+		if (activeView === 'dm') activeView = 'chat';
+	}
+
 	function openServerSwitcher(): void {
 		showServerSwitcher = true;
 	}
@@ -320,6 +407,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			// ever tracks the pointer, so neither panel can be dragged or drag-closed.
 			window.addEventListener('mousemove', handleMouseMove);
 			window.addEventListener('mouseup', stopResize);
+			window.addEventListener('wabi:navigate', handleWabiNavigate as EventListener);
+			window.addEventListener('popstate', handleMobilePopState);
 		}
 	});
 
@@ -341,6 +430,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		window.removeEventListener('keydown', handleQuickScratchpadKeydown);
 		window.removeEventListener('mousemove', handleMouseMove);
 		window.removeEventListener('mouseup', stopResize);
+		window.removeEventListener('wabi:navigate', handleWabiNavigate as EventListener);
+		window.removeEventListener('popstate', handleMobilePopState);
 	});
 
 	function getPresenceObserverKey(user: User | null | undefined, serverUrl: string): string {
@@ -839,11 +930,17 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			<span></span>
 		</button>
 	{/if}
-	<!-- Mobile Bottom Navigation Bar -->
+	<!-- Mobile Bottom Navigation Bar — Chat · Browse · Messages · You -->
 	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible}>
 		<button
-			class:active={!$layoutStore.showMobileChannels && $layoutStore.rightPanelView === 'none'}
-			on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.rightPanelView.set('none'); scheduleMobileNavIdleHide(); }}
+			type="button"
+			class:active={
+				!$layoutStore.showMobileChannels &&
+				$layoutStore.rightPanelView === 'none' &&
+				activeView !== 'dm' &&
+				!showSettings
+			}
+			on:click={openMobileChat}
 			on:touchstart={handleMobileNavTouchStart}
 			on:touchmove={handleMobileNavTouchMove}
 			on:touchend={handleMobileNavTouchEnd}
@@ -852,24 +949,37 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			<span>{$_('shell.mobile.chat')}</span>
 		</button>
 		<button
+			type="button"
 			class:active={$layoutStore.showMobileChannels}
-			on:click={() => { layoutStore.toggleMobileChannels(); scheduleMobileNavIdleHide(); }}
+			on:click={openMobileBrowse}
 			on:touchstart={handleMobileNavTouchStart}
 			on:touchmove={handleMobileNavTouchMove}
 			on:touchend={handleMobileNavTouchEnd}
 		>
 			<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-			<span>{$_('shell.mobile.channels')}</span>
+			<span>{$_('shell.mobile.browse')}</span>
 		</button>
 		<button
-			class:active={$layoutStore.rightPanelView !== 'none'}
-			on:click={() => { layoutStore.toggleMobileUsers(); scheduleMobileNavIdleHide(); }}
+			type="button"
+			class:active={activeView === 'dm' && !$layoutStore.showMobileChannels}
+			on:click={openMobileMessages}
 			on:touchstart={handleMobileNavTouchStart}
 			on:touchmove={handleMobileNavTouchMove}
 			on:touchend={handleMobileNavTouchEnd}
 		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><circle cx="9" cy="7" r="4"/></svg>
-			<span>{$_('shell.mobile.users')}</span>
+			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 4h16v12H5.17L4 17.17V4z"/><path d="M8 8h8M8 12h5"/></svg>
+			<span>{$_('shell.mobile.messages')}</span>
+		</button>
+		<button
+			type="button"
+			class:active={showSettings}
+			on:click={openMobileYou}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+		>
+			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+			<span>{$_('shell.mobile.you')}</span>
 		</button>
 	</nav>
 {/if}
@@ -1207,6 +1317,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	/>
 {/if}
 {/if}
+
+<InstallAppBanner />
 
 <!-- N1: floating QuickScratchpad overlay -->
 {#if showQuickScratchpad}

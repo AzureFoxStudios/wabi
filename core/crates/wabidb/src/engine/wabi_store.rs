@@ -272,15 +272,13 @@ pub trait WabiStore: Send + Sync {
         Ok(())
     }
 
-    /// Get a whiteboard board document (full `BoardDocument` JSON).
-    ///
-    /// Returns `Ok(None)` when the board has never been saved.
+    /// Get a whiteboard board document's raw JSON by board id.
     async fn get_whiteboard_doc(&self, _board_id: &str) -> Result<Option<String>> {
         Ok(None)
     }
 
-    /// Persist a whiteboard board document (full `BoardDocument` JSON).
-    async fn put_whiteboard_doc(&self, _board_id: &str, _doc_json: &str) -> Result<()> {
+    /// Persist a whiteboard board document's raw JSON by board id.
+    async fn put_whiteboard_doc(&self, _board_id: &str, _json: &str) -> Result<()> {
         Ok(())
     }
 
@@ -1165,14 +1163,6 @@ impl WabiStore for LocalWabiStore {
     ) -> Result<()> {
         Ok(())
     }
-
-    async fn get_whiteboard_doc(&self, _board_id: &str) -> Result<Option<String>> {
-        Ok(None)
-    }
-
-    async fn put_whiteboard_doc(&self, _board_id: &str, _doc_json: &str) -> Result<()> {
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -1187,9 +1177,6 @@ mod tests {
         let _ = store.get_user(1).await.unwrap();
         let _ = store.list_users().await.unwrap();
         let _ = store.list_channels(None).await.unwrap();
-        let _ = store.get_whiteboard_doc("channel:test").await.unwrap();
-        store.put_whiteboard_doc("channel:test", "{}").await.unwrap();
-        assert_eq!(store.get_whiteboard_doc("channel:test").await.unwrap(), None);
     }
 
     #[tokio::test]
@@ -1254,6 +1241,8 @@ mod tests {
         store.upsert_webhook("ch_1", "hook", "url").await.unwrap();
         assert!(store.get_user_layout(42).await.unwrap().is_none());
         store.upsert_user_layout(42, "{}").await.unwrap();
+        assert!(store.get_whiteboard_doc("channel:abc").await.unwrap().is_none());
+        store.put_whiteboard_doc("channel:abc", "{}").await.unwrap();
         assert!(store.get_channel_retention("ch_1").await.unwrap().is_none());
         store.upsert_channel_retention("ch_1", 30, 1).await.unwrap();
     }

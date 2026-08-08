@@ -388,3 +388,57 @@ export const MATH_TEMPLATES: SymbolTemplate[] = [
 	makeTemplate('·', '\\cdot', [DOT(5, 5)]),
 	makeTemplate('∂', '\\partial', [P(6.5, 1.5, 2.5, 3.5, 2.5, 7, 4.5, 8.5, 6, 8.5, 6, 6, 3.5, 5.5)])
 ];
+
+// ---------------------------------------------------------------------------
+// User-contributed templates (local-first flywheel hook, Wave 6a).
+//
+// `contributeTemplate` appends a template to the in-memory bank at runtime and
+// persists it to localStorage (`wabi:math:templates`), which is re-merged into
+// `MATH_TEMPLATES` on the next module load. This is the "user correction ->
+// system improves" flywheel, local-first: no network, no server.
+//
+// The `strokes` argument expects ALREADY-normalized stroke feature vectors
+// (e.g. the output of `normalizeSymbolStrokes`), matching `SymbolTemplate.strokes`.
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY = 'wabi:math:templates';
+
+function loadStoredTemplates(): SymbolTemplate[] {
+	try {
+		if (typeof localStorage === 'undefined') return [];
+		const raw = localStorage.getItem(STORAGE_KEY);
+		if (!raw) return [];
+		const parsed = JSON.parse(raw) as SymbolTemplate[];
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter((t) => t && t.symbolId && t.latex && Array.isArray(t.strokes));
+	} catch {
+		return [];
+	}
+}
+
+function persistStoredTemplate(template: SymbolTemplate): void {
+	try {
+		if (typeof localStorage === 'undefined') return;
+		const next = loadStoredTemplates().filter((t) => t.symbolId !== template.symbolId);
+		next.push(template);
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+	} catch {
+		// In-memory template still applies this session; persistence is best-effort.
+	}
+}
+
+for (const stored of loadStoredTemplates()) {
+	MATH_TEMPLATES.push(stored);
+}
+
+/**
+ * Register a user-corrected symbol with the recognizer at runtime and persist
+ * it locally so it survives reload. `symbolId` defaults to `latex` when
+ * omitted. Idempotent per symbolId (a re-correction replaces the older one).
+ */
+export function contributeTemplate(strokes: number[][], latex: string, symbolId?: string): void {
+	const id = symbolId || latex;
+	const template: SymbolTemplate = { symbolId: id, latex, strokes };
+	MATH_TEMPLATES.push(template);
+	persistStoredTemplate(template);
+}

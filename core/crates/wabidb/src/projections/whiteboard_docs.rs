@@ -10,8 +10,8 @@ impl RecordCodec for WhiteboardDoc {
     }
 }
 
-pub fn encode_record(w: &WhiteboardDoc) -> Vec<u8> {
-    postcard::to_allocvec(w).expect("postcard serialization failed")
+pub fn encode_record(d: &WhiteboardDoc) -> Vec<u8> {
+    postcard::to_allocvec(d).expect("postcard serialization failed")
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<WhiteboardDoc> {
@@ -47,18 +47,18 @@ mod tests {
 
     fn sample_doc() -> WhiteboardDoc {
         WhiteboardDoc {
-            board_id: "channel:abc-123".into(),
-            doc_json: r#"{"elements":[],"version":3}"#.into(),
-            updated_at_micros: 2_000_000,
+            board_id: "channel:abc".into(),
+            doc_json: r#"{"boardId":"channel:abc","version":3}"#.into(),
+            updated_at_micros: 1_000_000,
         }
     }
 
     #[test]
     fn encode_decode_roundtrip() {
-        let w = sample_doc();
-        let buf = encode_record(&w);
+        let d = sample_doc();
+        let buf = encode_record(&d);
         let decoded = decode_record(&buf).unwrap();
-        assert_eq!(w, decoded);
+        assert_eq!(d, decoded);
     }
 
     #[test]
@@ -66,26 +66,26 @@ mod tests {
         let state = ProjectionState::new();
         let proj = WhiteboardDocsProjection;
 
-        let w = sample_doc();
+        let d = sample_doc();
         let event = DurableEvent {
             commit_seq: 1,
-            stream_id: "whiteboard_docs:channel:abc-123".into(),
+            stream_id: "whiteboard_docs:channel:abc".into(),
             event_type: "whiteboard_doc_upserted".into(),
-            payload: encode_record(&w),
+            payload: encode_record(&d),
         };
 
         proj.apply(&event, &state).unwrap();
 
-        let key = encode_key(&w.board_id);
+        let key = encode_key("channel:abc");
         let stored = state.get("whiteboard_docs", &key).unwrap();
         let decoded = decode_record(&stored).unwrap();
-        assert_eq!(decoded.doc_json, r#"{"elements":[],"version":3}"#);
+        assert_eq!(decoded.doc_json, r#"{"boardId":"channel:abc","version":3}"#);
     }
 
     #[test]
     fn missing_returns_none() {
         let state = ProjectionState::new();
-        let key = encode_key("channel:never");
+        let key = encode_key("channel:nope");
         assert!(state.get("whiteboard_docs", &key).is_none());
     }
 
@@ -100,7 +100,7 @@ mod tests {
         let state = ProjectionState::new();
         let event = DurableEvent {
             commit_seq: 1,
-            stream_id: "whiteboard_docs:channel:x".into(),
+            stream_id: "whiteboard_docs:channel:abc".into(),
             event_type: "whiteboard_doc_upserted".into(),
             payload: vec![0xba, 0xad],
         };

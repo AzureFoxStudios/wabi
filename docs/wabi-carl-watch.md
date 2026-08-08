@@ -46083,3 +46083,14 @@ socket.io ────┤→ WabiStore trait (WdbAdapter) → CommandCommit → 
 ```
 ```
 
+
+---
+
+## 2026-08-08 11:28:04 +07 — Carl posted
+
+### wabidb commits
+
+```
+bab5f16 feat(whiteboard): wabiDB doc persistence + socket contract enforcement (Phase 0 backend)
+```
+

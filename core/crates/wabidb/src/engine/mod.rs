@@ -726,16 +726,16 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::domain::Webhook",
         },
         ProjectionRegistration {
-            event_types: &["user_layout_upserted"],
-            handler: Arc::new(LayoutsProjection),
-            index_name: "user_layouts",
-            record_type_name: "wabidb::domain::UserLayout",
-        },
-        ProjectionRegistration {
             event_types: &["whiteboard_doc_upserted"],
             handler: Arc::new(WhiteboardDocsProjection),
             index_name: "whiteboard_docs",
             record_type_name: "wabidb::domain::WhiteboardDoc",
+        },
+        ProjectionRegistration {
+            event_types: &["user_layout_upserted"],
+            handler: Arc::new(LayoutsProjection),
+            index_name: "user_layouts",
+            record_type_name: "wabidb::domain::UserLayout",
         },
         ProjectionRegistration {
             event_types: &["call_session_created", "call_session_ended"],
