@@ -10,6 +10,21 @@
 		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="theme-color" content="#0f0c29" />
 		<meta name="description" content="Ephemeral chat with screen sharing and business features" />
+		<script>
+			// Early shell flag so first paint can skip desktop chrome on phones / PWA.
+			(() => {
+				try {
+					const compact = window.matchMedia('(max-width: 768px)').matches;
+					const standalone =
+						window.matchMedia('(display-mode: standalone)').matches ||
+						(typeof navigator.standalone === 'boolean' && navigator.standalone === true);
+					document.documentElement.dataset.shell = compact ? 'mobile' : 'desktop';
+					document.documentElement.dataset.displayMode = standalone ? 'standalone' : 'browser';
+					if (compact) document.documentElement.classList.add('is-mobile-shell');
+					if (standalone) document.documentElement.classList.add('is-pwa-standalone');
+				} catch (_) {}
+			})();
+		</script>
 		<style>
 			html,
 			body {

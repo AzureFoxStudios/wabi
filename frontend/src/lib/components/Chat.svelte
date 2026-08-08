@@ -125,7 +125,7 @@ import LoreWorkspace from './LoreWorkspace.svelte';
 			case 'reader': return `Opened from #${channelDisplayName}`;
 			case 'model': return `Opened from #${channelDisplayName}`;
 			case 'map': return channelDisplayName ? `Opened from #${channelDisplayName}` : 'Map workspace';
-			case 'lore': return 'Versioned code & files — browse, diff, run scripts';
+			case 'lore': return 'Versioned repositories for this server';
 			default: return channelDescription;
 		}
 	})();
@@ -379,6 +379,7 @@ import LoreWorkspace from './LoreWorkspace.svelte';
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) mobileTabQueue.closeAddonTab(MEDIA_ALBUMS_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID)) mobileTabQueue.closeAddonTab(PLANNER_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(NOTES_ADDON_ID)) mobileTabQueue.closeAddonTab(NOTES_ADDON_ID);
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(LORE_ADDON_ID)) mobileTabQueue.closeAddonTab(LORE_ADDON_ID);
 	}
 </script>
 

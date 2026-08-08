@@ -260,7 +260,17 @@
 	loreAvailable = ok;
 	if (!ok && newChannelType === 'lore') newChannelType = 'text';
 		});
-		return () => { document.removeEventListener('pointerdown', onPtr); document.removeEventListener('keydown', onKey); };
+		// Allow the LoreWorkspace "New Code Channel" button to open this form
+		// pre-selected for the lore type.
+		const onCreateChannelRequest = (e: Event) => {
+			const type = (e as CustomEvent).detail?.type;
+			if (type && (type as string) !== 'text' && (type as string) !== 'category') {
+				if (type === 'lore' && !loreAvailable) return;
+				toggleCreateInputForType(type as CreateableChannelType);
+			}
+		};
+		window.addEventListener('wabi:create-channel', onCreateChannelRequest);
+		return () => { document.removeEventListener('pointerdown', onPtr); document.removeEventListener('keydown', onKey); window.removeEventListener('wabi:create-channel', onCreateChannelRequest); };
 	});
 	onDestroy(() => { if (voiceDurationTicker) { clearInterval(voiceDurationTicker); voiceDurationTicker = null; } });
 

@@ -1,0 +1,276 @@
+/* ==========================================================================
+   MOBILE SHELL POLISH (PWA / compact)
+   Loaded after mobile-breakpoints.css. Branches on html[data-shell="mobile"]
+   when available; still gated by max-width:768 for CSS-only path.
+   ========================================================================== */
+
+/* Early shell flag from app.html — avoid desktop chrome flash on phone */
+html[data-shell='mobile'] body {
+	overscroll-behavior-y: none;
+	-webkit-tap-highlight-color: transparent;
+	touch-action: manipulation;
+}
+
+@media (max-width: 768px) {
+	/* ---- Layout tokens for compact shell ---- */
+	:root {
+		--mobile-chrome-pad-x: 0.7rem;
+		--mobile-header-min: 48px;
+		--mobile-touch: 44px;
+		/* Nav bar content row (safe-area is padding, not double-counted in height) */
+		--mobile-nav-bar: 56px;
+		--mobile-nav-height: calc(var(--mobile-nav-bar) + env(safe-area-inset-bottom, 0px));
+	}
+
+	/* ---- App stage ---- */
+	.app-container {
+		height: calc(100dvh - var(--mobile-nav-height));
+		max-height: calc(100dvh - var(--mobile-nav-height));
+		padding-bottom: 0;
+	}
+
+	.app-container.in-call {
+		height: 100dvh;
+		max-height: 100dvh;
+	}
+
+	/* When IME is open, reclaim space under the keyboard */
+	html[data-keyboard-open='1'] .app-container {
+		height: calc(100dvh - var(--keyboard-inset, 0px));
+		max-height: calc(100dvh - var(--keyboard-inset, 0px));
+	}
+
+	html[data-keyboard-open='1'] .mobile-bottom-nav,
+	html[data-keyboard-open='1'] .mobile-nav-grabber {
+		display: none !important;
+	}
+
+	/* ---- Bottom nav: glass, clear active, 4-up friendly ---- */
+	.mobile-bottom-nav {
+		height: auto;
+		min-height: var(--mobile-nav-bar);
+		padding: 0.2rem 0.15rem env(safe-area-inset-bottom, 0px);
+		box-sizing: border-box;
+		background:
+			linear-gradient(
+				180deg,
+				color-mix(in srgb, var(--surface-raised) 72%, transparent) 0%,
+				color-mix(in srgb, var(--surface-raised) 92%, black 8%) 100%
+			);
+		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
+		backdrop-filter: blur(14px) saturate(1.15);
+		-webkit-backdrop-filter: blur(14px) saturate(1.15);
+		box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.28);
+	}
+
+	.mobile-bottom-nav button {
+		gap: 0.15rem;
+		min-height: var(--mobile-touch);
+		padding: 0.28rem 0.2rem 0.2rem;
+		font-size: 0.625rem;
+		font-weight: 600;
+		letter-spacing: 0.01em;
+		border-radius: 12px;
+		color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+	}
+
+	.mobile-bottom-nav button span {
+		line-height: 1.1;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mobile-bottom-nav button:active {
+		background: color-mix(in srgb, var(--surface-base) 55%, transparent);
+		transform: scale(0.97);
+	}
+
+	.mobile-bottom-nav button.active {
+		color: var(--accent-primary, var(--accent-primary-color, #818cf8));
+	}
+
+	.mobile-bottom-nav button.active svg {
+		stroke: currentColor;
+		filter: drop-shadow(0 0 8px color-mix(in srgb, currentColor 45%, transparent));
+	}
+
+	.mobile-bottom-nav svg {
+		width: 22px;
+		height: 22px;
+	}
+
+	/* Grabber — thinner, glass */
+	.mobile-nav-grabber {
+		bottom: env(safe-area-inset-bottom, 0px);
+		width: 88px;
+		height: 22px;
+		border-radius: 12px 12px 0 0;
+		background: color-mix(in srgb, var(--surface-raised) 85%, black 10%);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+	}
+
+	/* ---- Sheets (browse / members) ---- */
+	.channel-sidebar-container,
+	.mobile-right-overlay {
+		top: 0;
+		height: calc(100dvh - var(--mobile-nav-height));
+		padding-top: env(safe-area-inset-top, 0px);
+		background:
+			linear-gradient(
+				180deg,
+				color-mix(in srgb, var(--surface-app) 96%, var(--accent-primary, #6366f1) 4%) 0%,
+				var(--surface-app) 28%
+			);
+		box-shadow: 0 0 40px rgba(0, 0, 0, 0.45);
+	}
+
+	html[data-keyboard-open='1'] .channel-sidebar-container,
+	html[data-keyboard-open='1'] .mobile-right-overlay {
+		height: calc(100dvh - var(--keyboard-inset, 0px));
+	}
+
+	.mobile-panel-backdrop {
+		bottom: var(--mobile-nav-height);
+		background: rgba(4, 6, 16, 0.55);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+	}
+
+	/* ---- Chat header: one clean row ---- */
+	.chat-header {
+		min-height: var(--mobile-header-min);
+		padding-top: max(0.45rem, env(safe-area-inset-top, 0px));
+		padding-left: var(--mobile-chrome-pad-x);
+		padding-right: var(--mobile-chrome-pad-x);
+		padding-bottom: 0.45rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 55%, transparent);
+		background: color-mix(in srgb, var(--surface-app) 88%, transparent);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+	}
+
+	.chat-header h2,
+	.channel-title {
+		font-size: 1.02rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+	}
+
+	/* Hide dense desktop workspace pill strip overflow — scrollable on phone */
+	.workspace-view-actions {
+		max-width: min(52vw, 220px);
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+	}
+	.workspace-view-actions::-webkit-scrollbar {
+		display: none;
+	}
+
+	/* ---- Message list density ---- */
+	.messages {
+		padding: 0.35rem var(--mobile-chrome-pad-x) 0.5rem;
+		gap: 0.15rem;
+	}
+
+	.message {
+		padding-left: 0.15rem;
+		padding-right: 0.15rem;
+	}
+
+	/* ---- Composer: thumb zone, no double safe-area under nav ---- */
+	.input-wrapper {
+		padding: 0.4rem var(--mobile-chrome-pad-x) 0.4rem !important;
+		padding-bottom: 0.4rem !important;
+		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 48%, transparent);
+		background: color-mix(in srgb, var(--surface-app) 92%, transparent);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		margin-bottom: 0;
+		transform: translateY(0);
+		transition: transform 0.12s ease-out, margin-bottom 0.12s ease-out;
+	}
+
+	/* Nav hidden (grabber only) or keyboard path: restore safe-area under composer */
+	.app-container:not(.mobile-nav-visible) .input-wrapper,
+	html[data-keyboard-open='1'] .input-wrapper {
+		padding-bottom: calc(0.45rem + env(safe-area-inset-bottom, 0px)) !important;
+	}
+
+	.input-container {
+		min-height: var(--mobile-touch);
+		border-radius: 14px !important;
+		padding: 0.15rem 0.3rem !important;
+		background: color-mix(in srgb, var(--surface-raised) 28%, transparent) !important;
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 50%, transparent) !important;
+	}
+
+	.input-container textarea {
+		font-size: 16px !important;
+		min-height: 40px;
+		padding: 0.55rem 0.4rem !important;
+	}
+
+	.input-icon-button,
+	.send-button {
+		width: var(--mobile-touch) !important;
+		height: var(--mobile-touch) !important;
+		min-width: var(--mobile-touch);
+		min-height: var(--mobile-touch);
+		border-radius: 12px !important;
+	}
+
+	/* ---- DM hub center layout: stack list full-bleed on phone ---- */
+	.center-dm-layout {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		height: 100%;
+	}
+
+	.center-dm-list {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.center-dm-thread {
+		flex: 1 1 auto;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	/* ---- Settings full-bleed feel ---- */
+	.settings-modal,
+	.settings-overlay {
+		padding: 0;
+	}
+
+	/* ---- Standalone PWA: status bar continuity ---- */
+	html[data-display-mode='standalone'] .chat-header,
+	html[data-display-mode='standalone'] .channel-sidebar-container,
+	html[data-display-mode='standalone'] .mobile-right-overlay {
+		padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+	}
+
+	/* Soften heavy ambient cost on small GPUs slightly */
+	html[data-shell='mobile'] .ambient-canvas,
+	html[data-shell='mobile'] canvas.ambient-background {
+		opacity: 0.72;
+	}
+}
+
+/* Prefer reduced motion: kill nav slide bounce feel */
+@media (max-width: 768px) and (prefers-reduced-motion: reduce) {
+	.mobile-bottom-nav,
+	.channel-sidebar-container,
+	.mobile-right-overlay,
+	.input-wrapper {
+		transition: none !important;
+	}
+}
