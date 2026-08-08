@@ -9,18 +9,18 @@ interface Ember {
 	life: number;
 	maxLife: number;
 	wobble: number;
+	wobbleSpeed: number;
 	spark: boolean;
 }
 
 /**
- * Embers — ported from Odysseus' `embers` pattern.
- * Warm particles rising from the bottom with a soft glow, occasional spark
- * bursts, and a trailing fade.
+ * Embers — rising sparks from a hidden fire below, with occasional flare bursts.
+ * Two-tone warm: brighter white-orange core, cooler orange-red edge.
  */
 export class EmbersEffect implements AmbientEffect {
 	id = 'embers';
 	name = 'Embers';
-	description = 'Warm sparks rising with a flickering glow.';
+	description = 'Hot coals rising with flickering glow and flare bursts.';
 
 	private ctx: CanvasRenderingContext2D | null = null;
 	private embers: Ember[] = [];
@@ -28,10 +28,11 @@ export class EmbersEffect implements AmbientEffect {
 	private H = 0;
 
 	defaultConfig: EffectConfig = {
-		color: '#f97316',
-		intensity: 0.4,
+		color: '#ff7b1c',
+		color2: '#ef4444',
+		intensity: 1,
 		size: 1,
-		speed: 1.1
+		speed: 1
 	};
 
 	init(canvas: HTMLCanvasElement, _config: EffectConfig): void {
@@ -43,24 +44,29 @@ export class EmbersEffect implements AmbientEffect {
 		canvas.height = this.H * dpr;
 		this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		this.embers = [];
-		for (let i = 0; i < 60; i++) {
+		const count = Math.max(70, Math.floor((this.W * this.H) / 18000));
+		for (let i = 0; i < count; i++) {
 			const e = this.make();
-			e.y = Math.random() * this.H;
+			e.y = this.H - Math.random() * this.H * 0.85;
 			e.life = Math.random() * e.maxLife;
 			this.embers.push(e);
 		}
 	}
 
 	private make(): Ember {
+		const band = Math.random();
+		// 70% from bottom fifth, 30% from mid-bottom — feels like a fire below
+		const yBase = band < 0.7 ? this.H * 0.75 : this.H * 0.45;
 		return {
 			x: Math.random() * this.W,
-			y: this.H + Math.random() * 40,
-			vx: (Math.random() - 0.5) * 0.3,
-			vy: -0.3 - Math.random() * 0.8,
-			r: 0.3 + Math.random() * 0.6,
+			y: yBase + Math.random() * (this.H - yBase),
+			vx: (Math.random() - 0.5) * 0.45,
+			vy: -0.35 - Math.random() * 0.9,
+			r: 0.35 + Math.random() * 0.7,
 			life: 0,
-			maxLife: 220 + Math.random() * 220,
+			maxLife: 180 + Math.random() * 260,
 			wobble: Math.random() * Math.PI * 2,
+			wobbleSpeed: 0.02 + Math.random() * 0.04,
 			spark: false
 		};
 	}
@@ -69,73 +75,99 @@ export class EmbersEffect implements AmbientEffect {
 		const ctx = this.ctx;
 		if (!ctx) return;
 
-		// Trailing fade — keeps the canvas transparent where there are no embers.
+		// soft trailing fade instead of hard clear — embers leave warmth behind
 		ctx.globalCompositeOperation = 'destination-out';
-		ctx.fillStyle = 'rgba(0,0,0,0.18)';
+		ctx.fillStyle = 'rgba(0,0,0,0.22)';
 		ctx.fillRect(0, 0, this.W, this.H);
 		ctx.globalCompositeOperation = 'lighter';
 
-		const color = config.color || this.defaultConfig.color;
+		const color = config.color || this.defaultConfig.color!;
+		const color2 = config.color2 || this.defaultConfig.color2!;
 		const sizeMult = config.size ?? 1;
 		const speedMult = config.speed ?? 1;
-		const intensity = config.intensity ?? 0.4;
+		const intensity = config.intensity ?? 1;
 
 		for (let i = this.embers.length - 1; i >= 0; i--) {
 			const e = this.embers[i];
-			e.wobble += 0.03 * speedMult;
-			e.x += e.vx + Math.sin(e.wobble) * 0.5;
+			e.wobble += e.wobbleSpeed * speedMult;
+			e.x += e.vx + Math.sin(e.wobble) * 0.55;
 			e.y += e.vy * speedMult;
 			e.life += speedMult;
-			if (e.life > e.maxLife || e.y < -20) {
+
+			if (e.life > e.maxLife || e.y < -30 || e.x < -80 || e.x > this.W + 80) {
 				this.embers.splice(i, 1);
-				if (this.embers.length < 70) this.embers.push(this.make());
+				if (this.embers.length < 90) this.embers.push(this.make());
 				continue;
 			}
-			if (!e.spark && Math.random() < 0.003 * intensity * 5) e.spark = true;
-			const lifeRatio = e.life / e.maxLife;
-			const fade = Math.min(1, Math.min(lifeRatio * 4, (1 - lifeRatio) * 3));
-			const r = e.r * (e.spark ? 2.4 : 1) * sizeMult;
-			const a = (e.spark ? 0.9 : 0.55) * fade * Math.min(1, intensity * 1.5);
-			const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r * 4);
-			g.addColorStop(0, this.rgba(color, a));
-			g.addColorStop(0.4, this.rgba(color, a * 0.3));
-			g.addColorStop(1, this.rgba(color, 0));
-			ctx.fillStyle = g;
-			ctx.fillRect(e.x - r * 4, e.y - r * 4, r * 8, r * 8);
-			ctx.fillStyle = this.rgba('#ffffff', a * 0.6);
+
+			// smooth fade over life
+			const t = e.life / e.maxLife;
+			const fade = Math.sin(t * Math.PI);
+			const baseAlpha = fade * 0.55 * Math.min(1, intensity * 1.2);
+
+			// hot core + cooler halo
+			const r = e.r * (e.spark ? 2.2 : 1) * sizeMult;
+			const coreG = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r * 4);
+			coreG.addColorStop(0, this.lerpColor(color, '#ffffff', 0.45, baseAlpha));
+			coreG.addColorStop(0.35, this.lerpColor(color, color2, 0.2, baseAlpha * 0.7));
+			coreG.addColorStop(1, this.lerpColor(color2, '#000000', 0.3, 0));
+			ctx.fillStyle = coreG;
 			ctx.beginPath();
-			ctx.arc(e.x, e.y, r * 0.5, 0, Math.PI * 2);
+			ctx.arc(e.x, e.y, r * 4, 0, Math.PI * 2);
 			ctx.fill();
+
 			e.spark = false;
 		}
 
-		if (Math.random() < 0.015 * intensity * 3) {
+		// occasional flare burst from bottom
+		if (Math.random() < 0.012 * intensity * speedMult) {
 			const bx = Math.random() * this.W;
-			for (let i = 0; i < 5; i++) {
+			const count = 4 + (Math.random() * 6) | 0;
+			for (let i = 0; i < count; i++) {
 				const e = this.make();
-				e.x = bx + (Math.random() - 0.5) * 40;
-				e.y = this.H - 10;
-				e.vy *= 1.5;
+				e.x = bx + (Math.random() - 0.5) * 50;
+				e.y = this.H - 5 - Math.random() * 30;
+				e.vy *= 1.6;
+				e.r = 0.6 + Math.random() * 1.2;
+				e.maxLife = 100 + Math.random() * 140;
+				e.spark = true;
 				this.embers.push(e);
 			}
+		}
+
+		// subtle warm ground glow — gives sense of heat source
+		if (intensity > 0.25) {
+			const ground = ctx.createLinearGradient(0, this.H, 0, this.H * 0.75);
+			ground.addColorStop(0, this.lerpColor(color, '#000000', 0.7, 0.04 * intensity));
+			ground.addColorStop(1, 'rgba(0,0,0,0)');
+			ctx.fillStyle = ground;
+			ctx.fillRect(0, this.H * 0.75, this.W, this.H * 0.25);
 		}
 
 		ctx.globalCompositeOperation = 'source-over';
 	}
 
-	private rgba(hex: string, a: number): string {
-		const h = hex.replace('#', '');
-		const n = parseInt(h, 16);
-		return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+	private lerpColor(a: string, b: string, t: number, alpha: number): string {
+		const ar = parseInt(a.slice(1, 3), 16);
+		const ag = parseInt(a.slice(3, 5), 16);
+		const ab = parseInt(a.slice(5, 7), 16);
+		const br = parseInt(b.slice(1, 3), 16);
+		const bg2 = parseInt(b.slice(3, 5), 16);
+		const bb = parseInt(b.slice(5, 7), 16);
+		const rr = Math.round(ar + (br - ar) * t);
+		const rg = Math.round(ag + (bg2 - ag) * t);
+		const rb = Math.round(ab + (bb - ab) * t);
+		return `rgba(${rr},${rg},${rb},${Math.max(0, Math.min(1, alpha)).toFixed(3)})`;
 	}
 
 	resize(w: number, h: number): void {
 		this.W = w;
 		this.H = h;
+		const count = Math.max(70, Math.floor((w * h) / 18000));
 		this.embers = [];
-		for (let i = 0; i < 60; i++) {
+		for (let i = 0; i < count; i++) {
 			const e = this.make();
-			e.y = Math.random() * h;
+			e.y = h - Math.random() * h * 0.85;
 			e.life = Math.random() * e.maxLife;
 			this.embers.push(e);
 		}

@@ -7,6 +7,7 @@
 	import { StarsEffect } from './built-in/stars';
 	import { SakuraEffect } from './built-in/sakura';
 	import { EmbersEffect } from './built-in/embers';
+	import { FirefliesEffect } from './built-in/fireflies';
 	import { CyberpunkGridEffect } from './built-in/cyberpunk-grid';
 	import { StormEffect } from './built-in/storm';
 	import { JokerEffect } from './built-in/balatro';
@@ -21,6 +22,7 @@
 		effectsRegistry.register(new StarsEffect());
 		effectsRegistry.register(new SakuraEffect());
 		effectsRegistry.register(new EmbersEffect());
+		effectsRegistry.register(new FirefliesEffect());
 		effectsRegistry.register(new CyberpunkGridEffect());
 		effectsRegistry.register(new StormEffect());
 		effectsRegistry.register(new JokerEffect());
