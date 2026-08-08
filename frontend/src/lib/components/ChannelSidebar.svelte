@@ -261,13 +261,18 @@
 	if (!ok && newChannelType === 'lore') newChannelType = 'text';
 		});
 		// Allow the LoreWorkspace "New Code Channel" button to open this form
-		// pre-selected for the lore type.
+		// pre-selected for the lore type. Always open the form; the Code chip
+		// renders only when the lore capability resolves true (and the type
+		// falls back to text if lore turns out unavailable).
 		const onCreateChannelRequest = (e: Event) => {
-			const type = (e as CustomEvent).detail?.type;
-			if (type && (type as string) !== 'text' && (type as string) !== 'category') {
-				if (type === 'lore' && !loreAvailable) return;
-				toggleCreateInputForType(type as CreateableChannelType);
-			}
+			const type = (e as CustomEvent).detail?.type as CreateableChannelType | undefined;
+			if (!type || type === 'text' || type === 'category') return;
+			newChannelType = type;
+			createChannelError = '';
+			createFolderChoice = 'none';
+			createNewFolderName = '';
+			showCreateInput = true;
+			void tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 		};
 		window.addEventListener('wabi:create-channel', onCreateChannelRequest);
 		return () => { document.removeEventListener('pointerdown', onPtr); document.removeEventListener('keydown', onKey); window.removeEventListener('wabi:create-channel', onCreateChannelRequest); };

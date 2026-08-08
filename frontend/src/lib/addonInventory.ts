@@ -154,26 +154,41 @@ export async function fetchPluginInventory(): Promise<PluginApiRecord[] | null> 
  * True if this client/build can use the named addon capability.
  * Order: bundled frontend allowlist → builtin plugin modules → server inventory.
  * Never remote-imports frontend code.
+ *
+ * Results are cached per addon id so repeat checks resolve instantly
+ * (this was a real UX bug: the create-form Code chip and the
+ * LoreWorkspace "New Code Channel" button both raced the first fetch
+ * and silently swallowed clicks when the check was still pending).
  */
-export async function hasAddonCapability(addonId: string): Promise<boolean> {
+const capabilityCache = new Map<string, Promise<boolean>>();
+
+export function hasAddonCapability(addonId: string): Promise<boolean> {
 	const normalizedId = addonId.trim().toLowerCase();
-	if (!normalizedId) return false;
+	if (!normalizedId) return Promise.resolve(false);
 
-	if (BUNDLED_FRONTEND_IDS.has(normalizedId)) {
-		return true;
-	}
+	const cached = capabilityCache.get(normalizedId);
+	if (cached) return cached;
 
-	const builtinIds = detectBuiltinFrontendAddonIds();
-	if (builtinIds.has(normalizedId)) {
-		return true;
-	}
+	const promise = (async (): Promise<boolean> => {
+		if (BUNDLED_FRONTEND_IDS.has(normalizedId)) {
+			return true;
+		}
 
-	const plugins = await fetchPluginInventory();
-	if (!plugins) return false;
-	return plugins.some(
-		(plugin) =>
-			String(plugin.id || '')
-				.trim()
-				.toLowerCase() === normalizedId && plugin.enabled !== false
-	);
+		const builtinIds = detectBuiltinFrontendAddonIds();
+		if (builtinIds.has(normalizedId)) {
+			return true;
+		}
+
+		const plugins = await fetchPluginInventory();
+		if (!plugins) return false;
+		return plugins.some(
+			(plugin) =>
+				String(plugin.id || '')
+					.trim()
+					.toLowerCase() === normalizedId && plugin.enabled !== false
+		);
+	})();
+
+	capabilityCache.set(normalizedId, promise);
+	return promise;
 }
