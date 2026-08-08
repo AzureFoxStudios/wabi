@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { boardStore, layers, selection, activeLayerId } from '$lib/whiteboard/boardStore';
-	import { sortWhiteboardLayers } from '$lib/whiteboard/layers';
+	import { sortWhiteboardLayers, WHITEBOARD_BLEND_MODES, blendModeLabel } from '$lib/whiteboard/layers';
 
 	const kindLabels: Record<string, string> = {
 		content: 'Content',
@@ -42,6 +42,10 @@
 
 	function setLayerOpacity(id: string, value: number): void {
 		boardStore.setLayerOpacity(id, value);
+	}
+
+	function setLayerBlendMode(id: string, mode: string): void {
+		boardStore.updateLayer(id, { blendMode: mode });
 	}
 
 	function moveLayer(id: string, dir: 'front' | 'back' | 'forward' | 'backward'): void {
@@ -92,6 +96,18 @@
 				/>
 				<span>{Math.round(activeLayer.opacity * 100)}%</span>
 			</div>
+			<div class="blend-row">
+				<label for="active-layer-blend">Blend</label>
+				<select
+					id="active-layer-blend"
+					value={activeLayer.blendMode || 'source-over'}
+					on:change={(e) => setLayerBlendMode(activeLayer.id, (e.currentTarget as HTMLSelectElement).value)}
+				>
+					{#each WHITEBOARD_BLEND_MODES as mode}
+						<option value={mode}>{blendModeLabel(mode)}</option>
+					{/each}
+				</select>
+			</div>
 		</div>
 	{/if}
 
@@ -137,6 +153,18 @@
 					/>
 					<span>{Math.round(layer.opacity * 100)}%</span>
 				</div>
+				<div class="layer-row-blend">
+					<select
+						class="layer-blend-select"
+						value={layer.blendMode || 'source-over'}
+						aria-label={`Blend mode for ${layer.name}`}
+						on:change={(e) => setLayerBlendMode(layer.id, (e.currentTarget as HTMLSelectElement).value)}
+					>
+						{#each WHITEBOARD_BLEND_MODES as mode}
+							<option value={mode}>{blendModeLabel(mode)}</option>
+						{/each}
+					</select>
+				</div>
 			</div>
 		{/each}
 	</div>
@@ -158,6 +186,7 @@
 	.layer-panel-header,
 	.active-layer-topline,
 	.opacity-row,
+	.blend-row,
 	.layer-row,
 	.layer-row-meta,
 	.layer-row-actions {
@@ -238,6 +267,30 @@
 		justify-content: space-between;
 		font-size: 0.74rem;
 		color: color-mix(in srgb, var(--text-inverse, #e2e8f0) 84%, transparent);
+	}
+
+	.blend-row {
+		justify-content: space-between;
+		font-size: 0.74rem;
+		color: color-mix(in srgb, var(--text-inverse, #e2e8f0) 84%, transparent);
+	}
+
+	.blend-row select,
+	.layer-blend-select {
+		flex: 1;
+		min-width: 0;
+		padding: 0.28rem 0.45rem;
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 20%, transparent);
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--surface-app, #1a1a2e) 66%, transparent);
+		color: var(--text-inverse, #f8fafc);
+		font-size: 0.72rem;
+		cursor: pointer;
+	}
+
+	.layer-row-blend {
+		display: flex;
+		align-items: center;
 	}
 
 	.opacity-row input,

@@ -16,6 +16,33 @@ export const WHITEBOARD_BLEND_MODES = [
 	'exclusion'
 ] as const;
 
+export const BLEND_MODE_LABELS: Record<string, string> = {
+	'source-over': 'Normal',
+	multiply: 'Multiply',
+	screen: 'Screen',
+	overlay: 'Overlay',
+	darken: 'Darken',
+	lighten: 'Lighten',
+	'soft-light': 'Soft Light',
+	'hard-light': 'Hard Light',
+	difference: 'Difference',
+	exclusion: 'Exclusion'
+};
+
+function humanizeBlendMode(mode: string): string {
+	return mode
+		.replace(/[-_]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.split(' ')
+		.map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+		.join(' ');
+}
+
+export function blendModeLabel(mode: string): string {
+	return BLEND_MODE_LABELS[mode] || humanizeBlendMode(mode);
+}
+
 export function clampLayerOpacity(opacity: number): number {
 	return Math.max(0, Math.min(1, opacity));
 }
