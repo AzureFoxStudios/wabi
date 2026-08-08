@@ -296,6 +296,65 @@ impl LoreService {
         Ok(repo)
     }
 
+    /// Link an EXISTING Lore repo to a channel.
+    ///
+    /// Unlike [`create_repo`] (which makes a brand-new empty repo), this clones
+    /// an existing repo from the Lore server into the channel's working tree —
+    /// so a team can bind a repo that already has history (e.g. a project that
+    /// was started elsewhere) without losing anything.
+    pub async fn link_repo(
+        &self,
+        channel_id: i64,
+        created_by: i64,
+        repo_name: &str,
+    ) -> anyhow::Result<LoreRepo> {
+        let repo_id = LoreRepoId::new();
+        let working_tree = self.config.lore_data_dir.join(channel_id.to_string());
+
+        // Ensure parent exists (parent of the working tree dir)
+        if let Some(parent) = working_tree.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        let repo_url = format!("{}/{}", self.config.lore_server_url, repo_name);
+
+        // `lore clone lore://host/name ./working_tree`
+        let clone_dir = working_tree
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+        run_lore(
+            &self.config.lore_binary_path,
+            &clone_dir,
+            &[
+                "clone",
+                &repo_url,
+                working_tree.to_str().unwrap_or("."),
+            ],
+        )
+        .await?;
+
+        let repo = LoreRepo {
+            id: repo_id,
+            channel_id,
+            lore_server_url: self.config.lore_server_url.clone(),
+            repo_name: repo_name.to_string(),
+            working_tree,
+            created_by,
+            created_at: chrono::Utc::now(),
+        };
+
+        info!(
+            repo_id = ?repo_id,
+            channel_id,
+            repo_name,
+            "Linked existing Lore repo to channel"
+        );
+
+        self.repos.write().await.insert(channel_id, repo.clone());
+        Ok(repo)
+    }
+
     /// Get the Lore repo for a channel, if one exists.
     pub async fn get_repo(&self, channel_id: i64) -> Option<LoreRepo> {
         self.repos.read().await.get(&channel_id).cloned()

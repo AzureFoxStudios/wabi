@@ -60,6 +60,7 @@
 @import './components/kanban-board.css';
 @import './components/main-layout.css';
 @import './components/mobile-breakpoints.css';
+@import './components/mobile-shell.css';
 @import './components/calendar-view.css';
 @import './components/admin-tab.css';
 @import './components/call-view.css';

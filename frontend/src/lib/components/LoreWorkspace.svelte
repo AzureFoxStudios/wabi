@@ -10,7 +10,6 @@
 	import { get } from 'svelte/store';
 	import { layoutStore } from '$lib/layoutStore';
 	import LoreChannelShell from './lore/LoreChannelShell.svelte';
-	import { onMount } from 'svelte';
 
 	let activeChannelId = $derived(get(currentChannel));
 	let allChannels = $derived(get(channels));
@@ -23,33 +22,16 @@
 		loreChannels.some((c) => c.id === activeChannelId)
 	);
 
-	let showCreateForm = $state(false);
-
-	function channelType(ch: any): string {
-		return (ch as any).type || (ch as any).channelType || '';
-	}
-
-	// If current channel is lore, render the shell directly
-	if (isCurrentLore) {
-		// handled in markup below
-	}
-
 	function jumpToChannel(id: string) {
 		switchChannel(id);
 		layoutStore.rightPanelView.set('none');
 	}
 
 	function openCreateForm() {
-		showCreateForm = true;
-		// Use the global create-channel affordance via event if available
-		const el = document.querySelector('[data-create-channel]') as HTMLElement | null;
-		el?.click();
-		setTimeout(() => (showCreateForm = false), 1500);
+		// Request the sidebar to open its create form pre-selected for Code.
+		// The sidebar owns the form; we just ask via a scoped event.
+		window.dispatchEvent(new CustomEvent('wabi:create-channel', { detail: { type: 'lore' } }));
 	}
-
-	onMount(() => {
-		// Keep it simple — no fetch needed, channels store is live
-	});
 </script>
 
 {#if isCurrentLore}

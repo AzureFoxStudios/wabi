@@ -24,6 +24,7 @@
 	import ConnectionBadge from '$lib/effects/ConnectionBadge.svelte';
 	import { startSocketErrorToasts, socketToasts } from '$lib/socketErrorToasts';
 	import { startInstallPromptCapture } from '$lib/pwa/installPrompt';
+	import { startMobileShell } from '$lib/pwa/mobileShell';
 	import {
 		applyWabiNavTarget,
 		consumeWabiNavFromLocation,
@@ -38,6 +39,7 @@ let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
 let onlineHandler: (() => void) | null = null;
 let cleanupInstallPrompt: (() => void) | null = null;
 let cleanupSwNav: (() => void) | null = null;
+let cleanupMobileShell: (() => void) | null = null;
 
 function isLocalPreviewHost(): boolean {
 	if (typeof window === 'undefined') return false;
@@ -68,6 +70,7 @@ function isLocalPreviewHost(): boolean {
 		startupMark('layout:onMount:start');
 
 		cleanupInstallPrompt = startInstallPromptCapture();
+		cleanupMobileShell = startMobileShell();
 		cleanupSwNav = listenForServiceWorkerNavigation((target) => applyWabiNavTarget(target));
 		const pendingNav = consumeWabiNavFromLocation();
 		if (pendingNav) {
@@ -203,6 +206,10 @@ function isLocalPreviewHost(): boolean {
 		if (cleanupInstallPrompt) {
 			cleanupInstallPrompt();
 			cleanupInstallPrompt = null;
+		}
+		if (cleanupMobileShell) {
+			cleanupMobileShell();
+			cleanupMobileShell = null;
 		}
 		if (cleanupSwNav) {
 			cleanupSwNav();

@@ -62,6 +62,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         // Repo management
         .route("/repos", axum::routing::post(create_repo))
+        .route("/repos/{channel_id}/link", axum::routing::post(link_repo))
         .route("/repos/{channel_id}", axum::routing::get(get_repo).delete(delete_repo))
         .route("/repos/{channel_id}/snapshot", axum::routing::post(snapshot))
         // File operations
@@ -146,6 +147,36 @@ async fn create_repo(
         .await?;
 
     info!(?repo.id, channel_id, repo_name, "Lore repo created via API");
+    Ok(Json(serde_json::json!(repo)))
+}
+
+/// Link an EXISTING Lore repo to a channel (clone, not create).
+async fn link_repo(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    // L8: repo management = Owner/Admin/Developer
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden(
+            "Lore repo operations require Owner/Admin/Developer role".into(),
+        ));
+    }
+    let repo_name = payload["repoName"].as_str().unwrap_or("default");
+
+    let lore = lore_service(&state).await?;
+    let repo = lore
+        .link_repo(channel_id, auth.user_id, repo_name)
+        .await?;
+
+    state
+        .wdb
+        .lore_create_repo(channel_id, repo_name, &repo.lore_server_url, auth.user_id)
+        .await?;
+
+    info!(?repo.id, channel_id, repo_name, "Existing Lore repo linked via API");
     Ok(Json(serde_json::json!(repo)))
 }
 

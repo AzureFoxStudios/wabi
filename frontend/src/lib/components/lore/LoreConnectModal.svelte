@@ -15,6 +15,7 @@
 
 	let repoName = $state('');
 	let loreServerUrl = $state('lore://127.0.0.1:41337');
+	let mode = $state<'create' | 'link'>('create');
 	let creating = $state(false);
 	let error = $state<string | null>(null);
 	let health = $state<string | null>(null);
@@ -52,12 +53,24 @@
 		}
 
 		try {
-			await createLoreRepo(token, numericChannelId, repoName.trim());
+			const url = `/api/addons/lore/repos/${numericChannelId}${mode === 'link' ? '/link' : ''}`;
+			const res = await fetch(url, {
+				method: 'POST',
+				headers: {
+					'Authorization': `Bearer ${token}`,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ repoName: repoName.trim() })
+			});
+			if (!res.ok) {
+				const err = await res.json().catch(() => ({}));
+				throw new Error(err.error || `Failed to ${mode === 'link' ? 'link' : 'create'} repository`);
+			}
 			await loadLoreRepo();
 			await loadLoreHealth();
 			onConnected();
 		} catch (e: any) {
-			error = e.message || 'Failed to create repository';
+			error = e.message || `Failed to ${mode === 'link' ? 'link' : 'create'} repository`;
 		} finally {
 			creating = false;
 		}
@@ -104,16 +117,42 @@
 		{#if step === 'connect'}
 			<form class="connect-form" onsubmit={(e) => { e.preventDefault(); handleConnect(); }}>
 				<div class="form-group">
-					<label for="repo-name">Repository Name</label>
+					<span class="form-label-row">
+						<label for="repo-name">Repository Name</label>
+						<span class="mode-toggle" role="tablist" aria-label="Repository mode">
+							<button
+								type="button"
+								class="mode-btn {mode === 'create' ? 'active' : ''}"
+								class:active={mode === 'create'}
+								onclick={() => mode = 'create'}
+								role="tab"
+								aria-selected={mode === 'create'}
+							>New</button>
+							<button
+								type="button"
+								class="mode-btn {mode === 'link' ? 'active' : ''}"
+								class:active={mode === 'link'}
+								onclick={() => mode = 'link'}
+								role="tab"
+								aria-selected={mode === 'link'}
+							>Link existing</button>
+						</span>
+					</span>
 					<input
 						id="repo-name"
 						type="text"
 						bind:value={repoName}
-						placeholder="my-project"
+						placeholder={mode === 'create' ? 'my-project' : 'my-existing-repo'}
 						class="input-field"
 						autofocus
 					/>
-					<span class="input-hint">This will be the repo name in Lore</span>
+					<span class="input-hint">
+						{#if mode === 'create'}
+							Creates a brand-new empty repository for this channel
+						{:else}
+							Clones an existing repository from the Lore server — history included
+						{/if}
+					</span>
 				</div>
 
 				<div class="form-group">
@@ -143,9 +182,9 @@
 					<button type="submit" class="btn btn-primary" disabled={creating}>
 						{#if creating}
 							<span class="spinner"></span>
-							Creating...
+							{mode === 'link' ? 'Linking...' : 'Creating...'}
 						{:else}
-							Connect Repository
+							{mode === 'link' ? 'Link Repository' : 'Create Repository'}
 						{/if}
 					</button>
 				</div>
@@ -316,6 +355,47 @@
 		font-size: var(--font-size-sm);
 		color: var(--text-secondary);
 		font-weight: 500;
+	}
+
+	.form-label-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: var(--space-1);
+	}
+
+	.form-label-row label {
+		margin-bottom: 0;
+	}
+
+	.mode-toggle {
+		display: inline-flex;
+		gap: 2px;
+		padding: 2px;
+		background: var(--surface-sunken);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+		border-radius: var(--radius-sm);
+	}
+
+	.mode-btn {
+		padding: 2px var(--space-2);
+		border: none;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--text-muted);
+		font-size: var(--font-size-xs);
+		cursor: pointer;
+		transition: all var(--duration-fast) var(--ease-out);
+	}
+
+	.mode-btn.active {
+		background: var(--accent-primary);
+		color: white;
+		font-weight: 600;
+	}
+
+	.mode-btn:not(.active):hover {
+		color: var(--text-heading);
 	}
 
 	.input-field {
