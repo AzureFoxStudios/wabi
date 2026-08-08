@@ -17,6 +17,7 @@ import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from './snapshot';
 import { parseBusinessDataJson } from './validation';
 import { generateId } from './utils';
 import { addResource, addGraphEdge } from './resourceStore';
+import { isPersistSuppressed, setPersistFlush } from './persistGate';
 import {
 	DEFAULT_KANBAN_COLUMNS,
 	todos,
@@ -92,6 +93,34 @@ function saveToStorage() {
 	}
 }
 
+/** Coalesce rapid writes (drag, multi-field edits) — full snapshot stringify is not free. */
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+const SAVE_DEBOUNCE_MS = 250;
+
+function scheduleSaveToStorage() {
+	if (!browser || isPersistSuppressed()) return;
+	if (saveTimer) clearTimeout(saveTimer);
+	saveTimer = setTimeout(() => {
+		saveTimer = null;
+		if (!isPersistSuppressed()) saveToStorage();
+	}, SAVE_DEBOUNCE_MS);
+}
+
+/** Flush pending debounced save immediately (e.g. before unload / end of batch). */
+export function flushBusinessStorage(): void {
+	if (!browser) return;
+	if (saveTimer) {
+		clearTimeout(saveTimer);
+		saveTimer = null;
+	}
+	if (!isPersistSuppressed()) saveToStorage();
+}
+
+// When a batch snapshot apply finishes, persist once.
+setPersistFlush(() => {
+	if (browser) flushBusinessStorage();
+});
+
 // Auto-save on changes
 if (browser) {
 	// Ready flag prevents store subscriptions from triggering sync during init
@@ -101,7 +130,8 @@ if (browser) {
 
 	// Save to localStorage and trigger sync on any data change
 	const syncOnChange = () => {
-		saveToStorage();
+		if (isPersistSuppressed()) return;
+		scheduleSaveToStorage();
 		if (ready) {
 			import('./sync').then(({ triggerSync }) => triggerSync());
 		}
@@ -112,7 +142,9 @@ if (browser) {
 	diaryEntries.subscribe(syncOnChange);
 	projects.subscribe(syncOnChange);
 	sprints.subscribe(syncOnChange);
-	kanbanColumns.subscribe(saveToStorage);
+	kanbanColumns.subscribe(() => {
+		if (!isPersistSuppressed()) scheduleSaveToStorage();
+	});
 
 	// Knowledge Graph subscriptions
 	resources.subscribe(syncOnChange);
@@ -121,6 +153,12 @@ if (browser) {
 
 	// All subscriptions registered and storage loaded — enable sync
 	ready = true;
+
+	// Persist any pending debounce if the tab is closing / backgrounded.
+	window.addEventListener('pagehide', () => flushBusinessStorage());
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'hidden') flushBusinessStorage();
+	});
 
 	// Initialize sync engine during idle time so first paint/socket init stay responsive.
 	const scheduleSyncInit = () => {
@@ -413,13 +451,24 @@ export const filteredTodos = derived(
 );
 
 export const todosByStatus = derived(todos, ($todos) => {
-	return {
-		ideas: $todos.filter(t => t.status === 'ideas'),
-		todo: $todos.filter(t => t.status === 'todo'),
-		in_progress: $todos.filter(t => t.status === 'in_progress'),
-		done: $todos.filter(t => t.status === 'done'),
-		scrapped: $todos.filter(t => t.status === 'scrapped'),
-		archived: $todos.filter(t => t.status === 'archived')
+	const buckets: Record<string, Todo[]> = {
+		ideas: [],
+		todo: [],
+		in_progress: [],
+		done: [],
+		scrapped: [],
+		archived: []
+	};
+	for (const t of $todos) {
+		(buckets[t.status] ?? (buckets[t.status] = [])).push(t);
+	}
+	return buckets as {
+		ideas: Todo[];
+		todo: Todo[];
+		in_progress: Todo[];
+		done: Todo[];
+		scrapped: Todo[];
+		archived: Todo[];
 	};
 });
 
@@ -476,16 +525,13 @@ export function archiveOldCompletedTasks(olderThanDays: number = 30): number {
 	return archivedCount;
 }
 
-export const upcomingEvents = derived(
-	[calendarEvents, selectedDate],
-	([$events, $date]) => {
-		const now = Date.now();
-		const weekFromNow = now + 7 * 24 * 60 * 60 * 1000;
-		return $events
-			.filter(e => e.startDate >= now && e.startDate <= weekFromNow)
-			.sort((a, b) => a.startDate - b.startDate);
-	}
-);
+export const upcomingEvents = derived(calendarEvents, ($events) => {
+	const now = Date.now();
+	const weekFromNow = now + 7 * 24 * 60 * 60 * 1000;
+	return $events
+		.filter((e) => e.startDate >= now && e.startDate <= weekFromNow)
+		.sort((a, b) => a.startDate - b.startDate);
+});
 
 export const todaysTodos = derived(todos, ($todos) => {
 	const today = new Date();

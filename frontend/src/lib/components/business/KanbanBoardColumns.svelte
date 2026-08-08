@@ -2,20 +2,13 @@
 	import { visibleKanbanColumns } from '$lib/business';
 	import type { Todo, TodoStatus } from '$lib/business/types';
 
-	interface RegisteredUser {
-		user_id: number;
-		username: string;
-		profile_picture?: string;
-		color: string;
-	}
-
 	export let sortedTodosByColumn: Record<TodoStatus, Todo[]>;
 	export let dragOverColumn: TodoStatus | null = null;
 	export let isReadOnly = false;
-	export let registeredUsers: RegisteredUser[] = [];
 	export let getPriorityColor: (priority: Todo['priority']) => string;
 	export let formatEstimateHours: (minutes: number | undefined) => string;
 	export let getAssigneeName: (userId: number | undefined) => string;
+	export let getAssigneeColor: (userId: number | undefined) => string = () => '#888';
 	export let getProjectColor: (projectId: string | undefined) => string;
 	export let getProjectName: (projectId: string | undefined) => string;
 	export let formatDueDate: (timestamp: number | undefined) => string;
@@ -82,7 +75,7 @@
 								{/if}
 								{#if todo.assignedTo}
 									<span class="assignee-chip-card">
-										<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === parseInt(String(todo.assignedTo), 10))?.color || '#888'}"></span>
+										<span class="assignee-dot" style="background-color: {getAssigneeColor(parseInt(String(todo.assignedTo), 10))}"></span>
 										<span>{getAssigneeName(parseInt(String(todo.assignedTo), 10))}</span>
 									</span>
 								{/if}

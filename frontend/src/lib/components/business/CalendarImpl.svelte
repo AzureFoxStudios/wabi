@@ -89,6 +89,10 @@
 		return days;
 	}
 
+	function dayKey(date: Date): string {
+		return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+	}
+
 	function isToday(date: Date): boolean {
 		const today = new Date();
 		return date.toDateString() === today.toDateString();
@@ -102,36 +106,59 @@
 		return date1.toDateString() === date2.toDateString();
 	}
 
-	function getEventsForDay(date: Date): CalendarEvent[] {
-		const dayStart = new Date(date);
-		dayStart.setHours(0, 0, 0, 0);
-		const dayEnd = new Date(date);
-		dayEnd.setHours(23, 59, 59, 999);
+	/**
+	 * Build once per events/todos/month change — template used to call
+	 * getEventsForDay() 42× (full array scan each) every reactive tick.
+	 */
+	$: eventsByDay = (() => {
+		void $calendarEvents;
+		const map = new Map<string, CalendarEvent[]>();
+		for (const event of $calendarEvents) {
+			const start = new Date(event.startDate);
+			const end = event.endDate ? new Date(event.endDate) : start;
+			// Clamp multi-day span to a reasonable window around current month
+			const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+			const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+			// Cap span length so pathological multi-year events don't hang
+			let steps = 0;
+			while (cursor <= endDay && steps < 62) {
+				const key = dayKey(cursor);
+				const list = map.get(key);
+				if (list) list.push(event);
+				else map.set(key, [event]);
+				cursor.setDate(cursor.getDate() + 1);
+				steps += 1;
+			}
+		}
+		for (const list of map.values()) {
+			list.sort((a, b) => a.startDate - b.startDate);
+		}
+		return map;
+	})();
 
-		return get(calendarEvents).filter(event => {
-			const eventStart = new Date(event.startDate);
-			const eventEnd = event.endDate ? new Date(event.endDate) : eventStart;
-			return (
-				(eventStart >= dayStart && eventStart <= dayEnd) ||
-				(eventEnd >= dayStart && eventEnd <= dayEnd) ||
-				(eventStart <= dayStart && eventEnd >= dayEnd)
-			);
-		}).sort((a, b) => a.startDate - b.startDate);
+	$: tasksByDay = (() => {
+		void $todos;
+		const map = new Map<string, Todo[]>();
+		for (const todo of $todos) {
+			if (!todo.dueDate || todo.status === 'done' || todo.status === 'archived') continue;
+			const d = new Date(todo.dueDate);
+			const key = dayKey(d);
+			const list = map.get(key);
+			if (list) list.push(todo);
+			else map.set(key, [todo]);
+		}
+		for (const list of map.values()) {
+			list.sort((a, b) => (a.dueDate || 0) - (b.dueDate || 0));
+		}
+		return map;
+	})();
+
+	function getEventsForDay(date: Date): CalendarEvent[] {
+		return eventsByDay.get(dayKey(date)) || [];
 	}
 
 	function getTasksForDay(date: Date): Todo[] {
-		const dayStart = new Date(date);
-		dayStart.setHours(0, 0, 0, 0);
-		const dayEnd = new Date(date);
-		dayEnd.setHours(23, 59, 59, 999);
-
-		return get(todos).filter(todo =>
-			todo.dueDate &&
-			todo.dueDate >= dayStart.getTime() &&
-			todo.dueDate <= dayEnd.getTime() &&
-			todo.status !== 'done' &&
-			todo.status !== 'archived'
-		).sort((a, b) => (a.dueDate || 0) - (b.dueDate || 0));
+		return tasksByDay.get(dayKey(date)) || [];
 	}
 
 	function getPriorityColor(priority: string): string {
