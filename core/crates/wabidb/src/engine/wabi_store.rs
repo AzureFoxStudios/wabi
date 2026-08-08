@@ -272,6 +272,18 @@ pub trait WabiStore: Send + Sync {
         Ok(())
     }
 
+    /// Get a whiteboard board document (full `BoardDocument` JSON).
+    ///
+    /// Returns `Ok(None)` when the board has never been saved.
+    async fn get_whiteboard_doc(&self, _board_id: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
+
+    /// Persist a whiteboard board document (full `BoardDocument` JSON).
+    async fn put_whiteboard_doc(&self, _board_id: &str, _doc_json: &str) -> Result<()> {
+        Ok(())
+    }
+
     /// Get retention policy for a channel.
     async fn get_channel_retention(&self, _channel_id: &str) -> Result<Option<RetentionPolicy>> {
         Ok(None)
@@ -1153,6 +1165,14 @@ impl WabiStore for LocalWabiStore {
     ) -> Result<()> {
         Ok(())
     }
+
+    async fn get_whiteboard_doc(&self, _board_id: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
+
+    async fn put_whiteboard_doc(&self, _board_id: &str, _doc_json: &str) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1167,6 +1187,9 @@ mod tests {
         let _ = store.get_user(1).await.unwrap();
         let _ = store.list_users().await.unwrap();
         let _ = store.list_channels(None).await.unwrap();
+        let _ = store.get_whiteboard_doc("channel:test").await.unwrap();
+        store.put_whiteboard_doc("channel:test", "{}").await.unwrap();
+        assert_eq!(store.get_whiteboard_doc("channel:test").await.unwrap(), None);
     }
 
     #[tokio::test]

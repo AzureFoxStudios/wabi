@@ -1282,6 +1282,46 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
+    async fn get_whiteboard_doc(&self, board_id: &str) -> Result<Option<String>> {
+        use wabidb::projections::whiteboard_docs::decode_record;
+        use wabidb::projections::whiteboard_docs::encode_key;
+        let state = self.engine.projection_state();
+        let key = encode_key(board_id);
+        match state.get("whiteboard_docs", &key) {
+            Some(bytes) => match decode_record(&bytes) {
+                Ok(doc) => Ok(Some(doc.doc_json)),
+                Err(e) => Err(wabidb::error::WabiError::Validation {
+                    command: "get_whiteboard_doc".into(),
+                    reason: format!("failed to decode whiteboard doc record: {e}"),
+                }),
+            },
+            None => Ok(None),
+        }
+    }
+
+    async fn put_whiteboard_doc(&self, board_id: &str, doc_json: &str) -> Result<()> {
+        use wabidb::domain::WhiteboardDoc;
+        use wabidb::projections::whiteboard_docs::encode_record;
+        let doc = WhiteboardDoc {
+            board_id: board_id.to_string(),
+            doc_json: doc_json.to_string(),
+            updated_at_micros: now_micros(),
+        };
+        let payload = encode_record(&doc);
+        self.run(
+            0,
+            "put_whiteboard_doc",
+            format!("whiteboard_docs:{}", board_id),
+            "whiteboard_doc_upserted",
+            6,
+            payload,
+            false,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn get_channel_retention(&self, channel_id: &str) -> Result<Option<RetentionPolicy>> {
         let state = self.engine.projection_state();
         let key = channel_id.as_bytes().to_vec();

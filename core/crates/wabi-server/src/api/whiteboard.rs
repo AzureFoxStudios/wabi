@@ -3,6 +3,8 @@
 //! Implements:
 //! - POST /api/whiteboard/boards/:boardId/images — upload a whiteboard image
 //! - GET  /api/whiteboard/boards/:boardId/files/:fileId — serve a whiteboard file
+//! - GET  /api/whiteboard/boards/:boardId/document — fetch a board document
+//! - PUT  /api/whiteboard/boards/:boardId/document — persist a board document
 //!
 //! Socket.IO events (whiteboard:join, whiteboard:leave, whiteboard:snapshot)
 //! are handled in socketio.rs.
@@ -23,6 +25,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 use crate::error::Result;
+use crate::socketio::whiteboard_versions;
 use crate::state::AppState;
 use crate::upload_registry::UploadKind;
 use wabidb::engine::wabi_store::WabiStore;
@@ -57,6 +60,12 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/boards/{board_id}/files/{file_id}",
             get(serve_whiteboard_file),
         )
+        .route(
+            "/boards/{board_id}/document",
+            get(get_board_document),
+        )
+        .route("/boards/{board_id}/document", axum::routing::put(put_board_document))
+        .route("/boards/{board_id}/docstub", axum::routing::put(put_board_document_stub))
         .with_state(state)
 }
 
@@ -403,9 +412,175 @@ async fn serve_whiteboard_file(
     }
 }
 
+/// GET /api/whiteboard/boards/:boardId/document
+///
+/// Fetch a board document. Auth + channel membership required; 404 when the
+/// board has never been saved.
+async fn get_board_document(
+    State(state): State<Arc<AppState>>,
+    Path(board_id): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Result<impl IntoResponse> {
+    let user_id = extract_user_id(&headers, &state.config.jwt_secret)?;
+
+    let board_id = board_id.trim().to_string();
+    if board_id.is_empty() {
+        return Ok(json_error_response(
+            StatusCode::BAD_REQUEST,
+            "Invalid whiteboard id",
+        ));
+    }
+
+    let channel_id = if board_id.starts_with("channel:") {
+        board_id
+            .strip_prefix("channel:")
+            .unwrap_or(&board_id)
+            .to_string()
+    } else {
+        board_id.clone()
+    };
+
+    if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
+        return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
+    }
+
+    match state.wdb.get_whiteboard_doc(&board_id).await {
+        Ok(Some(doc)) => match serde_json::from_str::<serde_json::Value>(&doc) {
+            Ok(v) => Ok((StatusCode::OK, Json(v)).into_response()),
+            Err(_) => Ok(json_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Stored document is not valid JSON",
+            )),
+        },
+        Ok(None) => Ok(json_error_response(
+            StatusCode::NOT_FOUND,
+            "Board document not found",
+        )),
+        Err(e) => Ok(json_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to read board document: {}", e),
+        )),
+    }
+}
+
+/// PUT /api/whiteboard/boards/:boardId/document
+///
+/// Persist a board document. Auth + membership + size + version check
+/// (409 on stale version). The server bumps the version on success, matching
+/// the socket snapshot path, and returns the new version in the response.
+async fn put_board_document(
+    State(state): State<Arc<AppState>>,
+    Path(board_id): Path<String>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Response> {
+    let user_id = extract_user_id(&headers, &state.config.jwt_secret)?;
+
+    if body.len() > WHITEBOARD_MAX_DOCUMENT_BYTES {
+        return Ok(json_error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Board document exceeds 2MB limit",
+        ));
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|e| anyhow::anyhow!("invalid document JSON: {}", e))?;
+    if !parsed.is_object() {
+        return Ok(json_error_response(
+            StatusCode::BAD_REQUEST,
+            "Document must be a JSON object",
+        ));
+    }
+
+    let board_id = board_id.trim().to_string();
+    if board_id.is_empty() {
+        return Ok(json_error_response(
+            StatusCode::BAD_REQUEST,
+            "Invalid whiteboard id",
+        ));
+    }
+
+    let channel_id = if board_id.starts_with("channel:") {
+        board_id
+            .strip_prefix("channel:")
+            .unwrap_or(&board_id)
+            .to_string()
+    } else {
+        board_id.clone()
+    };
+
+    if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
+        return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
+    }
+
+    // Version check: in-memory map first (shared with socket snapshot),
+    // then the persisted doc's version, else 0 for a fresh board.
+    let client_version = parsed.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
+    let mapped = whiteboard_versions().lock().unwrap().get(&board_id).copied();
+    let current = match mapped {
+        Some(v) => v,
+        None => match state.wdb.get_whiteboard_doc(&board_id).await {
+            Ok(Some(doc)) => serde_json::from_str::<serde_json::Value>(&doc)
+                .ok()
+                .and_then(|d| d.get("version").and_then(|v| v.as_u64()))
+                .unwrap_or(0),
+            _ => 0,
+        },
+    };
+    if client_version != current {
+        return Ok(json_error_response(
+            StatusCode::CONFLICT,
+            &format!(
+                "Version mismatch: client {}, server {}",
+                client_version, current
+            ),
+        ));
+    }
+
+    let new_version = client_version + 1;
+    let mut doc = parsed;
+    doc["version"] = serde_json::json!(new_version);
+    let serialized = serde_json::to_string(&doc).unwrap_or_default();
+
+    match state.wdb.put_whiteboard_doc(&board_id, &serialized).await {
+        Ok(()) => {
+            whiteboard_versions()
+                .lock()
+                .unwrap()
+                .insert(board_id.clone(), new_version);
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "boardId": board_id,
+                "version": new_version,
+            }))
+            .into_response())
+        }
+        Err(e) => Ok(json_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to persist board document: {}", e),
+        )),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Auth helpers
 // ---------------------------------------------------------------------------
+
+async fn put_board_document_stub(
+    State(state): State<Arc<AppState>>,
+    Path(board_id): Path<String>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Response> {
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "board_id": board_id,
+        "len": body.len(),
+        "h": headers.len(),
+        "state": state.config.data_dir,
+    }))
+    .into_response())
+}
 
 fn extract_user_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> anyhow::Result<i64> {
     use jsonwebtoken::{decode, DecodingKey, Validation};
