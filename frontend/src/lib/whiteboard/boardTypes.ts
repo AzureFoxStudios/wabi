@@ -2,6 +2,21 @@ export type WhiteboardScopeType = 'channel';
 
 export type WhiteboardLayerKind = 'content' | 'reference' | 'background';
 
+export interface WhiteboardPolicy {
+	access: 'open' | 'desktop_only';
+	writeAccess: 'anyone' | 'desktop';
+}
+
+export const DEFAULT_WHITEBOARD_POLICY: WhiteboardPolicy = {
+	access: 'open',
+	writeAccess: 'anyone'
+};
+
+export interface WhiteboardMeta {
+	updatedAt: number;
+	updatedBy: number;
+}
+
 export interface WhiteboardViewport {
 	x: number;
 	y: number;
@@ -18,6 +33,7 @@ export interface WhiteboardLayer {
 	order: number;
 	createdAt: number;
 	updatedAt: number;
+	blendMode: string;
 }
 
 export interface WhiteboardElement extends Record<string, unknown> {
@@ -38,6 +54,8 @@ export interface WhiteboardDocument {
 	layers?: WhiteboardLayer[];
 	activeLayerId?: string;
 	viewport?: WhiteboardViewport;
+	policy?: WhiteboardPolicy;
+	meta?: WhiteboardMeta;
 	[key: string]: unknown;
 }
 
