@@ -37,6 +37,7 @@
 	import LoreBranchPicker from './LoreBranchPicker.svelte';
 	import LoreBlameView from './LoreBlameView.svelte';
 	import LoreLockBadge from './LoreLockBadge.svelte';
+	import LoreConnectModal from './LoreConnectModal.svelte';
 
 	// Timeline / governance
 	import LoreActivityFeed from './LoreActivityFeed.svelte';
@@ -126,6 +127,8 @@
 		timestamp: number;
 		details: Record<string, any>;
 	}>>([]);
+
+	let showConnectModal = $state(false);
 
 	// Review data (placeholder — real data comes from backend review endpoint)
 	let activeReview = $state<{
@@ -310,7 +313,7 @@
 
 <div class="lore-channel-shell">
 	{#if !repo}
-		<div class="lore-not-connected">
+		<div class="lore-not-connected" onclick={() => canEdit && (showConnectModal = true)}>
 			{#if health === 'error'}
 				<div class="lore-error">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -332,6 +335,15 @@
 						<polyline points="14 2 14 8 20 8"/>
 					</svg>
 					<span>No Lore repository connected to this channel</span>
+					{#if canEdit}
+						<button class="btn btn-primary" onclick={(e) => { e.stopPropagation(); showConnectModal = true; }}>
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+								<line x1="12" y1="5" x2="12" y2="19"/>
+								<line x1="5" y1="12" x2="19" y2="12"/>
+							</svg>
+							Connect Repository
+						</button>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -631,6 +643,19 @@
 				</div>
 			</div>
 		{/if}
+	{/if}
+
+	<!-- Connect modal (outside repo check so it renders even when no repo) -->
+	{#if showConnectModal}
+		<LoreConnectModal
+			channelId={activeChannel}
+			onConnected={() => {
+				showConnectModal = false;
+				loadLoreRepo();
+				loadLoreHealth();
+			}}
+			onClose={() => showConnectModal = false}
+		/>
 	{/if}
 </div>
 

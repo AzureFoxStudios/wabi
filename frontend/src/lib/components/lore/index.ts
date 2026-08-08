@@ -16,3 +16,4 @@ export { default as LoreTemplatePicker } from './LoreTemplatePicker.svelte';
 export { default as LoreActivityFeed } from './LoreActivityFeed.svelte';
 export { default as LorePushCalendar } from './LorePushCalendar.svelte';
 export { default as LoreAuditViewer } from './LoreAuditViewer.svelte';
+export { default as LoreConnectModal } from './LoreConnectModal.svelte';
