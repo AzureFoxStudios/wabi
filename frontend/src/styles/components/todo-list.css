@@ -156,52 +156,11 @@
 		font-size: 0.85rem;
 	}
 
-	/* Kanban Board */
-	.kanban-board {
-		display: grid;
-		gap: 1rem;
-		flex: 1;
-		overflow-x: auto;
-		min-width: 0;
-	}
-
-	.kanban-column {
-		background: var(--surface-base, #16213e);
-		border-radius: 12px;
-		display: flex;
-		flex-direction: column;
-		min-height: 400px;
-	}
-
-	.column-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1rem;
-		border-bottom: 1px solid var(--border-color, #2a2a4a);
-	}
-
-	.column-header h3 {
-		margin: 0;
-		font-size: 0.9rem;
-		font-weight: 600;
-	}
-
-	.count {
-		background: var(--surface-raised, #1f2937);
-		padding: 0.2rem 0.5rem;
-		border-radius: 10px;
-		font-size: 0.75rem;
-	}
-
-	.column-content {
-		flex: 1;
-		padding: 0.75rem;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
+	/* Kanban Board — REMOVED legacy grid rules. Kanban layout lives in
+	   kanban-board-part1.css (.kanban-board { display:flex; row }) and
+	   this file MUST NOT redefine .kanban-board/.kanban-column: same
+	   specificity + later import order = grid stomps flex = columns
+	   stack vertically ("fall through the floor"). */
 
 	.todo-card {
 		background: var(--surface-raised, #1f2937);
@@ -563,27 +522,13 @@
 		white-space: nowrap;
 	}
 
-	@media (max-width: 1200px) {
-		.kanban-board {
-			grid-template-columns: repeat(3, 1fr) !important;
-		}
-	}
-
 	@media (max-width: 900px) {
-		.kanban-board {
-			grid-template-columns: repeat(2, 1fr) !important;
-		}
-
 		.header-right {
 			flex-wrap: wrap;
 		}
 	}
 
 	@media (max-width: 600px) {
-		.kanban-board {
-			grid-template-columns: 1fr !important;
-		}
-
 		.form-row {
 			grid-template-columns: 1fr;
 		}
