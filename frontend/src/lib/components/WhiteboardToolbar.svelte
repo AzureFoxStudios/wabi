@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy, tick } from 'svelte';
+	import { renderToString } from 'katex';
 	import {
 		boardStore,
 		activeTool,
@@ -8,10 +10,11 @@
 		policy
 	} from '$lib/whiteboard/boardStore';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
+	import { onMathPlacement, buildMathElement, type MathPlacement } from '$lib/whiteboard/tools';
 
-	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text']);
+	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text', 'math']);
 
-	const tools: Array<{ id: ToolType; label: string; shortcut: string; icon: string }> = [
+	const tools: Array<{ id: ToolType | 'math'; label: string; shortcut: string; icon: string }> = [
 		{ id: 'select', label: 'Select', shortcut: 'V', icon: 'cursor' },
 		{ id: 'pen', label: 'Pen', shortcut: 'P', icon: 'pen' },
 		{ id: 'line', label: 'Line', shortcut: 'L', icon: 'line' },
@@ -19,6 +22,7 @@
 		{ id: 'ellipse', label: 'Ellipse', shortcut: 'E', icon: 'ellipse' },
 		{ id: 'arrow', label: 'Arrow', shortcut: 'A', icon: 'arrow' },
 		{ id: 'text', label: 'Text', shortcut: 'T', icon: 'text' },
+		{ id: 'math', label: 'Math', shortcut: '', icon: 'math' },
 		{ id: 'pan', label: 'Pan', shortcut: 'Space', icon: 'pan' }
 	];
 
@@ -47,9 +51,72 @@
 		return readOnly && drawingTools.has(id);
 	}
 
-	function setTool(id: ToolType) {
-		boardStore.setTool(id);
+	function setTool(id: ToolType | 'math') {
+		boardStore.setTool(id as ToolType);
 	}
+
+	const MATH_FONT_SIZE = 32;
+
+	let mathEditorOpen = false;
+	let mathPlacement: MathPlacement | null = null;
+	let latexDraft = '';
+	let mathInputEl: HTMLInputElement | null = null;
+
+	const unsubMathPlacement = onMathPlacement((placement) => {
+		mathPlacement = placement;
+		latexDraft = '';
+		mathEditorOpen = true;
+	});
+
+	onDestroy(() => {
+		unsubMathPlacement();
+	});
+
+	$: if (mathEditorOpen) {
+		tick().then(() => mathInputEl?.focus());
+	}
+
+	function commitMath() {
+		if (!mathPlacement) {
+			closeMath();
+			return;
+		}
+		const latex = latexDraft.trim();
+		if (latex) {
+			boardStore.addElement(buildMathElement(mathPlacement, latex, MATH_FONT_SIZE));
+		}
+		closeMath();
+	}
+
+	function closeMath() {
+		mathEditorOpen = false;
+		mathPlacement = null;
+		latexDraft = '';
+	}
+
+	function handleMathKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			commitMath();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			closeMath();
+		}
+	}
+
+	$: mathPreviewHtml = (() => {
+		if (!mathEditorOpen || !latexDraft.trim()) return '';
+		try {
+			return renderToString(latexDraft, {
+				displayMode: false,
+				output: 'html',
+				throwOnError: false,
+				strict: 'ignore'
+			});
+		} catch {
+			return '';
+		}
+	})();
 
 	function setColor(color: string) {
 		boardStore.setStyle({ strokeColor: color });
@@ -94,6 +161,8 @@
 						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="17" x2="17" y2="3"/><polyline points="10,3 17,3 17,10"/></svg>
 					{:else if tool.icon === 'text'}
 						<svg viewBox="0 0 20 20" fill="currentColor"><text x="4" y="16" font-size="15" font-weight="bold" font-family="sans-serif">T</text></svg>
+					{:else if tool.icon === 'math'}
+						<svg viewBox="0 0 20 20" fill="currentColor"><text x="2.5" y="16" font-size="16" font-weight="bold" font-family="serif">Σ</text></svg>
 					{:else if tool.icon === 'pan'}
 						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v16M2 10h16M10 2l-2 3m2-3l2 3M10 18l-2-3m2 3l2-3M2 10l3-2m-3 2l3 2M18 10l-3-2m3 2l-3 2"/></svg>
 					{/if}
@@ -259,6 +328,37 @@
 		</div>
 	{/if}
 </div>
+
+{#if mathEditorOpen}
+	<div class="wb-math-overlay" role="dialog" aria-modal="true" aria-label="Insert math" tabindex="-1">
+		<button class="wb-math-backdrop" aria-label="Cancel math insertion" on:click={closeMath}></button>
+		<div class="wb-math-popover">
+			<div class="wb-math-header">
+				<span class="wb-math-title">Insert math</span>
+				<button class="wb-math-close" on:click={closeMath} aria-label="Close math editor">×</button>
+			</div>
+			<input
+				class="wb-math-input"
+				placeholder={'e.g. e^{i\\pi} + 1 = 0'}
+				bind:this={mathInputEl}
+				bind:value={latexDraft}
+				on:keydown={handleMathKeydown}
+				aria-label="LaTeX expression"
+			/>
+			<div class="wb-math-preview">
+				{#if mathPreviewHtml}
+					{@html mathPreviewHtml}
+				{:else}
+					<span class="wb-math-preview-empty">Preview appears here</span>
+				{/if}
+			</div>
+			<div class="wb-math-actions">
+				<button class="wb-math-btn wb-math-cancel" on:click={closeMath}>Cancel</button>
+				<button class="wb-math-btn wb-math-commit" on:click={commitMath} disabled={!latexDraft.trim()}>Commit</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.wb-toolbar {
@@ -557,6 +657,166 @@
 		.wb-brush-slider::-webkit-slider-thumb,
 		.wb-brush-slider::-moz-range-thumb {
 			transition: none;
+		}
+	}
+
+	.wb-math-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 1000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(10, 8, 30, 0.45);
+		backdrop-filter: blur(2px);
+	}
+
+	.wb-math-backdrop {
+		position: absolute;
+		inset: 0;
+		border: none;
+		padding: 0;
+		background: transparent;
+		cursor: default;
+	}
+
+	.wb-math-popover {
+		position: relative;
+		z-index: 1;
+		width: min(480px, calc(100vw - 48px));
+		padding: 18px 20px 16px;
+		border-radius: var(--radius-md, 12px);
+		background: var(--surface-raised, #302b63);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 26%, transparent);
+		box-shadow: 0 20px 44px rgba(15, 12, 41, 0.5);
+		color: var(--text-heading, #e0e0ff);
+	}
+
+	.wb-math-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 12px;
+	}
+
+	.wb-math-title {
+		font-size: 13px;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		color: var(--text-heading, #e0e0ff);
+	}
+
+	.wb-math-close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border: none;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text-muted, #9999ff);
+		font-size: 16px;
+		line-height: 1;
+		cursor: pointer;
+		transition: background 0.12s, color 0.12s;
+	}
+
+	.wb-math-close:hover {
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 14%, transparent);
+		color: var(--text-heading, #e0e0ff);
+	}
+
+	.wb-math-input {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 9px 12px;
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 30%, transparent);
+		border-radius: var(--radius-md, 12px);
+		background: var(--surface-sunken, #0f0c29);
+		color: var(--text-heading, #e0e0ff);
+		font-family: var(--font-mono, monospace);
+		font-size: 13px;
+		outline: none;
+		transition: border-color 0.12s, box-shadow 0.12s;
+	}
+
+	.wb-math-input:focus {
+		border-color: var(--accent-primary, #6366f1);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary, #6366f1) 30%, transparent);
+	}
+
+	.wb-math-preview {
+		display: flex;
+		align-items: center;
+		min-height: 64px;
+		margin-top: 12px;
+		padding: 12px;
+		border: 1px dashed color-mix(in srgb, var(--text-muted, #9999ff) 24%, transparent);
+		border-radius: var(--radius-md, 12px);
+		background: color-mix(in srgb, var(--surface-base, #24243e) 60%, transparent);
+		font-size: 24px;
+		overflow-x: auto;
+	}
+
+	.wb-math-preview-empty {
+		font-size: 12px;
+		color: var(--text-muted, #9999ff);
+	}
+
+	.wb-math-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 14px;
+	}
+
+	.wb-math-btn {
+		padding: 7px 14px;
+		border: none;
+		border-radius: var(--radius-md, 12px);
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.12s, color 0.12s, transform 0.12s;
+	}
+
+	.wb-math-btn:hover:not(:disabled) {
+		transform: translateY(-1px);
+	}
+
+	.wb-math-btn:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+
+	.wb-math-cancel {
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 14%, transparent);
+		color: var(--text-secondary, #b3b3ff);
+	}
+
+	.wb-math-cancel:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 22%, transparent);
+		color: var(--text-heading, #e0e0ff);
+	}
+
+	.wb-math-commit {
+		background: var(--accent-primary, #6366f1);
+		color: #ffffff;
+	}
+
+	.wb-math-commit:hover:not(:disabled) {
+		filter: brightness(1.08);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wb-math-btn {
+			transition: background 0.12s, color 0.12s;
+		}
+
+		.wb-math-btn:hover:not(:disabled) {
+			transform: none;
 		}
 	}
 </style>

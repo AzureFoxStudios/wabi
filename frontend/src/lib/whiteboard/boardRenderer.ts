@@ -1,5 +1,5 @@
 import type { WhiteboardViewport } from './boardTypes';
-import type { BoardElement, Point, StrokeElement } from './elementTypes';
+import type { BoardElement, Point, StrokeElement, MathElement } from './elementTypes';
 import type { BBox, Handle } from './coords';
 import { boardToScreen } from './coords';
 import type { WhiteboardLayer } from './boardTypes';
@@ -7,6 +7,7 @@ import { sortWhiteboardLayers, WHITEBOARD_BLEND_MODES } from './layers';
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
 import { strokeWidthAt } from './tools';
+import { renderMathToCanvas } from './mathRender';
 
 // ---------------------------------------------------------------------------
 // Image cache (module-level, shared across renders)
@@ -126,6 +127,7 @@ export function renderElements(
 			case 'arrow': renderArrow(ctx, el); break;
 			case 'text': renderText(ctx, el); break;
 			case 'image': renderImage(ctx, el); break;
+			case 'math': renderMath(ctx, el); break;
 		}
 	}
 	ctx.globalAlpha = 1;
@@ -183,6 +185,7 @@ function drawElementsToCtx(ctx: CanvasRenderingContext2D, els: BoardElement[], v
 			case 'arrow': renderArrow(ctx, el); break;
 			case 'text': renderText(ctx, el); break;
 			case 'image': renderImage(ctx, el); break;
+			case 'math': renderMath(ctx, el); break;
 		}
 	}
 	ctx.globalAlpha = 1;
@@ -470,6 +473,16 @@ function renderImage(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 	}
 }
 
+function renderMath(ctx: CanvasRenderingContext2D, el: BoardElement): void {
+	const me = el as MathElement;
+	// renderElements / drawElementsToCtx already fold the element opacity into
+	// globalAlpha. Divide it back out so renderMathToCanvas can multiply the
+	// element opacity in (per its signature) without double-applying.
+	const layerAlpha = me.opacity > 0 ? ctx.globalAlpha / me.opacity : 1;
+	ctx.globalAlpha = Number.isFinite(layerAlpha) ? layerAlpha : 1;
+	renderMathToCanvas(ctx, me.latex, me.x, me.y, me.fontSize, me.strokeColor, me.opacity);
+}
+
 // ---------------------------------------------------------------------------
 // Grid
 // ---------------------------------------------------------------------------
@@ -561,6 +574,7 @@ export function renderDrawPreview(
 		case 'arrow': renderArrow(ctx, previewEl); break;
 		case 'text': renderText(ctx, previewEl); break;
 		case 'image': renderImage(ctx, previewEl); break;
+		case 'math': renderMath(ctx, previewEl); break;
 	}
 	ctx.restore();
 }
