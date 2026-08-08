@@ -5,7 +5,6 @@
 		channels,
 		currentChannel,
 		switchChannel,
-		createChannel,
 		createThread,
 		deleteChannel,
 		markMessagesAsRead,
@@ -27,6 +26,7 @@
 		unpinChannel,
 		reorderChannels
 	} from '$lib/socket';
+	import { createChannel } from '$lib/channelStore';
 	import {
 		activeVoiceChannel as callActiveVoiceChannel,
 		openChannelCallPanel,
@@ -82,6 +82,9 @@
 	let createChannelError = '';
 	let creatingChannel = false;
 	let showCreateInput = false;
+	/** Folder placement for new channels: 'none' | categoryId | '__new__' */
+	let createFolderChoice = 'none';
+	let createNewFolderName = '';
 	/** A6: Asset Storage option only when lore addon is enabled on this server. */
 	let loreAvailable = false;
 	let serverIdentityImageFailed = false;
@@ -623,24 +626,58 @@
 		createChannelError = '';
 		creatingChannel = true;
 		try {
-	await createChannel(channelName, newChannelDescription.trim(), newChannelType, newChannelForceSpoiler);
-	newChannelName = '';
-	newChannelDescription = '';
-	newChannelType = 'text';
-	newChannelForceSpoiler = false;
-	showCreateInput = false;
+			let parentId: string | null = null;
+			const placingInFolder = newChannelType !== 'category';
+
+			if (placingInFolder && createFolderChoice === '__new__') {
+				const folderName = createNewFolderName.trim();
+				if (!folderName) {
+					createChannelError = 'Enter a name for the new folder.';
+					creatingChannel = false;
+					return;
+				}
+				// Create folder first, then nest the channel under it.
+				const folderId = await createChannel(folderName, undefined, 'category', false);
+				parentId = folderId ?? null;
+				if (!parentId) {
+					console.warn('[sidebar] folder created but id not found; channel will be top-level');
+				}
+			} else if (placingInFolder && createFolderChoice !== 'none') {
+				parentId = createFolderChoice;
+			}
+
+			await createChannel(
+				channelName,
+				newChannelDescription.trim(),
+				newChannelType,
+				newChannelForceSpoiler,
+				undefined,
+				parentId
+			);
+			newChannelName = '';
+			newChannelDescription = '';
+			newChannelType = 'text';
+			newChannelForceSpoiler = false;
+			createFolderChoice = 'none';
+			createNewFolderName = '';
+			showCreateInput = false;
 		} catch (error) {
-	createChannelError = error instanceof Error ? error.message : 'Failed to create channel.';
+			createChannelError = error instanceof Error ? error.message : 'Failed to create channel.';
 		} finally {
-	creatingChannel = false;
+			creatingChannel = false;
 		}
+	}
+	function closeCreateForm() {
+		showCreateInput = false;
+		createChannelError = '';
+		createFolderChoice = 'none';
+		createNewFolderName = '';
 	}
 	function toggleCreateInputForType(t: CreateableChannelType) {
 		if (t === 'lore' && !loreAvailable) return;
 		if (showCreateInput && newChannelType === t) {
-	showCreateInput = false;
-	createChannelError = '';
-	return;
+			closeCreateForm();
+			return;
 		}
 		newChannelType = t;
 		createChannelError = '';
@@ -717,6 +754,8 @@
 	function openCreateFormForCategory() {
 		newChannelType = 'category';
 		createChannelError = '';
+		createFolderChoice = 'none';
+		createNewFolderName = '';
 		showCreateInput = true;
 		void tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 	}
@@ -769,7 +808,43 @@
 		</button>
 	</div>
 
-	<CreateChannelForm {showCreateInput} canCreate={canCreateChannel} newChannelName={newChannelName} newChannelDescription={newChannelDescription} {newChannelType} forceSpoiler={newChannelForceSpoiler} createError={createChannelError} {creatingChannel} {loreAvailable} onNameChange={(v) => { newChannelName = v; createChannelError = ''; }} onDescriptionChange={(v) => newChannelDescription = v} onTypeChange={(v) => { newChannelType = v; createChannelError = ''; }} onForceSpoilerChange={(v) => { newChannelForceSpoiler = v; }} onSubmit={handleCreateChannel} />
+	<CreateChannelForm
+		{showCreateInput}
+		canCreate={canCreateChannel}
+		newChannelName={newChannelName}
+		newChannelDescription={newChannelDescription}
+		{newChannelType}
+		forceSpoiler={newChannelForceSpoiler}
+		createError={createChannelError}
+		{creatingChannel}
+		{loreAvailable}
+		categories={allCategories.map((c) => ({ id: c.id, name: c.name }))}
+		folderChoice={createFolderChoice}
+		newFolderName={createNewFolderName}
+		onNameChange={(v) => {
+			newChannelName = v;
+			createChannelError = '';
+		}}
+		onDescriptionChange={(v) => (newChannelDescription = v)}
+		onTypeChange={(v) => {
+			newChannelType = v;
+			createChannelError = '';
+			if (v === 'category') {
+				createFolderChoice = 'none';
+				createNewFolderName = '';
+			}
+		}}
+		onForceSpoilerChange={(v) => {
+			newChannelForceSpoiler = v;
+		}}
+		onFolderChoiceChange={(v) => {
+			createFolderChoice = v;
+			if (v !== '__new__') createNewFolderName = '';
+		}}
+		onNewFolderNameChange={(v) => (createNewFolderName = v)}
+		onSubmit={handleCreateChannel}
+		onCancel={closeCreateForm}
+	/>
 
 	<div class="channel-list">
 		{#if $displayEnhancementSettingsStore.serverCounterEnabled}

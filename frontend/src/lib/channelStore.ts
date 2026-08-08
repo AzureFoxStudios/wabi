@@ -77,26 +77,34 @@ export async function createChannel(
 	channelType: CreateableChannelType = 'text',
 	forceSpoiler?: boolean,
 	/** Explicit override; lore type also implies asset_storage on the API layer. */
-	assetStorage?: boolean
-): Promise<void> {
+	assetStorage?: boolean,
+	/** Nest under this category folder id (optional). */
+	parentId?: string | null
+): Promise<string | null> {
 	try {
 		const created = await createChannelApi(
 			channelName,
 			channelType,
 			description,
 			forceSpoiler,
-			assetStorage ?? channelType === 'lore'
+			assetStorage ?? channelType === 'lore',
+			parentId
 		);
 		// REST create does not always fan out a socket event (and even when it
 		// does, the caller may not be in the right room yet). Optimistically
 		// upsert so the sidebar updates immediately.
 		if (created?.id) {
+			const nestedParent =
+				created.parent_id ||
+				(parentId && parentId.trim() ? parentId.trim() : undefined) ||
+				undefined;
 			const next: Channel = {
 				id: created.id,
 				name: created.name || channelName,
 				createdAt: Date.now(),
 				type: (created.channel_type || channelType || 'text') as Channel['type'],
-				...(created.force_spoiler != null ? { forceSpoiler: created.force_spoiler } : {})
+				...(created.force_spoiler != null ? { forceSpoiler: created.force_spoiler } : {}),
+				...(nestedParent ? { parentId: nestedParent } : {})
 			} as Channel;
 			channels.update((list) => {
 				if (list.some((c) => c.id === next.id)) {
@@ -105,7 +113,9 @@ export async function createChannel(
 				return [...list, next];
 			});
 			_updatePinnedChannels();
+			return created.id;
 		}
+		return null;
 	} catch (e) {
 		console.error('[channelStore] Failed to create channel:', e);
 		throw e;
