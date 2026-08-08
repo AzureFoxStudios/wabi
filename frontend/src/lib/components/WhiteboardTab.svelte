@@ -23,6 +23,7 @@
 	import WhiteboardLayerPanel from './WhiteboardLayerPanel.svelte';
 	import WhiteboardToolbar from './WhiteboardToolbar.svelte';
 	import WhiteboardMathRecognize from './WhiteboardMathRecognize.svelte';
+	import WhiteboardBoardSettings from './WhiteboardBoardSettings.svelte';
 
 	export let channelId = '';
 
@@ -51,6 +52,7 @@
 
 	let recognitionDraft: RecognitionDraft | null = null;
 	let selectedForRecognition: StrokeElement[] | null = null;
+	let boardSettingsOpen = false;
 
 	const isDesktopClient = isTauriRuntime();
 
@@ -73,6 +75,11 @@
 			: channelId || 'Whiteboard';
 	$: localUsername = $currentUser?.username || 'Guest';
 	$: localUserColor = $currentUser?.color || '#6366f1';
+
+	// Board policy can only be changed by the instance owner. The whiteboard has
+	// no per-board owner id; `highestRole === 'owner'` is the app's owner signal
+	// (server still enforces channel membership on every join/snapshot).
+	$: canManageBoard = $currentUser?.highestRole === 'owner';
 
 	$: selfParticipant = ($currentUser
 		? { userId: $currentUser.id, username: localUsername, color: localUserColor }
@@ -300,6 +307,20 @@
 		</div>
 
 		<div class="whiteboard-topbar-actions">
+			{#if canManageBoard}
+				<button
+					type="button"
+					class="whiteboard-settings-btn"
+					class:active={boardSettingsOpen}
+					on:click={() => (boardSettingsOpen = !boardSettingsOpen)}
+					aria-label="Board settings"
+					aria-expanded={boardSettingsOpen}
+					aria-haspopup="dialog"
+					title="Board settings"
+				>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="whiteboard-grid-toggle"
@@ -396,6 +417,8 @@
 			onDismiss={clearRecognition}
 		/>
 	{/if}
+
+	<WhiteboardBoardSettings open={boardSettingsOpen} onClose={() => (boardSettingsOpen = false)} />
 </div>
 
 <style>
@@ -480,6 +503,38 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	.whiteboard-settings-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		padding: 0;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 22%, transparent);
+		background: color-mix(in srgb, var(--text-inverse, #ffffff) 84%, transparent);
+		color: var(--text-secondary, #b3b3ff);
+		cursor: pointer;
+		transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+	}
+
+	.whiteboard-settings-btn:hover {
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 12%, transparent);
+		border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 26%, transparent);
+		color: var(--accent-primary, #6366f1);
+	}
+
+	.whiteboard-settings-btn.active {
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 16%, transparent);
+		border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 34%, transparent);
+		color: var(--accent-primary, #6366f1);
+	}
+
+	.whiteboard-settings-btn svg {
+		width: 15px;
+		height: 15px;
 	}
 
 	.whiteboard-recognize-btn {
@@ -775,5 +830,6 @@
 	@media (prefers-reduced-motion: reduce) {
 		.whiteboard-grid-toggle { transition: none; }
 		.whiteboard-jam-call { transition: none; }
+		.whiteboard-settings-btn { transition: none; }
 	}
 </style>
