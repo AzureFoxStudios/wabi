@@ -1,7 +1,8 @@
 import type { BoardDocument } from './boardStore';
-import type { BoardElement } from './elementTypes';
+import type { BoardElement, StrokeElement } from './elementTypes';
 import { getSelectionBBox } from './coords';
-import { preloadImage, renderElements } from './boardRenderer';
+import { preloadImage, renderLayersWithBlend } from './boardRenderer';
+import { sortWhiteboardLayers } from './layers';
 
 function sanitizeExportBaseName(boardId: string): string {
 	const normalized = (boardId || 'whiteboard')
@@ -94,11 +95,22 @@ export async function exportBoardAsPng(boardDocument: BoardDocument): Promise<vo
 
 	ctx.fillStyle = '#f8fafc';
 	ctx.fillRect(0, 0, width, height);
-	renderElements(ctx, boardDocument.elements, {
-		x: bounds.x - padding,
-		y: bounds.y - padding,
-		zoom: 1
-	}, boardDocument.layers || []);
+	// Canonical path: per-layer blend modes + per-layer opacity appear in the
+	// export, matching the live render loop. The export canvas is sized at full
+	// export resolution (no dpr downscaling) and rendered at dpr = 1.
+	renderLayersWithBlend(
+		ctx,
+		boardDocument.elements,
+		{
+			x: bounds.x - padding,
+			y: bounds.y - padding,
+			zoom: 1
+		},
+		boardDocument.layers || [],
+		width,
+		height,
+		1
+	);
 
 	const blob = await canvasToBlob(canvas, 'image/png');
 	downloadBlob(blob, `${sanitizeExportBaseName(boardDocument.boardId)}.png`);
@@ -109,4 +121,198 @@ export function exportBoardAsJson(boardDocument: BoardDocument): void {
 		type: 'application/json'
 	});
 	downloadBlob(blob, `${sanitizeExportBaseName(boardDocument.boardId)}.json`);
+}
+
+// ---------------------------------------------------------------------------
+// SVG export (dependency-free, deterministic)
+// ---------------------------------------------------------------------------
+
+function fmtNum(n: number): string {
+	const rounded = Math.round(n * 1000) / 1000;
+	return Object.is(rounded, -0) ? '0' : String(rounded);
+}
+
+function escapeXml(value: string): string {
+	return value
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&apos;');
+}
+
+interface SvgContext {
+	vx: number;
+	vy: number;
+}
+
+function elementToSvg(el: BoardElement, ctx: SvgContext): string {
+	const elType = el.type;
+	const dx = (v: number) => v - ctx.vx;
+	const dy = (v: number) => v - ctx.vy;
+	const attrs: string[] = [];
+	if (el.opacity !== undefined && el.opacity < 0.999) {
+		attrs.push(`opacity="${fmtNum(el.opacity)}"`);
+	}
+	const gOpen = attrs.length > 0 ? `<g ${attrs.join(' ')}>` : '';
+	const gClose = attrs.length > 0 ? '</g>' : '';
+
+	let body = '';
+	switch (el.type) {
+		case 'stroke': {
+			const s = el as StrokeElement;
+			if (s.points.length === 1) {
+				const p = s.points[0];
+				const r = Math.max(0.5, (s.strokeWidth || 1) / 2);
+				body = `<circle cx="${fmtNum(dx(p.x))}" cy="${fmtNum(dy(p.y))}" r="${fmtNum(r)}" fill="${s.strokeColor}"/>`;
+			} else {
+				const points = s.points.map((p) => `${fmtNum(dx(p.x))},${fmtNum(dy(p.y))}`).join(' ');
+				body = `<polyline points="${points}" fill="none" stroke="${s.strokeColor}" stroke-width="${fmtNum(s.strokeWidth || 1)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+			}
+			break;
+		}
+		case 'line': {
+			body = `<line x1="${fmtNum(dx(el.x))}" y1="${fmtNum(dy(el.y))}" x2="${fmtNum(dx(el.x + el.width))}" y2="${fmtNum(dy(el.y + el.height))}" stroke="${el.strokeColor}" stroke-width="${fmtNum(el.strokeWidth)}" stroke-linecap="round"/>`;
+			break;
+		}
+		case 'rect': {
+			const fill = el.fillColor && el.fillColor !== 'transparent' ? el.fillColor : 'none';
+			const rx = (el as BoardElement & { borderRadius?: number }).borderRadius || 0;
+			body = `<rect x="${fmtNum(dx(el.x))}" y="${fmtNum(dy(el.y))}" width="${fmtNum(el.width)}" height="${fmtNum(el.height)}" rx="${fmtNum(rx)}" fill="${fill}"${el.strokeWidth > 0 ? ` stroke="${el.strokeColor}" stroke-width="${fmtNum(el.strokeWidth)}"` : ''}/>`;
+			break;
+		}
+		case 'ellipse': {
+			const fill = el.fillColor && el.fillColor !== 'transparent' ? el.fillColor : 'none';
+			body = `<ellipse cx="${fmtNum(dx(el.x + el.width / 2))}" cy="${fmtNum(dy(el.y + el.height / 2))}" rx="${fmtNum(Math.abs(el.width) / 2)}" ry="${fmtNum(Math.abs(el.height) / 2)}" fill="${fill}"${el.strokeWidth > 0 ? ` stroke="${el.strokeColor}" stroke-width="${fmtNum(el.strokeWidth)}"` : ''}/>`;
+			break;
+		}
+		case 'arrow': {
+			const x1 = el.x, y1 = el.y;
+			const x2 = el.x + el.width, y2 = el.y + el.height;
+			const headLen = Math.max(10, el.strokeWidth * 4);
+			const angle = Math.atan2(y2 - y1, x2 - x1);
+			const parts: string[] = [];
+			parts.push(`<line x1="${fmtNum(dx(x1))}" y1="${fmtNum(dy(y1))}" x2="${fmtNum(dx(x2))}" y2="${fmtNum(dy(y2))}" stroke="${el.strokeColor}" stroke-width="${fmtNum(el.strokeWidth)}" stroke-linecap="round"/>`);
+			const arrowHead = (el as BoardElement & { arrowHead?: string }).arrowHead || 'end';
+			const headAt = (cx: number, cy: number, a: number) => {
+				const tip = [cx, cy];
+				const b1 = [cx - headLen * Math.cos(a - Math.PI / 6), cy - headLen * Math.sin(a - Math.PI / 6)];
+				const b2 = [cx - headLen * Math.cos(a + Math.PI / 6), cy - headLen * Math.sin(a + Math.PI / 6)];
+				return `${fmtNum(dx(tip[0]))},${fmtNum(dy(tip[1]))} ${fmtNum(dx(b1[0]))},${fmtNum(dy(b1[1]))} ${fmtNum(dx(b2[0]))},${fmtNum(dy(b2[1]))}`;
+			};
+			if (arrowHead === 'end' || arrowHead === 'both') {
+				parts.push(`<polygon points="${headAt(x2, y2, angle)}" fill="${el.strokeColor}"/>`);
+			}
+			if (arrowHead === 'both') {
+				parts.push(`<polygon points="${headAt(x1, y1, angle + Math.PI)}" fill="${el.strokeColor}"/>`);
+			}
+			body = parts.join('\n');
+			break;
+		}
+		case 'text': {
+			const te = el as BoardElement & { text?: string; fontSize?: number; fontFamily?: string; textAlign?: string };
+			const fontSize = te.fontSize || 16;
+			const fontFamily = te.fontFamily || 'sans-serif';
+			const textAlign = te.textAlign || 'left';
+			const anchor = textAlign === 'center' ? 'middle' : textAlign === 'right' ? 'end' : 'start';
+			const tx = textAlign === 'center' ? el.x + el.width / 2 : textAlign === 'right' ? el.x + el.width : el.x;
+			const lines = (te.text || '').split('\n');
+			const lineHeight = fontSize * 1.3;
+			const tspans = lines
+				.map((line, i) => `<tspan x="${fmtNum(dx(tx))}" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
+				.join('');
+			body = `<text x="${fmtNum(dx(tx))}" y="${fmtNum(dy(el.y))}" font-family="${escapeXml(fontFamily)}" font-size="${fontSize}" fill="${el.strokeColor}" text-anchor="${anchor}">${tspans}</text>`;
+			break;
+		}
+		case 'image': {
+			const ie = el as BoardElement & { src?: string };
+			body = `<!-- image may require auth; href is best-effort -->\n<image href="${escapeXml(ie.src || '')}" x="${fmtNum(dx(el.x))}" y="${fmtNum(dy(el.y))}" width="${fmtNum(el.width)}" height="${fmtNum(el.height)}"/>`;
+			break;
+		}
+		case 'math': {
+			const me = el as BoardElement & { latex?: string; fontSize?: number };
+			body = `<!-- math element skipped (LaTeX): ${escapeXml((me.latex || '').replace(/--/g, '- -'))} -->\n<text x="${fmtNum(dx(el.x))}" y="${fmtNum(dy(el.y))}" font-size="${fmtNum((me.fontSize || 16) * 0.8)}" fill="#94a3b8">${escapeXml(me.latex || '')}</text>`;
+			break;
+		}
+		default:
+			body = `<!-- unsupported element type: ${elType} -->`;
+			break;
+	}
+
+	return `${gOpen}${body}${gClose}`;
+}
+
+function sortElementsForExport(boardDocument: BoardDocument): BoardElement[] {
+	const layerOrder = new Map<string, number>();
+	const layerOpacity = new Map<string, number>();
+	const visibleLayerIds = new Set<string>();
+	for (const layer of sortWhiteboardLayers(boardDocument.layers || [])) {
+		layerOrder.set(layer.id, layer.order);
+		layerOpacity.set(layer.id, layer.opacity);
+		if (layer.visible !== false) visibleLayerIds.add(layer.id);
+	}
+	return [...boardDocument.elements]
+		.filter((el) => {
+			if (!el.layerId) return true;
+			if (!layerOrder.has(el.layerId)) return true; // orphaned → drawn bottom
+			return visibleLayerIds.has(el.layerId);
+		})
+		.sort((a, b) => {
+			const aLayer = layerOrder.get(a.layerId || '') ?? 0;
+			const bLayer = layerOrder.get(b.layerId || '') ?? 0;
+			if (aLayer !== bLayer) return aLayer - bLayer;
+			return a.zIndex - b.zIndex;
+		});
+}
+
+export function exportBoardAsSvg(boardDocument: BoardDocument): void {
+	const bounds = resolveExportBounds(boardDocument);
+	const padding = 32;
+	const vx = bounds.x - padding;
+	const vy = bounds.y - padding;
+	const width = Math.max(1, Math.ceil(Math.abs(bounds.width) + padding * 2));
+	const height = Math.max(1, Math.ceil(Math.abs(bounds.height) + padding * 2));
+
+	const ctx: SvgContext = { vx, vy };
+
+	const groups: string[] = [];
+	const layerOrder = new Map<string, number>();
+	const layerOpacity = new Map<string, number>();
+	const layers = sortWhiteboardLayers(boardDocument.layers || []);
+	for (const layer of layers) {
+		layerOrder.set(layer.id, layer.order);
+		layerOpacity.set(layer.id, layer.opacity);
+	}
+	const sorted = sortElementsForExport(boardDocument);
+
+	let currentLayerOrder: number | null = null;
+	const closeGroup = () => {
+		if (currentLayerOrder !== null) groups.push('</g>');
+		currentLayerOrder = null;
+	};
+
+	for (const el of sorted) {
+		const order = layerOrder.get(el.layerId || '');
+		const resolvedOrder = order ?? -1;
+		const opacity = order !== undefined ? layerOpacity.get(el.layerId || '') ?? 1 : 1;
+		if (resolvedOrder !== currentLayerOrder) {
+			closeGroup();
+			currentLayerOrder = resolvedOrder;
+			if (resolvedOrder !== -1) {
+				groups.push(opacity < 0.999 ? `<g opacity="${fmtNum(opacity)}">` : '<g>');
+			}
+		}
+		groups.push(elementToSvg(el, ctx));
+	}
+	closeGroup();
+
+	const body = groups.join('\n');
+	const svg =
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n` +
+		`<rect width="${width}" height="${height}" fill="#f8fafc"/>\n` +
+		body +
+		'\n</svg>';
+
+	const blob = new Blob([svg], { type: 'image/svg+xml' });
+	downloadBlob(blob, `${sanitizeExportBaseName(boardDocument.boardId)}.svg`);
 }

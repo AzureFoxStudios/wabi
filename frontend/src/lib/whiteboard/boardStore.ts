@@ -8,16 +8,12 @@ import {
 	type WhiteboardViewport
 } from './boardTypes';
 import type { BoardElement } from './elementTypes';
-import { DEFAULT_STYLE, fromTransportElement, generateElementId, toTransportElement } from './elementTypes';
+import { DEFAULT_STYLE, fromTransportElement, toTransportElement } from './elementTypes';
 import {
 	cloneWhiteboardLayers,
 	createDefaultWhiteboardLayer,
-	createLayerId,
-	DEFAULT_WHITEBOARD_LAYER_ID,
 	normalizeWhiteboardLayers,
-	resolveWhiteboardLayerId,
-	resolveWritableWhiteboardLayerId,
-	sortWhiteboardLayers
+	resolveWhiteboardLayerId
 } from './layers';
 import {
 	cloneElements,

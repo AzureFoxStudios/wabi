@@ -1,4 +1,3 @@
-import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { getSocket, socket as socketStore, connected } from '$lib/socket-manager';
 import { isTauriRuntime } from '$lib/tauri-platform';
@@ -39,6 +38,8 @@ export interface WhiteboardEventHandlers {
 	onCursor?: (payload: WhiteboardCursorPayload) => void;
 	onAck?: (payload: WhiteboardAckPayload) => void;
 	onError?: (payload: WhiteboardErrorPayload) => void;
+	/** Fired when the underlying socket transitions to disconnected (e.g. mid-reconnect). */
+	onDisconnect?: () => void;
 }
 
 const activeBoards = new Set<string>();
@@ -47,21 +48,37 @@ function clientClass(): 'tauri' | 'web' {
 	return isTauriRuntime() ? 'tauri' : 'web';
 }
 
+function emitWhiteboardJoin(boardId: string): void {
+	const socket = getSocket();
+	if (!socket || !boardId.trim()) return;
+	socket.emit('whiteboard:join', { boardId: boardId.trim(), clientClass: clientClass() });
+}
+
 function rejoinActiveBoards(): void {
 	if (activeBoards.size === 0) return;
-	const socket = getSocket();
-	if (!socket) return;
 	for (const boardId of activeBoards) {
-		socket.emit('whiteboard:join', { boardId, clientClass: clientClass() });
+		emitWhiteboardJoin(boardId);
 	}
 }
 
 export function joinWhiteboardChannel(channelId: string): void {
-	const socket = getSocket();
-	if (!socket || !channelId.trim()) return;
+	if (!channelId.trim()) return;
 	const boardId = getChannelBoardId(channelId.trim());
+	// Double-join guard: a board that is already active is a no-op. Reconnects
+	// re-join through rejoinActiveBoards(), and conflicts re-join explicitly
+	// through rejoinWhiteboardBoard().
+	if (activeBoards.has(boardId)) return;
 	activeBoards.add(boardId);
-	socket.emit('whiteboard:join', { boardId, clientClass: clientClass() });
+	emitWhiteboardJoin(boardId);
+}
+
+/**
+ * Re-join a board that is already active. Unlike joinWhiteboardChannel this
+ * always emits the join (used by the VERSION_CONFLICT recovery path, where the
+ * server must re-pull the doc and re-broadcast whiteboard:joined).
+ */
+export function rejoinWhiteboardBoard(boardId: string): void {
+	emitWhiteboardJoin(boardId);
 }
 
 export function leaveWhiteboard(boardId: string): void {
@@ -138,10 +155,14 @@ export function subscribeWhiteboardEvents(handlers: WhiteboardEventHandlers): ()
 	});
 
 	// On reconnect: re-join the active board so the server re-pulls the doc.
+	// On disconnect: surface the transition so sessions can drop the ready flag
+	// (components must not draw on stale state while the doc is being re-pulled).
 	const unsubConnected = connected.subscribe((isConnected) => {
 		if (isConnected) {
 			bindToSocket();
 			rejoinActiveBoards();
+		} else {
+			handlers.onDisconnect?.();
 		}
 	});
 
