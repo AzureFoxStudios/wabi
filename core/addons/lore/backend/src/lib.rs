@@ -193,11 +193,22 @@ async fn run_lore(
 pub struct LoreService {
     config: LoreConfig,
     repos: RwLock<HashMap<i64, LoreRepo>>,
+    /// P4: ephemeral editor sessions (code-server bridge)
+    pub editor_bridge: editor_bridge::EditorBridge,
+    /// P5: collaborative script execution
+    pub script_runner: script_runner::ScriptRunner,
+    /// P7: off-box mirroring to GitHub/GitLab/S3
+    pub mirror: mirror::MirrorService,
 }
 
 impl LoreService {
     pub fn new(config: LoreConfig) -> Self {
+        let editor_config = editor_bridge::EditorBridgeConfig::default();
+        let script_config = script_runner::ScriptRunnerConfig::default();
         Self {
+            editor_bridge: editor_bridge::EditorBridge::new(editor_config),
+            script_runner: script_runner::ScriptRunner::new(script_config),
+            mirror: mirror::MirrorService::new(),
             config,
             repos: RwLock::new(HashMap::new()),
         }

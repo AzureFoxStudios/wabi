@@ -81,6 +81,17 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/health", axum::routing::get(health_check))
         // Call recording upload (auto-resolves the configured Recordings channel)
         .route("/recordings", axum::routing::post(upload_recording))
+        // P4: Editor bridge — ephemeral code-server sessions
+        .route("/repos/{channel_id}/editor", axum::routing::post(start_editor_session).delete(stop_editor_session))
+        .route("/repos/{channel_id}/editor/sessions", axum::routing::get(list_editor_sessions))
+        // P5: Script collaboration — run scripts from the repo
+        .route("/repos/{channel_id}/scripts/run", axum::routing::post(run_script))
+        .route("/repos/{channel_id}/scripts/active", axum::routing::get(list_active_scripts))
+        .route("/repos/{channel_id}/scripts/{script_id}/cancel", axum::routing::post(cancel_script))
+        // P7: Off-box mirroring — publish to GitHub/GitLab/S3
+        .route("/repos/{channel_id}/mirror", axum::routing::post(register_mirror).get(get_mirror_config).delete(remove_mirror))
+        .route("/repos/{channel_id}/mirror/run", axum::routing::post(run_mirror))
+        .route("/repos/{channel_id}/mirror/configs", axum::routing::get(list_mirror_configs))
         .with_state(state)
 }
 
@@ -727,4 +738,233 @@ async fn health_check(
         }
         None => Json(serde_json::json!({ "status": "disabled", "addon": "lore" })),
     }
+}
+
+// -- P4: Editor Bridge --
+
+#[derive(Deserialize)]
+struct EditorSessionRequest {
+    repo_path: Option<String>,
+}
+
+async fn start_editor_session(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<EditorSessionRequest>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Editor sessions require Owner/Admin/Developer role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    let session = lore
+        .editor_bridge
+        .start_session(channel_id, auth.user_id, payload.repo_path)
+        .await?;
+    Ok(Json(serde_json::json!({ "session": session })))
+}
+
+async fn stop_editor_session(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+    // Stop all sessions for this channel (simplification: stop by listing)
+    let sessions = lore.editor_bridge.list_sessions().await;
+    for s in sessions {
+        if s.channel_id == channel_id {
+            let _ = lore.editor_bridge.stop_session(&s.session_id).await;
+        }
+    }
+    Ok(Json(serde_json::json!({ "status": "ok", "stopped": "all" })))
+}
+
+async fn list_editor_sessions(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+    let sessions: Vec<_> = lore
+        .editor_bridge
+        .list_sessions()
+        .await
+        .into_iter()
+        .filter(|s| s.channel_id == channel_id)
+        .collect();
+    Ok(Json(serde_json::json!({ "sessions": sessions })))
+}
+
+// -- P5: Script Runner --
+
+#[derive(Deserialize)]
+struct RunScriptRequest {
+    script_path: String,
+    arguments: Option<Vec<String>>,
+    working_dir: Option<String>,
+}
+
+async fn run_script(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<RunScriptRequest>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Script execution requires Owner/Admin/Developer role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    let working_dir = payload.working_dir.unwrap_or_else(|| {
+        format!(
+            "{}/{}",
+            lore.lore_server_url().replace("lore://", ""),
+            channel_id
+        )
+    });
+    let result = lore
+        .script_runner
+        .run_script(
+            channel_id,
+            auth.user_id,
+            payload.script_path,
+            payload.arguments.unwrap_or_default(),
+            working_dir,
+        )
+        .await?;
+    Ok(Json(serde_json::json!({ "result": result })))
+}
+
+async fn list_active_scripts(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+    let active: Vec<_> = lore
+        .script_runner
+        .list_active()
+        .await
+        .into_iter()
+        .filter(|s| s.channel_id == channel_id)
+        .collect();
+    Ok(Json(serde_json::json!({ "active": active })))
+}
+
+async fn cancel_script(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, script_id)): Path<(i64, String)>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+    lore.script_runner.cancel_script(&script_id).await?;
+    Ok(Json(serde_json::json!({ "status": "ok", "cancelled": script_id })))
+}
+
+// -- P7: Off-box Mirror --
+
+#[derive(Deserialize)]
+struct MirrorConfigRequest {
+    backend: Option<String>,
+    remote_url: String,
+    branches: Option<Vec<String>>,
+    tags: Option<bool>,
+    auto_mirror: Option<bool>,
+}
+
+async fn register_mirror(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<MirrorConfigRequest>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Mirror config requires Owner/Admin role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    let backend = match payload.backend.as_deref().unwrap_or("git") {
+        "github" => wabi_lore::mirror::MirrorBackend::GitHub,
+        "gitlab" => wabi_lore::mirror::MirrorBackend::GitLab,
+        "s3" => wabi_lore::mirror::MirrorBackend::S3,
+        _ => wabi_lore::mirror::MirrorBackend::GenericGit,
+    };
+    let config = wabi_lore::mirror::MirrorConfig {
+        channel_id,
+        backend,
+        remote_url: payload.remote_url,
+        branches: payload.branches.unwrap_or_default(),
+        tags: payload.tags.unwrap_or(true),
+        auto_mirror: payload.auto_mirror.unwrap_or(false),
+        mirror_on_push: false,
+        credentials_secret_id: None,
+        last_mirror_at: None,
+        last_mirror_status: None,
+    };
+    lore.mirror.register_mirror(config).await?;
+    Ok(Json(serde_json::json!({ "status": "ok", "channel_id": channel_id })))
+}
+
+async fn get_mirror_config(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+    match lore.mirror.get_config(channel_id).await {
+        Some(config) => Ok(Json(serde_json::json!(config))),
+        None => Err(AppError::NotFound("No mirror configuration for this channel".into())),
+    }
+}
+
+async fn remove_mirror(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Mirror removal requires Owner/Admin role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    lore.mirror.remove_mirror(channel_id).await?;
+    Ok(Json(serde_json::json!({ "status": "ok" })))
+}
+
+async fn run_mirror(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Mirror run requires Owner/Admin role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    let result = lore.mirror.mirror(channel_id).await?;
+    Ok(Json(serde_json::json!({ "result": result })))
+}
+
+async fn list_mirror_configs(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+    let configs: Vec<_> = lore
+        .mirror
+        .list_configs()
+        .await
+        .into_iter()
+        .filter(|c| c.channel_id == channel_id)
+        .collect();
+    Ok(Json(serde_json::json!({ "configs": configs })))
 }
