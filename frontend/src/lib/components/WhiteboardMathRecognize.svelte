@@ -12,7 +12,12 @@
 
 	let { latex, confidence, partial, onAccept, onDismiss }: Props = $props();
 
-	let edited = $state(latex);
+	// The modal mounts fresh per recognition, so capturing the initial `latex`
+	// as the edit buffer is intentional.
+	function initialEditedLatex(): string {
+		return latex;
+	}
+	let edited = $state(initialEditedLatex());
 	let inputEl: HTMLTextAreaElement | null = $state(null);
 
 	$effect(() => {
@@ -55,7 +60,8 @@
 	role="dialog"
 	aria-modal="true"
 	aria-label="Recognized math"
-	on:keydown={handleKeydown}
+	tabindex="-1"
+	onkeydown={handleKeydown}
 >
 	<div class="wr-panel">
 		<header class="wr-header">
@@ -84,12 +90,12 @@
 		></textarea>
 
 		<footer class="wr-footer">
-			<button type="button" class="wr-btn wr-btn-ghost" on:click={onDismiss}>Dismiss</button>
+			<button type="button" class="wr-btn wr-btn-ghost" onclick={onDismiss}>Dismiss</button>
 			<button
 				type="button"
 				class="wr-btn wr-btn-primary"
 				disabled={!edited.trim()}
-				on:click={() => onAccept(edited.trim())}
+				onclick={() => onAccept(edited.trim())}
 			>
 				Accept
 			</button>
