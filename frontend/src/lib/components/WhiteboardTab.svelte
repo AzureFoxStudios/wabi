@@ -5,8 +5,9 @@
 		getChannelBoardId,
 		type WhiteboardPresenceUser
 	} from '$lib/whiteboard/boardTypes';
-	import { createSyncSession, type SyncSession } from '$lib/whiteboard/boardSync';
-	import { boardStore } from '$lib/whiteboard/boardStore';
+	import { createSyncSession, boardSyncError, type SyncSession } from '$lib/whiteboard/boardSync';
+	import { boardStore, policy } from '$lib/whiteboard/boardStore';
+	import { isTauriRuntime } from '$lib/tauri-platform';
 	import { exportBoardAsJson, exportBoardAsPng } from '$lib/whiteboard/export';
 	import { queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import { setWhiteboardPresence, clearWhiteboardPresence } from '$lib/presenceStore';
@@ -38,6 +39,12 @@
 	let channelLabel = 'Whiteboard';
 	let importInput: HTMLInputElement | null = null;
 	let showGrid = true;
+
+	const isDesktopClient = isTauriRuntime();
+
+	$: boardSyncErrorText = $boardSyncError;
+	$: desktopRequired = !!boardSyncErrorText && boardSyncErrorText.includes('desktop-only');
+	$: readOnly = !isDesktopClient && (($policy?.writeAccess === 'desktop') || (!!boardSyncErrorText && boardSyncErrorText.includes('read-only')));
 
 	$: boardId = channelId ? getChannelBoardId(channelId) : '';
 	$: activeChannel = $channels.find((channel) => channel.id === channelId) || null;
@@ -222,7 +229,7 @@
 		<div class="whiteboard-title-row">
 			<span class="whiteboard-channel-pill">{channelLabel}</span>
 			<span class="whiteboard-activity-pill">{presence.length} Active</span>
-			{#if !syncReady}
+			{#if !syncReady && !desktopRequired}
 				<span class="whiteboard-connecting-pill" aria-live="polite">Joining board...</span>
 			{/if}
 			<div class="whiteboard-jam-strip" aria-label="People on this board">
@@ -262,32 +269,55 @@
 		</button>
 	</div>
 
-	{#if errorMessage}
+	{#if errorMessage && !desktopRequired}
 		<div class="whiteboard-banner error">{errorMessage}</div>
 	{/if}
 
 	{#if channelId}
-		<div class="whiteboard-stage">
-			<WhiteboardCanvas
-				{remoteCursors}
-				{boardId}
-				{channelId}
-				username={localUsername}
-				userColor={localUserColor}
-				{syncReady}
-				{showGrid}
-			/>
-			<WhiteboardToolbar
-				onImportImages={triggerImportPicker}
-				onExportPng={handleExportPng}
-				onExportJson={handleExportJson}
-				{exportBusy}
-				importDisabled={!channelId}
-			/>
-			<div class="whiteboard-layer-panel-wrap">
-				<WhiteboardLayerPanel />
+		{#if desktopRequired}
+			<div class="whiteboard-desktop-gate" role="status" aria-live="polite">
+				<div class="whiteboard-desktop-gate-card">
+					<div class="whiteboard-desktop-gate-icon">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/><path d="M12 14v2"/></svg>
+					</div>
+					<h3 class="whiteboard-desktop-gate-title">This board is desktop-only</h3>
+					<p class="whiteboard-desktop-gate-body">
+						This whiteboard is restricted to the Wabi desktop app. Open Wabi on your computer to view and edit it.
+					</p>
+					<p class="whiteboard-desktop-gate-note">Web viewing has been disabled by the board owner.</p>
+				</div>
 			</div>
-		</div>
+		{:else}
+			<div class="whiteboard-stage">
+				{#if readOnly}
+					<div class="whiteboard-banner read-only" role="status" aria-live="polite">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
+						<span>View-only — desktop app required to edit this board</span>
+					</div>
+				{/if}
+				<WhiteboardCanvas
+					{remoteCursors}
+					{boardId}
+					{channelId}
+					username={localUsername}
+					userColor={localUserColor}
+					{syncReady}
+					{showGrid}
+					{readOnly}
+				/>
+				<WhiteboardToolbar
+					onImportImages={triggerImportPicker}
+					onExportPng={handleExportPng}
+					onExportJson={handleExportJson}
+					{exportBusy}
+					importDisabled={!channelId}
+					{readOnly}
+				/>
+				<div class="whiteboard-layer-panel-wrap">
+					<WhiteboardLayerPanel />
+				</div>
+			</div>
+		{/if}
 	{:else}
 		<div class="whiteboard-empty">
 			<div class="whiteboard-empty-icon">
@@ -397,6 +427,85 @@
 		background: color-mix(in srgb, var(--color-danger, #ef4444) 22%, transparent);
 		color: var(--text-danger, #ef4444);
 		border-bottom: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 24%, transparent);
+	}
+
+	.whiteboard-banner.read-only {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 16%, transparent);
+		color: var(--accent-primary, #6366f1);
+		border: 1px solid color-mix(in srgb, var(--accent-primary, #6366f1) 26%, transparent);
+		font-weight: 600;
+	}
+
+	.whiteboard-banner.read-only svg {
+		width: 15px;
+		height: 15px;
+		flex-shrink: 0;
+	}
+
+	.whiteboard-desktop-gate {
+		position: relative;
+		height: 100%;
+		min-height: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-6);
+	}
+
+	.whiteboard-desktop-gate-card {
+		max-width: 420px;
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: var(--space-3);
+		padding: var(--space-8);
+		border-radius: var(--radius-lg, 12px);
+		background: color-mix(in srgb, var(--surface-raised, #302b63) 78%, transparent);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 24%, transparent);
+		backdrop-filter: blur(14px);
+		box-shadow: 0 18px 40px rgba(var(--surface-app-rgb, 15, 23, 42), 0.22);
+	}
+
+	.whiteboard-desktop-gate-icon {
+		width: 3.5rem;
+		height: 3.5rem;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 16%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent-primary, #6366f1) 32%, transparent);
+		color: var(--accent-primary, #6366f1);
+	}
+
+	.whiteboard-desktop-gate-icon svg {
+		width: 1.8rem;
+		height: 1.8rem;
+	}
+
+	.whiteboard-desktop-gate-title {
+		margin: 0;
+		font-size: var(--font-size-lg, 1.125rem);
+		font-weight: var(--font-weight-bold, 700);
+		color: var(--text-heading, #e0e0ff);
+	}
+
+	.whiteboard-desktop-gate-body {
+		margin: 0;
+		font-size: var(--font-size-sm, 0.875rem);
+		line-height: var(--line-height-normal, 1.5);
+		color: var(--text-secondary, #b3b3ff);
+	}
+
+	.whiteboard-desktop-gate-note {
+		margin: 0;
+		font-size: 0.72rem;
+		color: var(--text-muted, #9999ff);
 	}
 
 	.whiteboard-stage {

@@ -4,9 +4,12 @@
 		activeTool,
 		currentStyle,
 		canUndo,
-		canRedo
+		canRedo,
+		policy
 	} from '$lib/whiteboard/boardStore';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
+
+	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text']);
 
 	const tools: Array<{ id: ToolType; label: string; shortcut: string; icon: string }> = [
 		{ id: 'select', label: 'Select', shortcut: 'V', icon: 'cursor' },
@@ -31,6 +34,18 @@
 	export let onImportImages: (() => void) | null = null;
 	export let exportBusy = false;
 	export let importDisabled = false;
+	export let readOnly = false;
+
+	$: policyBadge = (() => {
+		const p = $policy;
+		if (p?.access === 'desktop_only') return { label: 'Desktop-only', icon: 'lock' };
+		if (p?.writeAccess === 'desktop') return { label: 'Desktop-edit', icon: 'desktop' };
+		return null;
+	})();
+
+	function isToolDisabled(id: string): boolean {
+		return readOnly && drawingTools.has(id);
+	}
 
 	function setTool(id: ToolType) {
 		boardStore.setTool(id);
@@ -59,8 +74,10 @@
 			<button
 				class="wb-tool-btn"
 				class:active={$activeTool === tool.id}
+				class:readonly-disabled={isToolDisabled(tool.id)}
 				on:click={() => setTool(tool.id)}
-				title="{tool.label} ({tool.shortcut})"
+				disabled={isToolDisabled(tool.id)}
+				title="{tool.label} ({tool.shortcut}){readOnly && drawingTools.has(tool.id) ? ' — disabled in view-only mode' : ''}"
 			>
 				<span class="wb-tool-icon">
 					{#if tool.icon === 'cursor'}
@@ -92,7 +109,7 @@
 		<button
 			class="wb-tool-btn"
 			on:click={() => boardStore.undo()}
-			disabled={!$canUndo}
+			disabled={readOnly || !$canUndo}
 			title="Undo (Ctrl+Z)"
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 8l-3 3 3 3"/><path d="M2 11h11a4 4 0 000-8H8"/></svg>
@@ -100,7 +117,7 @@
 		<button
 			class="wb-tool-btn"
 			on:click={() => boardStore.redo()}
-			disabled={!$canRedo}
+			disabled={readOnly || !$canRedo}
 			title="Redo (Ctrl+Shift+Z)"
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 8l3 3-3 3"/><path d="M18 11H7a4 4 0 010-8h5"/></svg>
@@ -108,7 +125,7 @@
 		<button
 			class="wb-tool-btn"
 			on:click={() => onImportImages?.()}
-			disabled={importDisabled || !onImportImages}
+			disabled={readOnly || importDisabled || !onImportImages}
 			title="Import images"
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -149,6 +166,7 @@
 				class:active={$currentStyle.strokeColor === color}
 				style="--swatch-color: {color}"
 				on:click={() => setColor(color)}
+				disabled={readOnly}
 				title={color}
 			></button>
 		{/each}
@@ -169,6 +187,7 @@
 						value={$currentStyle.strokeWidth}
 						on:input={(e) => setWidth(Number((e.currentTarget as HTMLInputElement).value))}
 						class="wb-brush-slider"
+						disabled={readOnly}
 						aria-label="Brush size"
 					/>
 					<span class="wb-brush-value">{$currentStyle.strokeWidth}px</span>
@@ -185,6 +204,7 @@
 						value={Math.round(($currentStyle.hardness ?? 1) * 100)}
 						on:input={(e) => setHardness(Number((e.currentTarget as HTMLInputElement).value))}
 						class="wb-brush-slider"
+						disabled={readOnly}
 						aria-label="Brush hardness"
 					/>
 					<span class="wb-brush-value">{Math.round(($currentStyle.hardness ?? 1) * 100)}%</span>
@@ -201,6 +221,7 @@
 						value={Math.round(($currentStyle.opacity ?? 1) * 100)}
 						on:input={(e) => setOpacity(Number((e.currentTarget as HTMLInputElement).value))}
 						class="wb-brush-slider"
+						disabled={readOnly}
 						aria-label="Brush opacity"
 					/>
 					<span class="wb-brush-value">{Math.round(($currentStyle.opacity ?? 1) * 100)}%</span>
@@ -214,11 +235,27 @@
 					class="wb-width-btn"
 					class:active={$currentStyle.strokeWidth === w}
 					on:click={() => setWidth(w)}
+					disabled={readOnly}
 					title="{w}px"
 				>
 					<span class="wb-width-preview" style="height: {Math.max(2, w)}px"></span>
 				</button>
 			{/each}
+		</div>
+	{/if}
+
+	{#if policyBadge}
+		<div class="wb-policy-badge" title={policyBadge.label === 'Desktop-only'
+			? 'Only the Wabi desktop app can open this board'
+			: 'Only the Wabi desktop app can edit this board'}>
+			<span class="wb-policy-badge-icon">
+				{#if policyBadge.icon === 'lock'}
+					<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 016 0v3"/></svg>
+				{:else}
+					<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 17h4M10 13v4"/></svg>
+				{/if}
+			</span>
+			<span>{policyBadge.label}</span>
 		</div>
 	{/if}
 </div>
@@ -290,6 +327,16 @@
 		cursor: default;
 	}
 
+	.wb-tool-btn.readonly-disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.wb-tool-btn.readonly-disabled:hover {
+		transform: none;
+		box-shadow: none;
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		.wb-tool-btn {
 			transition: background 0.12s, color 0.12s, border-color 0.12s;
@@ -348,6 +395,15 @@
 		transform: scale(1.15);
 	}
 
+	.wb-color-swatch:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.wb-color-swatch:disabled:hover {
+		transform: none;
+	}
+
 	.wb-color-swatch.active {
 		border-color: var(--text-inverse, #ffffff);
 		box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary, #6366f1) 48%, transparent);
@@ -369,6 +425,15 @@
 
 	.wb-width-btn:hover {
 		background: color-mix(in srgb, var(--text-muted, #9999ff) 14%, transparent);
+	}
+
+	.wb-width-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.wb-width-btn:disabled:hover {
+		background: transparent;
 	}
 
 	.wb-width-btn.active {
@@ -447,12 +512,45 @@
 		transform: scale(1.25);
 	}
 
+	.wb-brush-slider:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
 	.wb-brush-value {
 		font-size: 9px;
 		font-variant-numeric: tabular-nums;
 		color: var(--text-secondary, #b3b3ff);
 		min-width: 30px;
 		text-align: right;
+	}
+
+	.wb-policy-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		margin-left: 4px;
+		padding: 3px 9px;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--accent-primary, #6366f1) 34%, transparent);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent);
+		color: var(--accent-primary, #6366f1);
+		font-size: 9px;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		white-space: nowrap;
+		user-select: none;
+	}
+
+	.wb-policy-badge-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.wb-policy-badge-icon svg {
+		width: 12px;
+		height: 12px;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
