@@ -1,7 +1,14 @@
 import { writable, readable, get } from 'svelte/store';
-import type { WhiteboardLayer, WhiteboardViewport } from './boardTypes';
+import {
+	DEFAULT_WHITEBOARD_POLICY,
+	type WhiteboardDocument,
+	type WhiteboardLayer,
+	type WhiteboardMeta,
+	type WhiteboardPolicy,
+	type WhiteboardViewport
+} from './boardTypes';
 import type { BoardElement } from './elementTypes';
-import { DEFAULT_STYLE, generateElementId } from './elementTypes';
+import { DEFAULT_STYLE, fromTransportElement, generateElementId, toTransportElement } from './elementTypes';
 import {
 	cloneWhiteboardLayers,
 	createDefaultWhiteboardLayer,
@@ -15,6 +22,7 @@ import {
 import {
 	cloneElements,
 	buildBoardStateFromDocument,
+	normalizeElements,
 	pushUndo,
 	type UndoEntry,
 	type BoardDocument
@@ -36,6 +44,8 @@ export interface BoardStyle {
 export interface BoardState {
 	boardId: string;
 	version: number;
+	policy: WhiteboardPolicy;
+	meta: WhiteboardMeta;
 	elements: BoardElement[];
 	layers: WhiteboardLayer[];
 	viewport: WhiteboardViewport;
@@ -56,6 +66,8 @@ function defaultState(): BoardState {
 	return {
 		boardId: '',
 		version: 0,
+		policy: { ...DEFAULT_WHITEBOARD_POLICY },
+		meta: { updatedAt: 0, updatedBy: 0 },
 		elements: [],
 		layers: [layer],
 		viewport: { x: 0, y: 0, zoom: 1 },
@@ -112,6 +124,9 @@ export function setPatchListener(fn: PatchListener | null): void {
 }
 
 function notifyPatch(type: PatchType, payload: unknown): void {
+	if (type === 'replace' || type.startsWith('layer:')) {
+		bumpVersion();
+	}
 	const listener = _patchListeners.get(_activeBoardId);
 	if (listener) listener(type, payload);
 }
@@ -130,6 +145,33 @@ function loadDocument(doc: BoardDocument): void {
 		viewport: doc.viewport || { x: 0, y: 0, zoom: 1 }
 	});
 	activeStore().update((s) => ({ ...s, ...state, viewport: state.viewport || { x: 0, y: 0, zoom: 1 } } as BoardState));
+}
+
+function setDocument(doc: WhiteboardDocument): void {
+	activeStore().update((s) => {
+		const layers = normalizeWhiteboardLayers(doc.layers || [], [createDefaultWhiteboardLayer()]);
+		const activeLayerId = resolveWhiteboardLayerId(layers, typeof doc.activeLayerId === 'string' ? doc.activeLayerId : layers[0]?.id || '');
+		const elements = normalizeElements((doc.elements || []).map(fromTransportElement), layers);
+		return {
+			...s,
+			boardId: doc.boardId || s.boardId,
+			version: typeof doc.version === 'number' ? doc.version : 0,
+			policy: doc.policy ? { ...doc.policy } : { ...DEFAULT_WHITEBOARD_POLICY },
+			meta: doc.meta ? { ...doc.meta } : { updatedAt: 0, updatedBy: 0 },
+			elements,
+			layers,
+			activeLayerId,
+			viewport: {
+				x: Number.isFinite(doc.viewport?.x) ? doc.viewport!.x : 0,
+				y: Number.isFinite(doc.viewport?.y) ? doc.viewport!.y : 0,
+				zoom: Number.isFinite(doc.viewport?.zoom) ? doc.viewport!.zoom : 1
+			},
+			selection: new Set<string>(),
+			undoStack: [],
+			redoStack: [],
+			isDirty: false
+		};
+	});
 }
 
 function reset(): void {
@@ -161,22 +203,27 @@ function pushHistoryCheckpoint(): void {
 
 function addElement(el: BoardElement): void {
 	activeStore().update((s) => fromState(s, elemOps.addElement(toState(s), el, notifyPatch)));
+	bumpVersion();
 }
 
 function updateElement(id: string, partial: Partial<BoardElement>, options: elemOps.UpdateElementOptions = {}): void {
 	activeStore().update((s) => fromState(s, elemOps.updateElement(toState(s), id, partial, options, notifyPatch)));
+	bumpVersion();
 }
 
 function deleteElements(ids: string[]): void {
 	activeStore().update((s) => fromState(s, elemOps.deleteElements(toState(s), ids, notifyPatch)));
+	bumpVersion();
 }
 
 function reorderElement(id: string, dir: 'front' | 'back' | 'forward' | 'backward'): void {
 	activeStore().update((s) => fromState(s, elemOps.reorderElement(toState(s), id, dir, notifyPatch)));
+	bumpVersion();
 }
 
 function duplicateElements(ids: string[]): void {
 	activeStore().update((s) => fromState(s, elemOps.duplicateElements(toState(s), ids, notifyPatch)));
+	bumpVersion();
 }
 
 function addElementSilent(el: BoardElement): void {
@@ -345,8 +392,31 @@ function getDocument(): BoardDocument {
 	};
 }
 
+function getSnapshotDocument(): WhiteboardDocument {
+	const s = get(activeStore());
+	return {
+		boardId: s.boardId,
+		version: s.version,
+		updatedAt: s.meta.updatedAt || Date.now(),
+		elements: s.elements.map(toTransportElement),
+		layers: cloneWhiteboardLayers(s.layers),
+		activeLayerId: s.activeLayerId,
+		viewport: { ...s.viewport },
+		policy: { ...s.policy },
+		meta: { ...s.meta }
+	};
+}
+
 function markClean(): void {
 	activeStore().update((s) => ({ ...s, isDirty: false }));
+}
+
+function bumpVersion(): void {
+	activeStore().update((s) => ({ ...s, version: s.version + 1 }));
+}
+
+function setVersion(version: number): void {
+	activeStore().update((s) => ({ ...s, version }));
 }
 
 export const elements = deriveActiveStore((s) => s.elements);
@@ -357,12 +427,15 @@ export const activeLayerId = deriveActiveStore((s) => s.activeLayerId);
 export const selection = deriveActiveStore((s) => s.selection);
 export const currentStyle = deriveActiveStore((s) => s.style);
 export const isDirty = deriveActiveStore((s) => s.isDirty);
+export const policy = deriveActiveStore((s) => s.policy);
+export const meta = deriveActiveStore((s) => s.meta);
 export const canUndo = deriveActiveStore((s) => s.undoStack.length > 0);
 export const canRedo = deriveActiveStore((s) => s.redoStack.length > 0);
 
 export const boardStore = {
 	subscribe: subscribeActiveStore,
 	loadDocument,
+	setDocument,
 	reset,
 	setBoardId,
 	setTool,
@@ -402,5 +475,8 @@ export const boardStore = {
 	undo,
 	redo,
 	getDocument,
-	markClean
+	getSnapshotDocument,
+	markClean,
+	bumpVersion,
+	setVersion
 };
