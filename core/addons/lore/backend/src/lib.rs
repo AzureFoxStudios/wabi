@@ -33,6 +33,13 @@ use tokio::process::Command;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
+// P4: Editor bridge — ephemeral code-server sessions
+pub mod editor_bridge;
+// P5: Script collaboration — run scripts from Lore repos
+pub mod script_runner;
+// P7: Off-box mirroring — publish to GitHub/GitLab/S3
+pub mod mirror;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------

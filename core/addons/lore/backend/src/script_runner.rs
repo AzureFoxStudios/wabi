@@ -25,7 +25,7 @@ pub struct ScriptResult {
     pub duration_ms: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptSession {
     pub script_id: String,
     pub channel_id: i64,
@@ -131,29 +131,35 @@ impl ScriptRunner {
         let sp = script_path;
         let args = arguments;
 
+        // Clones for the async block (which owns its captures)
+        let sp_for_run = sp.clone();
+        let args_for_run = args.clone();
+        let script_id_for_run = script_id.clone();
+
         let result = tokio::time::timeout(timeout, async move {
-            let ext = sp.rsplit('.').next().unwrap_or("");
-            match ext {
+            let ext = sp_for_run.rsplit('.').next().unwrap_or("");
+            let output: anyhow::Result<(Option<i32>, Vec<u8>, Vec<u8>)> = match ext {
                 "py" => {
                     let r = Command::new("python3")
-                        .arg(&sp).args(&args).current_dir(&wd)
+                        .arg(&sp_for_run).args(&args_for_run).current_dir(&wd)
                         .stdout(Stdio::piped()).stderr(Stdio::piped()).output().await;
-                    r.map(|o| (o.status.code(), o.stdout, o.stderr))
+                    r.map(|o| (o.status.code(), o.stdout, o.stderr)).map_err(anyhow::Error::from)
                 }
                 "sh" | "bash" => {
                     let r = Command::new("bash")
-                        .arg(&sp).args(&args).current_dir(&wd)
+                        .arg(&sp_for_run).args(&args_for_run).current_dir(&wd)
                         .stdout(Stdio::piped()).stderr(Stdio::piped()).output().await;
-                    r.map(|o| (o.status.code(), o.stdout, o.stderr))
+                    r.map(|o| (o.status.code(), o.stdout, o.stderr)).map_err(anyhow::Error::from)
                 }
                 "js" | "mjs" => {
                     let r = Command::new("node")
-                        .arg(&sp).args(&args).current_dir(&wd)
+                        .arg(&sp_for_run).args(&args_for_run).current_dir(&wd)
                         .stdout(Stdio::piped()).stderr(Stdio::piped()).output().await;
-                    r.map(|o| (o.status.code(), o.stdout, o.stderr))
+                    r.map(|o| (o.status.code(), o.stdout, o.stderr)).map_err(anyhow::Error::from)
                 }
                 _ => Err(anyhow::anyhow!("Unsupported script type: {}", ext)),
-            }
+            };
+            output
         })
         .await;
 
@@ -164,7 +170,7 @@ impl ScriptRunner {
                 let stderr_str = String::from_utf8_lossy(&stderr)
                     .chars().take(max_bytes).collect();
                 ScriptResult {
-                    script_id, channel_id, user_id,
+                    script_id: script_id_for_run, channel_id, user_id,
                     script_path: sp, arguments: args, exit_code,
                     stdout: stdout_str, stderr: stderr_str,
                     started_at, completed_at: Some(Self::now_ms()),
@@ -173,7 +179,7 @@ impl ScriptRunner {
             }
             Ok(Err(e)) => {
                 ScriptResult {
-                    script_id, channel_id, user_id,
+                    script_id: script_id_for_run, channel_id, user_id,
                     script_path: sp, arguments: args, exit_code: None,
                     stdout: String::new(), stderr: e.to_string(),
                     started_at, completed_at: Some(Self::now_ms()),
@@ -182,7 +188,7 @@ impl ScriptRunner {
             }
             Err(_) => {
                 ScriptResult {
-                    script_id, channel_id, user_id,
+                    script_id: script_id_for_run, channel_id, user_id,
                     script_path: sp, arguments: args, exit_code: None,
                     stdout: String::new(),
                     stderr: format!("Script timed out after {} seconds", timeout.as_secs()),
