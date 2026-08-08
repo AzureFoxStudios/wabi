@@ -5,38 +5,58 @@
 		flex-direction: column;
 		position: relative;
 		overflow: hidden;
-		background:
-			radial-gradient(circle at top, rgba(var(--text-inverse-rgb, 255, 255, 255), 0.38), transparent 32%),
-			linear-gradient(180deg, var(--shadow-sm, rgba(0, 0, 0, 0.02)), transparent 18%),
-			var(--reader-bg, #f5f0e6);
+		background: radial-gradient(
+			ellipse at center,
+			var(--reader-bg, #f5f0e6) 0%,
+			color-mix(in srgb, var(--reader-bg, #f5f0e6) 90%, black) 100%
+		);
 		color: var(--reader-text, var(--surface-base, #2f2418));
 	}
 
+	/* Paper theme (light) */
 	.reader-shell.theme-paper {
-		--reader-bg: var(--text-inverse, #f7f4ec);
-		--reader-surface: rgba(255, 252, 245, 0.86);
-		--reader-text: var(--surface-base, #2f2418);
-		--reader-muted: var(--text-secondary, #776b5e);
-		--reader-border: rgba(87, 71, 54, 0.14);
-		--reader-accent: var(--text-warning, #9d5a2f);
+		--reader-bg: var(--surface-app, #f5f5f5);
+		--reader-surface: var(--surface-base, #ffffff);
+		--reader-text: var(--text-primary, #1a1a2e);
+		--reader-muted: var(--text-secondary, #666);
+		--reader-border: rgba(0, 0, 0, 0.08);
+		--reader-accent: var(--accent-primary, #6366f1);
 	}
 
+	/* Sepia theme (warm) */
 	.reader-shell.theme-sepia {
-		--reader-bg: var(--text-warning, #efe2ca);
-		--reader-surface: rgba(252, 244, 228, 0.9);
-		--reader-text: var(--surface-raised, #3f2f21);
-		--reader-muted: var(--text-secondary, #7b6752);
-		--reader-border: rgba(108, 79, 46, 0.18);
-		--reader-accent: var(--text-warning, #8c4f2a);
+		--reader-bg: #f4ecd8;
+		--reader-surface: #faf5e8;
+		--reader-text: #5b4636;
+		--reader-muted: #8b7355;
+		--reader-border: rgba(91, 70, 54, 0.12);
+		--reader-accent: #8b6914;
 	}
 
+	/* Night theme (dark) */
 	.reader-shell.theme-night {
-		--reader-bg: var(--surface-app, #13161d);
-		--reader-surface: rgba(21, 26, 35, 0.88);
-		--reader-text: var(--text-inverse, #e7ebf3);
-		--reader-muted: var(--text-secondary, #a8b2c3);
-		--reader-border: rgba(168, 178, 195, 0.16);
-		--reader-accent: var(--text-info, #6fa8ff);
+		--reader-bg: var(--surface-app, #0f0f1a);
+		--reader-surface: var(--surface-base, #1a1a2e);
+		--reader-text: var(--text-primary, #e0e0ff);
+		--reader-muted: var(--text-secondary, #9999aa);
+		--reader-border: rgba(255, 255, 255, 0.08);
+		--reader-accent: var(--accent-primary, #6366f1);
+	}
+
+	/* Per-theme selection colors */
+	.reader-shell.theme-paper ::selection {
+		background: #b3d4fc;
+		color: #1a1a2e;
+	}
+
+	.reader-shell.theme-sepia ::selection {
+		background: #d4a574;
+		color: #3d2b1f;
+	}
+
+	.reader-shell.theme-night ::selection {
+		background: var(--accent-primary);
+		color: white;
 	}
 
 	.reader-shell.font-serif {
@@ -80,6 +100,11 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.55rem;
+	}
+
+	.reader-empty-actions {
+		justify-content: center;
+		max-width: 100%;
 	}
 
 	.reader-toolbar-actions {
@@ -326,10 +351,10 @@
 		margin: 0 auto;
 		max-width: 48rem;
 		padding: 2.1rem clamp(1.2rem, 2vw, 2rem) 3rem;
-		border: 1px solid var(--reader-border);
-		border-radius: 24px;
+		border: 1px solid var(--reader-border, rgba(0, 0, 0, 0.08));
+		border-radius: 16px;
 		background: var(--reader-surface);
-		box-shadow: 0 18px 44px var(--shadow-sm, rgba(0, 0, 0, 0.08));
+		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
 		color: inherit;
 	}
 
@@ -395,52 +420,118 @@
 		border-color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.16);
 	}
 
-	.reader-document :global(h1),
-	.reader-document :global(h2),
-	.reader-document :global(h3),
-	.reader-document :global(h4),
-	.reader-document :global(h5),
-	.reader-document :global(h6) {
+	/* Typography — calm reading column */
+	.reader-document h1,
+	.reader-document h2,
+	.reader-document h3,
+	.reader-document h4,
+	.reader-document h5,
+	.reader-document h6 {
 		line-height: 1.12;
 		letter-spacing: -0.02em;
-		margin-top: 1.65em;
-		margin-bottom: 0.55em;
 	}
 
-	.reader-document :global(p),
-	.reader-document :global(li),
-	.reader-document :global(blockquote) {
+	.reader-document h1 {
+		font-size: clamp(1.8rem, 4vw, 2.4rem);
+		margin: 2em 0 0.5em;
+	}
+
+	.reader-document h2 {
+		font-size: clamp(1.4rem, 3vw, 1.8rem);
+		margin: 1.8em 0 0.4em;
+	}
+
+	.reader-document h3 {
+		font-size: clamp(1.15rem, 2.5vw, 1.4rem);
+		margin: 1.5em 0 0.3em;
+	}
+
+	.reader-document h4 {
+		font-size: clamp(1rem, 2vw, 1.2rem);
+		margin: 1.3em 0 0.3em;
+	}
+
+	.reader-document h5,
+	.reader-document h6 {
+		font-size: 1rem;
+		margin: 1.2em 0 0.3em;
+	}
+
+	.reader-document h1,
+	.reader-document h2 {
+		border-bottom: 1px solid var(--reader-border);
+		padding-bottom: 0.3em;
+	}
+
+	.reader-document p {
+		margin: 1.2em 0;
+		line-height: 1.75;
+	}
+
+	.reader-document li {
 		color: inherit;
 	}
 
-	.reader-document :global(p) {
-		margin: 0 0 1.05em;
+	/* Drop-cap on the opening paragraph of prose */
+	.reader-document > p:first-of-type::first-letter {
+		float: left;
+		font-size: 3.5em;
+		line-height: 0.8;
+		margin-right: 0.1em;
+		margin-top: 0.05em;
+		font-weight: 700;
+		color: var(--reader-accent, var(--accent-primary));
 	}
 
-	.reader-document :global(blockquote) {
-		margin: 1.35rem 0;
-		padding: 0.2rem 0 0.2rem 1rem;
-		border-left: 3px solid color-mix(in srgb, var(--reader-accent) 60%, transparent);
-		color: var(--reader-muted);
+	.reader-document blockquote {
+		border-left: 3px solid var(--reader-accent, var(--accent-primary));
+		padding: 0.5em 1em;
+		margin: 1em 0;
+		background: var(--reader-surface, rgba(0, 0, 0, 0.03));
+		border-radius: 0 8px 8px 0;
 		font-style: italic;
 	}
 
-	.reader-document :global(pre) {
+	.reader-document pre {
+		position: relative;
 		background: var(--shadow-sm, rgba(0, 0, 0, 0.08));
 		border-radius: 14px;
 		padding: 0.95rem;
 		overflow-x: auto;
 	}
 
-	.reader-shell.theme-night .reader-document :global(pre) {
+	.reader-shell.theme-night .reader-document pre {
 		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.07);
 	}
 
-	.reader-document :global(a) {
+	/* Code copy button — small glass pill, revealed on hover */
+	.reader-document pre .code-copy-btn {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		opacity: 0;
+		transition: opacity 150ms;
+		border: 1px solid var(--reader-border);
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--reader-surface) 72%, transparent);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		color: var(--reader-muted);
+		font-size: 0.72rem;
+		font-weight: 700;
+		padding: 0.25rem 0.6rem;
+		cursor: pointer;
+	}
+
+	.reader-document pre:hover .code-copy-btn {
+		opacity: 1;
+	}
+
+	.reader-document a {
 		color: var(--reader-accent);
 	}
 
-	.reader-document :global(img) {
+	.reader-document img {
 		max-width: 100%;
 		border-radius: 12px;
 	}
@@ -452,23 +543,17 @@
 		padding: var(--space-6);
 	}
 
-	.reader-empty-card {
-		max-width: 34rem;
-		padding: var(--space-6);
-		border-radius: var(--radius-2xl);
-		border: 1px solid var(--reader-border);
-		background: var(--reader-surface);
-		box-shadow: 0 16px 40px var(--shadow-sm, rgba(0, 0, 0, 0.08));
+	/* Glass import buttons for the empty state — translucent blurred surface */
+	.reader-action-btn.glass {
+		background: color-mix(in srgb, var(--reader-surface) 45%, transparent);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+		border-color: color-mix(in srgb, var(--reader-border) 75%, transparent);
+		box-shadow: 0 10px 28px rgba(0, 0, 0, 0.1);
 	}
 
-	.reader-empty-card h3 {
-		margin: 0 0 var(--space-2);
-		font-size: var(--font-size-2xl);
-	}
-
-	.reader-empty-card p {
-		margin: 0 0 var(--space-4);
-		color: var(--reader-muted);
+	.reader-shell.theme-night .reader-action-btn.glass {
+		background: rgba(12, 16, 22, 0.5);
 	}
 
 	.reader-import-sheet {
@@ -547,7 +632,7 @@
 
 		.reader-document {
 			padding: 1.3rem 1rem 2rem;
-			border-radius: 20px;
+			border-radius: 16px;
 		}
 	}
 
@@ -695,6 +780,51 @@
 		border-radius: 999px;
 		font-size: 0.85rem;
 		font-weight: 600;
+	}
+
+	/* Horizontal continuous scroll mode for images (comics/webtoons/manga) */
+	.reader-horizontal-scroll {
+		flex: 1;
+		display: flex;
+		align-items: stretch;
+		overflow-x: auto;
+		overflow-y: hidden;
+		gap: 8px;
+		scroll-snap-type: x mandatory;
+		height: calc(100dvh - 60px);
+		max-height: 100%;
+		min-height: 0;
+		padding: 1rem;
+		overscroll-behavior-x: contain;
+		scrollbar-width: thin;
+	}
+
+	.reader-horizontal-page {
+		flex-shrink: 0;
+		scroll-snap-align: start;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+		min-width: 0;
+	}
+
+	.reader-horizontal-scroll .reader-image-open {
+		height: 100%;
+		max-height: 100%;
+	}
+
+	.reader-horizontal-img {
+		max-height: 100%;
+		width: auto;
+		object-fit: contain;
+		border-radius: 8px;
+		cursor: zoom-in;
+	}
+
+	.reader-shell.fullscreen-mode .reader-horizontal-scroll {
+		height: 100dvh;
+		max-height: 100%;
 	}
 
 	/* Image viewer lightbox */

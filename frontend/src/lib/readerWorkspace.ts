@@ -25,12 +25,12 @@ const MAX_READER_HISTORY = 10;
 
 export type ReaderDocumentFormat = 'markdown' | 'html' | 'text';
 export type ReaderDocumentSource = 'local-temp' | 'pasted' | 'generated' | 'chat' | 'notes';
-export type ReaderTheme = 'paper' | 'sepia' | 'night';
+export type ReaderTheme = 'auto' | 'paper' | 'sepia' | 'night';
 export type ReaderFontFamily = 'serif' | 'sans';
 export type ReaderContentWidth = 'narrow' | 'medium' | 'wide';
 export type ReaderContentType = 'text' | 'images';
 export type ImageFitMode = 'width' | 'height' | 'original';
-export type ReadingDirection = 'ltr' | 'rtl';
+export type ReadingDirection = 'ltr' | 'rtl' | 'horizontal';
 
 export interface ImagePage {
 	url: string;
@@ -91,7 +91,7 @@ function writeJson<T>(key: string, value: T): void {
 }
 
 function normalizeTheme(value: string | undefined): ReaderTheme {
-	return value === 'sepia' || value === 'night' ? value : 'paper';
+	return value === 'paper' || value === 'sepia' || value === 'night' ? value : 'auto';
 }
 
 function normalizeFontFamily(value: string | undefined): ReaderFontFamily {
@@ -112,7 +112,9 @@ function normalizeImageFit(value: string | undefined): ImageFitMode {
 }
 
 function normalizeReadingDirection(value: string | undefined): ReadingDirection {
-	return value === 'rtl' ? 'rtl' : 'ltr';
+	if (value === 'rtl') return 'rtl';
+	if (value === 'horizontal') return 'horizontal';
+	return 'ltr';
 }
 
 function normalizePreferences(input: Partial<ReaderPreferences> | null | undefined): ReaderPreferences {
@@ -257,6 +259,7 @@ export async function openReaderImagesFromFiles(title: string, files: FileList):
 	}
 	
 	if (images.length > 0) {
+		updateReaderPreferences({ readingDirection: 'horizontal' });
 		openReaderImageDocument(title || 'Image Gallery', images, 'local-temp');
 	}
 	return;
