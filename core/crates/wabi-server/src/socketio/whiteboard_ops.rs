@@ -58,16 +58,22 @@ fn board_to_channel_id(board_id: &str) -> String {
     board_id.strip_prefix("channel:").unwrap_or(board_id).to_string()
 }
 
-/// Socket-side membership: owner/admins bypass, otherwise the board's channel
-/// must be in the user's channel list.
+/// Channel membership check — mirrors api/whiteboard.rs `can_access_channel`.
 async fn can_access_channel(state: &SioState, user_id: i64, channel_id: &str) -> bool {
-    if state.app.is_owner(user_id).await || state.app.is_admin(user_id).await {
+    if *state.app.owner_user_id.read().await == Some(user_id) {
         return true;
     }
-    match state.app.wdb.list_channels(Some(user_id as u64)).await {
-        Ok(channels) => channels.iter().any(|c| c.channel_id == channel_id),
-        Err(_) => false,
+    if state.app.is_admin(user_id).await {
+        return true;
     }
+    if let Ok(channels) = state.app.wdb.list_channels(Some(user_id as u64)).await {
+        for ch in &channels {
+            if ch.channel_id == channel_id {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Default document for a board that has never been saved.
@@ -80,48 +86,34 @@ fn default_document(board_id: &str) -> Value {
         "activeLayerId": "layer-default",
         "viewport": { "x": 0, "y": 0, "zoom": 1 },
         "policy": { "access": "open", "writeAccess": "anyone" },
-        "meta": { "updatedAt": 0, "updatedBy": null }
+        "meta": { "updatedAt": 0, "updatedBy": 0 },
     })
 }
 
-const VALID_BLEND_MODES: &[&str] = &[
-    "source-over",
-    "multiply",
-    "screen",
-    "overlay",
-    "darken",
-    "lighten",
-];
-
-/// Ensure a document matches the contract shape: canonical boardId, required
-/// collections, valid policy, valid layer blend modes. Missing keys are
-/// defaulted, never removed.
+/// Apply the contract's load-time normalizations:
+/// - missing `policy` → default `{ access: "open", writeAccess: "anyone" }`
+/// - missing `elements`/`layers` → empty arrays
+/// - unknown layer `blendMode` → `"source-over"`
 fn normalize_document(mut doc: Value, board_id: &str) -> Value {
-    if !doc.is_object() {
-        doc = json!({});
-    }
-    let obj = doc.as_object_mut().unwrap();
-    obj.entry("boardId").or_insert_with(|| json!(board_id));
-    obj.entry("elements").or_insert_with(|| json!([]));
-    obj.entry("layers").or_insert_with(|| json!([]));
-    obj.entry("activeLayerId").or_insert_with(|| json!("layer-default"));
-    obj.entry("viewport").or_insert_with(|| json!({ "x": 0, "y": 0, "zoom": 1 }));
-    let policy = obj
-        .entry("policy")
-        .or_insert_with(|| json!({ "access": "open", "writeAccess": "anyone" }));
-    if let Some(p) = policy.as_object_mut() {
-        p.entry("access").or_insert_with(|| json!("open"));
-        p.entry("writeAccess").or_insert_with(|| json!("anyone"));
-    }
-    if let Some(layers) = obj.get_mut("layers").and_then(|l| l.as_array_mut()) {
-        for layer in layers.iter_mut() {
-            let valid = layer
-                .get("blendMode")
-                .and_then(|b| b.as_str())
-                .map(|b| VALID_BLEND_MODES.contains(&b))
-                .unwrap_or(false);
-            if !valid {
-                layer["blendMode"] = json!("source-over");
+    if let Some(obj) = doc.as_object_mut() {
+        obj.entry("boardId").or_insert_with(|| json!(board_id));
+        obj.entry("elements").or_insert_with(|| json!([]));
+        obj.entry("layers").or_insert_with(|| json!([]));
+        if !obj.contains_key("policy") {
+            obj.insert("policy".into(), json!({ "access": "open", "writeAccess": "anyone" }));
+        }
+        if let Some(layers) = obj.get_mut("layers").and_then(|l| l.as_array_mut()) {
+            const KNOWN_BLEND_MODES: [&str; 10] = [
+                "source-over", "multiply", "screen", "overlay", "darken",
+                "lighten", "soft-light", "hard-light", "difference", "exclusion",
+            ];
+            for layer in layers {
+                if let Some(l) = layer.as_object_mut() {
+                    let mode = l.get("blendMode").and_then(|m| m.as_str()).unwrap_or("source-over");
+                    if !KNOWN_BLEND_MODES.contains(&mode) {
+                        l.insert("blendMode".into(), json!("source-over"));
+                    }
+                }
             }
         }
     }
@@ -141,23 +133,12 @@ fn authenticated_user_id(socket: &SocketRef, state: &SioState) -> i64 {
     user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1)
 }
 
-/// True when the socket advertises the Tauri desktop client (via clientClass).
-fn is_tauri_client(data: &Value) -> bool {
-    data.get("clientClass").and_then(|v| v.as_str()) == Some("tauri")
-        || data.get("clientType").and_then(|v| v.as_str()) == Some("tauri")
-        || data.get("isTauri").and_then(|v| v.as_bool()) == Some(true)
-}
-
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
 async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
-    let board_id = match data
-        .get("boardId")
-        .or_else(|| data.get("channelId"))
-        .and_then(|v| v.as_str())
-    {
+    let board_id = match data.get("boardId").and_then(|v| v.as_str()) {
         Some(id) => id.trim().to_string(),
         None => {
             whiteboard_error(&socket, "UNAUTHORIZED", "Missing boardId");
@@ -165,7 +146,7 @@ async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
         }
     };
     if board_id.is_empty() {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Invalid boardId");
+        whiteboard_error(&socket, "UNAUTHORIZED", "Missing boardId");
         return;
     }
 
@@ -175,65 +156,74 @@ async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
         return;
     }
 
-    let channel_id = board_to_channel_id(&board_id);
-    if !can_access_channel(&state, user_id, &channel_id).await {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Not a member of this channel");
+    if !can_access_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
+        whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
         return;
     }
 
-    let document = match state.app.wdb.get_whiteboard_doc(&board_id).await {
-        Ok(Some(doc)) => serde_json::from_str::<Value>(&doc).unwrap_or_else(|_| default_document(&board_id)),
-        Ok(None) => default_document(&board_id),
+    // Load the persisted document, or fall back to a fresh default.
+    let (document, version) = match state.app.wdb.get_whiteboard_doc(&board_id).await {
+        Ok(Some(raw)) => match serde_json::from_str::<Value>(&raw) {
+            Ok(doc) => {
+                let v = doc_version(&doc);
+                (doc, v)
+            }
+            Err(_) => (default_document(&board_id), 0),
+        },
+        Ok(None) => (default_document(&board_id), 0),
         Err(e) => {
-            warn!("[whiteboard] join load failed: {}", e);
-            whiteboard_error(&socket, "UNAUTHORIZED", "Failed to load board");
+            warn!("[whiteboard] load failed for {}: {}", board_id, e);
+            whiteboard_error(&socket, "NOT_FOUND", "Failed to load board document");
             return;
         }
     };
     let document = normalize_document(document, &board_id);
 
-    let is_tauri = is_tauri_client(&data);
-    let policy = document.get("policy").cloned().unwrap_or_default();
-    let access = policy.get("access").and_then(|v| v.as_str()).unwrap_or("open");
-    let write_access = policy
-        .get("writeAccess")
+    // Policy enforcement.
+    let access = document
+        .get("policy")
+        .and_then(|p| p.get("access"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("open");
+    let write_access = document
+        .get("policy")
+        .and_then(|p| p.get("writeAccess"))
         .and_then(|v| v.as_str())
         .unwrap_or("anyone");
+    let client_class = data.get("clientClass").and_then(|v| v.as_str()).unwrap_or("web");
 
-    if access == "desktop_only" && !is_tauri {
-        whiteboard_error(&socket, "DESKTOP_REQUIRED", "This board is desktop only");
+    if access == "desktop_only" && client_class != "tauri" {
+        whiteboard_error(&socket, "DESKTOP_REQUIRED", "This board is desktop-only");
         return;
     }
 
-    let write = match write_access {
-        "desktop" => is_tauri,
-        _ => true,
-    };
+    let write = !(write_access == "desktop" && client_class != "tauri");
 
-    let version = doc_version(&document);
+    let room = format!("wb:{}", board_id);
+    let _ = socket.join(room);
     whiteboard_versions()
         .lock()
         .unwrap()
         .insert(board_id.clone(), version);
 
-    let room = format!("wb:{}", board_id);
-    socket.join(room);
-
-    let _ = socket.emit(
-        "whiteboard:joined",
-        &json!({
-            "boardId": board_id,
-            "document": document,
-            "capability": {
-                "write": write,
-                "readOnly": !write,
-                "reason": if write { Value::Null } else { json!("desktop-write-required") }
-            }
-        }),
-    );
+    let _ = socket.emit("whiteboard:joined", &json!({
+        "boardId": board_id,
+        "document": document,
+        "capability": { "read": true, "write": write },
+    }));
 }
 
 async fn on_whiteboard_leave(socket: SocketRef, data: Value, _state: SioState) {
+    let board_id = match data.get("boardId").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return,
+    };
+    let room = format!("wb:{}", board_id);
+    let _ = socket.leave(room);
+    let _ = socket.emit("whiteboard:left", &json!({ "boardId": board_id }));
+}
+
+async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let board_id = match data.get("boardId").and_then(|v| v.as_str()) {
         Some(id) => id.trim().to_string(),
         None => return,
@@ -241,43 +231,31 @@ async fn on_whiteboard_leave(socket: SocketRef, data: Value, _state: SioState) {
     if board_id.is_empty() {
         return;
     }
-    let room = format!("wb:{}", board_id);
-    socket.leave(room);
-    let _ = socket.emit("whiteboard:left", &json!({ "boardId": board_id }));
-}
-
-async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
-    let board_id = match data.get("boardId").and_then(|v| v.as_str()) {
-        Some(id) => id.trim().to_string(),
-        None => {
-            whiteboard_error(&socket, "UNAUTHORIZED", "Missing boardId");
-            return;
-        }
-    };
-    if board_id.is_empty() {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Invalid boardId");
+    let document = data.get("document").cloned().unwrap_or(json!(null));
+    if !document.is_object() {
         return;
     }
 
-    let raw_doc = data.get("document").cloned().unwrap_or(json!({}));
-    if serde_json::to_vec(&raw_doc).map(|b| b.len()).unwrap_or(0) > WHITEBOARD_MAX_DOCUMENT_BYTES {
+    // Size check (2MB).
+    let raw = serde_json::to_vec(&document).unwrap_or_default();
+    if raw.len() > WHITEBOARD_MAX_DOCUMENT_BYTES {
         whiteboard_error(&socket, "PAYLOAD_TOO_LARGE", "Board document exceeds 2MB limit");
         return;
     }
 
+    // Auth + membership.
     let user_id = authenticated_user_id(&socket, &state);
     if user_id <= 0 {
         whiteboard_error(&socket, "UNAUTHORIZED", "Authentication required");
         return;
     }
-
-    let channel_id = board_to_channel_id(&board_id);
-    if !can_access_channel(&state, user_id, &channel_id).await {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Not a member of this channel");
+    if !can_access_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
+        whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
         return;
     }
 
-    let client_version = doc_version(&raw_doc);
+    // Version check against the server-owned map.
+    let client_version = doc_version(&document);
     let current = current_version(&state, &board_id).await;
     if client_version != current {
         whiteboard_error(
@@ -288,37 +266,35 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
         return;
     }
 
+    // Bump, persist, update map, fan out to the room except sender, ack sender.
     let new_version = client_version + 1;
-    let mut document = normalize_document(raw_doc, &board_id);
-    document["version"] = json!(new_version);
-    document["boardId"] = json!(board_id);
-    let serialized = serde_json::to_string(&document).unwrap_or_default();
+    let mut doc = document;
+    doc["version"] = json!(new_version);
 
+    let serialized = serde_json::to_string(&doc).unwrap_or_default();
     match state.app.wdb.put_whiteboard_doc(&board_id, &serialized).await {
         Ok(()) => {
             whiteboard_versions()
                 .lock()
                 .unwrap()
                 .insert(board_id.clone(), new_version);
-
             let room = format!("wb:{}", board_id);
             let _ = io
                 .to(room)
                 .except(socket.id.clone())
-                .emit(
-                    "whiteboard:snapshot",
-                    &json!({ "boardId": board_id, "document": document }),
-                )
+                .emit("whiteboard:snapshot", &json!({
+                    "boardId": board_id,
+                    "document": doc,
+                }))
                 .await;
-
-            let _ = socket.emit(
-                "whiteboard:ack",
-                &json!({ "patchId": null, "version": new_version }),
-            );
+            let _ = socket.emit("whiteboard:ack", &json!({
+                "patchId": null,
+                "version": new_version,
+            }));
         }
         Err(e) => {
-            warn!("[whiteboard] snapshot persist failed: {}", e);
-            whiteboard_error(&socket, "UNAUTHORIZED", "Failed to persist board");
+            warn!("[whiteboard] snapshot persist failed for {}: {}", board_id, e);
+            whiteboard_error(&socket, "NOT_FOUND", "Failed to persist board document");
         }
     }
 }
@@ -326,66 +302,58 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
 async fn on_whiteboard_patch(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let board_id = match data.get("boardId").and_then(|v| v.as_str()) {
         Some(id) => id.trim().to_string(),
-        None => {
-            whiteboard_error(&socket, "UNAUTHORIZED", "Missing boardId");
-            return;
-        }
+        None => return,
     };
     if board_id.is_empty() {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Invalid boardId");
+        return;
+    }
+    let patch = data.get("patch").cloned().unwrap_or(json!(null));
+
+    // Size check (128KB).
+    let raw = serde_json::to_vec(&patch).unwrap_or_default();
+    if raw.len() > WHITEBOARD_MAX_LIVE_PAYLOAD_BYTES {
+        whiteboard_error(&socket, "PAYLOAD_TOO_LARGE", "Live payload exceeds 128KB limit");
         return;
     }
 
-    let patch = data.get("patch").cloned().unwrap_or(json!({}));
-    if serde_json::to_vec(&patch).map(|b| b.len()).unwrap_or(0) > WHITEBOARD_MAX_LIVE_PAYLOAD_BYTES {
-        whiteboard_error(&socket, "PAYLOAD_TOO_LARGE", "Patch exceeds 128KB limit");
-        return;
-    }
-
+    // Auth + membership.
     let user_id = authenticated_user_id(&socket, &state);
     if user_id <= 0 {
         whiteboard_error(&socket, "UNAUTHORIZED", "Authentication required");
         return;
     }
-
-    let channel_id = board_to_channel_id(&board_id);
-    if !can_access_channel(&state, user_id, &channel_id).await {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Not a member of this channel");
+    if !can_access_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
+        whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
         return;
     }
 
+    // A patch must carry an op.
     if patch.get("op").is_none() {
-        whiteboard_error(&socket, "READ_ONLY", "Patch missing required op field");
+        whiteboard_error(&socket, "READ_ONLY", "Invalid patch: missing op");
         return;
     }
 
-    let patch_id = data
+    let patch_id = patch
         .get("patchId")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let version = current_version(&state, &board_id).await;
 
     let room = format!("wb:{}", board_id);
     let _ = io
         .to(room)
         .except(socket.id.clone())
-        .emit(
-            "whiteboard:patch",
-            &json!({
-                "boardId": board_id,
-                "patch": patch,
-                "patchId": patch_id,
-                "userId": format!("user-{}", user_id),
-                "sentAt": now_micros(),
-            }),
-        )
+        .emit("whiteboard:patch", &json!({
+            "boardId": board_id,
+            "patch": patch,
+        }))
         .await;
 
-    let _ = socket.emit(
-        "whiteboard:ack",
-        &json!({ "patchId": patch_id, "version": version }),
-    );
+    let version = current_version(&state, &board_id).await;
+    let _ = socket.emit("whiteboard:ack", &json!({
+        "patchId": patch_id,
+        "version": version,
+    }));
 }
 
 async fn on_whiteboard_cursor(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
@@ -396,41 +364,33 @@ async fn on_whiteboard_cursor(socket: SocketRef, data: Value, state: SioState, i
     if board_id.is_empty() {
         return;
     }
+    let cursor = data.get("cursor").cloned().unwrap_or(json!(null));
 
-    let cursor = data.get("cursor").cloned().unwrap_or(json!({}));
-    if serde_json::to_vec(&cursor).map(|b| b.len()).unwrap_or(0) > WHITEBOARD_MAX_LIVE_PAYLOAD_BYTES {
+    let raw = serde_json::to_vec(&cursor).unwrap_or_default();
+    if raw.len() > WHITEBOARD_MAX_LIVE_PAYLOAD_BYTES {
+        whiteboard_error(&socket, "PAYLOAD_TOO_LARGE", "Live payload exceeds 128KB limit");
         return;
     }
 
+    // Cursors are ephemeral: drop silently if the socket is not authenticated.
     let user_id = authenticated_user_id(&socket, &state);
     if user_id <= 0 {
         return;
     }
 
-    let username = data
-        .get("username")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let color = data
-        .get("color")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let username = data.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let color = data.get("color").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     let room = format!("wb:{}", board_id);
     let _ = io
         .to(room)
         .except(socket.id.clone())
-        .emit(
-            "whiteboard:cursor",
-            &json!({
-                "boardId": board_id,
-                "cursor": cursor,
-                "userId": format!("user-{}", user_id),
-                "username": username,
-                "color": color,
-            }),
-        )
+        .emit("whiteboard:cursor", &json!({
+            "boardId": board_id,
+            "cursor": cursor,
+            "userId": format!("user-{}", user_id),
+            "username": username,
+            "color": color,
+        }))
         .await;
 }

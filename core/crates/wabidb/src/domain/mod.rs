@@ -269,6 +269,17 @@ pub struct UserLayout {
     pub updated_at_micros: i64,
 }
 
+/// A persisted whiteboard board document. The document is stored as raw
+/// JSON (the `BoardDocument` wire shape) so the server never needs to
+/// understand element/layer payloads — it only enforces size, version and
+/// policy on the wrapper object.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WhiteboardDoc {
+    pub board_id: String,
+    pub doc_json: String,
+    pub updated_at_micros: i64,
+}
+
 /// Retention policy for a channel (auto-delete messages after N days).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetentionPolicy {
@@ -753,19 +764,6 @@ impl From<crate::projections::gallery::GalleryFeedbackRecord> for GalleryFeedbac
             is_deleted: r.is_deleted,
         }
     }
-}
-
-/// A whiteboard board document, persisted to the `whiteboard_docs` projection.
-///
-/// The full `BoardDocument` JSON (elements, layers, policy, version, …) is
-/// stored verbatim in `doc_json`. The version lives inside the JSON so the
-/// current version survives restarts; the in-memory version map in the server
-/// is only a cache.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WhiteboardDoc {
-    pub board_id: String,
-    pub doc_json: String,
-    pub updated_at_micros: i64,
 }
 
 #[cfg(test)]

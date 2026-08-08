@@ -613,6 +613,9 @@
     "mobile": {
       "chat": "Chat",
       "channels": "Canales",
+      "browse": "Explorar",
+      "messages": "Mensajes",
+      "you": "Tú",
       "users": "Usuarios",
       "hub": "Hub"
     },

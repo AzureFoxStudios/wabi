@@ -2,11 +2,15 @@
 	"id": "/",
 	"name": "Wabi",
 	"short_name": "Wabi",
-	"description": "Ephemeral chat with screen sharing and business features",
+	"description": "Self-hosted chat — messages, calls, and workspaces",
 	"start_url": "/",
+	"scope": "/",
 	"display": "standalone",
+	"display_override": ["standalone", "browser"],
+	"orientation": "any",
 	"background_color": "#0f0c29",
 	"theme_color": "#0f0c29",
+	"categories": ["social", "communication"],
 	"icons": [
 		{
 			"src": "/icon-192.png",
@@ -18,7 +22,13 @@
 			"src": "/icon-512.png",
 			"sizes": "512x512",
 			"type": "image/png",
-			"purpose": "any maskable"
+			"purpose": "any"
+		},
+		{
+			"src": "/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
 		}
 	],
 	"screenshots": [
@@ -26,13 +36,15 @@
 			"src": "/screenshot-wide.png",
 			"sizes": "1280x720",
 			"type": "image/png",
-			"form_factor": "wide"
+			"form_factor": "wide",
+			"label": "Wabi desktop chat"
 		},
 		{
 			"src": "/icon-512.png",
 			"sizes": "512x512",
 			"type": "image/png",
-			"form_factor": "narrow"
+			"form_factor": "narrow",
+			"label": "Wabi"
 		}
 	]
 }

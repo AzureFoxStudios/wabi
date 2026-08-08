@@ -8,25 +8,54 @@
 		loreFileDiff,
 		loreLoading,
 		loreHealth,
+		loreError,
 		loadLoreRepo,
 		loadLoreHistory,
 		loadLoreHealth,
+		loadLoreFileDiff,
 	} from '$lib/loreStore';
 	import {
 		getSignedLoreUrl,
 		parseLoreChannelId,
+		uploadLoreFile,
+		createLoreSnapshot,
+		createLoreBranch,
+		lockLoreFile,
+		unlockLoreFile,
+		deleteLoreFile,
 		type LoreFileInfo,
 		type LoreRevision,
 		type LoreBranch,
 	} from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
+
+	// VCS components
 	import LoreFileTree from './LoreFileTree.svelte';
 	import LoreFileViewer from './LoreFileViewer.svelte';
 	import LoreHistoryPanel from './LoreHistoryPanel.svelte';
 	import LoreDiffViewer from './LoreDiffViewer.svelte';
 	import LoreBranchPicker from './LoreBranchPicker.svelte';
+	import LoreBlameView from './LoreBlameView.svelte';
+	import LoreLockBadge from './LoreLockBadge.svelte';
 
-	type Tab = 'files' | 'history' | 'diff';
+	// Timeline / governance
+	import LoreActivityFeed from './LoreActivityFeed.svelte';
+	import LorePushCalendar from './LorePushCalendar.svelte';
+	import LoreAuditViewer from './LoreAuditViewer.svelte';
+
+	// Review
+	import LoreReviewPanel from './LoreReviewPanel.svelte';
+
+	// Templates
+	import LoreTemplatePicker from './LoreTemplatePicker.svelte';
+
+	// Citations
+	import LoreCitationPreview from './LoreCitationPreview.svelte';
+	import LoreCitationChip from './LoreCitationChip.svelte';
+	import LoreCitationRegistry from './LoreCitationRegistry.svelte';
+
+	type Tab = 'files' | 'history' | 'diff' | 'review' | 'timeline' | 'governance';
+	type FileView = 'view' | 'blame';
 
 	let activeChannel = $derived($currentChannel);
 	let repo = $derived($loreRepo);
@@ -36,6 +65,7 @@
 	let fileDiff = $derived($loreFileDiff);
 	let isLoading = $derived($loreLoading);
 	let health = $derived($loreHealth);
+	let error = $derived($loreError);
 	let user = $derived($currentUser);
 
 	let loreRole = $derived((user?.highestRole || '').toLowerCase());
@@ -43,16 +73,102 @@
 	let canAssetWrite = $derived(canEdit || loreRole === 'artist');
 
 	let activeTab = $state<Tab>('files');
+	let fileView = $state<FileView>('view');
 	let selectedPath = $state<string | null>(null);
 	let fileContent = $state<string | null>(null);
 	let selectedFileInfo = $state<LoreFileInfo | null>(null);
 	let diffMode = $state<'unified' | 'side-by-side'>('unified');
 	let currentBranch = $state('main');
 
+	// Template picker
+	let showTemplates = $state(false);
+
+	// Citation state
+	let activeCitation = $state<{
+		file_path: string;
+		start_line: number;
+		end_line: number;
+		mode: 'Pinned' | 'Tracking';
+		branch?: string;
+		revision?: string;
+	} | null>(null);
+	let citationContent = $state<string>('');
+	let citationLanguage = $state<string>('');
+
+	// Activity / audit (derived from revisions for now)
+	let activityItems = $derived(revisions.map(r => ({
+		type: 'commit' as const,
+		author_id: String(r.authorId),
+		message: r.message,
+		timestamp: r.timestamp,
+		metadata: { hash: r.hash },
+	})));
+
+	let pushCalendarData = $derived(revisions.map(r => ({
+		date: new Date(r.timestamp).toISOString().split('T')[0],
+		count: 1,
+	})).reduce((acc: Array<{ date: string; count: number }>, r) => {
+		const existing = acc.find(a => a.date === r.date);
+		if (existing) {
+			existing.count++;
+		} else {
+			acc.push({ date: r.date, count: 1 });
+		}
+		return acc;
+	}, [] as Array<{ date: string; count: number }>));
+
+	// Audit events (placeholder — real data comes from backend audit log endpoint)
+	let auditEvents = $state<Array<{
+		id: string;
+		type: string;
+		author_id: string;
+		description: string;
+		timestamp: number;
+		details: Record<string, any>;
+	}>>([]);
+
+	// Review data (placeholder — real data comes from backend review endpoint)
+	let activeReview = $state<{
+		id: string;
+		title: string;
+		source_branch: string;
+		target_branch: string;
+		status: 'Open' | 'Approved' | 'ChangesRequested' | 'Merged' | 'Closed';
+		author_id: string;
+		commit_count: number;
+		file_change_count: number;
+		insertions: number;
+		deletions: number;
+	} | null>(null);
+
+	// Citation registry (placeholder)
+	let citations = $state<Array<{
+		id: string;
+		file_path: string;
+		start_line: number;
+		end_line: number;
+		mode: 'Pinned' | 'Tracking';
+		branch?: string;
+		revision?: string;
+		label?: string;
+		drift?: 'Current' | 'Drifted' | 'Missing';
+	}>>([]);
+
+	// Built-in templates (matching LoreTemplatePicker interface)
+	let templates = $state([
+		{ id: 'rust-module', name: 'Rust Module', file_path: 'src/module.rs', language: 'rust', category: 'code' },
+		{ id: 'ts-module', name: 'TypeScript Module', file_path: 'src/module.ts', language: 'typescript', category: 'code' },
+		{ id: 'python-script', name: 'Python Script', file_path: 'scripts/script.py', language: 'python', category: 'code' },
+		{ id: 'readme', name: 'README', file_path: 'README.md', language: 'markdown', category: 'docs' },
+		{ id: 'cargo-toml', name: 'Cargo.toml', file_path: 'Cargo.toml', language: 'toml', category: 'config' },
+		{ id: 'package-json', name: 'package.json', file_path: 'package.json', language: 'json', category: 'config' },
+	]);
+
 	async function handleOpen(path: string) {
 		selectedPath = path;
 		selectedFileInfo = files.find(f => f.path === path) || null;
 		fileContent = null;
+		fileView = 'view';
 		activeTab = 'files';
 
 		const token = getAuthToken();
@@ -72,22 +188,101 @@
 
 	function handleContextMenu(path: string, event: MouseEvent) {
 		event.preventDefault();
-		// TODO: context menu
+		// TODO: context menu with lock/unlock/delete/compare options
 	}
 
 	async function handleCreateBranch(name: string, from: string) {
-		// TODO: wire createLoreBranch
-		await loadLoreHistory();
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+		try {
+			await createLoreBranch(token, channelId, name, from);
+			await loadLoreHistory();
+		} catch (e) {
+			console.error('Failed to create branch:', e);
+		}
 	}
 
 	async function handleDeleteBranch(name: string) {
-		// TODO: wire delete branch
+		// TODO: wire delete branch API
 		await loadLoreHistory();
 	}
 
 	async function handleSwitchBranch(name: string) {
 		currentBranch = name;
 		await loadLoreRepo();
+	}
+
+	async function handleCompare(from: string, to: string) {
+		activeTab = 'diff';
+		if (selectedPath) {
+			await loadLoreFileDiff(selectedPath, from, to);
+		}
+	}
+
+	async function handleUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input?.files?.[0];
+		if (!file) return;
+
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+
+		try {
+			const repoPath = `uploads/${file.name}`;
+			await uploadLoreFile(token, channelId, file, repoPath, `Upload ${file.name}`);
+			await loadLoreRepo();
+		} catch (e) {
+			console.error('Upload failed:', e);
+		}
+
+		input.value = '';
+	}
+
+	async function handleTemplateSelect(template: any) {
+		showTemplates = false;
+		// TODO: create file from template via API
+		selectedPath = template.file_path;
+		fileContent = null;
+	}
+
+	async function handleLock(path: string) {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+		try {
+			await lockLoreFile(token, channelId, path);
+			await loadLoreRepo();
+		} catch (e) {
+			console.error('Lock failed:', e);
+		}
+	}
+
+	async function handleUnlock(path: string) {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+		try {
+			await unlockLoreFile(token, channelId, path);
+			await loadLoreRepo();
+		} catch (e) {
+			console.error('Unlock failed:', e);
+		}
+	}
+
+	async function handleDelete(path: string) {
+		if (!confirm(`Delete ${path}?`)) return;
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+		try {
+			await deleteLoreFile(token, channelId, path, `Delete ${path}`);
+			selectedPath = null;
+			await loadLoreRepo();
+		} catch (e) {
+			console.error('Delete failed:', e);
+		}
 	}
 
 	// Map LoreRevision to the shape HistoryPanel expects
@@ -117,16 +312,40 @@
 	{#if !repo}
 		<div class="lore-not-connected">
 			{#if health === 'error'}
-				<div class="lore-error">Lore service unavailable</div>
+				<div class="lore-error">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="10"/>
+						<line x1="12" y1="8" x2="12" y2="12"/>
+						<line x1="12" y1="16" x2="12.01" y2="16"/>
+					</svg>
+					<span>Lore service unavailable</span>
+				</div>
 			{:else if isLoading}
-				<div class="lore-loading">Connecting to Lore...</div>
+				<div class="lore-loading">
+					<span class="spinner"></span>
+					<span>Connecting to Lore...</span>
+				</div>
 			{:else}
-				<div class="lore-prompt">No Lore repository connected to this channel</div>
+				<div class="lore-prompt">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+						<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+						<polyline points="14 2 14 8 20 8"/>
+					</svg>
+					<span>No Lore repository connected to this channel</span>
+				</div>
 			{/if}
 		</div>
 	{:else}
+		<!-- Top bar -->
 		<div class="lore-top-bar">
-			<span class="repo-name">{repo.repoName}</span>
+			<span class="repo-name">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="repo-icon">
+					<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+					<polyline points="14 2 14 8 20 8"/>
+				</svg>
+				{repo.repoName}
+			</span>
+
 			<LoreBranchPicker
 				branches={pickerBranches}
 				currentBranch={currentBranch}
@@ -134,18 +353,104 @@
 				onDelete={handleDeleteBranch}
 				onSwitch={handleSwitchBranch}
 			/>
+
+			{#if canEdit}
+				<button class="btn btn-sm" onclick={() => showTemplates = !showTemplates}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+						<line x1="12" y1="5" x2="12" y2="19"/>
+						<line x1="5" y1="12" x2="19" y2="12"/>
+					</svg>
+					New
+				</button>
+			{/if}
+
+			{#if canEdit}
+				<label class="btn btn-sm" title="Upload file">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+						<polyline points="17 8 12 3 7 8"/>
+						<line x1="12" y1="3" x2="12" y2="15"/>
+					</svg>
+					Upload
+					<input type="file" style="display:none" onchange={handleUpload} />
+				</label>
+			{/if}
+
 			<span class="lore-health" class:healthy={health === 'ok'} class:error={health === 'error'}>
+				<span class="health-dot"></span>
 				{health || '...'}
 			</span>
 		</div>
 
+		<!-- Template picker overlay -->
+		{#if showTemplates}
+			<div class="template-overlay" onclick={() => showTemplates = false}>
+				<div class="template-picker-panel" onclick={(e) => e.stopPropagation()}>
+					<div class="template-header">
+						<span>Create from template</span>
+						<button class="close-btn" onclick={() => showTemplates = false}>×</button>
+					</div>
+					<LoreTemplatePicker
+						{templates}
+						onSelect={handleTemplateSelect}
+					/>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Tabs -->
 		<div class="lore-tabs">
-			<button class="tab {activeTab === 'files' ? 'active' : ''}" onclick={() => activeTab = 'files'}>Files</button>
-			<button class="tab {activeTab === 'history' ? 'active' : ''}" onclick={() => activeTab = 'history'}>History</button>
-			<button class="tab {activeTab === 'diff' ? 'active' : ''}" onclick={() => activeTab = 'diff'}>Diff</button>
+			<button class="tab {activeTab === 'files' ? 'active' : ''}" onclick={() => activeTab = 'files'}>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+					<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+				</svg>
+				Files
+			</button>
+			<button class="tab {activeTab === 'history' ? 'active' : ''}" onclick={() => activeTab = 'history'}>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+					<circle cx="12" cy="12" r="10"/>
+					<polyline points="12 6 12 12 16 14"/>
+				</svg>
+				History
+			</button>
+			<button class="tab {activeTab === 'diff' ? 'active' : ''}" onclick={() => activeTab = 'diff'}>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+					<line x1="18" y1="20" x2="18" y2="10"/>
+					<line x1="12" y1="20" x2="12" y2="4"/>
+					<line x1="6" y1="20" x2="6" y2="14"/>
+				</svg>
+				Diff
+			</button>
+			<button class="tab {activeTab === 'review' ? 'active' : ''}" onclick={() => activeTab = 'review'}>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+					<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+					<circle cx="8.5" cy="7" r="4"/>
+					<line x1="20" y1="8" x2="20" y2="14"/>
+					<line x1="23" y1="11" x2="17" y2="11"/>
+				</svg>
+				Review
+			</button>
+			<button class="tab {activeTab === 'timeline' ? 'active' : ''}" onclick={() => activeTab = 'timeline'}>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+					<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+					<line x1="16" y1="2" x2="16" y2="6"/>
+					<line x1="8" y1="2" x2="8" y2="6"/>
+					<line x1="3" y1="10" x2="21" y2="10"/>
+				</svg>
+				Timeline
+			</button>
+			<button class="tab {activeTab === 'governance' ? 'active' : ''}" onclick={() => activeTab = 'governance'}>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+					<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+					<path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+				</svg>
+				Governance
+			</button>
 		</div>
 
+		<!-- Panels -->
 		<div class="lore-panels">
+			<!-- Files tab -->
 			{#if activeTab === 'files'}
 				<div class="panel-tree">
 					<LoreFileTree
@@ -159,28 +464,80 @@
 				</div>
 				<div class="panel-viewer">
 					{#if selectedPath}
-						<LoreFileViewer
-							filePath={selectedPath}
-							{fileContent}
-							fileInfo={selectedFileInfo}
-							loading={isLoading}
-							onClose={() => { selectedPath = null; fileContent = null; }}
-						/>
+						<div class="file-viewer-header">
+							<div class="file-path">
+								<span class="path-icon">📄</span>
+								{selectedPath}
+							</div>
+							<div class="file-actions">
+								{#if selectedFileInfo}
+									<LoreLockBadge
+										locked={selectedFileInfo.lockedBy !== null}
+										lockedBy={selectedFileInfo.lockedBy ? `User ${selectedFileInfo.lockedBy}` : null}
+										lockedAt={null}
+										onClick={() => selectedFileInfo?.lockedBy ? handleUnlock(selectedPath!) : handleLock(selectedPath!)}
+									/>
+								{/if}
+								<button
+									class="action-btn {fileView === 'blame' ? 'active' : ''}"
+									onclick={() => fileView = fileView === 'blame' ? 'view' : 'blame'}
+									title="Toggle blame view"
+								>
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+										<circle cx="12" cy="12" r="3"/>
+									</svg>
+								</button>
+								<button class="action-btn" onclick={() => { selectedPath = null; fileContent = null; }} title="Close">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+										<line x1="18" y1="6" x2="6" y2="18"/>
+										<line x1="6" y1="6" x2="18" y2="18"/>
+									</svg>
+								</button>
+							</div>
+						</div>
+						{#if fileView === 'blame'}
+							<LoreBlameView
+								filePath={selectedPath}
+								blameData={[]}
+								loading={false}
+							/>
+						{:else}
+							<LoreFileViewer
+								filePath={selectedPath}
+								{fileContent}
+								fileInfo={selectedFileInfo}
+								loading={isLoading}
+								onClose={() => { selectedPath = null; fileContent = null; }}
+							/>
+						{/if}
 					{:else}
-						<div class="viewer-placeholder">Select a file to view</div>
+						<div class="viewer-placeholder">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+								<polyline points="14 2 14 8 20 8"/>
+							</svg>
+							<span>Select a file to view</span>
+						</div>
 					{/if}
 				</div>
 			{:else if activeTab === 'history'}
-				<div class="panel-full">
-					<LoreHistoryPanel
-						revisions={historyRevisions}
-						branches={pickerBranches}
-						loading={isLoading}
-						onRevisionSelect={(hash: string) => {}}
-						onCompare={(from: string, to: string) => {
-							activeTab = 'diff';
-						}}
-					/>
+				<div class="history-layout">
+					<div class="history-main">
+						<LoreHistoryPanel
+							revisions={historyRevisions}
+							branches={pickerBranches}
+							loading={isLoading}
+							onRevisionSelect={(hash: string) => {}}
+							onCompare={handleCompare}
+						/>
+					</div>
+					<div class="history-sidebar">
+						<div class="calendar-section">
+							<h3>Commit Activity</h3>
+							<LorePushCalendar commits={pushCalendarData} />
+						</div>
+					</div>
 				</div>
 			{:else if activeTab === 'diff'}
 				<div class="panel-full">
@@ -191,11 +548,89 @@
 							onModeChange={(m) => diffMode = m}
 						/>
 					{:else}
-						<div class="diff-placeholder">Select two revisions in History to compare</div>
+						<div class="diff-placeholder">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+								<line x1="18" y1="20" x2="18" y2="10"/>
+								<line x1="12" y1="20" x2="12" y2="4"/>
+								<line x1="6" y1="20" x2="6" y2="14"/>
+							</svg>
+							<span>Select two revisions in History to compare</span>
+						</div>
 					{/if}
+				</div>
+			{:else if activeTab === 'review'}
+				<div class="panel-full">
+					{#if activeReview}
+						<LoreReviewPanel
+							review={activeReview}
+							onApprove={() => {}}
+							onRequestChanges={() => {}}
+							onMerge={() => {}}
+							onClose={() => activeReview = null}
+						/>
+					{:else}
+						<div class="review-placeholder">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+								<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+								<circle cx="8.5" cy="7" r="4"/>
+								<line x1="20" y1="8" x2="20" y2="14"/>
+								<line x1="23" y1="11" x2="17" y2="11"/>
+							</svg>
+							<span>No active reviews</span>
+						</div>
+					{/if}
+				</div>
+			{:else if activeTab === 'timeline'}
+				<div class="panel-full timeline-layout">
+					<LoreActivityFeed activity={activityItems} />
+				</div>
+			{:else if activeTab === 'governance'}
+				<div class="panel-full">
+					<LoreAuditViewer
+						events={auditEvents}
+						onFreezeUser={() => {}}
+						onPauseEgress={() => {}}
+					/>
 				</div>
 			{/if}
 		</div>
+
+		<!-- Citation registry (bottom bar, shown when citations exist) -->
+		{#if citations.length > 0}
+			<div class="citation-bar">
+				<LoreCitationRegistry
+					{citations}
+					onCitationClick={(id: string) => {
+						const c = citations.find(ci => ci.id === id);
+						if (c) activeCitation = {
+							file_path: c.file_path,
+							start_line: c.start_line,
+							end_line: c.end_line,
+							mode: c.mode,
+							branch: c.branch,
+							revision: c.revision,
+						};
+					}}
+					onPin={() => {}}
+					onUpdate={() => {}}
+				/>
+			</div>
+		{/if}
+
+		<!-- Citation preview (shown when a citation is active) -->
+		{#if activeCitation}
+			<div class="citation-preview-overlay" onclick={() => activeCitation = null}>
+				<div class="citation-preview-panel" onclick={(e) => e.stopPropagation()}>
+					<LoreCitationPreview
+						citation={activeCitation}
+						content={citationContent}
+						language={citationLanguage}
+						drift="Current"
+						onOpen={() => {}}
+					/>
+				</div>
+			</div>
+		{/if}
 	{/if}
 </div>
 
@@ -215,13 +650,41 @@
 	}
 
 	.lore-loading, .lore-prompt {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-2);
 		color: var(--text-muted);
 	}
 
 	.lore-error {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-2);
 		color: var(--color-danger, #ef4444);
 	}
 
+	.lore-error svg, .lore-prompt svg {
+		width: 48px;
+		height: 48px;
+		opacity: 0.6;
+	}
+
+	.spinner {
+		width: 24px;
+		height: 24px;
+		border: 2px solid var(--surface-raised);
+		border-top-color: var(--accent-primary);
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	/* Top bar */
 	.lore-top-bar {
 		display: flex;
 		align-items: center;
@@ -232,33 +695,92 @@
 	}
 
 	.repo-name {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
 		color: var(--text-heading);
 		font-weight: 600;
 		font-size: var(--font-size-sm);
 	}
 
+	.repo-icon {
+		width: 16px;
+		height: 16px;
+		opacity: 0.7;
+	}
+
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		padding: 4px var(--space-2);
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-xs);
+		cursor: pointer;
+		border: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent);
+		background: var(--surface-sunken);
+		color: var(--text-secondary);
+		transition: all var(--duration-fast) var(--ease-out);
+	}
+
+	.btn:hover {
+		background: var(--surface-raised);
+		color: var(--text-heading);
+		border-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
+	}
+
+	.btn-sm {
+		padding: 2px var(--space-1);
+		font-size: var(--font-size-2xs);
+	}
+
 	.lore-health {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
 		margin-left: auto;
 		font-size: var(--font-size-xs);
 		color: var(--text-muted);
+	}
+
+	.health-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--text-muted);
 	}
 
 	.lore-health.healthy {
 		color: var(--color-success, #22c55e);
 	}
 
+	.lore-health.healthy .health-dot {
+		background: var(--color-success, #22c55e);
+		box-shadow: 0 0 6px var(--color-success, #22c55e);
+	}
+
 	.lore-health.error {
 		color: var(--color-danger, #ef4444);
 	}
 
+	.lore-health.error .health-dot {
+		background: var(--color-danger, #ef4444);
+		box-shadow: 0 0 6px var(--color-danger, #ef4444);
+	}
+
+	/* Tabs */
 	.lore-tabs {
 		display: flex;
 		gap: 0;
 		background: var(--surface-sunken);
 		border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+		overflow-x: auto;
 	}
 
 	.tab {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
 		padding: var(--space-1) var(--space-3);
 		background: transparent;
 		border: none;
@@ -266,6 +788,7 @@
 		color: var(--text-muted);
 		cursor: pointer;
 		font-size: var(--font-size-sm);
+		white-space: nowrap;
 		transition: all var(--duration-fast) var(--ease-out);
 	}
 
@@ -279,6 +802,7 @@
 		border-bottom-color: var(--accent-primary);
 	}
 
+	/* Panels */
 	.lore-panels {
 		display: flex;
 		flex: 1;
@@ -295,6 +819,8 @@
 	.panel-viewer {
 		flex: 1;
 		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.panel-full {
@@ -302,12 +828,199 @@
 		overflow: hidden;
 	}
 
-	.viewer-placeholder, .diff-placeholder {
+	/* File viewer header */
+	.file-viewer-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: var(--space-1) var(--space-2);
+		background: var(--surface-raised);
+		border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+	}
+
+	.file-path {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--font-size-sm);
+		color: var(--text-secondary);
+		font-family: var(--font-mono);
+	}
+
+	.path-icon {
+		font-size: 14px;
+	}
+
+	.file-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.action-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--text-muted);
+		cursor: pointer;
+		transition: all var(--duration-fast) var(--ease-out);
+	}
+
+	.action-btn:hover {
+		background: var(--surface-raised);
+		color: var(--text-heading);
+	}
+
+	.action-btn.active {
+		color: var(--accent-primary);
+		background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+	}
+
+	/* Placeholders */
+	.viewer-placeholder, .diff-placeholder, .review-placeholder {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
 		height: 100%;
 		color: var(--text-muted);
+		opacity: 0.6;
+	}
+
+	/* History layout */
+	.history-layout {
+		display: flex;
+		flex: 1;
+		overflow: hidden;
+	}
+
+	.history-main {
+		flex: 1;
+		overflow: hidden;
+	}
+
+	.history-sidebar {
+		width: 320px;
+		min-width: 280px;
+		border-left: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+		overflow-y: auto;
+		padding: var(--space-2);
+	}
+
+	.calendar-section h3 {
 		font-size: var(--font-size-sm);
+		color: var(--text-heading);
+		margin: 0 0 var(--space-2) 0;
+	}
+
+	/* Template overlay */
+	.template-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: var(--z-modal, 1000);
+	}
+
+	.template-picker-panel {
+		background: var(--surface-base);
+		border-radius: var(--radius-lg);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent);
+		width: 480px;
+		max-height: 60vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.template-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: var(--space-2) var(--space-3);
+		border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+		color: var(--text-heading);
+		font-weight: 600;
+	}
+
+	.close-btn {
+		width: 24px;
+		height: 24px;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 18px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.close-btn:hover {
+		background: var(--surface-raised);
+		color: var(--text-heading);
+	}
+
+	/* Citation bar */
+	.citation-bar {
+		border-top: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+		background: var(--surface-raised);
+		max-height: 120px;
+		overflow-y: auto;
+	}
+
+	.citation-preview-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: var(--z-modal, 1000);
+	}
+
+	.citation-preview-panel {
+		background: var(--surface-base);
+		border-radius: var(--radius-lg);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent);
+		width: 640px;
+		max-height: 70vh;
+		overflow: auto;
+	}
+
+	/* Timeline layout */
+	.timeline-layout {
+		flex: 1;
+		overflow: hidden;
+	}
+
+	/* Responsive */
+	@media (max-width: 768px) {
+		.panel-tree {
+			width: 200px;
+			min-width: 160px;
+		}
+
+		.history-sidebar {
+			width: 240px;
+			min-width: 200px;
+		}
+
+		.template-picker-panel {
+			width: 90vw;
+		}
+
+		.citation-preview-panel {
+			width: 90vw;
+		}
 	}
 </style>

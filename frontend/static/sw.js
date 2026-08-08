@@ -259,3 +259,66 @@ async function deleteOldCaches() {
       .map((key) => caches.delete(key))
   );
 }
+
+// Web Push (PWA Phase 1)
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    if (event.data) payload = event.data.json();
+  } catch {
+    try {
+      payload = { body: event.data ? event.data.text() : '' };
+    } catch {
+      payload = {};
+    }
+  }
+  const title = (payload && payload.title) || 'Wabi';
+  const body = (payload && payload.body) || 'New notification';
+  const icon = (payload && payload.icon) || '/icon-192.png';
+  const data = payload && typeof payload === 'object' ? { ...payload } : {};
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon,
+      badge: icon,
+      data,
+      tag: typeof payload.tag === 'string' ? payload.tag : undefined
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = (event.notification && event.notification.data) || {};
+  const params = new URLSearchParams();
+  const kind = data.wabiNav || data.kind;
+  if (kind) params.set('wabiNav', String(kind));
+  if (data.channelId) params.set('channelId', String(data.channelId));
+  if (data.messageId) params.set('messageId', String(data.messageId));
+  if (data.callId) params.set('callId', String(data.callId));
+  if (data.section) params.set('section', String(data.section));
+  const targetUrl = params.toString() ? `/?${params.toString()}` : '/';
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of allClients) {
+        if ('focus' in client) {
+          await client.focus();
+          try {
+            client.postMessage({ type: 'wabi-navigate', payload: data });
+          } catch (_) {}
+          return;
+        }
+      }
+      if (self.clients.openWindow) await self.clients.openWindow(targetUrl);
+    })()
+  );
+});
+
+self.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || typeof data !== 'object') return;
+  if (data.type === 'wabi-skip-waiting') self.skipWaiting();
+  if (data.type === 'wabi-clear-media-cache') event.waitUntil(caches.delete(MEDIA_CACHE));
+});
+

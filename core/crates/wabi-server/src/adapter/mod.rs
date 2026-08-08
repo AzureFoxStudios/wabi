@@ -1283,8 +1283,7 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn get_whiteboard_doc(&self, board_id: &str) -> Result<Option<String>> {
-        use wabidb::projections::whiteboard_docs::decode_record;
-        use wabidb::projections::whiteboard_docs::encode_key;
+        use wabidb::projections::whiteboard_docs::{decode_record, encode_key};
         let state = self.engine.projection_state();
         let key = encode_key(board_id);
         match state.get("whiteboard_docs", &key) {
@@ -1299,12 +1298,12 @@ impl WabiStore for WdbAdapter {
         }
     }
 
-    async fn put_whiteboard_doc(&self, board_id: &str, doc_json: &str) -> Result<()> {
+    async fn put_whiteboard_doc(&self, board_id: &str, json: &str) -> Result<()> {
         use wabidb::domain::WhiteboardDoc;
         use wabidb::projections::whiteboard_docs::encode_record;
         let doc = WhiteboardDoc {
             board_id: board_id.to_string(),
-            doc_json: doc_json.to_string(),
+            doc_json: json.to_string(),
             updated_at_micros: now_micros(),
         };
         let payload = encode_record(&doc);
