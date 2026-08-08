@@ -64,8 +64,10 @@
 	import WikiChannel from './WikiChannel.svelte';
 import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
+import { LORE_ADDON_ID } from '$lib/loreWorkspace';
 import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 import KeepNotesView from './KeepNotesView.svelte';
+import LoreWorkspace from './LoreWorkspace.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
 	import { formatTypingUsers, getVisibleTypingUsers } from './chat/typing';
@@ -89,6 +91,7 @@ import KeepNotesView from './KeepNotesView.svelte';
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) return 'media' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID)) return 'planner' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(NOTES_ADDON_ID)) return 'notes' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(LORE_ADDON_ID)) return 'lore' as const;
 		return 'messages' as const;
 	})();
 
@@ -104,6 +107,7 @@ import KeepNotesView from './KeepNotesView.svelte';
 			case 'model': return '3D Viewport';
 			case 'map': return 'Map';
 			case 'media': return 'Media Albums';
+			case 'lore': return 'Code';
 			default: return '';
 		}
 	})();
@@ -121,6 +125,7 @@ import KeepNotesView from './KeepNotesView.svelte';
 			case 'reader': return `Opened from #${channelDisplayName}`;
 			case 'model': return `Opened from #${channelDisplayName}`;
 			case 'map': return channelDisplayName ? `Opened from #${channelDisplayName}` : 'Map workspace';
+			case 'lore': return 'Versioned code & files — browse, diff, run scripts';
 			default: return channelDescription;
 		}
 	})();
@@ -458,6 +463,8 @@ import KeepNotesView from './KeepNotesView.svelte';
 			<PlannerWorkspace />
 		{:else if selectedWorkspaceView === 'notes'}
 			<KeepNotesView />
+		{:else if selectedWorkspaceView === 'lore'}
+			<LoreWorkspace />
 		{:else if currentChannelType === 'gallery'}
 			<GalleryChannel />
 		{:else if currentChannelType === 'lore'}

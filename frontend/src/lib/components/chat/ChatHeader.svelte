@@ -8,6 +8,7 @@
 	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
 	import { openPlannerSurface } from '$lib/plannerWorkspace';
 	import { openNotesSurface } from '$lib/notesWorkspace';
+	import { openLoreSurface } from '$lib/loreWorkspace';
 	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
 	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
@@ -70,6 +71,9 @@
 				break;
 			case 'map':
 				void openFullMapTab();
+				break;
+			case 'lore':
+				openLoreSurface();
 				break;
 		}
 	}

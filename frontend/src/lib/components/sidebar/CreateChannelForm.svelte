@@ -45,9 +45,9 @@
 			{ id: 'wiki', label: 'Wiki', hint: 'Pages & revisions', icon: 'book' },
 			{ id: 'planning', label: 'Planner', hint: 'Board & calendar', icon: 'kanban' },
 			{ id: 'category', label: 'Folder', hint: 'Group channels', icon: 'folder' },
-			...(loreAvailable
-				? ([{ id: 'lore', label: 'Assets', hint: 'Versioned files', icon: 'box' }] as TypeOption[])
-				: [])
+						...(loreAvailable
+							? ([{ id: 'lore', label: 'Code', hint: 'Versioned code & files', icon: 'box' }] as TypeOption[])
+							: [])
 		] as TypeOption[]
 	);
 
@@ -56,8 +56,8 @@
 	$: namePlaceholder =
 		newChannelType === 'voice'
 			? 'voice-room'
-			: newChannelType === 'lore'
-				? 'asset-storage'
+					: newChannelType === 'lore'
+					? 'code-repo'
 				: newChannelType === 'forum'
 					? 'forum-board'
 					: newChannelType === 'wiki'
