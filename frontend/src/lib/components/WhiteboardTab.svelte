@@ -40,6 +40,19 @@
 	let remoteCursors: RemoteCursorEntry[] = [];
 	let errorMessage = '';
 	let exportBusy = false;
+	let errorTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/** Show a transient error banner that auto-clears after a few seconds
+	 *  (socket whiteboard:error events can otherwise linger behind the
+	 *  toolbar and read as a stuck red bar). */
+	function showTransientError(message: string): void {
+		errorMessage = message;
+		if (errorTimer) clearTimeout(errorTimer);
+		errorTimer = setTimeout(() => {
+			errorMessage = '';
+			errorTimer = null;
+		}, 6000);
+	}
 	let syncSession: SyncSession | null = null;
 	let cursorCleanupTimer: ReturnType<typeof setInterval> | null = null;
 	let syncReady = false;
@@ -59,6 +72,12 @@
 	$: boardSyncErrorText = $boardSyncError;
 	$: desktopRequired = !!boardSyncErrorText && boardSyncErrorText.includes('desktop-only');
 	$: readOnly = !isDesktopClient && (($policy?.writeAccess === 'desktop') || (!!boardSyncErrorText && boardSyncErrorText.includes('read-only')));
+	// The sync store carries real failures ("Sync failed — reload the board",
+	// conflict re-sync notices) that were previously set but never displayed
+	// anywhere (only desktop/read-only were consumed). Surface them in the
+	// banner unless they are the desktop/read-only gates (those render their
+	// own full-screen UI).
+	$: syncErrorToShow = !desktopRequired && boardSyncErrorText && !boardSyncErrorText.includes('read-only') ? boardSyncErrorText : '';
 
 	$: selectedStrokeCount = (() => {
 		const sel = $selection;
@@ -166,7 +185,7 @@
 				errorMessage = '';
 			},
 			onError(payload) {
-				errorMessage = payload.message || 'Whiteboard error';
+				showTransientError(payload.message || 'Whiteboard error');
 			}
 		});
 	}
@@ -178,7 +197,7 @@
 		try {
 			await exportBoardAsPng(boardStore.getDocument());
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to export whiteboard as PNG.';
+			showTransientError(error instanceof Error ? error.message : 'Failed to export whiteboard as PNG.');
 		} finally {
 			exportBusy = false;
 		}
@@ -189,7 +208,7 @@
 		try {
 			exportBoardAsJson(boardStore.getDocument());
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to export whiteboard as JSON.';
+			showTransientError(error instanceof Error ? error.message : 'Failed to export whiteboard as JSON.');
 		}
 	}
 
@@ -271,7 +290,7 @@
 		type="file"
 		accept="image/*"
 		multiple
-		on:change={handleImportChange}
+		onchange={handleImportChange}
 	/>
 	<div class="whiteboard-topbar">
 		<div class="whiteboard-title-row">
@@ -344,8 +363,11 @@
 		</div>
 	</div>
 
-	{#if errorMessage && !desktopRequired}
-		<div class="whiteboard-banner error">{errorMessage}</div>
+	{#if (errorMessage || syncErrorToShow) && !desktopRequired}
+		<div class="whiteboard-banner error">
+			<span>{errorMessage || syncErrorToShow}</span>
+			{#if errorMessage}<button type="button" class="banner-dismiss" onclick={() => { errorMessage = ''; if (errorTimer) { clearTimeout(errorTimer); errorTimer = null; } }} aria-label="Dismiss error">×</button>{/if}
+		</div>
 	{/if}
 
 	{#if channelId}
@@ -564,19 +586,43 @@
 
 	.whiteboard-banner {
 		position: absolute;
-		top: 4.2rem;
+		top: 8.2rem;
 		left: 0.9rem;
 		right: 0.9rem;
-		z-index: 17;
+		/* Above .wb-toolbar (z-index 20) so errors are never hidden behind it. */
+		z-index: 30;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		padding: 0.75rem 1rem;
 		font-size: 0.9rem;
 		border-radius: 14px;
+		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 	}
 
 	.whiteboard-banner.error {
 		background: color-mix(in srgb, var(--color-danger, #ef4444) 22%, transparent);
 		color: var(--text-danger, #ef4444);
 		border-bottom: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 24%, transparent);
+	}
+
+	.whiteboard-banner.error :global(span) {
+		flex: 1;
+	}
+
+	.banner-dismiss {
+		background: transparent;
+		border: none;
+		color: inherit;
+		font-size: 1.1rem;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0 0 0 0.5rem;
+		opacity: 0.7;
+	}
+
+	.banner-dismiss:hover {
+		opacity: 1;
 	}
 
 	.whiteboard-banner.read-only {

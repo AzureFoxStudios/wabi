@@ -51,7 +51,9 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 10;
+  /* Above .wb-toolbar (z-index 20) and .whiteboard-banner (z-index 30) so
+     import errors/status are never hidden behind the toolbar. */
+  z-index: 40;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -68,6 +70,9 @@
   border-radius: var(--radius-md, 8px);
   font-size: var(--text-sm, 14px);
   backdrop-filter: blur(4px);
+  max-width: min(420px, 90%);
+  text-align: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
 .whiteboard-import-overlay.is-error {

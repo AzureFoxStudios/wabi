@@ -700,6 +700,10 @@
 		newChannelType = t;
 		createChannelError = '';
 		showCreateInput = true;
+		// Re-probe lore capability when the form opens: the mount-time check
+		// may have raced the very first page load and returned false, which
+		// would otherwise leave the Code chip stuck on "Addon unavailable".
+		void refreshLoreCapability();
 		tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 	}
 	function handleDeleteChannel(id: string) { channelToDelete = id; showDeleteConfirm = true; }
@@ -775,7 +779,15 @@
 		createFolderChoice = 'none';
 		createNewFolderName = '';
 		showCreateInput = true;
+		void refreshLoreCapability();
 		void tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
+	}
+
+	/** Re-probe lore addon capability (mount-time check may have raced). */
+	function refreshLoreCapability(): void {
+		void hasAddonCapability('lore').then((ok) => {
+			loreAvailable = ok;
+		});
 	}
 </script>
 
