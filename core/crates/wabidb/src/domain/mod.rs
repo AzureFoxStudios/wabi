@@ -755,6 +755,19 @@ impl From<crate::projections::gallery::GalleryFeedbackRecord> for GalleryFeedbac
     }
 }
 
+/// A whiteboard board document, persisted to the `whiteboard_docs` projection.
+///
+/// The full `BoardDocument` JSON (elements, layers, policy, version, …) is
+/// stored verbatim in `doc_json`. The version lives inside the JSON so the
+/// current version survives restarts; the in-memory version map in the server
+/// is only a cache.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WhiteboardDoc {
+    pub board_id: String,
+    pub doc_json: String,
+    pub updated_at_micros: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -653,6 +653,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::users::UsersProjection;
     use crate::projections::owner::OwnerProjection;
     use crate::projections::webhooks::WebhooksProjection;
+    use crate::projections::whiteboard_docs::WhiteboardDocsProjection;
     use crate::projections::gallery::{GalleryFeedbackProjection, GalleryWorkProjection};
     use crate::projections::wiki::{WikiProjection, WikiRevisionProjection};
     use std::sync::Arc;
@@ -729,6 +730,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             handler: Arc::new(LayoutsProjection),
             index_name: "user_layouts",
             record_type_name: "wabidb::domain::UserLayout",
+        },
+        ProjectionRegistration {
+            event_types: &["whiteboard_doc_upserted"],
+            handler: Arc::new(WhiteboardDocsProjection),
+            index_name: "whiteboard_docs",
+            record_type_name: "wabidb::domain::WhiteboardDoc",
         },
         ProjectionRegistration {
             event_types: &["call_session_created", "call_session_ended"],

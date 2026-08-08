@@ -30,4 +30,5 @@ pub mod registry;
 pub mod secondary_index;
 pub mod users;
 pub mod webhooks;
+pub mod whiteboard_docs;
 pub mod wiki;
