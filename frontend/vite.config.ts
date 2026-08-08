@@ -25,7 +25,7 @@ export default defineConfig({
 	},
 	define: {
 		'process.env': {},
-		'__WABI_SW_VERSION__': JSON.stringify('9'),
+		'__WABI_SW_VERSION__': JSON.stringify('10'),
 		'__WABI_IS_TAURI__': JSON.stringify(isTauri)
 	},
 	plugins: [
