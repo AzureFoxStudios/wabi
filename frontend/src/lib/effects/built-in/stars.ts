@@ -6,13 +6,13 @@ interface Star {
 	size: number;
 	phase: number;
 	speed: number;
-	life: number;
+	age: number;
+	maxAge: number;
 }
 
 /**
- * Stars — ported from Odysseus' `sparkles` pattern.
- * Twinkling 4-point stars that fade in and out (appear & dissolve),
- * drifting gently through the void.
+ * Stars — twinkling points that fade in and out like a breathing sky.
+ * Each star has a full lifecycle: fade in, shine, fade out, then respawn.
  */
 export class StarsEffect implements AmbientEffect {
 	id = 'stars';
@@ -40,18 +40,20 @@ export class StarsEffect implements AmbientEffect {
 		canvas.height = this.H * dpr;
 		this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		this.stars = [];
-		const count = Math.max(35, Math.floor((this.W * this.H) / 30000));
-		for (let i = 0; i < count; i++) this.stars.push(this.make());
+		const count = Math.max(60, Math.floor((this.W * this.H) / 22000));
+		for (let i = 0; i < count; i++) this.stars.push(this.make(true));
 	}
 
-	private make(): Star {
+	private make(randomAge = false): Star {
+		const maxAge = 280 + Math.random() * 420;
 		return {
 			x: Math.random() * this.W,
 			y: Math.random() * this.H,
-			size: 2 + Math.random() * 5,
+			size: 1.2 + Math.random() * 4.5,
 			phase: Math.random() * Math.PI * 2,
-			speed: 0.015 + Math.random() * 0.03,
-			life: 0.5 + Math.random() * 0.5
+			speed: 0.01 + Math.random() * 0.02,
+			age: randomAge ? Math.random() * maxAge : 0,
+			maxAge: maxAge
 		};
 	}
 
@@ -67,11 +69,15 @@ export class StarsEffect implements AmbientEffect {
 
 		for (const s of this.stars) {
 			s.phase += s.speed * speedMult;
-			const twinkle = Math.sin(s.phase);
-			const alpha = Math.max(0, twinkle) * 0.25 * s.life * intensity;
-			const scale = 0.5 + Math.max(0, twinkle) * 0.5;
-			if (alpha > 0.01) this.drawStar(s.x, s.y, s.size * scale * sizeMult, color, alpha);
-			if (s.phase > Math.PI * 6) Object.assign(s, this.make());
+			s.age += speedMult;
+			if (s.age > s.maxAge) Object.assign(s, this.make(false));
+
+			const t = s.age / s.maxAge;
+			const fade = Math.sin(t * Math.PI); // smooth in/out across full life
+			const twinkle = 0.55 + 0.45 * Math.sin(s.phase);
+			const alpha = fade * twinkle * 0.8 * intensity;
+			const scale = 0.35 + twinkle * 0.65;
+			if (alpha > 0.006) this.drawStar(s.x, s.y, s.size * scale * sizeMult, color, alpha);
 		}
 		ctx.globalAlpha = 1;
 	}
@@ -95,12 +101,13 @@ export class StarsEffect implements AmbientEffect {
 	resize(w: number, h: number): void {
 		this.W = w;
 		this.H = h;
+		const count = Math.max(60, Math.floor((w * h) / 22000));
 		this.stars = [];
-		const count = Math.max(35, Math.floor((w * h) / 30000));
-		for (let i = 0; i < count; i++) this.stars.push(this.make());
+		for (let i = 0; i < count; i++) this.stars.push(this.make(true));
 	}
 
 	destroy(): void {
+		this.ctx?.clearRect(0, 0, this.W, this.H);
 		this.ctx = null;
 		this.stars = [];
 	}

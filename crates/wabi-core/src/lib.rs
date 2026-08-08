@@ -5,6 +5,7 @@
 //! types and validators to their own transports.
 
 pub mod auth;
+pub mod lore;
 pub mod message;
 pub mod message_retention;
 pub mod plugin;
