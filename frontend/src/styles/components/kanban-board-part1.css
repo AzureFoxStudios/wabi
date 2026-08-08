@@ -9,26 +9,37 @@
 	justify-content: space-between;
 	align-items: center;
 	margin-bottom: 1rem;
-	flex-wrap: wrap;
-	gap: 1rem;
+	flex-wrap: nowrap;
+	gap: 0.75rem;
+	min-width: 0;
 }
 
 /* Hosted-in-Planner: no page title, single-row toolbar */
 .kanban-header.embedded {
-	margin-bottom: 0.75rem;
-	row-gap: 0.5rem;
+	margin-bottom: 0.5rem;
+	padding: 0 0.75rem;
+	row-gap: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: thin;
 }
 
 .kanban-header h1 {
 	margin: 0;
 	font-size: 1.5rem;
 	color: var(--biz-text-primary, #f1f5f9);
+	flex-shrink: 0;
 }
 
 .filters {
 	display: flex;
-	gap: 0.75rem;
+	gap: 0.5rem;
 	align-items: center;
+	flex: 1 1 auto;
+	min-width: 0;
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	scrollbar-width: thin;
 }
 
 .filter-select {
@@ -127,6 +138,7 @@
 	cursor: pointer;
 	transition: background 0.2s, filter 0.2s;
 	white-space: nowrap;
+	flex-shrink: 0;
 }
 
 .kanban-add-btn:hover:not(:disabled) {
@@ -325,12 +337,15 @@
 /* Kanban Board Wrapper */
 .kanban-board-wrapper {
 	flex: 1;
+	min-height: 0;
 	position: relative;
 	overflow-x: auto;
 	overflow-y: hidden;
 	scroll-behavior: smooth;
 	cursor: grab;
-	padding-bottom: 1rem;
+	padding-bottom: 0.5rem;
+	/* Ensure horizontal lane is the primary scroll surface */
+	overscroll-behavior-x: contain;
 }
 
 .kanban-board-wrapper:active {
@@ -344,15 +359,21 @@
 /* Kanban Board */
 .kanban-board {
 	display: flex;
+	flex-direction: row;
+	flex-wrap: nowrap;
+	align-items: stretch;
 	gap: 1rem;
-	width: fit-content;
-	padding: 0 1rem;
+	width: max-content;
+	min-width: 100%;
+	padding: 0 0.75rem;
 	height: 100%;
+	min-height: 0;
+	box-sizing: border-box;
 }
 
 /* Scroll Hint Buttons */
 .scroll-hint {
-	position: fixed;
+	position: absolute;
 	top: 50%;
 	transform: translateY(-50%);
 	width: 32px;
@@ -383,11 +404,11 @@
 }
 
 .scroll-hint-left {
-	left: 12px;
+	left: 8px;
 }
 
 .scroll-hint-right {
-	right: 12px;
+	right: 8px;
 }
 
 .kanban-column {

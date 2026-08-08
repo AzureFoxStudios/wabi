@@ -294,8 +294,10 @@
 
 @media (max-width: 768px) {
 	.calendar-header {
-		flex-direction: column;
-		align-items: stretch;
+		flex-wrap: nowrap;
+		align-items: center;
+		overflow-x: auto;
+		overflow-y: hidden;
 	}
 
 	.header-center {
@@ -303,7 +305,7 @@
 	}
 
 	.header-right {
-		justify-content: center;
+		justify-content: flex-end;
 	}
 
 	.day-cell {
