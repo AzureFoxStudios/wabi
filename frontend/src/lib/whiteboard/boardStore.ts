@@ -39,6 +39,8 @@ export interface BoardStyle {
 	strokeColor: string;
 	strokeWidth: number;
 	fillColor: string;
+	opacity: number;
+	hardness: number;
 }
 
 export interface BoardState {

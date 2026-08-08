@@ -91,12 +91,15 @@ export function createToolEventFactory(
 		const sy = e.clientY - rect.top;
 		const vp = get(viewport);
 		const board = screenToBoard(sx, sy, vp);
+		// Mouse always reports pressure 0.5, so treat it as full width (pressure 1).
+		// Pen/touch report real pressure; fall back to full width when none is given.
+		const hasPressure = e.pointerType !== 'mouse' && e.pressure > 0 && Number.isFinite(e.pressure);
 		return {
 			boardX: board.x,
 			boardY: board.y,
 			screenX: sx,
 			screenY: sy,
-			pressure: e.pressure || 0.5,
+			pressure: hasPressure ? Math.max(0, Math.min(1, e.pressure)) : 1,
 			shiftKey: e.shiftKey,
 			ctrlKey: e.ctrlKey || e.metaKey,
 			altKey: e.altKey,
