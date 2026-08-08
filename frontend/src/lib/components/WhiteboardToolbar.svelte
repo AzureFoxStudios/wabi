@@ -43,6 +43,14 @@
 	function setWidth(w: number) {
 		boardStore.setStyle({ strokeWidth: w });
 	}
+
+	function setHardness(h: number) {
+		boardStore.setStyle({ hardness: h / 100 });
+	}
+
+	function setOpacity(o: number) {
+		boardStore.setStyle({ opacity: o / 100 });
+	}
 </script>
 
 <div class="wb-toolbar">
@@ -148,18 +156,71 @@
 
 	<div class="wb-toolbar-divider"></div>
 
-	<div class="wb-toolbar-section widths">
-		{#each strokeWidths as w}
-			<button
-				class="wb-width-btn"
-				class:active={$currentStyle.strokeWidth === w}
-				on:click={() => setWidth(w)}
-				title="{w}px"
-			>
-				<span class="wb-width-preview" style="height: {Math.max(2, w)}px"></span>
-			</button>
-		{/each}
-	</div>
+	{#if $activeTool === 'pen'}
+		<div class="wb-brush-settings">
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Size</span>
+				<span class="wb-brush-row">
+					<input
+						type="range"
+						min="1"
+						max="64"
+						step="1"
+						value={$currentStyle.strokeWidth}
+						on:input={(e) => setWidth(Number((e.currentTarget as HTMLInputElement).value))}
+						class="wb-brush-slider"
+						aria-label="Brush size"
+					/>
+					<span class="wb-brush-value">{$currentStyle.strokeWidth}px</span>
+				</span>
+			</label>
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Hardness</span>
+				<span class="wb-brush-row">
+					<input
+						type="range"
+						min="0"
+						max="100"
+						step="1"
+						value={Math.round(($currentStyle.hardness ?? 1) * 100)}
+						on:input={(e) => setHardness(Number((e.currentTarget as HTMLInputElement).value))}
+						class="wb-brush-slider"
+						aria-label="Brush hardness"
+					/>
+					<span class="wb-brush-value">{Math.round(($currentStyle.hardness ?? 1) * 100)}%</span>
+				</span>
+			</label>
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Opacity</span>
+				<span class="wb-brush-row">
+					<input
+						type="range"
+						min="10"
+						max="100"
+						step="1"
+						value={Math.round(($currentStyle.opacity ?? 1) * 100)}
+						on:input={(e) => setOpacity(Number((e.currentTarget as HTMLInputElement).value))}
+						class="wb-brush-slider"
+						aria-label="Brush opacity"
+					/>
+					<span class="wb-brush-value">{Math.round(($currentStyle.opacity ?? 1) * 100)}%</span>
+				</span>
+			</label>
+		</div>
+	{:else}
+		<div class="wb-toolbar-section widths">
+			{#each strokeWidths as w}
+				<button
+					class="wb-width-btn"
+					class:active={$currentStyle.strokeWidth === w}
+					on:click={() => setWidth(w)}
+					title="{w}px"
+				>
+					<span class="wb-width-preview" style="height: {Math.max(2, w)}px"></span>
+				</button>
+			{/each}
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -319,5 +380,85 @@
 		width: 16px;
 		border-radius: 2px;
 		background: color-mix(in srgb, var(--surface-base, #24243e) 72%, transparent);
+	}
+
+	.wb-brush-settings {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+	.wb-brush-control {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+	}
+
+	.wb-brush-label {
+		font-size: 8px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--text-muted, #9999ff);
+	}
+
+	.wb-brush-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.wb-brush-slider {
+		width: 64px;
+		height: 4px;
+		border-radius: var(--radius-sm, 4px);
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 22%, transparent);
+		outline: none;
+		-webkit-appearance: none;
+		appearance: none;
+	}
+
+	.wb-brush-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: var(--accent-primary, #6366f1);
+		cursor: pointer;
+		transition: transform 0.12s;
+	}
+
+	.wb-brush-slider::-webkit-slider-thumb:hover {
+		transform: scale(1.25);
+	}
+
+	.wb-brush-slider::-moz-range-thumb {
+		width: 10px;
+		height: 10px;
+		border: none;
+		border-radius: 50%;
+		background: var(--accent-primary, #6366f1);
+		cursor: pointer;
+		transition: transform 0.12s;
+	}
+
+	.wb-brush-slider::-moz-range-thumb:hover {
+		transform: scale(1.25);
+	}
+
+	.wb-brush-value {
+		font-size: 9px;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-secondary, #b3b3ff);
+		min-width: 30px;
+		text-align: right;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wb-brush-slider::-webkit-slider-thumb,
+		.wb-brush-slider::-moz-range-thumb {
+			transition: none;
+		}
 	}
 </style>

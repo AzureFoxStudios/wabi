@@ -63,10 +63,12 @@ function makeBase(style: BoardStyle, type: string, x: number, y: number, element
 		rotation: 0,
 		zIndex: maxZ + 1,
 		layerId: activeLayerId,
-		opacity: 1,
+		opacity: typeof style.opacity === 'number' ? style.opacity : 1,
 		strokeColor: style.strokeColor,
 		strokeWidth: style.strokeWidth,
 		fillColor: style.fillColor,
+		hardness: typeof style.hardness === 'number' ? style.hardness : 1,
+		brushPreset: (style as { brushPreset?: string }).brushPreset,
 		createdBy: '',
 		updatedAt: Date.now(),
 		locked: false
@@ -74,26 +76,113 @@ function makeBase(style: BoardStyle, type: string, x: number, y: number, element
 }
 
 // ---------------------------------------------------------------------------
-// Pen tool
+// Brush helpers (pure, unit-testable)
 // ---------------------------------------------------------------------------
 
-function simplifyPoints(pts: Point[], minDist: number): Point[] {
-	if (pts.length <= 2) return pts;
-	const result: Point[] = [pts[0]];
-	for (let i = 1; i < pts.length; i++) {
-		const prev = result[result.length - 1];
-		const dx = pts[i].x - prev.x;
-		const dy = pts[i].y - prev.y;
-		if (dx * dx + dy * dy >= minDist * minDist) {
-			result.push(pts[i]);
+/**
+ * Map a normalized pressure value to a stroke width.
+ *   width(p) = size * (minSize + (1 - minSize) * p)
+ * Undefined pressure (legacy strokes, pressure-less input) renders full width.
+ */
+export function strokeWidthAt(pressure: number | undefined, size: number, minSize = 0.4): number {
+	const p = typeof pressure === 'number' && Number.isFinite(pressure)
+		? Math.max(0, Math.min(1, pressure))
+		: 1;
+	return size * (minSize + (1 - minSize) * p);
+}
+
+/**
+ * Smooth a raw polyline of input points into a denser, rounded polyline using
+ * centripetal Catmull-Rom interpolation. Sampled ~`segments` times per input
+ * segment with a `tension` scaling on the tangents (0.5 default = soft rounding).
+ * Pure function: same inputs always produce the same outputs.
+ */
+export function smoothStrokePoints(points: Point[], tension = 0.5, segments = 6): Point[] {
+	if (points.length === 0) return [];
+	if (points.length === 1) return [{ ...points[0] }];
+
+	const alpha = 0.5; // centripetal
+	const firstInput = points[0];
+	const result: Point[] = [{
+		...firstInput,
+		pressure: typeof firstInput.pressure === 'number' ? firstInput.pressure : 1
+	}];
+	const seg = Math.max(1, Math.round(segments));
+
+	for (let i = 0; i < points.length - 1; i++) {
+		const p0 = points[Math.max(0, i - 1)];
+		const p1 = points[i];
+		const p2 = points[i + 1];
+		const p3 = points[Math.min(points.length - 1, i + 2)];
+
+		for (let j = 1; j <= seg; j++) {
+			result.push(sampleCatmullRom(p0, p1, p2, p3, j / seg, alpha, tension));
 		}
 	}
-	// Always keep last point
-	if (result[result.length - 1] !== pts[pts.length - 1]) {
-		result.push(pts[pts.length - 1]);
-	}
+
+	// Force the final point to be exact so the stroke ends precisely under the cursor.
+	const lastInput = points[points.length - 1];
+	result[result.length - 1] = {
+		...lastInput,
+		pressure: typeof lastInput.pressure === 'number'
+			? lastInput.pressure
+			: interpolatePressure(points[points.length - 2], lastInput, 1)
+	};
 	return result;
 }
+
+function distanceBetween(a: Point, b: Point): number {
+	return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function interpolatePressure(p1: Point, p2: Point, t: number): number {
+	const a = typeof p1.pressure === 'number' ? p1.pressure : 1;
+	const b = typeof p2.pressure === 'number' ? p2.pressure : 1;
+	return a + (b - a) * t;
+}
+
+/**
+ * Centripetal Catmull-Rom segment evaluated in Hermite form between p1 and p2,
+ * using knot intervals derived from chord length (alpha = 0.5). `tension` scales
+ * the tangent vectors: 0 = classic Catmull-Rom, 1 = zero tangents (straight).
+ */
+function sampleCatmullRom(p0: Point, p1: Point, p2: Point, p3: Point, t: number, alpha: number, tension: number): Point {
+	const t0 = 0;
+	const t1 = t0 + Math.pow(distanceBetween(p0, p1), alpha);
+	const t2 = t1 + Math.pow(distanceBetween(p1, p2), alpha);
+	const t3 = t2 + Math.pow(distanceBetween(p2, p3), alpha);
+
+	const delta = t2 - t1;
+	if (delta < 1e-9) return { ...p2, pressure: interpolatePressure(p1, p2, 1) };
+
+	const invT2T0 = t2 - t0 || 1;
+	const invT3T1 = t3 - t1 || 1;
+	const scale = 1 - tension;
+
+	// Tangent vectors at p1 and p2 (centripetal knot parameterization).
+	const m1x = scale * ((p2.x - p0.x) / invT2T0);
+	const m1y = scale * ((p2.y - p0.y) / invT2T0);
+	const m2x = scale * ((p3.x - p1.x) / invT3T1);
+	const m2y = scale * ((p3.y - p1.y) / invT3T1);
+
+	// Cubic Hermite basis over [t1, t2].
+	const t2_ = t * t;
+	const t3_ = t2_ * t;
+	const h00 = 2 * t3_ - 3 * t2_ + 1;
+	const h10 = t3_ - 2 * t2_ + t;
+	const h01 = -2 * t3_ + 3 * t2_;
+	const h11 = t3_ - t2_;
+
+	return {
+		x: h00 * p1.x + h10 * delta * m1x + h01 * p2.x + h11 * delta * m2x,
+		y: h00 * p1.y + h10 * delta * m1y + h01 * p2.y + h11 * delta * m2y,
+		pressure: interpolatePressure(p1, p2, t)
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Pen tool
+// ---------------------------------------------------------------------------
 
 export function createPenTool(): ToolHandler {
 	return {
@@ -102,21 +191,28 @@ export function createPenTool(): ToolHandler {
 		onPointerDown(e) {
 			const state = get(boardStore);
 			const base = makeBase(state.style, 'stroke', e.boardX, e.boardY, state.elements);
-			const points: Point[] = [{ x: e.boardX, y: e.boardY, pressure: e.pressure }];
-			let preview: StrokeElement = { ...base, points: [...points] };
+			const MIN_POINT_DIST = 1.5; // thinning in board space
+			const raw: Point[] = [{ x: e.boardX, y: e.boardY, pressure: e.pressure }];
+			const smoothed = () => smoothStrokePoints(raw);
+			let preview: StrokeElement = { ...base, points: smoothed() };
 
 			return {
 				onPointerMove(e) {
-					points.push({ x: e.boardX, y: e.boardY, pressure: e.pressure });
-					preview = { ...preview, points: [...points] };
+					const last = raw[raw.length - 1];
+					const dx = e.boardX - last.x;
+					const dy = e.boardY - last.y;
+					if (dx * dx + dy * dy >= MIN_POINT_DIST * MIN_POINT_DIST) {
+						raw.push({ x: e.boardX, y: e.boardY, pressure: e.pressure });
+					}
+					preview = { ...preview, points: smoothed() };
 				},
 				onPointerUp() {
-					const simplified = simplifyPoints(points, 2);
-					const bbox = computeStrokeBBox(simplified);
+					const points = smoothStrokePoints(raw);
+					const bbox = computeStrokeBBox(points);
 					const el: StrokeElement = {
 						...base,
 						...bbox,
-						points: simplified
+						points
 					};
 					boardStore.addElement(el);
 					preview = null as any;

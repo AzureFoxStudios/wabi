@@ -1,11 +1,12 @@
 import type { WhiteboardViewport } from './boardTypes';
-import type { BoardElement, StrokeElement } from './elementTypes';
+import type { BoardElement, Point, StrokeElement } from './elementTypes';
 import type { BBox, Handle } from './coords';
 import { boardToScreen } from './coords';
 import type { WhiteboardLayer } from './boardTypes';
 import { sortWhiteboardLayers } from './layers';
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
+import { strokeWidthAt } from './tools';
 
 // ---------------------------------------------------------------------------
 // Image cache (module-level, shared across renders)
@@ -139,28 +140,95 @@ function renderStroke(ctx: CanvasRenderingContext2D, el: StrokeElement): void {
 	const pts = el.points;
 	if (pts.length === 0) return;
 
-	ctx.strokeStyle = el.strokeColor;
-	ctx.lineWidth = el.strokeWidth;
+	const size = el.strokeWidth || 1;
+	const color = el.strokeColor;
+	// Backward compatible: hardness defaults to 1 (existing hard-edge behavior).
+	const hardness = typeof el.hardness === 'number' ? Math.max(0, Math.min(1, el.hardness)) : 1;
+
 	ctx.lineCap = 'round';
 	ctx.lineJoin = 'round';
-	ctx.beginPath();
+
+	// Soft edge: bloom via shadowBlur when hardness < 1.
+	ctx.shadowColor = color;
+	ctx.shadowBlur = hardness < 0.999 ? (1 - hardness) * size * 2 : 0;
 
 	if (pts.length === 1) {
-		ctx.arc(pts[0].x, pts[0].y, el.strokeWidth / 2, 0, Math.PI * 2);
-		ctx.fillStyle = el.strokeColor;
+		const r = Math.max(0.5, strokeWidthAt(pts[0].pressure, size) / 2);
+		ctx.fillStyle = color;
+		ctx.beginPath();
+		ctx.arc(pts[0].x, pts[0].y, r, 0, Math.PI * 2);
 		ctx.fill();
+		ctx.shadowBlur = 0;
 		return;
 	}
 
-	ctx.moveTo(pts[0].x, pts[0].y);
-	// Quadratic Bezier through midpoints for smooth curves
-	for (let i = 1; i < pts.length - 1; i++) {
-		const mx = (pts[i].x + pts[i + 1].x) / 2;
-		const my = (pts[i].y + pts[i + 1].y) / 2;
-		ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+	if (hasPressureData(pts)) {
+		drawVariableWidthStroke(ctx, pts, size, color);
+	} else {
+		ctx.strokeStyle = color;
+		ctx.lineWidth = size;
+		ctx.beginPath();
+		ctx.moveTo(pts[0].x, pts[0].y);
+		// Quadratic Bezier through midpoints for smooth curves
+		for (let i = 1; i < pts.length - 1; i++) {
+			const mx = (pts[i].x + pts[i + 1].x) / 2;
+			const my = (pts[i].y + pts[i + 1].y) / 2;
+			ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+		}
+		ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+		ctx.stroke();
 	}
-	ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-	ctx.stroke();
+
+	ctx.shadowBlur = 0;
+}
+
+function hasPressureData(pts: Point[]): boolean {
+	return pts.some((p) => typeof p.pressure === 'number');
+}
+
+/**
+ * Draw a stroke whose width follows pressure: width(p) = size * (minSize + (1 - minSize) * p).
+ * Each segment is a filled quad (two points offset by the local normal on each side),
+ * so adjacent segments never overlap — globalAlpha (element opacity) stays correct.
+ * Round caps are stamped at both ends.
+ */
+function drawVariableWidthStroke(
+	ctx: CanvasRenderingContext2D,
+	pts: Point[],
+	size: number,
+	color: string
+): void {
+	ctx.fillStyle = color;
+
+	for (let i = 0; i < pts.length - 1; i++) {
+		const a = pts[i];
+		const b = pts[i + 1];
+		const dx = b.x - a.x;
+		const dy = b.y - a.y;
+		const len = Math.hypot(dx, dy);
+		if (len < 1e-6) continue;
+
+		const nx = -dy / len;
+		const ny = dx / len;
+		const ra = Math.max(0.25, strokeWidthAt(a.pressure, size) / 2);
+		const rb = Math.max(0.25, strokeWidthAt(b.pressure, size) / 2);
+
+		ctx.beginPath();
+		ctx.moveTo(a.x + nx * ra, a.y + ny * ra);
+		ctx.lineTo(b.x + nx * rb, b.y + ny * rb);
+		ctx.lineTo(b.x - nx * rb, b.y - ny * rb);
+		ctx.lineTo(a.x - nx * ra, a.y - ny * ra);
+		ctx.closePath();
+		ctx.fill();
+	}
+
+	// Round caps
+	for (const end of [pts[0], pts[pts.length - 1]]) {
+		const r = Math.max(0.25, strokeWidthAt(end.pressure, size) / 2);
+		ctx.beginPath();
+		ctx.arc(end.x, end.y, r, 0, Math.PI * 2);
+		ctx.fill();
+	}
 }
 
 function renderLine(ctx: CanvasRenderingContext2D, el: BoardElement): void {
