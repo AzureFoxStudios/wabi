@@ -170,25 +170,43 @@ export function hasAddonCapability(addonId: string): Promise<boolean> {
 	if (cached) return cached;
 
 	const promise = (async (): Promise<boolean> => {
-		if (BUNDLED_FRONTEND_IDS.has(normalizedId)) {
-			return true;
+		let result = false;
+		try {
+			if (BUNDLED_FRONTEND_IDS.has(normalizedId)) {
+				result = true;
+			} else {
+				const builtinIds = detectBuiltinFrontendAddonIds();
+				if (builtinIds.has(normalizedId)) {
+					result = true;
+				} else {
+					const plugins = await fetchPluginInventory();
+					result = !!plugins && plugins.some(
+						(plugin) =>
+							String(plugin.id || '')
+								.trim()
+								.toLowerCase() === normalizedId && plugin.enabled !== false
+					);
+				}
+			}
+		} finally {
+			// A negative result must NOT be cached forever: the inventory
+			// fetch can race the very first page load (stale shell, flaky
+			// network) and a permanent `false` silently hides the Code chip
+			// for the whole session. Only positive results are sticky; a
+			// `false` resolution is evicted so the next call re-probes.
+			if (!result && capabilityCache.get(normalizedId) === promise) {
+				capabilityCache.delete(normalizedId);
+			}
 		}
-
-		const builtinIds = detectBuiltinFrontendAddonIds();
-		if (builtinIds.has(normalizedId)) {
-			return true;
-		}
-
-		const plugins = await fetchPluginInventory();
-		if (!plugins) return false;
-		return plugins.some(
-			(plugin) =>
-				String(plugin.id || '')
-					.trim()
-					.toLowerCase() === normalizedId && plugin.enabled !== false
-		);
+		return result;
 	})();
 
 	capabilityCache.set(normalizedId, promise);
 	return promise;
+}
+
+/** Drop cached capability results (e.g. after a shell refresh) so the next
+ *  check re-probes the server inventory instead of trusting a stale answer. */
+export function resetAddonCapabilityCache(): void {
+	capabilityCache.clear();
 }

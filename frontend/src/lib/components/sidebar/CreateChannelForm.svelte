@@ -45,14 +45,17 @@
 			{ id: 'wiki', label: 'Wiki', hint: 'Pages & revisions', icon: 'book' },
 			{ id: 'planning', label: 'Planner', hint: 'Board & calendar', icon: 'kanban' },
 			{ id: 'category', label: 'Folder', hint: 'Group channels', icon: 'folder' },
-						...(loreAvailable
-							? ([{ id: 'lore', label: 'Code', hint: 'Versioned code & files', icon: 'box' }] as TypeOption[])
-							: [])
+			{ id: 'lore', label: 'Code', hint: 'Versioned code & files', icon: 'box' }
 		] as TypeOption[]
 	);
 
 	$: selectedType = typeOptions.find((t) => t.id === newChannelType) ?? typeOptions[0];
 	$: isFolderType = newChannelType === 'category';
+	// Code is selectable only when the lore addon capability resolved true.
+	// The chip stays VISIBLE when unavailable (disabled + hint) so the option
+	// isn't silently missing — a flaky first capability probe no longer hides
+	// the entire channel type from the creator.
+	$: loreDisabled = newChannelType === 'lore' && !loreAvailable;
 	$: namePlaceholder =
 		newChannelType === 'voice'
 			? 'voice-room'
@@ -74,12 +77,8 @@
 		void tick().then(() => inputEl?.focus());
 	}
 
-	// If lore drops while form is open on lore, fall back to text.
-	$: if (!loreAvailable && newChannelType === 'lore') {
-		onTypeChange('text');
-	}
-
-	// Creating a folder itself never nests under another folder in this form.
+	// If lore is unavailable, keep the selection (don't silently reset) —
+	// the chip renders disabled and the submit button is gated instead.
 	$: if (isFolderType && folderChoice !== 'none') {
 		onFolderChoiceChange('none');
 	}
@@ -132,19 +131,22 @@
 			<span class="create-field-label">Type</span>
 			<div class="create-type-grid" role="listbox" aria-label="Channel type">
 				{#each typeOptions as opt (opt.id)}
+					{@const chipDisabled = opt.id === 'lore' && !loreAvailable}
 					<button
 						type="button"
 						class="create-type-chip"
 						class:active={newChannelType === opt.id}
+						class:unavailable={chipDisabled}
 						role="option"
 						aria-selected={newChannelType === opt.id}
-						on:click={() => onTypeChange(opt.id)}
-						title={opt.hint}
+						aria-disabled={chipDisabled}
+						on:click={() => { if (!chipDisabled) onTypeChange(opt.id); }}
+						title={chipDisabled ? 'Code channels unavailable — lore addon not enabled on this server' : opt.hint}
 					>
 						<span class="create-type-icon" data-icon={opt.icon} aria-hidden="true"></span>
 						<span class="create-type-text">
 							<span class="create-type-name">{opt.label}</span>
-							<span class="create-type-hint">{opt.hint}</span>
+							<span class="create-type-hint">{chipDisabled ? 'Addon unavailable' : opt.hint}</span>
 						</span>
 					</button>
 				{/each}
@@ -200,7 +202,7 @@
 
 		<div class="create-channel-actions">
 			<button type="button" class="create-btn-ghost" on:click={onCancel} disabled={creatingChannel}>Cancel</button>
-			<button type="button" class="create-btn-primary" on:click={onSubmit} disabled={creatingChannel || !newChannelName.trim()}>
+			<button type="button" class="create-btn-primary" on:click={onSubmit} disabled={creatingChannel || !newChannelName.trim() || loreDisabled}>
 				{creatingChannel ? 'Creating…' : `Create ${getChannelTypeLabel(newChannelType)}`}
 			</button>
 		</div>
