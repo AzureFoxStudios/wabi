@@ -3,6 +3,7 @@ import { boardStore, viewport, activeTool, selection, elements, layers } from '$
 import type { ToolType } from '$lib/whiteboard/boardStore';
 import {
 	renderElements,
+	renderLayersWithBlend,
 	renderGrid,
 	renderSelectionBox,
 	renderHandles,
@@ -48,7 +49,16 @@ export function createRenderLoop(
 		if (showGrid) {
 			renderGrid(baseCtx, vp, canvasWidth, canvasHeight, 24);
 		}
-		renderElements(baseCtx, els, vp, get(layers));
+		// Composite layers bottom-to-top with per-layer blendMode + opacity.
+		// Falls back to plain renderElements when there are no layers (or a
+		// single default layer with no blend) — renderLayersWithBlend handles
+		// both cases, but keep renderElements for any layer-less boards.
+		const currentLayers = get(layers);
+		if (currentLayers.length > 0) {
+			renderLayersWithBlend(baseCtx, els, vp, currentLayers, canvasWidth, canvasHeight, dpr);
+		} else {
+			renderElements(baseCtx, els, vp, currentLayers);
+		}
 		baseCtx.restore();
 
 		const intCtx = interactionCanvas.getContext('2d')!;
