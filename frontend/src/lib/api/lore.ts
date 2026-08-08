@@ -193,7 +193,7 @@ export async function deleteLoreFile(token: string, channelId: number, path: str
 }
 
 export async function lockLoreFile(token: string, channelId: number, path: string): Promise<void> {
-	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}/lock`), {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/lock/${encodeURIComponent(path)}`), {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -204,7 +204,7 @@ export async function lockLoreFile(token: string, channelId: number, path: strin
 }
 
 export async function unlockLoreFile(token: string, channelId: number, path: string): Promise<void> {
-	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}/lock`), {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/lock/${encodeURIComponent(path)}`), {
 		method: 'DELETE',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -215,7 +215,7 @@ export async function unlockLoreFile(token: string, channelId: number, path: str
 }
 
 export async function getLoreFileHistory(token: string, channelId: number, path: string): Promise<LoreRevision[]> {
-	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}/history`), {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/history/${encodeURIComponent(path)}`), {
 		method: 'GET',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -228,7 +228,7 @@ export async function getLoreFileHistory(token: string, channelId: number, path:
 
 export async function getLoreFileDiff(token: string, channelId: number, path: string, from: string, to: string): Promise<string> {
 	const params = new URLSearchParams({ from, to });
-	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}/diff?${params.toString()}`), {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/diff/${encodeURIComponent(path)}?${params.toString()}`), {
 		method: 'GET',
 		headers: { Authorization: `Bearer ${token}` }
 	});
