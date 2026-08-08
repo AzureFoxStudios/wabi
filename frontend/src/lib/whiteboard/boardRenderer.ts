@@ -523,7 +523,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, viewport: WhiteboardVi
 
 	ctx.save();
 	ctx.lineWidth = 1;
-	ctx.strokeStyle = 'rgba(100, 116, 139, 0.14)';
+	ctx.strokeStyle = 'rgba(129, 140, 248, 0.16)';
 	for (let x = startX; x < w; x += effectiveGrid) {
 		ctx.beginPath();
 		ctx.moveTo(Math.round(x) + 0.5, 0);
@@ -537,7 +537,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, viewport: WhiteboardVi
 		ctx.stroke();
 	}
 
-	ctx.strokeStyle = 'rgba(71, 85, 105, 0.24)';
+	ctx.strokeStyle = 'rgba(129, 140, 248, 0.3)';
 	for (let x = majorOffsetX; x < w; x += majorEvery) {
 		ctx.beginPath();
 		ctx.moveTo(Math.round(x) + 0.5, 0);

@@ -4,8 +4,8 @@
   overflow: hidden;
   background-color: var(--surface-base, #1a1a2e);
   background-image:
-    linear-gradient(45deg, color-mix(in srgb, var(--text-muted, #9999ff) 7%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--text-muted, #9999ff) 7%, transparent) 75%),
-    linear-gradient(45deg, color-mix(in srgb, var(--text-muted, #9999ff) 7%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--text-muted, #9999ff) 7%, transparent) 75%);
+    linear-gradient(45deg, color-mix(in srgb, var(--accent-secondary, #818cf8) 12%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--accent-secondary, #818cf8) 12%, transparent) 75%),
+    linear-gradient(45deg, color-mix(in srgb, var(--accent-secondary, #818cf8) 12%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--accent-secondary, #818cf8) 12%, transparent) 75%);
   background-size: 24px 24px;
   background-position: 0 0, 12px 12px;
   border-radius: var(--radius-md, 8px);

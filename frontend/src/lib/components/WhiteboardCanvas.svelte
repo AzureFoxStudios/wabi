@@ -3,7 +3,7 @@
 	import { get } from 'svelte/store';
 	import { boardStore, elements, layers, viewport, activeTool, selection } from '$lib/whiteboard/boardStore';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
-	import { renderElements, renderGrid, renderSelectionBox, renderHandles, renderDrawPreview, renderSelectionRect, renderRemoteCursors, preloadImage } from '$lib/whiteboard/boardRenderer';
+	import { renderElements, renderLayersWithBlend, renderGrid, renderSelectionBox, renderHandles, renderDrawPreview, renderSelectionRect, renderRemoteCursors, preloadImage } from '$lib/whiteboard/boardRenderer';
 	import { screenToBoard, getSelectionBBox, getSelectionHandles } from '$lib/whiteboard/coords';
 	import type { BoardElement, TextElement } from '$lib/whiteboard/elementTypes';
 	import { getToolHandler, onTextPlacement, type ToolPointerEvent, type ToolInteraction, type TextPlacement } from '$lib/whiteboard/tools';
@@ -80,7 +80,12 @@
 		baseCtx.scale(dpr, dpr);
 		baseCtx.clearRect(0, 0, canvasWidth, canvasHeight);
 		if (showGrid) renderGrid(baseCtx, vp, canvasWidth, canvasHeight, 24);
-		renderElements(baseCtx, els, vp, get(layers));
+		const currentLayers = get(layers);
+		if (currentLayers.length > 0) {
+			renderLayersWithBlend(baseCtx, els, vp, currentLayers, canvasWidth, canvasHeight, dpr);
+		} else {
+			renderElements(baseCtx, els, vp, currentLayers);
+		}
 		baseCtx.restore();
 		const intCtx = interactionCanvas.getContext('2d')!;
 		intCtx.save();
