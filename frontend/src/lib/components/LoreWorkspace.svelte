@@ -70,7 +70,7 @@
 					<line x1="16" y1="17" x2="8" y2="17"/>
 				</svg>
 				<h3>No code channels yet</h3>
-				<p>Create a Code channel to start a versioned repository — browse files, commit history, diffs, branches, and run scripts right inside Wabi.</p>
+				<p>Create a Code channel to start a versioned repository — browse files, commit history, and diffs right inside Wabi.</p>
 				<button class="new-code-btn" onclick={openCreateForm}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
 						<line x1="12" y1="5" x2="12" y2="19"/>
