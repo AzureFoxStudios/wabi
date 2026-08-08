@@ -32,6 +32,7 @@
 }
 
 .filter-select {
+	min-height: 36px;
 	padding: 0.5rem 0.75rem;
 	background: var(--biz-bg-secondary, #1a2332);
 	border: 1px solid var(--biz-border, #2d3a4d);

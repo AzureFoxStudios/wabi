@@ -79,8 +79,17 @@
 			});
 			if (response.ok) {
 				const data = await response.json();
-				console.log('[KanbanBoard] Fetched users:', data);
-				registeredUsers = Array.isArray(data) ? data : [];
+				const rows = Array.isArray(data)
+					? data
+					: Array.isArray(data?.users)
+						? data.users
+						: [];
+				registeredUsers = rows.map((u: any) => ({
+					user_id: u.user_id ?? u.userId ?? u.id ?? 0,
+					username: u.username ?? u.name ?? 'user',
+					profile_picture: u.profile_picture ?? u.profilePicture,
+					color: u.color ?? '#6366f1'
+				}));
 				filteredUsers = registeredUsers;
 			} else {
 				console.error('[KanbanBoard] Failed to fetch users:', response.status);
