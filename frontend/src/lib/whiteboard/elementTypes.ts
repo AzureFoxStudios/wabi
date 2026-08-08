@@ -31,6 +31,8 @@ export interface ElementBase {
 	createdBy: string;
 	updatedAt: number;
 	locked: boolean;
+	hardness?: number;
+	brushPreset?: string;
 }
 
 export interface StrokeElement extends ElementBase {
@@ -74,6 +76,12 @@ export interface ImageElement extends ElementBase {
 	naturalHeight: number;
 }
 
+export interface MathElement extends ElementBase {
+	type: 'math';
+	latex: string;
+	fontSize: number;
+}
+
 export type BoardElement =
 	| StrokeElement
 	| LineElement
@@ -81,7 +89,8 @@ export type BoardElement =
 	| EllipseElement
 	| ArrowElement
 	| TextElement
-	| ImageElement;
+	| ImageElement
+	| MathElement;
 
 export type BoardElementType = BoardElement['type'];
 

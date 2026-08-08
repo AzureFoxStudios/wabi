@@ -3,6 +3,19 @@ import type { WhiteboardLayer, WhiteboardLayerKind } from './boardTypes';
 export const DEFAULT_WHITEBOARD_LAYER_ID = 'layer-default';
 export const MAX_WHITEBOARD_LAYERS = 32;
 
+export const WHITEBOARD_BLEND_MODES = [
+	'source-over',
+	'multiply',
+	'screen',
+	'overlay',
+	'darken',
+	'lighten',
+	'soft-light',
+	'hard-light',
+	'difference',
+	'exclusion'
+] as const;
+
 export function clampLayerOpacity(opacity: number): number {
 	return Math.max(0, Math.min(1, opacity));
 }
@@ -27,7 +40,8 @@ export function createDefaultWhiteboardLayer(now = Date.now()): WhiteboardLayer 
 		opacity: 1,
 		order: 0,
 		createdAt: now,
-		updatedAt: now
+		updatedAt: now,
+		blendMode: 'source-over'
 	} as WhiteboardLayer;
 }
 
@@ -41,7 +55,8 @@ export function createReferenceWhiteboardLayer(name = 'Reference', now = Date.no
 		opacity: 0.82,
 		order: 0,
 		createdAt: now,
-		updatedAt: now
+		updatedAt: now,
+		blendMode: 'source-over'
 	};
 }
 
@@ -55,7 +70,8 @@ export function createBackgroundWhiteboardLayer(name = 'Background', now = Date.
 		opacity: 1,
 		order: 0,
 		createdAt: now,
-		updatedAt: now
+		updatedAt: now,
+		blendMode: 'source-over'
 	};
 }
 
@@ -86,6 +102,12 @@ export function normalizeWhiteboardLayer(
 	const order = Number.isFinite(candidate.order as number) ? Number(candidate.order) : index;
 	const createdAt = Number.isFinite(candidate.createdAt as number) ? Number(candidate.createdAt) : now;
 	const updatedAt = Number.isFinite(candidate.updatedAt as number) ? Number(candidate.updatedAt) : now;
+	const blendMode =
+		candidate.blendMode === undefined ||
+		typeof candidate.blendMode !== 'string' ||
+		!WHITEBOARD_BLEND_MODES.includes(candidate.blendMode as (typeof WHITEBOARD_BLEND_MODES)[number])
+			? 'source-over'
+			: candidate.blendMode;
 
 	return {
 		id,
@@ -96,7 +118,8 @@ export function normalizeWhiteboardLayer(
 		opacity,
 		order,
 		createdAt,
-		updatedAt
+		updatedAt,
+		blendMode
 	};
 }
 
