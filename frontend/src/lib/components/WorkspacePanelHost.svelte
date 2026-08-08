@@ -12,6 +12,7 @@
 	import TransferCenter from './TransferCenter.svelte';
 	import DMTab from './DMTab.svelte';
 	import AdminTab from './AdminTab.svelte';
+	import LoreCodePanel from './lore/LoreCodePanel.svelte';
 
 	export let panel: WorkspacePanelManifest;
 
@@ -43,6 +44,8 @@
 	<FfxivReferencePanel />
 {:else if panel.component === 'transfers'}
 	<TransferCenter />
+{:else if panel.component === 'code'}
+	<LoreCodePanel />
 {:else}
 	<AddonFallbackPanel {panel} />
 {/if}

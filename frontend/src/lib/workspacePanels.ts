@@ -31,7 +31,8 @@ export type WorkspacePanelComponentKey =
 	| 'model-viewport'
 	| 'ffxiv-reference'
 	| 'reader'
-	| 'transfers';
+	| 'transfers'
+	| 'code';
 
 export type WorkspacePanelDockArea = 'right' | 'bottom' | 'center' | 'floating';
 export type WorkspacePanelMobileMode = 'sheet' | 'fullscreen' | 'hidden';
@@ -171,6 +172,18 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		mobileMode: 'fullscreen',
 		source: 'core',
 		sortOrder: 55
+	},
+	{
+		id: 'code',
+		label: 'Code',
+		shortLabel: 'Code',
+		icon: 'box',
+		component: 'code',
+		capabilities: ['repo-browse'],
+		defaultDock: 'right',
+		mobileMode: 'sheet',
+		source: 'core',
+		sortOrder: 56
 	}
 ];
 
@@ -188,7 +201,8 @@ const KNOWN_COMPONENT_KEYS = new Set<WorkspacePanelComponentKey>([
 	'model-viewport',
 	'ffxiv-reference',
 	'reader',
-	'transfers'
+	'transfers',
+	'code'
 ]);
 
 export const workspacePanelRegistry = { subscribe: panelRegistry.subscribe };
