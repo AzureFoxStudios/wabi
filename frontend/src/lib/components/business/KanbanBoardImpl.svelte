@@ -461,19 +461,10 @@
 				title="Manage columns"
 			>
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M12 5v14M5 12h14"/>
+					<path d="M4 5h4v14H4zM10 5h4v14h-4zM16 5h4v14h-4z"/>
 				</svg>
 			</button>
 		</div>
-		{#if embedded}
-			<button class="kanban-add-btn" on:click={() => openAddModal('todo')} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add a task'}>
-				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-					<line x1="12" y1="5" x2="12" y2="19"/>
-					<line x1="5" y1="12" x2="19" y2="12"/>
-				</svg>
-				<span>Add Task</span>
-			</button>
-		{/if}
 	</header>
 	{#if showColumnSettings}
 		<div class="column-settings">
