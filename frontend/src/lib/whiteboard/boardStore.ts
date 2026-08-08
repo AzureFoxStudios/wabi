@@ -199,6 +199,11 @@ function setStyle(partial: Partial<BoardStyle>): void {
 	activeStore().update((s) => ({ ...s, style: { ...s.style, ...partial } }));
 }
 
+function setWhiteboardPolicy(policy: WhiteboardPolicy): void {
+	activeStore().update((s) => ({ ...s, policy: { ...policy }, isDirty: true }));
+	bumpVersion();
+}
+
 function pushHistoryCheckpoint(): void {
 	activeStore().update((s) => ({ ...s, undoStack: pushUndo(s.elements, s.layers, s.activeLayerId, s.undoStack), redoStack: [] }));
 }
@@ -442,6 +447,7 @@ export const boardStore = {
 	setBoardId,
 	setTool,
 	setStyle,
+	setWhiteboardPolicy,
 	pushHistoryCheckpoint,
 	addElement,
 	updateElement,

@@ -20,6 +20,9 @@
 	export let userColor = '#6366f1';
 	export let syncReady = false;
 	export let showGrid = true;
+	export let readOnly = false;
+
+	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text']);
 
 	let containerEl: HTMLDivElement;
 	let baseCanvas: HTMLCanvasElement;
@@ -138,6 +141,7 @@
 		}
 		if (e.button !== 0) return;
 		const toolType = isSpacePanning ? 'pan' : get(activeTool);
+		if (readOnly && drawingTools.has(toolType)) return;
 		const handler = getToolHandler(toolType);
 		currentInteraction = handler.onPointerDown(makeToolEvent(e));
 		if (currentInteraction) interactionCanvas.setPointerCapture(e.pointerId);
@@ -167,7 +171,7 @@
 		return Array.from(dataTransfer.items || []).some((item) => item.type.startsWith('image/'));
 	}
 	function queueFiles(files: File[], source: 'clipboard' | 'drop'): void {
-		if (!channelId) return;
+		if (!channelId || readOnly) return;
 		const imageFiles = files.filter((file) => file.type.startsWith('image/'));
 		if (imageFiles.length === 0) return;
 		for (const file of imageFiles) queueWhiteboardImport(channelId, file, source);
@@ -194,7 +198,7 @@
 		return { layerId: resolveWritableWhiteboardLayerId(state.layers, state.activeLayerId) };
 	}
 	async function maybeProcessPendingImports(): Promise<void> {
-		if (!syncReady || importBusy || !channelId || !boardId || pendingImportsForChannel.length === 0) return;
+		if (!syncReady || readOnly || importBusy || !channelId || !boardId || pendingImportsForChannel.length === 0) return;
 		const nextImport = pendingImportsForChannel[0];
 		importBusy = true;
 		clearImportError();
@@ -227,14 +231,20 @@
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (!ctrl && !e.altKey) {
 			const toolMap: Record<string, ToolType> = { v: 'select', s: 'select', p: 'pen', d: 'pen', l: 'line', r: 'rect', e: 'ellipse', o: 'ellipse', a: 'arrow', t: 'text' };
-			if (toolMap[e.key.toLowerCase()]) { e.preventDefault(); boardStore.setTool(toolMap[e.key.toLowerCase()]); return; }
+			const key = e.key.toLowerCase();
+			if (toolMap[key]) {
+				if (readOnly && toolMap[key] !== 'select') return;
+				e.preventDefault();
+				boardStore.setTool(toolMap[key]);
+				return;
+			}
 		}
 		if (e.key === ' ' && !e.repeat) { e.preventDefault(); isSpacePanning = true; return; }
-		if (e.key === 'Delete' || e.key === 'Backspace') { const sel = get(selection); if (sel.size > 0) { e.preventDefault(); boardStore.deleteElements([...sel]); } return; }
-		if (ctrl && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) boardStore.redo(); else boardStore.undo(); return; }
-		if (ctrl && e.key.toLowerCase() === 'y') { e.preventDefault(); boardStore.redo(); return; }
+		if (e.key === 'Delete' || e.key === 'Backspace') { if (readOnly) return; const sel = get(selection); if (sel.size > 0) { e.preventDefault(); boardStore.deleteElements([...sel]); } return; }
+		if (ctrl && e.key.toLowerCase() === 'z') { if (readOnly) return; e.preventDefault(); if (e.shiftKey) boardStore.redo(); else boardStore.undo(); return; }
+		if (ctrl && e.key.toLowerCase() === 'y') { if (readOnly) return; e.preventDefault(); boardStore.redo(); return; }
 		if (ctrl && e.key.toLowerCase() === 'a') { e.preventDefault(); boardStore.selectAll(); return; }
-		if (ctrl && e.key.toLowerCase() === 'd') { const sel = get(selection); if (sel.size > 0) { e.preventDefault(); boardStore.duplicateElements([...sel]); } return; }
+		if (ctrl && e.key.toLowerCase() === 'd') { if (readOnly) return; const sel = get(selection); if (sel.size > 0) { e.preventDefault(); boardStore.duplicateElements([...sel]); } return; }
 		if (e.key === 'Escape') { boardStore.clearSelection(); boardStore.setTool('select'); return; }
 	}
 	function handleKeyUp(e: KeyboardEvent) { if (e.key === ' ') isSpacePanning = false; }
@@ -256,15 +266,15 @@
 		textEditing = false; textEditPlacement = null;
 	}
 	async function handlePaste(e: ClipboardEvent) {
-		if (textEditing) return;
+		if (textEditing || readOnly) return;
 		const items = e.clipboardData?.items;
 		if (!items) return;
 		for (const item of items) { if (item.type.startsWith('image/')) { e.preventDefault(); const file = item.getAsFile(); if (!file) continue; queueFiles([file], 'clipboard'); break; } }
 	}
-	function handleDragEnter(event: DragEvent) { if (!dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = true; }
-	function handleDragOver(event: DragEvent) { if (!dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = true; }
+	function handleDragEnter(event: DragEvent) { if (readOnly || !dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = true; }
+	function handleDragOver(event: DragEvent) { if (readOnly || !dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = true; }
 	function handleDragLeave(event: DragEvent) { if ((event.currentTarget as HTMLElement | null)?.contains(event.relatedTarget as Node | null)) return; isDragHover = false; }
-	function handleDrop(event: DragEvent) { if (!dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = false; queueFiles(Array.from(event.dataTransfer?.files || []), 'drop'); }
+	function handleDrop(event: DragEvent) { if (readOnly || !dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = false; queueFiles(Array.from(event.dataTransfer?.files || []), 'drop'); }
 
 	$: cursorStyle = (() => { if (isSpacePanning) return 'grab'; const tool = $activeTool; const handler = getToolHandler(tool); return handler.cursor; })();
 
