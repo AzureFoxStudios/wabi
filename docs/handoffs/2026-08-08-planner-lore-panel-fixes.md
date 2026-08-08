@@ -32,3 +32,18 @@ Hermes (deepseek) dispatch. All 4 tasks landed; `bun run check` clean (only pre-
 
 ## Backend notes
 Lore addon confirmed live on Tim: `/api/addons/lore/health` → `{status:"ok"}`, `POST /api/addons/lore/repos` → 401 missing-auth (route alive), env has `WABI_LORE_ENABLED=true`, `WABI_LORE_AUTO_CREATE=true`. No backend changes needed.
+
+## Follow-up (same day) — whiteboard errors + lore chip re-probe
+
+**Whiteboard red-error-behind-UI (fixed):**
+- Root cause 1: `.whiteboard-banner.error` rendered at `top: 4.2rem; z-index: 17` — the floating toolbar `.wb-toolbar` sits at `top: 4.25rem; z-index: 20` and covered it exactly. Error was invisible behind the toolbar. Now `top: 8.2rem; z-index: 30`, flex layout, drop shadow, dismiss button.
+- Root cause 2: socket `whiteboard:error` messages set `errorMessage` which NEVER auto-cleared — a transient error (e.g. payload-too-large, sync conflict) lingered as a stuck red bar. Now auto-clears after 6s (`showTransientError`), same as the import-error pattern.
+- Root cause 3: `boardSyncError` store messages ("Sync failed — reload the board", "Your changes conflicted…") were set but NEVER rendered anywhere — only `desktop-only`/`read-only` strings were consumed for the gate UIs. Now surfaced in the banner via `syncErrorToShow`.
+- Import-error HUD raised from z-10 to z-40 (was also under the toolbar), max-width + centered text.
+- Fixed one pre-existing mixed-syntax event (`on:change` → `onchange`) — count of mixed-syntax errors dropped 4 → 3 (rest are pre-existing, untouched).
+
+**Lore "Addon unavailable" (fixed):**
+- Root cause: `ChannelSidebar` probed `hasAddonCapability('lore')` ONCE in `onMount`. Even though negative results no longer cache (previous fix), the sidebar stored the single probe result in a plain `let loreAvailable = false` and never re-checked. A flaky mount-time probe = "Addon unavailable" for the session despite the server returning `enabled: true` (verified: `https://wabi.chat/api/addons` → lore `enabled:true`).
+- Fix: new `refreshLoreCapability()` re-probes whenever the create form opens (`toggleCreateInputForType` + `openCreateFormForCategory`), so the chip corrects itself seconds after opening the form.
+
+Files: frontend/src/lib/components/WhiteboardTab.svelte, WhiteboardCanvas.css, ChannelSidebar.svelte. Commit a46cacd.
