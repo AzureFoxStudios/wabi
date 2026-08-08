@@ -50,52 +50,10 @@
 		color: var(--text-heading, #eee);
 	}
 
-	/* Column Settings Panel */
-	.column-settings {
-		background: var(--surface-base, #16213e);
-		border-radius: 8px;
-		padding: 1rem;
-		margin-bottom: 1rem;
-		border: 1px solid var(--border-color, #2a2a4a);
-	}
-
-	.column-settings h3 {
-		margin: 0 0 0.75rem 0;
-		font-size: 0.9rem;
-		color: var(--text-secondary, #aaa);
-	}
-
-	.column-toggles {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-	}
-
-	.column-toggle {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.4rem 0.75rem;
-		background: var(--surface-raised, #1f2937);
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 0.85rem;
-		transition: all 0.2s;
-	}
-
-	.column-toggle:hover {
-		background: var(--surface-hover, #2a2a4a);
-	}
-
-	.column-toggle input {
-		cursor: pointer;
-	}
-
-	.toggle-color {
-		width: 12px;
-		height: 12px;
-		border-radius: 3px;
-	}
+	/* Column Settings Panel — REMOVED legacy duplicate. The live kanban
+	   column settings/toggles are owned by kanban-board-part1.css
+	   (.column-settings, .column-toggle). Dead classes (.column-toggles,
+	   .toggle-color) removed with it. */
 
 	.todo-header h1 {
 		margin: 0;
@@ -140,27 +98,18 @@
 		background: var(--accent-primary, #4752c4);
 	}
 
-	/* Filters */
-	.filters {
-		display: flex;
-		gap: 0.75rem;
-		margin-bottom: 1rem;
-	}
-
-	.filters select {
-		padding: 0.5rem 0.75rem;
-		background: var(--surface-base, #16213e);
-		border: 1px solid var(--border-color, #2a2a4a);
-		border-radius: 6px;
-		color: var(--text-heading, #eee);
-		font-size: 0.85rem;
-	}
+	/* Filters — REMOVED legacy duplicate. Modern kanban filter bar styling
+	   lives in kanban-board-part1.css (.filters { flex; gap 0.5rem; nowrap;
+	   overflow-x auto }); this legacy copy (gap 0.75rem + margin-bottom)
+	   overrode it because todo-list.css imports last. */
 
 	/* Kanban Board — REMOVED legacy grid rules. Kanban layout lives in
 	   kanban-board-part1.css (.kanban-board { display:flex; row }) and
 	   this file MUST NOT redefine .kanban-board/.kanban-column: same
 	   specificity + later import order = grid stomps flex = columns
-	   stack vertically ("fall through the floor"). */
+	   stack vertically ("fall through the floor").
+	   Also removed: legacy .column-settings / .column-toggle / .empty-column
+	   duplicates — kanban-board-part1.css owns those for the live board. */
 
 	.todo-card {
 		background: var(--surface-raised, #1f2937);
@@ -279,12 +228,8 @@
 		color: var(--text-secondary, #888);
 	}
 
-	.empty-column {
-		text-align: center;
-		color: var(--text-secondary, #888);
-		font-size: 0.85rem;
-		padding: 2rem 0;
-	}
+	/* .empty-column — REMOVED legacy duplicate; kanban-board-part1.css owns
+	   the live empty-column (dashed drop-target button) on the board. */
 
 	/* List View */
 	.list-view {

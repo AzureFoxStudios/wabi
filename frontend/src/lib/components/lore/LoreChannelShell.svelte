@@ -272,9 +272,47 @@
 
 	async function handleTemplateSelect(template: any) {
 		showTemplates = false;
-		// TODO: create file from template via API
 		selectedPath = template.file_path;
 		fileContent = null;
+		// Create the file in the repo from the template's starter content
+		// (templates are the built-in list above; content is a small boilerplate
+		// per language). Uses the same upload path as file uploads so the file
+		// lands in the repo and the tree refreshes.
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+		try {
+			const content = templateContent(template);
+			const blob = new Blob([content], { type: 'text/plain' });
+			const file = new File([blob], template.file_path.split('/').pop() || 'template.txt');
+			await uploadLoreFile(token, channelId, template.file_path, file, `Create ${template.file_path} from template`);
+			await loadLoreRepo();
+			// Refresh the file view with the created content.
+			selectedFileInfo = $loreFiles.find(f => f.path === template.file_path) || null;
+			fileContent = content;
+		} catch (e) {
+			console.error('Template create failed:', e);
+		}
+	}
+
+	function templateContent(template: any): string {
+		const name = template.file_path.split('/').pop() || 'file';
+		switch (template.language) {
+			case 'rust':
+				return `// ${name}\n\npub fn main() {\n    println!("Hello, Wabi!");\n}\n`;
+			case 'typescript':
+				return `// ${name}\nexport function hello(): string {\n  return 'Hello, Wabi!';\n}\n`;
+			case 'python':
+				return `# ${name}\ndef main():\n    print("Hello, Wabi!")\n\nif __name__ == "__main__":\n    main()\n`;
+			case 'markdown':
+				return `# ${name}\n\nWrite something here.\n`;
+			case 'toml':
+				return `# ${name}\n[package]\nname = "example"\nversion = "0.1.0"\n`;
+			case 'json':
+				return `{\n  "name": "${name}",\n  "version": "0.1.0"\n}\n`;
+			default:
+				return `// ${name}\n`;
+		}
 	}
 
 	async function handleLock(path: string) {
