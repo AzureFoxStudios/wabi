@@ -129,6 +129,9 @@ struct CreateChannelRequest {
     asset_storage: bool,
     #[serde(default)]
     force_spoiler: bool,
+    /// Category folder id to nest under (optional). Wire camelCase parentId too.
+    #[serde(default, alias = "parentId")]
+    parent_id: Option<String>,
 }
 
 fn default_channel_type() -> String {
@@ -231,6 +234,24 @@ async fn create_channel(
     // `description` is in the WDB Channel domain type yet — dropped for v1.
     let _ = req.description;
 
+    // Optional folder nesting (category parent). Applied after create so the
+    // channel exists before parent_id is set on the projection.
+    if let Some(parent) = req.parent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let mut patch = serde_json::Map::new();
+        patch.insert("parent_id".to_string(), serde_json::json!(parent));
+        if let Err(e) = state
+            .wdb
+            .update_channel(
+                &channel_id,
+                &serde_json::Value::Object(patch),
+                auth.user_id as u64,
+            )
+            .await
+        {
+            tracing::warn!(channel_id, parent, error = %e, "failed to set parent_id on new channel");
+        }
+    }
+
     // Auto-create a Lore repo if asset_storage / lore kind is enabled
     let lore_channel_id = channel_id
         .strip_prefix("ch_")
@@ -280,7 +301,11 @@ async fn create_channel(
         name,
         channel_type: response_type,
         position: 0,
-        parent_id: None,
+        parent_id: req
+            .parent_id
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
         description: None,
         force_spoiler: req.force_spoiler,
         asset_storage,

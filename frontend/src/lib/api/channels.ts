@@ -8,11 +8,14 @@ export async function createChannelApi(
 	description?: string,
 	forceSpoiler?: boolean,
 	/** When true, server auto-provisions a Lore repo (requires wabi-lore feature). */
-	assetStorage?: boolean
+	assetStorage?: boolean,
+	/** Category folder id to nest under (optional). */
+	parentId?: string | null
 ): Promise<CreateChannelResponse> {
 	const token = getAuthToken();
 	// Lore / Asset Storage: UI type is "lore"; server stores ChannelKind::Text + asset_storage.
 	const wantsAssetStorage = assetStorage === true || channelType === 'lore';
+	const parent = parentId?.trim() || undefined;
 	const res = await fetchWithTimeout(`${getApiBase()}/api/channels`, {
 		method: 'POST',
 		headers: {
@@ -24,7 +27,8 @@ export async function createChannelApi(
 			channel_type: channelType,
 			description,
 			force_spoiler: forceSpoiler ?? false,
-			asset_storage: wantsAssetStorage
+			asset_storage: wantsAssetStorage,
+			...(parent ? { parent_id: parent, parentId: parent } : {})
 		})
 	});
 	if (!res.ok) {
