@@ -226,6 +226,10 @@
 	$: unifiedChannelCount = unifiedSidebarChannels.length;
 	$: workspaceChannelCount = textChannelsAll.length + groupChannels.length + voiceChannels.length + galleryChannelsAll.length + forumChannelsAll.length + wikiChannelsAll.length + loreChannelsAll.length + planningChannelsAll.length;
 	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
+	/** Unread across DM + group DM channels only — badge for Messages hub. */
+	$: dmUnreadCount = $channels
+		.filter((ch) => ch.type === 'dm' || ch.type === 'group')
+		.reduce((sum, ch) => sum + (Number($channelUnreadCounts[ch.id]) || 0), 0);
 	$: canTogglePersistMessages = $currentUser?.highestRole === 'owner';
 	$: canManageWatchQueue = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: canManageVoiceSettings = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
@@ -742,6 +746,29 @@
 		{/if}
 	</div>
 
+	<!-- Personal hub: sticky under server chrome, above server channel list -->
+	<div class="personal-nav" class:compact={isCompactSidebar}>
+		<button
+			class="messages-hub-btn"
+			type="button"
+			class:active={activeView === 'dm'}
+			on:click={openDmHub}
+			title={isCompactSidebar ? (dmUnreadCount > 0 ? `Messages (${dmUnreadCount} unread)` : 'Messages') : 'Direct messages & notes'}
+			aria-label={dmUnreadCount > 0 ? `Messages, ${dmUnreadCount} unread` : 'Messages'}
+			aria-current={activeView === 'dm' ? 'page' : undefined}
+		>
+			<span class="messages-hub-icon" aria-hidden="true">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+			</span>
+			{#if !isCompactSidebar}
+				<span class="messages-hub-label">Messages</span>
+			{/if}
+			{#if dmUnreadCount > 0}
+				<span class="messages-hub-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
+			{/if}
+		</button>
+	</div>
+
 	<CreateChannelForm {showCreateInput} canCreate={canCreateChannel} newChannelName={newChannelName} newChannelDescription={newChannelDescription} {newChannelType} forceSpoiler={newChannelForceSpoiler} createError={createChannelError} {creatingChannel} {loreAvailable} onNameChange={(v) => { newChannelName = v; createChannelError = ''; }} onDescriptionChange={(v) => newChannelDescription = v} onTypeChange={(v) => { newChannelType = v; createChannelError = ''; }} onForceSpoilerChange={(v) => { newChannelForceSpoiler = v; }} onSubmit={handleCreateChannel} />
 
 	<div class="channel-list">
@@ -801,13 +828,7 @@
 	<UnifiedChannelList channels={unifiedCategoryMap.uncategorized} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 	{/if}
 
-				<div class="dm-hub-entry">
-			<button class="dm-hub-btn" type="button" on:click={openDmHub} title="Direct Messages">
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-				<span>Direct Messages</span>
-			</button>
 		</div>
-	</div>
 
 	<ContextMenu open={showContextMenu && !!contextMenuChannel} x={contextMenuPosition.x} y={contextMenuPosition.y} items={channelMenuItems} ariaLabel="Channel actions" headerLabel={contextMenuChannel ? `#${contextMenuChannel.name}` : null} on:close={closeContextMenu} />
 	<VoiceUserCard {runtimeActiveVoiceChannelId} {voiceChannels} {voiceDurationMode} onToggleListenChannel={handleToggleListenChannel} onTransmitModeChange={handleTransmitModeChange} onSetVoiceDurationMode={setVoiceDurationMode} onLeaveVoice={handleLeaveVoice} />
