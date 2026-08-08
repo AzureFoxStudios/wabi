@@ -141,9 +141,10 @@ fn authenticated_user_id(socket: &SocketRef, state: &SioState) -> i64 {
     user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1)
 }
 
-/// True when the socket advertises the Tauri desktop client (via clientType).
+/// True when the socket advertises the Tauri desktop client (via clientClass).
 fn is_tauri_client(data: &Value) -> bool {
-    data.get("clientType").and_then(|v| v.as_str()) == Some("tauri")
+    data.get("clientClass").and_then(|v| v.as_str()) == Some("tauri")
+        || data.get("clientType").and_then(|v| v.as_str()) == Some("tauri")
         || data.get("isTauri").and_then(|v| v.as_bool()) == Some(true)
 }
 
