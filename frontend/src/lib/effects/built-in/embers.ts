@@ -26,6 +26,10 @@ export class EmbersEffect implements AmbientEffect {
 	private embers: Ember[] = [];
 	private W = 0;
 	private H = 0;
+	// Pre-rendered ember sprites (offscreen canvases) — one per size bucket
+	private sprites: { canvas: HTMLCanvasElement; r: number; color: string; color2: string }[] = [];
+	private spriteColor = '';
+	private spriteColor2 = '';
 
 	defaultConfig: EffectConfig = {
 		color: '#ff7b1c',
@@ -35,7 +39,7 @@ export class EmbersEffect implements AmbientEffect {
 		speed: 1
 	};
 
-	init(canvas: HTMLCanvasElement, _config: EffectConfig): void {
+	init(canvas: HTMLCanvasElement, config: EffectConfig): void {
 		this.ctx = canvas.getContext('2d');
 		const dpr = Math.min(window.devicePixelRatio || 1, 2);
 		this.W = window.innerWidth;
@@ -43,14 +47,55 @@ export class EmbersEffect implements AmbientEffect {
 		canvas.width = this.W * dpr;
 		canvas.height = this.H * dpr;
 		this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		this.buildSprites(config.color || this.defaultConfig.color!, config.color2 || this.defaultConfig.color2!);
 		this.embers = [];
-		const count = Math.max(70, Math.floor((this.W * this.H) / 18000));
+		const count = Math.min(300, Math.max(70, Math.floor((this.W * this.H) / 18000)));
 		for (let i = 0; i < count; i++) {
 			const e = this.make();
 			e.y = this.H - Math.random() * this.H * 0.85;
 			e.life = Math.random() * e.maxLife;
 			this.embers.push(e);
 		}
+	}
+
+	// Pre-render ember sprites to offscreen canvases — avoids per-frame gradient allocation
+	private buildSprites(color: string, color2: string): void {
+		if (this.spriteColor === color && this.spriteColor2 === color2) return;
+		this.spriteColor = color;
+		this.spriteColor2 = color2;
+		this.sprites = [];
+
+		// Render a few size buckets: small (r=0.35), medium (r=0.7), large (r=1.05)
+		const sizes = [0.35, 0.7, 1.05];
+		for (const r of sizes) {
+			const spriteR = r * 4 * 2; // radius * 4 (gradient spread) * 2 (spark multiplier)
+			const size = Math.ceil(spriteR * 2);
+			const offscreen = document.createElement('canvas');
+			offscreen.width = size;
+			offscreen.height = size;
+			const sctx = offscreen.getContext('2d')!;
+			const cx = size / 2;
+			const g = sctx.createRadialGradient(cx, cx, 0, cx, cx, spriteR);
+			g.addColorStop(0, this.lerpColor(color, '#ffffff', 0.45, 1));
+			g.addColorStop(0.35, this.lerpColor(color, color2, 0.2, 0.7));
+			g.addColorStop(1, this.lerpColor(color2, '#000000', 0.3, 0));
+			sctx.fillStyle = g;
+			sctx.beginPath();
+			sctx.arc(cx, cx, spriteR, 0, Math.PI * 2);
+			sctx.fill();
+			this.sprites.push({ canvas: offscreen, r: r, color, color2 });
+		}
+	}
+
+	private getSprite(r: number): HTMLCanvasElement | null {
+		// Find closest sprite by radius
+		let best = this.sprites[0];
+		let bestDist = Infinity;
+		for (const s of this.sprites) {
+			const d = Math.abs(s.r - r);
+			if (d < bestDist) { bestDist = d; best = s; }
+		}
+		return best?.canvas ?? null;
 	}
 
 	private make(): Ember {
@@ -105,16 +150,15 @@ export class EmbersEffect implements AmbientEffect {
 			const fade = Math.sin(t * Math.PI);
 			const baseAlpha = fade * 0.55 * Math.min(1, intensity * 1.2);
 
-			// hot core + cooler halo
+			// hot core + cooler halo — use pre-rendered sprite
 			const r = e.r * (e.spark ? 2.2 : 1) * sizeMult;
-			const coreG = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r * 4);
-			coreG.addColorStop(0, this.lerpColor(color, '#ffffff', 0.45, baseAlpha));
-			coreG.addColorStop(0.35, this.lerpColor(color, color2, 0.2, baseAlpha * 0.7));
-			coreG.addColorStop(1, this.lerpColor(color2, '#000000', 0.3, 0));
-			ctx.fillStyle = coreG;
-			ctx.beginPath();
-			ctx.arc(e.x, e.y, r * 4, 0, Math.PI * 2);
-			ctx.fill();
+			const sprite = this.getSprite(e.r);
+			if (sprite) {
+				const drawR = r * 4;
+				ctx.globalAlpha = baseAlpha;
+				ctx.drawImage(sprite, e.x - drawR, e.y - drawR, drawR * 2, drawR * 2);
+				ctx.globalAlpha = 1;
+			}
 
 			e.spark = false;
 		}

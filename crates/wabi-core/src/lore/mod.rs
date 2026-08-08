@@ -1,22 +1,29 @@
-//! Lore workspace policy engine.
+//! Lore workspace: policy engine, citations, review, and templates.
 //!
 //! Fine-grained policy control for Lore repository operations:
 //! ref policy (branch rules), path policy (file rules), role→capability mapping,
-//! fetch quotas, and audit logging.
+//! fetch quotas, audit logging, code citations (`^c/`), lightweight review,
+//! and file template scaffolding.
 
 pub mod audit;
 pub mod capability;
+pub mod citation;
 pub mod fetch_quota;
 pub mod path_policy;
 pub mod ref_policy;
+pub mod review;
 pub mod role_mapping;
+pub mod template;
 
 pub use audit::*;
 pub use capability::*;
+pub use citation::*;
 pub use fetch_quota::*;
 pub use path_policy::*;
 pub use ref_policy::*;
+pub use review::*;
 pub use role_mapping::*;
+pub use template::*;
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "ts")]

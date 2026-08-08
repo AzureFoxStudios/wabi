@@ -110,7 +110,11 @@ fn test_policy_check_read_only_path() {
         read_only: true,
     });
     let result = check_policy("developer", &map, &ref_policy, &path_policy, "write", "main", Some("config/settings.json"));
-    assert!(matches!(result, PolicyResult::Deny { reason } => reason.contains("read-only")));
+    if let PolicyResult::Deny { reason } = result {
+        assert!(reason.contains("read-only"));
+    } else {
+        panic!("Expected Deny, got {:?}", result);
+    }
 }
 
 #[test]
@@ -168,7 +172,11 @@ fn test_force_push_denied_when_not_allowed() {
     ref_policy.default_policy.allow_force_push = false;
     let path_policy = PathPolicySet::new();
     let result = check_policy("owner", &map, &ref_policy, &path_policy, "force_push", "main", None);
-    assert!(matches!(result, PolicyResult::Deny { reason } => reason.contains("not allowed")));
+    if let PolicyResult::Deny { reason } = result {
+        assert!(reason.contains("not allowed"));
+    } else {
+        panic!("Expected Deny, got {:?}", result);
+    }
 }
 
 #[test]
@@ -178,7 +186,11 @@ fn test_branch_delete_denied_when_not_allowed() {
     ref_policy.default_policy.allow_delete = false;
     let path_policy = PathPolicySet::new();
     let result = check_policy("owner", &map, &ref_policy, &path_policy, "delete_branch", "main", None);
-    assert!(matches!(result, PolicyResult::Deny { reason } => reason.contains("not allowed")));
+    if let PolicyResult::Deny { reason } = result {
+        assert!(reason.contains("not allowed"));
+    } else {
+        panic!("Expected Deny, got {:?}", result);
+    }
 }
 
 #[test]

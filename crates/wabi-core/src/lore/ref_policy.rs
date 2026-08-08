@@ -8,7 +8,7 @@ use ts_rs::TS;
 use super::capability::LoreCapability;
 
 /// Policy rules for a specific branch or ref pattern.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", ts(export))]
