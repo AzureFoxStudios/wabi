@@ -331,7 +331,7 @@
 					type="button"
 					class="whiteboard-settings-btn"
 					class:active={boardSettingsOpen}
-					on:click={() => (boardSettingsOpen = !boardSettingsOpen)}
+					onclick={() => (boardSettingsOpen = !boardSettingsOpen)}
 					aria-label="Board settings"
 					aria-expanded={boardSettingsOpen}
 					aria-haspopup="dialog"
@@ -344,7 +344,7 @@
 				type="button"
 				class="whiteboard-grid-toggle"
 				class:active={showGrid}
-				on:click={() => (showGrid = !showGrid)}
+				onclick={() => (showGrid = !showGrid)}
 				aria-pressed={showGrid}
 			>
 				{showGrid ? 'Grid On' : 'Grid Off'}
@@ -354,7 +354,7 @@
 					type="button"
 					class="whiteboard-recognize-btn"
 					title="Recognize the selected strokes as a math formula"
-					on:click={handleRecognizeMath}
+					onclick={handleRecognizeMath}
 				>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8V5H6l6 7-6 7h12v-3"/></svg>
 					<span>Recognize as math</span>
