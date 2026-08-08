@@ -148,10 +148,13 @@ async fn on_reorder_channels(socket: SocketRef, data: Value, state: SioState, io
     }
 
     let reordered: Vec<Value> = channels.iter().map(|entry| {
+        // Always include parentId (null clears folder membership). Omitting it
+        // left clients with stale optimistic parentId after refresh-less peers.
+        let parent = entry.get("parentId").cloned().unwrap_or(Value::Null);
         json!({
             "id": entry.get("id").and_then(|v| v.as_str()).unwrap_or(""),
             "position": entry.get("position").and_then(|v| v.as_i64()).unwrap_or(0),
-            "parentId": entry.get("parentId").and_then(|v| v.as_str()),
+            "parentId": parent,
         })
     }).collect();
 
