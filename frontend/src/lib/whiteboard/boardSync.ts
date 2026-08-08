@@ -2,6 +2,7 @@ import { get, writable } from 'svelte/store';
 import {
 	joinWhiteboardChannel,
 	leaveWhiteboard,
+	rejoinWhiteboardBoard,
 	saveWhiteboardSnapshot,
 	sendWhiteboardPatch,
 	sendWhiteboardCursor,
@@ -22,14 +23,67 @@ export const boardSyncError = writable<string | null>(null);
 
 // ---------------------------------------------------------------------------
 // Patch emission
+//
+// element:update patches are coalesced: rapid updates to the same element
+// within a 50ms window (move/resize drags) merge into a single patch. The
+// buffer flushes on its per-element timer, on flushSnapshotSave, or is dropped
+// on disconnect/conflict (the server doc wins there).
 // ---------------------------------------------------------------------------
+
+const PATCH_COALESCE_MS = 50;
+
+interface PendingUpdate {
+	changes: Record<string, unknown>;
+	timer: ReturnType<typeof setTimeout>;
+}
+
+const pendingUpdates = new Map<string, Map<string, PendingUpdate>>();
 
 export function emitCreatePatch(boardId: string, el: BoardElement): void {
 	sendWhiteboardPatch(boardId, { op: 'create', element: toTransportElement(el) });
 }
 
 export function emitUpdatePatch(boardId: string, id: string, changes: Record<string, unknown>): void {
-	sendWhiteboardPatch(boardId, { op: 'update', id, changes });
+	let inner = pendingUpdates.get(boardId);
+	if (!inner) {
+		inner = new Map();
+		pendingUpdates.set(boardId, inner);
+	}
+	const existing = inner.get(id);
+	if (existing) {
+		existing.changes = { ...existing.changes, ...changes };
+		return;
+	}
+	const entry: PendingUpdate = {
+		changes: { ...changes },
+		timer: setTimeout(() => flushPendingUpdate(boardId, id), PATCH_COALESCE_MS)
+	};
+	inner.set(id, entry);
+}
+
+function flushPendingUpdate(boardId: string, id: string): void {
+	const inner = pendingUpdates.get(boardId);
+	if (!inner) return;
+	const entry = inner.get(id);
+	if (!entry) return;
+	inner.delete(id);
+	if (inner.size === 0) pendingUpdates.delete(boardId);
+	sendWhiteboardPatch(boardId, { op: 'update', id, changes: entry.changes });
+}
+
+function flushPendingUpdates(boardId: string): void {
+	const inner = pendingUpdates.get(boardId);
+	if (!inner) return;
+	for (const id of [...inner.keys()]) {
+		flushPendingUpdate(boardId, id);
+	}
+}
+
+function clearPendingUpdates(boardId: string): void {
+	const inner = pendingUpdates.get(boardId);
+	if (!inner) return;
+	for (const entry of inner.values()) clearTimeout(entry.timer);
+	pendingUpdates.delete(boardId);
 }
 
 export function emitDeletePatch(boardId: string, ids: string[]): void {
@@ -152,6 +206,7 @@ export function flushSnapshotSave(boardId: string): void {
 		clearTimeout(existing);
 		snapshotTimers.delete(boardId);
 	}
+	flushPendingUpdates(boardId);
 	if (!get(isDirty)) return;
 	const doc = boardStore.getSnapshotDocument();
 	if (!doc.boardId || doc.boardId !== boardId) return;
@@ -188,6 +243,24 @@ export interface SyncSession {
 	destroy: () => void;
 }
 
+// VERSION_CONFLICT recovery re-joins the board so the server re-pulls the doc
+// (server doc wins). Guard against a re-join loop: at most 3 re-joins within a
+// 10s window, after which we surface a persistent error and stop.
+const REJOIN_LIMIT = 3;
+const REJOIN_WINDOW_MS = 10000;
+let conflictRejoinAt: number[] = [];
+
+function canRejoinAfterConflict(): boolean {
+	const now = Date.now();
+	conflictRejoinAt = conflictRejoinAt.filter((t) => now - t < REJOIN_WINDOW_MS);
+	if (conflictRejoinAt.length >= REJOIN_LIMIT) {
+		boardSyncError.set('Sync failed — reload the board.');
+		return false;
+	}
+	conflictRejoinAt.push(now);
+	return true;
+}
+
 function handleSyncError(
 	payload: WhiteboardErrorPayload,
 	channelId: string,
@@ -195,12 +268,19 @@ function handleSyncError(
 		onError?: (payload: any) => void;
 	}
 ): void {
+	const boardId = getChannelBoardId(channelId);
 	const code = payload.code;
 	switch (code) {
 		case 'VERSION_CONFLICT':
-			boardSyncError.set('Your changes conflicted with a newer version — re-syncing.');
+			// Server doc wins: drop any pending outbound patches and the debounced
+			// save timer so stale local state is never re-persisted after re-pull.
+			clearPendingUpdates(boardId);
+			cancelSnapshotSave(boardId);
 			boardStore.markClean();
-			joinWhiteboardChannel(channelId);
+			if (canRejoinAfterConflict()) {
+				boardSyncError.set('Your changes conflicted with a newer version — re-syncing.');
+				rejoinWhiteboardBoard(boardId);
+			}
 			break;
 		case 'DESKTOP_REQUIRED':
 			boardSyncError.set('This whiteboard is desktop-only. Open the desktop app to edit it.');
@@ -288,6 +368,14 @@ export function createSyncSession(
 		},
 		onError: (payload) => {
 			handleSyncError(payload, channelId, handlers);
+		},
+		onDisconnect: () => {
+			// Socket dropped (possibly mid-reconnect). Until a fresh
+			// whiteboard:joined re-hydrates the doc, components must not render
+			// stale state. Drop any coalesced patches too — the server doc wins
+			// after re-join.
+			clearPendingUpdates(boardId);
+			boardSyncReady.set(false);
 		}
 	});
 
@@ -361,6 +449,7 @@ export function createSyncSession(
 		destroy() {
 			flushSnapshotSave(boardId);
 			cancelSnapshotSave(boardId);
+			clearPendingUpdates(boardId);
 			setPatchListener(null);
 			unsubDirty();
 			unsubEvents();

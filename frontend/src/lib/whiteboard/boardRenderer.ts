@@ -169,9 +169,22 @@ function getLayerCanvas(layerId: string, width: number, height: number, dpr: num
  * Elements are sorted by zIndex within the group; each element's own opacity is
  * applied via globalAlpha. Used by renderLayersWithBlend to rasterize a single
  * layer onto its offscreen canvas.
+ *
+ * `dpr` must match the caller's expectation:
+ *  - offscreen layer canvases are sized at CSS size × dpr backing pixels, so
+ *    they render with `scale(dpr)` FIRST (matching the main canvas, which the
+ *    render loop pre-scales by dpr) to rasterize at device resolution.
+ *  - the main context is already dpr-scaled by the caller, so direct draws onto
+ *    it (orphaned elements) pass dpr = 1.
  */
-function drawElementsToCtx(ctx: CanvasRenderingContext2D, els: BoardElement[], viewport: WhiteboardViewport): void {
+function drawElementsToCtx(
+	ctx: CanvasRenderingContext2D,
+	els: BoardElement[],
+	viewport: WhiteboardViewport,
+	dpr = 1
+): void {
 	ctx.save();
+	ctx.scale(dpr, dpr);
 	ctx.scale(viewport.zoom, viewport.zoom);
 	ctx.translate(-viewport.x, -viewport.y);
 	const sorted = [...els].sort((a, b) => a.zIndex - b.zIndex);
@@ -227,9 +240,10 @@ export function renderLayersWithBlend(
 	}
 
 	// Elements whose layerId no longer resolves to a layer render at the bottom
-	// (source-over), mirroring renderElements' layer-order 0 default.
+	// (source-over), mirroring renderElements' layer-order 0 default. Drawn onto
+	// the already-dpr-scaled main context, so no extra dpr scale here.
 	if (orphaned.length > 0) {
-		drawElementsToCtx(ctx, orphaned, viewport);
+		drawElementsToCtx(ctx, orphaned, viewport, 1);
 	}
 
 	for (const layer of sortWhiteboardLayers(layers)) {
@@ -239,7 +253,7 @@ export function renderLayersWithBlend(
 
 		const off = getLayerCanvas(layer.id, canvasW, canvasH, dpr);
 		off.ctx.clearRect(0, 0, off.canvas.width, off.canvas.height);
-		drawElementsToCtx(off.ctx, els, viewport);
+		drawElementsToCtx(off.ctx, els, viewport, dpr);
 
 		ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity ?? 1));
 		ctx.globalCompositeOperation = (WHITEBOARD_BLEND_MODES.includes(
@@ -458,18 +472,28 @@ function renderText(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 	}
 }
 
+function drawImagePlaceholder(ctx: CanvasRenderingContext2D, el: BoardElement): void {
+	ctx.strokeStyle = el.strokeColor;
+	ctx.lineWidth = 1;
+	ctx.setLineDash([4, 4]);
+	ctx.strokeRect(el.x, el.y, el.width, el.height);
+	ctx.setLineDash([]);
+}
+
 function renderImage(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 	const ie = el as any;
 	const img = preloadImage(ie.src);
-	if (img.complete && img.naturalWidth > 0) {
-		ctx.drawImage(img, el.x, el.y, el.width, el.height);
-	} else {
-		// Placeholder while loading
-		ctx.strokeStyle = el.strokeColor;
-		ctx.lineWidth = 1;
-		ctx.setLineDash([4, 4]);
-		ctx.strokeRect(el.x, el.y, el.width, el.height);
-		ctx.setLineDash([]);
+	try {
+		if (img.complete && img.naturalWidth > 0) {
+			ctx.drawImage(img, el.x, el.y, el.width, el.height);
+		} else {
+			// Placeholder while loading (or when the load never completes).
+			drawImagePlaceholder(ctx, el);
+		}
+	} catch (error) {
+		// drawImage can throw on a tainted/failed cross-origin load; never let a
+		// single broken image take down the whole render loop.
+		drawImagePlaceholder(ctx, el);
 	}
 }
 
