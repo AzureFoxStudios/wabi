@@ -96,7 +96,7 @@ impl EditorBridge {
         let now = EditorSession::now_ms();
 
         let session = EditorSession {
-            session_id,
+            session_id: session_id.clone(),
             channel_id,
             user_id,
             url: format!(
