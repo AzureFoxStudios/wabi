@@ -27,11 +27,13 @@
 
 	const ACCEPTED_READER_FILE_TYPES = '.md,.markdown,.txt,.text,.html,.htm';
 	const ACCEPTED_IMAGE_FILES = '.jpg,.jpeg,.png,.gif,.webp,.bmp';
-	const THEME_ORDER: ReaderTheme[] = ['paper', 'sepia', 'night'];
+	const THEME_ORDER: ReaderTheme[] = ['auto', 'paper', 'sepia', 'night'];
 	const MIN_FONT_SIZE = 14;
 	const MAX_FONT_SIZE = 28;
 
 	let articleViewport = $state<HTMLDivElement | null>(null);
+	let documentArticle = $state<HTMLElement | null>(null);
+	let systemDarkMode = $state(false);
 	let fileInput = $state<HTMLInputElement | null>(null);
 	let imageInput = $state<HTMLInputElement | null>(null);
 	let importPanelOpen = $state(false);
@@ -58,6 +60,9 @@
 	}
 
 	const isImageMode = $derived($readerSelection?.contentType === 'images');
+	const isHorizontalMode = $derived(
+		isImageMode && $readerPreferences.readingDirection === 'horizontal'
+	);
 	const currentImages = $derived(($readerSelection?.images || []) as ImagePage[]);
 	const currentImage = $derived(currentImages[currentImageIndex] || null);
 	const isFirstImage = $derived(currentImageIndex <= 0);
@@ -69,6 +74,52 @@
 	);
 	const selectedWordCount = $derived($readerSelection ? countWords($readerSelection.content) : 0);
 	const selectedReadMinutes = $derived(Math.max(1, Math.ceil(selectedWordCount / 220)));
+
+	$effect(() => {
+		if (!browser) return;
+		const media = window.matchMedia('(prefers-color-scheme: dark)');
+		systemDarkMode = media.matches;
+		const onChange = (event: MediaQueryListEvent) => {
+			systemDarkMode = event.matches;
+		};
+		media.addEventListener('change', onChange);
+		return () => media.removeEventListener('change', onChange);
+	});
+
+	const effectiveTheme = $derived.by((): 'paper' | 'sepia' | 'night' => {
+		const theme = $readerPreferences.theme;
+		if (theme !== 'auto') return theme;
+		return systemDarkMode ? 'night' : 'paper';
+	});
+
+	$effect(() => {
+		const root = documentArticle;
+		if (!root || !renderedDocumentHtml) return;
+		void tick().then(() => {
+			root.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
+				if (pre.querySelector('.code-copy-btn')) return;
+				const button = document.createElement('button');
+				button.type = 'button';
+				button.className = 'code-copy-btn';
+				button.textContent = 'Copy';
+				button.setAttribute('aria-label', 'Copy code block');
+				button.addEventListener('click', async (event: Event) => {
+					event.stopPropagation();
+					const text = (pre.innerText || '').replace(/\n$/, '');
+					try {
+						await navigator.clipboard.writeText(text);
+						button.textContent = 'Copied';
+					} catch {
+						button.textContent = 'Copy failed';
+					}
+					window.setTimeout(() => {
+						button.textContent = 'Copy';
+					}, 1500);
+				});
+				pre.appendChild(button);
+			});
+		});
+	});
 
 	$effect(() => {
 		if (!$readerSelection) {
@@ -85,15 +136,39 @@
 			const nextProgress = $readerProgressByDocument[currentDocKey] ?? 0;
 			void tick().then(() => {
 				if (!articleViewport || $readerSelection?.docKey !== currentDocKey) return;
-				const maxScroll = Math.max(
-					0,
-					articleViewport.scrollHeight - articleViewport.clientHeight
-				);
-				articleViewport.scrollTop = maxScroll * nextProgress;
+				const horizontal =
+					$readerSelection?.contentType === 'images' &&
+					$readerPreferences.readingDirection === 'horizontal';
+				if (horizontal) {
+					const maxScroll = Math.max(
+						0,
+						articleViewport.scrollWidth - articleViewport.clientWidth
+					);
+					articleViewport.scrollLeft = maxScroll * nextProgress;
+				} else {
+					const maxScroll = Math.max(
+						0,
+						articleViewport.scrollHeight - articleViewport.clientHeight
+					);
+					articleViewport.scrollTop = maxScroll * nextProgress;
+				}
 				readerProgressPercent = Math.round(nextProgress * 100);
 				updatePageEstimate();
 			});
 		}
+	});
+
+	$effect(() => {
+		const el = articleViewport;
+		if (!el || !isHorizontalMode) return;
+		const onWheel = (event: WheelEvent) => {
+			if (event.deltaY !== 0) {
+				event.preventDefault();
+				el.scrollLeft += event.deltaY;
+			}
+		};
+		el.addEventListener('wheel', onWheel, { passive: false });
+		return () => el.removeEventListener('wheel', onWheel);
 	});
 
 	function isTypingTarget(target: EventTarget | null): boolean {
@@ -108,10 +183,21 @@
 			readerChromeHidden = !readerChromeHidden;
 			return;
 		}
-		if (!imageViewerOpen) return;
-		if (event.key === 'Escape') closeImageViewer();
-		if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') goToPreviousImage();
-		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') goToNextImage();
+		if (imageViewerOpen) {
+			if (event.key === 'Escape') closeImageViewer();
+			if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') goToPreviousImage();
+			if (event.key === 'ArrowRight' || event.key === 'ArrowDown') goToNextImage();
+			return;
+		}
+		if (isHorizontalMode) {
+			if (event.key === 'ArrowLeft') {
+				event.preventDefault();
+				focusImageAtOffset(-1);
+			} else if (event.key === 'ArrowRight') {
+				event.preventDefault();
+				focusImageAtOffset(1);
+			}
+		}
 	}
 
 	function openImportPanel(format: ReaderDocumentFormat): void {
@@ -203,11 +289,45 @@
 			readerProgressPercent = 0;
 			return;
 		}
-		const maxScroll = Math.max(0, articleViewport.scrollHeight - articleViewport.clientHeight);
-		const progress = maxScroll <= 0 ? 0 : articleViewport.scrollTop / maxScroll;
+		let progress: number;
+		if (isHorizontalMode) {
+			const maxScroll = Math.max(0, articleViewport.scrollWidth - articleViewport.clientWidth);
+			progress = maxScroll <= 0 ? 0 : articleViewport.scrollLeft / maxScroll;
+		} else {
+			const maxScroll = Math.max(0, articleViewport.scrollHeight - articleViewport.clientHeight);
+			progress = maxScroll <= 0 ? 0 : articleViewport.scrollTop / maxScroll;
+		}
 		readerProgressPercent = Math.round(progress * 100);
 		setReaderDocumentProgress($readerSelection.docKey, progress);
 		updatePageEstimate();
+	}
+
+	function focusImageAtOffset(offset: number): void {
+		if (!articleViewport || currentImages.length === 0) return;
+		const pages = Array.from(
+			articleViewport.querySelectorAll<HTMLElement>('.reader-horizontal-page')
+		);
+		if (pages.length === 0) return;
+		const viewportLeft = articleViewport.getBoundingClientRect().left;
+		const center = articleViewport.scrollLeft + articleViewport.clientWidth / 2;
+		let nearest = 0;
+		let bestDistance = Infinity;
+		pages.forEach((page, index) => {
+			const rect = page.getBoundingClientRect();
+			const pageCenter = rect.left - viewportLeft + rect.width / 2;
+			const distance = Math.abs(pageCenter - center);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				nearest = index;
+			}
+		});
+		const target = Math.max(0, Math.min(pages.length - 1, nearest + offset));
+		const targetRect = pages[target].getBoundingClientRect();
+		const targetScroll =
+			articleViewport.scrollLeft +
+			(targetRect.left - viewportLeft) -
+			(articleViewport.clientWidth - targetRect.width) / 2;
+		articleViewport.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
 	}
 
 	function updatePageEstimate(): void {
@@ -216,6 +336,22 @@
 			totalPagesEstimate = 1;
 			isAtDocumentStart = true;
 			isAtDocumentEnd = true;
+			return;
+		}
+		if (isHorizontalMode) {
+			const { scrollLeft, scrollWidth, clientWidth } = articleViewport;
+			if (scrollWidth <= clientWidth) {
+				currentPageEstimate = 1;
+				totalPagesEstimate = 1;
+				isAtDocumentStart = true;
+				isAtDocumentEnd = true;
+				return;
+			}
+			const pageWidth = clientWidth * 0.8;
+			totalPagesEstimate = Math.max(1, Math.ceil(scrollWidth / pageWidth));
+			currentPageEstimate = Math.min(totalPagesEstimate, Math.floor(scrollLeft / pageWidth) + 1);
+			isAtDocumentStart = scrollLeft <= 0;
+			isAtDocumentEnd = scrollLeft + clientWidth >= scrollWidth - 5;
 			return;
 		}
 		const { scrollTop, scrollHeight, clientHeight } = articleViewport;
@@ -235,6 +371,15 @@
 
 	function goToNextPage(): void {
 		if (!articleViewport) return;
+		if (isHorizontalMode) {
+			const viewportWidth = articleViewport.clientWidth;
+			const newScroll = Math.min(
+				articleViewport.scrollLeft + (viewportWidth * 0.8),
+				articleViewport.scrollWidth - viewportWidth
+			);
+			articleViewport.scrollLeft = newScroll;
+			return;
+		}
 		const viewportHeight = articleViewport.clientHeight;
 		const newScroll = Math.min(
 			articleViewport.scrollTop + (viewportHeight * 0.8),
@@ -245,6 +390,12 @@
 
 	function goToPreviousPage(): void {
 		if (!articleViewport) return;
+		if (isHorizontalMode) {
+			const viewportWidth = articleViewport.clientWidth;
+			const newScroll = Math.max(articleViewport.scrollLeft - (viewportWidth * 0.8), 0);
+			articleViewport.scrollLeft = newScroll;
+			return;
+		}
 		const viewportHeight = articleViewport.clientHeight;
 		const newScroll = Math.max(articleViewport.scrollTop - (viewportHeight * 0.8), 0);
 		articleViewport.scrollTop = newScroll;
@@ -297,9 +448,9 @@
 
 <div
 	class="reader-shell"
-	class:theme-paper={$readerPreferences.theme === 'paper'}
-	class:theme-sepia={$readerPreferences.theme === 'sepia'}
-	class:theme-night={$readerPreferences.theme === 'night'}
+	class:theme-paper={effectiveTheme === 'paper'}
+	class:theme-sepia={effectiveTheme === 'sepia'}
+	class:theme-night={effectiveTheme === 'night'}
 	class:font-serif={$readerPreferences.fontFamily === 'serif'}
 	class:font-sans={$readerPreferences.fontFamily === 'sans'}
 	class:width-narrow={$readerPreferences.contentWidth === 'narrow'}
@@ -376,7 +527,7 @@
 							title="Cycle theme"
 							aria-label="Cycle theme"
 						>
-							{#if $readerPreferences.theme === 'night'}
+							{#if effectiveTheme === 'night'}
 								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"></path>
 								</svg>
@@ -487,6 +638,7 @@
 						value={$readerPreferences.theme}
 						onchange={handleThemeChange}
 					>
+						<option value="auto">Auto</option>
 						<option value="paper">Paper</option>
 						<option value="sepia">Sepia</option>
 						<option value="night">Night</option>
@@ -545,6 +697,7 @@
 						>
 							<option value="ltr">LTR</option>
 							<option value="rtl">RTL</option>
+							<option value="horizontal">Horizontal</option>
 						</select>
 					</div>
 				{/if}
@@ -599,8 +752,28 @@
 	<div class="reader-stage">
 		{#if $readerSelection}
 			{#if isImageMode}
-				<div class="reader-image-shell">
-					{#if currentImage}
+				{#if isHorizontalMode}
+					<div
+						class="reader-horizontal-scroll"
+						bind:this={articleViewport}
+						onscroll={handleViewportScroll}
+					>
+						{#each currentImages as image, index (image.url)}
+							<div class="reader-horizontal-page">
+								<button
+									type="button"
+									class="reader-image-open"
+									aria-label={image.alt || 'Open image viewer'}
+									onclick={() => openImageViewer(index)}
+								>
+									<img src={image.url} alt={image.alt} class="reader-horizontal-img" />
+								</button>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="reader-image-shell">
+						{#if currentImage}
 						<button 
 							class="image-nav prev" 
 							onclick={goToPreviousImage} 
@@ -640,7 +813,8 @@
 							<p>No images loaded</p>
 						</div>
 					{/if}
-				</div>
+					</div>
+				{/if}
 			{:else}
 				<div class="reader-document-shell">
 					<div
@@ -659,6 +833,7 @@
 							</div>
 						</header>
 						<article
+							bind:this={documentArticle}
 							class="reader-document markdown-content"
 							style={`font-size: ${$readerPreferences.fontSize}px; line-height: ${$readerPreferences.lineHeight};`}
 						>
@@ -669,17 +844,11 @@
 			{/if}
 		{:else}
 			<div class="reader-empty-state">
-				<div class="reader-empty-card">
-					<h3>Reader Mode is ready</h3>
-					<p>Open a local text file, paste long-form writing, or keep this tab available for future article and publication flows.</p>
-					<div class="reader-empty-actions">
-						<button class="reader-action-btn primary" type="button" onclick={openFilePicker}>Open File</button>
-						<button class="reader-action-btn" type="button" onclick={openImagePicker}>Open Images</button>
-						<button class="reader-action-btn" type="button" onclick={() => openImportPanel('markdown')}>Paste Markdown</button>
-						<button class="reader-action-btn subtle" type="button" onclick={() => openReaderDocument('Reader Welcome', `# Reader Mode\n\n${brandName} now has a dedicated long-form reading surface.\n\nUse it for essays, books, issue drafts, and documentation.\n\n## Suggested next steps\n\n- Import a \`.md\`, \`.txt\`, or \`.html\` file\n- Adjust width and typography\n- Re-open recent documents from the settings panel\n- Import images for manga/comic viewing\n`, 'markdown', 'generated')}>
-							Load Sample
-						</button>
-					</div>
+				<div class="reader-empty-actions">
+					<button class="reader-action-btn glass" type="button" onclick={openFilePicker}>Open File</button>
+					<button class="reader-action-btn glass" type="button" onclick={openImagePicker}>Open Images</button>
+					<button class="reader-action-btn glass" type="button" onclick={() => openImportPanel('markdown')}>Paste Markdown</button>
+					<button class="reader-action-btn glass" type="button" onclick={() => openImportPanel('text')}>Paste Text</button>
 				</div>
 			</div>
 		{/if}
