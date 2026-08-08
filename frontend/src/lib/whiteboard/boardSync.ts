@@ -1,16 +1,24 @@
-import { get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import {
 	joinWhiteboardChannel,
 	leaveWhiteboard,
 	saveWhiteboardSnapshot,
 	sendWhiteboardPatch,
 	sendWhiteboardCursor,
-	subscribeWhiteboardEvents
+	subscribeWhiteboardEvents,
+	type WhiteboardAckPayload
 } from './boardSocket';
-import { getChannelBoardId, type WhiteboardDocument } from './boardTypes';
+import { getChannelBoardId, type WhiteboardDocument, type WhiteboardErrorPayload } from './boardTypes';
 import { boardStore, isDirty, setPatchListener } from './boardStore';
 import { fromTransportElement, toTransportElement, type BoardElement } from './elementTypes';
 import { currentUser } from '$lib/socket-manager';
+
+// ---------------------------------------------------------------------------
+// Sync status signals
+// ---------------------------------------------------------------------------
+
+export const boardSyncReady = writable<boolean>(false);
+export const boardSyncError = writable<string | null>(null);
 
 // ---------------------------------------------------------------------------
 // Patch emission
@@ -118,20 +126,14 @@ export function applyRemotePatch(payload: { patch: any }): void {
 export function applyRemoteSnapshot(payload: { document: WhiteboardDocument }): void {
 	const doc = payload.document;
 	if (!doc) return;
-	const elements = (doc.elements || []).map(fromTransportElement);
-	boardStore.loadDocument({
-		boardId: doc.boardId,
-		version: doc.version,
-		elements,
-		layers: Array.isArray(doc.layers) ? doc.layers : [],
-		activeLayerId: typeof doc.activeLayerId === 'string' ? doc.activeLayerId : '',
-		viewport: doc.viewport || { x: 0, y: 0, zoom: 1 }
-	});
+	boardStore.setDocument(doc);
 }
 
 // ---------------------------------------------------------------------------
 // Snapshot persistence
 // ---------------------------------------------------------------------------
+
+const SNAPSHOT_DEBOUNCE_MS = 2000;
 
 const snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -141,7 +143,7 @@ export function scheduleSnapshotSave(boardId: string): void {
 	snapshotTimers.set(boardId, setTimeout(() => {
 		snapshotTimers.delete(boardId);
 		flushSnapshotSave(boardId);
-	}, 3000));
+	}, SNAPSHOT_DEBOUNCE_MS));
 }
 
 export function flushSnapshotSave(boardId: string): void {
@@ -151,18 +153,9 @@ export function flushSnapshotSave(boardId: string): void {
 		snapshotTimers.delete(boardId);
 	}
 	if (!get(isDirty)) return;
-	const doc = boardStore.getDocument();
+	const doc = boardStore.getSnapshotDocument();
 	if (!doc.boardId || doc.boardId !== boardId) return;
-	const transportDoc: WhiteboardDocument = {
-		boardId: doc.boardId,
-		version: doc.version,
-		updatedAt: Date.now(),
-		elements: doc.elements.map(toTransportElement),
-		layers: doc.layers,
-		activeLayerId: doc.activeLayerId,
-		viewport: doc.viewport
-	};
-	saveWhiteboardSnapshot(boardId, transportDoc);
+	saveWhiteboardSnapshot(boardId, doc);
 	boardStore.markClean();
 }
 
@@ -195,6 +188,33 @@ export interface SyncSession {
 	destroy: () => void;
 }
 
+function handleSyncError(
+	payload: WhiteboardErrorPayload,
+	channelId: string,
+	handlers: {
+		onError?: (payload: any) => void;
+	}
+): void {
+	const code = payload.code;
+	switch (code) {
+		case 'VERSION_CONFLICT':
+			boardSyncError.set('Your changes conflicted with a newer version — re-syncing.');
+			boardStore.markClean();
+			joinWhiteboardChannel(channelId);
+			break;
+		case 'DESKTOP_REQUIRED':
+			boardSyncError.set('This whiteboard is desktop-only. Open the desktop app to edit it.');
+			break;
+		case 'READ_ONLY':
+			boardSyncError.set('This whiteboard is read-only — you can view but not edit.');
+			break;
+		default:
+			boardSyncError.set(payload.message || 'Whiteboard error');
+			break;
+	}
+	handlers.onError?.(payload);
+}
+
 export function createSyncSession(
 	channelId: string,
 	handlers: {
@@ -207,6 +227,8 @@ export function createSyncSession(
 ): SyncSession {
 	const boardId = getChannelBoardId(channelId);
 	boardStore.setBoardId(boardId);
+	boardSyncReady.set(false);
+	boardSyncError.set(null);
 	const localUser = get(currentUser);
 	const localStableId =
 		typeof localUser?.dbUserId === 'number' ? `user-${localUser.dbUserId}` : (localUser?.id || '');
@@ -214,6 +236,20 @@ export function createSyncSession(
 
 	// Subscribe to remote events
 	const unsubEvents = subscribeWhiteboardEvents({
+		onJoined: (payload) => {
+			if (payload.boardId !== boardId) return;
+			boardStore.setDocument(payload.document);
+			if (!hasHydratedFromSnapshot) {
+				hasHydratedFromSnapshot = true;
+				handlers.onReady?.();
+			}
+			boardSyncReady.set(true);
+			boardSyncError.set(null);
+		},
+		onLeft: (payload) => {
+			if (payload.boardId !== boardId) return;
+			boardSyncReady.set(false);
+		},
 		onSnapshot: (payload) => {
 			if (payload.boardId !== boardId) return;
 			if (!hasHydratedFromSnapshot) {
@@ -244,12 +280,19 @@ export function createSyncSession(
 			if (payload.boardId !== boardId) return;
 			handlers.onPresence?.(payload);
 		},
+		onAck: (payload: WhiteboardAckPayload) => {
+			if (payload.boardId && payload.boardId !== boardId) return;
+			if (typeof payload.version === 'number') {
+				boardStore.setVersion(payload.version);
+			}
+		},
 		onError: (payload) => {
-			handlers.onError?.(payload);
+			handleSyncError(payload, channelId, handlers);
 		}
 	});
 
-	// Wire patch listener so boardStore mutations emit patches
+	// Wire patch listener so boardStore mutations emit patches.
+	// Undo/redo ('replace') stays local-only — it is persisted via snapshot.
 	setPatchListener((type, payload) => {
 		switch (type) {
 			case 'create':
@@ -270,25 +313,37 @@ export function createSyncSession(
 				emitReorderPatch(boardId, p.id, p.dir);
 				break;
 			}
-			case 'replace': {
-				const p = payload as { document?: ReturnType<typeof boardStore.getDocument> };
-				if (!p.document) break;
-				sendWhiteboardPatch(boardId, {
-					op: 'replace',
-					document: {
-						boardId,
-						version: p.document.version,
-						updatedAt: Date.now(),
-						elements: p.document.elements.map(toTransportElement),
-						layers: p.document.layers,
-						activeLayerId: p.document.activeLayerId,
-						viewport: p.document.viewport
-					}
-				});
+			case 'layer:create': {
+				emitLayerCreatePatch(boardId, payload);
+				break;
+			}
+			case 'layer:update': {
+				const p = payload as { id: string; changes?: Record<string, unknown> };
+				emitLayerUpdatePatch(boardId, p.id, p.changes || {});
+				break;
+			}
+			case 'layer:delete': {
+				const p = payload as { id: string };
+				emitLayerDeletePatch(boardId, p.id);
+				break;
+			}
+			case 'layer:reorder': {
+				const p = payload as { id: string; dir: string };
+				emitLayerReorderPatch(boardId, p.id, p.dir);
+				break;
+			}
+			case 'layer:select': {
+				const p = payload as { id: string };
+				emitLayerSelectPatch(boardId, p.id);
 				break;
 			}
 		}
 		scheduleSnapshotSave(boardId);
+	});
+
+	// Debounced snapshot persistence on any local mutation.
+	const unsubDirty = isDirty.subscribe((dirty) => {
+		if (dirty) scheduleSnapshotSave(boardId);
 	});
 
 	// Join the channel
@@ -307,8 +362,11 @@ export function createSyncSession(
 			flushSnapshotSave(boardId);
 			cancelSnapshotSave(boardId);
 			setPatchListener(null);
+			unsubDirty();
 			unsubEvents();
 			leaveWhiteboard(boardId);
+			boardSyncReady.set(false);
+			boardSyncError.set(null);
 			document.removeEventListener('visibilitychange', onVisChange);
 			window.removeEventListener('beforeunload', onBeforeUnload);
 		}
