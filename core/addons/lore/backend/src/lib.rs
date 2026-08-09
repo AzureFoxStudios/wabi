@@ -178,6 +178,7 @@ async fn run_lore(
 ) -> anyhow::Result<std::process::Output> {
     let output = Command::new(binary)
         .current_dir(working_dir)
+        .env("HOME", "/var/wabi/lore")
         .args(args)
         .output()
         .await?;
