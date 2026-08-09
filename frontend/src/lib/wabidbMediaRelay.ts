@@ -58,6 +58,12 @@ export class WabidbMediaRelay {
         encoderChannels: 1,
         streamPages: true,
         numberOfChannels: 1,
+        // Must point at the bundled worker URL. The library defaults to
+        // "encoderWorker.min.js" at the site root, which the SPA fallback
+        // serves as text/html → worker is killed (MIME mismatch) and the
+        // media relay silently dies ("DOMException: The operation was
+        // aborted"). Same pattern as the decoder worker below.
+        encoderPath: new URL('opus-recorder/dist/encoderWorker.min.js', import.meta.url).href,
       });
 
       this.opusRecorder.ondataavailable = (data: ArrayBuffer) => {

@@ -356,6 +356,57 @@
 		cursor: grabbing;
 	}
 
+	/* Discord-style persistent self voice controls (docked-first voice UX) */
+	.voice-self-controls {
+		display: flex;
+		gap: 0.3rem;
+		padding: 0.2rem 0.42rem 0.3rem 1.6rem;
+	}
+
+	.voice-self-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border-radius: var(--radius-sm, 6px);
+		border: 1px solid rgba(var(--border-rgb), 0.3);
+		background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: background var(--duration-fast, 150ms) ease, color var(--duration-fast, 150ms) ease, border-color var(--duration-fast, 150ms) ease;
+	}
+
+	.voice-self-btn svg {
+		width: 13px;
+		height: 13px;
+		stroke: currentColor;
+	}
+
+	.voice-self-btn:hover {
+		background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+		color: var(--text-heading);
+		border-color: rgba(var(--border-rgb), 0.5);
+	}
+
+	.voice-self-btn.active {
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 28%, transparent);
+		border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 55%, transparent);
+		color: var(--text-heading);
+	}
+
+	.voice-self-btn.voice-self-disconnect {
+		color: var(--color-danger, #fda4af);
+		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.4);
+	}
+
+	.voice-self-btn.voice-self-disconnect:hover {
+		background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.2);
+		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.65);
+		color: var(--color-danger, #fecaca);
+	}
+
 
 	.voice-member-avatar {
 		width: 18px;

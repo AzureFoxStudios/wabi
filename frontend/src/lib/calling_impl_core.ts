@@ -1370,7 +1370,8 @@ async function enterEstablishedGroupCall(
 	if (!alreadyInSameGroupCall) {
 		isInCall.set(true);
 		callMode.set('group');
-		channelCallPanelOpen.set(true);
+		// Docked-first: never spring the center-stage panel on join (voice UX contract).
+		channelCallPanelOpen.set(false);
 		// Keep an active primary voice channel as a listen-only backdrop
 		// (TeamSpeak style) instead of tearing it down.
 		if (!activeVoiceChannelId) {
@@ -1526,7 +1527,8 @@ export function beginEstablishedDirectCall(): boolean {
 	const stream = get(localStream);
 	isInCall.set(true);
 	callMode.set('direct');
-	channelCallPanelOpen.set(true);
+	// Docked-first: never spring the center-stage panel on call start/accept.
+	channelCallPanelOpen.set(false);
 	// Keep an active primary voice channel as a listen-only backdrop
 	// (TeamSpeak style) instead of tearing it down.
 	if (!activeVoiceChannelId) {
@@ -1577,7 +1579,8 @@ export async function answerCall(
 			await resolveActiveTransport();
 			isInCall.set(true);
 			callMode.set('direct');
-			channelCallPanelOpen.set(true);
+			// Docked-first: never spring the center-stage panel on incoming-call accept.
+			channelCallPanelOpen.set(false);
 			// Keep an active primary voice channel as a listen-only backdrop
 			// (TeamSpeak style) instead of tearing it down.
 			if (!activeVoiceChannelId) {

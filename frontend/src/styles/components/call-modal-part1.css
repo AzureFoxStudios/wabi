@@ -156,14 +156,63 @@
 		box-shadow: 0 12px 28px var(--shadow-md, rgba(0, 0, 0, 0.42));
 	}
 
-	.docked-title {
+	/* Discord-style: connected voice channels tint the bar green. */
+	.docked-bar.connected {
+		border-color: rgba(var(--status-online-rgb, 87, 242, 135), 0.55);
+		box-shadow: 0 12px 28px rgba(var(--status-online-rgb, 87, 242, 135), 0.12),
+			0 12px 28px var(--shadow-md, rgba(0, 0, 0, 0.42));
+	}
+
+	.docked-status {
 		display: flex;
 		align-items: center;
-		gap: 0.55rem;
-		flex-wrap: wrap;
-		font-size: 0.78rem;
+		gap: 0.6rem;
+		min-width: 0;
+	}
+
+	.docked-voice-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 30px;
+		height: 30px;
+		border-radius: 8px;
+		flex-shrink: 0;
+		background: rgba(var(--status-online-rgb, 87, 242, 135), 0.16);
+		color: var(--accent-success-soft, #57f287);
+	}
+
+	.docked-voice-icon svg {
+		width: 15px;
+		height: 15px;
+		stroke: currentColor;
+	}
+
+	.docked-info {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.25;
+		min-width: 0;
+	}
+
+	.docked-channel {
+		font-size: 0.82rem;
+		font-weight: 700;
+		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.96);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 220px;
+	}
+
+	.docked-meta {
+		font-size: 0.68rem;
 		font-weight: 600;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.88);
+		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.62);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 260px;
 	}
 
 	.docked-actions {
