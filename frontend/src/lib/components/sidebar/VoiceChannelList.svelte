@@ -4,8 +4,8 @@
 	import { cubicOut } from 'svelte/easing';
 	import { longpress } from '$lib/actions/longpress';
 	import type { Channel } from '$lib/socket';
-	import { currentUser, voiceChannelMembers, channelUnreadCounts } from '$lib/socket';
-	import { isMuted as callMuted, isDeafened as callDeafened, isLocalSpeaking, speakingUsers, voiceTransmitMode, listeningVoiceChannels } from '$lib/calling';
+	import { currentUser, voiceChannelMembers, channelUnreadCounts, socket, getSocket } from '$lib/socket';
+	import { isMuted as callMuted, isDeafened as callDeafened, isLocalSpeaking, speakingUsers, voiceTransmitMode, listeningVoiceChannels, toggleMute, toggleDeafen, endCall } from '$lib/calling';
 	import { voiceCallRecordingParticipants } from '$lib/callRecordingPresence';
 	import { formatBadge, formatVoiceDuration as formatVoiceDurationLabel, formatVoiceOccupancy, getVoiceOccupancyTitle } from './channelSidebarHelpers';
 
@@ -47,6 +47,22 @@
 
 	function isPrimaryVoiceChannel(channelId: string): boolean {
 		return runtimeActiveVoiceChannelId === channelId;
+	}
+
+	function handleSelfToggleMute(event: MouseEvent) {
+		event.stopPropagation();
+		toggleMute();
+	}
+
+	function handleSelfToggleDeafen(event: MouseEvent) {
+		event.stopPropagation();
+		toggleDeafen($socket || getSocket() || undefined);
+	}
+
+	function handleSelfDisconnect(event: MouseEvent) {
+		event.stopPropagation();
+		const sock = $socket || getSocket();
+		if (sock) endCall(sock);
 	}
 
 	function isSelfSpeakingInChannel(channelId: string): boolean {
@@ -225,6 +241,45 @@
 					{#if showSelfVoiceDuration()}
 						<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(channelId))}</span>
 					{/if}
+				</div>
+				<div class="voice-self-controls" role="group" aria-label="Voice controls">
+					<button
+						type="button"
+						class="voice-self-btn"
+						class:active={$callMuted}
+						on:click={handleSelfToggleMute}
+						title={$callMuted ? 'Unmute' : 'Mute'}
+						aria-label={$callMuted ? 'Unmute microphone' : 'Mute microphone'}
+					>
+						{#if $callMuted}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+						{:else}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+						{/if}
+					</button>
+					<button
+						type="button"
+						class="voice-self-btn"
+						class:active={$callDeafened}
+						on:click={handleSelfToggleDeafen}
+						title={$callDeafened ? 'Undeafen' : 'Deafen'}
+						aria-label={$callDeafened ? 'Undeafen' : 'Deafen'}
+					>
+						{#if $callDeafened}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M19.07 4.93a10 10 0 0 1 1.4 12.6M15.54 8.46a5 5 0 0 1 .78 5.4"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>
+						{:else}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+						{/if}
+					</button>
+					<button
+						type="button"
+						class="voice-self-btn voice-self-disconnect"
+						on:click={handleSelfDisconnect}
+						title="Disconnect"
+						aria-label="Disconnect from voice channel"
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+					</button>
 				</div>
 			{/if}
 			{#each visibleVoiceMembers(channel.id) as member (member.userId)}

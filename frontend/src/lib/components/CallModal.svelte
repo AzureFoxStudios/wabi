@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { socket, getSocket, users, currentUser, currentChannel } from '$lib/socket';
+	import { fade } from 'svelte/transition';
+	import { socket, getSocket, users, currentUser, currentChannel, channels } from '$lib/socket';
 	import { brandName } from '$lib/branding';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
@@ -35,7 +36,8 @@
 		connectionState,
 		callTransportState,
 		spatialAudioRuntimeStatus,
-		toggleSpatialAudioEnabled
+		toggleSpatialAudioEnabled,
+		callOfflineNotice
 	} from '$lib/calling';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
@@ -89,7 +91,7 @@
 	let callNotification: Notification | null = null;
 	let lastIncomingCallToken: string | null = null;
 	let lastRingtoneToken: string | null = null;
-	let callViewportMode: CallViewportMode = 'embedded';
+	let callViewportMode: CallViewportMode = 'docked';
 	let hatchOpen = false;
 	let pinnedTileIds: string[] = [];
 	let activeSpeakerState: ActiveSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
@@ -119,7 +121,13 @@
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
 	$: showDockedBar = $isInCall && callViewportMode === 'docked';
 	$: showCallShell = $isInCall && callViewportMode !== 'docked';
-	$: showHatchToggle = $isInCall;
+	$: showHatchToggle = $isInCall && callViewportMode !== 'docked';
+	// Resolve the real channel name — joinVoiceChannel stores the raw id in
+	// activeVoiceChannel, so look the display name up in the channel list.
+	$: activeVoiceChannelName =
+		$channels.find((channel) => channel.id === $activeVoiceChannel?.id)?.name ??
+		$activeVoiceChannel?.name ??
+		'';
 	$: focusHatchInsetLeft = !$layoutStore.isMobile && $layoutStore.navDock === 'left' ? $layoutStore.channelSidebarWidth : 0;
 	$: focusHatchInsetRight = !$layoutStore.isMobile
 		? ($layoutStore.navDock === 'right' ? $layoutStore.channelSidebarWidth : 0) + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)
@@ -294,7 +302,7 @@
 			presenterOverlayRedoByTile = {};
 		}
 		if (!$isInCall && wasInCall) {
-			callViewportMode = 'embedded';
+			callViewportMode = 'docked';
 			hatchOpen = false;
 			pinnedTileIds = [];
 			activeSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
@@ -310,9 +318,11 @@
 		wasInCall = $isInCall;
 	}
 
-	$: if ($isInCall && $channelCallPanelOpen && callViewportMode === 'docked') {
-		callViewportMode = 'embedded';
-	}
+	// Docked-first (voice UX contract): joining/answering never springs the
+	// fullscreen shell. The docked bar is the resting state; the user expands
+	// explicitly via the docked bar's Open/Focus buttons (setViewportMode).
+	// The old auto-flip (channelCallPanelOpen → embedded) was the source of
+	// the fullscreen takeover on every voice-channel click — removed.
 
 	// Auto-dock when the user navigates away from the voice channel to a text channel
 	$: {
@@ -781,6 +791,18 @@
 	/>
 {/if}
 
+{#if $callOfflineNotice}
+	<div class="call-offline-banner" transition:fade={{ duration: 160 }} role="alert">
+		{$callOfflineNotice}
+		<button
+			class="call-offline-dismiss"
+			on:click={() => callOfflineNotice.set(null)}
+			title="Dismiss"
+			aria-label="Dismiss call notice"
+		>×</button>
+	</div>
+{/if}
+
 {#if $isInCall && $activeCalls.length > 0}
 	<div class="remote-audio-sink" aria-hidden="true">
 		{#each $activeCalls as call (call.userId)}
@@ -795,9 +817,23 @@
 {/if}
 
 {#if showDockedBar}
-	<div class="docked-bar" role="region" aria-label="Docked call controls">
-		<div class="docked-title">
-			Call in progress ({1 + $activeCalls.length})
+	<div class="docked-bar" class:connected={$callMode === 'channel'} role="region" aria-label="Docked call controls">
+		<div class="docked-status">
+			<span class="docked-voice-icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+			</span>
+			<div class="docked-info">
+				<span class="docked-channel">
+					{#if $callMode === 'channel'}
+						{activeVoiceChannelName || 'Voice channel'}
+					{:else}
+						Call in progress
+					{/if}
+				</span>
+				<span class="docked-meta">
+					{voiceRouteText || `${1 + $activeCalls.length} participant${$activeCalls.length === 0 ? '' : 's'}`}
+				</span>
+			</div>
 			{#if recordingPillText}
 				<span class="recording-pill compact" class:is-saving={$callRecordingState.status === 'saving'}>
 					<span class="recording-dot"></span>
@@ -806,9 +842,10 @@
 			{/if}
 		</div>
 		<div class="docked-actions">
-			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open embedded call">Open</button>
+			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open call view">Open</button>
 			<button class="dock-btn" on:click={() => setViewportMode('focus')} title="Focus call">Focus</button>
 			<button class="dock-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>Mute</button>
+			<button class="dock-btn" class:active={$isDeafened} on:click={handleToggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>Deafen</button>
 			<button
 				class="dock-btn record"
 				class:active={$callRecordingState.status === 'recording'}

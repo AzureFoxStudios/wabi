@@ -8,6 +8,8 @@ declare module 'opus-recorder' {
     encoderComplexity?: number;
     encoderBitRate?: number;
     encoderApplication?: number;
+    /** Path/URL to the encoder worker script (defaults to root "encoderWorker.min.js"). */
+    encoderPath?: string | URL;
   }
 
   export default class OpusRecorder {
