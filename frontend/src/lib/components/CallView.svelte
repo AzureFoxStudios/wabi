@@ -20,7 +20,8 @@
 		endCall,
 		toggleMute,
 		toggleDeafen,
-		toggleVideo
+		toggleVideo,
+		callMode
 	} from '$lib/calling';
 	import { getSocket, users, currentUser } from '$lib/socket';
 	import { fade, scale } from 'svelte/transition';
@@ -49,7 +50,11 @@
 		return 'voice-grid';
 	}
 
-	$: hasActiveMedia = $activeCalls.length > 0 || $screenShares.length > 0 || $isSharing || $isInCall;
+	$: hasActiveMedia =
+		$activeCalls.length > 0 ||
+		$screenShares.length > 0 ||
+		$isSharing ||
+		($isInCall && $callMode !== 'channel');
 	let showSpatialDebugOverlay = false;
 	$: if (!$isInCall && showSpatialDebugOverlay) {
 		showSpatialDebugOverlay = false;
