@@ -53,14 +53,14 @@
 		}
 
 		try {
-			const url = `/api/addons/lore/repos/${numericChannelId}${mode === 'link' ? '/link' : ''}`;
+			const url = `/api/addons/lore/repos${mode === 'link' ? `/${numericChannelId}/link` : ''}`;
 			const res = await fetch(url, {
 				method: 'POST',
 				headers: {
 					'Authorization': `Bearer ${token}`,
 					'Content-Type': 'application/json'
 				},
-				body: JSON.stringify({ repoName: repoName.trim() })
+				body: JSON.stringify({ channelId: numericChannelId, repoName: repoName.trim() })
 			});
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({}));
