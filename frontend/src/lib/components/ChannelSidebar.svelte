@@ -29,7 +29,6 @@
 	import { createChannel } from '$lib/channelStore';
 	import {
 		activeVoiceChannel as callActiveVoiceChannel,
-		openChannelCallPanel,
 		callMode,
 		channelCallPanelOpen,
 		listeningVoiceChannels,
@@ -301,7 +300,7 @@
 	function getVoiceMembers(id: string) { return $voiceChannelMembers[id] || []; }
 	function isConnectedToVoice(id: string) { return connectedVoiceChannelIds.has(id); }
 	function isPrimaryVoiceChannel(id: string) { return primaryVoiceChannelId === id; }
-	async function handleVoiceChannelClick(id: string, e?: MouseEvent) { (e?.currentTarget as HTMLElement | null)?.blur?.(); if (isConnectedToVoice(id)) { openChannelCallPanel(); dispatch('close'); return; } if (runtimeActiveVoiceChannelId) { subscribeVoiceChannel(id); return; } try { await joinVoiceChannel(id); dispatch('close'); } catch (e) { console.error('Failed to join voice channel:', e); } }
+	async function handleVoiceChannelClick(id: string, e?: MouseEvent) { (e?.currentTarget as HTMLElement | null)?.blur?.(); if (isConnectedToVoice(id)) { return; } if (runtimeActiveVoiceChannelId) { subscribeVoiceChannel(id); return; } try { await joinVoiceChannel(id); dispatch('close'); } catch (e) { console.error('Failed to join voice channel:', e); } }
 	function handleToggleListenChannel(id: string) { if (isPrimaryVoiceChannel(id)) return; isConnectedToVoice(id) ? unsubscribeVoiceChannel(id) : subscribeVoiceChannel(id); }
 	function handleTransmitModeChange(e: Event) {
 		const mode = (e.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
@@ -668,10 +667,11 @@
 				parentId = createFolderChoice;
 			}
 
-			await createChannel(
+			const createdType = newChannelType;
+			const createdId = await createChannel(
 				channelName,
 				newChannelDescription.trim(),
-				newChannelType,
+				createdType,
 				newChannelForceSpoiler,
 				undefined,
 				parentId
@@ -683,6 +683,13 @@
 			createFolderChoice = 'none';
 			createNewFolderName = '';
 			showCreateInput = false;
+			// Code channels: land the user inside the new channel so they see
+			// the repo shell (file tree etc.) instead of being left on the hub.
+			if (createdType === 'lore' && createdId) {
+				// give the optimistic upsert a tick, then switch into it
+				await new Promise((r) => setTimeout(r, 50));
+				switchChannel(createdId);
+			}
 		} catch (error) {
 			createChannelError = error instanceof Error ? error.message : 'Failed to create channel.';
 		} finally {

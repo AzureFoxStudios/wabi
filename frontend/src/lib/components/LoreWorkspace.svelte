@@ -22,6 +22,12 @@
 		loreChannels.some((c) => c.id === activeChannelId)
 	);
 
+	// Most recently created code channel — used as the default embed target
+	// when the user opens the Code view from a non-code channel.
+	let mostRecentLore = $derived(
+		[...loreChannels].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0] ?? null
+	);
+
 	function jumpToChannel(id: string) {
 		switchChannel(id);
 		layoutStore.rightPanelView.set('none');
@@ -32,6 +38,18 @@
 		// The sidebar owns the form; we just ask via a scoped event.
 		window.dispatchEvent(new CustomEvent('wabi:create-channel', { detail: { type: 'lore' } }));
 	}
+
+	// Auto-sense: when the Code view is opened from a non-code channel and code
+	// channels exist, jump into the most recent one so the shell renders
+	// directly. Only fires on the transition into this view (guarded below).
+	let autoSwitched = false;
+	$effect(() => {
+		if (!mostRecentLore) return;
+		if (!isCurrentLore && !autoSwitched) {
+			autoSwitched = true;
+			jumpToChannel(mostRecentLore.id);
+		}
+	});
 </script>
 
 {#if isCurrentLore}
