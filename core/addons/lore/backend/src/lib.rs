@@ -27,6 +27,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
@@ -39,6 +40,8 @@ pub mod editor_bridge;
 pub mod script_runner;
 // P7: Off-box mirroring — publish to GitHub/GitLab/S3
 pub mod mirror;
+// Ignore filtering — .wabiignore at the Wabi layer (Lore has no .loreignore yet)
+pub mod ignore;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -206,6 +209,8 @@ pub struct LoreService {
     pub script_runner: script_runner::ScriptRunner,
     /// P7: off-box mirroring to GitHub/GitLab/S3
     pub mirror: mirror::MirrorService,
+    /// Ignore filters per channel (lazy-loaded, mtime-checked)
+    ignore_filters: std::sync::RwLock<HashMap<i64, Arc<ignore::LazyRepoFilter>>>,
 }
 
 impl LoreService {
@@ -218,11 +223,30 @@ impl LoreService {
             mirror: mirror::MirrorService::new(),
             config,
             repos: RwLock::new(HashMap::new()),
+            ignore_filters: std::sync::RwLock::new(HashMap::new()),
         }
     }
 
     pub fn recordings_channel_name(&self) -> &str {
         &self.config.recordings_channel_name
+    }
+
+        /// Get or create the ignore filter for a channel's repo.
+    fn get_ignore_filter(
+        &self,
+        channel_id: i64,
+        working_tree: &std::path::Path,
+    ) -> Arc<ignore::LazyRepoFilter> {
+        use std::collections::hash_map::Entry;
+        let mut filters = self.ignore_filters.write().unwrap();
+        match filters.entry(channel_id) {
+            Entry::Occupied(e) => e.get().clone(),
+            Entry::Vacant(e) => {
+                let filter = Arc::new(ignore::LazyRepoFilter::new(working_tree.to_path_buf()));
+                e.insert(filter.clone());
+                filter
+            }
+        }
     }
 
     /// Rebuild the in-memory repo index from durable WDB records.
@@ -293,6 +317,10 @@ impl LoreService {
         );
 
         self.repos.write().await.insert(channel_id, repo.clone());
+
+        // Seed ignore files into the new repo
+        self.seed_ignore_files(&repo).await.ok();
+
         Ok(repo)
     }
 
@@ -352,7 +380,41 @@ impl LoreService {
         );
 
         self.repos.write().await.insert(channel_id, repo.clone());
+
+        // Seed ignore files (no-op if they already exist in the cloned repo)
+        self.seed_ignore_files(&repo).await.ok();
+
         Ok(repo)
+    }
+
+    /// Seed `.wabiignore` and forward-compat `.loreignore` into a new repo.
+    ///
+    /// Only writes if the file doesn't already exist — so linking an existing
+    /// repo that already has its own `.wabiignore` is a no-op.
+    async fn seed_ignore_files(&self, repo: &LoreRepo) -> anyhow::Result<()> {
+        let wabiignore = repo.working_tree.join(".wabiignore");
+        if !wabiignore.exists() {
+            tokio::fs::write(
+                &wabiignore,
+                ignore::LazyRepoFilter::default_ignore_content(),
+            )
+            .await?;
+            info!(path = ?wabiignore, "Seeded .wabiignore");
+        }
+
+        // Forward-compat: seed .loreignore so when Lore adds native support
+        // (EpicGames/lore#118), the repo is ready.
+        let loreignore = repo.working_tree.join(".loreignore");
+        if !loreignore.exists() {
+            tokio::fs::write(
+                &loreignore,
+                ignore::LazyRepoFilter::default_ignore_content(),
+            )
+            .await?;
+            info!(path = ?loreignore, "Seeded .loreignore (forward-compat)");
+        }
+
+        Ok(())
     }
 
     /// Get the Lore repo for a channel, if one exists.
@@ -426,6 +488,10 @@ impl LoreService {
             files.retain(|f| f.path.starts_with(prefix));
         }
 
+        // Filter out ignored paths (node_modules, target, .env, etc.)
+        let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
+        files.retain(|f| !filter.is_ignored(&f.path));
+
         // Enrich with file sizes from the filesystem
         for file in files.iter_mut() {
             let full_path = repo.working_tree.join(&file.path);
@@ -462,6 +528,15 @@ impl LoreService {
 
         // Copy file into working tree
         tokio::fs::copy(local_path, &dest).await?;
+
+        // Check if the path is ignored
+        let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
+        if filter.is_ignored(repo_path) {
+            return Err(anyhow::anyhow!(
+                "path '{}' is ignored by .wabiignore",
+                repo_path
+            ));
+        }
 
         // Stage the file
         run_lore(
