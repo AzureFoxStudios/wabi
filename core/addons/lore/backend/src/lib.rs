@@ -175,6 +175,7 @@ async fn run_lore(
     binary: &PathBuf,
     working_dir: &PathBuf,
     args: &[&str],
+    mode: LoreMode,
 ) -> anyhow::Result<std::process::Output> {
     let output = Command::new(binary)
         .current_dir(working_dir)
