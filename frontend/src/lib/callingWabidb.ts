@@ -61,6 +61,7 @@ export async function connectWabidbCall(
 	targetChannelId: string,
 	localDisplayName: string,
 	serverUrl: string = defaultWabidbServer,
+	peerUserId?: string,
 ): Promise<void> {
 	if (wabidbCallState && channelId === targetChannelId) {
 		return;
@@ -86,7 +87,10 @@ export async function connectWabidbCall(
 			throw new Error('No local audio stream available');
 		}
 
-		const newSessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+		const isDirectCall = Boolean(peerUserId);
+		const newSessionId = isDirectCall
+			? (await import('./wabidbMediaRelay')).wabidbDmSessionKey(String(userId), peerUserId)
+			: `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 		sessionId = newSessionId;
 		channelId = targetChannelId;
 
@@ -126,10 +130,10 @@ export async function connectWabidbCall(
 			console.warn('[Wabidb] joinSession failed (continuing):', joinErr);
 		}
 
-		// Defer media relay to existing wabidbMediaRelay for now (socket.io path
-		// is unchanged). This means call audio still uses socket.io; only
-		// the session-state path is migrated. Will be fully migrated in
-		// F19 follow-up.
+		// Connect the wabidb media relay — the audio path ships opus over
+		// socket.io, bypassing CGNAT without STUN/TURN. For DM calls the
+		// relay uses a deterministic session key derived from both peers so
+		// caller and callee rendezvous on the same wabidb session.
 		try {
 			const { WabidbMediaRelay } = await import('./wabidbMediaRelay');
 			wabidbMediaRelay = new WabidbMediaRelay({
@@ -137,6 +141,9 @@ export async function connectWabidbCall(
 				userId: String(userId),
 				socket,
 				onError: (err: Error) => console.error('[WabidbMediaRelay]', err),
+				...(isDirectCall
+					? { kind: 'dm' as const, peerStableUserId: peerUserId }
+					: {}),
 			});
 			await wabidbMediaRelay.start(stream);
 		} catch (e) {

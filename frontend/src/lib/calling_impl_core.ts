@@ -1578,7 +1578,7 @@ export async function answerCall(
 				{ playJoinSound: true, socket }
 			);
 		} else {
-			await resolveActiveTransport();
+			const activeTransport = await resolveActiveTransport();
 			isInCall.set(true);
 			callMode.set('direct');
 			// Docked-first: never spring the center-stage panel on incoming-call accept.
@@ -1600,6 +1600,25 @@ export async function answerCall(
 
 			// Start monitoring local audio
 			startAudioMonitoring('local', stream, true);
+
+			// If wabidb relay is the active transport, connect the media relay
+			// for the DM call. The caller (in createCallOffer) will have already
+			// connected with the shared DM session key, so joining here puts
+			// the callee on the same wabidb session.
+			if (activeTransport === 'wabidb') {
+				try {
+					await connectWabidbCall(
+						socket,
+						callerId || 'direct-call',
+						options.localDisplayName?.trim() || `${brandName} User`,
+						undefined,
+						callerId,
+					);
+				} catch (err) {
+					console.warn('[Calling] wabiDB DM relay (callee) failed, falling back to P2P:', err);
+					await disconnectWabidbCall();
+				}
+			}
 		}
 
 		socket.emit('call-answer', {
@@ -1956,6 +1975,27 @@ export async function createCallOffer(
 	username: string = '',
 	options?: { channelId?: string }
 ) {
+	// Check if wabidb relay is the active transport — if so, skip P2P/WebRTC
+	// offer creation entirely and connect the wabidb media relay with the
+	// peer's stable user ID for a deterministic shared session.
+	const activeTransport = await resolveActiveTransport(options?.channelId);
+	if (activeTransport === 'wabidb') {
+		try {
+			await connectWabidbCall(
+				socket,
+				targetId || 'direct-call',
+				username || `${brandName} User`,
+				undefined,
+				targetId,
+			);
+			console.log('[Wabidb] Direct call using wabiDB relay for target:', targetId);
+			return;
+		} catch (err) {
+			console.warn('[Calling] wabiDB direct relay failed, falling back to P2P:', err);
+			await disconnectWabidbCall();
+		}
+	}
+
 	await prefetchTurnCredentials().catch((err) => {
 		console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
 	});
