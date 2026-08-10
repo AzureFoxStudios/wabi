@@ -1,0 +1,32 @@
+listening-port=3478
+relay-threads=8
+
+# External IP — override with TURN_EXTERNAL_IP env var at runtime
+external-ip=${TURN_EXTERNAL_IP:-127.0.0.1}
+
+# Realm for HMAC credentials
+realm=${TURN_REALM:-localhost}
+
+# Credentials mechanism: long-term credentials with HMAC
+lt-cred-mech
+
+# Auth secret (HMAC key) — required for Wabi credential generation
+use-auth-secret
+static-auth-secret=${TURN_HMAC_KEY}
+
+# Disallow anonymous
+no-anonymous
+
+# Relay port range (must match compose port mappings)
+min-port=49160
+max-port=49200
+
+# Reduce log noise
+log-level=1
+
+# Performance
+mobility
+no-cloudevent
+
+# File-based auth fallback (not used with HMAC but coturn needs a db path)
+userdb=/var/lib/coturn/turndb
