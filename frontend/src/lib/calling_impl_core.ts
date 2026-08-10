@@ -62,6 +62,7 @@ import {
 import { resolveActiveTransport } from './callingTransport';
 import {
 	getStoredCallMuteBehavior,
+	getStoredCallTransportMode,
 	getStoredAudioProcessingMode,
 	getStoredSpatialAudioSettings,
 	setSpatialAudioEnabled
@@ -84,7 +85,6 @@ import {
 } from './callingWebrtcHelpers';
 import {
 	markExperimentalWabidbCallAttempt,
-	shouldUseExperimentalWabidbCall,
 	type ExperimentalWabidbCallScope
 } from './experimentalWabidbCalls';
 import { clearAllRecordingPresence } from './callRecordingPresence';
@@ -1177,7 +1177,9 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 
 export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	if (activeVoiceChannelId !== channelId) {
-		socket.emit('voice-channel-leave', { channelId });
+		// Listening-only channel: only unsubscribe, do NOT emit the
+		// primary `voice-channel-leave` (that would remove the socket
+		// from whatever primary channel it's transmitting on).
 		socket.emit('voice-channel-unsubscribe', { channelId });
 		listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
 		return;
@@ -1316,8 +1318,8 @@ export async function startCall(
 		});
 
 		const scope = options.scope ?? 'unknown';
-		const useExperimentalWabidb = shouldUseExperimentalWabidbCall(scope);
-		if (useExperimentalWabidb) {
+		const fallbackToP2P = getStoredCallTransportMode() === 'p2p-only';
+		if (!fallbackToP2P) {
 			await markExperimentalWabidbCallAttempt({ targetUserId, isVideoCall, scope });
 			socket.emit('call-initiate', {
 				targetUserId,
@@ -1478,8 +1480,8 @@ export async function startGroupCall(
 			localDisplayName: options.localDisplayName?.trim() || `${brandName} User`
 		});
 
-		const useExperimentalWabidb = shouldUseExperimentalWabidbCall('group');
-		if (useExperimentalWabidb) {
+		const fallbackToP2P = getStoredCallTransportMode() === 'p2p-only';
+		if (!fallbackToP2P) {
 			await markExperimentalWabidbCallAttempt({ targetUserId: channelId, isVideoCall, scope: 'group' });
 			socket.emit('call-initiate', {
 				channelId,

@@ -231,7 +231,7 @@ export const spacePalette: BasePalette = {
 export const jokerPalette: BasePalette = {
 	id: 'joker',
 	name: 'Joker',
-	description: 'Joker energy — red and blue paint over black, chunky pixel vibe. Pair with m6x11 via Uniform Font mode.',
+	description: 'Joker energy — red and blue paint over black, chunky pixel vibe. Use the Balatro state toggle for title / blind / shop.',
 	bgBase: '#162325',
 	bgRaised: '#202c2e',
 	bgSunken: '#0a0c0d',
@@ -256,7 +256,7 @@ export const jokerPalette: BasePalette = {
 		color3: '#162325',
 		intensity: 1,
 		size: 1,
-		speed: 1,
+		speed: 0.55,
 		frostOpacity: 0.82,
 		frostBlur: 10,
 	},
@@ -428,6 +428,40 @@ export const synapsePalette: BasePalette = {
 	},
 };
 
+export const longcatPalette: BasePalette = {
+	id: 'longcat',
+	name: 'Longcat',
+	description: 'Pixelated neon ribbon tail winding through the dark — playful, soft, and endless.',
+	bgBase: '#10061a',
+	bgRaised: '#1a0f26',
+	bgSunken: '#0a0510',
+	bgPrimary: 'linear-gradient(160deg, #0a0510 0%, #160f26 100%)',
+	textPrimary: '#ffe4f7',
+	textSecondary: '#f0a6e8',
+	textMuted: '#b77ec4',
+	accent: '#ff7ac6',
+	accentSecondary: '#7af0ff',
+	statusOnline: '#4ade80',
+	statusAway: '#fbbf24',
+	statusBusy: '#ef4444',
+	statusOffline: '#5a3d70',
+	success: '#4ade80',
+	info: '#7af0ff',
+	warning: '#fbbf24',
+	danger: '#ef4444',
+	ambient: {
+		effect: 'longcat',
+		color: '#ff7ac6',
+		color2: '#7af0ff',
+		color3: '#1a0f26',
+		intensity: 0.9,
+		size: 1,
+		speed: 0.8,
+		frostOpacity: 0.88,
+		frostBlur: 8,
+	},
+};
+
 // ===== ALL PALETTES =====
 export const ALL_PALETTES: BasePalette[] = [
 	darkPalette,
@@ -444,6 +478,7 @@ export const ALL_PALETTES: BasePalette[] = [
 	warpPalette,
 	stormPalette,
 	synapsePalette,
+	longcatPalette,
 ];
 
 export const DEFAULT_PALETTE = darkPalette;

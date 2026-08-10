@@ -7,11 +7,38 @@
 
 import OpusRecorder from 'opus-recorder';
 
+export type WabidbMediaRelayKind = 'channel' | 'dm';
+
 export interface WabidbMediaRelayConfig {
   sessionId: string;
   userId: string;
   socket: any; // Socket.IO client
   onError?: (err: Error) => void;
+  kind?: WabidbMediaRelayKind;
+  peerStableUserId?: string;
+}
+
+export function wabidbDmSessionKey(peerA: string, peerB: string): string {
+  const [first, second] = [normalizeStableUserId(peerA), normalizeStableUserId(peerB)].sort();
+  return `dm:${first}:${second}`;
+}
+
+export function resolveWabidbSessionKey(
+  kind: WabidbMediaRelayKind | undefined,
+  sessionId: string,
+  userId: string,
+  peerStableUserId?: string,
+): string {
+  if (kind === 'dm' && peerStableUserId) {
+    return wabidbDmSessionKey(userId, peerStableUserId);
+  }
+  return sessionId;
+}
+
+function normalizeStableUserId(id: string): string {
+  const trimmed = id.trim();
+  if (/^\d+$/.test(trimmed)) return `user-${trimmed}`;
+  return trimmed;
 }
 
 interface JitterEntry {
@@ -37,7 +64,7 @@ export class WabidbMediaRelay {
   private playbackTimer: number | null = null;
 
   constructor(cfg: WabidbMediaRelayConfig) {
-    this.sessionId = cfg.sessionId;
+    this.sessionId = resolveWabidbSessionKey(cfg.kind, cfg.sessionId, cfg.userId, cfg.peerStableUserId);
     this.userId = cfg.userId;
     this.socket = cfg.socket;
     this.onError = cfg.onError;

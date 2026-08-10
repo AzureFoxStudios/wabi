@@ -157,9 +157,26 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 			throw new Error('Unauthorized - invalid or expired token');
 		} else if (response.status === 404) {
 			// Optional endpoint — theme persistence isn't implemented on this
-			// server. Silently no-op instead of spamming the console with errors.
+			// server. Fall back to localStorage so the preference isn't lost.
 			markEndpointUnsupported(`${getServerUrl()}/api/user/theme`);
-			console.warn('[ThemeApi] Theme endpoint unavailable (404) — preferences not persisted');
+			console.warn('[ThemeApi] Theme endpoint unavailable (404) — falling back to localStorage');
+			try {
+				const localStorage = (window as Window & { localStorage?: Storage }).localStorage;
+				if (localStorage) {
+					const existing = localStorage.getItem('wabi-theme');
+					const payload = existing ? JSON.parse(existing) : {};
+					localStorage.setItem(
+						'wabi-theme',
+						JSON.stringify({
+							...payload,
+							...prefs,
+							updated_at: new Date().toISOString(),
+						})
+					);
+				}
+			} catch {
+				// localStorage may be unavailable; ignore.
+			}
 			return;
 		} else if (response.status >= 500) {
 			throw new Error('Server error - theme service unavailable');

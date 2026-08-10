@@ -271,7 +271,10 @@
 
 	.call-shell.mode-embedded {
 		position: absolute;
-		inset: 0;
+		/* Center-stage only: leave the channel sidebar and right panel
+		   visible/usable. --hatch-left/right are set inline from the
+		   layout store (same insets the focus hatch uses). */
+		inset: 0 var(--hatch-right) 0 var(--hatch-left);
 	}
 
 	.call-shell.mode-focus {
@@ -320,6 +323,11 @@
 		width: 15px;
 		height: 15px;
 		stroke: currentColor;
+	}
+
+	/* Minimize button sits left of the fullscreen toggle in center-stage mode. */
+	.hatch-toggle.minimize {
+		right: 3.25rem;
 	}
 
 	.active-call-container {

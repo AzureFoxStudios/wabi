@@ -247,7 +247,16 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
     {
         let mut voice = state.voice_channels.write().await;
         if let Some(members) = voice.get_mut(&channel_id) {
-            members.retain(|p| p.socket_id != socket.id.to_string());
+            // Only remove a primary (transmitting) participant on `leave`.
+            // A listen-only subscriber must be removed via `unsubscribe`,
+            // otherwise an unsubscribe-turned-leave could eject the user
+            // from whichever channel it is transmitting on.
+            let is_primary = members
+                .iter()
+                .any(|p| p.socket_id == socket.id.to_string() && !p.is_listening_only);
+            if is_primary {
+                members.retain(|p| p.socket_id != socket.id.to_string());
+            }
         }
     }
 

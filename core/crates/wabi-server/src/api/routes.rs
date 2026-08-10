@@ -1,6 +1,7 @@
 //! API router construction
 
-use axum::Router;
+use axum::{extract::State, response::IntoResponse, routing::get, Json, Router};
+use serde::Serialize;
 use std::sync::Arc;
 
 use crate::state::AppState;
