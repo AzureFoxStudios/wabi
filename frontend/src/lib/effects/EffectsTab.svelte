@@ -20,6 +20,26 @@
 	let saving = false;
 
 	$: effects = effectsRegistry.list();
+	$: isJoker = selectedEffect === 'joker';
+	let balatroState: 'title' | 'blind' | 'shop' = 'title';
+	const BALATRO_PRESETS: Record<string, { speed: number; intensity: number; size: number; label: string }> = {
+		title: { speed: 0.55, intensity: 0.7, size: 1, label: 'Title' },
+		blind: { speed: 0.9, intensity: 1, size: 1.1, label: 'Blind' },
+		shop: { speed: 0.45, intensity: 0.45, size: 0.9, label: 'Shop' },
+	};
+
+	function applyBalatroState(next: 'title' | 'blind' | 'shop') {
+		balatroState = next;
+		const preset = BALATRO_PRESETS[next];
+		effectSpeed = preset.speed;
+		effectIntensity = preset.intensity;
+		effectSize = preset.size;
+		applyEffect();
+	}
+
+	$: if (!isJoker) {
+		balatroState = 'title';
+	}
 
 	function loadFromCurrentTheme() {
 		const theme = THEMES[$themeStore.themeId];
@@ -152,6 +172,20 @@
 			{/each}
 		</select>
 	</div>
+
+	{#if isJoker}
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Balatro state</span>
+				<span class="setting-description">Title screen, blind select, or shop</span>
+			</div>
+			<div class="segmented-control">
+				<button type="button" class="segment" class:active={balatroState === 'title'} on:click={() => applyBalatroState('title')}>Title</button>
+				<button type="button" class="segment" class:active={balatroState === 'blind'} on:click={() => applyBalatroState('blind')}>Blind</button>
+				<button type="button" class="segment" class:active={balatroState === 'shop'} on:click={() => applyBalatroState('shop')}>Shop</button>
+			</div>
+		</div>
+	{/if}
 
 	<div class="setting-item">
 		<div class="setting-info">
@@ -287,5 +321,31 @@
 	.color-picker::-webkit-color-swatch {
 		border: 1px solid var(--border, #302b63);
 		border-radius: var(--radius-sm, 4px);
+	}
+	.segmented-control {
+		display: inline-flex;
+		gap: 0.25rem;
+		padding: 0.2rem;
+		border-radius: var(--radius-md, 8px);
+		background: color-mix(in srgb, var(--surface-raised, #24243e) 80%, transparent);
+		border: 1px solid var(--border-subtle, #3a3a4a);
+	}
+	.segment {
+		border: none;
+		background: transparent;
+		color: var(--text-secondary, #a0a0a0);
+		padding: 0.35rem 0.7rem;
+		border-radius: calc(var(--radius-md, 8px) - 0.2rem);
+		cursor: pointer;
+		font-size: 0.8rem;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s;
+	}
+	.segment.active {
+		background: color-mix(in srgb, var(--accent, #7c6af5) 18%, transparent);
+		color: var(--text-primary, #f0f0f0);
+	}
+	.segment:hover:not(.active) {
+		color: var(--text-primary, #f0f0f0);
 	}
 </style>

@@ -12,7 +12,7 @@
 //! DOES NOT contain actual SFU/WebRTC logic. That's the calling layer.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -94,6 +94,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/rooms/{room_id}/endpoint", get(get_endpoint))
         // TURN ephemeral credentials
         .route("/turn-credentials", get(handle_turn_credentials))
+        // Media runtime snapshot
+        .route("/runtime", get(media_runtime_snapshot))
         .with_state(state)
 }
 
@@ -243,6 +245,187 @@ async fn get_endpoint(
         endpoint,
         fallback_to_primary,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Media runtime snapshot
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimePayload {
+    media: Option<ServerMediaRuntimeMediaPayload>,
+    notes: Option<ServerMediaRuntimeNotesPayload>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeMediaPayload {
+    local_enhanced_enabled: bool,
+    srt_gateway_enabled: bool,
+    srt_gateway_url: Option<String>,
+    opus: Option<ServerMediaRuntimeOpusPayload>,
+    turn: Option<ServerMediaRuntimeTurnPayload>,
+    gateway: Option<ServerMediaRuntimeGatewayPayload>,
+    livekit: Option<ServerMediaRuntimeLivekitPayload>,
+    sfu: Option<ServerMediaRuntimeSfuPayload>,
+    booster_relay: Option<ServerMediaRuntimeBoosterRelayPayload>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeOpusPayload {
+    audio_bitrate_web: u32,
+    audio_bitrate_local: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeTurnPayload {
+    configured: bool,
+    server: Option<String>,
+    port: Option<u16>,
+    use_turns: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeGatewayPayload {
+    configured: bool,
+    healthy: bool,
+    media_plane_ready: bool,
+    last_seen_at: Option<i64>,
+    active_streams: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeLivekitPayload {
+    configured: bool,
+    url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeSfuPayload {
+    provider: Option<&'static str>,
+    enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeBoosterRelayPayload {
+    requested_mode: &'static str,
+    effective_mode: &'static str,
+    self_hosted: bool,
+    self_advertisement: Option<ServerMediaRuntimeBoosterRelaySelfAdvertisementPayload>,
+    components: Option<ServerMediaRuntimeBoosterRelayComponentsPayload>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeBoosterRelaySelfAdvertisementPayload {
+    status: Option<&'static str>,
+    reason: Option<String>,
+    updated_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeBoosterRelayComponentsPayload {
+    turn_configured: bool,
+    sfu_configured: bool,
+    gateway_configured: bool,
+    gateway_healthy: bool,
+    gateway_media_plane_ready: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerMediaRuntimeNotesPayload {
+    srt_direct_browser_supported: bool,
+    message: Option<String>,
+}
+
+async fn media_runtime_snapshot(
+    State(state): State<Arc<AppState>>,
+) -> Json<ServerMediaRuntimePayload> {
+    let config = &state.config;
+    let turn_configured = config.turn_enabled && config.turn_uri.is_some();
+    let turn_uri = config.turn_uri.clone();
+    let (turn_server, turn_port) = turn_uri
+        .as_deref()
+        .and_then(parse_turn_uri)
+        .unzip();
+
+    let livekit_configured = tokio::process::Command::new("livekit-server")
+        .arg("--version")
+        .output()
+        .await
+        .ok()
+        .map(|o| o.status.success())
+        .unwrap_or_default();
+
+    let payload = ServerMediaRuntimePayload {
+        media: Some(ServerMediaRuntimeMediaPayload {
+            local_enhanced_enabled: true,
+            srt_gateway_enabled: false,
+            srt_gateway_url: None,
+            opus: Some(ServerMediaRuntimeOpusPayload {
+                audio_bitrate_web: 96000,
+                audio_bitrate_local: 96000,
+            }),
+            turn: Some(ServerMediaRuntimeTurnPayload {
+                configured: turn_configured,
+                server: turn_server.flatten(),
+                port: turn_port.flatten(),
+                use_turns: turn_configured,
+            }),
+            gateway: Some(ServerMediaRuntimeGatewayPayload {
+                configured: false,
+                healthy: false,
+                media_plane_ready: false,
+                last_seen_at: None,
+                active_streams: 0,
+            }),
+            livekit: Some(ServerMediaRuntimeLivekitPayload {
+                configured: livekit_configured,
+                url: None,
+            }),
+            sfu: Some(ServerMediaRuntimeSfuPayload {
+                provider: livekit_configured.then(|| "livekit"),
+                enabled: livekit_configured,
+            }),
+            booster_relay: Some(ServerMediaRuntimeBoosterRelayPayload {
+                requested_mode: "off",
+                effective_mode: "off",
+                self_hosted: true,
+                self_advertisement: None,
+                components: Some(
+                    ServerMediaRuntimeBoosterRelayComponentsPayload {
+                        turn_configured: turn_configured,
+                        sfu_configured: livekit_configured,
+                        gateway_configured: false,
+                        gateway_healthy: false,
+                        gateway_media_plane_ready: false,
+                    },
+                ),
+            }),
+        }),
+        notes: Some(ServerMediaRuntimeNotesPayload {
+            srt_direct_browser_supported: false,
+            message: None,
+        }),
+    };
+
+    Json(payload)
+}
+
+fn parse_turn_uri(uri: &str) -> Option<(Option<String>, Option<u16>)> {
+    let stripped = uri.strip_prefix("turn:")?.strip_prefix("//")?;
+    let host = stripped.split('/').next()?.to_string();
+    let port = host.split(':').nth(1)?.parse::<u16>().ok();
+    Some((Some(host), port))
 }
 
 // ---------------------------------------------------------------------------

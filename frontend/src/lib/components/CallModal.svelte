@@ -320,9 +320,13 @@
 
 	// Docked-first (voice UX contract): joining/answering never springs the
 	// fullscreen shell. The docked bar is the resting state; the user expands
-	// explicitly via the docked bar's Open/Focus buttons (setViewportMode).
-	// The old auto-flip (channelCallPanelOpen → embedded) was the source of
-	// the fullscreen takeover on every voice-channel click — removed.
+	// explicitly via the docked bar's Open/Focus buttons (setViewportMode)
+	// or by clicking an already-connected voice channel in the sidebar
+	// (openChannelCallPanel — user intent only, safe: every join/answer
+	// path sets channelCallPanelOpen(false), so this can never fire on join).
+	$: if ($isInCall && $channelCallPanelOpen && callViewportMode === 'docked') {
+		callViewportMode = 'embedded';
+	}
 
 	// Auto-dock when the user navigates away from the voice channel to a text channel
 	$: {
@@ -703,6 +707,12 @@
 		hatchOpen = !hatchOpen;
 	}
 
+	function minimizeToDocked(): void {
+		callViewportMode = 'docked';
+		channelCallPanelOpen.set(false);
+		hatchOpen = false;
+	}
+
 	function closeHatch(): void {
 		hatchOpen = false;
 	}
@@ -892,6 +902,17 @@
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
 				{/if}
 			</button>
+			{#if callViewportMode === 'embedded'}
+				<button
+					type="button"
+					class="hatch-toggle minimize"
+					on:click={minimizeToDocked}
+					title="Minimize to voice bar"
+					aria-label="Minimize call to voice bar"
+				>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+				</button>
+			{/if}
 		{/if}
 
 		<div class="active-call-container">

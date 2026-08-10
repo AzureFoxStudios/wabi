@@ -14,6 +14,7 @@
 	import { SpireEffect } from './built-in/spire';
 	import { WarpEffect } from './built-in/warp';
 	import { MatrixRainEffect } from './built-in/matrix';
+	import { LongcatEffect } from './built-in/longcat';
 	import type { EffectConfig } from './types';
 
 	if (browser) {
@@ -29,6 +30,7 @@
 		effectsRegistry.register(new SpireEffect());
 		effectsRegistry.register(new WarpEffect());
 		effectsRegistry.register(new MatrixRainEffect());
+		effectsRegistry.register(new LongcatEffect());
 	}
 
 	let canvas: HTMLCanvasElement;
@@ -132,7 +134,10 @@
 		}
 		lastTime = now;
 		const effect = effectsRegistry.get(currentEffectId);
-		if (effect) effect.render(dt, currentConfig);
+		if (effect) {
+			currentConfig = readConfig().config;
+			effect.render(dt, currentConfig);
+		}
 		animId = requestAnimationFrame(loop);
 	}
 

@@ -6,7 +6,6 @@
 	import { channelMessages, channels } from '$lib/socket';
 	import PureRefViewer from '$lib/components/PureRefViewer.svelte';
 	import SyncLoadingOverlay from '$lib/components/SyncLoadingOverlay.svelte';
-	import CallView from '$lib/components/CallView.svelte';
 	import { isRunningInTauri, startAutoSaveTauri, type WabiData } from '$lib/tauri-storage';
 	import { migrateTauriData, loadMigratedTauriData } from '$lib/tauri-migration';
 	import { chatStorage } from '$lib/storage';
@@ -230,9 +229,9 @@ function isLocalPreviewHost(): boolean {
 <div class="app-content-layer">
 	<ConnectionBadge />
 
-	<!-- CallView re-enabled in 2026-06-15 frontend cleanup pass. IncomingCallModal
-	     is mounted by CallModal.svelte (it requires call-scoped props). -->
-	<CallView />
+	<!-- Call UI (docked bar + center-stage shell) is mounted by MainLayout
+	     via CallModal — the legacy fullscreen CallView overlay was removed
+	     (2026-08-10) so calls no longer hog the entire screen. -->
 
 	<PureRefViewer />
 
