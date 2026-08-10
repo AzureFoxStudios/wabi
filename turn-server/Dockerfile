@@ -2,7 +2,7 @@ FROM alpine:3.20
 
 RUN apk add --no-cache \
     coturn \
-    gettext \
+    python3 \
     && mkdir -p /var/lib/coturn /etc/coturn/certs
 
 COPY turnserver.conf.template /etc/coturn/turnserver.conf.template

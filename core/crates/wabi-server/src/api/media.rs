@@ -24,6 +24,7 @@ use std::sync::Arc;
 use crate::media::MediaRoomError;
 use crate::nodes::NodeCapability;
 use crate::state::AppState;
+use crate::api::auth::handle_turn_credentials;
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -91,6 +92,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/rooms/{room_id}/close", post(close_room))
         // Client asks: where do I connect?
         .route("/rooms/{room_id}/endpoint", get(get_endpoint))
+        // TURN ephemeral credentials
+        .route("/turn-credentials", get(handle_turn_credentials))
         .with_state(state)
 }
 
