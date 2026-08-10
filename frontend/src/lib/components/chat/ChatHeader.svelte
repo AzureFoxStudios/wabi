@@ -147,9 +147,9 @@
 					class:active={experimentalWabidbCallsEnabled}
 					on:click={onToggleExperimentalWabidbCall}
 					disabled={!isTauriRuntime() || getTauriPlatform() !== 'desktop'}
-					title="Experimental wabiDB routing for DM/group calls only"
-				>
-					wabiDB EXP {experimentalWabidbCallsEnabled ? 'ON' : 'OFF'}
+					title="Database relay for DM/group calls; P2P/TURN as fallback"
+					>
+					wabiDB Relay {experimentalWabidbCallsEnabled ? 'ON' : 'OFF'}
 				</button>
 			{/if}
 			<div class="search-container" class:expanded={searchExpanded} bind:this={searchContainerElement} role="search">
