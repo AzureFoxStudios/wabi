@@ -14,6 +14,18 @@ export interface LoreRepo {
 }
 
 /** Error thrown by lore API helpers — carries the HTTP status for callers to branch on. */
+function normalizeLoreRepo(raw: any): LoreRepo {
+	return {
+		channelId: raw.channelId ?? raw.channel_id,
+		repoName: raw.repoName ?? raw.repo_name ?? 'Unnamed repository',
+		createdBy: raw.createdBy ?? raw.created_by,
+		createdAt: raw.createdAt ?? raw.created_at,
+		class: raw.class ?? null,
+		auto_branch_on_upload: raw.auto_branch_on_upload ?? raw.autoBranchOnUpload ?? false,
+		imported_from: raw.imported_from ?? raw.importedFrom ?? null
+	};
+}
+
 export function loreError(message: string, status: number): Error {
 	const err = new Error(message);
 	(err as any).status = status;
@@ -86,7 +98,7 @@ export async function getLoreRepo(token: string, channelId: number): Promise<Lor
 		const err = await res.json().catch(() => ({}));
 		throw new Error((err as any).error || 'Failed to get lore repo');
 	}
-	return (await res.json()) as LoreRepo;
+	return normalizeLoreRepo(await res.json());
 }
 
 export async function createLoreRepo(
@@ -111,7 +123,7 @@ export async function createLoreRepo(
 		const err = await res.json().catch(() => ({}));
 		throw loreConnectError((err as any).error || 'Failed to create space', res.status);
 	}
-	return (await res.json()) as LoreRepo;
+	return normalizeLoreRepo(await res.json());
 }
 
 /** Link an EXISTING space on the local Lore server to a channel (clone, not create). */
@@ -132,7 +144,7 @@ export async function linkLoreRepo(
 		const err = await res.json().catch(() => ({}));
 		throw loreConnectError((err as any).error || 'Failed to link existing space', res.status);
 	}
-	return (await res.json()) as LoreRepo;
+	return normalizeLoreRepo(await res.json());
 }
 
 export async function deleteLoreRepo(token: string, channelId: number): Promise<void> {
@@ -164,7 +176,7 @@ export async function updateLoreRepoSettings(
 		const err = await res.json().catch(() => ({}));
 		throw loreError((err as any).error || 'Failed to update repository settings', res.status);
 	}
-	return (await res.json()) as LoreRepo;
+	return normalizeLoreRepo(await res.json());
 }
 
 export interface LoreUploadResult {
@@ -226,7 +238,7 @@ export async function linkLoreExternalRepo(
 			res.status
 		);
 	}
-	return (await res.json()) as LoreRepo;
+	return normalizeLoreRepo(await res.json());
 }
 
 /**
@@ -254,7 +266,7 @@ export async function importLoreRepo(
 			res.status
 		);
 	}
-	return (await res.json()) as LoreRepo;
+	return normalizeLoreRepo(await res.json());
 }
 
 /** Approve or reject an uploads/* line awaiting review. */
