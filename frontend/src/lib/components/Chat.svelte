@@ -59,7 +59,7 @@
 	import ChatHeader from './chat/ChatHeader.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
 	import GalleryChannel from './GalleryChannel.svelte';
-	import LoreChannelShell from './lore/LoreChannelShell.svelte';
+	import LoreChannelCard from './lore/LoreChannelCard.svelte';
 	import ForumChannel from './ForumChannel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
@@ -110,7 +110,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			case 'model': return '3D Viewport';
 			case 'map': return 'Map';
 			case 'media': return 'Media Albums';
-			case 'lore': return 'Code';
+			case 'lore': return selectedWorkspaceView === 'lore' ? 'Code' : '';
 			case 'files': return 'Files';
 			default: return '';
 		}
@@ -444,6 +444,10 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		</div>
 	{/if}
 
+	{#if currentChannelType === 'lore' && selectedWorkspaceView === 'messages'}
+		<LoreChannelCard channelId={$currentChannel} channelName={channelDisplayName} />
+	{/if}
+
 	<!-- TEMPORARY: DMs now render in center like channels -->
 	<div
 		class="messages"
@@ -476,8 +480,6 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			<FilesWorkspace />
 		{:else if currentChannelType === 'gallery'}
 			<GalleryChannel />
-		{:else if currentChannelType === 'lore'}
-			<LoreChannelShell />
 		{:else if currentChannelType === 'forum'}
 			<ForumChannel />
 		{:else if currentChannelType === 'wiki'}

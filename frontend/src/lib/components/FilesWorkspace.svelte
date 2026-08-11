@@ -45,6 +45,10 @@
 	let previewUrl = $state<string | null>(null);
 	let previewText = $state<string | null>(null);
 	let previewLoading = $state(false);
+	let fileSearch = $state('');
+	let searchAllSpaces = $state(false);
+	let globalSearchResults = $state<Array<{ channelId: number; channelName: string; path: string; size: number }>>([]);
+	let globalSearchLoading = $state(false);
 
 	let isDragging = $state(false);
 	let uploading = $state(false);
@@ -68,6 +72,11 @@
 
 	let crumbs = $derived(currentPath ? currentPath.split('/') : []);
 	let dirEntries = $derived(buildDir(files, currentPath));
+	let visibleDirEntries = $derived(
+		fileSearch.trim()
+			? dirEntries.filter((entry) => entry.name.toLowerCase().includes(fileSearch.trim().toLowerCase()) || entry.path.toLowerCase().includes(fileSearch.trim().toLowerCase()))
+			: dirEntries
+	);
 
 	/** Read the mirror payload off a space's class field (`class: { mirror: {...} }`). */
 	function mirrorInfo(cls: LoreRepo['class'] | undefined | null): { host: string } | null {
@@ -143,6 +152,22 @@
 		if (id !== null) void loadFiles(id, prefix);
 	});
 
+	async function searchAcrossSpaces(): Promise<void> {
+		const query = fileSearch.trim().toLowerCase();
+		if (!searchAllSpaces || !query) { globalSearchResults = []; return; }
+		const token = getAuthToken();
+		if (!token) return;
+		globalSearchLoading = true;
+		try {
+			const results: Array<{ channelId: number; channelName: string; path: string; size: number }> = [];
+			for (const space of Object.values(spaces)) {
+				const entries = await listLoreFiles(token, space.channelId);
+				for (const file of entries) if (file.path.toLowerCase().includes(query)) results.push({ channelId: space.channelId, channelName: space.channelName, path: file.path, size: file.size });
+			}
+			globalSearchResults = results.slice(0, 100);
+		} finally { globalSearchLoading = false; }
+	}
+
 	function buildDir(flat: LoreFileInfo[], path: string): DirEntry[] {
 		const prefix = path ? `${path}/` : '';
 		const folders = new Set<string>();
@@ -194,10 +219,10 @@
 		return path.slice(idx + 1).toLowerCase();
 	}
 
-	async function openPreview(entry: DirEntry) {
+	async function openPreview(entry: DirEntry, channelId = selectedChannelId) {
 		if (entry.kind !== 'file') return;
 		const token = getAuthToken();
-		if (!token || selectedChannelId === null) return;
+		if (!token || channelId === null) return;
 		const isImage = IMAGE_EXT.includes(extOf(entry.path));
 		const isText = TEXT_EXT.includes(extOf(entry.path));
 		if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -208,7 +233,7 @@
 		previewText = null;
 		previewLoading = true;
 		try {
-			const blob = await downloadLoreFile(token, selectedChannelId, entry.path);
+			const blob = await downloadLoreFile(token, channelId, entry.path);
 			if (previewKind === 'image') {
 				previewUrl = URL.createObjectURL(blob);
 			} else if (previewKind === 'text') {
@@ -373,23 +398,28 @@
 				ondragleave={onDragLeave}
 				ondrop={onDrop}
 			>
-				<nav class="breadcrumbs" aria-label="File path">
-					<button class="crumb" class:active={!currentPath} onclick={() => goToBreadcrumb(0)}>Space root</button>
+				<div class="file-toolbar">
+					<nav class="breadcrumbs" aria-label="File path">
+						<button class="crumb" class:active={!currentPath} onclick={() => goToBreadcrumb(0)}>Space root</button>
 					{#each crumbs as crumb, i}
 						<span class="crumb-sep">/</span>
 						<button class="crumb" class:active={i === crumbs.length - 1} onclick={() => goToBreadcrumb(i)}>{crumb}</button>
 					{/each}
 				</nav>
+					<input class="file-search" type="search" bind:value={fileSearch} onkeydown={(event) => event.key === 'Enter' && void searchAcrossSpaces()} placeholder="Search files" aria-label="Search files" /><label class="all-spaces-toggle"><input type="checkbox" bind:checked={searchAllSpaces} /> All spaces</label>
+				</div>
 
 				<div class="file-list">
-					{#if loading}
+					{#if searchAllSpaces && fileSearch.trim()}
+						{#if globalSearchLoading}<div class="files-inline-loading">Searching all spaces…</div>{:else if globalSearchResults.length === 0}<div class="files-empty-folder">Press Enter to search all spaces.</div>{:else}{#each globalSearchResults as result}<button type="button" class="global-result" onclick={() => { selectedChannelId = result.channelId; currentPath = ''; fileSearch = ''; searchAllSpaces = false; void openPreview({ kind: 'file', name: result.path.split('/').pop() ?? result.path, path: result.path, size: result.size }, result.channelId); }}><strong>{result.path}</strong><small>{result.channelName}</small></button>{/each}{/if}
+					{:else if loading}
 						<div class="files-inline-loading">
 							<span class="spinner"></span>
 							<span>Loading files…</span>
 						</div>
 					{:else if loadError}
 						<div class="files-error">{loadError}</div>
-					{:else if dirEntries.length === 0}
+					{:else if visibleDirEntries.length === 0}
 						<div class="files-empty-folder">
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" width="44" height="44">
 								<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -401,7 +431,7 @@
 							{/if}
 						</div>
 					{:else}
-						{#each dirEntries as entry}
+						{#each visibleDirEntries as entry}
 							<div class="file-row" role="row">
 								<button
 									class="row-main"
@@ -657,6 +687,12 @@
 		background-image: linear-gradient(color-mix(in srgb, var(--accent-primary) 3%, transparent), color-mix(in srgb, var(--accent-primary) 3%, transparent));
 	}
 
+	.file-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+	.file-search { min-width: 160px; max-width: 280px; padding: var(--space-1) var(--space-2); border: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent); border-radius: var(--radius-md); background: var(--surface-sunken); color: var(--text-heading); }
+	.all-spaces-toggle { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-muted); font-size: var(--font-size-xs); white-space: nowrap; }
+	.global-result { display: flex; flex-direction: column; align-items: flex-start; width: 100%; gap: 2px; padding: var(--space-2); border: 0; border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent); background: transparent; color: var(--text-heading); cursor: pointer; text-align: left; }
+	.global-result:hover { background: var(--surface-raised); }
+	.global-result small { color: var(--text-muted); }
 	.breadcrumbs {
 		display: flex;
 		align-items: center;
