@@ -23,6 +23,7 @@
 		lockLoreFile,
 		unlockLoreFile,
 		deleteLoreFile,
+		reviewLoreBranch,
 		type LoreFileInfo,
 		type LoreRevision,
 		type LoreBranch,
@@ -243,6 +244,44 @@
 		await loadLoreRepo();
 	}
 
+	// Uploads routed into a review queue (auto_branch_on_upload) surface as
+	// uploads/* lines. Approving merges them into the official space.
+	let reviewBusy = $state<string | null>(null);
+	let reviewUnavailable = $state(false);
+
+	let pendingReviews = $derived(
+		branches.filter(b => b.name.startsWith('uploads/')).map(b => ({
+			name: b.name,
+			label: b.name.replace(/^uploads\//, ''),
+		}))
+	);
+
+	let showPendingReview = $derived(
+		repo?.auto_branch_on_upload === true && pendingReviews.length > 0 && !reviewUnavailable
+	);
+
+	async function handleReview(branchName: string, decision: 'approve' | 'reject') {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId || reviewBusy) return;
+
+		reviewBusy = branchName;
+		try {
+			await reviewLoreBranch(token, channelId, branchName, decision);
+			await loadLoreRepo();
+			await loadLoreHistory();
+		} catch (e: any) {
+			if (e?.status === 404) {
+				// Review endpoint not deployed on this server yet — hide the queue.
+				reviewUnavailable = true;
+			} else {
+				console.error('Review action failed:', e);
+			}
+		} finally {
+			reviewBusy = null;
+		}
+	}
+
 	async function handleCompare(from: string, to: string) {
 		activeTab = 'diff';
 		if (selectedPath) {
@@ -458,6 +497,45 @@
 			</span>
 		</div>
 
+		<!-- Pending review queue (uploads routed to a review line) -->
+		{#if showPendingReview}
+			<div class="pending-review">
+				<div class="pending-review-header">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+						<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+						<circle cx="8.5" cy="7" r="4"/>
+						<line x1="20" y1="8" x2="20" y2="14"/>
+						<line x1="23" y1="11" x2="17" y2="11"/>
+					</svg>
+					Pending review
+				</div>
+				{#each pendingReviews as review}
+					<div class="pending-review-row">
+						<span class="pending-review-name">{review.label}</span>
+						<span class="pending-review-copy">uploaded files — approve to make official</span>
+						<div class="pending-review-actions">
+							<button
+								class="review-btn approve"
+								disabled={reviewBusy !== null}
+								onclick={() => void handleReview(review.name, 'approve')}
+							>
+								{#if reviewBusy === review.name}<span class="mini-spinner"></span>{/if}
+								Approve
+							</button>
+							<button
+								class="review-btn reject"
+								disabled={reviewBusy !== null}
+								onclick={() => void handleReview(review.name, 'reject')}
+							>
+								{#if reviewBusy === review.name}<span class="mini-spinner"></span>{/if}
+								Reject
+							</button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+
 		<!-- Template picker overlay -->
 		{#if showTemplates}
 			<div class="template-overlay" onclick={() => showTemplates = false}>
@@ -636,7 +714,42 @@
 				</div>
 			{:else if activeTab === 'review'}
 				<div class="panel-full">
-					{#if activeReview}
+					{#if pendingReviews.length > 0 && !reviewUnavailable}
+						<div class="review-list">
+							{#each pendingReviews as review (review.name)}
+								<div class="review-item">
+									<div class="review-item-info">
+										<span class="review-item-icon">
+											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18">
+												<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+												<polyline points="14 2 14 8 20 8"/>
+											</svg>
+										</span>
+										<div class="review-item-copy">
+											<p class="review-item-title">{review.name} — approve to make these uploads official</p>
+											<span class="review-item-hint">New uploads waiting for team approval</span>
+										</div>
+									</div>
+									<div class="review-item-actions">
+										<button
+											class="review-item-btn review-item-btn-secondary"
+											disabled={reviewBusy !== null}
+											onclick={() => void handleReview(review.name, 'reject')}
+										>
+											{reviewBusy === review.name ? 'Rejecting…' : 'Reject'}
+										</button>
+										<button
+											class="review-item-btn review-item-btn-primary"
+											disabled={reviewBusy !== null}
+											onclick={() => void handleReview(review.name, 'approve')}
+										>
+											{reviewBusy === review.name ? 'Approving…' : 'Approve'}
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{:else if activeReview}
 						<LoreReviewPanel
 							review={activeReview}
 							onApprove={() => {}}
@@ -652,7 +765,7 @@
 								<line x1="20" y1="8" x2="20" y2="14"/>
 								<line x1="23" y1="11" x2="17" y2="11"/>
 							</svg>
-							<span>No active reviews</span>
+							<span>No uploads awaiting review</span>
 						</div>
 					{/if}
 				</div>
@@ -884,6 +997,96 @@
 		box-shadow: 0 0 6px var(--color-danger, #ef4444);
 	}
 
+	/* Pending review queue */
+	.pending-review {
+		border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+		background: color-mix(in srgb, var(--color-warning, #f59e0b) 6%, var(--surface-sunken));
+		padding: var(--space-1) var(--space-2);
+	}
+
+	.pending-review-header {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--font-size-2xs);
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-warning, #f59e0b);
+		margin-bottom: var(--space-1);
+	}
+
+	.pending-review-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		padding: var(--space-1) 0;
+		font-size: var(--font-size-xs);
+	}
+
+	.pending-review-name {
+		color: var(--text-heading);
+		font-family: var(--font-mono);
+		font-weight: 600;
+	}
+
+	.pending-review-copy {
+		color: var(--text-muted);
+		flex: 1;
+	}
+
+	.pending-review-actions {
+		display: flex;
+		gap: var(--space-1);
+	}
+
+	.review-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		padding: 2px var(--space-2);
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-2xs);
+		font-weight: 600;
+		cursor: pointer;
+		border: 1px solid transparent;
+		transition: all var(--duration-fast) var(--ease-out);
+	}
+
+	.review-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.review-btn.approve {
+		background: color-mix(in srgb, var(--color-success, #22c55e) 15%, transparent);
+		color: var(--color-success, #22c55e);
+		border-color: color-mix(in srgb, var(--color-success, #22c55e) 40%, transparent);
+	}
+
+	.review-btn.approve:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--color-success, #22c55e) 25%, transparent);
+	}
+
+	.review-btn.reject {
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 15%, transparent);
+		color: var(--color-danger, #ef4444);
+		border-color: color-mix(in srgb, var(--color-danger, #ef4444) 40%, transparent);
+	}
+
+	.review-btn.reject:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 25%, transparent);
+	}
+
+	.mini-spinner {
+		width: 10px;
+		height: 10px;
+		border: 1.5px solid currentColor;
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
 	/* Tabs */
 	.lore-tabs {
 		display: flex;
@@ -1007,6 +1210,113 @@
 		height: 100%;
 		color: var(--text-muted);
 		opacity: 0.6;
+	}
+
+	/* Upload review queue */
+	.review-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-3);
+		overflow-y: auto;
+	}
+
+	.review-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		padding: var(--space-3);
+		background: var(--surface-sunken);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+		border-radius: var(--radius-md);
+	}
+
+	.review-item-info {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
+	.review-item-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 30px;
+		height: 30px;
+		flex-shrink: 0;
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+		color: var(--accent-secondary);
+	}
+
+	.review-item-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.review-item-title {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		font-weight: 500;
+		color: var(--text-heading);
+		font-family: var(--font-mono);
+		word-break: break-word;
+	}
+
+	.review-item-hint {
+		font-size: var(--font-size-xs);
+		color: var(--text-muted);
+	}
+
+	.review-item-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-shrink: 0;
+	}
+
+	.review-error {
+		font-size: var(--font-size-xs);
+		color: var(--color-danger, #ef4444);
+		max-width: 220px;
+	}
+
+	.review-item-btn {
+		padding: var(--space-1) var(--space-3);
+		border: none;
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-sm);
+		font-weight: 500;
+		cursor: pointer;
+		transition: all var(--duration-fast) var(--ease-out);
+	}
+
+	.review-item-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.review-item-btn-primary {
+		background: var(--accent-primary);
+		color: white;
+	}
+
+	.review-item-btn-primary:hover:not(:disabled) {
+		background: var(--accent-secondary);
+	}
+
+	.review-item-btn-secondary {
+		background: var(--surface-raised);
+		color: var(--text-secondary);
+	}
+
+	.review-item-btn-secondary:hover:not(:disabled) {
+		background: var(--surface-app);
+		color: var(--text-heading);
 	}
 
 	/* History layout */

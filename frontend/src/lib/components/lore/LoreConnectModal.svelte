@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { getAuthToken } from '$lib/authSession';
 	import { parseLoreChannelId } from '$lib/api/lore';
-	import { createLoreRepo, checkLoreHealth } from '$lib/api/lore';
+	import {
+		createLoreRepo,
+		checkLoreHealth,
+		linkLoreExternalRepo,
+		importLoreRepo
+	} from '$lib/api/lore';
 	import { loadLoreRepo, loadLoreHealth, loreHealth } from '$lib/loreStore';
-	import { get } from 'svelte/store';
 
 	interface Props {
 		channelId: string;
@@ -13,9 +17,15 @@
 
 	let { channelId, onConnected, onClose }: Props = $props();
 
+	type Mode = 'create' | 'link' | 'external';
+	type ExternalTarget = 'track' | 'import';
+
+	let mode = $state<Mode>('create');
+	let externalTarget = $state<ExternalTarget>('track');
 	let repoName = $state('');
+	let upstreamUrl = $state('');
+	let autoBranchOnUpload = $state(false);
 	let loreServerUrl = $state('lore://127.0.0.1:41337');
-	let mode = $state<'create' | 'link'>('create');
 	let creating = $state(false);
 	let error = $state<string | null>(null);
 	let health = $state<string | null>(null);
@@ -34,46 +44,110 @@
 		}
 	}
 
-	async function handleConnect() {
-		if (!repoName.trim()) {
-			error = 'Please enter a repository name';
-			return;
+	function describeError(status: number | undefined, fallback: string): string {
+		if (status === 409) return 'A space with this name already exists here.';
+		if (status === 502) return "Couldn't reach the source — the clone failed. Check the URL and try again.";
+		return fallback;
+	}
+
+	function defaultNameFromUrl(url: string): string {
+		try {
+			const parsed = new URL(url.trim());
+			const last = parsed.pathname.split('/').filter(Boolean).pop();
+			return last || parsed.hostname.replace(/^www\./, '');
+		} catch {
+			return '';
 		}
+	}
 
-		creating = true;
-		error = null;
+	function submitLabel(): string {
+		if (creating) {
+			if (mode === 'create') return 'Creating…';
+			if (mode === 'link') return 'Linking…';
+			return externalTarget === 'track' ? 'Tracking…' : 'Importing…';
+		}
+		if (mode === 'create') return 'Create Space';
+		if (mode === 'link') return 'Link Space';
+		return externalTarget === 'track' ? 'Track Source' : 'Import Source';
+	}
 
+	async function handleConnect() {
 		const token = getAuthToken();
 		const numericChannelId = parseLoreChannelId(channelId);
-
 		if (!token || !numericChannelId) {
 			error = 'Unable to identify channel';
-			creating = false;
 			return;
 		}
 
-		try {
-			const url = `/api/addons/lore/repos${mode === 'link' ? `/${numericChannelId}/link` : ''}`;
-			const res = await fetch(url, {
-				method: 'POST',
-				headers: {
-					'Authorization': `Bearer ${token}`,
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({ channelId: numericChannelId, repoName: repoName.trim() })
-			});
-			if (!res.ok) {
-				const err = await res.json().catch(() => ({}));
-				throw new Error(err.error || `Failed to ${mode === 'link' ? 'link' : 'create'} repository`);
+		error = null;
+
+		if (mode === 'create') {
+			if (!repoName.trim()) {
+				error = 'Please enter a space name';
+				return;
 			}
-			await loadLoreRepo();
-			await loadLoreHealth();
-			onConnected();
-		} catch (e: any) {
-			error = e.message || `Failed to ${mode === 'link' ? 'link' : 'create'} repository`;
-		} finally {
-			creating = false;
+			creating = true;
+			try {
+				await createLoreRepo(token, numericChannelId, repoName.trim(), {
+					auto_branch_on_upload: autoBranchOnUpload
+				});
+			} catch (e: any) {
+				error = e?.message || 'Failed to create space';
+				creating = false;
+				return;
+			}
+		} else if (mode === 'link') {
+			if (!repoName.trim()) {
+				error = 'Please enter the Lore space name';
+				return;
+			}
+			creating = true;
+			try {
+				const url = `/api/addons/lore/repos/${numericChannelId}/link`;
+				const res = await fetch(url, {
+					method: 'POST',
+					headers: {
+						'Authorization': `Bearer ${token}`,
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ channelId: numericChannelId, repoName: repoName.trim() })
+				});
+				if (!res.ok) {
+					const err = await res.json().catch(() => ({}));
+					throw new Error(err.error || 'Failed to link space');
+				}
+			} catch (e: any) {
+				error = e?.message || 'Failed to link space';
+				creating = false;
+				return;
+			}
+		} else {
+			if (!upstreamUrl.trim()) {
+				error = 'Please enter the source URL';
+				return;
+			}
+			const name = repoName.trim() || defaultNameFromUrl(upstreamUrl);
+			if (!name) {
+				error = 'Please enter a name for this space';
+				return;
+			}
+			creating = true;
+			try {
+				if (externalTarget === 'track') {
+					await linkLoreExternalRepo(token, numericChannelId, upstreamUrl.trim(), name);
+				} else {
+					await importLoreRepo(token, numericChannelId, upstreamUrl.trim(), name);
+				}
+			} catch (e: any) {
+				error = describeError(e?.status, e?.message || 'Failed to connect the source');
+				creating = false;
+				return;
+			}
 		}
+
+		await loadLoreRepo();
+		await loadLoreHealth();
+		onConnected();
 	}
 
 	$effect(() => {
@@ -81,7 +155,7 @@
 	});
 </script>
 
-<div class="lore-connect-modal" role="dialog" aria-modal="true" aria-label="Connect Lore repository">
+<div class="lore-connect-modal" role="dialog" aria-modal="true" aria-label="Connect a Lore space">
 	<div class="connect-card" onclick={(e) => e.stopPropagation()}>
 		<div class="connect-header">
 			<div class="header-icon">
@@ -91,8 +165,8 @@
 				</svg>
 			</div>
 			<div class="header-text">
-				<h2>Connect Lore Repository</h2>
-				<p>Version control for this channel</p>
+				<h2>Connect a Lore Space</h2>
+				<p>Versioned storage for this channel</p>
 			</div>
 			<button class="close-btn" onclick={onClose} aria-label="Close">×</button>
 		</div>
@@ -115,56 +189,121 @@
 
 		<!-- Connection form -->
 		{#if step === 'connect'}
-			<form class="connect-form" onsubmit={(e) => { e.preventDefault(); handleConnect(); }}>
+			<form class="connect-form" onsubmit={(e) => { e.preventDefault(); void handleConnect(); }}>
 				<div class="form-group">
 					<span class="form-label-row">
-						<label for="repo-name">Repository Name</label>
-						<span class="mode-toggle" role="tablist" aria-label="Repository mode">
+						<label>Where is this space coming from?</label>
+						<span class="mode-toggle" role="tablist" aria-label="Connect option">
 							<button
 								type="button"
-								class="mode-btn {mode === 'create' ? 'active' : ''}"
+								class="mode-btn"
 								class:active={mode === 'create'}
 								onclick={() => mode = 'create'}
 								role="tab"
 								aria-selected={mode === 'create'}
-							>New</button>
+							>New space</button>
 							<button
 								type="button"
-								class="mode-btn {mode === 'link' ? 'active' : ''}"
+								class="mode-btn"
 								class:active={mode === 'link'}
 								onclick={() => mode = 'link'}
 								role="tab"
 								aria-selected={mode === 'link'}
 							>Link existing</button>
+							<button
+								type="button"
+								class="mode-btn"
+								class:active={mode === 'external'}
+								onclick={() => mode = 'external'}
+								role="tab"
+								aria-selected={mode === 'external'}
+							>GitHub / GitLab</button>
 						</span>
-					</span>
-					<input
-						id="repo-name"
-						type="text"
-						bind:value={repoName}
-						placeholder={mode === 'create' ? 'my-project' : 'my-existing-repo'}
-						class="input-field"
-						autofocus
-					/>
-					<span class="input-hint">
-						{#if mode === 'create'}
-							Creates a brand-new empty repository for this channel
-						{:else}
-							Clones an existing repository from the Lore server — history included
-						{/if}
 					</span>
 				</div>
 
-				<div class="form-group">
-					<label for="server-url">Lore Server URL</label>
-					<input
-						id="server-url"
-						type="text"
-						bind:value={loreServerUrl}
-						class="input-field"
-					/>
-					<span class="input-hint">Default: lore://127.0.0.1:41337</span>
-				</div>
+				{#if mode === 'create'}
+					<div class="form-group">
+						<label for="repo-name">Space name</label>
+						<input
+							id="repo-name"
+							type="text"
+							bind:value={repoName}
+							placeholder="my-project"
+							class="input-field"
+							autofocus
+						/>
+						<span class="input-hint">Creates a brand-new empty space for this channel.</span>
+					</div>
+
+					<div class="form-group">
+						<label for="server-url">Lore server URL</label>
+						<input
+							id="server-url"
+							type="text"
+							bind:value={loreServerUrl}
+							class="input-field"
+						/>
+						<span class="input-hint">Default: lore://127.0.0.1:41337</span>
+					</div>
+
+					<label class="checkbox-row">
+						<input type="checkbox" bind:checked={autoBranchOnUpload} />
+						<span class="checkbox-copy">
+							<span class="checkbox-title">Review uploads with the team before they're official</span>
+							<span class="checkbox-hint">Uploads are saved as a new version and need approval before becoming official.</span>
+						</span>
+					</label>
+				{:else if mode === 'link'}
+					<div class="form-group">
+						<label for="repo-name">Space name</label>
+						<input
+							id="repo-name"
+							type="text"
+							bind:value={repoName}
+							placeholder="my-existing-project"
+							class="input-field"
+							autofocus
+						/>
+						<span class="input-hint">Links an existing space from the Lore server — history included.</span>
+					</div>
+
+					<div class="form-group">
+						<label for="server-url">Lore server URL</label>
+						<input
+							id="server-url"
+							type="text"
+							bind:value={loreServerUrl}
+							class="input-field"
+						/>
+						<span class="input-hint">Default: lore://127.0.0.1:41337</span>
+					</div>
+				{:else}
+					<div class="form-group">
+						<label for="repo-name">Space name</label>
+						<input
+							id="repo-name"
+							type="text"
+							bind:value={repoName}
+							placeholder="my-project"
+							class="input-field"
+							autofocus
+						/>
+						<span class="input-hint">What this space will be called in Wabi.</span>
+					</div>
+
+					<div class="form-group">
+						<label for="upstream-url">Source URL (GitHub / GitLab)</label>
+						<input
+							id="upstream-url"
+							type="text"
+							bind:value={upstreamUrl}
+							placeholder="https://github.com/org/project"
+							class="input-field"
+						/>
+						<span class="input-hint">Content is pulled from this location.</span>
+					</div>
+				{/if}
 
 				{#if error}
 					<div class="error-message">
@@ -179,14 +318,31 @@
 
 				<div class="form-actions">
 					<button type="button" class="btn btn-secondary" onclick={onClose}>Cancel</button>
-					<button type="submit" class="btn btn-primary" disabled={creating}>
-						{#if creating}
-							<span class="spinner"></span>
-							{mode === 'link' ? 'Linking...' : 'Creating...'}
-						{:else}
-							{mode === 'link' ? 'Link Repository' : 'Create Repository'}
-						{/if}
-					</button>
+					{#if mode === 'external'}
+						<button
+							type="button"
+							class="btn btn-secondary"
+							disabled={creating}
+							onclick={() => { externalTarget = 'track'; void handleConnect(); }}
+						>
+							{#if creating && externalTarget === 'track'}<span class="spinner"></span>{/if}
+							Track it (read-only mirror)
+						</button>
+						<button
+							type="button"
+							class="btn btn-primary"
+							disabled={creating}
+							onclick={() => { externalTarget = 'import'; void handleConnect(); }}
+						>
+							{#if creating && externalTarget === 'import'}<span class="spinner"></span>{/if}
+							Import into Wabi (native, history starts fresh)
+						</button>
+					{:else}
+						<button type="submit" class="btn btn-primary" disabled={creating}>
+							{#if creating}<span class="spinner"></span>{/if}
+							{submitLabel()}
+						</button>
+					{/if}
 				</div>
 			</form>
 		{:else if step === 'confirm'}
@@ -197,8 +353,8 @@
 						<polyline points="22 4 12 14.01 9 11.01"/>
 					</svg>
 				</div>
-				<h3>Repository Connected!</h3>
-				<p>Your Lore repository <strong>{repoName}</strong> is now active for this channel.</p>
+				<h3>Space Connected!</h3>
+				<p>Your space <strong>{repoName}</strong> is now active for this channel.</p>
 				<button class="btn btn-primary" onclick={onConnected}>Start Working</button>
 			</div>
 		{/if}
@@ -424,6 +580,41 @@
 	.input-hint {
 		display: block;
 		margin-top: var(--space-1);
+		font-size: var(--font-size-xs);
+		color: var(--text-muted);
+	}
+
+	.checkbox-row {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-2);
+		margin-bottom: var(--space-3);
+		background: var(--surface-sunken);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 15%, transparent);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+	}
+
+	.checkbox-row input {
+		margin-top: 3px;
+		accent-color: var(--accent-primary);
+		flex-shrink: 0;
+	}
+
+	.checkbox-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.checkbox-title {
+		font-size: var(--font-size-sm);
+		font-weight: 600;
+		color: var(--text-heading);
+	}
+
+	.checkbox-hint {
 		font-size: var(--font-size-xs);
 		color: var(--text-muted);
 	}

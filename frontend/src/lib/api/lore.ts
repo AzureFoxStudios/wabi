@@ -5,6 +5,28 @@ export interface LoreRepo {
 	repoName: string;
 	createdBy: number;
 	createdAt: number;
+	/** 'native' (default) or { mirror: { upstream_url } } for read-only mirrors. Optional for backwards compat. */
+	class?: 'native' | { mirror?: { upstream_url?: string } } | null;
+	/** When true, uploads land on an uploads/* review line and need approval to become official. */
+	auto_branch_on_upload?: boolean;
+}
+
+/** Error thrown by lore API helpers — carries the HTTP status for callers to branch on. */
+export function loreError(message: string, status: number): Error {
+	const err = new Error(message);
+	(err as any).status = status;
+	return err;
+}
+
+/** Connect-flow errors: map the statuses users actually hit to readable copy. */
+function loreConnectError(message: string, status: number): Error {
+	if (status === 409) {
+		return loreError('A space with this name already exists here — try a different name.', status);
+	}
+	if (status === 502) {
+		return loreError('The version service could not be reached — try again in a moment.', status);
+	}
+	return loreError(message, status);
 }
 
 export interface LoreFileInfo {
@@ -65,8 +87,38 @@ export async function getLoreRepo(token: string, channelId: number): Promise<Lor
 	return (await res.json()) as LoreRepo;
 }
 
-export async function createLoreRepo(token: string, channelId: number, repoName: string): Promise<LoreRepo> {
+export async function createLoreRepo(
+	token: string,
+	channelId: number,
+	repoName: string,
+	opts?: { auto_branch_on_upload?: boolean }
+): Promise<LoreRepo> {
 	const res = await fetchWithTimeout(loreUrl('/repos'), {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			channelId,
+			repoName,
+			auto_branch_on_upload: opts?.auto_branch_on_upload === true
+		})
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw loreConnectError((err as any).error || 'Failed to create space', res.status);
+	}
+	return (await res.json()) as LoreRepo;
+}
+
+/** Link an EXISTING space on the local Lore server to a channel (clone, not create). */
+export async function linkLoreRepo(
+	token: string,
+	channelId: number,
+	repoName: string
+): Promise<LoreRepo> {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/link`), {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,
@@ -76,7 +128,7 @@ export async function createLoreRepo(token: string, channelId: number, repoName:
 	});
 	if (!res.ok) {
 		const err = await res.json().catch(() => ({}));
-		throw new Error((err as any).error || 'Failed to create lore repo');
+		throw loreConnectError((err as any).error || 'Failed to link existing space', res.status);
 	}
 	return (await res.json()) as LoreRepo;
 }
@@ -92,13 +144,21 @@ export async function deleteLoreRepo(token: string, channelId: number): Promise<
 	}
 }
 
+export interface LoreUploadResult {
+	revision: LoreRevision;
+	file: LoreFileInfo;
+	/** Set when auto_branch_on_upload routed the upload into an uploads/* review line. */
+	pending_review?: boolean;
+	review_branch?: string;
+}
+
 export async function uploadLoreFile(
 	token: string,
 	channelId: number,
 	path: string,
 	file: File,
 	message?: string
-): Promise<{ revision: LoreRevision; file: LoreFileInfo }> {
+): Promise<LoreUploadResult> {
 	const params = new URLSearchParams();
 	if (message) params.set('message', message);
 	if (path) params.set('repo_path', path);
@@ -115,7 +175,86 @@ export async function uploadLoreFile(
 		const err = await res.json().catch(() => ({}));
 		throw new Error((err as any).error || 'Failed to upload file');
 	}
-	return (await res.json()) as { revision: LoreRevision; file: LoreFileInfo };
+	return (await res.json()) as LoreUploadResult;
+}
+
+/**
+ * Attach an external source (GitHub/GitLab) as a read-only mirror of this
+ * space. History stays at the source.
+ */
+export async function linkLoreExternalRepo(
+	token: string,
+	channelId: number,
+	upstreamUrl: string,
+	name: string
+): Promise<LoreRepo> {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/external`), {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ upstream_url: upstreamUrl, name })
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw loreConnectError(
+			(err as any).error || 'Failed to link external space',
+			res.status
+		);
+	}
+	return (await res.json()) as LoreRepo;
+}
+
+/**
+ * Import an external source into Wabi as a native space — files come over,
+ * history starts fresh.
+ */
+export async function importLoreRepo(
+	token: string,
+	channelId: number,
+	upstreamUrl: string,
+	name: string
+): Promise<LoreRepo> {
+	const res = await fetchWithTimeout(loreUrl('/repos/import'), {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ channel_id: channelId, upstream_url: upstreamUrl, name })
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw loreConnectError(
+			(err as any).error || 'Failed to import external space',
+			res.status
+		);
+	}
+	return (await res.json()) as LoreRepo;
+}
+
+/** Approve or reject an uploads/* line awaiting review. */
+export async function reviewLoreBranch(
+	token: string,
+	channelId: number,
+	branchName: string,
+	decision: 'approve' | 'reject'
+): Promise<void> {
+	const res = await fetchWithTimeout(
+		loreUrl(`/repos/${channelId}/review/${encodeURIComponent(branchName)}/${decision}`),
+		{
+			method: 'POST',
+			headers: { Authorization: `Bearer ${token}` }
+		}
+	);
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw loreError(
+			(err as any).error || 'Failed to update review',
+			res.status
+		);
+	}
 }
 
 export async function listLoreFiles(token: string, channelId: number, prefix?: string): Promise<LoreFileInfo[]> {
@@ -258,7 +397,7 @@ export async function getLoreBranches(token: string, channelId: number): Promise
 	});
 	if (!res.ok) {
 		const err = await res.json().catch(() => ({}));
-		throw new Error((err as any).error || 'Failed to list branches');
+		throw loreError((err as any).error || 'Failed to list branches', res.status);
 	}
 	const data = (await res.json()) as { branches: string[] };
 	return (data.branches || []).map((name) => ({ name }));
