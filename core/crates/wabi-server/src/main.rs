@@ -690,6 +690,56 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Load blacklist
+    // Durable retention sweep: detached per-message timers cannot survive a
+    // restart, so periodically reconcile persisted messages against each
+    // channel's retention policy as well.
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let channels = match state.wdb.list_channels(None).await {
+                    Ok(channels) => channels,
+                    Err(error) => {
+                        tracing::warn!("[retention-reaper] failed to list channels: {error}");
+                        continue;
+                    }
+                };
+                let now_micros = chrono::Utc::now().timestamp_micros();
+                for channel in channels {
+                    let retention = match state.wdb.get_channel_retention(&channel.channel_id).await {
+                        Ok(Some(policy)) if policy.days > 0 => policy.days as i64 * 86_400_000_000,
+                        Ok(Some(_)) => continue,
+                        Ok(None) => 86_400_000_000,
+                        Err(error) => {
+                            tracing::warn!(channel = %channel.channel_id, "[retention-reaper] policy lookup failed: {error}");
+                            continue;
+                        }
+                    };
+                    let cutoff = now_micros.saturating_sub(retention);
+                    let messages = match state.wdb.list_messages_typed(&channel.channel_id, 1000).await {
+                        Ok(messages) => messages,
+                        Err(error) => {
+                            tracing::warn!(channel = %channel.channel_id, "[retention-reaper] message lookup failed: {error}");
+                            continue;
+                        }
+                    };
+                    for message in messages.into_iter().filter(|message| message.created_at_micros <= cutoff) {
+                        if state.wdb.delete_message(&message.message_id, 0).await.is_err() {
+                            continue;
+                        }
+                        state.session_messages.write().await.entry(channel.channel_id.clone()).or_default().retain(|item| item.get("id").and_then(|value| value.as_str()) != Some(message.message_id.as_str()));
+                        if let Some(io) = state.sio.read().await.clone() {
+                            let _ = io.to(channel.channel_id.clone()).emit("message-deleted", &serde_json::json!({"channelId": channel.channel_id, "messageId": message.message_id})).await;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Load blacklist
     let blacklist = BlacklistManager::new(config.blacklist_file.clone());
     if let Err(e) = blacklist.load_from_file().await {
         tracing::warn!("[blacklist] Failed to load: {}", e);

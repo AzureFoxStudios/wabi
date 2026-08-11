@@ -6,6 +6,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { changePassword, getUserSettings } from '$lib/api';
+	import { fetchWithTimeout } from '$lib/api/utils';
 	import { clearActiveCustomStatusPreset } from '$lib/customStatusPresets';
 	import {
 		defaultLocalWabiAccountStore,
@@ -116,6 +117,7 @@
 	let showBannerLocal = $state(false);
 	let showOverlayLocal = $state(false);
 	let disableAllBannersLocal = $state(false);
+	let profileMediaLoaded = $state(false);
 
 	const BANNER_STORE_KEY = 'wabi:profile:bannerUrl';
 	const OVERLAY_STORE_KEY = 'wabi:profile:overlayUrl';
@@ -161,6 +163,7 @@
 			bannerStatus = 'Banner uploaded.';
 			// Best-effort socket broadcast.
 			updateProfile({ bannerUrl: url });
+			await saveProfileMedia();
 		} catch (e) {
 			bannerStatus = e instanceof Error ? e.message : 'Banner upload failed.';
 		} finally {
@@ -188,6 +191,7 @@
 			if ($currentUser) $currentUser = { ...$currentUser, overlayUrl: url };
 			overlayStatus = 'Overlay uploaded.';
 			updateProfile({ overlayUrl: url });
+			await saveProfileMedia();
 		} catch (e) {
 			overlayStatus = e instanceof Error ? e.message : 'Overlay upload failed.';
 		} finally {
@@ -213,7 +217,37 @@
 			const file = (ev.target as HTMLInputElement).files?.[0];
 			if (file) void uploadOverlay(file);
 		});
+		void loadProfileMedia();
 	});
+
+	async function loadProfileMedia(): Promise<void> {
+		if (profileMediaLoaded || !getAuthToken()) return;
+		try {
+			const response = await fetchWithTimeout(`${getServerUrl()}/api/user/profile-media`, {
+				headers: { Authorization: `Bearer ${getAuthToken()}` }
+			});
+			if (!response.ok) return;
+			const media = await response.json();
+			if ($currentUser) $currentUser = { ...$currentUser, bannerUrl: media.banner_url || undefined, overlayUrl: media.overlay_url || undefined, showBanner: media.show_banner, showOverlay: media.show_overlay };
+			profileMediaLoaded = true;
+		} catch (error) {
+			console.warn('[Settings] Failed to load profile media:', error);
+		}
+	}
+
+	async function saveProfileMedia(): Promise<void> {
+		const token = getAuthToken();
+		if (!token) return;
+		try {
+			await fetchWithTimeout(`${getServerUrl()}/api/user/profile-media`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ banner_url: $currentUser?.bannerUrl || null, overlay_url: $currentUser?.overlayUrl || null, show_banner: showBannerLocal, show_overlay: showOverlayLocal })
+			});
+		} catch (error) {
+			console.warn('[Settings] Failed to save profile media:', error);
+		}
+	}
 
 	onMount(() => {
 		const token = getAuthToken();
@@ -349,7 +383,7 @@
 		title="Change banner"
 		aria-label="Change banner"
 	>
-		<span class="profile-mock-banner-hint">{bannerUploading ? 'Uploading…' : 'Change banner'}</span>
+		<span class="profile-mock-banner-hint">{bannerUploading ? 'Uploading…' : 'Profile banner · Change'}</span>
 	</button>
 
 	<div class="profile-mock-body">
@@ -381,6 +415,7 @@
 					class:offline={!$currentUser || $currentUser.status === 'offline'}
 				></span>
 			</button>
+			<span class="profile-mock-media-label">Profile picture</span>
 			<button
 				type="button"
 				class="profile-mock-overlay-slot"
@@ -396,6 +431,7 @@
 					<span class="profile-mock-overlay-empty" aria-hidden="true"></span>
 				{/if}
 			</button>
+			<span class="profile-mock-media-label">Avatar overlay</span>
 		</div>
 
 		<div class="profile-mock-identity">

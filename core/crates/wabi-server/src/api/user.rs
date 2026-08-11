@@ -31,6 +31,9 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/profile/{id}", axum::routing::get(get_user_profile))
         .route("/layout", axum::routing::get(get_layout).put(save_layout))
+        .route("/theme", axum::routing::get(get_theme).post(save_theme))
+        .route("/theme/reset", axum::routing::post(reset_theme))
+        .route("/profile-media", axum::routing::get(get_profile_media).post(save_profile_media))
         .with_state(state)
 }
 
@@ -185,6 +188,119 @@ async fn get_layout(
     Ok(Json(
         serde_json::json!({ "layoutJson": null, "updatedAt": null }),
     ))
+}
+
+const DEFAULT_THEME_JSON: &str = r#"{
+    "theme_id": "dark",
+    "custom_theme": null,
+    "uniform_font_enabled": 0,
+    "uniform_font_family": null,
+    "uniform_font_size": null,
+    "uniform_font_weight": null,
+    "uniform_font_style": null
+}"#;
+
+async fn get_theme(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>> {
+    let stored = state.wdb.get_user_layout(auth.user_id as u64).await?;
+    let value = stored
+        .and_then(|layout| serde_json::from_str::<serde_json::Value>(&layout.layout_json).ok())
+        .and_then(|value| value.get("theme").cloned().or(Some(value)))
+        .unwrap_or_else(|| serde_json::from_str(DEFAULT_THEME_JSON).expect("valid default theme"));
+    Ok(Json(value))
+}
+
+async fn save_theme(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>> {
+    let object = body.as_object().ok_or_else(|| {
+        AppError::BadRequest("theme preferences must be a JSON object".into())
+    })?;
+    let allowed = [
+        "theme_id", "custom_theme", "uniform_font_enabled", "uniform_font_family",
+        "uniform_font_size", "uniform_font_weight", "uniform_font_style",
+    ];
+    let filtered = object
+        .iter()
+        .filter(|(key, _)| allowed.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    let theme = serde_json::Value::Object(filtered.clone());
+    let layout = state.wdb.get_user_layout(auth.user_id as u64).await?;
+    let layout_value = layout
+        .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let combined = if layout_value.get("layout").is_some() || layout_value.get("theme").is_some() {
+        serde_json::json!({
+            "layout": layout_value.get("layout").cloned().unwrap_or(serde_json::json!({})),
+            "theme": theme,
+        })
+    } else {
+        serde_json::json!({ "layout": layout_value, "theme": theme })
+    };
+    let json = serde_json::to_string(&combined)
+        .map_err(|error| AppError::BadRequest(format!("invalid theme preferences: {error}")))?;
+    state.wdb.upsert_user_layout(auth.user_id as u64, &json).await?;
+    Ok(Json(serde_json::Value::Object(filtered)))
+}
+
+async fn reset_theme(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>> {
+    let layout = state.wdb.get_user_layout(auth.user_id as u64).await?;
+    let layout_value = layout
+        .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
+        .and_then(|value| value.get("layout").cloned().or(Some(value)))
+        .unwrap_or_else(|| serde_json::json!({}));
+    let combined = serde_json::json!({ "layout": layout_value, "theme": serde_json::from_str::<serde_json::Value>(DEFAULT_THEME_JSON).expect("valid default theme") });
+    state.wdb.upsert_user_layout(auth.user_id as u64, &serde_json::to_string(&combined).map_err(|error| AppError::BadRequest(error.to_string()))?).await?;
+    Ok(Json(serde_json::from_str(DEFAULT_THEME_JSON).expect("valid default theme")))
+}
+
+async fn get_profile_media(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>> {
+    let stored = state.wdb.get_user_layout(auth.user_id as u64).await?;
+    let media = stored
+        .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
+        .and_then(|value| value.get("profile_media").cloned())
+        .unwrap_or_else(|| serde_json::json!({}));
+    Ok(Json(media))
+}
+
+async fn save_profile_media(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    Json(media): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>> {
+    let media = media
+        .as_object()
+        .ok_or_else(|| AppError::BadRequest("profile media must be a JSON object".into()))?;
+    let allowed = ["banner_url", "overlay_url", "show_banner", "show_overlay"];
+    let filtered = media
+        .iter()
+        .filter(|(key, _)| allowed.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    let existing = state.wdb.get_user_layout(auth.user_id as u64).await?;
+    let root = existing
+        .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let combined = serde_json::json!({
+        "layout": root.get("layout").cloned().unwrap_or_else(|| root.clone()),
+        "theme": root.get("theme").cloned().unwrap_or_else(|| serde_json::json!({})),
+        "profile_media": filtered,
+    });
+    let serialized = serde_json::to_string(&combined)
+        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+    state.wdb.upsert_user_layout(auth.user_id as u64, &serialized).await?;
+    Ok(Json(serde_json::Value::Object(media.clone())))
 }
 
 // PUT /api/user/layout

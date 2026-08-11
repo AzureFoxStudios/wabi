@@ -91,6 +91,8 @@
 	let lastServerIdentityIconUrl: string | null = null;
 	let showDeleteConfirm = false;
 	let channelToDelete = '';
+	let deletingChannel = false;
+	let deleteChannelError = '';
 	let showPinnedModal = false;
 	let selectedChannelForPinned = '';
 	let showChannelSettingsModal = false;
@@ -104,6 +106,7 @@
 	let isWikiSectionExpanded = true;
 	let isLoreSectionExpanded = true;
 	let isPlanningSectionExpanded = true;
+	let channelSearchQuery = '';
 	let collapsedCategories = new Set<string>();
 	function toggleCategory(id: string) {
 		if (collapsedCategories.has(id)) collapsedCategories.delete(id);
@@ -226,6 +229,17 @@
 		...planningChannelsAll,
 	].filter(ch => (ch.type as string | undefined) !== 'category');
 	$: unifiedCategoryMap = groupByCategory(unifiedSidebarChannels, $channels);
+	$: filteredUnifiedCategoryMap = (() => {
+		const query = channelSearchQuery.trim().toLowerCase();
+		if (!query) return unifiedCategoryMap;
+		const categories = unifiedCategoryMap.categories
+			.map((cat) => ({ ...cat, channels: cat.channels.filter((channel) => channel.name.toLowerCase().includes(query)) }))
+			.filter((cat) => cat.name.toLowerCase().includes(query) || cat.channels.length > 0);
+		return {
+			categories,
+			uncategorized: unifiedCategoryMap.uncategorized.filter((channel) => channel.name.toLowerCase().includes(query))
+		};
+	})();
 	$: unifiedChannelCount = unifiedSidebarChannels.length;
 	$: workspaceChannelCount = textChannelsAll.length + groupChannels.length + voiceChannels.length + galleryChannelsAll.length + forumChannelsAll.length + wikiChannelsAll.length + loreChannelsAll.length + planningChannelsAll.length;
 	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
@@ -546,6 +560,34 @@
 		if (orders.length > 0) reorderChannels(orders);
 	}
 
+	/** Move a channel out of any folder and into the top-level channel list. */
+	function moveChannelToRoot(channelId: string) {
+		const allCh = $channels;
+		const dragged = allCh.find((c) => c.id === channelId);
+		if (!dragged || (dragged.type as string | undefined) === 'category') return;
+		const sourceParentId = dragged.parentId ?? null;
+		const rootList = allCh
+			.filter((c) => (c.parentId ?? null) === null && c.id !== dragged.id && (c.type as string | undefined) !== 'category')
+			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+		const orders: { id: string; position: number; parentId: string | null }[] = [];
+		rootList.forEach((ch, i) => orders.push({ id: ch.id, position: i, parentId: null }));
+		orders.push({ id: dragged.id, position: rootList.length, parentId: null });
+		if (sourceParentId !== null) {
+			allCh
+				.filter((c) => (c.parentId ?? null) === sourceParentId && c.id !== dragged.id && (c.type as string | undefined) !== 'category')
+				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999))
+				.forEach((ch, i) => orders.push({ id: ch.id, position: i, parentId: sourceParentId }));
+		}
+		if (orders.length > 0) reorderChannels(orders);
+	}
+
+	function handleRootDrop(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (draggedChannelId) moveChannelToRoot(draggedChannelId);
+		handleChannelDragEnd();
+	}
+
 	/** Reorder category folders among themselves (global category position). */
 	function reorderCategoryFolders(fromId: string, toId: string, pos: 'before' | 'after') {
 		const cats = $channels
@@ -719,7 +761,19 @@
 		tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 	}
 	function handleDeleteChannel(id: string) { channelToDelete = id; showDeleteConfirm = true; }
-	function confirmDeleteChannel() { deleteChannel(channelToDelete); showDeleteConfirm = false; }
+	async function confirmDeleteChannel() {
+		if (!channelToDelete || deletingChannel) return;
+		deletingChannel = true;
+		deleteChannelError = '';
+		try {
+			await deleteChannel(channelToDelete);
+			showDeleteConfirm = false;
+		} catch (error) {
+			deleteChannelError = error instanceof Error ? error.message : 'Failed to delete channel.';
+		} finally {
+			deletingChannel = false;
+		}
+	}
 	function handleShowPinnedMessages(id: string) { selectedChannelForPinned = id; showPinnedModal = true; }
 	function handleOpenChannelSettings(ch: Channel) { selectedChannelForSettings = ch; showChannelSettingsModal = true; }
 	function handleSaveChannelSettings(e: CustomEvent<{ channelId: string; updates: Parameters<typeof updateChannelSettings>[1] }>) { updateChannelSettings(e.detail.channelId, e.detail.updates); showChannelSettingsModal = false; }
@@ -889,9 +943,11 @@
 	/>
 
 	<div class="channel-list">
-		{#if $displayEnhancementSettingsStore.serverCounterEnabled}
-	<div class="workspace-counter-chip" title="Server channel count"><span class="workspace-counter-label">Server</span><span class="workspace-counter-value">{workspaceChannelCount} channels</span></div>
-		{/if}
+		<div class="channel-search-row">
+			<svg class="channel-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+			<input class="channel-search-input" type="search" bind:value={channelSearchQuery} placeholder="Search channels" aria-label="Search channels" />
+			<span class="channel-search-count">{workspaceChannelCount}</span>
+		</div>
 		{#if $displayEnhancementSettingsStore.readAllNotificationsButtonEnabled && totalUnreadNotifications > 0}
 	<div class="channel-list-actions"><button class="clear-unread-btn" on:click={clearAllUnreadNotifications}>Clear Unread ({totalUnreadNotifications})</button></div>
 		{/if}
@@ -905,7 +961,7 @@
 		<button class="section-add-btn section-category-btn" class:active={showCreateInput && newChannelType === 'category'} on:click={openCreateFormForCategory} title="Create category" aria-label="Create category"><span class="plus-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg></span></button>{/if}
 		</div>
 		{#if isTextSectionExpanded}
-	{#each unifiedCategoryMap.categories as cat (cat.id)}
+	{#each filteredUnifiedCategoryMap.categories as cat (cat.id)}
 		<div
 			class="category-row"
 			class:drop-target={categoryDropTargetClass(cat.id) === 'drop-target'}
@@ -942,7 +998,18 @@
 			</div>
 		{/if}
 	{/each}
-	<UnifiedChannelList channels={unifiedCategoryMap.uncategorized} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+	<div
+		class="top-level-channel-drop"
+		class:drop-target={Boolean(draggedChannelId && !draggedCategoryId)}
+		role="list"
+		aria-label="Top-level channels"
+		on:dragover|stopPropagation={(e) => { if (draggedChannelId && !draggedCategoryId) { e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = 'move'); } }}
+		on:drop|stopPropagation={handleRootDrop}
+	>
+		<span class="top-level-channel-drop-label">Top-level channels</span>
+		<span class="top-level-channel-drop-hint">Drop here to move outside a folder</span>
+	</div>
+	<UnifiedChannelList channels={filteredUnifiedCategoryMap.uncategorized} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 	{/if}
 
 		</div>
@@ -952,7 +1019,8 @@
 	<ProfileCard {sidebarWidth} on:openProfilePopout={openOwnProfilePopout} on:openSettings={() => dispatch('openSettings')} />
 </div>
 
-<ConfirmDialog isOpen={showDeleteConfirm} title="Delete Channel" message="Delete channel #{channelToDelete}? This action cannot be undone." confirmText="Delete" variant="danger" onConfirm={confirmDeleteChannel} onCancel={() => showDeleteConfirm = false} />
+{#if deleteChannelError}<div class="channel-delete-error" role="alert">{deleteChannelError}</div>{/if}
+<ConfirmDialog isOpen={showDeleteConfirm} title="Delete Channel" message="Delete channel #{channelToDelete}? This action cannot be undone." confirmText={deletingChannel ? 'Deleting…' : 'Delete'} variant="danger" onConfirm={confirmDeleteChannel} onCancel={() => { if (!deletingChannel) showDeleteConfirm = false; }} />
 <PinnedMessagesModal bind:isOpen={showPinnedModal} channelId={selectedChannelForPinned} />
 <UserPopout user={$currentUser} bind:isOpen={showOwnProfilePopout} anchorElement={ownProfilePopoutAnchor} isOwnProfile={true} on:close={() => (showOwnProfilePopout = false)} on:openFullProfile={() => dispatch('openSettings')} />
 {#if showChannelSettingsModal && selectedChannelForSettings}

@@ -16,7 +16,7 @@ import { SocketReconnectionManager } from './socketConnectionReconnect';
 import { drainOutboundQueue } from '$lib/wabidb/drain';
 import { getWabiDB } from '$lib/wabidb';
 import type { Channel, Message, User } from './socket-types';
-import { channels, currentChannel, joinChannel, _updatePinnedChannels } from './channelStore';
+import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels } from './channelStore';
 import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
 import { isRenderableMessage } from '$lib/displayEnhancements';
 import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
@@ -761,6 +761,24 @@ export class SocketManager {
 						: ch
 				)
 			);
+		});
+
+		sock.on('channel-deleted', (payload: { channelId?: string }) => {
+			const deletedId = payload?.channelId;
+			if (!deletedId) return;
+			const all = get(channels);
+			const removed = descendantIds(all, deletedId);
+			removed.add(deletedId);
+			channels.update((list) => list.filter((c) => !removed.has(c.id)));
+			_updatePinnedChannels();
+			const active = get(currentChannel);
+			if (removed.has(active)) {
+				const remaining = get(channels);
+				const general = remaining.find((c) => c.id === 'general');
+				const next = (general || remaining[0])?.id || '';
+				currentChannel.set(next);
+				if (next) joinChannel(next);
+			}
 		});
 
 		sock.on('channels-reordered', (payload: { channels?: { id: string; position?: number; parentId?: string | null }[] }) => {

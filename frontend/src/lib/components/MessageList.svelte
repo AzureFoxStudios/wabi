@@ -1716,7 +1716,12 @@
 		visibleMessageStart = Math.max(0, messages.length - boundedLimit);
 		// Prefer stable server id once accepted; optimistic rows keep clientMessageId.
 		// Keep LAST of a key so reconcile wins without dropping distinct messages.
-		const slice = messages.slice(visibleMessageStart);
+		const slice = messages
+			.filter((message) => {
+				const deadline = getMessageDeletionDeadline(message);
+				return deadline === null || deadline > nowMs;
+			})
+			.slice(visibleMessageStart);
 		const keyOf = (msg: Message, i: number) => {
 			const id = String(msg?.id ?? '').trim();
 			if (id && !id.startsWith('optimistic:')) return id;

@@ -2,6 +2,8 @@
 	export let searchPlaceholder: string | undefined = undefined;
 	export let pills: { key: string; label: string; active?: boolean }[] | undefined = undefined;
 	export let sortOptions: string[] | undefined = undefined;
+	export let primaryLabel: string | undefined = undefined;
+	export let onPrimary: (() => void) | undefined = undefined;
 	export let onSearch: ((q: string) => void) | undefined = undefined;
 	export let onPill: ((key: string) => void) | undefined = undefined;
 	export let onSort: ((value: string) => void) | undefined = undefined;
@@ -44,6 +46,9 @@
 		</div>
 	{/if}
 	<slot />
+	{#if primaryLabel}
+		<button class="surface-toolbar-primary" on:click={() => onPrimary?.()}>{primaryLabel}</button>
+	{/if}
 	{#if sortOptions}
 		<select class="surface-sort" on:change={handleSortChange}>
 			{#each sortOptions as option}

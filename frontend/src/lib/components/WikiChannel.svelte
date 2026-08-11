@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { currentChannel, channels } from '$lib/socket';
+	import { currentChannel } from '$lib/socket';
 	import {
 		wikiPagesStore,
 		wikiRevisionsStore,
@@ -15,7 +15,6 @@
 		type WikiPage,
 		type WikiRevision,
 	} from '$lib/wikiStore';
-	import SurfaceHeader from './SurfaceHeader.svelte';
 	import SurfaceToolbar from './SurfaceToolbar.svelte';
 	import WikiPageTree from './WikiPageTree.svelte';
 	import WikiRevisionDrawer from './WikiRevisionDrawer.svelte';
@@ -24,7 +23,6 @@
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
 
-	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
 	$: allPages = $wikiPagesStore;
 	$: allRevisions = $wikiRevisionsStore;
 	$: isLoading = $wikiLoadingStore;
@@ -202,16 +200,11 @@
 </script>
 
 <div class="wiki-channel">
-	<SurfaceHeader
-		title={activeChannel?.name || 'Wiki'}
-		description="Wiki"
-		primaryLabel="+ New Page"
-		onPrimary={handleOpenNewPage}
-	/>
-
 	<SurfaceToolbar
 		searchPlaceholder="Search wiki..."
 		onSearch={() => {}}
+		primaryLabel="+ New Page"
+		onPrimary={handleOpenNewPage}
 	/>
 
 	<div class="wiki-body" class:has-drawer={showHistory}>
@@ -234,11 +227,6 @@
 					<button on:click={() => $currentChannel && loadWiki($currentChannel)}>Retry</button>
 				</div>
 			{:else if showNewPage}
-				<div class="wiki-content-toolbar">
-					<div class="wiki-content-toolbar-breadcrumb">
-						<span>New Page</span>
-					</div>
-				</div>
 				<div class="wiki-edit-area">
 					<input
 						type="text"

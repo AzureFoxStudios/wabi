@@ -78,9 +78,20 @@
 
 .profile-mock-avatar-stack {
 	display: flex;
-	flex-direction: column;
+	flex-direction: row;
 	align-items: center;
+	justify-content: center;
+	flex-wrap: wrap;
 	gap: 0.4rem;
+}
+
+.profile-mock-media-label {
+	width: 100%;
+	font-size: 0.62rem;
+	font-weight: 700;
+	line-height: 1.1;
+	text-align: center;
+	color: var(--text-secondary, #a1a1aa);
 }
 
 .profile-mock-avatar-btn {
