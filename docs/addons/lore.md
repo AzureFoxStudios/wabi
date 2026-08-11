@@ -30,8 +30,9 @@
 11. [Security Model](#11-security-model)
 12. [Operations & Runbook](#12-operations--runbook)
 13. [Developer Onboarding](#13-developer-onboarding)
-14. [Known Limitations & Future Work](#14-known-limitations--future-work)
-15. [Glossary](#15-glossary)
+14. [Repo Classes, Artist Review Flow, External Mirrors & Git Import](#14-repo-classes-artist-review-flow-external-mirrors--git-import)
+15. [Known Limitations & Future Work](#15-known-limitations--future-work)
+16. [Glossary](#16-glossary)
 
 ---
 
@@ -323,6 +324,23 @@ Stored under the `lore_commits` projection on each `lore_commit` event.
 §10). All the API handlers call `lore.get_repo(channel_id)` to find the
 `repo_name` they need before shelling out to the CLI.
 
+Since the repo-classes feature (see §14), `LoreRepo` carries three extra
+runtime fields that **do not exist on the WabiDB `LoreRepoRecord`**:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `class` | `RepoClass` | `Native` (default) or `Mirror { upstream_url }` (read-only pointer to an external git repo). |
+| `auto_branch_on_upload` | `bool` | When true, every `upload_file` lands on a fresh `uploads/<user>-<ts>` branch instead of the current branch (artist-friendly review flow). |
+| `imported_from` | `Option<String>` | The upstream git URL a repo was files-imported from (`import_from_git`). |
+
+These are persisted in a **sidecar state file**, `.wabi-repo.json`, written
+into the repo's working tree (not in WabiDB — the postcard-encoded
+`LoreRepoRecord` cannot gain fields without a dual-decode migration). On
+startup, `load_existing_repos` rehydrates the index from WabiDB *and* overlays
+each repo's sidecar file, so class/auto-branch/import provenance survive a
+restart. Deleting a repo removes the sidecar (and, for mirrors, the fetch
+cache).
+
 ---
 
 ## 8. REST API Reference
@@ -337,16 +355,26 @@ and the Lore router at `/addons/lore` within it).
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/addons/lore/repos` | Create a Lore repo for a channel (body: `{ channelId, repoName }`). |
-| `GET` | `/api/addons/lore/repos/{channel_id}` | Get repo info. |
+| `POST` | `/api/addons/lore/repos` | Create a Lore repo for a channel (body: `{ channelId, repoName, autoBranchOnUpload? }`). |
+| `GET` | `/api/addons/lore/repos/{channel_id}` | Get repo info (incl. `class`, `autoBranchOnUpload`, `importedFrom`). |
+| `PATCH` | `/api/addons/lore/repos/{channel_id}` | Update repo settings (body: `{ autoBranchOnUpload }`). |
 | `DELETE` | `/api/addons/lore/repos/{channel_id}` | Delete the repo. |
+| `POST` | `/api/addons/lore/repos/import` | Files-only git import (body: `{ channelId, name, upstreamUrl }`). Returns repo or `409` (repo exists) / `502` (clone failed). |
+| `POST` | `/api/addons/lore/repos/{channel_id}/external` | Register a read-only external mirror pointer (body: `{ name, upstreamUrl }`). |
+| `POST` | `/api/addons/lore/repos/{channel_id}/mirror/refresh` | Invalidate the mirror fetch cache (next read re-fetches upstream). Webhook receiver target. |
 | `POST` | `/api/addons/lore/repos/{channel_id}/snapshot` | Commit current staged state + record a revision. |
+
+> **Mirror repos are read-only pointers.** Every write endpoint on a `Mirror`
+> repo (upload, delete, lock/unlock, branch create/merge, snapshot,
+> approve/reject) returns **501** `{ "error": "mirror repos are read-only via
+> Wabi; browse upstream", "type": "MirrorReadOnly" }`. Reads (list, download,
+> history) are served from a lazily-fetched git cache — see §14.3.
 
 ### 8.2 File operations
 
 | Method | Path | Description |
 |---|---|---|
-| `PUT` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Upload/stage a file. **Body is raw bytes** (`application/octet-stream`), with optional `?message=` and `?repo_path=` query params. |
+| `PUT` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Upload/stage a file. **Body is raw bytes** (`application/octet-stream`), with optional `?message=` and `?repo_path=` query params. Response: `{ revision, file, pendingReview, reviewBranch }`. When the repo has `autoBranchOnUpload`, the file is committed to a fresh `review/{user}/{ts}` branch and `pendingReview: true` with the branch name; otherwise `pendingReview: false` and no branch. |
 | `GET` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Download. Supports HTTP `Range` requests for seeking in large media. |
 | `DELETE` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Delete a file. |
 | `POST` | `/api/addons/lore/repos/{channel_id}/files/{*path}/lock` | Acquire a file lock (body optionally names the owner). |
@@ -372,6 +400,8 @@ and the Lore router at `/addons/lore` within it).
 | `GET` | `/api/addons/lore/repos/{channel_id}/branches` | List branches. |
 | `POST` | `/api/addons/lore/repos/{channel_id}/branches` | Create a branch. |
 | `POST` | `/api/addons/lore/repos/{channel_id}/branches/{name}/merge` | Merge a branch. |
+| `POST` | `/api/addons/lore/repos/{channel_id}/review/{name}/approve` | Approve a review branch: merge it into mainline, then archive it (retire). See §14.2. |
+| `POST` | `/api/addons/lore/repos/{channel_id}/review/{name}/reject` | Reject a review branch: archive it without merging. See §14.2. |
 
 ### 8.5 Health
 
@@ -624,7 +654,7 @@ repo, so a user cannot redirect recordings into an arbitrary channel.
 - At rest, Lore's content-addressed store is independent of WabiDB encryption.
 - Client-side encryption of recordings before upload is *not* currently
   implemented; uploads go as plaintext bytes over an authenticated channel.
-  (Future work — see §14.)
+  (Future work — see §15.)
 
 ### 11.4 File locks
 
@@ -717,7 +747,100 @@ cd frontend && npm run check
 
 ---
 
-## 14. Known Limitations & Future Work
+## 14. Repo Classes, Artist Review Flow, External Mirrors & Git Import
+
+This section documents the repo-classes feature: every Lore repo is either a
+**native** repo or a **read-only external mirror**, and native repos can run an
+artist-friendly **review flow** where uploads land on review branches, plus a
+**files-only git import** path.
+
+### 14.1 Repo classes
+
+A `LoreRepo` has a `class` (`RepoClass`):
+
+- **`Native`** (default) — a full Lore repo owned by Wabi: create/upload/commit/
+  lock/branch/merge all work as documented in §8.
+- **`Mirror { upstream_url }`** — a read-only pointer to an external git
+  repository. Wabi never owns the bytes; it lazily fetches from upstream and
+  serves reads. All write endpoints return **501** (`MirrorReadOnly`).
+
+Repos default to `Native`; nothing changes for existing channels. A repo becomes
+a mirror only via `POST /repos/{channel_id}/external`. The `class`,
+`auto_branch_on_upload`, and `imported_from` fields live in the `.wabi-repo.json`
+sidecar in the working tree (see §7.4) because the postcard `LoreRepoRecord`
+cannot gain fields without a dual-decode migration.
+
+### 14.2 Artist-friendly review flow
+
+Lore's model of "upload straight to the current branch" is hostile to artists —
+an accidental upload pollutes the trunk. The review flow fixes this:
+
+1. An Owner/Admin/Developer turns it on per repo:
+   `PATCH /repos/{channel_id}` with `{ "autoBranchOnUpload": true }`.
+2. An Artist uploads as usual (`PUT .../files/{*path}`). The service
+   **creates + switches to a fresh `uploads/{sanitized_username}-{timestamp}`
+   branch**, commits the file there, then switches back. The response includes
+   `"pendingReview": true` and `"reviewBranch": "uploads/.../..."`. The upload
+   never touches mainline.
+3. A reviewer (Owner/Admin/Developer) either:
+   - **Approves**: `POST /repos/{channel_id}/review/{name}/approve` → merge the
+     branch into mainline, then archive (retire) it via `lore branch archive`.
+   - **Rejects**: `POST /repos/{channel_id}/review/{name}/reject` → archive the
+     branch without merging.
+
+Archiving (rather than deleting) is deliberate: the Lore CLI has no destructive
+branch delete; `lore branch archive` hides the branch from normal `list`
+output while keeping it recoverable. The branch name embeds the uploader so
+reviewers know who to talk to. Branch management and commit/review actions are
+gated to Owner/Admin/Developer; uploads accept Artist (see §11.2).
+
+### 14.3 External mirrors (read-only pointers)
+
+Registering an external mirror records a pointer and creates the WabiDB
+`LoreRepoRecord`; **no bytes are cloned at registration**. Reads are served
+from a fetch cache:
+
+- The first read (`list_files`, `get_file_content`, `download_file`,
+  `file_history`) triggers a lazy `git clone --depth 1` of `upstream_url` into
+  `<data_dir>/<channel_id>/.mirror-cache`.
+- Subsequent reads within `MIRROR_CACHE_TTL_SECS` (600 s) reuse the cache.
+- `POST /repos/{channel_id}/mirror/refresh` invalidates the cache so the next
+  read re-fetches — point your upstream's push webhook here.
+- `delete_repo` removes the cache directory.
+
+Caveats: the shallow clone carries only the tip commit, so mirror history shows
+a single revision, and diffs are not supported on mirrors (the service refuses
+diff on read-only repos). Mirrors are best used as a "browse upstream" window,
+or alongside `import_from_git` (below) to get working history.
+
+### 14.4 Git import (files-only)
+
+`POST /repos/import` (`{ channelId, name, upstreamUrl }`) imports an existing
+git repository into a new native Lore repo:
+
+1. Validates the channel has no repo yet (else **409**).
+2. `git clone` the upstream into a temp dir; on failure, returns **502** with
+   the git stderr.
+3. Strips `.git`, seeds a `.gitignore`, stages everything, and makes one initial
+   commit, then moves the tree into place as the repo's working tree.
+
+This imports **files only** — git history, tags, and branches are not carried
+over. For a channel that wants the old history browsable, register the same
+upstream as an external mirror (`POST .../external`) so the reads come from
+upstream while Wabi keeps its own native repo for writes. The upstream URL is
+recorded in `LoreRepo.imported_from`.
+
+### 14.5 Embedded mode
+
+The default `mode = "embedded"` runs Lore fully offline against a local
+working tree. For mirrors this means `git` (not the Lore CLI) does the fetching;
+`sync_repo`/`push_repo` are no-ops that log `offline repo: sync skipped`, and
+file locks degrade to `locked_by: null` (no Lore server to consult). The `git`
+binary must be on the server's `PATH` for mirror/import features.
+
+---
+
+## 15. Known Limitations & Future Work
 
 - **Phase 1 = CLI wrapper.** All Lore ops shell out to the `lore` binary.
   Phase 2 may call the `lore` Rust crate directly for lower latency and better
@@ -738,7 +861,7 @@ cd frontend && npm run check
 
 ---
 
-## 15. Glossary
+## 16. Glossary
 
 - **Lore** — the upstream version-control system for large binaries (Epic
   Games). Wabi wraps it.
@@ -758,6 +881,16 @@ cd frontend && npm run check
   includes/excludes the entire Lore module from the server binary.
 - **Runtime guard (`checkLoreHealth`)** — the frontend's check that decides
   whether to attempt Lore features against the current server.
+- **`RepoClass`** — a Lore repo's class: `Native` or `Mirror { upstream_url }`
+  (read-only external pointer).
+- **Review flow / `autoBranchOnUpload`** — repo setting that sends every upload
+  to a fresh `uploads/<user>-<ts>` branch for later approve/reject.
+- **`lore branch archive`** — the Lore CLI's non-destructive "retire a branch"
+  command used to retire review branches after approve/reject.
+- **`import_from_git`** — the files-only git import path (`POST /repos/import`).
+- **`.wabi-repo.json`** — the sidecar state file in a repo's working tree that
+  persists `class`, `auto_branch_on_upload`, and `imported_from` across
+  restarts.
 
 ---
 
