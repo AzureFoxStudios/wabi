@@ -32,7 +32,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 // P4: Editor bridge — ephemeral code-server sessions
 pub mod editor_bridge;
@@ -379,6 +379,17 @@ impl LoreService {
             let created_at = chrono::DateTime::from_timestamp_micros(seed.created_at_micros)
                 .unwrap_or_else(chrono::Utc::now);
             let working_tree = self.config.lore_data_dir.join(seed.channel_id.to_string());
+            // WDB can contain a historical registration after its working tree
+            // was deleted or a pre-persistent deployment stored it elsewhere.
+            // Do not rehydrate such ghosts: exposing them as live repos makes
+            // every file/history call fail as a generic 500. The admin can
+            // recreate or explicitly repair the channel instead.
+            let has_repo_state = working_tree.join(".wabi-repo.json").exists();
+            let has_lore_state = working_tree.join(".lore").exists();
+            if !has_lore_state && !has_repo_state {
+                warn!(channel_id = seed.channel_id, path = ?working_tree, "Skipping stale Lore repo registration with no working tree");
+                continue;
+            }
             let mut repo = LoreRepo {
                 id: LoreRepoId::new(),
                 channel_id: seed.channel_id,

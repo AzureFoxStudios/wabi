@@ -9,6 +9,8 @@ export interface LoreRepo {
 	class?: 'native' | { mirror?: { upstream_url?: string } } | null;
 	/** When true, uploads land on an uploads/* review line and need approval to become official. */
 	auto_branch_on_upload?: boolean;
+	/** Source URL retained when files were imported from Git. */
+	imported_from?: string | null;
 }
 
 /** Error thrown by lore API helpers — carries the HTTP status for callers to branch on. */
@@ -142,6 +144,27 @@ export async function deleteLoreRepo(token: string, channelId: number): Promise<
 		const err = await res.json().catch(() => ({}));
 		throw new Error((err as any).error || 'Failed to delete lore repo');
 	}
+}
+
+/** Update channel-repo workflow settings. */
+export async function updateLoreRepoSettings(
+	token: string,
+	channelId: number,
+	settings: { auto_branch_on_upload?: boolean }
+): Promise<LoreRepo> {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}`), {
+		method: 'PATCH',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(settings)
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw loreError((err as any).error || 'Failed to update repository settings', res.status);
+	}
+	return (await res.json()) as LoreRepo;
 }
 
 export interface LoreUploadResult {

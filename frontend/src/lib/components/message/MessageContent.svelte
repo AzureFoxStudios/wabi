@@ -15,6 +15,7 @@
 	import UnfurlCard from '$lib/components/UnfurlCard.svelte';
 	import SteamJoinButton from '$lib/components/plugins/SteamJoinButton.svelte';
 	import type { MessageEntity } from '$lib/socket';
+import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 
 	export let message: Message;
 	export let messageText: string;
@@ -75,6 +76,20 @@
 	const OBJECT_ENTITY_KINDS = new Set(['forum_post', 'wiki_page', 'gallery_work', 'place']);
 
 	$: firstObjectEntity = findFirstObjectEntity(message.entities ?? []);
+	$: loreChannel = channels.find((channel) => channel.id === currentChannel)?.type === 'lore';
+	$: chatCitations = loreChannel ? parseChatCitations(messageText) : [];
+
+	function parseChatCitations(text: string): Array<{ path: string; startLine?: number; endLine?: number; channelId: string }> {
+		const citations: Array<{ path: string; startLine?: number; endLine?: number; channelId: string }> = [];
+		const pattern = /\^c\/(?:#([^/\s]+)\/)?([^\s\])}>,;]+?)(?::(\d+)(?:-(\d+))?)?(?=\s|$)/g;
+		for (const match of text.matchAll(pattern)) {
+			const path = match[2];
+			const target = match[1] ? channels.find((channel) => channel.name === match[1] && channel.type === 'lore') : undefined;
+			if (!path || citations.some((citation) => citation.path === path && citation.channelId === (target?.id ?? currentChannel))) continue;
+			citations.push({ path, channelId: target?.id ?? currentChannel, startLine: match[3] ? Number(match[3]) : undefined, endLine: match[4] ? Number(match[4]) : undefined });
+		}
+		return citations;
+	}
 
 	function findFirstObjectEntity(entities: MessageEntity[]): MessageEntity | null {
 		for (const e of entities) {
@@ -85,6 +100,13 @@
 </script>
 
 <div class="message-content">
+	{#if chatCitations.length > 0}
+		<div class="chat-citation-list" aria-label="Code citations">
+			{#each chatCitations as citation (citation.path)}
+				<LoreChatCitation path={citation.path} startLine={citation.startLine} endLine={citation.endLine} channelId={citation.channelId} />
+			{/each}
+		</div>
+	{/if}
 	{#if isLocalDirectionsMessage(message)}
 		{@const directions = getDirectionsMeta(message)}
 		{#if directions}
@@ -301,4 +323,7 @@
 	{/if}
 
 	<SteamJoinButton {messageText} />
+	<style>
+		.chat-citation-list { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-1); }
+	</style>
 </div>
