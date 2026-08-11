@@ -7,7 +7,7 @@ import type { ThemePreferences } from '../../types/theme';
 import { getServerUrl } from '../serverUrl';
 import { authStore } from '../authStore';
 import { getAuthToken } from '../authSession';
-import { markEndpointUnsupported, isEndpointUnsupported } from '../optionalEndpoints';
+
 
 const THEME_API_TIMEOUT_MS = 15000;
 const THEME_API_RETRY_DELAY_MS = 250;
@@ -26,12 +26,6 @@ function sleep(ms: number): Promise<void> {
 export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	const token = getAuthToken();
 
-	// Optional endpoint — if the server doesn't implement theme persistence
-	// (common after a fresh wabidb reset) we never hit the network again this
-	// session. This keeps the console free of repeated 404s.
-	if (isEndpointUnsupported(`${getServerUrl()}/api/user/theme`)) {
-		return defaultThemePreferences();
-	}
 
 	let response;
 	let lastError: unknown = null;
@@ -78,11 +72,6 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 			errorText = 'Could not read error response';
 		}
 
-		if (response.status === 404) {
-			// Optional endpoint — server doesn't have theme persistence yet (common after fresh wabidb reset)
-			markEndpointUnsupported(`${getServerUrl()}/api/user/theme`);
-			return defaultThemePreferences();
-		}
 
 		if (response.status === 401) {
 			authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
@@ -155,29 +144,6 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 		if (response.status === 401) {
 			authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
 			throw new Error('Unauthorized - invalid or expired token');
-		} else if (response.status === 404) {
-			// Optional endpoint — theme persistence isn't implemented on this
-			// server. Fall back to localStorage so the preference isn't lost.
-			markEndpointUnsupported(`${getServerUrl()}/api/user/theme`);
-			console.warn('[ThemeApi] Theme endpoint unavailable (404) — falling back to localStorage');
-			try {
-				const localStorage = (window as Window & { localStorage?: Storage }).localStorage;
-				if (localStorage) {
-					const existing = localStorage.getItem('wabi-theme');
-					const payload = existing ? JSON.parse(existing) : {};
-					localStorage.setItem(
-						'wabi-theme',
-						JSON.stringify({
-							...payload,
-							...prefs,
-							updated_at: new Date().toISOString(),
-						})
-					);
-				}
-			} catch {
-				// localStorage may be unavailable; ignore.
-			}
-			return;
 		} else if (response.status >= 500) {
 			throw new Error('Server error - theme service unavailable');
 		}
@@ -222,10 +188,6 @@ export async function resetThemePreferences(): Promise<void> {
 	if (!response.ok) {
 		if (response.status === 401) {
 			throw new Error('Unauthorized');
-		} else if (response.status === 404) {
-			// Optional endpoint — silently ignore.
-			markEndpointUnsupported(`${getServerUrl()}/api/user/theme`);
-			return;
 		}
 		throw new Error('Failed to reset theme preferences');
 	}

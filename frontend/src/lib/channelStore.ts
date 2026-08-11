@@ -64,7 +64,19 @@ export function switchChannel(channelId: string): void {
 	if (!channelId) return;
 	const currentChannelId = get(currentChannel);
 	if (currentChannelId !== channelId) {
+		const previousChannel = get(channels).find((channel) => channel.id === currentChannelId);
 		currentChannel.set(channelId);
+		// Live channels are explicitly session-only. Drop their in-memory message
+		// view as soon as the user leaves, rather than retaining it invisibly.
+		if ((previousChannel?.autoDeleteAfter as string | null | undefined) === 'live') {
+			void import('./messageStore').then(({ channelMessages }) => {
+				channelMessages.update((state) => {
+					const next = { ...state };
+					delete next[currentChannelId];
+					return next;
+				});
+			});
+		}
 	}
 	joinChannel(channelId);
 }
@@ -155,9 +167,35 @@ export function createThread(parentChannelId: string, name: string, options?: {
 	sock.emit('create-thread', { parentChannelId, name, ...options });
 }
 
+/** Recursively collect the ids of every descendant of `channelId`
+ *  (channels whose parentId points at it, or at one of their ancestors). */
+export function descendantIds(all: Channel[], channelId: string): Set<string> {
+	const out = new Set<string>();
+	const stack = [channelId];
+	while (stack.length > 0) {
+		const cur = stack.pop()!;
+		for (const ch of all) {
+			if (ch.parentId === cur && !out.has(ch.id)) {
+				out.add(ch.id);
+				stack.push(ch.id);
+			}
+		}
+	}
+	return out;
+}
+
 export async function deleteChannel(channelId: string): Promise<void> {
 	try {
 		await deleteChannelApi(channelId);
+		const removedIds = descendantIds(get(channels), channelId);
+		removedIds.add(channelId);
+		const remaining = get(channels).filter((channel) => !removedIds.has(channel.id));
+		channels.set(remaining);
+		_updatePinnedChannels();
+		if (removedIds.has(get(currentChannel))) {
+			const fallback = remaining.find((channel) => channel.type !== 'dm' && channel.type !== 'group') || remaining[0];
+			if (fallback) switchChannel(fallback.id);
+		}
 	} catch (e) {
 		console.error('[channelStore] Failed to delete channel:', e);
 		throw e;

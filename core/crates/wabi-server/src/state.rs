@@ -45,6 +45,7 @@ pub struct AppState {
     pub live_channel_ttl_ms: Arc<RwLock<HashMap<String, u64>>>,
     /// Per-channel live room message count cap. Default: 1000.
     pub live_channel_cap: Arc<RwLock<HashMap<String, u64>>>,
+    pub message_expiries: Arc<RwLock<HashMap<String, i64>>>,
     /// The user ID of the server owner (first registrant).
     /// None until the first account is created.
     pub owner_user_id: RwLock<Option<i64>>,
@@ -74,6 +75,8 @@ pub struct AppState {
     /// Broadcasts the SocketIo handle so HTTP handlers (like avatar upload) can emit events
     #[allow(dead_code)]
     pub sio_broadcast_tx: broadcast::Sender<socketioxide::SocketIo>,
+    /// Current Socket.IO handle for HTTP handlers that need to broadcast.
+    pub sio: RwLock<Option<socketioxide::SocketIo>>,
     /// Blacklist manager for bans
     pub blacklist: RwLock<Option<Arc<BlacklistManager>>>,
     /// Mesh service for multi-node coordination
@@ -223,6 +226,7 @@ impl AppState {
             channel_auto_delete_label: Arc::new(RwLock::new(HashMap::new())),
             live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
             live_channel_cap: Arc::new(RwLock::new(HashMap::new())),
+            message_expiries: Arc::new(RwLock::new(HashMap::new())),
             owner_user_id,
             revocation_file,
             revocations,
@@ -236,6 +240,7 @@ impl AppState {
             upload_registry,
             media_registry,
             sio_broadcast_tx,
+            sio: RwLock::new(None),
             blacklist: RwLock::new(None),
             mesh_service: RwLock::new(None),
             #[cfg(feature = "wabi-lore")]

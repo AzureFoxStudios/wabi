@@ -372,6 +372,15 @@ async fn delete_channel(
     // its cache entry forever. WABI_AUDIT_REPORT.md finding #2.
     state.session_messages.write().await.remove(&id);
 
+    // Notify connected clients immediately; each client also removes nested
+    // descendants from its local channel tree.
+    if let Some(io) = state.sio.read().await.clone() {
+        let _ = io
+            .broadcast()
+            .emit("channel-deleted", &serde_json::json!({ "channelId": &id }))
+            .await;
+    }
+
     Ok(Json(serde_json::json!({ "deleted": id })))
 }
 
