@@ -219,6 +219,9 @@ Before declaring this Lore work complete:
 
 # Current working state
 
+- **Deployed to Tim 2026-08-11:** release binary SHA `6e8ac13433787fec17584f1924ef4965376401ce957e3d3dc37c9328836cae94`; container recreated and healthy; host `:3001` and Caddy `:8088` health 200; public `https://wabi.chat/health` and `/` 200; persistent `/var/wabi/lore` retained channels 2/3/5. Repo rehydration now awaits `load_existing_repos`, so stale-tree filtering is active at startup.
+
+
 - Code workspace rework worker is in flight: channel-as-repo Code view, slim Lore channel card, header cleanup.
 - Do not treat that worker as complete until its diff, `bun run check`, and real-browser behavior are verified.
 - Existing peer-session/unrelated dirty files must remain untouched unless explicitly assigned.
