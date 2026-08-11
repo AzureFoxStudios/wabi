@@ -96,6 +96,7 @@ function hydrateLegacyAuthSecrets(serverUrl?: string | null): void {
 			normalizeSecret(safeLocalGet(LEGACY_USERNAME_KEY));
 		const dbUserId = normalizeSecret(safeLocalGet(scopedDbUserIdKey)) || normalizeSecret(safeLocalGet(LEGACY_DB_USER_ID_KEY));
 
+		// Auth tokens remain in session storage under a server-scoped key.
 		safeSessionSet(scopedAuthTokenKey, authToken);
 		safeSessionSet(scopedGuestSessionKey, guestSessionId);
 		safeLocalSet(scopedUsernameKey, username);

@@ -38,7 +38,8 @@ export function isMediaUrl(url: string): boolean {
 export function isYouTubeUrl(url: string): boolean {
 	try {
 		const parsed = new URL(url);
-		return parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be');
+		const hostname = parsed.hostname.toLowerCase();
+		return hostname === 'youtube.com' || hostname.endsWith('.youtube.com') || hostname === 'youtu.be';
 	} catch {
 		return false;
 	}

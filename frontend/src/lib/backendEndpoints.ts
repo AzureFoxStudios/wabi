@@ -41,6 +41,7 @@ function loadCachedState(): CachedBackendEndpointState {
 function persistCachedState(state: CachedBackendEndpointState): void {
 	if (!browser) return;
 	try {
+		// The cache contains normalized public endpoints only, never credentials.
 		localStorage.setItem(BACKEND_ENDPOINT_CACHE_KEY, JSON.stringify(state));
 	} catch {
 		// Best effort only.

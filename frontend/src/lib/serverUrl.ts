@@ -68,6 +68,7 @@ export function getConfiguredServerUrl(): string | null {
 				if (persisted) {
 					const migrated = migrateLegacyLocalPort(persisted);
 					if (migrated !== persisted) {
+						// This is a normalized endpoint, never an authentication credential.
 						localStorage.setItem(PERSISTED_URL_KEY, migrated);
 					}
 					return migrated;

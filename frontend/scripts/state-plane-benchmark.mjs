@@ -2,6 +2,23 @@
 
 import { io } from 'socket.io-client';
 import { performance } from 'perf_hooks';
+import { randomBytes } from 'crypto';
+
+function randomSuffix(bytes = 8) {
+	return randomBytes(bytes).toString('base64url');
+}
+
+function redactSensitive(value) {
+	if (Array.isArray(value)) return value.map(redactSensitive);
+	if (!value || typeof value !== 'object') return value;
+	return Object.fromEntries(
+		Object.entries(value).map(([key, entry]) =>
+			/(token|password|secret|authorization|cookie)/i.test(key)
+				? [key, '[REDACTED]']
+				: [key, redactSensitive(entry)]
+		)
+	);
+}
 
 function usage() {
 	console.log(`Usage: node frontend/scripts/state-plane-benchmark.mjs [options]
@@ -565,9 +582,9 @@ class SqliteProbe {
 }
 
 async function registerBenchmarkUser(origin, label) {
-	const suffix = Math.random().toString(36).slice(2, 10);
+	const suffix = randomSuffix();
 	const username = `${label}_${suffix}`.slice(0, 31);
-	const password = `Bench!${Math.random().toString(36).slice(2, 14)}Aa1`;
+	const password = `Bench!${randomSuffix(10)}Aa1`;
 	const json = await fetchJson(`${origin}/api/auth/register`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -585,7 +602,7 @@ async function registerBenchmarkUser(origin, label) {
 }
 
 function makeGuestUsername(label, index) {
-	return `${label}_${index}_${Math.random().toString(36).slice(2, 7)}`.slice(0, 31);
+	return `${label}_${index}_${randomSuffix(5)}`.slice(0, 31);
 }
 
 async function connectSocket(options, token, username) {
@@ -1086,7 +1103,7 @@ async function main() {
 		};
 
 		if (options.json) {
-			console.log(JSON.stringify(summary, null, 2));
+			console.log(JSON.stringify(redactSensitive(summary), null, 2));
 			return;
 		}
 

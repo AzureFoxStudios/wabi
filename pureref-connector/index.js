@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -46,9 +46,9 @@ function broadcast(data) {
 function exportPureRefScene() {
   console.log('[PureRef] Exporting scene...');
   // Command to export the scene as an image
-  const command = `"${PUREF_EXECUTABLE_PATH}" -c "load;${PUREF_SCENE_PATH}" -c "exportScene;${EXPORT_FILE_PATH}" -c "exit"`;
-  
-  exec(command, (error, stdout, stderr) => {
+  const args = ['-c', `load;${PUREF_SCENE_PATH}`, '-c', `exportScene;${EXPORT_FILE_PATH}`, '-c', 'exit'];
+
+  execFile(PUREF_EXECUTABLE_PATH, args, (error, stdout, stderr) => {
     if (error) {
       console.error(`[PureRef Error] exec error: ${error}`);
       return;
