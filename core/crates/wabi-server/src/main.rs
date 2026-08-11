@@ -792,18 +792,20 @@ async fn main() -> anyhow::Result<()> {
             if let Ok(records) = state.wdb.list_lore_repos().await {
                 if !records.is_empty() {
                     let count = records.len();
-                    service.load_existing_repos(
-                        records
-                            .into_iter()
-                            .map(|r| crate::lore::LoreRepoSeed {
-                                channel_id: r.channel_id,
-                                repo_name: r.repo_name,
-                                lore_server_url: r.lore_server_url,
-                                created_by: r.created_by,
-                                created_at_micros: r.created_at_micros,
-                            })
-                            .collect(),
-                    );
+                    service
+                        .load_existing_repos(
+                            records
+                                .into_iter()
+                                .map(|r| crate::lore::LoreRepoSeed {
+                                    channel_id: r.channel_id,
+                                    repo_name: r.repo_name,
+                                    lore_server_url: r.lore_server_url,
+                                    created_by: r.created_by,
+                                    created_at_micros: r.created_at_micros,
+                                })
+                                .collect(),
+                        )
+                        .await;
                     tracing::info!("[lore] Rehydrated {} Lore repo(s) from WDB", count);
                 }
             }
