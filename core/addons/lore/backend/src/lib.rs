@@ -157,7 +157,7 @@ impl Default for LoreConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            mode: LoreMode::Sidecar,
+            mode: LoreMode::Embedded,
             lore_server_url: "lore://localhost:41337".into(),
             lore_binary_path: PathBuf::from("lore"),
             lore_data_dir: PathBuf::from("/var/wabi/lore"),
@@ -177,9 +177,13 @@ async fn run_lore(
     args: &[&str],
     mode: LoreMode,
 ) -> anyhow::Result<std::process::Output> {
-    let output = Command::new(binary)
-        .current_dir(working_dir)
-        .env("HOME", "/var/wabi/lore")
+    let mut cmd = Command::new(binary);
+    cmd.current_dir(working_dir)
+        .env("HOME", "/var/wabi/lore");
+    if matches!(mode, LoreMode::Embedded) {
+        cmd.arg("--offline").arg("--local");
+    }
+    let output = cmd
         .args(args)
         .output()
         .await?;
@@ -298,6 +302,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &working_tree,
             &["repository", "create", &repo_url],
+            self.config.mode
         )
         .await?;
 
@@ -361,6 +366,7 @@ impl LoreService {
                 &repo_url,
                 working_tree.to_str().unwrap_or("."),
             ],
+            self.config.mode
         )
         .await?;
 
@@ -462,6 +468,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["status", "--scan"],
+            self.config.mode
         )
         .await?;
 
@@ -545,6 +552,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["stage", repo_path],
+            self.config.mode
         )
         .await?;
 
@@ -553,6 +561,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["commit", message],
+            self.config.mode
         )
         .await?;
 
@@ -561,6 +570,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["push"],
+            self.config.mode
         )
         .await?;
 
@@ -603,6 +613,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["sync"],
+            self.config.mode
         )
         .await?;
 
@@ -645,6 +656,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["history"],
+            self.config.mode
         )
         .await?;
 
@@ -671,6 +683,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["diff", repo_path],
+            self.config.mode
         )
         .await?;
 
@@ -706,6 +719,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["branch", "create", branch_name],
+            self.config.mode
         )
         .await?;
 
@@ -724,6 +738,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["branch", "list"],
+            self.config.mode
         )
         .await?;
 
@@ -760,6 +775,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["branch", "switch", branch_name],
+            self.config.mode
         )
         .await?;
 
@@ -785,6 +801,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["branch", "switch", branch_name],
+            self.config.mode
         )
         .await?;
 
@@ -793,6 +810,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["sync"],
+            self.config.mode
         )
         .await?;
 
@@ -816,6 +834,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["commit", message],
+            self.config.mode
         )
         .await?;
 
@@ -824,6 +843,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["push"],
+            self.config.mode
         )
         .await?;
 
@@ -857,6 +877,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["stage", repo_path],
+            self.config.mode
         )
         .await?;
 
@@ -865,6 +886,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["commit", message],
+            self.config.mode
         )
         .await?;
 
@@ -873,6 +895,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["push"],
+            self.config.mode
         )
         .await?;
 
@@ -909,6 +932,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["diff", from, to, repo_path],
+            self.config.mode
         )
         .await;
 
@@ -928,6 +952,10 @@ impl LoreService {
 
     /// Health check — verify the Lore CLI and server are reachable.
     pub async fn health_check(&self) -> anyhow::Result<()> {
+        // Embedded mode is offline-local only — no server to ping.
+        if matches!(self.config.mode, LoreMode::Embedded) {
+            return Ok(());
+        }
         // Try running `lore --version` to verify CLI is available
         let output = Command::new(&self.config.lore_binary_path)
             .arg("--version")
@@ -959,6 +987,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["lock", repo_path],
+            self.config.mode
         )
         .await?;
 
@@ -987,6 +1016,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["lock", "--unlock", repo_path],
+            self.config.mode
         )
         .await?;
 
@@ -1007,6 +1037,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["sync"],
+            self.config.mode
         )
         .await?;
 
@@ -1024,6 +1055,7 @@ impl LoreService {
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["status", "--scan"],
+            self.config.mode
         )
         .await?;
 
