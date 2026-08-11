@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { wabidbDmSessionKey, resolveWabidbSessionKey } from './wabidbMediaRelay';
+import { wabidbDmSessionKey, wabidbChannelSessionKey, resolveWabidbSessionKey } from './wabidbMediaRelay';
 describe('wabidbDmSessionKey', () => {
 	test('is deterministic for the same two peers', () => {
 		expect(wabidbDmSessionKey('user-5', 'user-7')).toBe(wabidbDmSessionKey('user-5', 'user-7'));
@@ -22,6 +22,27 @@ describe('wabidbDmSessionKey', () => {
 	test('cannot collide with channel session ids (dm: prefix)', () => {
 		expect(wabidbDmSessionKey('user-5', 'user-7').startsWith('dm:')).toBe(true);
 		expect(wabidbDmSessionKey('user-5', 'user-7')).not.toBe('session-1720000000000-abc123');
+	});
+});
+
+describe('wabidbChannelSessionKey', () => {
+	test('is deterministic for the same channel', () => {
+		expect(wabidbChannelSessionKey('channel-abc')).toBe(wabidbChannelSessionKey('channel-abc'));
+	});
+
+	test('is identical for EVERY participant in the same channel', () => {
+		// Two different users joining the same voice channel must derive the
+		// same key or their audio never crosses (F19 gap).
+		expect(wabidbChannelSessionKey('channel-abc')).toBe(wabidbChannelSessionKey('channel-abc'));
+	});
+
+	test('differs across channels', () => {
+		expect(wabidbChannelSessionKey('channel-abc')).not.toBe(wabidbChannelSessionKey('channel-def'));
+	});
+
+	test('cannot collide with dm session keys (channel: prefix)', () => {
+		expect(wabidbChannelSessionKey('user-5:user-7').startsWith('channel:')).toBe(true);
+		expect(wabidbChannelSessionKey('user-5')).not.toBe(wabidbDmSessionKey('user-5', 'user-7'));
 	});
 });
 

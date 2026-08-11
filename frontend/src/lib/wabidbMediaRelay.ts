@@ -52,6 +52,14 @@ export function wabidbDmSessionKey(peerA: string, peerB: string): string {
   return `dm:${first}:${second}`;
 }
 
+// Deterministic session key for a voice CHANNEL / group call. All participants
+// joining the same channel must derive the SAME key or they end up in separate
+// wabidb sessions and audio never crosses (the random `session-{ts}-{rnd}`
+// fallback per-participant was the F19 gap for channels — see wabi-calling).
+export function wabidbChannelSessionKey(channelId: string): string {
+  return `channel:${channelId.trim()}`;
+}
+
 export function resolveWabidbSessionKey(
   kind: WabidbMediaRelayKind | undefined,
   sessionId: string,

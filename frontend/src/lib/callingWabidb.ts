@@ -88,9 +88,13 @@ export async function connectWabidbCall(
 		}
 
 		const isDirectCall = Boolean(peerUserId);
+		const { wabidbDmSessionKey: dmKey, wabidbChannelSessionKey: channelKey } = await import('./wabidbMediaRelay');
+		// DM: deterministic key from both peers. Channel/group: deterministic key
+		// from the channel id — ALL participants must derive the SAME key or they
+		// end up in separate wabidb sessions and audio never crosses.
 		const newSessionId = isDirectCall
-			? (await import('./wabidbMediaRelay')).wabidbDmSessionKey(String(userId), peerUserId)
-			: `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+			? dmKey(String(userId), peerUserId)
+			: channelKey(targetChannelId);
 		sessionId = newSessionId;
 		channelId = targetChannelId;
 
