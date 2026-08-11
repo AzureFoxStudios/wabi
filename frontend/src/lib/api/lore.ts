@@ -422,8 +422,11 @@ export async function getLoreBranches(token: string, channelId: number): Promise
 		const err = await res.json().catch(() => ({}));
 		throw loreError((err as any).error || 'Failed to list branches', res.status);
 	}
-	const data = (await res.json()) as { branches: string[] };
-	return (data.branches || []).map((name) => ({ name }));
+	const data = (await res.json()) as { branches?: Array<string | { name?: string }> };
+	return (data.branches || [])
+		.map((branch) => typeof branch === 'string' ? branch : branch.name)
+		.filter((name): name is string => Boolean(name))
+		.map((name) => ({ name }));
 }
 
 export async function createLoreBranch(token: string, channelId: number, name: string, baseRevision?: string): Promise<void> {
