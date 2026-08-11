@@ -218,10 +218,15 @@ export {
 	mergeLoreBranch,
 	createLoreSnapshot,
 	checkLoreHealth,
+	linkLoreExternalRepo,
+	importLoreRepo,
+	reviewLoreBranch,
+	linkLoreRepo,
 	type LoreRepo,
 	type LoreFileInfo,
 	type LoreRevision,
-	type LoreBranch
+	type LoreBranch,
+	type LoreUploadResult
 } from './lore';
 
 // ============================================================================

@@ -62,8 +62,11 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         // Repo management
         .route("/repos", axum::routing::post(create_repo))
+        .route("/repos/import", axum::routing::post(import_repo))
         .route("/repos/{channel_id}/link", axum::routing::post(link_repo))
-        .route("/repos/{channel_id}", axum::routing::get(get_repo).delete(delete_repo))
+        .route("/repos/{channel_id}", axum::routing::get(get_repo).patch(update_repo).delete(delete_repo))
+        .route("/repos/{channel_id}/external", axum::routing::post(register_external_mirror))
+        .route("/repos/{channel_id}/mirror/refresh", axum::routing::post(refresh_mirror_cache))
         .route("/repos/{channel_id}/snapshot", axum::routing::post(snapshot))
         // File operations
         .route("/repos/{channel_id}/files", axum::routing::get(list_files))
@@ -79,6 +82,9 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Branch operations
         .route("/repos/{channel_id}/branches", axum::routing::get(list_branches).post(create_branch))
         .route("/repos/{channel_id}/branches/{branch_name}/merge", axum::routing::post(merge_branch))
+        // Artist-friendly review flow (auto_branch_on_upload)
+        .route("/repos/{channel_id}/review/{branch_name}/approve", axum::routing::post(approve_review_branch))
+        .route("/repos/{channel_id}/review/{branch_name}/reject", axum::routing::post(reject_review_branch))
         // Health
         .route("/health", axum::routing::get(health_check))
         // Call recording upload (auto-resolves the configured Recordings channel)
@@ -121,6 +127,26 @@ async fn lore_service(state: &AppState) -> Result<Arc<wabi_lore::LoreService>> {
         .ok_or_else(|| AppError::Internal("Lore addon not initialized".into()))
 }
 
+/// True when the channel's repo is a read-only external mirror.
+async fn repo_read_only(lore: &Arc<wabi_lore::LoreService>, channel_id: i64) -> bool {
+    match lore.get_repo(channel_id).await {
+        Some(repo) => repo.read_only(),
+        None => false,
+    }
+}
+
+/// 501 response for write endpoints on read-only mirror repos.
+fn mirror_read_only_response() -> axum::response::Response {
+    (
+        axum::http::StatusCode::NOT_IMPLEMENTED,
+        Json(serde_json::json!({
+            "error": "mirror repos are read-only via Wabi; browse upstream",
+            "type": "MirrorReadOnly",
+        })),
+    )
+        .into_response()
+}
+
 // -- Repo management --
 
 async fn create_repo(
@@ -135,11 +161,16 @@ async fn create_repo(
         return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
     }
     let repo_name = payload["repoName"].as_str().unwrap_or("default");
+    let auto_branch = payload["autoBranchOnUpload"].as_bool().unwrap_or(false);
 
     let lore = lore_service(&state).await?;
     let repo = lore
         .create_repo(channel_id, auth.user_id, repo_name)
         .await?;
+
+    if auto_branch {
+        lore.set_auto_branch_on_upload(channel_id, true).await?;
+    }
 
     state
         .wdb
@@ -167,6 +198,12 @@ async fn link_repo(
     let repo_name = payload["repoName"].as_str().unwrap_or("default");
 
     let lore = lore_service(&state).await?;
+    // Embedded mode runs offline with no server to clone an existing repo from.
+    if matches!(lore.mode(), wabi_lore::LoreMode::Embedded) {
+        return Err(AppError::BadRequest(
+            "linking an existing lore repo requires sidecar or remote mode".into(),
+        ));
+    }
     let repo = lore
         .link_repo(channel_id, auth.user_id, repo_name)
         .await?;
@@ -215,6 +252,136 @@ async fn delete_repo(
     Ok(Json(serde_json::json!({ "status": "ok" })))
 }
 
+/// PATCH /repos/{channel_id} — update per-repo settings.
+#[derive(Deserialize)]
+struct UpdateRepoPayload {
+    auto_branch_on_upload: Option<bool>,
+}
+
+async fn update_repo(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<UpdateRepoPayload>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    if let Some(enabled) = payload.auto_branch_on_upload {
+        lore.set_auto_branch_on_upload(channel_id, enabled).await?;
+    }
+    let repo = lore
+        .get_repo(channel_id)
+        .await
+        .ok_or_else(|| AppError::NotFound("No Lore repo for this channel".into()))?;
+    Ok(Json(serde_json::json!(repo)))
+}
+
+/// POST /repos/{channel_id}/external — register a read-only external mirror.
+/// Registers a pointer only; no bytes are cloned until the first read.
+#[derive(Deserialize)]
+struct ExternalMirrorPayload {
+    upstream_url: String,
+    name: String,
+}
+
+async fn register_external_mirror(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<ExternalMirrorPayload>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    let repo = lore
+        .register_external_mirror(channel_id, auth.user_id, &payload.name, &payload.upstream_url)
+        .await?;
+
+    state
+        .wdb
+        .lore_create_repo(channel_id, &payload.name, &repo.lore_server_url, auth.user_id)
+        .await?;
+
+    info!(channel_id, upstream = %payload.upstream_url, "External mirror repo registered via API");
+    Ok(Json(serde_json::json!(repo)))
+}
+
+/// POST /repos/{channel_id}/mirror/refresh — invalidate the mirror fetch cache
+/// so the next read re-fetches from upstream. Used as the webhook receiver.
+async fn refresh_mirror_cache(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    lore.refresh_mirror_cache(channel_id).await?;
+    info!(channel_id, "Mirror cache refreshed via API/webhook");
+    Ok(Json(serde_json::json!({ "status": "ok", "refreshed": true })))
+}
+
+/// POST /repos/import — files-only git import into a new native Lore repo.
+#[derive(Deserialize)]
+struct ImportRepoPayload {
+    channel_id: i64,
+    upstream_url: String,
+    name: String,
+}
+
+async fn import_repo(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(payload): Json<ImportRepoPayload>,
+) -> Result<axum::response::Response> {
+    ensure_channel_member(&state, payload.channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    match lore
+        .import_from_git(
+            payload.channel_id,
+            auth.user_id,
+            &payload.name,
+            &payload.upstream_url,
+        )
+        .await
+    {
+        Ok(repo) => {
+            state
+                .wdb
+                .lore_create_repo(
+                    payload.channel_id,
+                    &payload.name,
+                    &repo.lore_server_url,
+                    auth.user_id,
+                )
+                .await?;
+            info!(channel_id = payload.channel_id, upstream = %payload.upstream_url, "Git repo imported via API");
+            Ok(Json(serde_json::json!(repo)).into_response())
+        }
+        Err(wabi_lore::LoreImportError::RepoExists) => Ok((
+            axum::http::StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "a Lore repo already exists for this channel" })),
+        )
+            .into_response()),
+        Err(wabi_lore::LoreImportError::CloneFailed(stderr)) => Ok((
+            axum::http::StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": stderr })),
+        )
+            .into_response()),
+        Err(wabi_lore::LoreImportError::Other(e)) => Err(e.into()),
+    }
+}
+
 #[derive(Deserialize)]
 struct SnapshotPayload {
     message: String,
@@ -225,13 +392,16 @@ async fn snapshot(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Json(payload): Json<SnapshotPayload>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     // L8: commits = Owner/Admin/Developer
     if !can_edit_lore(&state, auth.user_id).await {
         return Err(AppError::Forbidden("Lore commits require Owner/Admin/Developer role".into()));
     }
     let lore = lore_service(&state).await?;
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
     let revision = lore.commit_staged(channel_id, &payload.message, auth.user_id).await?;
 
     let repo = lore.get_repo(channel_id).await;
@@ -242,7 +412,7 @@ async fn snapshot(
             .await;
     }
 
-    Ok(Json(serde_json::json!({ "revision": revision })))
+    Ok(Json(serde_json::json!({ "revision": revision })).into_response())
 }
 
 // -- File operations --
@@ -276,7 +446,7 @@ async fn upload_file(
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<UploadQuery>,
     body: axum::body::Bytes,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     // L8: asset writes = Owner/Admin/Developer/Artist
     if !can_asset_write_lore(&state, auth.user_id).await {
@@ -285,12 +455,17 @@ async fn upload_file(
     let message = query.message.unwrap_or_else(|| "Upload via API".into());
     let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
 
+    let lore = lore_service(&state).await?;
+    // Mirror repos are read-only pointers — reject uploads with 501.
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
+
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join(format!("lore-upload-{}", uuid::Uuid::new_v4()));
     tokio::fs::write(&tmp_path, &body).await?;
 
-    let lore = lore_service(&state).await?;
-    let (revision, file_info) = lore
+    let result = lore
         .upload_file(channel_id, tmp_path.to_str().unwrap_or("/dev/null"), &repo_path, &message, auth.user_id)
         .await?;
 
@@ -300,11 +475,16 @@ async fn upload_file(
     if let Some(repo) = repo {
         let _ = state
             .wdb
-            .lore_commit(channel_id, &revision.hash, &repo.repo_name, &repo_path, &message, auth.user_id)
+            .lore_commit(channel_id, &result.revision.hash, &repo.repo_name, &repo_path, &message, auth.user_id)
             .await;
     }
 
-    Ok(Json(serde_json::json!({ "revision": revision, "file": file_info })))
+    Ok(Json(serde_json::json!({
+        "revision": result.revision,
+        "file": result.file_info,
+        "pendingReview": result.pending_review,
+        "reviewBranch": result.review_branch,
+    })).into_response())
 }
 
 /// Query parameters for [`upload_recording`].
@@ -328,7 +508,7 @@ async fn upload_recording(
     auth: AuthUser,
     Query(query): Query<UploadRecordingQuery>,
     body: axum::body::Bytes,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     let lore = lore_service(&state).await?;
     let channel_name = lore.recordings_channel_name().to_string();
 
@@ -364,6 +544,11 @@ async fn upload_recording(
         )));
     }
 
+    // Mirror repos are read-only pointers — reject uploads with 501.
+    if repo_read_only(&lore, lore_channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
+
     let filename = query
         .filename
         .unwrap_or_else(|| format!("recording-{}.webm", uuid::Uuid::new_v4()));
@@ -376,7 +561,7 @@ async fn upload_recording(
     let tmp_path = tmp_dir.join(format!("lore-recording-{}", uuid::Uuid::new_v4()));
     tokio::fs::write(&tmp_path, &body).await?;
 
-    let (revision, file_info) = lore
+    let result = lore
         .upload_file(
             lore_channel_id,
             tmp_path.to_str().unwrap_or("/dev/null"),
@@ -385,6 +570,7 @@ async fn upload_recording(
             auth.user_id,
         )
         .await?;
+    let (revision, file_info) = (result.revision, result.file_info);
 
     let _ = tokio::fs::remove_file(&tmp_path).await;
 
@@ -407,7 +593,7 @@ async fn upload_recording(
         "revision": revision,
         "file": file_info,
         "path": repo_path,
-    })))
+    })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -613,7 +799,7 @@ async fn delete_file(
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Json(payload): Json<DeleteFilePayload>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     // L8: asset writes = Owner/Admin/Developer/Artist
     if !can_asset_write_lore(&state, auth.user_id).await {
@@ -622,10 +808,14 @@ async fn delete_file(
     let message = payload.message.unwrap_or_else(|| "Deleted via API".into());
 
     let lore = lore_service(&state).await?;
+    // Mirror repos are read-only pointers — reject writes with 501.
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
     lore.delete_file(channel_id, &path, &message).await?;
 
     info!(channel_id, path, "File deleted from Lore repo");
-    Ok(Json(serde_json::json!({ "status": "ok" })))
+    Ok(Json(serde_json::json!({ "status": "ok" })).into_response())
 }
 
 // -- File locking --
@@ -634,32 +824,38 @@ async fn lock_file(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     // L8: asset writes = Owner/Admin/Developer/Artist
     if !can_asset_write_lore(&state, auth.user_id).await {
         return Err(AppError::Forbidden("Lore locking requires at least Artist role".into()));
     }
     let lore = lore_service(&state).await?;
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
     lore.lock_file(channel_id, &path, auth.user_id).await?;
 
-    Ok(Json(serde_json::json!({ "status": "ok", "locked_by": auth.user_id })))
+    Ok(Json(serde_json::json!({ "status": "ok", "locked_by": auth.user_id })).into_response())
 }
 
 async fn unlock_file(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     // L8: asset writes = Owner/Admin/Developer/Artist
     if !can_asset_write_lore(&state, auth.user_id).await {
         return Err(AppError::Forbidden("Lore unlocking requires at least Artist role".into()));
     }
     let lore = lore_service(&state).await?;
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
     lore.unlock_file(channel_id, &path).await?;
 
-    Ok(Json(serde_json::json!({ "status": "ok" })))
+    Ok(Json(serde_json::json!({ "status": "ok" })).into_response())
 }
 
 // -- History & Diff --
@@ -723,7 +919,7 @@ async fn create_branch(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Json(payload): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     // L8: branch management = Owner/Admin/Developer
     if !can_edit_lore(&state, auth.user_id).await {
@@ -733,26 +929,72 @@ async fn create_branch(
     let base_revision = payload["baseRevision"].as_str();
 
     let lore = lore_service(&state).await?;
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
     lore.create_branch(channel_id, branch_name, base_revision).await?;
 
-    Ok(Json(serde_json::json!({ "status": "ok", "branch": branch_name, "created_by": auth.user_id })))
+    Ok(Json(serde_json::json!({ "status": "ok", "branch": branch_name, "created_by": auth.user_id })).into_response())
 }
 
 async fn merge_branch(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path((channel_id, branch_name)): Path<(i64, String)>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     // L8: branch management = Owner/Admin/Developer
     if !can_edit_lore(&state, auth.user_id).await {
         return Err(AppError::Forbidden("Lore branch operations require Owner/Admin/Developer role".into()));
     }
     let lore = lore_service(&state).await?;
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
     lore.merge_branch(channel_id, &branch_name).await?;
 
     info!(channel_id, branch_name, "Branch merged via API");
-    Ok(Json(serde_json::json!({ "status": "ok", "branch": branch_name, "merged_by": auth.user_id })))
+    Ok(Json(serde_json::json!({ "status": "ok", "branch": branch_name, "merged_by": auth.user_id })).into_response())
+}
+
+/// POST /repos/{channel_id}/review/{branch_name}/approve — merge a review
+/// branch into mainline and retire it.
+async fn approve_review_branch(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, branch_name)): Path<(i64, String)>,
+) -> Result<axum::response::Response> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Review approval requires Owner/Admin/Developer role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
+    lore.approve_review_branch(channel_id, &branch_name).await?;
+    info!(channel_id, branch_name, "Review branch approved via API");
+    Ok(Json(serde_json::json!({ "status": "ok", "branch": branch_name, "approved_by": auth.user_id })).into_response())
+}
+
+/// POST /repos/{channel_id}/review/{branch_name}/reject — retire a review
+/// branch without merging.
+async fn reject_review_branch(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, branch_name)): Path<(i64, String)>,
+) -> Result<axum::response::Response> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_edit_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Review rejection requires Owner/Admin/Developer role".into()));
+    }
+    let lore = lore_service(&state).await?;
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(mirror_read_only_response());
+    }
+    lore.reject_review_branch(channel_id, &branch_name).await?;
+    info!(channel_id, branch_name, "Review branch rejected via API");
+    Ok(Json(serde_json::json!({ "status": "ok", "branch": branch_name, "rejected_by": auth.user_id })).into_response())
 }
 
 // -- Health --

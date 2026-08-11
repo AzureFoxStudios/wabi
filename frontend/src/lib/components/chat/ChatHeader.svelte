@@ -9,6 +9,7 @@
 	import { openPlannerSurface } from '$lib/plannerWorkspace';
 	import { openNotesSurface } from '$lib/notesWorkspace';
 	import { openLoreSurface } from '$lib/loreWorkspace';
+	import { openFilesSurface } from '$lib/filesWorkspace';
 	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
 	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
@@ -74,6 +75,9 @@
 				break;
 			case 'lore':
 				openLoreSurface();
+				break;
+			case 'files':
+				openFilesSurface();
 				break;
 		}
 	}
