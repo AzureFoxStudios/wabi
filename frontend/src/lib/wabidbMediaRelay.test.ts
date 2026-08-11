@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import { wabidbDmSessionKey, resolveWabidbSessionKey } from './wabidbMediaRelay';
-
 describe('wabidbDmSessionKey', () => {
 	test('is deterministic for the same two peers', () => {
 		expect(wabidbDmSessionKey('user-5', 'user-7')).toBe(wabidbDmSessionKey('user-5', 'user-7'));
