@@ -1,11 +1,40 @@
 /**
  * wabiDB audio media relay — capture/playback pipeline via wabiDB call state.
  *
- * Capture: getUserMedia → opus-recorder WASM encoder → Socket.IO binary emit
+ * Capture: getUserMedia → opus-recorder WASM encoder → Socket.IO base64 emit
  * Receive: Socket.IO listen → jitter buffer → opus-recorder decoder → AudioWorklet playback
+ *
+ * IMPORTANT: payloads are base64 STRINGS, not binary. socketioxide's
+ * `Data<serde_json::Value>` extractor silently drops binary attachments
+ * (handler never fires); strings relay fine. See wabi-calling skill.
  */
 
 import OpusRecorder from 'opus-recorder';
+
+// Socket.IO via socketioxide `Data<serde_json::Value>` silently DROPS binary
+// attachments (they become `{"_placeholder":true,"num":0}` placeholders and the
+// handler is never called). The proven storefwd path ships audio as a base64
+// string (`audioBase64`) which survives the JSON extractor. Do the same here.
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 0x8000; // avoid stack overflow on large buffers
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+// Decoder worker does `new DataView(pages.buffer)` — it needs a typed array
+// (which has `.buffer`), NOT a raw ArrayBuffer or plain JS array.
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
 
 export type WabidbMediaRelayKind = 'channel' | 'dm';
 
@@ -42,7 +71,7 @@ function normalizeStableUserId(id: string): string {
 }
 
 interface JitterEntry {
-  data: ArrayBuffer;
+  data: Uint8Array;
   timestamp: number;
 }
 
@@ -95,10 +124,12 @@ export class WabidbMediaRelay {
 
       this.opusRecorder.ondataavailable = (data: ArrayBuffer) => {
         if (this.isActive) {
+          // Base64 string payload — raw ArrayBuffer binary is silently dropped
+          // by the server's Data<serde_json::Value> extractor.
           this.socket.emit('wabidb-media', {
             sessionId: this.sessionId,
             userId: this.userId,
-            payload: data,
+            payload: arrayBufferToBase64(data),
           });
         }
       };
@@ -122,8 +153,11 @@ export class WabidbMediaRelay {
     }
   }
 
-  private handleIncomingMedia(opusPayload: ArrayBuffer): void {
-    this.jitterBuffer.push({ data: opusPayload, timestamp: Date.now() });
+  private handleIncomingMedia(opusPayload: string): void {
+    // Decode base64 → Uint8Array. The decoder worker needs a typed array
+    // (`new DataView(pages.buffer)`), not a raw ArrayBuffer.
+    const bytes = base64ToUint8Array(opusPayload);
+    this.jitterBuffer.push({ data: bytes, timestamp: Date.now() });
 
     if (this.jitterBuffer.length > 50) {
       this.jitterBuffer.splice(0, this.jitterBuffer.length - 50);
@@ -153,7 +187,7 @@ export class WabidbMediaRelay {
     }
   }
 
-  private async decodeAndPlay(opusPayload: ArrayBuffer): Promise<void> {
+  private async decodeAndPlay(opusPayload: Uint8Array): Promise<void> {
     try {
       if (!this.opusDecoder) {
         await this.initializeOpusDecoder();
@@ -204,7 +238,7 @@ export class WabidbMediaRelay {
     return out;
   }
 
-  private async decodeOpus(opusPayload: ArrayBuffer): Promise<Float32Array | null> {
+  private async decodeOpus(opusPayload: Uint8Array): Promise<Float32Array | null> {
     return new Promise((resolve) => {
       if (!this.opusDecoder) {
         resolve(null);
