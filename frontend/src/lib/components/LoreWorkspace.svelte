@@ -12,7 +12,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import LoreChannelShell from './lore/LoreChannelShell.svelte';
 	import { getAuthToken } from '$lib/authSession';
-	import { getLoreRepo, getLoreRepoHistory, getLoreBranches, listLoreFiles, getSignedLoreUrl, reviewLoreBranch, deleteLoreRepo, updateLoreRepoSettings, parseLoreChannelId, type LoreRepo, type LoreRevision, type LoreBranch, type LoreFileInfo } from '$lib/api/lore';
+	import { getLoreRepo, getLoreRepoHistory, getLoreBranches, listLoreFiles, getSignedLoreUrl, reviewLoreBranch, updateLoreRepoSettings, parseLoreChannelId, type LoreRepo, type LoreRevision, type LoreBranch, type LoreFileInfo } from '$lib/api/lore';
 import { loreArtifactKind } from '$lib/loreArtifactCompare';
 import LoreImageCompare from './lore/LoreImageCompare.svelte';
 
@@ -35,7 +35,6 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 	let dataLoading = $state(false);
 	let dataError = $state('');
 	let settingsSaving = $state(false);
-	let deleteSaving = $state(false);
 
 	const LAST_LORE_KEY = 'wabi:lastLoreChannelId';
 
@@ -108,15 +107,6 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 		finally { settingsSaving = false; }
 	}
 
-	async function deleteRepository(): Promise<void> {
-		const token = getAuthToken();
-		const numericId = selectedId ? parseLoreChannelId(selectedId) : null;
-		if (!token || !numericId || !confirm('Delete this Lore repository? This removes its working tree.')) return;
-		deleteSaving = true;
-		try { await deleteLoreRepo(token, numericId); repoMeta = null; dataError = 'Repository deleted. Recreate it from the channel setup.'; }
-		catch { dataError = 'Repository could not be deleted.'; }
-		finally { deleteSaving = false; }
-	}
 
 	async function prepareImageCompare(path: string): Promise<void> {
 		const token = getAuthToken();
@@ -164,7 +154,6 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 		if (target) {
 			selectedId = target;
 			persistSelection(target);
-			if (target !== activeChannelId) switchChannel(target);
 			void loadRepoMeta(target);
 		}
 	});
@@ -355,7 +344,7 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 					<line x1="23" y1="11" x2="17" y2="11"/>
 				</svg>
 				<h3>Review</h3>
-				{#if repoBranches.filter((branch) => branch.name.startsWith('uploads/')).length === 0}<p>No upload branches are waiting for review.</p>{:else}<p>Approve to make uploads official, or reject to retire the upload branch.</p>{#each repoBranches.filter((branch) => branch.name.startsWith('uploads/')) as branch}<div class="review-row"><strong>{branch.name}</strong><span><button type="button" onclick={() => void decideReview(branch.name, 'approve')}>Approve</button><button type="button" onclick={() => void decideReview(branch.name, 'reject')}>Reject</button></span></div>{/each}{/if}
+				{#if repoBranches.filter((branch) => typeof branch.name === 'string' && branch.name.startsWith('uploads/')).length === 0}<p>No upload branches are waiting for review.</p>{:else}<p>Approve to make uploads official, or reject to retire the upload branch.</p>{#each repoBranches.filter((branch) => typeof branch.name === 'string' && branch.name.startsWith('uploads/')) as branch}<div class="review-row"><strong>{branch.name}</strong><span><button type="button" onclick={() => void decideReview(branch.name, 'approve')}>Approve</button><button type="button" onclick={() => void decideReview(branch.name, 'reject')}>Reject</button></span></div>{/each}{/if}
 			</div>
 		{:else if activeTab === "settings"}
 			<div class="placeholder-tab">
@@ -367,7 +356,6 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 				{#if repoMeta}
 					<label class="setting-toggle"><input type="checkbox" checked={repoMeta.auto_branch_on_upload === true} disabled={settingsSaving} onchange={(event) => void toggleReviewWorkflow((event.currentTarget as HTMLInputElement).checked)} /> Require review for uploads</label>
 					<p>{repoMeta.imported_from ? `Imported from ${repoMeta.imported_from}` : 'Native Lore repository'}</p>
-					<button type="button" class="danger-button" disabled={deleteSaving} onclick={() => void deleteRepository()}>{deleteSaving ? 'Deleting…' : 'Delete repository'}</button>
 				{:else}<p>No repository is connected to this channel.</p>{/if}
 			</div>
 		{/if}
@@ -703,7 +691,6 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 	}
 
 	.setting-toggle { display: flex; align-items: center; gap: var(--space-2); color: var(--text-heading); }
-	.danger-button { align-self: flex-start; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-danger, var(--text-muted)); border-radius: var(--radius-md); background: transparent; color: var(--color-danger, var(--text-heading)); cursor: pointer; }
 	.placeholder-tab {
 		flex: 1;
 		display: flex;
