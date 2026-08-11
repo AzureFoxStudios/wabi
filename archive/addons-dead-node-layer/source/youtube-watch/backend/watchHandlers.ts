@@ -89,11 +89,12 @@ export function extractYouTubeVideoId(input: string): string | null {
   if (idPattern.test(raw)) return raw;
   try {
     const url = new URL(raw);
-    if (url.hostname.includes('youtu.be')) {
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === 'youtu.be') {
       const shortId = url.pathname.replace('/', '').trim();
       return idPattern.test(shortId) ? shortId : null;
     }
-    if (url.hostname.includes('youtube.com')) {
+    if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com')) {
       const v = url.searchParams.get('v') || '';
       if (idPattern.test(v)) return v;
       const segments = url.pathname.split('/').filter(Boolean);

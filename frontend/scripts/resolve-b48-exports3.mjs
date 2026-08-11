@@ -35,7 +35,7 @@ for (const w of want) {
 	}
 	const local = p.local;
 	// Search for assignment patterns; escape $
-	const esc = local.replace(/\$/g, '\\$');
+	const esc = local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	const patterns = [
 		new RegExp(`\\b${esc}=(?:writable|derived|readable)\\b`),
 		new RegExp(`${esc}=(?:writable|derived|readable)\\b`),

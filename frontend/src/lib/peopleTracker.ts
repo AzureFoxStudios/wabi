@@ -220,6 +220,7 @@ function migrateLegacyFriendAlertTracking(state: PeopleTrackerState): PeopleTrac
 			};
 		}
 
+			// Migration data contains display preferences and IDs, not authentication secrets.
 		localStorage.setItem(
 			LEGACY_DISPLAY_ENHANCEMENT_SETTINGS_KEY,
 			JSON.stringify({

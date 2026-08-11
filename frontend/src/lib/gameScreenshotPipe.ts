@@ -87,6 +87,7 @@ function safeReadJson<T>(key: string, fallback: T): T {
 function safeWriteJson(key: string, value: unknown): void {
 	if (!browser) return;
 	try {
+		// Screenshot paths and processing metadata are non-secret local settings.
 		window.localStorage.setItem(key, JSON.stringify(value));
 	} catch {
 		// best-effort persistence

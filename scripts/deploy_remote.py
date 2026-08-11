@@ -151,7 +151,10 @@ def list_changed_files() -> tuple[list[str], list[str]]:
 
 def connect_ssh(host: str, user: str, password: str) -> paramiko.SSHClient:
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    # Reject unknown host keys. Deployments must provision the target host key
+    # in the user's known_hosts file instead of silently trusting first use.
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(
         hostname=host,
         username=user,

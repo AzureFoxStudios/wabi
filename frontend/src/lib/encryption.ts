@@ -433,6 +433,7 @@ export async function saveUserKeys(userId: number, publicKey: string, privateKey
 	const secret = resolveWrappingSecret();
 	const wrappedPrivate = await wrapPrivateKey(privateKey, secret);
 	keys[userId.toString()] = { publicKey, privateKey: wrappedPrivate };
+	// The persisted private key is always wrapped above; only the wrapped envelope is stored.
 	localStorage.setItem(ENCRYPTION_STORAGE_KEY, JSON.stringify(keys));
 }
 
@@ -470,6 +471,7 @@ export async function loadUserKeys(userId: number): Promise<{ publicKey: string;
 		const secret = resolveWrappingSecret();
 		const wrappedPrivate = await wrapPrivateKey(entry.privateKey, secret);
 		keys[userId.toString()] = { publicKey: entry.publicKey, privateKey: wrappedPrivate };
+		// Migration writes the wrapped replacement, never the legacy plaintext value.
 		localStorage.setItem(ENCRYPTION_STORAGE_KEY, JSON.stringify(keys));
 	} catch {
 		// Migration failed; still return plaintext once so the session can recover, but prefer not to re-save raw
