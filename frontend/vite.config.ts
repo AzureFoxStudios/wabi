@@ -2,11 +2,14 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 const isTauri = process.env.TAURI_ENV_PLATFORM ? true : false;
+const browserTargets = ['edge88', 'firefox78', 'chrome87', 'safari13.1'];
 
 export default defineConfig({
 	// Tauri requires specific builder config
 	build: {
-		target: isTauri ? 'ES2021' : ['ES2020', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
+		target: isTauri ? 'ES2021' : ['ES2020', ...browserTargets],
+		// Vite 8 uses Lightning CSS, whose targets must be browsers rather than ES versions.
+		cssTarget: browserTargets,
 		minify: !process.env.TAURI_DEBUG, // esbuild minify (terser broke Svelte store runtime in SPA client bundle)
 	},
 	server: {
