@@ -4,6 +4,7 @@ export interface UploadedAlbumFile {
 	fileUrl: string;
 	fileName: string;
 	fileSize: number;
+	mimeType: string | null;
 }
 
 export async function uploadAlbumFile(token: string, file: File): Promise<UploadedAlbumFile> {
@@ -41,6 +42,7 @@ export async function uploadAlbumFile(token: string, file: File): Promise<Upload
 		fileSize:
 			typeof payload?.fileSize === 'number' && Number.isFinite(payload.fileSize)
 				? payload.fileSize
-				: file.size
+				: file.size,
+		mimeType: typeof payload?.mimeType === 'string' ? payload.mimeType : file.type || null
 	};
 }

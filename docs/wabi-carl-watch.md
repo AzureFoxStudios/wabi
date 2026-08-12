@@ -46346,3 +46346,70 @@ The knowledgebox is intentionally separate from Wabi and Lore. Wabi remains cano
 ### Identity and pairing
 ```
 
+
+---
+
+## 2026-08-12 16:44:44 +07 — Carl posted
+
+### New/updated docs
+
+#### `docs/architecture/wiki-knowledgebox-protocol-v1.md`
+
+```
+# Wiki Knowledge Sync Protocol v1
+
+> **Status:** design freeze for implementation fixtures. This protocol is for the separate knowledgebox companion; it is not a general Wabi API.
+
+## 1. Purpose
+
+Wabi remains the canonical authority for wiki content. A paired knowledgebox receives a bounded copy of selected wiki pages and keeps it current through snapshots and ordered deltas.
+
+The protocol is designed around four properties:
+
+1. **Outbound pairing:** the knowledgebox does not receive a general Wabi credential.
+2. **Scoped data:** a pipe is limited to explicitly selected wiki channels.
+3. **Resumability:** delivery can resume after disconnect without repeated full crawls.
+4. **Deletion correctness:** page deletion is a first-class event and must purge downstream search results.
+
+## 2. Non-goals
+
+- No Wabi message/user/admin/upload access.
+- No write-back into Wabi.
+- No arbitrary URL fetch or proxying.
+- No revision synchronization in v1.
+- No embeddings or model-provider protocol.
+- No guarantee against a compromised host owner.
+- No assumption that page text is safe instructions; page text is untrusted source material.
+
+```
+
+#### `docs/research/wiki-knowledgebox-security-review.md`
+
+```
+# Wabi Wiki Knowledgebox Security Review Brief
+
+> **Status:** review draft. This is a design review target, not a claim that the implementation is secure.
+
+## Review target
+
+Wabi is a self-hosted chat platform with a first-class wiki. The proposed feature is **Wiki Knowledge Sync**:
+
+```text
+Wabi authority ── outbound paired sync ──▶ separate knowledgebox ──▶ local search / optional MCP / AI
+```
+
+The knowledgebox is intentionally separate from Wabi and Lore. Wabi remains canonical. The knowledgebox receives only owner-selected wiki content and exposes read/search operations to local tools or an AI client. It must not become a general Wabi API proxy.
+
+## Questions for reviewers
+
+### Trust boundary
+
+- Does an outbound paired pipe materially reduce risk compared with an inbound AI read token?
+- What network paths must be blocked so the knowledgebox cannot use Wabi as an SSRF or proxy primitive?
+- Should synchronization be initiated only by Wabi, only by the knowledgebox, or use a long-lived outbound session?
+- Is a same-host sidecar a meaningful boundary, or should Docker network isolation be mandatory?
+- What is the minimum capability needed for replay and snapshot recovery?
+
+### Identity and pairing
+```
+

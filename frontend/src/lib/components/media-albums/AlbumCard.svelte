@@ -114,6 +114,6 @@
 	</div>
 	<div class="album-meta">
 		<span>{album.itemCount} items</span>
-		<span>Updated {formatTimestamp(album.updatedAt)}</span>
+		<span>{album.updatedAt > 0 ? `Updated ${formatTimestamp(album.updatedAt)}` : 'Recently created'}</span>
 	</div>
 </div>

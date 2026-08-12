@@ -109,7 +109,7 @@
 	}
 
 	function getUsernameStyle(user: User | undefined, username: string, themeState: any): string {
-		let style = '';
+		let style = `color: ${getUserColor(user, username)};`;
 		const resolvedUser = user;
 
 		if (themeState.uniformFontEnabled) {

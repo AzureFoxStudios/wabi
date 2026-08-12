@@ -95,6 +95,15 @@ function closeAddonTab(addonId: string): void {
 	}
 }
 
+function closeAllAddonTabs(): void {
+	const currentActive = get(activeTabId);
+	openAddonQueue.set([]);
+	const fallbackChannel = get(channelQueue)[0];
+	if (currentActive?.startsWith('addon:') || !currentActive) {
+		activeTabId.set(fallbackChannel ? toChannelTabId(fallbackChannel) : null);
+	}
+}
+
 function openAddonTab(addonId: string): void {
 	if (!addonId) return;
 	openAddonQueue.update((queue) => ensureInQueue(queue, addonId));
@@ -126,6 +135,7 @@ export const mobileTabQueue = {
 	enqueueChannel,
 	openAddonTab,
 	closeAddonTab,
+	closeAllAddonTabs,
 	registerAddonTab,
 	unregisterAddonTab,
 	toChannelTabId,

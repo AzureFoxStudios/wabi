@@ -166,6 +166,10 @@
 		calculatePosition();
 	}
 
+	function handleViewportChange(): void {
+		if (isOpen) calculatePosition();
+	}
+
 	function loadUserNote() {
 		if (!browser || !user) return;
 		const note = getUserNote(user.id);
@@ -361,6 +365,8 @@
 		if (browser) {
 			document.addEventListener('click', handleClickOutside);
 			document.addEventListener('keydown', handleKeydown);
+			window.addEventListener('resize', handleViewportChange);
+			window.addEventListener('scroll', handleViewportChange, true);
 		}
 	});
 
@@ -368,6 +374,8 @@
 		if (browser) {
 			document.removeEventListener('click', handleClickOutside);
 			document.removeEventListener('keydown', handleKeydown);
+			window.removeEventListener('resize', handleViewportChange);
+			window.removeEventListener('scroll', handleViewportChange, true);
 		}
 	});
 </script>

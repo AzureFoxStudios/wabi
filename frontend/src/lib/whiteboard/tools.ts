@@ -797,7 +797,38 @@ export function createPanTool(): ToolHandler {
 // Eraser tool
 // ---------------------------------------------------------------------------
 
+function createRasterEraserTool(): ToolHandler {
+	return {
+		id: 'eraser',
+		cursor: 'cell',
+		onPointerDown(e) {
+			const state = get(boardStore);
+			const layer = state.layers.find((candidate) => candidate.id === state.activeLayerId);
+			if (!layer || layer.mode !== 'raster') return null;
+			const size = Math.max(4, state.style.strokeWidth || 1);
+			const hardness = state.style.hardness ?? 1;
+			const opacity = state.style.opacity ?? 1;
+			let lastX = e.boardX;
+			let lastY = e.boardY;
+			paintRasterDab(layer.id, lastX, lastY, size, '#000', opacity, hardness, e.pressure, true);
+			return {
+				onPointerMove(ev) {
+					paintRasterSegment(layer.id, lastX, lastY, ev.boardX, ev.boardY, size, '#000', opacity, hardness, ev.pressure, true);
+					lastX = ev.boardX;
+					lastY = ev.boardY;
+				},
+				onPointerUp() { void commitRasterLayer(state.boardId, layer.id); },
+				getPreview() { return null; },
+				getSelectionRect() { return null; }
+			};
+		}
+	};
+}
+
 export function createEraserTool(): ToolHandler {
+	const activeState = get(boardStore);
+	const activeLayer = activeState.layers.find((layer) => layer.id === activeState.activeLayerId);
+	if (activeLayer?.mode === 'raster') return createRasterEraserTool();
 	const ERASER_RADIUS = 20; // board-space radius
 
 	return {
