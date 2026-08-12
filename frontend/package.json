@@ -61,7 +61,7 @@
     "@xyflow/svelte": "1.5.2",
     "dompurify": "3.4.12",
     "katex": "0.18.1",
-    "livekit-client": "2.18.8",
+    "livekit-client": "2.21.0",
     "marked": "17.0.6",
     "motion": "13.0.0",
     "opus-recorder": "8.0.5",
