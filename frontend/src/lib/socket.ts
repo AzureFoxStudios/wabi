@@ -166,6 +166,7 @@ export {
 	moveUserToVoiceChannel,
 	createThread,
 	deleteChannel,
+	deleteChannel as deleteChannelWithOptions,
 	pinChannel,
 	unpinChannel,
 	updateChannelSettings,

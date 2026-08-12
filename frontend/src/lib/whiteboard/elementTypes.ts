@@ -33,6 +33,7 @@ export interface ElementBase {
 	locked: boolean;
 	hardness?: number;
 	brushPreset?: string;
+	strokeDash?: number[];
 }
 
 export interface StrokeElement extends ElementBase {
@@ -103,7 +104,10 @@ export const DEFAULT_STYLE = {
 	strokeWidth: 4,
 	fillColor: 'transparent',
 	opacity: 1,
-	hardness: 1
+	hardness: 1,
+	fontSize: 16,
+	strokeDash: undefined,
+	borderRadius: 0
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@
 		getFileIcon,
 		isAudio,
 		isBlendFile,
+		getMediaMimeType,
 		isEncryptedAttachment,
 		isImage,
 		isModelFile,
@@ -209,7 +210,7 @@
 											controls
 											class="gallery-file-audio"
 										>
-											<source src={getFileUrl(fileAttachment.fileUrl)} type="audio/{fileAttachment.fileName?.split('.').pop()}" />
+											<source src={getFileUrl(fileAttachment.fileUrl)} type={getMediaMimeType(fileAttachment.fileName) || undefined} />
 											{$_('messages.media.audio_not_supported')}
 										</audio>
 										<div class="audio-file-name">{fileAttachment.fileName}</div>
@@ -345,7 +346,7 @@
 								on:contextmenu={(e) => onImageContextMenu(e, message)}
 								title={$_('messages.media.click_enlarge_with_options')}
 							>
-								<source src={getFileUrl(message.fileUrl)} type="video/{message.fileName?.split('.').pop()}" />
+								<source src={getFileUrl(message.fileUrl)} type={getMediaMimeType(message.fileName) || undefined} />
 								{$_('messages.viewer.video_not_supported')}
 							</video>
 							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="video-download-link">
@@ -362,7 +363,7 @@
 								controls
 								class="inline-audio"
 							>
-								<source src={getFileUrl(message.fileUrl)} type="audio/{message.fileName?.split('.').pop()}" />
+								<source src={getFileUrl(message.fileUrl)} type={getMediaMimeType(message.fileName) || undefined} />
 								{$_('messages.media.audio_not_supported')}
 							</audio>
 							<div class="audio-file-info">

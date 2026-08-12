@@ -184,11 +184,16 @@ export function descendantIds(all: Channel[], channelId: string): Set<string> {
 	return out;
 }
 
-export async function deleteChannel(channelId: string): Promise<void> {
+export async function deleteChannel(channelId: string, options: { preserveChildren?: boolean } = {}): Promise<void> {
 	try {
-		await deleteChannelApi(channelId);
+		await deleteChannelApi(channelId, options);
 		const removedIds = descendantIds(get(channels), channelId);
 		removedIds.add(channelId);
+		if (options.preserveChildren) {
+			channels.update((list) => list.map((channel) => removedIds.has(channel.id) && channel.id !== channelId ? { ...channel, parentId: undefined } : channel));
+			removedIds.clear();
+			removedIds.add(channelId);
+		}
 		const remaining = get(channels).filter((channel) => !removedIds.has(channel.id));
 		channels.set(remaining);
 		_updatePinnedChannels();

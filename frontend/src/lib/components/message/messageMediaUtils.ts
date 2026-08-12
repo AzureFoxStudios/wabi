@@ -22,7 +22,7 @@ export function getMediaType(url: string): MessageMediaType | null {
 		const pathname = urlObj.pathname.toLowerCase();
 
 		if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i.test(pathname)) return 'image';
-		if (/\.(mp4|webm|ogg|mov|avi|mkv|flv|wmv|m4v)(\?|#|$)/i.test(pathname)) return 'video';
+		if (/\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v)(\?|#|$)/i.test(pathname)) return 'video';
 		if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) return 'audio';
 		if (/\.(glb|gltf|obj|stl)(\?|#|$)/i.test(pathname)) return 'model';
 	} catch {

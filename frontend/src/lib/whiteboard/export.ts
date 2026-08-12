@@ -230,8 +230,11 @@ function elementToSvg(el: BoardElement, ctx: SvgContext): string {
 			break;
 		}
 		case 'math': {
-			const me = el as BoardElement & { latex?: string; fontSize?: number };
-			body = `<!-- math element skipped (LaTeX): ${escapeXml((me.latex || '').replace(/--/g, '- -'))} -->\n<text x="${fmtNum(dx(el.x))}" y="${fmtNum(dy(el.y))}" font-size="${fmtNum((me.fontSize || 16) * 0.8)}" fill="#94a3b8">${escapeXml(me.latex || '')}</text>`;
+			const me = el as BoardElement & { latex?: string; fontSize?: number; strokeColor?: string };
+			const latex = (me.latex || '').replace(/--/g, '- -');
+			const fontSize = fmtNum((me.fontSize || 16) * 0.8);
+			const color = me.strokeColor || '#94a3b8';
+			body = `<text x="${fmtNum(dx(el.x))}" y="${fmtNum(dy(el.y + (me.fontSize || 16) * 0.8))}" font-size="${fontSize}" fill="${escapeXml(color)}" font-family="serif">${escapeXml(latex)}</text>`;
 			break;
 		}
 		default:

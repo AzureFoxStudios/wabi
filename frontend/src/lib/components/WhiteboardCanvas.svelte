@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
-	import { boardStore, elements, layers, viewport, activeTool, selection } from '$lib/whiteboard/boardStore';
+	import { boardStore, elements, layers, viewport, activeTool, selection, canUndo, canRedo, policy } from '$lib/whiteboard/boardStore';
+	import { hitTestHandle } from '$lib/whiteboard/coords';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
 	import { renderElements, renderLayersWithBlend, renderGrid, renderSelectionBox, renderHandles, renderDrawPreview, renderSelectionRect, renderRemoteCursors, preloadImage } from '$lib/whiteboard/boardRenderer';
 	import { screenToBoard, getSelectionBBox, getSelectionHandles } from '$lib/whiteboard/coords';
@@ -48,6 +49,8 @@
 	let textEditPlacement: TextPlacement | null = null;
 	let resizeObserver: ResizeObserver;
 	let renderScheduled = false;
+	let lastPointerX = 0;
+	let lastPointerY = 0;
 
 	function updateSize() {
 		if (!containerEl) return;
@@ -75,10 +78,16 @@
 		const vp = get(viewport);
 		const els = get(elements);
 		const sel = get(selection);
+		const currentTool = get(activeTool);
 		const baseCtx = baseCanvas.getContext('2d')!;
 		baseCtx.save();
 		baseCtx.scale(dpr, dpr);
 		baseCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+		// Canvas background color
+		if ($boardStore.canvasBgColor) {
+			baseCtx.fillStyle = $boardStore.canvasBgColor;
+			baseCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+		}
 		if (showGrid) renderGrid(baseCtx, vp, canvasWidth, canvasHeight, 24);
 		const currentLayers = get(layers);
 		if (currentLayers.length > 0) {
@@ -132,7 +141,11 @@
 		const sy = e.clientY - rect.top;
 		const vp = get(viewport);
 		const board = screenToBoard(sx, sy, vp);
-		return { boardX: board.x, boardY: board.y, screenX: sx, screenY: sy, pressure: e.pressure || 0.5, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey || e.metaKey, altKey: e.altKey, button: e.button };
+		// Browsers report pointer pressure 0.5 for mouse by spec — coerce to 1
+		// so mouse strokes render at full width instead of 70%.
+		const isMouse = e.pointerType === 'mouse';
+		const pressure = isMouse ? 1 : (e.pressure || 0.5);
+		return { boardX: board.x, boardY: board.y, screenX: sx, screenY: sy, pressure, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey || e.metaKey, altKey: e.altKey, button: e.button };
 	}
 	function handlePointerDown(e: PointerEvent) {
 		if (textEditing) return;
@@ -153,6 +166,8 @@
 		requestRender();
 	}
 	function handlePointerMove(e: PointerEvent) {
+		lastPointerX = e.clientX;
+		lastPointerY = e.clientY;
 		if (currentInteraction) { currentInteraction.onPointerMove(makeToolEvent(e)); requestRender(); }
 		if (boardId) { const te = makeToolEvent(e); broadcastCursor(boardId, { x: te.boardX, y: te.boardY, username, color: userColor }); }
 	}
@@ -235,7 +250,7 @@
 		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (!ctrl && !e.altKey) {
-			const toolMap: Record<string, ToolType> = { v: 'select', s: 'select', p: 'pen', d: 'pen', l: 'line', r: 'rect', e: 'ellipse', o: 'ellipse', a: 'arrow', t: 'text' };
+			const toolMap: Record<string, ToolType> = { v: 'select', s: 'select', p: 'pen', d: 'pen', e: 'eraser', l: 'line', r: 'rect', o: 'ellipse', a: 'arrow', t: 'text' };
 			const key = e.key.toLowerCase();
 			if (toolMap[key]) {
 				if (readOnly && toolMap[key] !== 'select') return;
@@ -265,7 +280,7 @@
 		const text = textEditValue.trim();
 		if (text) {
 			const style = textEditPlacement.style;
-			const el: TextElement = { id: textEditPlacement.elementId, type: 'text', x: textEditPlacement.x, y: textEditPlacement.y, width: 200, height: 30, rotation: 0, zIndex: textEditPlacement.maxZ, layerId: textEditPlacement.layerId, opacity: 1, strokeColor: style.strokeColor, strokeWidth: style.strokeWidth, fillColor: style.fillColor, createdBy: '', updatedAt: Date.now(), locked: false, text, fontSize: 16, fontFamily: 'sans-serif', textAlign: 'left' };
+			const el: TextElement = { id: textEditPlacement.elementId, type: 'text', x: textEditPlacement.x, y: textEditPlacement.y, width: 200, height: 30, rotation: 0, zIndex: textEditPlacement.maxZ, layerId: textEditPlacement.layerId, opacity: 1, strokeColor: style.strokeColor, strokeWidth: style.strokeWidth, fillColor: style.fillColor, createdBy: '', updatedAt: Date.now(), locked: false, text, fontSize: style.fontSize || 16, fontFamily: 'sans-serif', textAlign: 'left' };
 			boardStore.addElement(el);
 		}
 		textEditing = false; textEditPlacement = null;
@@ -281,7 +296,27 @@
 	function handleDragLeave(event: DragEvent) { if ((event.currentTarget as HTMLElement | null)?.contains(event.relatedTarget as Node | null)) return; isDragHover = false; }
 	function handleDrop(event: DragEvent) { if (readOnly || !dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = false; queueFiles(Array.from(event.dataTransfer?.files || []), 'drop'); }
 
-	$: cursorStyle = (() => { if (isSpacePanning) return 'grab'; const tool = $activeTool; const handler = getToolHandler(tool); return handler.cursor; })();
+	$: cursorStyle = (() => {
+		if (isSpacePanning) return 'grab';
+		if ($activeTool === 'select' && $selection.size > 0) {
+			// Check if pointer is over a resize/rotate handle
+			const selEls = $elements.filter((e) => $selection.has(e.id));
+			const bbox = getSelectionBBox(selEls);
+			if (bbox) {
+				const handles = getSelectionHandles(bbox, $viewport, 8);
+				const hit = hitTestHandle(handles, lastPointerX, lastPointerY, 12);
+				if (hit) {
+					if (hit.position === 'rotate') return 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\'%3E%3Ccircle cx=\'8\' cy=\'8\' r=\'6\' fill=\'none\' stroke=\'%236366f1\' stroke-width=\'1.5\'/%3E%3Cpath d=\'M8 2 L8 4 M8 12 L8 14 M2 8 L4 8 M12 8 L14 8\' stroke=\'%236366f1\' stroke-width=\'1.5\' fill=\'none\'/%3E%3C/svg%3E") 8 8, auto';
+					if (hit.position.includes('e') || hit.position.includes('w')) return 'ew-resize';
+					if (hit.position.includes('n') || hit.position.includes('s')) return 'ns-resize';
+					return 'nwse-resize';
+				}
+			}
+		}
+		const tool = $activeTool;
+		const handler = getToolHandler(tool);
+		return handler.cursor;
+	})();
 
 	onMount(() => { resizeObserver = new ResizeObserver(updateSize); resizeObserver.observe(containerEl); updateSize(); });
 	onDestroy(() => {

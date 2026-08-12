@@ -446,9 +446,10 @@
 <style>
 	.whiteboard-shell {
 		position: relative;
+		display: flex;
+		flex-direction: column;
 		height: 100%;
 		min-height: 0;
-		display: block;
 		background: transparent;
 	}
 
@@ -706,6 +707,7 @@
 
 	.whiteboard-stage {
 		position: relative;
+		flex: 1;
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;

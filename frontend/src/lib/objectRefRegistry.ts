@@ -24,9 +24,17 @@ function refKey(kind: ObjectRefKind, id: string): RefKey {
 }
 
 export function registerObjectRef(record: ObjectRefRecord): void {
+	if (!record?.kind || !record?.id) return;
+	const title = typeof record.title === 'string' ? record.title.trim() : '';
+	const slug = typeof record.slug === 'string' ? record.slug.trim() : '';
+	const normalized: ObjectRefRecord = {
+		...record,
+		title: title || slug || record.id,
+		slug: slug || slugify(title || record.id)
+	};
 	objectRefStore.update((map) => {
 		const next = new Map(map);
-		next.set(refKey(record.kind, record.id), record);
+		next.set(refKey(normalized.kind, normalized.id), normalized);
 		return next;
 	});
 }
@@ -59,8 +67,8 @@ export function searchObjectRefs(query: string, limit = 8): ObjectRefRecord[] {
 	const scored: Array<{ record: ObjectRefRecord; score: number }> = [];
 
 	for (const record of current.values()) {
-		const slugLower = record.slug.toLowerCase();
-		const titleLower = record.title.toLowerCase();
+		const slugLower = String(record.slug || '').toLowerCase();
+		const titleLower = String(record.title || '').toLowerCase();
 		const subtitleLower = (record.subtitle ?? '').toLowerCase();
 
 		let score = 0;

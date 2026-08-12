@@ -20,7 +20,8 @@ interface ShareEntity {
 }
 
 export function buildSharePayload(record: ObjectRefRecord): { text: string; entities: ShareEntity[] } {
-	const slug = record.slug || slugify(record.title);
+	const title = typeof record?.title === 'string' ? record.title : '';
+	const slug = record.slug || slugify(title || record.id);
 	const token = `^${KIND_NS[record.kind]}/${slug} `;
 	const text = `check this ${token}`;
 	const start = text.indexOf(token);
@@ -45,7 +46,8 @@ export function buildShareLink(record: ObjectRefRecord, baseUrl = getServerUrl()
 }
 
 export function buildShareRefText(record: ObjectRefRecord): string {
-	const slug = record.slug || slugify(record.title);
+	const title = typeof record?.title === 'string' ? record.title : '';
+	const slug = record.slug || slugify(title || record.id);
 	return `^${KIND_NS[record.kind]}/${slug}`;
 }
 

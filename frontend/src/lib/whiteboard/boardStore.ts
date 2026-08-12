@@ -29,7 +29,7 @@ import * as selOps from './boardSelection';
 import * as vpOps from './boardViewport';
 import type { WhiteboardViewport as VpType } from './boardViewport';
 
-export type ToolType = 'select' | 'pen' | 'line' | 'rect' | 'ellipse' | 'arrow' | 'text' | 'pan';
+export type ToolType = 'select' | 'pen' | 'line' | 'rect' | 'ellipse' | 'arrow' | 'text' | 'eraser' | 'pan';
 
 export interface BoardStyle {
 	strokeColor: string;
@@ -37,6 +37,9 @@ export interface BoardStyle {
 	fillColor: string;
 	opacity: number;
 	hardness: number;
+	fontSize: number;
+	strokeDash?: number[];
+	borderRadius?: number;
 }
 
 export interface BoardState {
@@ -54,6 +57,7 @@ export interface BoardState {
 	undoStack: UndoEntry[];
 	redoStack: UndoEntry[];
 	isDirty: boolean;
+	canvasBgColor?: string;
 }
 
 export type { BoardDocument } from './boardUndo';
@@ -193,6 +197,10 @@ function setTool(tool: ToolType): void {
 
 function setStyle(partial: Partial<BoardStyle>): void {
 	activeStore().update((s) => ({ ...s, style: { ...s.style, ...partial } }));
+}
+
+export function setCanvasBgColor(color: string | undefined): void {
+	activeStore().update((s) => ({ ...s, canvasBgColor: color }));
 }
 
 function setWhiteboardPolicy(policy: WhiteboardPolicy): void {
@@ -434,6 +442,7 @@ export const policy = deriveActiveStore((s) => s.policy);
 export const meta = deriveActiveStore((s) => s.meta);
 export const canUndo = deriveActiveStore((s) => s.undoStack.length > 0);
 export const canRedo = deriveActiveStore((s) => s.redoStack.length > 0);
+export const boardState = deriveActiveStore((s) => s);
 
 export const boardStore = {
 	subscribe: subscribeActiveStore,

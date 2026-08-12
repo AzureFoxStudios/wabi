@@ -7,16 +7,20 @@
 		currentStyle,
 		canUndo,
 		canRedo,
-		policy
+		policy,
+		selection,
+		elements,
+		boardState
 	} from '$lib/whiteboard/boardStore';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
 	import { onMathPlacement, buildMathElement, type MathPlacement } from '$lib/whiteboard/tools';
 
-	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text', 'math']);
+	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text', 'math', 'eraser']);
 
 	const tools: Array<{ id: ToolType | 'math'; label: string; shortcut: string; icon: string }> = [
 		{ id: 'select', label: 'Select', shortcut: 'V', icon: 'cursor' },
 		{ id: 'pen', label: 'Pen', shortcut: 'P', icon: 'pen' },
+		{ id: 'eraser', label: 'Eraser', shortcut: '', icon: 'eraser' },
 		{ id: 'line', label: 'Line', shortcut: 'L', icon: 'line' },
 		{ id: 'rect', label: 'Rect', shortcut: 'R', icon: 'rect' },
 		{ id: 'ellipse', label: 'Ellipse', shortcut: 'E', icon: 'ellipse' },
@@ -26,9 +30,20 @@
 		{ id: 'pan', label: 'Pan', shortcut: 'Space', icon: 'pan' }
 	];
 
+	const alignTools = [
+		{ id: 'align-left', label: 'Align left', icon: 'align-left' },
+		{ id: 'align-center', label: 'Align center', icon: 'align-center' },
+		{ id: 'align-right', label: 'Align right', icon: 'align-right' },
+		{ id: 'align-top', label: 'Align top', icon: 'align-top' },
+		{ id: 'align-middle', label: 'Align middle', icon: 'align-middle' },
+		{ id: 'align-bottom', label: 'Align bottom', icon: 'align-bottom' }
+	];
+
 	const colorSwatches = [
 		'#1f2937', '#b91c1c', '#c2410c', '#a16207',
-		'#166534', '#0369a1', '#6d28d9', '#be185d'
+		'#166534', '#0369a1', '#6d28d9', '#be185d',
+		'#1e40af', '#9333ea', '#ea580c', '#059669',
+		'#f59e0b', '#ec4899', '#475569', '#ffffff'
 	];
 
 	const strokeWidths = [1, 2, 4, 8];
@@ -39,6 +54,15 @@
 	export let exportBusy = false;
 	export let importDisabled = false;
 	export let readOnly = false;
+
+	// Local state for color text input
+	let strokeColorInput = $currentStyle.strokeColor;
+	let fillColorInput = $currentStyle.fillColor;
+	let fontSizeInput = $currentStyle.fontSize || 16;
+
+	$: strokeColorInput = $currentStyle.strokeColor;
+	$: fillColorInput = $currentStyle.fillColor;
+	$: fontSizeInput = $currentStyle.fontSize || 16;
 
 	$: policyBadge = (() => {
 		const p = $policy;
@@ -53,6 +77,71 @@
 
 	function setTool(id: ToolType | 'math') {
 		boardStore.setTool(id as ToolType);
+	}
+
+	function setStrokeColor(text: string) {
+		const c = text.trim();
+		if (c && /^#[0-9a-fA-F]{6}$/.test(c)) {
+			boardStore.setStyle({ strokeColor: c });
+		}
+	}
+
+	function setFillColor(text: string) {
+		const c = text.trim();
+		if (c && /^#[0-9a-fA-F]{6}$/.test(c)) {
+			boardStore.setStyle({ fillColor: c });
+		}
+	}
+
+	function pickStrokeColor(color: string) {
+		boardStore.setStyle({ strokeColor: color });
+	}
+
+	function pickFillColor(color: string) {
+		boardStore.setStyle({ fillColor: color });
+	}
+
+	function setBorderRadius(r: number) {
+		boardStore.setStyle({ borderRadius: r });
+	}
+
+	function alignElements(axis: 'x' | 'y', mode: 'min' | 'center' | 'max') {
+		const sel = $selection;
+		if (sel.size < 2) return;
+		const els = $elements.filter((e) => sel.has(e.id));
+		if (els.length < 2) return;
+		let ref: number;
+		if (axis === 'x') {
+			if (mode === 'min') ref = Math.min(...els.map((e) => e.x));
+			else if (mode === 'max') ref = Math.max(...els.map((e) => e.x + (e.width || 0)));
+			else ref = els.reduce((s, e) => s + e.x + (e.width || 0) / 2, 0) / els.length;
+		} else {
+			if (mode === 'min') ref = Math.min(...els.map((e) => e.y));
+			else if (mode === 'max') ref = Math.max(...els.map((e) => e.y + (e.height || 0)));
+			else ref = els.reduce((s, e) => s + e.y + (e.height || 0) / 2, 0) / els.length;
+		}
+		for (const el of els) {
+			if (axis === 'x') {
+				if (mode === 'min') boardStore.updateElement(el.id, { x: ref });
+				else if (mode === 'max') boardStore.updateElement(el.id, { x: ref - (el.width || 0) });
+				else boardStore.updateElement(el.id, { x: ref - (el.width || 0) / 2 });
+			} else {
+				if (mode === 'min') boardStore.updateElement(el.id, { y: ref });
+				else if (mode === 'max') boardStore.updateElement(el.id, { y: ref - (el.height || 0) });
+				else boardStore.updateElement(el.id, { y: ref - (el.height || 0) / 2 });
+			}
+		}
+	}
+
+	let canvasBgInput = $boardState.canvasBgColor || '';
+
+	function setCanvasBgColorInStore(color: string) {
+		const c = color.trim();
+		if (c && /^#[0-9a-fA-F]{6}$/.test(c)) {
+			boardStore.setCanvasBgColor(c);
+		} else if (!c) {
+			boardStore.setCanvasBgColor(undefined);
+		}
 	}
 
 	const MATH_FONT_SIZE = 32;
@@ -133,6 +222,14 @@
 	function setOpacity(o: number) {
 		boardStore.setStyle({ opacity: o / 100 });
 	}
+
+	function setFontSize(s: number) {
+		boardStore.setStyle({ fontSize: s });
+	}
+
+	function setStrokeDash(dash: number[] | undefined) {
+		boardStore.setStyle({ strokeDash: dash });
+	}
 </script>
 
 <div class="wb-toolbar">
@@ -165,6 +262,8 @@
 						<svg viewBox="0 0 20 20" fill="currentColor"><text x="2.5" y="16" font-size="16" font-weight="bold" font-family="serif">Σ</text></svg>
 					{:else if tool.icon === 'pan'}
 						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v16M2 10h16M10 2l-2 3m2-3l2 3M10 18l-2-3m2 3l2-3M2 10l3-2m-3 2l3 2M18 10l-3-2m3 2l-3 2"/></svg>
+					{:else if tool.icon === 'eraser'}
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 16l3-3a5 5 0 0 1 0-7l3-3a3 3 0 0 1 4.2-4.2L10 8"/><path d="M15.8 3.8a5 5 0 0 1 0 7.1l-3 3a3 3 0 0 1-4.2 4.2L10 12"/></svg>
 					{/if}
 				</span>
 				<span class="wb-tool-shortcut">{tool.shortcut}</span>
@@ -207,6 +306,31 @@
 
 	<div class="wb-toolbar-divider"></div>
 
+	<!-- Align tools (visible when ≥2 elements selected) -->
+	{#if $selection.size >= 2}
+		<div class="wb-toolbar-section aligns">
+			<button class="wb-tool-btn" title="Align left" on:click={() => alignElements('x', 'min')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="5" y1="15" x2="15" y2="15"/></svg>
+			</button>
+			<button class="wb-tool-btn" title="Align center" on:click={() => alignElements('x', 'center')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="10" y1="4" x2="10" y2="16"/></svg>
+			</button>
+			<button class="wb-tool-btn" title="Align right" on:click={() => alignElements('x', 'max')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="15" y1="4" x2="5" y2="16"/></svg>
+			</button>
+			<div class="wb-toolbar-divider-sm"></div>
+			<button class="wb-tool-btn" title="Align top" on:click={() => alignElements('y', 'min')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="5" x2="16" y2="5"/></svg>
+			</button>
+			<button class="wb-tool-btn" title="Align middle" on:click={() => alignElements('y', 'center')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="10" x2="16" y2="10"/></svg>
+			</button>
+			<button class="wb-tool-btn" title="Align bottom" on:click={() => alignElements('y', 'max')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="15" x2="16" y2="5"/></svg>
+			</button>
+		</div>
+	{/if}
+
 	<div class="wb-toolbar-section exports">
 		<button
 			class="wb-tool-btn wb-export-btn"
@@ -229,21 +353,86 @@
 	<div class="wb-toolbar-divider"></div>
 
 	<div class="wb-toolbar-section colors">
-		{#each colorSwatches as color}
-			<button
-				class="wb-color-swatch"
-				class:active={$currentStyle.strokeColor === color}
-				style="--swatch-color: {color}"
-				on:click={() => setColor(color)}
-				disabled={readOnly}
-				title={color}
-			></button>
-		{/each}
-	</div>
+		<div class="wb-color-picker">
+			<div class="wb-color-field">
+				<input
+					type="color"
+					class="wb-color-native"
+					value={$currentStyle.strokeColor}
+					on:input={(e) => pickStrokeColor((e.currentTarget as HTMLInputElement).value)}
+					disabled={readOnly}
+					title="Stroke color"
+				/>
+				<input
+					type="text"
+					class="wb-color-text"
+					placeholder="#000000"
+					value={strokeColorInput}
+					on:input={(e) => setStrokeColor((e.currentTarget as HTMLInputElement).value)}
+					on:blur={() => { strokeColorInput = $currentStyle.strokeColor }}
+					disabled={readOnly}
+					aria-label="Stroke color hex"
+				/>
+			</div>
+			<div class="wb-color-field">
+				<span class="wb-color-label wb-fill-label">Fill</span>
+				<input
+					type="color"
+					class="wb-color-native"
+					value={$currentStyle.fillColor}
+					on:input={(e) => pickFillColor((e.currentTarget as HTMLInputElement).value)}
+					disabled={readOnly}
+					title="Fill color"
+				/>
+				<input
+					type="text"
+					class="wb-color-text"
+					placeholder="#000000"
+					value={fillColorInput}
+					on:input={(e) => setFillColor((e.currentTarget as HTMLInputElement).value)}
+					on:blur={() => { fillColorInput = $currentStyle.fillColor }}
+					disabled={readOnly}
+					aria-label="Fill color hex"
+				/>
+			</div>
+		</div>
+		<div class="wb-swatch-row">
+			{#each colorSwatches as color}
+				<button
+					class="wb-color-swatch"
+					class:active={$currentStyle.strokeColor === color}
+					style="--swatch-color: {color}"
+					on:click={() => pickStrokeColor(color)}
+					disabled={readOnly}
+					title={color}
+				></button>
+			{/each}
+			</div>
+			</div>
 
-	<div class="wb-toolbar-divider"></div>
+			<div class="wb-toolbar-divider"></div>
 
-	{#if $activeTool === 'pen'}
+			<!-- Canvas background color -->
+			<div class="wb-toolbar-section canvas-bg">
+			<button class="wb-tool-btn" title="Canvas background" on:click={() => canvasBgInput = $boardState.canvasBgColor || ''} disabled={readOnly}>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="14" height="14" rx="2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg>
+			</button>
+			<input
+			type="color"
+			class="wb-color-native wb-canvas-bg-picker"
+			value={canvasBgInput}
+			on:input={(e) => setCanvasBgColorInStore((e.currentTarget as HTMLInputElement).value)}
+			disabled={readOnly}
+			title="Canvas background color"
+			/>
+			<button class="wb-tool-btn wb-clear-bg" title="Clear background" on:click={() => setCanvasBgColorInStore('')} disabled={readOnly || !$boardState.canvasBgColor}>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 5l10 10M15 5L5 15" stroke-linecap="round"/></svg>
+			</button>
+			</div>
+
+			<div class="wb-toolbar-divider"></div>
+
+			{#if $activeTool === 'pen'}
 		<div class="wb-brush-settings">
 			<label class="wb-brush-control">
 				<span class="wb-brush-label">Size</span>
@@ -296,7 +485,47 @@
 					<span class="wb-brush-value">{Math.round(($currentStyle.opacity ?? 1) * 100)}%</span>
 				</span>
 			</label>
-		</div>
+			{#if $activeTool === 'rect' || $activeTool === 'ellipse'}
+				<label class="wb-brush-control">
+					<span class="wb-brush-label">Corner radius</span>
+					<span class="wb-brush-row">
+						<input
+							type="range"
+							min="0"
+							max="120"
+							step="1"
+							value={$currentStyle.borderRadius ?? 0}
+							on:input={(e) => boardStore.setStyle({ borderRadius: Number((e.currentTarget as HTMLInputElement).value) })}
+							class="wb-brush-slider"
+							disabled={readOnly}
+							aria-label="Corner radius"
+						/>
+						<span class="wb-brush-value">{($currentStyle.borderRadius ?? 0)}px</span>
+					</span>
+				</label>
+			{/if}
+			{#if $activeTool === 'pen' || $activeTool === 'line' || $activeTool === 'arrow'}
+				<label class="wb-brush-control">
+					<span class="wb-brush-label">Dash</span>
+					<span class="wb-brush-row">
+						<select
+							class="wb-brush-select"
+							value={$currentStyle.strokeDash || 'none'}
+							on:change={(e) => {
+								const v = (e.currentTarget as HTMLSelectElement).value;
+								setStrokeDash(v === 'none' ? undefined : v === 'dashed' ? [8, 4] : v === 'dotted' ? [2, 4] : undefined);
+							}}
+							disabled={readOnly}
+							aria-label="Stroke dash style"
+						>
+							<option value="none">Solid</option>
+							<option value="dashed">Dashed</option>
+							<option value="dotted">Dotted</option>
+						</select>
+					</span>
+				</label>
+			{/if}
+			</div>
 	{:else}
 		<div class="wb-toolbar-section widths">
 			{#each strokeWidths as w}
@@ -507,6 +736,93 @@
 	.wb-color-swatch.active {
 		border-color: var(--text-inverse, #ffffff);
 		box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary, #6366f1) 48%, transparent);
+	}
+
+	/* Color picker + fill color fields */
+	.wb-color-picker {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.wb-color-field {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		background: color-mix(in srgb, var(--surface-sunken, #0f0c29) 55%, transparent);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 18%, transparent);
+		border-radius: 8px;
+		padding: 2px 6px 2px 2px;
+	}
+
+	.wb-color-native {
+		width: 22px;
+		height: 22px;
+		padding: 0;
+		border: none;
+		border-radius: 5px;
+		cursor: pointer;
+		background: transparent;
+	}
+
+	.wb-color-native::-webkit-color-swatch-wrapper {
+		padding: 0;
+	}
+
+	.wb-color-native::-webkit-color-swatch {
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 22%, transparent);
+		border-radius: 4px;
+	}
+
+	.wb-color-text {
+		width: 58px;
+		padding: 2px 4px;
+		border: none;
+		border-radius: 4px;
+		background: color-mix(in srgb, var(--surface-base, #24243e) 80%, transparent);
+		color: var(--text-heading, #e0e0ff);
+		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		text-align: center;
+		vertical-align: middle;
+	}
+
+	.wb-color-text:focus {
+		outline: none;
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 20%, transparent);
+		box-shadow: 0 0 0 1px var(--accent-primary, #6366f1);
+	}
+
+	.wb-color-text:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.wb-color-label {
+		font-size: 8px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-muted, #9999ff);
+		margin-right: 2px;
+		white-space: nowrap;
+	}
+
+	.wb-fill-label {
+		color: var(--text-secondary, #b3b3ff);
+	}
+
+	.wb-swatch-row {
+		display: flex;
+		gap: 3px;
+		margin-left: 4px;
+	}
+
+	.wb-swatch-row .wb-color-swatch {
+		width: 16px;
+		height: 16px;
 	}
 
 	.wb-width-btn {

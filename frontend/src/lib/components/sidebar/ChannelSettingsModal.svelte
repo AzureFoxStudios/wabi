@@ -20,6 +20,7 @@ import { get } from 'svelte/store';
 
 	// Only workspace owners and admins may bulk-clear a channel's messages.
 	$: canClearMessages = ['owner', 'admin'].includes($currentUser?.highestRole || '');
+	$: canDeleteChannel = ['owner', 'admin'].includes($currentUser?.highestRole || '') && channel.id !== 'general' && channel.id !== 'voice';
 
 	/** Effective timer for UI: 'live' stays live; unset → default 24h; null only when keep-forever. */
 	$: effectiveAutoDelete =
@@ -110,6 +111,7 @@ import { get } from 'svelte/store';
 
 	const dispatch = createEventDispatcher<{
 		close: void;
+		delete: { channel: Channel };
 		save: {
 			channelId: string;
 			updates: {
@@ -590,6 +592,18 @@ import { get } from 'svelte/store';
 						</button>
 					</div>
 				{/if}
+
+				{#if canDeleteChannel}
+					<div class="setting-group danger-zone delete-zone">
+						<div class="danger-zone-heading">
+							<div>
+								<span class="setting-label">Danger zone</span>
+								<p class="setting-description">Delete this channel or folder from the server. Folder deletion will ask whether to keep its channels.</p>
+							</div>
+							<button class="delete-channel-btn" type="button" on:click={() => dispatch('delete', { channel })}>Delete {channel.type === 'category' ? 'folder' : 'channel'}</button>
+						</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -602,6 +616,34 @@ import { get } from 'svelte/store';
 		padding: 0.95rem 1rem;
 		margin-top: 0.5rem;
 		background: color-mix(in srgb, var(--color-danger, #e2484d) 8%, transparent);
+	}
+
+	.delete-zone {
+		margin-top: 1rem;
+		background: linear-gradient(135deg, color-mix(in srgb, var(--color-danger, #e2484d) 9%, transparent), color-mix(in srgb, var(--surface-raised) 72%, transparent));
+	}
+
+	.danger-zone-heading {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.delete-channel-btn {
+		flex: 0 0 auto;
+		border: 1px solid color-mix(in srgb, var(--color-danger, #e2484d) 68%, transparent);
+		border-radius: var(--radius-md, 8px);
+		padding: 0.55rem 0.8rem;
+		background: color-mix(in srgb, var(--color-danger, #e2484d) 16%, transparent);
+		color: var(--color-danger, #e2484d);
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.delete-channel-btn:hover {
+		background: var(--color-danger, #e2484d);
+		color: var(--text-on-danger, #fff);
 	}
 
 	.purge-actions {

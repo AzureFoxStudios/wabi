@@ -371,13 +371,9 @@
 	}
 
 
-	/* plain CSS: no :global() — that is a Svelte-only no-op here */
-	html[data-clickable-send='true'] .input-container .send-button {
-		display: none;
-	}
-
-
-	html[data-clickable-send='true'] .input-container:focus-within .send-button {
+	/* The send control remains stable. The disabled state communicates that
+	 * there is nothing to send; emoji/media interactions must not reveal it. */
+	.send-button {
 		display: flex;
 	}
 
@@ -423,10 +419,6 @@
 		box-shadow: none;
 	}
 
-
-	html[data-clickable-send='false'] .send-button {
-		display: none;
-	}
 
 	@media (max-width: 768px) {
 		.input-container textarea {

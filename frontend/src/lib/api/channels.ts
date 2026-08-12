@@ -38,9 +38,10 @@ export async function createChannelApi(
 	return (await res.json()) as CreateChannelResponse;
 }
 
-export async function deleteChannelApi(channelId: string): Promise<void> {
+export async function deleteChannelApi(channelId: string, options: { preserveChildren?: boolean } = {}): Promise<void> {
 	const token = getAuthToken();
-	const res = await fetchWithTimeout(`${getApiBase()}/api/channels/${encodeURIComponent(channelId)}`, {
+	const query = options.preserveChildren ? '?preserve_children=true' : '';
+	const res = await fetchWithTimeout(`${getApiBase()}/api/channels/${encodeURIComponent(channelId)}${query}`, {
 		method: 'DELETE',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});

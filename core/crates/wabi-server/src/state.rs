@@ -145,6 +145,54 @@ pub struct RevocationStore {
     pub jtis: HashSet<String>,
     /// Entire revoked user IDs (all their tokens rejected).
     pub users: HashSet<i64>,
+    /// Per-user "tokens issued before this unix-second are revoked" watermark.
+    /// Set on a self-service password change to force re-auth on stale
+    /// sessions on other devices. Tokens minted after the watermark (fresh
+    /// logins) stay valid; the token that performed the change is kept alive
+    /// via `user_jti_exemptions`. Serialized with `#[serde(default)]` so
+    /// pre-existing revocation files without the field load unchanged.
+    #[serde(default)]
+    pub user_iat_revoked: HashMap<i64, u64>,
+    /// jtis kept alive past their user's `user_iat_revoked` watermark (the
+    /// session that performed the change). Replaced wholesale on every
+    /// subsequent change, so it holds at most one jti per user and cannot
+    /// grow without bound. Serialized with `#[serde(default)]`.
+    #[serde(default)]
+    pub user_jti_exemptions: HashMap<i64, HashSet<String>>,
+}
+
+impl RevocationStore {
+    /// Pure revocation decision used by `AppState::is_token_revoked`.
+    /// `sub` is the user id, `iat` the token's issued-at timestamp.
+    pub fn is_revoked(&self, jti: &str, sub: i64, iat: i64) -> bool {
+        // Global epoch revokes everything issued before it.
+        if self.epoch != 0 && (iat as u64) < self.epoch {
+            return true;
+        }
+        // Whole-user revocation (admin/operator/recovery) wins over any jti.
+        if self.users.contains(&sub) {
+            return true;
+        }
+        // Per-user watermark from a password change: pre-watermark tokens are
+        // rejected unless their jti is the exempted current session.
+        if let Some(watermark) = self.user_iat_revoked.get(&sub) {
+            if (iat as u64) < *watermark {
+                let exempt = self
+                    .user_jti_exemptions
+                    .get(&sub)
+                    .map(|set| set.contains(jti))
+                    .unwrap_or(false);
+                if !exempt {
+                    return true;
+                }
+            }
+        }
+        // Explicitly revoked jti.
+        if !jti.is_empty() && self.jtis.contains(jti) {
+            return true;
+        }
+        false
+    }
 }
 
 impl AppState {
@@ -436,6 +484,28 @@ impl AppState {
         self.save_revocations().await;
     }
 
+    /// Revoke every outstanding token for a user EXCEPT the token identified
+    /// by `exempt_jti` (the session performing the operation, e.g. a self-
+    /// service password change). Implemented as a per-user "issued-before"
+    /// watermark plus a single jti exemption, so fresh logins (re-issued at an
+    /// `iat` at/after the watermark) stay valid while pre-existing other
+    /// sessions are rejected on their next request. If `exempt_jti` is empty
+    /// (legacy token without a `jti` claim) the exemption is omitted, safely
+    /// degrading to a full user revoke.
+    pub async fn revoke_user_other_sessions(&self, user_id: i64, exempt_jti: &str) {
+        {
+            let mut guard = self.revocations.write().await;
+            let watermark = (chrono::Utc::now().timestamp().max(1)) as u64 + 1;
+            guard.user_iat_revoked.insert(user_id, watermark);
+            if !exempt_jti.is_empty() {
+                let mut set = HashSet::new();
+                set.insert(exempt_jti.to_string());
+                guard.user_jti_exemptions.insert(user_id, set);
+            }
+        }
+        self.save_revocations().await;
+    }
+
     /// Revoke ALL outstanding tokens by advancing the revocation epoch.
     pub async fn revoke_all_tokens(&self) {
         {
@@ -447,17 +517,7 @@ impl AppState {
 
     /// Returns true if the given token claims have been revoked.
     pub async fn is_token_revoked(&self, jti: &str, sub: i64, iat: i64) -> bool {
-        let guard = self.revocations.read().await;
-        if guard.epoch != 0 && (iat as u64) < guard.epoch {
-            return true;
-        }
-        if guard.users.contains(&sub) {
-            return true;
-        }
-        if !jti.is_empty() && guard.jtis.contains(jti) {
-            return true;
-        }
-        false
+        self.revocations.read().await.is_revoked(jti, sub, iat)
     }
 
     // ─── Recovery codes ──────────────────────────────────────────────────────
@@ -607,5 +667,107 @@ mod tests {
         // bornAt defaults to 0, which means it's expired since now - 0 >= 1
         assert_eq!(expired, vec!["live_1"]);
         assert!(msgs.is_empty());
+    }
+
+    // ── Password-change session lifecycle ────────────────────────────────────
+    //
+    // Regression test for: "changing my password kicks me out and keeps me out."
+    // handle_change_password now calls `revoke_user_other_sessions` instead of
+    // `revoke_user`, so the bearer token that performed the change survives
+    // while other pre-existing sessions for the same user are rejected. These
+    // tests drive the real `RevocationStore::is_revoked` decision (the exact
+    // code `AppState::is_token_revoked` runs on every authenticated request).
+
+    #[test]
+    fn password_change_keeps_current_session_revokes_other_session() {
+        let mut store = RevocationStore::default();
+        let user_id = 42;
+
+        // Exactly the mutation `AppState::revoke_user_other_sessions` performs
+        // when a user changes their own password.
+        store.user_iat_revoked.insert(user_id, 1_000_000 + 1);
+        store
+            .user_jti_exemptions
+            .insert(user_id, HashSet::from(["current-session-jti".to_string()]));
+
+        // Both tokens were issued before the change watermark.
+        let iat_before_change = 999_999;
+
+        // The token used to change the password stays usable...
+        assert!(!store.is_revoked("current-session-jti", user_id, iat_before_change));
+        // ...while another pre-existing token for the same user is rejected.
+        assert!(store.is_revoked("older-device-jti", user_id, iat_before_change));
+
+        // A fresh token minted after the change (re-login) is NOT revoked.
+        let iat_after_change = 1_000_001;
+        assert!(!store.is_revoked("fresh-login-jti", user_id, iat_after_change));
+
+        // Other users are unaffected by this user's password change.
+        assert!(!store.is_revoked("random-jti", 7, iat_before_change));
+    }
+
+    #[test]
+    fn second_password_change_rotates_the_exempted_session() {
+        let mut store = RevocationStore::default();
+        let user = 9;
+
+        // First change: watermark 1_000, current session t1 exempted.
+        store.user_iat_revoked.insert(user, 1_000);
+        store
+            .user_jti_exemptions
+            .insert(user, HashSet::from(["t1".to_string()]));
+        assert!(!store.is_revoked("t1", user, 999));
+
+        // Second change replaces the exemption wholesale, so the exemption set
+        // holds at most one jti per user (bounded growth).
+        store.user_iat_revoked.insert(user, 2_000);
+        store
+            .user_jti_exemptions
+            .insert(user, HashSet::from(["t2".to_string()]));
+
+        // t1 lost its exemption and is now below the new watermark: revoked.
+        assert!(store.is_revoked("t1", user, 999));
+        // t2 (the new current session) is exempt and stays usable.
+        assert!(!store.is_revoked("t2", user, 999));
+        // Any third pre-existing session is revoked too.
+        assert!(store.is_revoked("t3", user, 999));
+    }
+
+    #[test]
+    fn full_user_revocation_still_wins_over_exemption() {
+        let mut store = RevocationStore::default();
+        store.user_iat_revoked.insert(42, 1_000);
+        store
+            .user_jti_exemptions
+            .insert(42, HashSet::from(["cur".to_string()]));
+
+        // Admin / owner / recovery flows still use the whole-user `users` set,
+        // which must override any jti exemption (authentication is NOT weakened).
+        store.users.insert(42);
+        assert!(store.is_revoked("cur", 42, 999));
+        assert!(store.is_revoked("fresh", 42, 1_001));
+    }
+
+    #[test]
+    fn legacy_revocation_store_json_loads_without_new_fields() {
+        // Pre-existing revocations.json files (epoch/jtis/users only) must keep
+        // loading and behaving identically after the new fields are added.
+        let legacy = r#"{"epoch": 0, "jtis": ["revoked-jti"], "users": [7]}"#;
+        let store: RevocationStore = serde_json::from_str(legacy).unwrap();
+        assert!(store.is_revoked("revoked-jti", 1, 5));
+        assert!(store.is_revoked("anything", 7, 5));
+        assert!(!store.is_revoked("ok-jti", 1, 5));
+        assert!(store.user_iat_revoked.is_empty());
+        assert!(store.user_jti_exemptions.is_empty());
+
+        // New-style store round-trips through serialization without data loss.
+        let mut store = RevocationStore::default();
+        store.user_iat_revoked.insert(42, 1_000);
+        store
+            .user_jti_exemptions
+            .insert(42, HashSet::from(["cur".to_string()]));
+        let roundtrip: RevocationStore = serde_json::from_str(&serde_json::to_string(&store).unwrap()).unwrap();
+        assert_eq!(roundtrip.user_iat_revoked, store.user_iat_revoked);
+        assert_eq!(roundtrip.user_jti_exemptions, store.user_jti_exemptions);
     }
 }

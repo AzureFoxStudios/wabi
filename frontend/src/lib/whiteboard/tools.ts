@@ -70,6 +70,8 @@ function makeBase(style: BoardStyle, type: string, x: number, y: number, element
 		fillColor: style.fillColor,
 		hardness: typeof style.hardness === 'number' ? style.hardness : 1,
 		brushPreset: (style as { brushPreset?: string }).brushPreset,
+		strokeDash: (style as { strokeDash?: number[] }).strokeDash,
+		borderRadius: (style as { borderRadius?: number }).borderRadius,
 		createdBy: '',
 		updatedAt: Date.now(),
 		locked: false
@@ -248,7 +250,7 @@ function createShapeTool(toolType: 'line' | 'rect' | 'ellipse' | 'arrow'): ToolH
 		onPointerDown(e) {
 			const state = get(boardStore);
 			const base = makeBase(state.style, toolType, e.boardX, e.boardY, state.elements);
-			if (toolType === 'rect') (base as any).borderRadius = 0;
+			if (toolType === 'rect') (base as any).borderRadius = typeof state.style.borderRadius === 'number' ? state.style.borderRadius : 0;
 			if (toolType === 'arrow') (base as any).arrowHead = 'end';
 
 			const startX = e.boardX;
@@ -436,23 +438,26 @@ export function createSelectTool(): ToolHandler {
 		id: 'select',
 		cursor: 'default',
 		onPointerDown(e) {
-			const state = get(boardStore);
-			const vp = state.viewport;
+					const state = get(boardStore);
+					const vp = state.viewport;
 
-			// Check if clicking a resize handle on current selection
-			if (state.selection.size > 0) {
-				const selectedEls = state.elements.filter((el) => state.selection.has(el.id));
-				const selBBox = getSelectionBBox(selectedEls);
-				if (selBBox) {
-					const handles = getSelectionHandles(selBBox, vp, 8);
-					const hitHandle = hitTestHandle(handles, e.screenX, e.screenY, 12);
-					if (hitHandle) {
-						return createResizeInteraction(selectedEls, selBBox, hitHandle.position, e);
+					// Check if clicking a resize/rotate handle on current selection
+					if (state.selection.size > 0) {
+						const selectedEls = state.elements.filter((el) => state.selection.has(el.id));
+						const selBBox = getSelectionBBox(selectedEls);
+						if (selBBox) {
+							const handles = getSelectionHandles(selBBox, vp, 8);
+							const hitHandle = hitTestHandle(handles, e.screenX, e.screenY, 12);
+							if (hitHandle) {
+								if (hitHandle.position === 'rotate') {
+									return createRotateInteraction(selectedEls, selBBox, e);
+								}
+								return createResizeInteraction(selectedEls, selBBox, hitHandle.position, e);
+							}
+						}
 					}
-				}
-			}
 
-			// Hit test for element
+					// Hit test for element
 			const tolerance = 6 / vp.zoom;
 			const hit = pickElement(state.elements, e.boardX, e.boardY, tolerance, state.layers);
 
@@ -554,12 +559,29 @@ function createResizeInteraction(
 				didStartResize = true;
 			}
 
+			// Shift = uniform scale
+			const uniformScale = e.shiftKey;
+
 			let newX = origX, newY = origY, newW = origW, newH = origH;
 
 			if (handle.includes('e')) newW = origW + dx;
 			if (handle.includes('w')) { newX = origX + dx; newW = origW - dx; }
 			if (handle.includes('s')) newH = origH + dy;
 			if (handle.includes('n')) { newY = origY + dy; newH = origH - dy; }
+
+			// Shift-drag corner handle: uniform scale
+			if (uniformScale && (handle === 'se' || handle === 'sw' || handle === 'ne' || handle === 'nw')) {
+				const cornerScale = handle.startsWith('s') ? (newH / origH) : ((origH - newH) / origH);
+				const dir = handle.startsWith('s') ? 1 : -1;
+				const scale = Math.max(0.1, dir === 1 ? newH / origH : origH / Math.max(1, newH));
+				// Use the dominant axis for uniform scaling
+				const primaryScale = Math.abs(newW / origW) > Math.abs(newH / origH)
+					? newW / origW : newH / origH;
+				if (handle.startsWith('w')) { newX = origX + origW * (1 - primaryScale); }
+				if (handle.startsWith('n')) { newY = origY + origH * (1 - primaryScale); }
+				newW = origW * primaryScale;
+				newH = origH * primaryScale;
+			}
 
 			// Prevent negative sizes
 			if (newW < 1) { newW = 1; }
@@ -604,6 +626,65 @@ function createResizeInteraction(
 			}
 		},
 		onPointerUp() {},
+		getPreview() { return null; },
+		getSelectionRect() { return null; }
+	};
+}
+
+function createRotateInteraction(
+	selectedEls: BoardElement[],
+	origBBox: BBox,
+	startEvent: ToolPointerEvent
+): ToolInteraction {
+	const startBX = startEvent.boardX;
+	const startBY = startEvent.boardY;
+	const origCX = origBBox.x + origBBox.width / 2;
+	const origCY = origBBox.y + origBBox.height / 2;
+	const startScreenX = startEvent.screenX;
+	const startScreenY = startEvent.screenY;
+	const state = get(boardStore);
+	const vp = state.viewport;
+	const startAngle = Math.atan2(startScreenY - vp.y - origCY * vp.zoom, startScreenX - vp.x - origCX * vp.zoom);
+	let didStartRotate = false;
+
+	return {
+		onPointerMove(e) {
+			if (!didStartRotate) {
+				boardStore.pushHistoryCheckpoint();
+				didStartRotate = true;
+			}
+			const dx = e.screenX - startScreenX;
+			const dy = e.screenY - startScreenY;
+			if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+			const currentAngle = Math.atan2(e.screenY - vp.y - origCY * vp.zoom, e.screenX - vp.x - origCX * vp.zoom);
+			let deltaAngle = currentAngle - startAngle;
+			// Snap to 15-degree increments when shift is held
+			if (e.shiftKey) {
+				const snap = Math.PI / 12; // 15 degrees
+				deltaAngle = Math.round(deltaAngle / snap) * snap;
+			}
+			const cos = Math.cos(deltaAngle);
+			const sin = Math.sin(deltaAngle);
+			for (const el of selectedEls) {
+				const relX = el.x - origCX;
+				const relY = el.y - origCY;
+				const newX = origCX + relX * cos - relY * sin;
+				const newY = origCY + relX * sin + relY * cos;
+				if (el.type === 'stroke' && el.points) {
+					const pts = el.points.map((p) => ({
+						...p,
+						x: origCX + (p.x - origCX) * cos - (p.y - origCY) * sin,
+						y: origCY + (p.x - origCX) * sin + (p.y - origCY) * cos
+					}));
+					boardStore.updateElement(el.id, { x: newX, y: newY, points: pts, rotation: (el.rotation || 0) + deltaAngle }, { recordHistory: false });
+				} else {
+					boardStore.updateElement(el.id, { x: newX, y: newY, rotation: (el.rotation || 0) + deltaAngle }, { recordHistory: false });
+				}
+			}
+		},
+		onPointerUp() {
+			if (didStartRotate) boardStore.pushHistoryCheckpoint();
+		},
 		getPreview() { return null; },
 		getSelectionRect() { return null; }
 	};
@@ -672,6 +753,50 @@ export function createPanTool(): ToolHandler {
 }
 
 // ---------------------------------------------------------------------------
+// Eraser tool
+// ---------------------------------------------------------------------------
+
+export function createEraserTool(): ToolHandler {
+	const ERASER_RADIUS = 20; // board-space radius
+
+	return {
+		id: 'eraser',
+		cursor: 'cell',
+		onPointerDown(e) {
+			return {
+				onPointerMove(ev) {
+					const state = get(boardStore);
+					const eraserX = ev.boardX;
+					const eraserY = ev.boardY;
+					const toDelete: string[] = [];
+
+					for (const el of state.elements) {
+						if (el.locked) continue;
+						if (el.type !== 'stroke') continue;
+						const pts = (el as StrokeElement).points;
+						for (const p of pts) {
+							const dx = p.x - eraserX;
+							const dy = p.y - eraserY;
+							if (dx * dx + dy * dy <= ERASER_RADIUS * ERASER_RADIUS) {
+								toDelete.push(el.id);
+								break;
+							}
+						}
+					}
+
+					if (toDelete.length > 0) {
+						boardStore.deleteElements(toDelete);
+					}
+				},
+				onPointerUp() {},
+				getPreview() { return null; },
+				getSelectionRect() { return null; }
+			};
+		}
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Tool registry
 // ---------------------------------------------------------------------------
 
@@ -684,6 +809,7 @@ export function getToolHandler(toolType: ToolType | 'math'): ToolHandler {
 		case 'arrow': return createArrowTool();
 		case 'text': return createTextTool();
 		case 'math': return createMathTool();
+		case 'eraser': return createEraserTool();
 		case 'select': return createSelectTool();
 		case 'pan': return createPanTool();
 		default: return createPenTool();

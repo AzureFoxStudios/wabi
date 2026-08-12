@@ -26,7 +26,7 @@
 		unpinChannel,
 		reorderChannels
 	} from '$lib/socket';
-	import { createChannel } from '$lib/channelStore';
+	import { createChannel, deleteChannel as deleteChannelWithOptions } from '$lib/channelStore';
 	import {
 		activeVoiceChannel as callActiveVoiceChannel,
 		openChannelCallPanel,
@@ -91,6 +91,9 @@
 	let lastServerIdentityIconUrl: string | null = null;
 	let showDeleteConfirm = false;
 	let channelToDelete = '';
+	let channelToDeleteName = '';
+	let channelToDeleteIsCategory = false;
+	let channelToDeleteChildCount = 0;
 	let deletingChannel = false;
 	let deleteChannelError = '';
 	let showPinnedModal = false;
@@ -561,7 +564,7 @@
 	}
 
 	/** Move a channel out of any folder and into the top-level channel list. */
-	function moveChannelToRoot(channelId: string) {
+	function moveChannelToRoot(channelId: string, requestedIndex?: number) {
 		const allCh = $channels;
 		const dragged = allCh.find((c) => c.id === channelId);
 		if (!dragged || (dragged.type as string | undefined) === 'category') return;
@@ -570,8 +573,9 @@
 			.filter((c) => (c.parentId ?? null) === null && c.id !== dragged.id && (c.type as string | undefined) !== 'category')
 			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 		const orders: { id: string; position: number; parentId: string | null }[] = [];
+		const insertAt = Math.max(0, Math.min(rootList.length, requestedIndex ?? rootList.length));
+		rootList.splice(insertAt, 0, dragged);
 		rootList.forEach((ch, i) => orders.push({ id: ch.id, position: i, parentId: null }));
-		orders.push({ id: dragged.id, position: rootList.length, parentId: null });
 		if (sourceParentId !== null) {
 			allCh
 				.filter((c) => (c.parentId ?? null) === sourceParentId && c.id !== dragged.id && (c.type as string | undefined) !== 'category')
@@ -584,8 +588,28 @@
 	function handleRootDrop(e: DragEvent) {
 		e.preventDefault();
 		e.stopPropagation();
-		if (draggedChannelId) moveChannelToRoot(draggedChannelId);
+		if (draggedChannelId) moveChannelToRoot(draggedChannelId, 0);
 		handleChannelDragEnd();
+	}
+
+	/** Reorder a channel into the root sequence immediately before or after a folder. */
+	function moveChannelAroundCategory(channelId: string, categoryId: string, position: 'before' | 'after') {
+		const allCh = $channels;
+		const dragged = allCh.find((c) => c.id === channelId);
+		if (!dragged || (dragged.type as string | undefined) === 'category') return;
+		const rootItems = allCh
+			.filter((c) => (c.parentId ?? null) === null)
+			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+		const next = rootItems.filter((c) => c.id !== dragged.id);
+		const categoryIndex = next.findIndex((c) => c.id === categoryId);
+		if (categoryIndex < 0) return;
+		next.splice(position === 'after' ? categoryIndex + 1 : categoryIndex, 0, dragged);
+		const orders = next.map((channel, index) => ({ id: channel.id, position: index, parentId: null as string | null }));
+		const sourceChildren = allCh
+			.filter((c) => c.parentId === dragged.parentId && c.id !== dragged.id && (c.type as string | undefined) !== 'category')
+			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+		sourceChildren.forEach((channel, index) => orders.push({ id: channel.id, position: index, parentId: dragged.parentId ?? null }));
+		reorderChannels(orders);
 	}
 
 	/** Reorder category folders among themselves (global category position). */
@@ -639,7 +663,9 @@
 		dropTargetChannelId = null;
 		dropPosition = null;
 		dropTargetCategoryId = catId;
-		dropCategoryPosition = null;
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const edge = Math.max(10, rect.height * 0.28);
+		dropCategoryPosition = e.clientY < rect.top + edge ? 'before' : e.clientY > rect.bottom - edge ? 'after' : null;
 	}
 
 	function handleCategoryDragLeave(catId: string) {
@@ -657,7 +683,10 @@
 			reorderCategoryFolders(draggedCategoryId, catId, pos);
 		} else {
 			const dragged = draggedChannelId ? $channels.find((c) => c.id === draggedChannelId) : null;
-			if (dragged) moveChannelToCategory(dragged.id, catId);
+			if (dragged) {
+				if (dropCategoryPosition) moveChannelAroundCategory(dragged.id, catId, dropCategoryPosition);
+				else moveChannelToCategory(dragged.id, catId);
+			}
 		}
 		draggedChannelId = null;
 		dropTargetChannelId = null;
@@ -760,7 +789,14 @@
 		void refreshLoreCapability();
 		tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 	}
-	function handleDeleteChannel(id: string) { channelToDelete = id; showDeleteConfirm = true; }
+	function handleDeleteChannel(id: string) {
+		const channel = $channels.find((item) => item.id === id);
+		channelToDelete = id;
+		channelToDeleteName = channel?.name || id;
+		channelToDeleteIsCategory = (channel?.type as string | undefined) === 'category';
+		channelToDeleteChildCount = $channels.filter((item) => item.parentId === id).length;
+		showDeleteConfirm = true;
+	}
 	async function confirmDeleteChannel() {
 		if (!channelToDelete || deletingChannel) return;
 		deletingChannel = true;
@@ -774,8 +810,25 @@
 			deletingChannel = false;
 		}
 	}
+	async function confirmDeleteChannelPreserveChildren() {
+		if (!channelToDelete || deletingChannel) return;
+		deletingChannel = true;
+		deleteChannelError = '';
+		try {
+			await deleteChannelWithOptions(channelToDelete, { preserveChildren: true });
+			showDeleteConfirm = false;
+		} catch (error) {
+			deleteChannelError = error instanceof Error ? error.message : 'Failed to delete folder.';
+		} finally {
+			deletingChannel = false;
+		}
+	}
 	function handleShowPinnedMessages(id: string) { selectedChannelForPinned = id; showPinnedModal = true; }
 	function handleOpenChannelSettings(ch: Channel) { selectedChannelForSettings = ch; showChannelSettingsModal = true; }
+	function handleDeleteFromSettings(e: CustomEvent<{ channel: Channel }>) {
+		showChannelSettingsModal = false;
+		handleDeleteChannel(e.detail.channel.id);
+	}
 	function handleSaveChannelSettings(e: CustomEvent<{ channelId: string; updates: Parameters<typeof updateChannelSettings>[1] }>) { updateChannelSettings(e.detail.channelId, e.detail.updates); showChannelSettingsModal = false; }
 	function handleChannelLongPress(e: TouchEvent, ch: Channel) { const t = e.touches?.[0] || e.changedTouches?.[0]; if (t) handleChannelRightClick(new MouseEvent('contextmenu', { clientX: t.clientX, clientY: t.clientY, bubbles: true }), ch); }
 	function handleChannelRightClick(e: MouseEvent, ch: Channel) { e.preventDefault(); contextMenuChannel = ch; contextMenuPosition = { x: e.clientX, y: e.clientY }; showContextMenu = true; }
@@ -952,7 +1005,9 @@
 	<div class="channel-list-actions"><button class="clear-unread-btn" on:click={clearAllUnreadNotifications}>Clear Unread ({totalUnreadNotifications})</button></div>
 		{/if}
 
-		<div class="section-heading-row">
+		<div
+			class="section-heading-row"
+		>
 	<button class="section-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => toggleSection('text')}>
 		<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
 		<span class="section-toggle-label">Channels</span><span class="section-count">{unifiedChannelCount}</span>
@@ -961,6 +1016,16 @@
 		<button class="section-add-btn section-category-btn" class:active={showCreateInput && newChannelType === 'category'} on:click={openCreateFormForCategory} title="Create category" aria-label="Create category"><span class="plus-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg></span></button>{/if}
 		</div>
 		{#if isTextSectionExpanded}
+		{#if draggedChannelId && !draggedCategoryId}
+			<div
+				class="root-drop-gap"
+				role="listitem"
+				on:dragover|stopPropagation={(e) => { e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = 'move'); }}
+				on:drop|stopPropagation={handleRootDrop}
+			>
+				<span>Drop at top level</span>
+			</div>
+		{/if}
 	{#each filteredUnifiedCategoryMap.categories as cat (cat.id)}
 		<div
 			class="category-row"
@@ -998,17 +1063,6 @@
 			</div>
 		{/if}
 	{/each}
-	<div
-		class="top-level-channel-drop"
-		class:drop-target={Boolean(draggedChannelId && !draggedCategoryId)}
-		role="list"
-		aria-label="Top-level channels"
-		on:dragover|stopPropagation={(e) => { if (draggedChannelId && !draggedCategoryId) { e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = 'move'); } }}
-		on:drop|stopPropagation={handleRootDrop}
-	>
-		<span class="top-level-channel-drop-label">Top-level channels</span>
-		<span class="top-level-channel-drop-hint">Drop here to move outside a folder</span>
-	</div>
 	<UnifiedChannelList channels={filteredUnifiedCategoryMap.uncategorized} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 	{/if}
 
@@ -1020,9 +1074,9 @@
 </div>
 
 {#if deleteChannelError}<div class="channel-delete-error" role="alert">{deleteChannelError}</div>{/if}
-<ConfirmDialog isOpen={showDeleteConfirm} title="Delete Channel" message="Delete channel #{channelToDelete}? This action cannot be undone." confirmText={deletingChannel ? 'Deleting…' : 'Delete'} variant="danger" onConfirm={confirmDeleteChannel} onCancel={() => { if (!deletingChannel) showDeleteConfirm = false; }} />
+<ConfirmDialog isOpen={showDeleteConfirm} title={channelToDeleteIsCategory ? 'Delete Folder' : 'Delete Channel'} message={channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? `This folder contains ${channelToDeleteChildCount} channel${channelToDeleteChildCount === 1 ? '' : 's'}. Delete the folder only, or delete everything inside it too?` : `Delete channel #${channelToDeleteName || channelToDelete}? This action cannot be undone.`} confirmText={deletingChannel ? 'Deleting…' : channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? 'Delete folder and channels' : 'Delete'} secondaryText={channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? 'Delete folder, keep channels' : null} variant="danger" onConfirm={confirmDeleteChannel} onSecondary={() => void confirmDeleteChannelPreserveChildren()} onCancel={() => { if (!deletingChannel) showDeleteConfirm = false; }} />
 <PinnedMessagesModal bind:isOpen={showPinnedModal} channelId={selectedChannelForPinned} />
 <UserPopout user={$currentUser} bind:isOpen={showOwnProfilePopout} anchorElement={ownProfilePopoutAnchor} isOwnProfile={true} on:close={() => (showOwnProfilePopout = false)} on:openFullProfile={() => dispatch('openSettings')} />
 {#if showChannelSettingsModal && selectedChannelForSettings}
-	<ChannelSettingsModal channel={selectedChannelForSettings} {canTogglePersistMessages} {canManageWatchQueue} {canManageVoiceSettings} on:save={handleSaveChannelSettings} on:close={() => (showChannelSettingsModal = false)} />
+	<ChannelSettingsModal channel={selectedChannelForSettings} {canTogglePersistMessages} {canManageWatchQueue} {canManageVoiceSettings} on:save={handleSaveChannelSettings} on:delete={handleDeleteFromSettings} on:close={() => (showChannelSettingsModal = false)} />
 {/if}
