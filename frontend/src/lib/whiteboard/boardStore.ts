@@ -154,12 +154,18 @@ function setDocument(doc: WhiteboardDocument): void {
 		const layers = normalizeWhiteboardLayers(doc.layers || [], [createDefaultWhiteboardLayer()]);
 		const activeLayerId = resolveWhiteboardLayerId(layers, typeof doc.activeLayerId === 'string' ? doc.activeLayerId : layers[0]?.id || '');
 		const elements = normalizeElements((doc.elements || []).map(fromTransportElement), layers);
+		for (const layer of layers) {
+			if (layer.mode === 'raster' && layer.assetUrl) {
+				void import('./rasterLayers').then(({ hydrateRasterLayer }) => hydrateRasterLayer(layer.id, layer.assetUrl!)).catch(() => undefined);
+			}
+		}
 		return {
 			...s,
 			boardId: doc.boardId || s.boardId,
 			version: typeof doc.version === 'number' ? doc.version : 0,
 			policy: doc.policy ? { ...doc.policy } : { ...DEFAULT_WHITEBOARD_POLICY },
 			meta: doc.meta ? { ...doc.meta } : { updatedAt: 0, updatedBy: 0 },
+			canvasBgColor: typeof doc.canvasBgColor === 'string' ? doc.canvasBgColor : undefined,
 			elements,
 			layers,
 			activeLayerId,
@@ -199,8 +205,9 @@ function setStyle(partial: Partial<BoardStyle>): void {
 	activeStore().update((s) => ({ ...s, style: { ...s.style, ...partial } }));
 }
 
-export function setCanvasBgColor(color: string | undefined): void {
-	activeStore().update((s) => ({ ...s, canvasBgColor: color }));
+function setCanvasBgColor(color: string | undefined): void {
+	activeStore().update((s) => ({ ...s, canvasBgColor: color, isDirty: true }));
+	bumpVersion();
 }
 
 function setWhiteboardPolicy(policy: WhiteboardPolicy): void {
@@ -273,6 +280,16 @@ function addLayer(partial: Partial<WhiteboardLayer>): WhiteboardLayer {
 	let created: WhiteboardLayer | null = null;
 	activeStore().update((s) => {
 		const result = layerOps.addLayer(toState(s), partial, notifyPatch);
+		created = result.created;
+		return fromState(s, result.state);
+	});
+	return created || createDefaultWhiteboardLayer();
+}
+
+function addRasterLayer(name = 'Paint'): WhiteboardLayer {
+	let created: WhiteboardLayer | null = null;
+	activeStore().update((s) => {
+		const result = layerOps.addRasterLayer(toState(s), name, notifyPatch);
 		created = result.created;
 		return fromState(s, result.state);
 	});
@@ -414,7 +431,8 @@ function getSnapshotDocument(): WhiteboardDocument {
 		activeLayerId: s.activeLayerId,
 		viewport: { ...s.viewport },
 		policy: { ...s.policy },
-		meta: { ...s.meta }
+		meta: { ...s.meta },
+		canvasBgColor: s.canvasBgColor
 	};
 }
 
@@ -452,6 +470,7 @@ export const boardStore = {
 	setBoardId,
 	setTool,
 	setStyle,
+	setCanvasBgColor,
 	setWhiteboardPolicy,
 	pushHistoryCheckpoint,
 	addElement,
@@ -465,6 +484,7 @@ export const boardStore = {
 	ensureLayer,
 	ensureLayerSilent,
 	addLayer,
+	addRasterLayer,
 	updateLayer,
 	updateLayerSilent,
 	deleteLayer,

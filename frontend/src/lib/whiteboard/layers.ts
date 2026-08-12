@@ -68,8 +68,17 @@ export function createDefaultWhiteboardLayer(now = Date.now()): WhiteboardLayer 
 		order: 0,
 		createdAt: now,
 		updatedAt: now,
-		blendMode: 'source-over'
+		blendMode: 'source-over',
+		mode: 'vector'
 	} as WhiteboardLayer;
+}
+
+export function createRasterWhiteboardLayer(name = 'Paint', order = 0, now = Date.now()): WhiteboardLayer {
+	return {
+		id: createLayerId(name), name, kind: 'content', visible: true, locked: false,
+		opacity: 1, order, createdAt: now, updatedAt: now,
+		blendMode: 'source-over', mode: 'raster', revision: 0
+	};
 }
 
 export function createReferenceWhiteboardLayer(name = 'Reference', now = Date.now()): WhiteboardLayer {
@@ -83,7 +92,8 @@ export function createReferenceWhiteboardLayer(name = 'Reference', now = Date.no
 		order: 0,
 		createdAt: now,
 		updatedAt: now,
-		blendMode: 'source-over'
+		blendMode: 'source-over',
+		mode: 'vector'
 	};
 }
 
@@ -98,7 +108,8 @@ export function createBackgroundWhiteboardLayer(name = 'Background', now = Date.
 		order: 0,
 		createdAt: now,
 		updatedAt: now,
-		blendMode: 'source-over'
+		blendMode: 'source-over',
+		mode: 'vector'
 	};
 }
 
@@ -135,6 +146,7 @@ export function normalizeWhiteboardLayer(
 		!WHITEBOARD_BLEND_MODES.includes(candidate.blendMode as (typeof WHITEBOARD_BLEND_MODES)[number])
 			? 'source-over'
 			: candidate.blendMode;
+	const mode = candidate.mode === 'raster' ? 'raster' : 'vector';
 
 	return {
 		id,
@@ -146,7 +158,13 @@ export function normalizeWhiteboardLayer(
 		order,
 		createdAt,
 		updatedAt,
-		blendMode
+		blendMode,
+		mode,
+		assetId: typeof candidate.assetId === 'string' ? candidate.assetId : undefined,
+		assetUrl: typeof candidate.assetUrl === 'string' ? candidate.assetUrl : undefined,
+		pixelWidth: Number.isFinite(candidate.pixelWidth as number) ? Number(candidate.pixelWidth) : undefined,
+		pixelHeight: Number.isFinite(candidate.pixelHeight as number) ? Number(candidate.pixelHeight) : undefined,
+		revision: Number.isFinite(candidate.revision as number) ? Number(candidate.revision) : 0
 	};
 }
 

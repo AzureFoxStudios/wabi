@@ -54,6 +54,42 @@ export class MediaAlbumApiError extends Error {
 	}
 }
 
+function microsToMillis(value: unknown): number {
+	const numeric = typeof value === 'number' ? value : Number(value);
+	if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+	return numeric > 10_000_000_000 ? Math.round(numeric / 1000) : Math.round(numeric);
+}
+
+function normalizeAlbum(raw: any): MediaAlbum {
+	return {
+		id: raw?.id,
+		scopeType: raw?.scopeType ?? raw?.scope_type,
+		scopeId: raw?.scopeId ?? raw?.scope_id,
+		name: typeof raw?.name === 'string' ? raw.name : 'Untitled album',
+		createdBy: raw?.createdBy ?? raw?.owner_user_id ?? 0,
+		createdAt: microsToMillis(raw?.createdAt ?? raw?.created_at),
+		updatedAt: microsToMillis(raw?.updatedAt ?? raw?.updated_at ?? raw?.createdAt ?? raw?.created_at),
+		isFeatured: Boolean(raw?.isFeatured ?? raw?.is_featured),
+		itemCount: Number(raw?.itemCount ?? raw?.item_count ?? 0)
+	};
+}
+
+function normalizeAlbumItem(raw: any): MediaAlbumItem {
+	return {
+		id: raw?.id,
+		albumId: raw?.albumId ?? raw?.album_id,
+		attachmentUrl: raw?.attachmentUrl ?? raw?.attachment_url ?? '',
+		attachmentName: raw?.attachmentName ?? raw?.attachment_name ?? 'Untitled file',
+		attachmentSize: raw?.attachmentSize ?? raw?.attachment_size ?? null,
+		attachmentMime: raw?.attachmentMime ?? raw?.attachment_mime ?? null,
+		messageId: raw?.messageId ?? raw?.message_id ?? null,
+		caption: raw?.caption ?? null,
+		sortOrder: Number(raw?.sortOrder ?? raw?.sort_order ?? 0),
+		uploadedBy: raw?.uploadedBy ?? raw?.uploaded_by ?? 0,
+		uploadedAt: microsToMillis(raw?.uploadedAt ?? raw?.createdAt ?? raw?.created_at)
+	};
+}
+
 export async function listMediaAlbums(
 	token: string,
 	scopeType: MediaAlbumScopeType,
@@ -83,7 +119,7 @@ export async function listMediaAlbums(
 		console.error('[listMediaAlbums] Server returned non-JSON:', res.status, text.slice(0, 500));
 		throw new Error(`Server returned invalid JSON (${res.status}). Check console for details.`);
 	}
-	return Array.isArray((data as any)?.albums) ? ((data as any).albums as MediaAlbum[]) : [];
+	return Array.isArray((data as any)?.albums) ? (data as any).albums.map(normalizeAlbum) : [];
 }
 
 export async function createMediaAlbum(
@@ -104,7 +140,7 @@ export async function createMediaAlbum(
 	}
 	try {
 		const data = await res.json();
-		return data.album as MediaAlbum;
+		return normalizeAlbum(data.album);
 	} catch {
 		throw new Error('Invalid response from server while creating media album');
 	}
@@ -129,8 +165,8 @@ export async function listMediaAlbumItems(
 	try {
 		const data = await res.json();
 		return {
-			album: data.album as MediaAlbum,
-			items: Array.isArray(data.items) ? (data.items as MediaAlbumItem[]) : []
+			album: normalizeAlbum(data.album),
+			items: Array.isArray(data.items) ? data.items.map(normalizeAlbumItem) : []
 		};
 	} catch {
 		throw new Error('Invalid response from server while listing media album items');
@@ -180,7 +216,7 @@ export async function addMediaAlbumItem(
 		});
 	}
 	const data = await res.json();
-	return data.item as MediaAlbumItem;
+	return normalizeAlbumItem(data.item);
 }
 
 export async function setMediaAlbumFeatured(token: string, albumId: number, featured: boolean): Promise<MediaAlbum> {

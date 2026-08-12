@@ -263,7 +263,7 @@
 					{:else if tool.icon === 'pan'}
 						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v16M2 10h16M10 2l-2 3m2-3l2 3M10 18l-2-3m2 3l2-3M2 10l3-2m-3 2l3 2M18 10l-3-2m3 2l-3 2"/></svg>
 					{:else if tool.icon === 'eraser'}
-						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 16l3-3a5 5 0 0 1 0-7l3-3a3 3 0 0 1 4.2-4.2L10 8"/><path d="M15.8 3.8a5 5 0 0 1 0 7.1l-3 3a3 3 0 0 1-4.2 4.2L10 12"/></svg>
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="m3 13 8.6-8.6a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L8 18H5a2 2 0 0 1-2-2v-3Z"/><path d="m8 18 5-5"/><path d="M6 15h.01" stroke-linecap="round"/></svg>
 					{/if}
 				</span>
 				<span class="wb-tool-shortcut">{tool.shortcut}</span>
@@ -485,25 +485,7 @@
 					<span class="wb-brush-value">{Math.round(($currentStyle.opacity ?? 1) * 100)}%</span>
 				</span>
 			</label>
-			{#if $activeTool === 'rect' || $activeTool === 'ellipse'}
-				<label class="wb-brush-control">
-					<span class="wb-brush-label">Corner radius</span>
-					<span class="wb-brush-row">
-						<input
-							type="range"
-							min="0"
-							max="120"
-							step="1"
-							value={$currentStyle.borderRadius ?? 0}
-							on:input={(e) => boardStore.setStyle({ borderRadius: Number((e.currentTarget as HTMLInputElement).value) })}
-							class="wb-brush-slider"
-							disabled={readOnly}
-							aria-label="Corner radius"
-						/>
-						<span class="wb-brush-value">{($currentStyle.borderRadius ?? 0)}px</span>
-					</span>
-				</label>
-			{/if}
+
 			{#if $activeTool === 'pen' || $activeTool === 'line' || $activeTool === 'arrow'}
 				<label class="wb-brush-control">
 					<span class="wb-brush-label">Dash</span>
@@ -539,6 +521,30 @@
 					<span class="wb-width-preview" style="height: {Math.max(2, w)}px"></span>
 				</button>
 			{/each}
+		</div>
+	{/if}
+
+	{#if $activeTool === 'rect'}
+		<div class="wb-toolbar-section context-settings">
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Radius</span>
+				<span class="wb-brush-row">
+					<input type="range" min="0" max="120" step="1" value={$currentStyle.borderRadius ?? 0} on:input={(e) => boardStore.setStyle({ borderRadius: Number((e.currentTarget as HTMLInputElement).value) })} class="wb-brush-slider" disabled={readOnly} aria-label="Corner radius" />
+					<span class="wb-brush-value">{$currentStyle.borderRadius ?? 0}px</span>
+				</span>
+			</label>
+		</div>
+	{/if}
+
+	{#if $activeTool === 'text'}
+		<div class="wb-toolbar-section context-settings">
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Text size</span>
+				<span class="wb-brush-row">
+					<input type="range" min="8" max="120" step="1" value={fontSizeInput} on:input={(e) => setFontSize(Number((e.currentTarget as HTMLInputElement).value))} class="wb-brush-slider" disabled={readOnly} aria-label="Text size" />
+					<span class="wb-brush-value">{fontSizeInput}px</span>
+				</span>
+			</label>
 		</div>
 	{/if}
 

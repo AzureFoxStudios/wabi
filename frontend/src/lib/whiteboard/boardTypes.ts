@@ -1,6 +1,7 @@
 export type WhiteboardScopeType = 'channel';
 
 export type WhiteboardLayerKind = 'content' | 'reference' | 'background';
+export type WhiteboardLayerMode = 'vector' | 'raster';
 
 export interface WhiteboardPolicy {
 	access: 'open' | 'desktop_only';
@@ -34,6 +35,12 @@ export interface WhiteboardLayer {
 	createdAt: number;
 	updatedAt: number;
 	blendMode: string;
+	mode: WhiteboardLayerMode;
+	assetId?: string;
+	assetUrl?: string;
+	pixelWidth?: number;
+	pixelHeight?: number;
+	revision?: number;
 }
 
 export interface WhiteboardElement extends Record<string, unknown> {
@@ -54,6 +61,7 @@ export interface WhiteboardDocument {
 	layers?: WhiteboardLayer[];
 	activeLayerId?: string;
 	viewport?: WhiteboardViewport;
+	canvasBgColor?: string;
 	policy?: WhiteboardPolicy;
 	meta?: WhiteboardMeta;
 	[key: string]: unknown;

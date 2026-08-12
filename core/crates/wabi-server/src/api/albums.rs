@@ -127,22 +127,29 @@ async fn list_albums(
 }
 
 async fn create_album(
-    _auth: AuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateAlbumPayload>,
 ) -> Result<Json<Value>> {
     let album_id = state
         .wdb
-        .create_album(&payload.scope_type, &payload.scope_id, &payload.name, 1)
+        .create_album(&payload.scope_type, &payload.scope_id, &payload.name, auth.user_id as u64)
         .await?;
-    let album = state
-        .wdb
-        .get_album(&payload.scope_type, &payload.scope_id, &album_id)
-        .await?
-        .ok_or_else(|| wabidb::error::WabiError::Validation {
-            command: "create_album".into(),
-            reason: "album was created but not found in projection".into(),
-        })?;
+    let mut album = None;
+    for _ in 0..20 {
+        album = state
+            .wdb
+            .get_album(&payload.scope_type, &payload.scope_id, &album_id)
+            .await?;
+        if album.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    let album = album.ok_or_else(|| wabidb::error::WabiError::Validation {
+        command: "create_album".into(),
+        reason: "album was created but projection was not ready".into(),
+    })?;
     Ok(Json(json!({ "album": album_json(&album, 0, Vec::new()) })))
 }
 
@@ -217,7 +224,7 @@ async fn list_items(
 }
 
 async fn add_item(
-    _auth: AuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
     Json(payload): Json<AddItemPayload>,
@@ -229,7 +236,7 @@ async fn add_item(
             &payload.attachment_url,
             &payload.attachment_name,
             payload.caption.as_deref(),
-            0,
+            auth.user_id as u64,
         )
         .await?;
     let item = wabidb::domain::AlbumItem {

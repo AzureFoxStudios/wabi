@@ -8,6 +8,12 @@ describe('message URL media classification', () => {
 		expect(isVideo('voice.ogg')).toBe(false);
 	});
 
+	test('classifies recorded WEBA audio as audio', () => {
+		expect(getMediaType('https://example.test/uploads/audio-123.weba')).toBe('audio');
+		expect(isAudio('audio-123.weba')).toBe(true);
+		expect(isVideo('audio-123.weba')).toBe(false);
+	});
+
 	test('keeps common video URLs as video', () => {
 		expect(getMediaType('https://example.test/uploads/clip.mp4')).toBe('video');
 		expect(getMediaType('https://example.test/uploads/clip.webm')).toBe('video');

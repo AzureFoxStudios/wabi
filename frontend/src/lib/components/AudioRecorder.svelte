@@ -35,6 +35,7 @@
   let selectedDeviceId: string = '';
   let devicesLoaded = false;
   let micTestLevel = 0;
+  let isPreviewPlaying = false;
 
   async function loadDevices() {
     availableDevices = await engineLoadDevices();
@@ -83,6 +84,16 @@
 
   function sendAudio() {
     if (audioBlob) { dispatch('send', audioBlob); cleanup(); dispatch('close'); }
+  }
+
+  function togglePreviewPlayback(): void {
+    if (!audioElement) return;
+    if (audioElement.paused) {
+      void audioElement.play().then(() => (isPreviewPlaying = true)).catch(() => undefined);
+    } else {
+      audioElement.pause();
+      isPreviewPlaying = false;
+    }
   }
 
   function close() {
@@ -161,7 +172,7 @@
           {#if state === 'idle' || state === 'stopped'}<div class="placeholder-text">{state === 'idle' ? $_('audio.ready') : $_('audio.recording_stopped')}</div>{/if}
         </div>
 
-        {#if state === 'preview' && audioUrl}<div class="preview-player"><audio bind:this={audioElement} src={audioUrl} controls></audio></div>{/if}
+        {#if state === 'preview' && audioUrl}<div class="preview-player"><audio bind:this={audioElement} src={audioUrl} controls on:play={() => (isPreviewPlaying = true)} on:pause={() => (isPreviewPlaying = false)}></audio><button type="button" class="preview-play-toggle" on:click={togglePreviewPlayback}>{isPreviewPlaying ? 'Pause' : 'Play'}</button></div>{/if}
 
         <div class="controls">
           {#if state === 'idle' && !error}<button class="btn-record" on:click={startRecording}><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8" /></svg>{$_('audio.record')}</button>{/if}
@@ -202,8 +213,9 @@
   .visualizer-container { position: relative; width: 100%; height: 100px; margin-bottom: 2rem; background: var(--surface-base, #2a2a2a); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
   .waveform-canvas { width: 100%; height: 100%; }
   .placeholder-text { position: absolute; color: var(--text-secondary, #666); font-size: 0.9rem; }
-  .preview-player { margin-bottom: 2rem; }
+  .preview-player { margin-bottom: 2rem; display: flex; align-items: center; gap: 0.75rem; }
   .preview-player audio { width: 100%; }
+  .preview-play-toggle { min-height: 40px; padding: 0.55rem 0.9rem; white-space: nowrap; }
   .controls { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
   button { padding: 0.75rem 1.5rem; border-radius: 8px; font-size: 1rem; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem; min-height: 48px; }
   .btn-record { background: var(--color-info, var(--color-info, #3b82f6)); color: white; font-size: 1.1rem; padding: 1rem 2rem; }

@@ -12,6 +12,7 @@ export type WorkspacePanelIcon =
 	| 'users'
 	| 'messages'
 	| 'notes'
+	| 'layers'
 	| 'map'
 	| 'media'
 	| 'admin'
@@ -24,6 +25,7 @@ export type WorkspacePanelComponentKey =
 	| 'users'
 	| 'dms'
 	| 'notes'
+	| 'whiteboard-layers'
 	| 'map'
 	| 'media'
 	| 'admin'
@@ -128,6 +130,18 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		sortOrder: 30
 	},
 	{
+		id: 'whiteboard-layers',
+		label: 'Whiteboard Layers',
+		shortLabel: 'Layers',
+		icon: 'layers',
+		component: 'whiteboard-layers',
+		capabilities: ['whiteboard', 'layers'],
+		defaultDock: 'right',
+		mobileMode: 'sheet',
+		source: 'core',
+		sortOrder: 35
+	},
+	{
 		id: 'map',
 		label: 'Map',
 		icon: 'map',
@@ -194,6 +208,7 @@ const KNOWN_COMPONENT_KEYS = new Set<WorkspacePanelComponentKey>([
 	'users',
 	'dms',
 	'notes',
+	'whiteboard-layers',
 	'map',
 	'media',
 	'admin',

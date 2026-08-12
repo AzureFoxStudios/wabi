@@ -13,6 +13,7 @@ import {
 	type BBox
 } from './coords';
 import { resolveWritableWhiteboardLayerId } from './layers';
+import { commitRasterLayer, paintRasterDab, paintRasterSegment } from './rasterLayers';
 import { measureMathElement, preloadMathElement } from './mathRender';
 
 // ---------------------------------------------------------------------------
@@ -184,10 +185,50 @@ function sampleCatmullRom(p0: Point, p1: Point, p2: Point, p3: Point, t: number,
 }
 
 // ---------------------------------------------------------------------------
+// Raster brush tool
+// ---------------------------------------------------------------------------
+
+function createRasterBrushTool(): ToolHandler {
+	return {
+		id: 'pen',
+		cursor: 'crosshair',
+		onPointerDown(e) {
+			const state = get(boardStore);
+			const layer = state.layers.find((candidate) => candidate.id === state.activeLayerId);
+			if (!layer || layer.mode !== 'raster') return null;
+			const size = Math.max(1, state.style.strokeWidth || 1);
+			const color = state.style.strokeColor;
+			const opacity = state.style.opacity ?? 1;
+			const hardness = state.style.hardness ?? 1;
+			const eraser = false;
+			let lastX = e.boardX;
+			let lastY = e.boardY;
+			paintRasterDab(layer.id, lastX, lastY, size, color, opacity, hardness, e.pressure, eraser);
+			return {
+				onPointerMove(ev) {
+					paintRasterSegment(layer.id, lastX, lastY, ev.boardX, ev.boardY, size, color, opacity, hardness, ev.pressure, eraser);
+					lastX = ev.boardX;
+					lastY = ev.boardY;
+				},
+				onPointerUp() {
+					void commitRasterLayer(state.boardId, layer.id);
+				},
+				getPreview() { return null; },
+				getSelectionRect() { return null; }
+			};
+		}
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Pen tool
 // ---------------------------------------------------------------------------
 
 export function createPenTool(): ToolHandler {
+	const activeState = get(boardStore);
+	const activeLayer = activeState.layers.find((layer) => layer.id === activeState.activeLayerId);
+	if (activeLayer?.mode === 'raster') return createRasterBrushTool();
+
 	return {
 		id: 'pen',
 		cursor: 'crosshair',

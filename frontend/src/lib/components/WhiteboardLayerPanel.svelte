@@ -12,7 +12,12 @@
 	$: activeLayer = orderedLayers.find((layer) => layer.id === $activeLayerId) || orderedLayers[0] || null;
 	$: selectedCount = $selection.size;
 
-	function createLayer(): void {
+	function createLayer(mode: 'vector' | 'raster' = 'vector'): void {
+		if (mode === 'raster') {
+			const next = boardStore.addRasterLayer(`Paint ${orderedLayers.filter((layer) => layer.mode === 'raster').length + 1}`);
+			boardStore.setActiveLayerId(next.id);
+			return;
+		}
 		const next = boardStore.addLayer({
 			name: `Layer ${orderedLayers.length + 1}`,
 			kind: 'content',
@@ -67,13 +72,16 @@
 			<div class="layer-panel-title">Layers</div>
 			<div class="layer-panel-subtitle">{orderedLayers.length} layers{#if selectedCount > 0} | {selectedCount} selected{/if}</div>
 		</div>
-		<button type="button" class="layer-add-btn" on:click={createLayer}>New</button>
+		<div class="layer-add-actions">
+			<button type="button" class="layer-add-btn" on:click={() => createLayer('vector')}>Vector</button>
+			<button type="button" class="layer-add-btn raster" on:click={() => createLayer('raster')}>Raster</button>
+		</div>
 	</div>
 
 	{#if activeLayer}
 		<div class="active-layer-card">
 			<div class="active-layer-topline">
-				<span class="active-layer-chip">{kindLabels[activeLayer.kind] || 'Layer'}</span>
+				<span class="active-layer-chip">{activeLayer.mode === 'raster' ? 'Raster paint' : kindLabels[activeLayer.kind] || 'Vector'}</span>
 				<label class="active-layer-switch">
 					<input type="checkbox" checked={activeLayer.visible} on:change={(e) => toggleLayerVisible(activeLayer.id, (e.currentTarget as HTMLInputElement).checked)} />
 					Show
@@ -124,7 +132,7 @@
 					/>
 				</div>
 				<div class="layer-row-meta">
-					<span class="layer-kind">{kindLabels[layer.kind] || layer.kind}</span>
+					<span class="layer-kind">{layer.mode === 'raster' ? 'Raster' : kindLabels[layer.kind] || 'Vector'}</span>
 					<label class="mini-toggle">
 						<input type="checkbox" checked={layer.visible} on:change={(e) => toggleLayerVisible(layer.id, (e.currentTarget as HTMLInputElement).checked)} />
 						Visible
@@ -197,6 +205,16 @@
 
 	.layer-panel-header {
 		justify-content: space-between;
+	}
+
+	.layer-add-actions {
+		display: inline-flex;
+		gap: 0.35rem;
+	}
+
+	.layer-add-btn.raster {
+		border-color: color-mix(in srgb, var(--color-info, #00bfff) 42%, transparent);
+		color: var(--color-info, #00bfff);
 	}
 
 	.layer-panel-title {

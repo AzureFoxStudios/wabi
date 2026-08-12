@@ -20,7 +20,6 @@
 	import { queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import { setWhiteboardPresence, clearWhiteboardPresence } from '$lib/presenceStore';
 	import WhiteboardCanvas from './WhiteboardCanvas.svelte';
-	import WhiteboardLayerPanel from './WhiteboardLayerPanel.svelte';
 	import WhiteboardToolbar from './WhiteboardToolbar.svelte';
 	import WhiteboardMathRecognize from './WhiteboardMathRecognize.svelte';
 	import WhiteboardBoardSettings from './WhiteboardBoardSettings.svelte';
@@ -103,7 +102,7 @@
 	$: selfParticipant = ($currentUser
 		? { userId: $currentUser.id, username: localUsername, color: localUserColor }
 		: { userId: 'local-guest', username: localUsername, color: localUserColor }) as WhiteboardPresenceUser;
-	$: jamParticipants = (() => {
+	$: boardParticipants = (() => {
 		const seen = new Set<string>();
 		const list: WhiteboardPresenceUser[] = [selfParticipant];
 		seen.add(selfParticipant.userId);
@@ -115,8 +114,8 @@
 		}
 		return list;
 	})();
-	$: jamVisible = jamParticipants.slice(0, 5);
-	$: jamOverflow = Math.max(0, jamParticipants.length - 5);
+	$: boardVisibleParticipants = boardParticipants.slice(0, 5);
+	$: boardParticipantOverflow = Math.max(0, boardParticipants.length - 5);
 
 	function resetSessionState(): void {
 		presence = [];
@@ -301,27 +300,17 @@
 			{/if}
 			<div class="whiteboard-jam-strip" aria-label="People on this board">
 				<div class="jam-avatars">
-					{#each jamVisible as person (person.userId)}
+					{#each boardVisibleParticipants as person (person.userId)}
 						<span
 							class="jam-avatar"
 							style="--jam-color: {person.color || 'var(--accent-primary, #6366f1)'}"
 							title={person.username}
 						>{person.username.charAt(0).toUpperCase()}</span>
 					{/each}
-					{#if jamOverflow > 0}
-						<span class="jam-avatar jam-avatar-more" title="{jamParticipants.length} people">+{jamOverflow}</span>
+					{#if boardParticipantOverflow > 0}
+						<span class="jam-avatar jam-avatar-more" title="{boardParticipants.length} people">+{boardParticipantOverflow}</span>
 					{/if}
 				</div>
-				<button
-					type="button"
-					class="whiteboard-jam-call"
-					title="Start a jam call (preview only — not connected)"
-					aria-disabled="true"
-					tabindex="-1"
-				>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-					<span>Jam</span>
-				</button>
 			</div>
 		</div>
 
@@ -410,9 +399,6 @@
 					importDisabled={!channelId}
 					{readOnly}
 				/>
-				<div class="whiteboard-layer-panel-wrap">
-					<WhiteboardLayerPanel />
-				</div>
 			</div>
 		{/if}
 	{:else}
@@ -707,9 +693,12 @@
 
 	.whiteboard-stage {
 		position: relative;
+		display: flex;
+		flex-direction: column;
 		flex: 1;
 		height: 100%;
 		min-height: 0;
+		min-width: 0;
 		overflow: hidden;
 		padding: 0;
 		background: transparent;

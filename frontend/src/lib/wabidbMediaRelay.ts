@@ -45,6 +45,7 @@ export interface WabidbMediaRelayConfig {
   onError?: (err: Error) => void;
   kind?: WabidbMediaRelayKind;
   peerStableUserId?: string;
+  capture?: boolean;
 }
 
 export function wabidbDmSessionKey(peerA: string, peerB: string): string {
@@ -97,6 +98,7 @@ export class WabidbMediaRelay {
   private pendingDecodeResolvers: Array<(pcm: Float32Array | null) => void> = [];
   private onIncomingMediaHandler: ((msg: any) => void) | null = null;
   private isActive = false;
+  private captureEnabled = true;
   private jitterTargetMs = 80;
   private playbackTimer: number | null = null;
 
@@ -105,6 +107,7 @@ export class WabidbMediaRelay {
     this.userId = cfg.userId;
     this.socket = cfg.socket;
     this.onError = cfg.onError;
+    this.captureEnabled = cfg.capture !== false;
   }
 
   async start(stream: MediaStream): Promise<void> {
@@ -117,6 +120,7 @@ export class WabidbMediaRelay {
         await this.audioContext.resume();
       }
 
+      if (this.captureEnabled) {
       this.opusRecorder = new OpusRecorder({
         encoderSampleRate: 48000,
         encoderChannels: 1,
@@ -143,6 +147,7 @@ export class WabidbMediaRelay {
       };
 
       await this.opusRecorder.start(stream);
+      }
 
       this.onIncomingMediaHandler = (msg: any) => {
         if (msg.userId !== this.userId && msg.sessionId === this.sessionId) {

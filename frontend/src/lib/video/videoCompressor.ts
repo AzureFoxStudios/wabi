@@ -293,6 +293,7 @@ function buildRecorderOptions(
 }
 
 export function isVideoFile(file: File): boolean {
+	if (file.type.toLowerCase().startsWith('audio/')) return false;
 	if (file.type.toLowerCase().startsWith('video/')) return true;
 	const lowerName = file.name.toLowerCase();
 	return VIDEO_FILE_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
