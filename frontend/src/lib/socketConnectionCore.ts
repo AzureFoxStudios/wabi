@@ -972,6 +972,26 @@ export class SocketManager {
 			_updateVoiceChannelMember(payload.channelId, payload.user.userId, payload.user);
 		});
 
+		sock.on('voice-channel-error', (payload: { channelId?: string; error?: string }) => {
+			if (!payload?.channelId || !payload.error) return;
+			console.warn('[voice-channel-error]', payload.channelId, payload.error);
+		});
+
+		sock.on('voice-user-muted', (payload: { channelId?: string; userId?: string }) => {
+			if (!payload?.channelId || !payload.userId) return;
+			_updateVoiceChannelMember(payload.channelId, payload.userId, { isMuted: true });
+		});
+
+		sock.on('voice-user-deafened', (payload: { channelId?: string; userId?: string }) => {
+			if (!payload?.channelId || !payload.userId) return;
+			_updateVoiceChannelMember(payload.channelId, payload.userId, { isDeafened: true });
+		});
+
+		sock.on('voice-user-undeafened', (payload: { channelId?: string; userId?: string }) => {
+			if (!payload?.channelId || !payload.userId) return;
+			_updateVoiceChannelMember(payload.channelId, payload.userId, { isDeafened: false });
+		});
+
 		sock.on('voice-transmit-mode-updated', (payload: { userId?: string; mode?: 'primary' | 'all-listening' }) => {
 			if (!payload?.userId || !payload.mode) return;
 			const mode = payload.mode;
