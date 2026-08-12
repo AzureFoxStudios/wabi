@@ -63,7 +63,7 @@
     "katex": "0.18.1",
     "livekit-client": "2.18.8",
     "marked": "17.0.6",
-    "motion": "12.38.0",
+    "motion": "13.0.0",
     "opus-recorder": "8.0.5",
     "prismjs": "1.30.0",
     "qrcode": "1.5.4",
