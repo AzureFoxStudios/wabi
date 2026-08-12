@@ -365,7 +365,7 @@
 				attachmentUrl: uploaded.fileUrl,
 				attachmentName: uploaded.fileName,
 				attachmentSize: uploaded.fileSize,
-				attachmentMime: draftUploadFile.type || null,
+				attachmentMime: uploaded.mimeType,
 				caption: draftUploadCaption.trim() || null
 			});
 			const refreshedItems = await loadAlbumItems(selectedAlbumId);

@@ -27,6 +27,7 @@
 		reorderChannels
 	} from '$lib/socket';
 	import { createChannel, deleteChannel as deleteChannelWithOptions } from '$lib/channelStore';
+	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import {
 		activeVoiceChannel as callActiveVoiceChannel,
 		openChannelCallPanel,
@@ -305,7 +306,17 @@
 
 	$: if (activeView === 'chat') markMessagesAsRead();
 
-	function handleChannelClick(id: string) { activeView = 'chat'; glimpseChannelId = null; switchChannel(id); if ($callMode === 'channel') channelCallPanelOpen.set(false); dispatch('close'); if ($selectedDmChannelId) layoutStore.closeDM(); }
+	function handleChannelClick(id: string) {
+		activeView = 'chat';
+		glimpseChannelId = null;
+		const channel = $channels.find((candidate) => candidate.id === id);
+		if (!channel) return;
+		mobileTabQueue.closeAllAddonTabs();
+		switchChannel(id);
+		if ($callMode === 'channel') channelCallPanelOpen.set(false);
+		if ($selectedDmChannelId) layoutStore.closeDM();
+		dispatch('close');
+	}
 	function clearAllUnreadNotifications() { for (const id of Object.keys($channelUnreadCounts)) markChannelAsRead(id); markMessagesAsRead(); }
 	function openFollowingView() { activeView = 'following'; glimpseChannelId = null; dispatch('close'); }
 	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('close'); }

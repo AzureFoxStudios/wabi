@@ -181,7 +181,12 @@
 	}
 
 	function testNotificationSound() {
-		playNotificationSound();
+		try {
+			playNotificationSound();
+			pushStatus = 'Notification sound test started.';
+		} catch (error) {
+			pushStatus = error instanceof Error ? error.message : 'Notification sound is unavailable.';
+		}
 	}
 
 	function testCallRingtone() {
@@ -439,6 +444,17 @@
 <div class="settings-section">
 	<h3>{$t('settings.sections.notifications')}</h3>
 	<div class="settings-group-card">
+	<div class="notification-status-note" role="status">
+		{#if pushPermission === 'denied'}
+			Browser notifications are blocked. Allow them for this site in browser settings, then retry.
+		{:else if pushPermission === 'unsupported'}
+			This browser does not support background notifications.
+		{:else if pushPermission === 'default'}
+			Notifications have not been requested yet. Use Enable to choose.
+		{:else}
+			Browser notifications are allowed. Sound tests still require one user interaction.
+		{/if}
+	</div>
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Desktop Notifications</span>

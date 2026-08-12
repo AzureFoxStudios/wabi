@@ -12,16 +12,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # --- Rust toolchain (pinned via committed rust-toolchain.toml) ---
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain-file: rust-toolchain.toml
 
-      - name: Install bun
+      # --- Node (for npm install in frontend) ---
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # --- Fast compile smoke (catches stupid Rust errors before test time) ---
+      - name: Cargo check
+        run: cargo check --workspace
+
+      # --- Frontend: install from committed lockfile, then test + type-check ---
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm install
+
+      - name: Install bun (for bun test + svelte-check)
         uses: oven-sh/setup-bun@v2
 
-      - name: Run CI
-        run: bash scripts/ci.sh
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: bun test src/lib
+
+      - name: Frontend svelte-check
+        working-directory: frontend
+        run: bun run check -- --threshold 1
+
+      # --- Full Rust test suite (wabidb crash/power-loss/property tests run in
+      #     tempfile temp dirs — never touch real data/) ---
+      - name: Cargo test
+        run: cargo test --workspace
 
       # ------------------------------------------------------------------
       # Placeholder: future "deploy to a test box + smoke wabi.chat"

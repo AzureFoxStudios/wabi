@@ -234,6 +234,7 @@
 
 <div class="wb-toolbar">
 	<div class="wb-toolbar-section tools">
+		<span class="wb-toolbar-group-label">Tools</span>
 		{#each tools as tool}
 			<button
 				class="wb-tool-btn"
@@ -274,6 +275,7 @@
 	<div class="wb-toolbar-divider"></div>
 
 	<div class="wb-toolbar-section actions">
+		<span class="wb-toolbar-group-label">Edit</span>
 		<button
 			class="wb-tool-btn"
 			on:click={() => boardStore.undo()}
@@ -332,6 +334,7 @@
 	{/if}
 
 	<div class="wb-toolbar-section exports">
+		<span class="wb-toolbar-group-label">File</span>
 		<button
 			class="wb-tool-btn wb-export-btn"
 			on:click={() => onExportPng?.()}
@@ -353,6 +356,7 @@
 	<div class="wb-toolbar-divider"></div>
 
 	<div class="wb-toolbar-section colors">
+		<span class="wb-toolbar-group-label">Color</span>
 		<div class="wb-color-picker">
 			<div class="wb-color-field">
 				<input
@@ -434,6 +438,7 @@
 
 			{#if $activeTool === 'pen'}
 		<div class="wb-brush-settings">
+			<span class="wb-toolbar-group-label">Brush</span>
 			<label class="wb-brush-control">
 				<span class="wb-brush-label">Size</span>
 				<span class="wb-brush-row">
@@ -598,32 +603,80 @@
 <style>
 	.wb-toolbar {
 		position: absolute;
-		top: 4.25rem;
-		left: 0.9rem;
+		top: 4.35rem;
+		left: 1rem;
 		transform: none;
 		z-index: 20;
 		display: flex;
-		align-items: center;
-		gap: 4px;
-		padding: 6px 9px;
-		border-radius: 14px;
-		background: color-mix(in srgb, var(--surface-base, #24243e) 82%, transparent);
-		backdrop-filter: blur(12px);
-		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 26%, transparent);
-		box-shadow: 0 14px 32px rgba(var(--surface-app-rgb, 15, 23, 42), 0.14);
+		align-items: flex-start;
+		gap: 0.55rem;
+		padding: 0.55rem 0.65rem;
+		border-radius: 11px;
+		background: color-mix(in srgb, var(--surface-base, #24243e) 94%, transparent);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 20%, transparent);
+		box-shadow: 0 8px 24px rgba(var(--surface-app-rgb, 15, 23, 42), 0.2);
 		user-select: none;
+		max-width: calc(100% - 2rem);
+		overflow-x: auto;
+		scrollbar-width: thin;
 	}
 
 	.wb-toolbar-section {
 		display: flex;
 		align-items: center;
-		gap: 2px;
+		gap: 3px;
+		flex-shrink: 0;
+		min-height: 2.25rem;
+	}
+
+	.wb-toolbar-group-label {
+		align-self: flex-start;
+		margin: 0 0.15rem 0 0.1rem;
+		font-size: 0.58rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: color-mix(in srgb, var(--text-secondary, #b3b3ff) 68%, transparent);
+	}
+
+	.wb-toolbar-section.tools,
+	.wb-toolbar-section.actions,
+	.wb-toolbar-section.exports,
+	.wb-toolbar-section.colors,
+	.wb-brush-settings {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.3rem;
+		padding: 0 0.2rem;
+	}
+
+	.wb-toolbar-section.tools {
+		flex-direction: row;
+		align-items: center;
+		flex-wrap: wrap;
+		max-width: 16rem;
+	}
+
+	.wb-toolbar-section.tools .wb-toolbar-group-label {
+		width: 100%;
+	}
+
+	.wb-toolbar-section.actions,
+	.wb-toolbar-section.exports {
+		flex-direction: row;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+
+	.wb-toolbar-section.actions .wb-toolbar-group-label,
+	.wb-toolbar-section.exports .wb-toolbar-group-label {
+		width: 100%;
 	}
 
 	.wb-toolbar-divider {
 		width: 1px;
-		height: 24px;
-		margin: 0 4px;
+		align-self: stretch;
+		margin: 0.25rem 0.2rem;
 		background: color-mix(in srgb, var(--text-muted, #9999ff) 28%, transparent);
 	}
 
@@ -632,8 +685,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
+		width: 30px;
+		height: 30px;
 		padding: 0;
 		border: 1px solid transparent;
 		border-radius: 8px;

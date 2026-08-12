@@ -178,6 +178,16 @@ button.settings-switch.active {
 	margin-bottom: 0.65rem;
 }
 
+.notification-status-note {
+	padding: 0.7rem 0.85rem;
+	margin-bottom: 0.75rem;
+	border-radius: 8px;
+	background: var(--surface-raised, rgba(255, 255, 255, 0.04));
+	color: var(--text-secondary, #a0a0aa);
+	font-size: 0.82rem;
+	line-height: 1.4;
+}
+
 .settings-group-card > .setting-item,
 .settings-group-card > .setting-item-full {
 	background: transparent !important;

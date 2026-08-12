@@ -4,7 +4,6 @@
 	export let revisions: WikiRevision[] = [];
 	export let onSelectRevision: ((revision: WikiRevision) => void) | undefined = undefined;
 	export let onClose: (() => void) | undefined = undefined;
-	export let onRestore: ((revision: WikiRevision) => void) | undefined = undefined;
 	export let activeRevisionId: string | null = null;
 </script>
 
@@ -12,7 +11,7 @@
 	<div class="wiki-drawer-header">
 		<span class="wiki-drawer-header-label">Revisions</span>
 		{#if onClose}
-			<button class="wiki-drawer-close" on:click={onClose}>&#10005;</button>
+			<button type="button" class="wiki-drawer-close" aria-label="Close revision history" on:click={onClose}>&#10005;</button>
 		{/if}
 	</div>
 	<div class="wiki-drawer-list">
@@ -22,7 +21,8 @@
 			</div>
 		{:else}
 			{#each revisions as revision (revision.revisionId)}
-				<div
+				<button
+					type="button"
 					class="wiki-drawer-item"
 					class:active={revision.revisionId === activeRevisionId}
 					on:click={() => onSelectRevision?.(revision)}
@@ -34,7 +34,7 @@
 					{#if revision.summary}
 						<div class="wiki-drawer-item-summary">{revision.summary}</div>
 					{/if}
-				</div>
+				</button>
 			{/each}
 		{/if}
 	</div>

@@ -10,16 +10,24 @@
 	let gf: { trending: (args: { limit: number }) => Promise<{ data: any[] }>; search: (query: string, args: { limit: number }) => Promise<{ data: any[] }> } | null = null;
 	let giphyInitPromise: Promise<void> | null = null;
 	let gifSearchQuery = '';
+	let giphyStatus: 'unknown' | 'ready' | 'missing' | 'error' = 'unknown';
+	let searchTimer: ReturnType<typeof setTimeout> | null = null;
 	const GIF_PAGE_SIZE = 12;
 
 	async function ensureGiphyClient(): Promise<void> {
-		if (gf || giphyInitPromise || !import.meta.env.VITE_GIPHY_API_KEY) return;
+		if (gf || giphyInitPromise) return;
+		if (!import.meta.env.VITE_GIPHY_API_KEY) {
+			giphyStatus = 'missing';
+			return;
+		}
 		giphyInitPromise = import('@giphy/js-fetch-api')
 			.then((mod) => {
 				gf = new mod.GiphyFetch(import.meta.env.VITE_GIPHY_API_KEY);
+				giphyStatus = 'ready';
 			})
 			.catch((error) => {
-				console.error('Failed to load GIPHY SDK:', error);
+				giphyStatus = 'error';
+			console.error('Failed to load GIPHY SDK:', error);
 			})
 			.finally(() => {
 				giphyInitPromise = null;
@@ -35,6 +43,7 @@
 			const { data } = await gf.trending({ limit: GIF_PAGE_SIZE });
 			gifs = data;
 		} catch (error) {
+			giphyStatus = 'error';
 			console.error('Error fetching trending GIFs:', error);
 			gifs = [];
 		}
@@ -42,6 +51,11 @@
 	}
 
 	async function searchGifs() {
+		if (searchTimer) clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => void searchGifsNow(), 250);
+	}
+
+	async function searchGifsNow() {
 		await ensureGiphyClient();
 		if (!gf) return;
 		if (!gifSearchQuery.trim()) {
@@ -53,6 +67,7 @@
 			const { data } = await gf.search(gifSearchQuery, { limit: GIF_PAGE_SIZE });
 			gifs = data;
 		} catch (error) {
+			giphyStatus = 'error';
 			console.error('Error fetching GIFs:', error);
 		}
 		gifLoading = false;
@@ -75,7 +90,11 @@
 		on:input={searchGifs}
 	/>
 	<div class="gif-grid">
-		{#if gifLoading}
+		{#if giphyStatus === 'missing'}
+			<div class="no-gifs">GIF search is not configured on this server.</div>
+		{:else if giphyStatus === 'error'}
+			<div class="no-gifs">GIF search is temporarily unavailable.</div>
+		{:else if gifLoading}
 			<div class="no-gifs">Loading...</div>
 		{:else if gifs.length === 0}
 			<div class="no-gifs">No GIFs found</div>

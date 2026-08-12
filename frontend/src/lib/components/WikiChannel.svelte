@@ -29,11 +29,9 @@
 		getWikiBreadcrumbs,
 		getWikiCitation,
 		insertWikiMarkdown,
-		searchWikiPages,
 	} from '$lib/wikiHelpers';
 
 	$: allPages = $wikiPagesStore;
-	$: visiblePages = wikiSearchQuery.trim() ? searchWikiPages(allPages, wikiSearchQuery).map((result) => result.page) : allPages;
 	$: allRevisions = $wikiRevisionsStore;
 	$: isLoading = $wikiLoadingStore;
 	$: error = $wikiErrorStore;
@@ -57,6 +55,8 @@
 	let editSavedBody = '';
 	let imageInput: HTMLInputElement | null = null;
 	let imageUploading = false;
+	let saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'failed' = 'idle';
+	let showTreeOnMobile = true;
 
 	initObjectRefRegistry();
 
@@ -119,7 +119,9 @@
 	$: displayRevisionCount = allRevisions.length;
 
 	function selectPage(page: WikiPage) {
+		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
 		selectedPageId = page.pageId;
+		showTreeOnMobile = false;
 		editMode = false;
 		showHistory = false;
 		viewRevision = null;
@@ -138,8 +140,10 @@
 	}
 
 	function handleCancelEdit() {
+		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
 		editMode = false;
 		editPreview = false;
+		saveState = 'idle';
 	}
 
 	function insertEditMarkdown(insertion: string) {
@@ -154,13 +158,23 @@
 
 	async function handleSaveEdit() {
 		if (!$currentChannel || !selectedPage) return;
+		if (!editTitle.trim()) {
+			saveState = 'failed';
+			return;
+		}
+		saveState = 'saving';
 		const result = await updateWikiPage($currentChannel, selectedPage.pageId, {
 			title: editTitle,
 			body: editBody,
 		});
 		if (result) {
+			editSavedTitle = editTitle;
+			editSavedBody = editBody;
 			editMode = false;
 			editPreview = false;
+			saveState = 'saved';
+		} else {
+			saveState = 'failed';
 		}
 	}
 
@@ -260,10 +274,23 @@
 	} : null;
 
 	$: renderedBody = displayBody ? parseMessage(displayBody) : '';
+	$: editIsDirty = editMode && (editTitle !== editSavedTitle || editBody !== editSavedBody);
+	$: if (editMode && editIsDirty && saveState !== 'saving') saveState = 'dirty';
+	$: if (editMode && !editIsDirty && saveState === 'dirty') saveState = 'idle';
 
 	onDestroy(() => {
 		selectedPageId = null;
 	});
+
+	if (typeof window !== 'undefined') {
+		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+			if (!editIsDirty) return;
+			event.preventDefault();
+			event.returnValue = '';
+		};
+		window.addEventListener('beforeunload', handleBeforeUnload);
+		onDestroy(() => window.removeEventListener('beforeunload', handleBeforeUnload));
+	}
 </script>
 
 <div class="wiki-channel">
@@ -275,14 +302,17 @@
 	/>
 
 	<div class="wiki-body" class:has-drawer={showHistory}>
-		<WikiPageTree
-			pages={visiblePages}
+		<div class:hidden-mobile={!showTreeOnMobile} class="wiki-tree-wrapper">
+			<WikiPageTree
+				pages={allPages}
 			activePageId={selectedPageId}
 			onSelect={selectPage}
 			onNewChild={handleNewChild}
-		/>
+			searchQuery={wikiSearchQuery}
+			/>
+			</div>
 
-		<div class="wiki-content-pane">
+			<div class="wiki-content-pane">
 			{#if isLoading}
 				<div class="wiki-loading">
 					<div class="wiki-loading-spinner"></div>
@@ -342,6 +372,7 @@
 					</div>
 					{#if !editMode}
 						<button class="wiki-content-toolbar-btn" on:click={handleEdit}>Edit</button>
+						<button type="button" class="wiki-content-toolbar-btn wiki-mobile-tree-toggle" on:click={() => { showTreeOnMobile = !showTreeOnMobile; }}>{showTreeOnMobile ? 'Hide pages' : 'Show pages'}</button>
 						<button class="wiki-content-toolbar-btn" on:click={() => void copyWikiCitation()}>Copy citation</button>
 						{#if copyError}<span class="wiki-copy-error" role="status">{copyError}</span>{/if}
 						<button
@@ -382,9 +413,11 @@
 							></textarea>
 						{/if}
 						<div class="wiki-edit-footer">
-							<span class="wiki-edit-status">{editTitle !== editSavedTitle || editBody !== editSavedBody ? 'Unsaved changes' : 'No changes'}</span>
+							<span class="wiki-edit-status" role="status">
+								{saveState === 'saving' ? 'Saving…' : saveState === 'failed' ? 'Save failed — your draft is still here' : editIsDirty ? 'Unsaved changes' : saveState === 'saved' ? 'Saved' : 'No changes'}
+							</span>
 							<button class="wiki-edit-cancel-btn" on:click={handleCancelEdit}>Cancel</button>
-							<button class="wiki-edit-save-btn" on:click={handleSaveEdit}>Save</button>
+							<button class="wiki-edit-save-btn" on:click={handleSaveEdit} disabled={saveState === 'saving' || !editIsDirty}>Save</button>
 						</div>
 					</div>
 				{:else}

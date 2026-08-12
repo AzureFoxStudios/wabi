@@ -26,6 +26,7 @@
 	import { buildDefaultUploadAlbumName, buildPreviewEntries, enforcePreviewBudget, formatFileMb, getMediaAlbumScope, isAlbumEligibleFile, revokePreviewUrl } from './fileHandlers';
 	import FileUploadPreview from './FileUploadPreview.svelte';
 	import MentionSuggestions from './MentionSuggestions.svelte';
+	import EmojiSuggestions from './EmojiSuggestions.svelte';
 	import { applyMentionToInput, computeMentionSuggestions } from './mentionSuggestions';
 	import { checkSendBurst, detectMessageKind, processAttachmentCaption, processOutgoingText } from './messageSend';
 	import { orchestrateUpload } from './uploadOrchestrator';
@@ -77,6 +78,9 @@
 	let mentionSelectedIndex = 0;
 	let mentionTokenStart = -1;
 	let mentionMenuContainer: HTMLElement | null = null;
+	let showEmojiSuggestions = false;
+	let emojiSuggestions: Emoji[] = [];
+	let emojiSuggestionSelectedIndex = 0;
 	let composerEntities: MessageEntity[] = [];
 	let previousComposerInput = '';
 	let selectedFiles: File[] = [];
@@ -146,7 +150,27 @@
 	function handleInputChange() {
 		syncComposerEntities();
 		if (messageInput.startsWith('/')) { showCommandPalette = getMatchingCommands(messageInput).length > 0; showMentionSuggestions = false; }
-		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; }
+		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
+	}
+	function updateEmojiSuggestions(caret: number): void {
+		const match = messageInput.slice(0, caret).match(/(^|\s):([\w+_-]*)$/);
+		if (!match) { showEmojiSuggestions = false; emojiSuggestions = []; return; }
+		const query = (match[2] || '').toLowerCase();
+		emojiSuggestions = ($emojis as unknown as Emoji[]).filter((emoji) => (emoji.type || 'emoji') === 'emoji' && emoji.name.toLowerCase().startsWith(query)).slice(0, 12);
+		emojiSuggestionSelectedIndex = 0;
+		showEmojiSuggestions = emojiSuggestions.length > 0;
+	}
+	async function applyEmojiSuggestion(index: number): Promise<void> {
+		const caret = textareaElement?.selectionStart ?? messageInput.length;
+		const match = messageInput.slice(0, caret).match(/(^|\s):([\w+_-]*)$/);
+		const emoji = emojiSuggestions[index];
+		if (!match || !emoji) return;
+		const start = caret - match[0].length + match[1].length;
+		messageInput = `${messageInput.slice(0, start)}:${emoji.name}: ${messageInput.slice(caret)}`;
+		showEmojiSuggestions = false;
+		await tick();
+		textareaElement?.focus();
+		textareaElement?.setSelectionRange(start + emoji.name.length + 3, start + emoji.name.length + 3);
 	}
 	async function applyMentionSuggestion(index: number) {
 		if (!textareaElement || index < 0 || index >= mentionSuggestions.length || mentionTokenStart < 0) return;
@@ -162,6 +186,12 @@
 		textareaElement.setSelectionRange(applied.cursor, applied.cursor);
 	}
 	function handleKeyDown(e: KeyboardEvent) {
+		if (showEmojiSuggestions) {
+			if (e.key === 'ArrowDown') { e.preventDefault(); emojiSuggestionSelectedIndex = (emojiSuggestionSelectedIndex + 1) % emojiSuggestions.length; return; }
+			if (e.key === 'ArrowUp') { e.preventDefault(); emojiSuggestionSelectedIndex = (emojiSuggestionSelectedIndex - 1 + emojiSuggestions.length) % emojiSuggestions.length; return; }
+			if (e.key === 'Tab') { e.preventDefault(); void applyEmojiSuggestion(emojiSuggestionSelectedIndex); return; }
+			if (e.key === 'Escape') { e.preventDefault(); showEmojiSuggestions = false; return; }
+		}
 		if (showMentionSuggestions) {
 			if (e.key === 'ArrowDown') { e.preventDefault(); mentionSelectedIndex = (mentionSelectedIndex + 1) % mentionSuggestions.length; return; }
 			if (e.key === 'ArrowUp') { e.preventDefault(); mentionSelectedIndex = (mentionSelectedIndex - 1 + mentionSuggestions.length) % mentionSuggestions.length; return; }
@@ -417,6 +447,7 @@
 
 <div class="input-wrapper" class:hidden={$isMobile && !composerVisible}>
 	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
+	{#if showEmojiSuggestions}<EmojiSuggestions suggestions={emojiSuggestions} selectedIndex={emojiSuggestionSelectedIndex} onApply={applyEmojiSuggestion} />{/if}
 	{#if filePreviews.length > 0 && !isUploading}		<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} on:change={handleFileSelect} multiple class="hidden" />
