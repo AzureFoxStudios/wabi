@@ -296,11 +296,26 @@ export function _setRoleDefinitions(roles: Array<Partial<RoleDefinition> & { rol
 export function _updateVoiceChannelMember(channelId: string, userId: string, updates: Partial<VoiceChannelParticipant>): void {
 	voiceChannelMembers.update((channels) => {
 		const members = channels[channelId] || [];
+		const existing = members.find((m) => m.userId === userId);
+		if (existing) {
+			return {
+				...channels,
+				[channelId]: members.map((m) =>
+					m.userId === userId ? { ...m, ...updates } : m
+				),
+			};
+		}
+		const newMember: VoiceChannelParticipant = {
+			userId,
+			username: userId,
+			isSpeaking: false,
+			isMuted: false,
+			isDeafened: false,
+			...updates,
+		};
 		return {
 			...channels,
-			[channelId]: members.map((m) =>
-				m.userId === userId ? { ...m, ...updates } : m
-			)
+			[channelId]: [...members, newMember],
 		};
 	});
 }
