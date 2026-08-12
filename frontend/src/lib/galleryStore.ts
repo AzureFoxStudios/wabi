@@ -51,6 +51,12 @@ function isImageMime(mime: string | null): boolean {
 	return mime.startsWith('image/');
 }
 
+function isImageFile(file: File): boolean {
+	if (isImageMime(file.type || null)) return true;
+	const name = file.name.toLowerCase();
+	return /\.(avif|bmp|gif|jpe?g|png|svg|tiff?|webp)$/.test(name);
+}
+
 function isVideoMime(mime: string | null): boolean {
 	if (!mime) return false;
 	return mime.startsWith('video/');
@@ -260,7 +266,7 @@ export async function uploadGalleryImages(
 		return result;
 	}
 
-	const images = files.filter((file) => file.type.startsWith('image/'));
+	const images = files.filter(isImageFile);
 	if (images.length === 0) {
 		result.errors.push('No image files selected');
 		return result;

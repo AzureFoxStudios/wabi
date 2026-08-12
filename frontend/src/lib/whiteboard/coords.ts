@@ -123,7 +123,7 @@ export function pickElement(
 // Selection handles
 // ---------------------------------------------------------------------------
 
-export type HandlePosition = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+export type HandlePosition = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate';
 
 export interface Handle {
 	position: HandlePosition;
@@ -136,6 +136,11 @@ export function getSelectionHandles(bbox: BBox, vp: WhiteboardViewport, size: nu
 	const br = boardToScreen(bbox.x + bbox.width, bbox.y + bbox.height, vp);
 	const mx = (tl.x + br.x) / 2;
 	const my = (tl.y + br.y) / 2;
+	const cx = (tl.x + br.x) / 2;
+	const cy = (tl.y + br.y) / 2;
+	const rotDist = Math.max(40, Math.hypot(br.x - tl.x, br.y - tl.y) / 2 + 16);
+	const rotX = cx;
+	const rotY = cy - rotDist;
 	return [
 		{ position: 'nw', x: tl.x, y: tl.y },
 		{ position: 'n', x: mx, y: tl.y },
@@ -144,7 +149,8 @@ export function getSelectionHandles(bbox: BBox, vp: WhiteboardViewport, size: nu
 		{ position: 'se', x: br.x, y: br.y },
 		{ position: 's', x: mx, y: br.y },
 		{ position: 'sw', x: tl.x, y: br.y },
-		{ position: 'w', x: tl.x, y: my }
+		{ position: 'w', x: tl.x, y: my },
+		{ position: 'rotate', x: rotX, y: rotY }
 	];
 }
 

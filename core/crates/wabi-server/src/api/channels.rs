@@ -6,7 +6,7 @@
 //! DELETE /api/channels/{id} — archive channel (admin only)
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -351,6 +351,7 @@ async fn delete_channel(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(id): Path<String>,
+    Query(query): Query<DeleteChannelQuery>,
 ) -> Result<Json<serde_json::Value>> {
     if !state.is_admin(auth.user_id).await {
         return Err(AppError::Unauthorized(
@@ -361,27 +362,85 @@ async fn delete_channel(
     // WdbAdapter::delete_channel uses the trait's default impl (Ok(()))
     // for v1 — a no-op soft-delete. The real engine event emission
     // (channel_deleted → projection handler) is a later WDB engine pass.
-    state
-        .wdb
-        .delete_channel(&id, auth.user_id as u64)
-        .await?;
+    let all_channels = state.wdb.list_channels(None).await?;
+    let mut deleted_ids = vec![id.clone()];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for channel in &all_channels {
+            if channel.is_active
+                && channel
+                    .parent_id
+                    .as_deref()
+                    .is_some_and(|parent| deleted_ids.iter().any(|id| id == parent))
+                && !deleted_ids.iter().any(|id| id == &channel.channel_id)
+            {
+                deleted_ids.push(channel.channel_id.clone());
+                changed = true;
+            }
+        }
+    }
+    if query.preserve_children {
+        let mut root_position = all_channels
+            .iter()
+            .filter(|channel| channel.is_active && channel.parent_id.is_none())
+            .map(|channel| channel.position)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        for channel_id in deleted_ids.iter().skip(1) {
+            state
+                .wdb
+                .update_channel(
+                    channel_id,
+                    &serde_json::json!({ "parent_id": null, "position": root_position }),
+                    auth.user_id as u64,
+                )
+                .await?;
+            root_position += 1;
+        }
+        deleted_ids.truncate(1);
+    }
+    for channel_id in &deleted_ids {
+        state
+            .wdb
+            .delete_channel(channel_id, auth.user_id as u64)
+            .await?;
+    }
 
     // Clear the session message cache for this channel. The cache
     // (HashMap<channel_id, Vec<Message>>) accumulates 1000 messages
     // per channel. Without this cleanup, deleting a channel leaks
     // its cache entry forever. WABI_AUDIT_REPORT.md finding #2.
-    state.session_messages.write().await.remove(&id);
+    {
+        let mut session = state.session_messages.write().await;
+        for channel_id in &deleted_ids {
+            session.remove(channel_id);
+        }
+    }
 
     // Notify connected clients immediately; each client also removes nested
-    // descendants from its local channel tree.
-    if let Some(io) = state.sio.read().await.clone() {
+    // descendants from its local channel tree. Uses the same broadcast
+    // pattern as emoji upload (api/emoji.rs): the SocketIo handle is sent
+    // once over sio_broadcast_tx during wiring and received here.
+    let mut sio_rx = state.sio_broadcast_tx.subscribe();
+    if let Ok(io) = sio_rx.recv().await {
         let _ = io
             .broadcast()
-            .emit("channel-deleted", &serde_json::json!({ "channelId": &id }))
+            .emit(
+                "channel-deleted",
+                &serde_json::json!({ "channelId": &id, "channelIds": &deleted_ids }),
+            )
             .await;
     }
 
-    Ok(Json(serde_json::json!({ "deleted": id })))
+    Ok(Json(serde_json::json!({ "deleted": id, "deletedIds": deleted_ids })))
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DeleteChannelQuery {
+    #[serde(default)]
+    preserve_children: bool,
 }
 
 async fn list_channel_reactions(

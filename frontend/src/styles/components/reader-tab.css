@@ -664,17 +664,26 @@
 		}
 	}
 
-	/* Fullscreen mode - hide all UI */
+	/* Fullscreen mode keeps an explicit exit affordance visible. */
 	.reader-shell.fullscreen-mode {
 		position: fixed;
 		inset: 0;
 		z-index: var(--z-lightbox, 2000);
 	}
 
-	.reader-shell.fullscreen-mode .reader-toolbar,
-	.reader-shell.fullscreen-mode .reader-focus-return,
+	.reader-shell.fullscreen-mode .reader-toolbar {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+	}
+
 	.reader-shell.fullscreen-mode .reader-progress-track {
-		display: none;
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 6;
 	}
 
 	.reader-shell.fullscreen-mode .reader-document-viewport {

@@ -190,6 +190,21 @@ function drawElementsToCtx(
 	const sorted = [...els].sort((a, b) => a.zIndex - b.zIndex);
 	for (const el of sorted) {
 		ctx.globalAlpha = Math.max(0, Math.min(1, el.opacity ?? 1));
+		// Locked element indicator: diagonal strike-through
+		if (el.locked) {
+			ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+			ctx.lineWidth = 1;
+			ctx.setLineDash([3, 3]);
+			ctx.beginPath();
+			ctx.moveTo(el.x + 2, el.y + 2);
+			ctx.lineTo(el.x + (el.width || 0) - 2, el.y + (el.height || 0) - 2);
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.moveTo(el.x + (el.width || 0) - 2, el.y + 2);
+			ctx.lineTo(el.x + 2, el.y + (el.height || 0) - 2);
+			ctx.stroke();
+			ctx.setLineDash([]);
+		}
 		switch (el.type) {
 			case 'stroke': renderStroke(ctx, el); break;
 			case 'line': renderLine(ctx, el); break;
@@ -375,10 +390,13 @@ function renderLine(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 	ctx.strokeStyle = el.strokeColor;
 	ctx.lineWidth = el.strokeWidth;
 	ctx.lineCap = 'round';
+	const dash = (el as any).strokeDash;
+	if (dash && dash.length > 0) ctx.setLineDash(dash as number[]);
 	ctx.beginPath();
 	ctx.moveTo(el.x, el.y);
 	ctx.lineTo(el.x + el.width, el.y + el.height);
 	ctx.stroke();
+	ctx.setLineDash([]);
 }
 
 function renderRect(ctx: CanvasRenderingContext2D, el: BoardElement): void {
@@ -396,7 +414,10 @@ function renderRect(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 	if (el.strokeWidth > 0) {
 		ctx.strokeStyle = el.strokeColor;
 		ctx.lineWidth = el.strokeWidth;
+		const dash = (el as any).strokeDash;
+		if (dash && dash.length > 0) ctx.setLineDash(dash as number[]);
 		ctx.stroke();
+		ctx.setLineDash([]);
 	}
 }
 
@@ -414,7 +435,10 @@ function renderEllipse(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 	if (el.strokeWidth > 0) {
 		ctx.strokeStyle = el.strokeColor;
 		ctx.lineWidth = el.strokeWidth;
+		const dash = (el as any).strokeDash;
+		if (dash && dash.length > 0) ctx.setLineDash(dash as number[]);
 		ctx.stroke();
+		ctx.setLineDash([]);
 	}
 }
 
@@ -428,10 +452,13 @@ function renderArrow(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 	ctx.lineWidth = el.strokeWidth;
 	ctx.lineCap = 'round';
 	ctx.lineJoin = 'round';
+	const dash = (el as any).strokeDash;
+	if (dash && dash.length > 0) ctx.setLineDash(dash as number[]);
 	ctx.beginPath();
 	ctx.moveTo(x1, y1);
 	ctx.lineTo(x2, y2);
 	ctx.stroke();
+	ctx.setLineDash([]);
 
 	const arrowHead = (el as any).arrowHead || 'end';
 	if (arrowHead === 'end' || arrowHead === 'both') {
@@ -573,11 +600,31 @@ export function renderSelectionBox(ctx: CanvasRenderingContext2D, bbox: BBox, vi
 export function renderHandles(ctx: CanvasRenderingContext2D, handles: Handle[]): void {
 	const size = 8;
 	for (const h of handles) {
-		ctx.fillStyle = '#ffffff';
-		ctx.strokeStyle = '#6366f1';
-		ctx.lineWidth = 1.5;
-		ctx.fillRect(h.x - size / 2, h.y - size / 2, size, size);
-		ctx.strokeRect(h.x - size / 2, h.y - size / 2, size, size);
+		if (h.position === 'rotate') {
+			// Rotate handle: circle with crosshair
+			ctx.fillStyle = '#ffffff';
+			ctx.strokeStyle = '#6366f1';
+			ctx.lineWidth = 1.5;
+			ctx.beginPath();
+			ctx.arc(h.x, h.y, size / 2 + 2, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.stroke();
+			// Line from bbox center to rotate handle
+			ctx.strokeStyle = 'rgba(99,102,241,0.4)';
+			ctx.lineWidth = 1;
+			ctx.setLineDash([3, 3]);
+			ctx.beginPath();
+			ctx.moveTo(h.x, h.y);
+			ctx.lineTo(h.x, h.y + 6);
+			ctx.stroke();
+			ctx.setLineDash([]);
+		} else {
+			ctx.fillStyle = '#ffffff';
+			ctx.strokeStyle = '#6366f1';
+			ctx.lineWidth = 1.5;
+			ctx.fillRect(h.x - size / 2, h.y - size / 2, size, size);
+			ctx.strokeRect(h.x - size / 2, h.y - size / 2, size, size);
+		}
 	}
 }
 

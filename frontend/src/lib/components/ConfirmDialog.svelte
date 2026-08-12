@@ -9,6 +9,8 @@
 	export let variant: 'info' | 'warning' | 'danger' = 'warning';
 	export let onConfirm: () => void = () => {};
 	export let onCancel: () => void = () => {};
+	export let secondaryText: string | null = null;
+	export let onSecondary: () => void = () => {};
 	export let overlayZIndex: number | string | null = null;
 
 	function handleConfirm() {
@@ -31,6 +33,7 @@
 
 	<div slot="footer" class="confirm-actions">
 		<button class="cancel-btn" on:click={handleCancel}>{cancelText}</button>
+		{#if secondaryText}<button class="cancel-btn" on:click={onSecondary}>{secondaryText}</button>{/if}
 		<button class="confirm-btn {variant}" on:click={handleConfirm}>{confirmText}</button>
 	</div>
 </BaseModal>

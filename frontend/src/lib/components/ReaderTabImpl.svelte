@@ -183,6 +183,11 @@
 			readerChromeHidden = !readerChromeHidden;
 			return;
 		}
+		if (event.key === 'Escape' && isFullscreenMode) {
+			event.preventDefault();
+			toggleFullscreenMode();
+			return;
+		}
 		if (imageViewerOpen) {
 			if (event.key === 'Escape') closeImageViewer();
 			if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') goToPreviousImage();

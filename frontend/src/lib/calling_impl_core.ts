@@ -1158,6 +1158,16 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		return stream;
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
+		// Do not leave the sidebar/center-stage state claiming that we are
+		// connected when transport setup failed after the local state was set.
+		// Without this rollback a failed join can leave the channel highlighted,
+		// suppress a later join attempt, and make the voice view appear connected
+		// while no media transport exists.
+		if (activeVoiceChannelId === channelId) {
+			activeVoiceChannelId = null;
+			listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
+			activeVoiceChannel.set(null);
+		}
 		void disconnectLivekitSfu();
 		const __mgwSessionId = getActiveMediaGatewaySessionId();
 		if (__mgwSessionId) {

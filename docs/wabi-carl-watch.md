@@ -46094,3 +46094,188 @@ socket.io ────┤→ WabiStore trait (WdbAdapter) → CommandCommit → 
 bab5f16 feat(whiteboard): wabiDB doc persistence + socket contract enforcement (Phase 0 backend)
 ```
 
+
+---
+
+## 2026-08-11 11:44:20 +07 — Carl posted
+
+### New/updated docs
+
+#### `docs/research/western-bank-to-bank-payments-2026.md`
+
+```
+# Western Bank-to-Bank Payments Research (2026) — "PromptPay for the West" Attempt 2
+
+Status: Research, verified Aug 2026
+Owner: Payments (th-payments / western-payments / btc-payments)
+Related: `PROJECT_DOCS/04-payments/PAYMENTS_NONCUSTODIAL_PLAN.md`, `PROJECT_DOCS/archive/PAYMENTS_IMPLEMENTATION.md`, `PROJECT_DOCS/archive/PAYMENTS_ADAPTER_CONTRACT.md`
+
+## 1) The reframe
+
+The Western problem was never "there are no bank-to-bank rails." It was that
+the **card machine** (PSP / merchant account / Stripe) is the only thing anyone
+talks about, so every Western-payments attempt funnels into "become a business
+middleman or force KYC." That's a false binary.
+
+The truth: **bank-to-bank request rails exist and are open in the EU, UK, and
+Canada, and semi-open in the US.** The PSP mountain is only required for
+*cards*. If the art bazaar is fine with buyers paying from their own banking
+app (exactly like PromptPay in Thailand), Wabi can do the West the same way it
+did Thailand: **encode the seller's bank destination into a QR/link; Wabi
+never touches money; the seller shares no more than the rail itself requires.**
+
+What PromptPay is in Thailand: a QR that encodes a recipient ID + amount,
+scanned by any Thai banking app, settled instantly. Equivalent rails, 2026:
+
+| Region | Rail | Open QR? | Settle | Middleman needed? | Real-name exposure |
+|---|---|---|---|---|---|
+```
+
+
+---
+
+## 2026-08-11 11:52:21 +07 — Carl posted
+
+### New/updated docs
+
+#### `docs/research/western-bank-to-bank-payments-2026.md`
+
+```
+# Western Bank-to-Bank Payments Research (2026) — "PromptPay for the West" Attempt 2
+
+Status: Research, verified Aug 2026
+Owner: Payments (th-payments / western-payments / btc-payments)
+Related: `PROJECT_DOCS/04-payments/PAYMENTS_NONCUSTODIAL_PLAN.md`, `PROJECT_DOCS/archive/PAYMENTS_IMPLEMENTATION.md`, `PROJECT_DOCS/archive/PAYMENTS_ADAPTER_CONTRACT.md`
+
+## 1) The reframe
+
+The Western problem was never "there are no bank-to-bank rails." It was that
+the **card machine** (PSP / merchant account / Stripe) is the only thing anyone
+talks about, so every Western-payments attempt funnels into "become a business
+middleman or force KYC." That's a false binary.
+
+The truth: **bank-to-bank request rails exist and are open in the EU, UK, and
+Canada, and semi-open in the US.** The PSP mountain is only required for
+*cards*. If the art bazaar is fine with buyers paying from their own banking
+app (exactly like PromptPay in Thailand), Wabi can do the West the same way it
+did Thailand: **encode the seller's bank destination into a QR/link; Wabi
+never touches money; the seller shares no more than the rail itself requires.**
+
+What PromptPay is in Thailand: a QR that encodes a recipient ID + amount,
+scanned by any Thai banking app, settled instantly. Equivalent rails, 2026:
+
+| Region | Rail | Open QR? | Settle | Middleman needed? | Real-name exposure |
+|---|---|---|---|---|---|
+```
+
+
+---
+
+## 2026-08-11 11:56:21 +07 — Carl posted
+
+### New/updated docs
+
+#### `docs/research/western-bank-to-bank-payments-2026.md`
+
+```
+# Western Bank-to-Bank Payments Research (2026) — "PromptPay for the West" Attempt 2
+
+Status: Research, verified Aug 2026
+Owner: Payments (th-payments / western-payments / btc-payments)
+Related: `PROJECT_DOCS/04-payments/PAYMENTS_NONCUSTODIAL_PLAN.md`, `PROJECT_DOCS/archive/PAYMENTS_IMPLEMENTATION.md`, `PROJECT_DOCS/archive/PAYMENTS_ADAPTER_CONTRACT.md`
+
+## 1) The reframe
+
+The Western problem was never "there are no bank-to-bank rails." It was that
+the **card machine** (PSP / merchant account / Stripe) is the only thing anyone
+talks about, so every Western-payments attempt funnels into "become a business
+middleman or force KYC." That's a false binary.
+
+The truth: **bank-to-bank request rails exist and are open in the EU, UK, and
+Canada, and semi-open in the US.** The PSP mountain is only required for
+*cards*. If the art bazaar is fine with buyers paying from their own banking
+app (exactly like PromptPay in Thailand), Wabi can do the West the same way it
+did Thailand: **encode the seller's bank destination into a QR/link; Wabi
+never touches money; the seller shares no more than the rail itself requires.**
+
+What PromptPay is in Thailand: a QR that encodes a recipient ID + amount,
+scanned by any Thai banking app, settled instantly. Equivalent rails, 2026:
+
+| Region | Rail | Open QR? | Settle | Middleman needed? | Real-name exposure |
+|---|---|---|---|---|---|
+```
+
+
+---
+
+## 2026-08-11 13:48:21 +07 — Carl posted
+
+### New/updated docs
+
+#### `docs/research/western-bank-to-bank-payments-2026.md`
+
+```
+# Western Bank-to-Bank Payments Research (2026) — "PromptPay for the West" Attempt 2
+
+Status: Research, verified Aug 2026
+Owner: Payments (th-payments / western-payments / btc-payments)
+Related: `PROJECT_DOCS/04-payments/PAYMENTS_NONCUSTODIAL_PLAN.md`, `PROJECT_DOCS/archive/PAYMENTS_IMPLEMENTATION.md`, `PROJECT_DOCS/archive/PAYMENTS_ADAPTER_CONTRACT.md`
+
+## 1) The reframe
+
+The Western problem was never "there are no bank-to-bank rails." It was that
+the **card machine** (PSP / merchant account / Stripe) is the only thing anyone
+talks about, so every Western-payments attempt funnels into "become a business
+middleman or force KYC." That's a false binary.
+
+The truth: **bank-to-bank request rails exist and are open in the EU, UK, and
+Canada, and semi-open in the US.** The PSP mountain is only required for
+*cards*. If the art bazaar is fine with buyers paying from their own banking
+app (exactly like PromptPay in Thailand), Wabi can do the West the same way it
+did Thailand: **encode the seller's bank destination into a QR/link; Wabi
+never touches money; the seller shares no more than the rail itself requires.**
+
+What PromptPay is in Thailand: a QR that encodes a recipient ID + amount,
+scanned by any Thai banking app, settled instantly. Equivalent rails, 2026:
+
+| Region | Rail | Open QR? | Settle | Middleman needed? | Real-name exposure |
+|---|---|---|---|---|---|
+```
+
+
+---
+
+## 2026-08-12 10:32:39 +07 — Carl posted
+
+### New/updated docs
+
+#### `docs/research/western-bank-to-bank-payments-2026.md`
+
+```
+# Western Bank-to-Bank Payments Research (2026) — "PromptPay for the West" Attempt 2
+
+Status: Research, verified Aug 2026
+Owner: Payments (th-payments / western-payments / btc-payments)
+Related: `PROJECT_DOCS/04-payments/PAYMENTS_NONCUSTODIAL_PLAN.md`, `PROJECT_DOCS/archive/PAYMENTS_IMPLEMENTATION.md`, `PROJECT_DOCS/archive/PAYMENTS_ADAPTER_CONTRACT.md`
+
+## 1) The reframe
+
+The Western problem was never "there are no bank-to-bank rails." It was that
+the **card machine** (PSP / merchant account / Stripe) is the only thing anyone
+talks about, so every Western-payments attempt funnels into "become a business
+middleman or force KYC." That's a false binary.
+
+The truth: **bank-to-bank request rails exist and are open in the EU, UK, and
+Canada, and semi-open in the US.** The PSP mountain is only required for
+*cards*. If the art bazaar is fine with buyers paying from their own banking
+app (exactly like PromptPay in Thailand), Wabi can do the West the same way it
+did Thailand: **encode the seller's bank destination into a QR/link; Wabi
+never touches money; the seller shares no more than the rail itself requires.**
+
+What PromptPay is in Thailand: a QR that encodes a recipient ID + amount,
+scanned by any Thai banking app, settled instantly. Equivalent rails, 2026:
+
+| Region | Rail | Open QR? | Settle | Middleman needed? | Real-name exposure |
+|---|---|---|---|---|---|
+```
+

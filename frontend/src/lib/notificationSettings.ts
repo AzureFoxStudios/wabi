@@ -20,7 +20,8 @@ export function getNotificationSound(): string {
 export function getNotificationVolume(): number {
 	if (!browser) return DEFAULT_NOTIFICATION_VOLUME;
 	const volume = localStorage.getItem('notificationVolume');
-	return volume ? parseFloat(volume) : DEFAULT_NOTIFICATION_VOLUME;
+	const parsed = volume ? parseFloat(volume) : DEFAULT_NOTIFICATION_VOLUME;
+	return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : DEFAULT_NOTIFICATION_VOLUME;
 }
 
 export function getCallRingtoneMode(): CallRingtoneMode {

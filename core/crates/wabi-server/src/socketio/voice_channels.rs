@@ -25,10 +25,14 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
     if user_id_num > 0 {
         if let Ok(true) = state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
             warn!("[sio] user {} muted in voice channel {}", user_id_num, channel_id);
+            warn!("[sio] on_voice_channel_join called: channel_id={}, user_id_num={}", channel_id, user_id_num);
             let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "error": "You are muted in this channel" }));
+            warn!("[sio] on_voice_channel_join: user {} muted, returning", user_id_num);
             return;
         }
     }
+
+	warn!("[sio] on_voice_channel_join called: channel_id={}, user_id_num={}", channel_id, user_id_num);
 
     let is_deafened = if user_id_num > 0 {
         state.app.wdb.is_user_deafened(&channel_id, user_id_num as u64).await.unwrap_or(false)
@@ -75,6 +79,7 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
             "members":   current_members,
         }),
     );
+    warn!("[sio] emitted voice-channel-state: channel_id={}, member_count={}", channel_id, current_members.len());
 
     let participant_view = voice_participant_to_view(&participant);
 

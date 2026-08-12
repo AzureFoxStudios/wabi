@@ -763,11 +763,12 @@ export class SocketManager {
 			);
 		});
 
-		sock.on('channel-deleted', (payload: { channelId?: string }) => {
+		sock.on('channel-deleted', (payload: { channelId?: string; channelIds?: string[] }) => {
 			const deletedId = payload?.channelId;
 			if (!deletedId) return;
 			const all = get(channels);
 			const removed = descendantIds(all, deletedId);
+			for (const id of payload.channelIds || []) removed.add(id);
 			removed.add(deletedId);
 			channels.update((list) => list.filter((c) => !removed.has(c.id)));
 			_updatePinnedChannels();
@@ -960,8 +961,10 @@ export class SocketManager {
 		});
 
 		sock.on('voice-channel-state', (payload: { channelId?: string; members?: any[] }) => {
+			console.log('[voice-channel-state] received:', JSON.stringify(payload));
 			if (!payload?.channelId) return;
 			_setVoiceChannelMembers(payload.channelId, Array.isArray(payload.members) ? payload.members : []);
+			console.log('[voice-channel-state] set members for', payload.channelId, 'count:', Array.isArray(payload.members) ? payload.members.length : 0);
 		});
 
 		sock.on('voice-channel-joined', (payload: { channelId?: string; user?: any }) => {

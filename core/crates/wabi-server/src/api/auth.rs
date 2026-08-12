@@ -358,8 +358,9 @@ async fn handle_change_password(
         .await
         .map_err(|e| AppError::Internal(format!("failed to update password: {e}")))?;
 
-    // Force re-auth on other sessions for this user.
-    state.revoke_user(auth.user_id).await;
+    // Force re-auth on OTHER sessions for this user while preserving the
+    // current session (the bearer token that just performed the change).
+    state.revoke_user_other_sessions(auth.user_id, &auth.jti).await;
 
     Ok(Json(json!({ "success": true })))
 }

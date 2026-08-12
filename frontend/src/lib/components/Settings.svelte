@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { _ as t, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
-	import { channelMessages, currentUser, updateProfile } from '$lib/socket';
+	import { channelMessages, currentUser, getSocket, updateProfile } from '$lib/socket';
 	import type { Message } from '$lib/socket';
 	import { chatStorage } from '$lib/storage';
 	import { getAuthToken } from '$lib/authSession';
@@ -206,12 +206,17 @@
 			alert('No image selected for upload.');
 			return;
 		}
+		if (!getSocket()) {
+			avatarUploadError = 'Not connected. Reconnect before updating your profile picture.';
+			avatarUploadStatus = '';
+			return;
+		}
 
 		try {
 			const uploadedProfilePictureUrl = await uploadProfilePictureFile(selectedAvatarFile);
-			updateProfile({ profilePicture: uploadedProfilePictureUrl });
+			await updateProfile({ profilePicture: uploadedProfilePictureUrl });
 			currentUser.update((user) => user ? { ...user, profilePicture: uploadedProfilePictureUrl } : user);
-			avatarUploadStatus = 'Avatar updated locally. Server profile sync requested.';
+			avatarUploadStatus = 'Avatar updated and synced.';
 		} catch (error) {
 			console.error('Error uploading profile picture:', error);
 			avatarUploadError = error instanceof Error ? error.message : 'Failed to upload profile picture. Please try again.';

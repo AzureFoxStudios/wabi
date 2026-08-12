@@ -1306,18 +1306,6 @@
 		transition: opacity var(--duration-fast, 150ms);
 	}
 
-	:global(html[data-clickable-send='true']) .dm-input-area .dm-send-btn {
-		display: none;
-	}
-
-	:global(html[data-clickable-send='true']) .dm-input-area:focus-within .dm-send-btn {
-		display: flex;
-	}
-
-	:global(html[data-clickable-send='false']) .dm-send-btn {
-		display: none;
-	}
-
 	.dm-send-btn:disabled {
 		opacity: var(--opacity-40, 0.4);
 		cursor: default;

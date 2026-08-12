@@ -1279,12 +1279,6 @@
 		flex-shrink: 0;
 	}
 
-	.review-error {
-		font-size: var(--font-size-xs);
-		color: var(--color-danger, #ef4444);
-		max-width: 220px;
-	}
-
 	.review-item-btn {
 		padding: var(--space-1) var(--space-3);
 		border: none;
