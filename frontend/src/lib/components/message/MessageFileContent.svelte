@@ -31,6 +31,9 @@
 	$: effectiveSpoiler = $activeServerUnspoilAll
 		? false
 		: (message.isSpoiler || forceSpoiler || $activeServerSpoilAll || $displayEnhancementSettingsStore.spoilerAllMessagesEnabled);
+	let spoilerRevealed = false;
+	$: mediaIsSpoiled = effectiveSpoiler && !spoilerRevealed;
+	$: if (!effectiveSpoiler) spoilerRevealed = false;
 	export let albumAnnouncement: AlbumAnnouncement | null;
 	export let albumAnnouncementUploadName: string | null;
 	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean) => void;
@@ -166,8 +169,8 @@
 										<img
 											src={getFileUrl(fileAttachment.fileUrl)}
 											alt={fileAttachment.fileName}
-											class="gallery-file-image {effectiveSpoiler ? 'spoiler' : ''}"
-											data-spoiler={effectiveSpoiler ? 'true' : 'false'}
+											class="gallery-file-image {mediaIsSpoiled ? 'spoiler' : ''}"
+											data-spoiler={mediaIsSpoiled ? 'true' : 'false'}
 											on:click={(e) => {
 												if (e.button === 0) {
 													const imageGallery = message.files
@@ -190,9 +193,13 @@
 									<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 									<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
 										<video
-											class="gallery-file-video {effectiveSpoiler ? 'spoiler' : ''}"
-											data-spoiler={effectiveSpoiler ? 'true' : 'false'}
-											on:click={(e) => e.button === 0 && onEnlargeVideo(getFileUrl(fileAttachment.fileUrl))}
+											class="gallery-file-video {mediaIsSpoiled ? 'spoiler' : ''}"
+											data-spoiler={mediaIsSpoiled ? 'true' : 'false'}
+											on:click={(e) => {
+												if (e.button !== 0) return;
+												if (mediaIsSpoiled) { spoilerRevealed = true; return; }
+												onEnlargeVideo(getFileUrl(fileAttachment.fileUrl));
+											}}
 											title={$_('messages.media.click_enlarge')}
 										>
 											<source src={getFileUrl(fileAttachment.fileUrl)} />
@@ -316,9 +323,13 @@
 							<img
 								src={getFileUrl(message.fileUrl)}
 								alt={message.fileName}
-								class="inline-image {effectiveSpoiler ? 'spoiler' : ''}"
-								data-spoiler={effectiveSpoiler ? 'true' : 'false'}
-								on:click={(e) => e.button === 0 && message.fileUrl && onEnlargeImage(getFileUrl(message.fileUrl))}
+								class="inline-image {mediaIsSpoiled ? 'spoiler' : ''}"
+								data-spoiler={mediaIsSpoiled ? 'true' : 'false'}
+								on:click={(e) => {
+									if (e.button !== 0 || !message.fileUrl) return;
+									if (mediaIsSpoiled) { spoilerRevealed = true; return; }
+									onEnlargeImage(getFileUrl(message.fileUrl));
+								}}
 								on:contextmenu={(e) => onImageContextMenu(e, message)}
 								title={$_('messages.media.click_enlarge_with_options')}
 							/>
@@ -336,10 +347,11 @@
 							<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 							<video
 								controls
-								class="inline-video {effectiveSpoiler ? 'spoiler' : ''}"
-								data-spoiler={effectiveSpoiler ? 'true' : 'false'}
+								class="inline-video {mediaIsSpoiled ? 'spoiler' : ''}"
+								data-spoiler={mediaIsSpoiled ? 'true' : 'false'}
 								on:click={(e) => {
 									if (e.button === 0 && message.fileUrl) {
+										if (mediaIsSpoiled) { spoilerRevealed = true; return; }
 										onEnlargeVideo(getFileUrl(message.fileUrl));
 									}
 								}}

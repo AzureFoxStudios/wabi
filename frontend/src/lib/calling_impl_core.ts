@@ -2,7 +2,7 @@ import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
-import { disconnectWabidbCall, connectWabidbCall } from './callingWabidb';
+import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall } from './callingWabidb';
 import {
 	configureLivekitTokenRefresh
 } from './callingLivekitTokenRefresh';
@@ -1103,13 +1103,10 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		return get(localStream);
 	}
 
-	if (activeVoiceChannelId && activeVoiceChannelId !== channelId) {
-		await leaveVoiceChannel(socket, activeVoiceChannelId);
-	}
-
 	// Joining a voice channel while a DM/group call is active keeps the call
 	// running and makes the channel listen-only (TeamSpeak-style).
 	const alreadyInCall = Boolean(get(activeCallSessionId));
+	const hasPrimaryVoiceChannel = Boolean(activeVoiceChannelId);
 
 	try {
 		await prefetchTurnCredentials().catch((err) => {
@@ -1117,8 +1114,9 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		});
 		const activeTransport = await resolveActiveTransport(channelId);
 		const stream = await ensureLocalAudioStream();
-		activeVoiceChannelId = channelId;
-		if (!alreadyInCall) {
+		const listenOnly = alreadyInCall || hasPrimaryVoiceChannel;
+		if (!listenOnly) {
+			activeVoiceChannelId = channelId;
 			callMode.set('channel');
 			isInCall.set(true);
 			isMuted.set(false);
@@ -1126,8 +1124,12 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			startLocalSpeakingMonitor(stream);
 			startPerformanceGuard();
 		}
-		activeVoiceChannel.set({ id: channelId, name: channelId });
-		listeningVoiceChannels.set([channelId]);
+		if (!listenOnly) {
+			activeVoiceChannel.set({ id: channelId, name: channelId });
+		}
+		listeningVoiceChannels.update((channels) => (
+			channels.includes(channelId) ? channels : [...channels, channelId]
+		));
 		if (!get(incomingCall) && !get(outgoingCall)) {
 			incomingCall.set(null);
 		}
@@ -1145,15 +1147,19 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			// Default transport: wabidb/socket.io opus relay. Guarded so a
 			// relay failure doesn't abort the whole channel join.
 			try {
-				await connectWabidbCall(socket, channelId, `${brandName} User`);
+				await connectWabidbCall(socket, channelId, `${brandName} User`, undefined, undefined, listenOnly);
 			} catch (wabidbErr) {
 				console.error('[Calling] wabiDB voice connection failed:', wabidbErr);
 			}
 		}
 		syncSpatialAudioGraph();
 		playCallActionSound('join');
-		socket.emit('voice-channel-join', { channelId });
-		socket.emit('voice-channel-subscribe', { channelId });
+		if (listenOnly) {
+			socket.emit('voice-channel-subscribe', { channelId });
+		} else {
+			socket.emit('voice-channel-join', { channelId });
+			socket.emit('voice-channel-subscribe', { channelId });
+		}
 		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
@@ -1191,12 +1197,14 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		// primary `voice-channel-leave` (that would remove the socket
 		// from whatever primary channel it's transmitting on).
 		socket.emit('voice-channel-unsubscribe', { channelId });
+		void disconnectWabidbChannel(channelId);
 		listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
 		return;
 	}
 
 	socket.emit('voice-channel-leave', { channelId });
 	socket.emit('voice-channel-unsubscribe', { channelId });
+	void disconnectWabidbChannel(channelId);
 	activeVoiceChannelId = null;
 	listeningVoiceChannels.set([]);
 	pushVoiceChannelNotice(`Left voice: ${channelId}`);

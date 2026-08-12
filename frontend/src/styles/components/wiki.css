@@ -191,6 +191,19 @@
 	text-decoration: underline;
 }
 
+.wiki-content-toolbar-link {
+	padding: 0;
+	color: var(--text-link);
+	font: inherit;
+	background: transparent;
+	border: 0;
+	cursor: pointer;
+}
+
+.wiki-content-toolbar-link:hover {
+	text-decoration: underline;
+}
+
 .wiki-content-toolbar-breadcrumb span {
 	color: var(--text-secondary);
 	white-space: nowrap;
@@ -222,6 +235,40 @@
 	border-color: var(--accent-primary);
 	color: var(--accent-primary);
 }
+
+.wiki-copy-error {
+	color: var(--status-danger, #ef6b73);
+	font-size: var(--font-size-xs);
+}
+
+.wiki-table-of-contents {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	max-width: 680px;
+	margin: 0 auto var(--space-6);
+	padding: var(--space-3) var(--space-4);
+	border-left: 2px solid var(--accent-primary);
+	background: var(--surface-base);
+	font-size: var(--font-size-sm);
+}
+
+.wiki-table-of-contents strong {
+	margin-bottom: var(--space-1);
+	color: var(--text-heading);
+}
+
+.wiki-table-of-contents a {
+	color: var(--text-link);
+	text-decoration: none;
+}
+
+.wiki-table-of-contents a:hover {
+	text-decoration: underline;
+}
+
+.wiki-toc-level-2 { padding-left: var(--space-2); }
+.wiki-toc-level-3 { padding-left: var(--space-4); }
 
 .wiki-content-header {
 	padding: var(--space-6) var(--space-8) var(--space-4);
@@ -322,6 +369,50 @@
 
 .wiki-edit-body:focus {
 	border-color: var(--border-focus);
+}
+
+.wiki-editor-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	padding: var(--space-2);
+	border: 1px solid var(--border-default);
+	border-bottom: 0;
+	border-radius: var(--radius-md) var(--radius-md) 0 0;
+	background: var(--surface-base);
+}
+
+.wiki-editor-toolbar button {
+	padding: var(--space-1) var(--space-2);
+	color: var(--text-secondary);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	font-size: var(--font-size-xs);
+}
+
+.wiki-editor-toolbar button:hover,
+.wiki-editor-toolbar button.active {
+	color: var(--accent-primary);
+	border-color: var(--border-default);
+	background: var(--accent-subtle);
+}
+
+.wiki-image-input {
+	display: none;
+}
+
+.wiki-edit-preview {
+	min-height: 240px;
+	border: 1px solid var(--border-default);
+	border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.wiki-edit-status {
+	margin-right: auto;
+	color: var(--text-muted);
+	font-size: var(--font-size-xs);
 }
 
 .wiki-edit-footer {

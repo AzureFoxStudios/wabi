@@ -55,6 +55,20 @@
 		return getLocalNickname(user) || user.username;
 	}
 
+	function getUserRowKey(user: User, group: string, index: number): string {
+		return getUserIdentityKey(user) || `${group}:${user.username || 'guest'}:${index}`;
+	}
+
+	function uniqueUsers(usersToNormalize: User[]): User[] {
+		const seen = new Set<string>();
+		return usersToNormalize.filter((user, index) => {
+			const key = getUserIdentityKey(user) || `guest:${user.username || 'unknown'}:${index}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
+	}
+
 	function hasContextLocalNickname(): boolean {
 		if (!contextMenuUser) return false;
 		return Boolean(getLocalNickname(contextMenuUser));
@@ -76,7 +90,7 @@
 	}
 
 	$: onlineOtherUsers = sortUsersList(
-		$users.filter((user) => {
+		uniqueUsers($users).filter((user) => {
 			if (!matchesSearch(user, friendSearchQuery, isEnhanced, getDisplayName)) return false;
 			return matchesPresenceFilter(user, friendPresenceFilter, false, isEnhanced);
 		}),
@@ -104,7 +118,7 @@
 
 	$: offlineUsers = (() => {
 		const onlineDbIds = new Set($users.map(u => u.dbUserId).filter(Boolean));
-		return $serverMembers
+		return uniqueUsers($serverMembers)
 			.filter(m => !onlineDbIds.has(m.dbUserId))
 			.filter((user) => matchesSearch(user, friendSearchQuery, isEnhanced, getDisplayName))
 			.filter((user) => matchesPresenceFilter(user, friendPresenceFilter, true, isEnhanced))
@@ -283,7 +297,7 @@
 			<div class="role-header">
 				{getRoleLabel(role, roleLabelMap)} - {groupedUsers[role].length}
 			</div>
-			{#each groupedUsers[role] as user, i (user.id ?? "u" + i)}
+			{#each groupedUsers[role] as user, i (getUserRowKey(user, role, i))}
 				<button
 					class="user-row"
 					on:click={() => handleUserClick(user)}
@@ -319,7 +333,7 @@
 				Offline — {offlineUsers.length}
 			</button>
 			{#if offlineSectionExpanded}
-				{#each offlineUsers as user (user.dbUserId)}
+				{#each offlineUsers as user, i (getUserRowKey(user, 'offline', i))}
 					<button
 						class="user-row offline"
 						on:click={() => handleUserClick(user)}

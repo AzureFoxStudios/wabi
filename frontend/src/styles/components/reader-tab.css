@@ -344,13 +344,13 @@
 
 	.reader-document-viewport {
 		overflow-y: auto;
-		padding: 1.5rem 1rem 2rem;
+		padding: clamp(2rem, 5vw, 4rem) clamp(1.25rem, 5vw, 4rem) 5rem;
 	}
 
 	.reader-document {
 		margin: 0 auto;
-		max-width: 48rem;
-		padding: 2.1rem clamp(1.2rem, 2vw, 2rem) 3rem;
+		max-width: 54rem;
+		padding: clamp(2.5rem, 6vw, 5rem) clamp(1.5rem, 5vw, 4.5rem) 5rem;
 		border: 1px solid var(--reader-border, rgba(0, 0, 0, 0.08));
 		border-radius: 16px;
 		background: var(--reader-surface);
@@ -464,8 +464,22 @@
 	}
 
 	.reader-document p {
-		margin: 1.2em 0;
-		line-height: 1.75;
+		margin: 1.45em 0;
+		line-height: 1.9;
+		max-width: 68ch;
+	}
+
+	.reader-document ul,
+	.reader-document ol {
+		max-width: 68ch;
+		padding-left: 1.5em;
+		line-height: 1.85;
+	}
+
+	.reader-document h1 + p,
+	.reader-document h2 + p,
+	.reader-document h3 + p {
+		margin-top: 1.8em;
 	}
 
 	.reader-document li {

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { WorkspacePanelIcon } from '$lib/workspacePanels';
+	import type { WorkspacePanelIcon as WorkspacePanelIconType } from '$lib/workspacePanels';
 
-	export let icon: WorkspacePanelIcon = 'box';
+	export let icon: WorkspacePanelIconType = 'box';
 </script>
 
 {#if icon === 'users'}
@@ -21,6 +21,12 @@
 		<path d="M8 8h8"></path>
 		<path d="M8 12h8"></path>
 		<path d="M8 16h5"></path>
+	</svg>
+{:else if icon === 'layers'}
+	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+		<path d="m12 3 8 4-8 4-8-4 8-4Z"></path>
+		<path d="m4 12 8 4 8-4"></path>
+		<path d="m4 17 8 4 8-4"></path>
 	</svg>
 {:else if icon === 'map'}
 	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">

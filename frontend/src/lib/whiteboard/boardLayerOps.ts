@@ -1,6 +1,6 @@
 import type { WhiteboardLayer } from './boardTypes';
 import type { BoardElement } from './elementTypes';
-import { createDefaultWhiteboardLayer, createLayerId, normalizeWhiteboardLayer, resolveWhiteboardLayerId, sortWhiteboardLayers } from './layers';
+import { createDefaultWhiteboardLayer, createLayerId, createRasterWhiteboardLayer, normalizeWhiteboardLayer, resolveWhiteboardLayerId, sortWhiteboardLayers } from './layers';
 import { pushUndo, type UndoEntry } from './boardUndo';
 
 type PatchType = 'layer:create' | 'layer:update' | 'layer:delete' | 'layer:reorder' | 'layer:select' | 'replace';
@@ -59,6 +59,23 @@ export function addLayer(
 	patchListener: PatchListener | null
 ): { state: BoardState; created: WhiteboardLayer } {
 	return ensureLayer(state, { ...partial, id: partial.id || createLayerId(partial.name || 'Layer') }, patchListener);
+}
+
+export function addRasterLayer(
+	state: BoardState,
+	name: string,
+	patchListener: PatchListener | null
+): { state: BoardState; created: WhiteboardLayer } {
+	const created = createRasterWhiteboardLayer(name, state.layers.length);
+	const nextLayers = sortWhiteboardLayers([...state.layers, created]);
+	const next: BoardState = {
+		...state,
+		layers: nextLayers,
+		activeLayerId: created.id,
+		isDirty: true
+	};
+	if (patchListener) patchListener('layer:create', created);
+	return { state: next, created };
 }
 
 export function updateLayer(

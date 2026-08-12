@@ -33,6 +33,8 @@ const wikiRevisions = writable<WikiRevision[]>([]);
 const wikiLoading = writable(false);
 const wikiError = writable<string | null>(null);
 const wikiChannelId = writable<string | null>(null);
+let loadRequestId = 0;
+let revisionRequestId = 0;
 
 export const wikiPagesStore = wikiPages;
 export const wikiRevisionsStore = wikiRevisions;
@@ -51,7 +53,37 @@ function headers(): Record<string, string> {
 	};
 }
 
+function normalizeWikiPage(value: Record<string, unknown>): WikiPage {
+	return {
+		pageId: String(value.pageId ?? ''),
+		channelId: String(value.channelId ?? ''),
+		title: String(value.title ?? ''),
+		body: String(value.body ?? ''),
+		authorUserId: Number(value.authorUserId ?? 0),
+		createdAtMicros: Number(value.createdAtMicros ?? 0),
+		updatedAtMicros: Number(value.updatedAtMicros ?? 0),
+		isDeleted: Boolean(value.isDeleted),
+		parentPageId: String(value.parentPageId ?? ''),
+		slug: String(value.slug ?? ''),
+		orderIndex: Number(value.orderIndex ?? 0),
+	};
+}
+
+function normalizeWikiRevision(value: Record<string, unknown>): WikiRevision {
+	return {
+		revisionId: String(value.revisionId ?? ''),
+		pageId: String(value.pageId ?? ''),
+		channelId: String(value.channelId ?? ''),
+		editorUserId: Number(value.editorUserId ?? 0),
+		title: String(value.title ?? ''),
+		body: String(value.body ?? ''),
+		summary: String(value.summary ?? ''),
+		createdAtMicros: Number(value.createdAtMicros ?? 0),
+	};
+}
+
 export async function loadWiki(channelId: string): Promise<void> {
+	const requestId = ++loadRequestId;
 	const token = getAuthToken();
 	if (!token || !channelId) {
 		wikiPages.set([]);
@@ -71,29 +103,20 @@ export async function loadWiki(channelId: string): Promise<void> {
 		);
 		if (!res.ok) throw new Error(`Failed to load wiki: ${res.statusText}`);
 		const data = await res.json();
-		const pages: WikiPage[] = (data.pages || []).map((p: Record<string, unknown>) => ({
-			pageId: String(p.pageId ?? ''),
-			channelId: String(p.channelId ?? ''),
-			title: String(p.title ?? ''),
-			body: String(p.body ?? ''),
-			authorUserId: Number(p.authorUserId ?? 0),
-			createdAtMicros: Number(p.createdAtMicros ?? 0),
-			updatedAtMicros: Number(p.updatedAtMicros ?? 0),
-			isDeleted: Boolean(p.isDeleted),
-			parentPageId: String(p.parentPageId ?? ''),
-			slug: String(p.slug ?? ''),
-			orderIndex: Number(p.orderIndex ?? 0),
-		}));
+		if (requestId !== loadRequestId || get(wikiChannelId) !== channelId) return;
+		const pages: WikiPage[] = (data.pages || []).map((p: Record<string, unknown>) => normalizeWikiPage(p));
 		wikiPages.set(pages);
 	} catch (err) {
+		if (requestId !== loadRequestId || get(wikiChannelId) !== channelId) return;
 		wikiError.set(err instanceof Error ? err.message : 'Failed to load wiki pages');
 		wikiPages.set([]);
 	} finally {
-		wikiLoading.set(false);
+		if (requestId === loadRequestId && get(wikiChannelId) === channelId) wikiLoading.set(false);
 	}
 }
 
 export async function loadRevisions(channelId: string, pageId: string): Promise<void> {
+	const requestId = ++revisionRequestId;
 	try {
 		const res = await fetch(
 			`${apiBase()}/${encodeURIComponent(channelId)}/pages/${encodeURIComponent(pageId)}/revisions`,
@@ -101,18 +124,11 @@ export async function loadRevisions(channelId: string, pageId: string): Promise<
 		);
 		if (!res.ok) throw new Error(`Failed to load revisions: ${res.statusText}`);
 		const data = await res.json();
-		const revisions: WikiRevision[] = (data.revisions || []).map((r: Record<string, unknown>) => ({
-			revisionId: String(r.revisionId ?? ''),
-			pageId: String(r.pageId ?? ''),
-			channelId: String(r.channelId ?? ''),
-			editorUserId: Number(r.editorUserId ?? 0),
-			title: String(r.title ?? ''),
-			body: String(r.body ?? ''),
-			summary: String(r.summary ?? ''),
-			createdAtMicros: Number(r.createdAtMicros ?? 0),
-		}));
+		if (requestId !== revisionRequestId || get(wikiChannelId) !== channelId) return;
+		const revisions: WikiRevision[] = (data.revisions || []).map((r: Record<string, unknown>) => normalizeWikiRevision(r));
 		wikiRevisions.set(revisions);
 	} catch (err) {
+		if (requestId !== revisionRequestId || get(wikiChannelId) !== channelId) return;
 		wikiError.set(err instanceof Error ? err.message : 'Failed to load revisions');
 		wikiRevisions.set([]);
 	}
@@ -132,7 +148,7 @@ export async function createWikiPage(
 			}
 		);
 		if (!res.ok) throw new Error(`Failed to create page: ${res.statusText}`);
-		const page: WikiPage = await res.json();
+		const page: WikiPage = normalizeWikiPage(await res.json());
 		wikiPages.update((ps) => [...ps, page]);
 		return page;
 	} catch (err) {
@@ -156,7 +172,7 @@ export async function updateWikiPage(
 			}
 		);
 		if (!res.ok) throw new Error(`Failed to update page: ${res.statusText}`);
-		const page: WikiPage = await res.json();
+		const page: WikiPage = normalizeWikiPage(await res.json());
 		wikiPages.update((ps) => ps.map((p) => (p.pageId === page.pageId ? page : p)));
 		return page;
 	} catch (err) {

@@ -13,6 +13,7 @@
 	import DMTab from './DMTab.svelte';
 	import AdminTab from './AdminTab.svelte';
 	import LoreCodePanel from './lore/LoreCodePanel.svelte';
+	import WhiteboardLayerPanel from './WhiteboardLayerPanel.svelte';
 
 	export let panel: WorkspacePanelManifest;
 
@@ -28,6 +29,8 @@
 {:else if panel.component === 'notes'}
 	<!-- N2: real notes panel (not DMTab / NOTES_DM_ID fake conversation) -->
 	<KeepNotesView compact />
+{:else if panel.component === 'whiteboard-layers'}
+	<WhiteboardLayerPanel />
 {:else if panel.component === 'map'}
 	<MapWorkspace variant="compact" />
 {:else if panel.component === 'media'}

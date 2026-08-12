@@ -54,7 +54,7 @@ export function isVideo(fileName?: string): boolean {
 export function isAudio(fileName?: string): boolean {
 	if (!fileName) return false;
 	const ext = fileName.toLowerCase().split('.').pop() || '';
-	return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma'].includes(ext);
+	return ['mp3', 'wav', 'ogg', 'weba', 'flac', 'm4a', 'aac', 'wma'].includes(ext);
 }
 
 export function getMediaMimeType(fileName?: string): string | null {
@@ -64,6 +64,7 @@ export function getMediaMimeType(fileName?: string): string | null {
 		mp3: 'audio/mpeg',
 		wav: 'audio/wav',
 		ogg: 'audio/ogg',
+		weba: 'audio/webm',
 		flac: 'audio/flac',
 		m4a: 'audio/mp4',
 		aac: 'audio/aac',
@@ -127,7 +128,7 @@ export function getMediaType(url: string): 'image' | 'video' | 'audio' | 'model'
 		const pathname = new URL(url).pathname.toLowerCase();
 		if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i.test(pathname)) return 'image';
 		if (/\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v)(\?|#|$)/i.test(pathname)) return 'video';
-		if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) return 'audio';
+		if (/\.(mp3|wav|ogg|weba|webm|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) return 'audio';
 		if (/\.(glb|gltf|obj|stl)(\?|#|$)/i.test(pathname)) return 'model';
 	} catch {
 		return null;

@@ -27,8 +27,12 @@
 	<div class="gallery-grid">
 		{#each filePreviews as { file, preview }, index}
 			<div class="gallery-item">
-				{#if preview}
+				{#if preview && file.type.startsWith('image/')}
 					<img src={preview} alt={file.name} class="gallery-preview" />
+				{:else if preview && file.type.startsWith('video/')}
+					<video src={preview} class="gallery-preview gallery-video-preview" controls muted playsinline preload="metadata"></video>
+				{:else if preview && file.type.startsWith('audio/')}
+					<div class="gallery-audio-preview"><span aria-hidden="true">🎵</span><audio src={preview} controls preload="metadata"></audio></div>
 				{:else}
 					<div class="gallery-file-icon">
 						{#if file.type.startsWith('video/')}

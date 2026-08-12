@@ -2,7 +2,7 @@ export type MessageMediaType = 'image' | 'video' | 'audio' | 'model';
 
 const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'];
 const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'flv', 'webm', 'm4v'];
-const audioExtensions = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma'];
+const audioExtensions = ['mp3', 'wav', 'ogg', 'weba', 'flac', 'm4a', 'aac', 'wma'];
 const modelExtensions = ['glb', 'gltf', 'obj', 'stl'];
 
 function getExtension(fileName?: string): string {
@@ -23,7 +23,7 @@ export function getMediaType(url: string): MessageMediaType | null {
 
 		if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i.test(pathname)) return 'image';
 		if (/\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v)(\?|#|$)/i.test(pathname)) return 'video';
-		if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) return 'audio';
+		if (/\.(mp3|wav|ogg|weba|webm|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) return 'audio';
 		if (/\.(glb|gltf|obj|stl)(\?|#|$)/i.test(pathname)) return 'model';
 	} catch {
 		// Invalid URL

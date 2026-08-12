@@ -16,14 +16,24 @@
 		type WikiRevision,
 	} from '$lib/wikiStore';
 	import SurfaceToolbar from './SurfaceToolbar.svelte';
+	import { uploadFileResumable } from './chat/uploadResumable';
 	import WikiPageTree from './WikiPageTree.svelte';
 	import WikiRevisionDrawer from './WikiRevisionDrawer.svelte';
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { parseMessage } from '$lib/markdown';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
+	import {
+		extractWikiHeadings,
+		formatWikiCitationMarkdown,
+		getWikiBreadcrumbs,
+		getWikiCitation,
+		insertWikiMarkdown,
+		searchWikiPages,
+	} from '$lib/wikiHelpers';
 
 	$: allPages = $wikiPagesStore;
+	$: visiblePages = wikiSearchQuery.trim() ? searchWikiPages(allPages, wikiSearchQuery).map((result) => result.page) : allPages;
 	$: allRevisions = $wikiRevisionsStore;
 	$: isLoading = $wikiLoadingStore;
 	$: error = $wikiErrorStore;
@@ -38,6 +48,15 @@
 	let newPageTitle = '';
 	let newPageBody = '';
 	let newPageParentId: string | null = null;
+	let wikiSearchQuery = '';
+	let loadedChannelId: string | null = null;
+	let copyError = '';
+	let editPreview = false;
+	let editBodyElement: HTMLTextAreaElement | null = null;
+	let editSavedTitle = '';
+	let editSavedBody = '';
+	let imageInput: HTMLInputElement | null = null;
+	let imageUploading = false;
 
 	initObjectRefRegistry();
 
@@ -56,6 +75,8 @@
 	}
 
 	$: selectedPage = allPages.find((p) => p.pageId === selectedPageId) || null;
+	$: breadcrumbs = selectedPage ? getWikiBreadcrumbs(allPages, selectedPage.pageId) : [];
+	$: headings = extractWikiHeadings(displayBody);
 
 	$: if (selectedPage && $currentChannel) {
 		loadRevisions($currentChannel, selectedPage.pageId);
@@ -64,8 +85,14 @@
 		viewRevision = null;
 	}
 
-	$: if ($currentChannel) {
+	$: if ($currentChannel && $currentChannel !== loadedChannelId) {
+		loadedChannelId = $currentChannel;
 		loadWiki($currentChannel);
+	}
+
+	$: if (!$currentChannel) {
+		loadedChannelId = null;
+		wikiSearchQuery = '';
 	}
 
 	// C2: deep-link handoff after pages load — peek first, take only on hit
@@ -102,6 +129,9 @@
 		if (!selectedPage) return;
 		editTitle = selectedPage.title;
 		editBody = selectedPage.body;
+		editSavedTitle = editTitle;
+		editSavedBody = editBody;
+		editPreview = false;
 		editMode = true;
 		viewRevision = null;
 		showHistory = false;
@@ -109,6 +139,17 @@
 
 	function handleCancelEdit() {
 		editMode = false;
+		editPreview = false;
+	}
+
+	function insertEditMarkdown(insertion: string) {
+		if (!editBodyElement) return;
+		const next = insertWikiMarkdown(editBody, editBodyElement.selectionStart, editBodyElement.selectionEnd, insertion);
+		editBody = next.value;
+		requestAnimationFrame(() => {
+			editBodyElement?.focus();
+			editBodyElement?.setSelectionRange(next.selectionStart, next.selectionEnd);
+		});
 	}
 
 	async function handleSaveEdit() {
@@ -119,6 +160,21 @@
 		});
 		if (result) {
 			editMode = false;
+			editPreview = false;
+		}
+	}
+
+	async function handleWikiImage(file: File) {
+		if (!$currentChannel || !file.type.startsWith('image/')) return;
+		imageUploading = true;
+		try {
+			const uploaded = await uploadFileResumable(file, $currentChannel, () => {}, false);
+			insertEditMarkdown(`![${file.name.replace(/\.[^.]+$/, '')}](${uploaded.fileUrl})`);
+		} catch (err) {
+			copyError = err instanceof Error ? err.message : 'Image upload failed';
+		} finally {
+			imageUploading = false;
+			if (imageInput) imageInput.value = '';
 		}
 	}
 
@@ -149,6 +205,17 @@
 
 	function handleDismissRevision() {
 		viewRevision = null;
+	}
+
+	async function copyWikiCitation() {
+		if (!selectedPage || !$currentChannel) return;
+		const citation = getWikiCitation(window.location.origin, $currentChannel, selectedPage);
+		try {
+			await navigator.clipboard.writeText(formatWikiCitationMarkdown(citation));
+			copyError = '';
+		} catch {
+			copyError = 'Could not copy citation';
+		}
 	}
 
 	function handleOpenNewPage() {
@@ -202,14 +269,14 @@
 <div class="wiki-channel">
 	<SurfaceToolbar
 		searchPlaceholder="Search wiki..."
-		onSearch={() => {}}
+		onSearch={(query) => { wikiSearchQuery = query; }}
 		primaryLabel="+ New Page"
 		onPrimary={handleOpenNewPage}
 	/>
 
 	<div class="wiki-body" class:has-drawer={showHistory}>
 		<WikiPageTree
-			pages={allPages}
+			pages={visiblePages}
 			activePageId={selectedPageId}
 			onSelect={selectPage}
 			onNewChild={handleNewChild}
@@ -266,12 +333,17 @@
 
 				<div class="wiki-content-toolbar">
 					<div class="wiki-content-toolbar-breadcrumb">
-						<a href="#" on:click|preventDefault={() => { selectedPageId = null; }}>Wiki</a>
+						<button type="button" class="wiki-content-toolbar-link" on:click={() => { selectedPageId = null; }}>Wiki</button>
 						<span>/</span>
-						<span>{selectedPage.title}</span>
+						{#each breadcrumbs as crumb, index}
+							{#if index > 0}<span>/</span>{/if}
+							<span>{crumb.title}</span>
+						{/each}
 					</div>
 					{#if !editMode}
 						<button class="wiki-content-toolbar-btn" on:click={handleEdit}>Edit</button>
+						<button class="wiki-content-toolbar-btn" on:click={() => void copyWikiCitation()}>Copy citation</button>
+						{#if copyError}<span class="wiki-copy-error" role="status">{copyError}</span>{/if}
 						<button
 							class="wiki-content-toolbar-btn"
 							class:active={showHistory}
@@ -290,11 +362,27 @@
 							class="wiki-edit-title"
 							bind:value={editTitle}
 						/>
-						<textarea
-							class="wiki-edit-body"
-							bind:value={editBody}
-						></textarea>
+						<div class="wiki-editor-toolbar" role="toolbar" aria-label="Markdown formatting">
+							<button type="button" on:click={() => insertEditMarkdown('**bold**')}>Bold</button>
+							<button type="button" on:click={() => insertEditMarkdown('*italic*')}>Italic</button>
+							<button type="button" on:click={() => insertEditMarkdown('[link text](https://)')}>Link</button>
+							<button type="button" on:click={() => insertEditMarkdown('## Heading\n')}>Heading</button>
+							<button type="button" on:click={() => insertEditMarkdown('> Quote\n')}>Quote</button>
+							<button type="button" disabled={imageUploading} on:click={() => imageInput?.click()}>{imageUploading ? 'Uploading…' : 'Image'}</button>
+							<input class="wiki-image-input" type="file" accept="image/*" bind:this={imageInput} on:change={(event) => { const file = (event.currentTarget as HTMLInputElement).files?.[0]; if (file) void handleWikiImage(file); }} />
+							<button type="button" class:active={editPreview} on:click={() => { editPreview = !editPreview; }}>{editPreview ? 'Edit' : 'Preview'}</button>
+						</div>
+						{#if editPreview}
+							<div class="wiki-edit-preview wiki-content-body">{@html parseMessage(editBody)}</div>
+						{:else}
+							<textarea
+								class="wiki-edit-body"
+								bind:this={editBodyElement}
+								bind:value={editBody}
+							></textarea>
+						{/if}
 						<div class="wiki-edit-footer">
+							<span class="wiki-edit-status">{editTitle !== editSavedTitle || editBody !== editSavedBody ? 'Unsaved changes' : 'No changes'}</span>
 							<button class="wiki-edit-cancel-btn" on:click={handleCancelEdit}>Cancel</button>
 							<button class="wiki-edit-save-btn" on:click={handleSaveEdit}>Save</button>
 						</div>
@@ -326,6 +414,14 @@
 					<div class="wiki-content-body">
 						{@html renderedBody}
 					</div>
+					{#if headings.length > 1}
+						<nav class="wiki-table-of-contents" aria-label="On this page">
+							<strong>On this page</strong>
+							{#each headings.filter((heading) => heading.level <= 3) as heading}
+								<a href={`#${heading.id}`} class="wiki-toc-level-{heading.level}">{heading.text}</a>
+							{/each}
+						</nav>
+					{/if}
 				{/if}
 			{/if}
 		</div>

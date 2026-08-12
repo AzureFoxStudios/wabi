@@ -101,7 +101,7 @@ export async function unsubscribeVoiceChannel(channelId: string): Promise<void> 
 		await db.enqueue({ scopeId: 'corechat', type: 'voice-channel-leave', payload: { channelId } });
 		return;
 	}
-	sock.emit('voice-channel-leave', { channelId });
+	sock.emit('voice-channel-unsubscribe', { channelId });
 }
 
 export async function setVoiceTransmitMode(mode: 'primary' | 'all-listening'): Promise<void> {

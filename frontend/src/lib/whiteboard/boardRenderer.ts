@@ -8,6 +8,7 @@ import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
 import { strokeWidthAt } from './tools';
 import { renderMathToCanvas } from './mathRender';
+import { renderRasterLayer } from './rasterLayers';
 
 // ---------------------------------------------------------------------------
 // Image cache (module-level, shared across renders)
@@ -144,6 +145,7 @@ interface LayerOffscreen {
 	width: number;
 	height: number;
 	dpr: number;
+	contentKey: string;
 }
 
 // Cached per-layer offscreen canvases, keyed by layer id. Recreated only when
@@ -159,7 +161,7 @@ function getLayerCanvas(layerId: string, width: number, height: number, dpr: num
 	const canvas = document.createElement('canvas');
 	canvas.width = Math.max(1, Math.round(width * dpr));
 	canvas.height = Math.max(1, Math.round(height * dpr));
-	const entry: LayerOffscreen = { canvas, ctx: canvas.getContext('2d')!, width, height, dpr };
+	const entry: LayerOffscreen = { canvas, ctx: canvas.getContext('2d')!, width, height, dpr, contentKey: '' };
 	layerCanvasCache.set(layerId, entry);
 	return entry;
 }
@@ -264,11 +266,24 @@ export function renderLayersWithBlend(
 	for (const layer of sortWhiteboardLayers(layers)) {
 		if (layer.visible === false) continue;
 		const els = byLayer.get(layer.id);
+		if (layer.mode === 'raster') {
+			ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity ?? 1));
+			ctx.globalCompositeOperation = (WHITEBOARD_BLEND_MODES.includes(layer.blendMode as (typeof WHITEBOARD_BLEND_MODES)[number])
+				? layer.blendMode
+				: 'source-over') as GlobalCompositeOperation;
+			renderRasterLayer(ctx, layer.id, viewport);
+			ctx.globalAlpha = 1;
+			ctx.globalCompositeOperation = 'source-over';
+		}
 		if (!els || els.length === 0) continue;
 
 		const off = getLayerCanvas(layer.id, canvasW, canvasH, dpr);
-		off.ctx.clearRect(0, 0, off.canvas.width, off.canvas.height);
-		drawElementsToCtx(off.ctx, els, viewport, dpr);
+		const contentKey = `${viewport.x}:${viewport.y}:${viewport.zoom}|${els.map((el) => `${el.id}:${el.updatedAt}:${el.zIndex}:${el.opacity}:${el.locked}`).join('|')}`;
+		if (off.contentKey !== contentKey) {
+			off.ctx.clearRect(0, 0, off.canvas.width, off.canvas.height);
+			drawElementsToCtx(off.ctx, els, viewport, dpr);
+			off.contentKey = contentKey;
+		}
 
 		ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity ?? 1));
 		ctx.globalCompositeOperation = (WHITEBOARD_BLEND_MODES.includes(

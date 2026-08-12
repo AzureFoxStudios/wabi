@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain-file: rust-toolchain.toml
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Run CI
+        run: bash scripts/ci.sh
+
+      # ------------------------------------------------------------------
+      # Placeholder: future "deploy to a test box + smoke wabi.chat"
+      # Uncomment and adapt when you have a test target (e.g. dotZephyrus).
+      # This step intentionally does NOT run in the PR gate by default —
+      # it targets a faux-prod box with real credentials, separate from the
+      # compile+test gate above.
+      #
+      # - name: Deploy to test box + smoke
+      #   if: false  # flip to true when ready
+      #   env:
+      #     WABI_CHAT_HOST: ${{ secrets.WABI_CHAT_HOST }}
+      #     WABI_CHAT_TOKEN: ${{ secrets.WABI_CHAT_TOKEN }}
+      #   run: |
+      #     echo "Deploy + smoke step goes here"
+      #     # e.g. scp binary to test box, ssh in, restart, curl /health
+      # ------------------------------------------------------------------

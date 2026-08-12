@@ -51,6 +51,8 @@
 	let renderScheduled = false;
 	let lastPointerX = 0;
 	let lastPointerY = 0;
+	let renderSamples = 0;
+	let renderTotalMs = 0;
 
 	function updateSize() {
 		if (!containerEl) return;
@@ -73,6 +75,7 @@
 		animFrameId = requestAnimationFrame(render);
 	}
 	function render() {
+		const renderStartedAt = typeof performance !== 'undefined' ? performance.now() : 0;
 		renderScheduled = false;
 		if (!baseCanvas || !interactionCanvas) return;
 		const vp = get(viewport);
@@ -118,6 +121,13 @@
 		}
 		if (remoteCursors.length > 0) renderRemoteCursors(intCtx, remoteCursors, vp);
 		intCtx.restore();
+		if (renderStartedAt > 0 && typeof window !== 'undefined' && window.localStorage.getItem('wabi.whiteboard.perf') === '1') {
+			renderSamples += 1;
+			renderTotalMs += performance.now() - renderStartedAt;
+			if (renderSamples % 60 === 0) {
+				console.debug('[WhiteboardPerf] render', { samples: renderSamples, avgMs: renderTotalMs / renderSamples, elements: els.length, layers: currentLayers.length });
+			}
+		}
 	}
 
 	const unsubEls = elements.subscribe(() => requestRender());

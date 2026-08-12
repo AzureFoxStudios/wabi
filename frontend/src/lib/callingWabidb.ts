@@ -22,7 +22,8 @@ let wabidbCallState: WabiDbCallState | null = null;
 // wabidbMediaRelay will be created in a follow-up card. For now we keep the
 // existing wabidbMediaRelay imported lazily so the call flow doesn't break
 // while the websocket media path is being migrated.
-let wabidbMediaRelay: any = null;
+const wabidbMediaRelays = new Map<string, any>();
+const sessionIds = new Map<string, string>();
 let sessionId: string | null = null;
 let channelId: string | null = null;
 let currentUserId: number | null = null;
@@ -32,17 +33,18 @@ let currentUserId: number | null = null;
 // ============================================================================
 
 export async function disconnectWabidbCall(): Promise<void> {
-	if (wabidbMediaRelay) {
-		try { wabidbMediaRelay.stop?.(); } catch (_) {}
-		wabidbMediaRelay = null;
+	for (const relay of wabidbMediaRelays.values()) {
+		try { relay.stop?.(); } catch (_) {}
 	}
+	wabidbMediaRelays.clear();
 	if (wabidbCallState) {
-		if (sessionId) {
-			try { await wabidbCallState.leaveSession(sessionId, currentUserId ?? 0, ''); } catch (_) {}
+		for (const targetSessionId of sessionIds.values()) {
+			try { await wabidbCallState.leaveSession(targetSessionId, currentUserId ?? 0, ''); } catch (_) {}
 		}
 		wabidbCallState.disconnect();
 		wabidbCallState = null;
 	}
+	sessionIds.clear();
 	sessionId = null;
 	channelId = null;
 	currentUserId = null;
@@ -54,6 +56,19 @@ export async function disconnectWabidbCall(): Promise<void> {
 	}));
 }
 
+export async function disconnectWabidbChannel(targetChannelId: string): Promise<void> {
+	const relay = wabidbMediaRelays.get(targetChannelId);
+	if (relay) {
+		try { relay.stop?.(); } catch (_) {}
+		wabidbMediaRelays.delete(targetChannelId);
+	}
+	const targetSessionId = sessionIds.get(targetChannelId);
+	if (targetSessionId && wabidbCallState) {
+		try { await wabidbCallState.leaveSession(targetSessionId, currentUserId ?? 0, ''); } catch (_) {}
+	}
+	sessionIds.delete(targetChannelId);
+}
+
 const defaultWabidbServer = import.meta.env.VITE_WABI_SERVER_URL ?? '';
 
 export async function connectWabidbCall(
@@ -62,12 +77,11 @@ export async function connectWabidbCall(
 	localDisplayName: string,
 	serverUrl: string = defaultWabidbServer,
 	peerUserId?: string,
+	listenOnly = false,
 ): Promise<void> {
-	if (wabidbCallState && channelId === targetChannelId) {
+	if (wabidbMediaRelays.has(targetChannelId)) {
 		return;
 	}
-
-	await disconnectWabidbCall();
 
 	try {
 		// Use the real authenticated user id instead of a random one so the
@@ -77,7 +91,7 @@ export async function connectWabidbCall(
 		currentUserId = userId;
 		const token = getAuthToken();
 
-		wabidbCallState = new WabiDbCallState({
+		if (!wabidbCallState) wabidbCallState = new WabiDbCallState({
 			serverUrl,
 			token
 		});
@@ -100,7 +114,7 @@ export async function connectWabidbCall(
 
 		connectionState.set('connecting');
 
-		await new Promise<void>((resolve, reject) => {
+		if (!wabidbCallState.isConnected) await new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				reject(new Error('Wabidb connection timeout (10s)'));
 			}, 10000);
@@ -140,7 +154,7 @@ export async function connectWabidbCall(
 		// caller and callee rendezvous on the same wabidb session.
 		try {
 			const { WabidbMediaRelay } = await import('./wabidbMediaRelay');
-			wabidbMediaRelay = new WabidbMediaRelay({
+			const relay = new WabidbMediaRelay({
 				sessionId: newSessionId,
 				userId: String(userId),
 				socket,
@@ -148,13 +162,16 @@ export async function connectWabidbCall(
 				...(isDirectCall
 					? { kind: 'dm' as const, peerStableUserId: peerUserId }
 					: {}),
+				capture: !listenOnly,
 			});
-			await wabidbMediaRelay.start(stream);
+			await relay.start(stream);
+			wabidbMediaRelays.set(targetChannelId, relay);
 		} catch (e) {
 			console.warn('[Wabidb] Media relay import failed, continuing without:', e);
 		}
 
 		socket.emit('join-wabidb-call', { sessionId: newSessionId, channelId: targetChannelId });
+		sessionIds.set(targetChannelId, newSessionId);
 
 		connectionState.set('connected');
 		callTransportState.update((state) => ({
@@ -166,7 +183,7 @@ export async function connectWabidbCall(
 		console.log(`[Wabidb] Call connected to session ${newSessionId}`);
 	} catch (error) {
 		console.error('[Wabidb] Connection failed:', error);
-		await disconnectWabidbCall();
+		await disconnectWabidbChannel(targetChannelId);
 		throw error;
 	}
 }

@@ -7,11 +7,11 @@
   import { getDMOtherUser } from '$lib/userLookupStore';
   import PeoplePicker from './PeoplePicker.svelte';
   import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
-  import NotesView from './NotesView.svelte';
+
   import { openDetachedPanel } from '$lib/detachedPanels';
 
   let showPeoplePicker = false;
-  let dmTab = 'channels' as 'channels' | 'notes';
+
   let showExternalConfig = false;
   let externalApp = 'obsidian' as 'obsidian' | 'notion' | 'logseq' | 'custom' | 'none';
   let customAppUrl = '';
@@ -213,12 +213,6 @@
 </script>
 
 <div class="dm-hub">
-  <div class="dm-hub-tabs">
-    <button class="dm-hub-tab" class:active={dmTab === 'channels'} on:click={() => dmTab = 'channels'}>Direct Messages</button>
-    <button class="dm-hub-tab" class:active={dmTab === 'notes'} on:click={() => dmTab = 'notes'}>Notes</button>
-  </div>
-
-  {#if dmTab === 'channels'}
     <div class="dm-hub-header">
       <div class="dm-hub-title-wrap">
         <span class="dm-hub-title">Direct Messages</span>
@@ -287,46 +281,7 @@
         {/each}
       {/if}
     </div>
-  {:else}
-    <div class="dm-hub-notes">
-      <div class="notes-external-config">
-        <div class="notes-external-header">
-          <span class="notes-external-title">External Note Apps</span>
-          <button class="notes-external-toggle" on:click={() => showExternalConfig = !showExternalConfig} title="Configure external note app">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
-          </button>
-        </div>
-        {#if showExternalConfig}
-          <div class="notes-external-settings">
-            <label class="notes-external-label">
-              <span>App</span>
-              <select bind:value={externalApp} class="notes-external-select">
-                <option value="obsidian">Obsidian</option>
-                <option value="notion">Notion</option>
-                <option value="logseq">Logseq</option>
-                <option value="custom">Custom URL</option>
-                <option value="none">None (local only)</option>
-              </select>
-            </label>
-            {#if externalApp === 'custom'}
-              <label class="notes-external-label">
-                <span>Base URL</span>
-                <input type="url" bind:value={customAppUrl} placeholder="https://your-note-app.com" class="notes-external-input" />
-              </label>
-            {/if}
-            {#if externalApp !== 'none'}
-              <button class="notes-external-test" on:click={testExternalApp}>Test Connection</button>
-              {#if externalAppTestResult}
-                <span class="notes-external-result" class:success={externalAppTestResult === 'ok'} class:error={externalAppTestResult !== 'ok'}>{externalAppTestResult === 'ok' ? 'Connection OK' : externalAppTestResult}</span>
-              {/if}
-            {/if}
-          </div>
-        {/if}
-      </div>
-      <NotesView />
-    </div>
-  {/if}
-</div>
+  </div>
 
 <ContextMenu
   open={contextMenuOpen}
