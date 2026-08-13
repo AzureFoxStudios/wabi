@@ -383,7 +383,7 @@
 		title="Change banner"
 		aria-label="Change banner"
 	>
-		<span class="profile-mock-banner-hint">{bannerUploading ? 'Uploading…' : 'Profile banner · Change'}</span>
+		<span class="profile-mock-banner-hint">{bannerUploading ? 'Uploading profile banner…' : 'Profile banner · Change'}</span>
 	</button>
 
 	<div class="profile-mock-body">
@@ -415,7 +415,7 @@
 					class:offline={!$currentUser || $currentUser.status === 'offline'}
 				></span>
 			</button>
-			<span class="profile-mock-media-label">Profile picture</span>
+			<span class="profile-mock-media-label">Profile picture · click to upload</span>
 			<button
 				type="button"
 				class="profile-mock-overlay-slot"
@@ -431,7 +431,7 @@
 					<span class="profile-mock-overlay-empty" aria-hidden="true"></span>
 				{/if}
 			</button>
-			<span class="profile-mock-media-label">Avatar overlay</span>
+			<span class="profile-mock-media-label">Avatar overlay · click to upload</span>
 		</div>
 
 		<div class="profile-mock-identity">

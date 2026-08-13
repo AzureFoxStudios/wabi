@@ -83,6 +83,7 @@
 </script>
 
 <div class="gif-picker">
+	<div class="gif-search-label"><strong>GIF search</strong><span>Search GIPHY, then scroll the results below.</span></div>
 	<input
 		type="text"
 		placeholder="Search GIFs..."
@@ -118,6 +119,16 @@
 	.gif-picker input {
 		margin: 0.5rem;
 	}
+
+	.gif-search-label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.55rem 0.65rem 0.1rem;
+		color: var(--text-secondary);
+		font-size: 0.72rem;
+	}
+	.gif-search-label strong { color: var(--text-heading); font-size: 0.82rem; }
 
 	.gif-grid {
 		flex: 1;

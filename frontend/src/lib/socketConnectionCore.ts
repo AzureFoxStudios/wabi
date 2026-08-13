@@ -16,7 +16,7 @@ import { SocketReconnectionManager } from './socketConnectionReconnect';
 import { drainOutboundQueue } from '$lib/wabidb/drain';
 import { getWabiDB } from '$lib/wabidb';
 import type { Channel, Message, User } from './socket-types';
-import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels } from './channelStore';
+import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
 import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
 import { isRenderableMessage } from '$lib/displayEnhancements';
 import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
@@ -560,12 +560,22 @@ export class SocketManager {
 			_updatePinnedChannels();
 
 			const activeChannel = get(currentChannel);
-			if (nextChannels.length > 0 && !nextChannels.some((channel) => channel.id === activeChannel)) {
+			const savedChannelId = readLastChannel();
+			const savedChannel = savedChannelId
+				? nextChannels.find((channel) => channel.id === savedChannelId)
+				: undefined;
+			const activeChannelStillExists = nextChannels.some((channel) => channel.id === activeChannel);
+			if (nextChannels.length > 0 && savedChannel) {
+				currentChannel.set(savedChannel.id);
+				joinChannel(savedChannel.id);
+			} else if (nextChannels.length > 0 && !activeChannelStillExists) {
 				const general = nextChannels.find((channel) => channel.id === 'general');
 				const newChannel = (general || nextChannels[0]).id;
 				currentChannel.set(newChannel);
+				persistLastChannel(newChannel);
 				joinChannel(newChannel);
 			} else if (nextChannels.length > 0) {
+				persistLastChannel(activeChannel);
 				joinChannel(activeChannel);
 			}
 

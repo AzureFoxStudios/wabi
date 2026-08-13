@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { emojis } from '$lib/emoji-store';
+	import { emojis, getEmojiSearchTerms } from '$lib/emoji-store';
 	import type { Emoji } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import GifPicker from './emoji/GifPicker.svelte';
@@ -35,8 +35,7 @@
 		const matchesCategory = selectedCategory === 'all' || emoji.category === selectedCategory;
 		const query = searchQuery.trim().toLowerCase();
 		const matchesSearch = query === '' ||
-			emoji.name.toLowerCase().includes(query) ||
-			(emoji.displayName?.toLowerCase().includes(query) ?? false) ||
+			getEmojiSearchTerms(emoji).some((term) => term.includes(query)) ||
 			(emoji.artist?.toLowerCase().includes(query) ?? false);
 		return matchesCategory && matchesSearch;
 	});

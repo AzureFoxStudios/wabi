@@ -27,6 +27,26 @@ export const channels = writable<Channel[]>([]);
 export const pinnedChannels = writable<Channel[]>([]);
 export const currentChannel = writable<string>('general');
 
+const LAST_CHANNEL_STORAGE_KEY = 'wabi:last-channel';
+
+export function readLastChannel(): string | null {
+	if (typeof localStorage === 'undefined') return null;
+	try {
+		const value = localStorage.getItem(LAST_CHANNEL_STORAGE_KEY);
+		return value?.trim() || null;
+	} catch {
+		return null;
+	}
+}
+
+export function persistLastChannel(channelId: string): void {
+	try {
+		localStorage.setItem(LAST_CHANNEL_STORAGE_KEY, channelId);
+	} catch {
+		// best-effort UI preference
+	}
+}
+
 // Archive pagination (client-side)
 export const channelLoadedArchives = writable<Record<string, Set<string>>>({});
 export const channelAvailableArchives = writable<Record<string, string[]>>({});
@@ -62,6 +82,7 @@ export function joinChannel(channelId: string): void {
  * when type/list race left the channel briefly unlisted). */
 export function switchChannel(channelId: string): void {
 	if (!channelId) return;
+	persistLastChannel(channelId);
 	const currentChannelId = get(currentChannel);
 	if (currentChannelId !== channelId) {
 		const previousChannel = get(channels).find((channel) => channel.id === currentChannelId);
