@@ -122,6 +122,9 @@ pub enum ChannelKind {
     /// Planning channel — surfaces the Planner business/workspace view.
     /// Stable wire value: channel_type "planning". Append-only — never renumber.
     Planning = 12,
+    /// Reception desk — welcome + personal room/role board.
+    /// Stable wire value: channel_type "reception". Append-only — never renumber.
+    Reception = 13,
 }
 
 impl Channel {
@@ -804,6 +807,8 @@ mod tests {
         assert_eq!(ChannelKind::Gallery as u8, 9);
         assert_eq!(ChannelKind::Category as u8, 10);
         assert_eq!(ChannelKind::Lore as u8, 11);
+        assert_eq!(ChannelKind::Planning as u8, 12);
+        assert_eq!(ChannelKind::Reception as u8, 13);
     }
 
     #[test]
