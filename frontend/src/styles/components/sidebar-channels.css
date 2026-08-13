@@ -727,6 +727,23 @@
 		padding-right: 5.5rem;
 	}
 
+	/* Progressive disclosure: action buttons stay hidden until the row is
+	   hovered or keyboard-focused. */
+	.unified-channel-item .text-channel-actions,
+	.unified-channel-item .voice-channel-actions {
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity var(--duration-fast, 150ms) ease;
+	}
+
+	.unified-channel-item:hover .text-channel-actions,
+	.unified-channel-item:focus-within .text-channel-actions,
+	.unified-channel-item:hover .voice-channel-actions,
+	.unified-channel-item:focus-within .voice-channel-actions {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
 	.text-channel-item .text-channel-actions > button {
 		width: 24px;
 		min-width: 24px;

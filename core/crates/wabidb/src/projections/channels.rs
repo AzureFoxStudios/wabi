@@ -17,13 +17,13 @@ impl Projection for ChannelProjection {
     }
 
     fn event_types(&self) -> Vec<&str> {
-        vec!["channel_created", "channel_updated"]
+        vec!["channel_created", "channel_updated", "update_settings", "update"]
     }
 
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         match event.event_type.as_str() {
             "channel_created" => self.apply_created(event, state),
-            "channel_updated" => self.apply_updated(event, state),
+            "channel_updated" | "update_settings" | "update" => self.apply_updated(event, state),
             _ => Ok(()),
         }
     }
@@ -58,6 +58,7 @@ impl ChannelProjection {
                 reason: format!("failed to decode channel update: {e}"),
             }
         })?;
+        let patch = patch.get("row").cloned().unwrap_or(patch);
         let channel_id = patch
             .get("channel_id")
             .and_then(|v| v.as_str())

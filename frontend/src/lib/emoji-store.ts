@@ -31,6 +31,25 @@ function toEmoji(server: ServerEmote): Emoji {
 	};
 }
 
+const SEARCH_ALIASES: Record<string, string[]> = {
+	joy: ['happy', 'laugh', 'smile'],
+	smile: ['happy', 'friendly'],
+	heart: ['love', 'like'],
+	dizzy: ['star', 'sparkle', 'giddy'],
+	sweat: ['nervous', 'awkward', 'anxious'],
+	angry: ['mad', 'rage', 'annoyed'],
+	sad: ['cry', 'unhappy', 'upset'],
+	party: ['celebrate', 'celebration', 'fun'],
+	thumbsup: ['approve', 'yes', 'good'],
+	thumbsdown: ['no', 'bad', 'disapprove']
+};
+
+export function getEmojiSearchTerms(emoji: Emoji): string[] {
+	const base = [emoji.name, emoji.displayName || '', emoji.category || ''];
+	const aliases = base.flatMap((term) => SEARCH_ALIASES[term.toLowerCase()] || []);
+	return [...new Set([...base, ...aliases].map((term) => term.trim().toLowerCase()).filter(Boolean))];
+}
+
 /**
  * Merge server emotes into the store, replacing any stale custom entries
  * for the same name (dedupe by emoji id). Bundled (non-custom) entries are

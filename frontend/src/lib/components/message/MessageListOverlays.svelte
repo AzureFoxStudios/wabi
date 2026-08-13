@@ -66,7 +66,12 @@
 		bind:user={popoutUser}
 		anchorElement={popoutAnchorElement}
 		isOwnProfile={popoutIsOwnProfile}
-		on:close={() => showUserPopout = false}
+		on:close={() => {
+			showUserPopout = false;
+			popoutUser = null;
+			popoutAnchorElement = null;
+			popoutIsOwnProfile = false;
+		}}
 		on:openFullProfile={handleOpenFullProfile}
 	/>
 {/if}

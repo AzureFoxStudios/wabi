@@ -186,10 +186,16 @@
 		align-items: center;
 		gap: 0.05rem;
 		justify-content: flex-end;
-		opacity: 1;
-		pointer-events: auto;
+		opacity: 0;
+		pointer-events: none;
 		transform: translateX(0);
 		transition: opacity var(--duration-fast, 150ms) ease, transform var(--duration-fast, 150ms) ease;
+	}
+
+	.voice-channel-item:hover .voice-channel-actions,
+	.voice-channel-item:focus-within .voice-channel-actions {
+		opacity: 1;
+		pointer-events: auto;
 	}
 
 

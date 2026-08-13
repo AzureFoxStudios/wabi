@@ -218,6 +218,26 @@
 		color: var(--text-secondary);
 	}
 
+	.status-label-tooltip {
+		width: 5px;
+		height: 5px;
+		padding: 0;
+		border-radius: 50%;
+		background: var(--status-color, var(--text-muted));
+	}
+
+	.username-handle,
+	.member-since-ghost {
+		color: color-mix(in srgb, var(--text-secondary) 58%, transparent);
+		font-size: 0.72rem;
+	}
+
+	.member-since-ghost {
+		display: block;
+		margin: 0.2rem 0 0.7rem;
+		font-style: italic;
+	}
+
 	.divider {
 		height: 1px;
 		background: color-mix(in srgb, var(--border-subtle) 82%, transparent);

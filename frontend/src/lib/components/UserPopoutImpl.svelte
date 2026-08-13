@@ -416,10 +416,7 @@
 		<div class="popout-body">
 			<div class="username-section">
 				<h3 class="display-name">{popoutDisplayName}</h3>
-				{#if localNickname}
-					<span class="local-identity-note">@{user.username}</span>
-				{/if}
-				<span class="username-tag">#{user.id.slice(-4)}</span>
+				<span class="username-handle">@{user.handle || user.username}</span>
 			</div>
 			{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled || ($displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName))}
 				<div class="popout-role-tags">
@@ -457,7 +454,7 @@
 
 			<div class="status-section">
 				<span class="status-indicator" style="--status-color: {getStatusColor(user.status)}"></span>
-				<span class="status-label">{getStatusLabel(user.status)}</span>
+				<span class="status-label status-label-tooltip" title={getStatusLabel(user.status)} aria-label={getStatusLabel(user.status)}></span>
 			</div>
 
 			<div class="divider"></div>
@@ -506,11 +503,7 @@
 				</div>
 			{/if}
 
-			<!-- Member Since -->
-			<div class="section">
-				<h4 class="section-title">{$_('user.popout.member_since')}</h4>
-				<p class="section-content">{new Date(user.joinedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-			</div>
+			<span class="member-since-ghost">Member since {new Date(user.joinedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
 
 			{#if $displayEnhancementSettingsStore.lastMessageDateEnabled}
 				<div class="section">

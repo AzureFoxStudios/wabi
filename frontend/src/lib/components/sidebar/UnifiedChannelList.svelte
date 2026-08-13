@@ -225,6 +225,12 @@
 				class="channel-btn"
 				data-abbrev={channel.name.charAt(0).toUpperCase()}
 				on:click={(event) => (isVoice ? onVoiceChannelClick(channel.id, event) : onChannelButtonClick(channel.id, event))}
+			on:auxclick={(event) => {
+				if (!isVoice && event.button === 1 && event.altKey) {
+					event.preventDefault();
+					onChannelButtonClick(channel.id, event as unknown as MouseEvent);
+				}
+			}}
 				title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : 'Alt-click to glimpse'}
 			>
 				{#if isVoice}
