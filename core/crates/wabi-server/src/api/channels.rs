@@ -42,6 +42,7 @@ fn channel_kind_to_type(kind: wabidb::domain::ChannelKind, asset_storage: bool) 
         Category => "category",
         Lore => "lore",
         Planning => "planning",
+        Reception => "reception",
     };
     s.to_string()
 }
