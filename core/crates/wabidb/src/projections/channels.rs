@@ -242,4 +242,45 @@ mod tests {
         assert_eq!(updated.parent_id.as_deref(), Some("ch_parent"));
         assert!(updated.force_spoiler);
     }
+
+    #[test]
+    fn apply_update_settings_unwraps_row_and_clears_parent() {
+        let state = ProjectionState::new();
+        let proj = ChannelProjection;
+        let channel = Channel::new("ignored", "general", 42);
+        proj.apply(
+            &DurableEvent {
+                commit_seq: 2,
+                stream_id: "channels".into(),
+                event_type: "channel_created".into(),
+                payload: serde_json::to_vec(&channel).unwrap(),
+            },
+            &state,
+        )
+        .unwrap();
+
+        let channel_id = "ch_2";
+        let wrapped = serde_json::json!({
+            "row": {
+                "channel_id": channel_id,
+                "position": 3,
+                "parent_id": serde_json::Value::Null
+            }
+        });
+        proj.apply(
+            &DurableEvent {
+                commit_seq: 4,
+                stream_id: format!("channels:{channel_id}"),
+                event_type: "update_settings".into(),
+                payload: serde_json::to_vec(&wrapped).unwrap(),
+            },
+            &state,
+        )
+        .unwrap();
+
+        let stored = state.get("channels", channel_id.as_bytes()).unwrap();
+        let updated: Channel = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(updated.position, 3);
+        assert!(updated.parent_id.is_none());
+    }
 }

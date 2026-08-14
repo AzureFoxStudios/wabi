@@ -17,6 +17,19 @@ use crate::state::AppState;
 use serde_json::{json, Value};
 use wabidb::engine::wabi_store::WabiStore;
 
+fn load_auth_policy(state: &AppState) -> Value {
+    std::fs::read_to_string(std::path::PathBuf::from(&state.config.data_dir).join("admin_policies.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Map<String, Value>>(&raw).ok())
+        .and_then(|map| map.get("auth_policy").cloned())
+        .unwrap_or_else(|| json!({
+            "mode": "open",
+            "allowGuest": true,
+            "allowRegister": true,
+            "emailVerifyRequired": false
+        }))
+}
+
 /// Create auth router
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
@@ -69,6 +82,13 @@ async fn handle_register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>> {
+    let auth_policy = load_auth_policy(&state);
+    if auth_policy.get("allowRegister").and_then(Value::as_bool) == Some(false) {
+        return Err(AppError::Forbidden("Registration is closed on this server".into()));
+    }
+    if auth_policy.get("mode").and_then(Value::as_str) == Some("invite") {
+        return Err(AppError::Forbidden("An invite is required to register on this server".into()));
+    }
     if req.username.trim().is_empty() {
         return Err(AppError::BadRequest("Username cannot be empty".into()));
     }
@@ -283,6 +303,10 @@ async fn handle_guest(
     State(state): State<Arc<AppState>>,
     Json(req): Json<GuestRequest>,
 ) -> Result<Json<AuthResponse>> {
+    let auth_policy = load_auth_policy(&state);
+    if auth_policy.get("allowGuest").and_then(Value::as_bool) == Some(false) {
+        return Err(AppError::Forbidden("Guest access is disabled on this server".into()));
+    }
     let username = req
         .username
         .unwrap_or_else(|| format!("Guest_{}", uuid::Uuid::new_v4()));

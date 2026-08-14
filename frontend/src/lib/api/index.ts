@@ -114,6 +114,7 @@ export {
 	getLaunchPageConfig,
 	getLaunchPageConfigFrom,
 	getPublicFrontendAppMetadata,
+	getPublicAuthPolicy,
 	getPublicBackendEndpointsFrom,
 	getSetupStatus,
 	type PublicBackendEndpoint,

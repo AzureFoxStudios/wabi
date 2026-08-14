@@ -198,6 +198,30 @@ export function reorderLayer(
 	return next;
 }
 
+export function moveLayerToIndex(
+	state: BoardState,
+	id: string,
+	targetIndex: number,
+	patchListener: PatchListener | null
+): BoardState {
+	const sorted = sortWhiteboardLayers(state.layers);
+	const currentIndex = sorted.findIndex((layer) => layer.id === id);
+	if (currentIndex === -1) return state;
+	const nextIndex = Math.max(0, Math.min(sorted.length - 1, targetIndex));
+	if (nextIndex === currentIndex) return state;
+	const [layer] = sorted.splice(currentIndex, 1);
+	sorted.splice(nextIndex, 0, layer);
+	const next: BoardState = {
+		...state,
+		layers: sorted.map((candidate, order) => ({ ...candidate, order, updatedAt: Date.now() })),
+		undoStack: pushUndo(state.elements, state.layers, state.activeLayerId, state.undoStack),
+		redoStack: [],
+		isDirty: true
+	};
+	if (patchListener) patchListener('layer:reorder', { id, targetIndex: nextIndex });
+	return next;
+}
+
 export function reorderLayerSilent(state: BoardState, id: string, dir: 'front' | 'back' | 'forward' | 'backward'): BoardState {
 	const sorted = sortWhiteboardLayers(state.layers);
 	const currentIndex = sorted.findIndex((layer) => layer.id === id);

@@ -24,6 +24,8 @@
 	export let readOnly = false;
 
 	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text']);
+	const cursorDisplay = new Map<string, { userId: string; username: string; color: string; x: number; y: number; tx: number; ty: number }>();
+	let cursorAnimId = 0;
 
 	let containerEl: HTMLDivElement;
 	let baseCanvas: HTMLCanvasElement;
@@ -115,11 +117,20 @@
 			const bbox = getSelectionBBox(selectedEls);
 			if (bbox) {
 				renderSelectionBox(intCtx, bbox, vp);
-				const handles = getSelectionHandles(bbox, vp, 8);
+				const handles = getSelectionHandles(bbox, vp, 12);
 				renderHandles(intCtx, handles);
 			}
 		}
-		if (remoteCursors.length > 0) renderRemoteCursors(intCtx, remoteCursors, vp);
+		if (remoteCursors.length > 0) {
+			const displayed = [...cursorDisplay.values()].map((cursor) => ({
+				userId: cursor.userId,
+				username: cursor.username,
+				color: cursor.color,
+				x: cursor.x,
+				y: cursor.y
+			}));
+			renderRemoteCursors(intCtx, displayed, vp);
+		}
 		intCtx.restore();
 		if (renderStartedAt > 0 && typeof window !== 'undefined' && window.localStorage.getItem('wabi.whiteboard.perf') === '1') {
 			renderSamples += 1;
@@ -137,13 +148,64 @@
 		pendingImportsForChannel = channelId ? (pendingByChannel[channelId] || []) : [];
 		void maybeProcessPendingImports();
 	});
-	$: remoteCursors, requestRender();
+	$: remoteCursors, syncCursorTargets();
 	$: channelId, void maybeProcessPendingImports();
 	$: boardId, void maybeProcessPendingImports();
 	$: syncReady, void maybeProcessPendingImports();
 	$: showGrid, requestRender();
 	$: syncImportPreviews(pendingImportsForChannel);
 	$: importPreviewCards = pendingImportsForChannel.slice(0, 3).map((item, index) => ({ id: item.id, fileName: item.file.name, previewUrl: importPreviewUrls.get(item.id) || '', source: item.source, status: importBusy && index === 0 ? 'uploading' : 'queued' }));
+
+	function syncCursorTargets(): void {
+		const seen = new Set<string>();
+		for (const cursor of remoteCursors) {
+			seen.add(cursor.userId);
+			const existing = cursorDisplay.get(cursor.userId);
+			if (existing) {
+				existing.username = cursor.username;
+				existing.color = cursor.color;
+				existing.tx = cursor.x;
+				existing.ty = cursor.y;
+			} else {
+				cursorDisplay.set(cursor.userId, {
+					userId: cursor.userId,
+					username: cursor.username,
+					color: cursor.color,
+					x: cursor.x,
+					y: cursor.y,
+					tx: cursor.x,
+					ty: cursor.y
+				});
+			}
+		}
+		for (const id of [...cursorDisplay.keys()]) {
+			if (!seen.has(id)) cursorDisplay.delete(id);
+		}
+		if (cursorDisplay.size > 0 && !cursorAnimId) {
+			cursorAnimId = requestAnimationFrame(stepCursors);
+		}
+	}
+
+	function stepCursors(): void {
+		cursorAnimId = 0;
+		let moving = false;
+		for (const cursor of cursorDisplay.values()) {
+			const dx = cursor.tx - cursor.x;
+			const dy = cursor.ty - cursor.y;
+			if (Math.abs(dx) < 0.35 && Math.abs(dy) < 0.35) {
+				cursor.x = cursor.tx;
+				cursor.y = cursor.ty;
+				continue;
+			}
+			cursor.x += dx * 0.28;
+			cursor.y += dy * 0.28;
+			moving = true;
+		}
+		requestRender();
+		if (moving) {
+			cursorAnimId = requestAnimationFrame(stepCursors);
+		}
+	}
 
 	function makeToolEvent(e: PointerEvent): ToolPointerEvent {
 		const rect = interactionCanvas.getBoundingClientRect();
@@ -313,8 +375,8 @@
 			const selEls = $elements.filter((e) => $selection.has(e.id));
 			const bbox = getSelectionBBox(selEls);
 			if (bbox) {
-				const handles = getSelectionHandles(bbox, $viewport, 8);
-				const hit = hitTestHandle(handles, lastPointerX, lastPointerY, 12);
+				const handles = getSelectionHandles(bbox, $viewport, 12);
+				const hit = hitTestHandle(handles, lastPointerX, lastPointerY, 22);
 				if (hit) {
 					if (hit.position === 'rotate') return 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\'%3E%3Ccircle cx=\'8\' cy=\'8\' r=\'6\' fill=\'none\' stroke=\'%236366f1\' stroke-width=\'1.5\'/%3E%3Cpath d=\'M8 2 L8 4 M8 12 L8 14 M2 8 L4 8 M12 8 L14 8\' stroke=\'%236366f1\' stroke-width=\'1.5\' fill=\'none\'/%3E%3C/svg%3E") 8 8, auto';
 					if (hit.position.includes('e') || hit.position.includes('w')) return 'ew-resize';
@@ -332,6 +394,7 @@
 	onDestroy(() => {
 		resizeObserver?.disconnect();
 		cancelAnimationFrame(animFrameId);
+		if (cursorAnimId) cancelAnimationFrame(cursorAnimId);
 		unsubEls(); unsubVp(); unsubSel(); unsubPendingImports(); unsubTextPlacement();
 		clearImportError();
 		for (const previewUrl of importPreviewUrls.values()) URL.revokeObjectURL(previewUrl);

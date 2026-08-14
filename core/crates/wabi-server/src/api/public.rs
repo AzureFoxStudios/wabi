@@ -20,6 +20,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/backend-endpoints",
             axum::routing::get(get_backend_endpoints),
         )
+        .route("/auth-policy", axum::routing::get(get_auth_policy))
         .with_state(state)
 }
 
@@ -72,11 +73,10 @@ async fn get_frontend_metadata(
     Ok(Json(body))
 }
 
-/// Launch page configuration — legacy `{title, description, icon_url,
-/// theme_color}` fields plus the LaunchPageConfig fields the frontend merges
-/// into saved-server branding. `enabled` intentionally stays false until a
-/// dedicated launch config exists; the emergent server identity fields are
-/// still served so saved-server name/icon/banner/tagline resolve.
+/// Launch page configuration — identity fields (name/icon/banner/tagline)
+/// are always served for boot + login chrome. `enabled` is only true when
+/// the host actually authored a launch *story* (headline, CTA, highlights,
+/// custom CSS). A logo or banner alone must not open the empty glass panel.
 async fn get_launch_page(State(state): State<Arc<AppState>>) -> Result<Json<Value>> {
     let policy = load_frontend_metadata_policy(&state.config.data_dir);
 
@@ -103,36 +103,80 @@ async fn get_launch_page(State(state): State<Arc<AppState>>) -> Result<Json<Valu
         .get("bannerUrl")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .unwrap_or("/wabi-logo-small.webp")
-        .to_string();
+        .map(|s| s.to_string());
     let accent = policy
         .get("accentColor")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .unwrap_or("#5865F2")
         .to_string();
+    let headline = policy
+        .get("headline")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let hero_title = policy
+        .get("heroTitle")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let hero_cta = policy
+        .get("heroPrimaryCtaLabel")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let has_highlights = policy
+        .get("highlights")
+        .and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty());
+    let has_custom_css = policy
+        .get("customCss")
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty());
+    let launch_enabled = policy
+        .get("launchPageEnabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || hero_title.is_some()
+        || headline.is_some()
+        || hero_cta.is_some()
+        || has_highlights
+        || has_custom_css;
 
     Ok(Json(serde_json::json!({
         "title": name,
         "description": sub,
         "icon_url": icon,
         "theme_color": accent,
-        "enabled": false,
+        "enabled": launch_enabled,
+        "brandProfile": policy.get("brandProfile").cloned().unwrap_or(Value::Null),
         "brandName": name,
-        "headline": null,
+        "headline": headline,
         "subheadline": sub,
         "logoUrl": icon,
-        "backgroundImageUrl": null,
-        "customCss": null,
-        "heroImageUrl": banner,
-        "heroTitle": null,
-        "heroBody": null,
-        "heroPrimaryCtaLabel": null,
-        "heroPrimaryCtaUrl": null,
-        "highlights": [],
-        "footerNote": null,
+        "backgroundImageUrl": banner,
+        "customCss": policy.get("customCss").cloned().unwrap_or(Value::Null),
+        "heroImageUrl": if launch_enabled { banner.clone() } else { None },
+        "heroTitle": hero_title,
+        "heroBody": policy.get("heroBody").cloned().unwrap_or(Value::Null),
+        "heroPrimaryCtaLabel": hero_cta,
+        "heroPrimaryCtaUrl": policy.get("heroPrimaryCtaUrl").cloned().unwrap_or(Value::Null),
+        "highlights": policy.get("highlights").cloned().unwrap_or(Value::Array(vec![])),
+        "footerNote": policy.get("footerNote").cloned().unwrap_or(Value::Null),
         "palette": { "accent": accent }
     })))
+}
+
+async fn get_auth_policy(State(state): State<Arc<AppState>>) -> Result<Json<Value>> {
+    let path = PathBuf::from(&state.config.data_dir).join("admin_policies.json");
+    let policy = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Map<String, Value>>(&raw).ok())
+        .and_then(|map| map.get("auth_policy").cloned())
+        .unwrap_or_else(|| serde_json::json!({
+            "mode": "open",
+            "allowGuest": true,
+            "allowRegister": true,
+            "emailVerifyRequired": false
+        }));
+    Ok(Json(policy))
 }
 
 async fn get_backend_endpoints(

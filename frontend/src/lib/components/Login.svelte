@@ -1,7 +1,8 @@
 	<script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { register, login, saveUserSettings, getLaunchPageConfig, getSetupStatus, type LaunchPageConfig } from '$lib/api';
+	import { register, login, saveUserSettings, getLaunchPageConfig, getPublicAuthPolicy, getSetupStatus, type LaunchPageConfig } from '$lib/api';
+	import type { AuthPolicy } from '../../../../shared/adminPolicyContracts';
 	import { clearAuthSession, setAuthToken, setPersistentAuthToken, setStoredDbUserId } from '$lib/authSession';
 		import { retryDecryptLoadedDmMessages } from '$lib/socket';
 	import { setStoredHomeExperienceMode, type HomeExperienceMode } from '$lib/homeExperience';
@@ -37,18 +38,36 @@
 	let launchPageConfig: LaunchPageConfig | null = null;
 	let wizardMode = false;
 	let showPassword = false;
+	let authPolicy: AuthPolicy = { mode: 'open', allowGuest: true, allowRegister: true, emailVerifyRequired: false };
 
 	$: selectedLocale = $currentLocale || 'en';
-	$: activeLaunchPageConfig = launchPageConfig?.enabled ? launchPageConfig : null;
-	// B3: when no launch page is configured, fall back to the neutral brand config
-	// (strip-Wabi) if the server opted in, otherwise the default brand.
 	$: fallbackBrand = getEffectiveBrandConfig();
-	$: launchStyles = activeLaunchPageConfig
+	// LaunchPanel is a marketing sibling. A host logo/banner is identity, not a story.
+	$: showLaunchPanel = Boolean(
+		launchPageConfig?.enabled &&
+			(launchPageConfig.heroTitle ||
+				launchPageConfig.headline ||
+				(launchPageConfig.heroPrimaryCtaLabel && launchPageConfig.heroPrimaryCtaUrl) ||
+				(launchPageConfig.highlights && launchPageConfig.highlights.length > 0) ||
+				launchPageConfig.customCss)
+	);
+	$: activeLaunchPageConfig = showLaunchPanel ? launchPageConfig : null;
+	$: hostBrandName = launchPageConfig?.brandName || fallbackBrand.name || brandName;
+	$: hostLogoUrl = launchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.webp';
+	$: invertHostLogo = /(?:^|\/)(?:wabi-logo(?:-small)?\.webp|icon\.png)(?:\?|$)/i.test(hostLogoUrl);
+	$: atmosphereUrl = launchPageConfig?.backgroundImageUrl || null;
+	$: launchStyles = launchPageConfig
 		? buildLaunchPageStyles({
 				enabled: true,
-				palette: activeLaunchPageConfig.palette,
-				backgroundImageUrl: activeLaunchPageConfig.backgroundImageUrl,
-				customCss: activeLaunchPageConfig.customCss
+				palette: {
+					backgroundTop: launchPageConfig.palette?.backgroundTop || '',
+					backgroundBottom: launchPageConfig.palette?.backgroundBottom || '',
+					accent: launchPageConfig.palette?.accent || '',
+					text: launchPageConfig.palette?.text || '',
+					cardBackground: launchPageConfig.palette?.cardBackground || ''
+				},
+				backgroundImageUrl: atmosphereUrl || undefined,
+				customCss: showLaunchPanel ? launchPageConfig.customCss || undefined : undefined
 			})
 		: { launchContainerStyle: '', launchCardStyle: '', launchCustomCss: '' };
 	$: launchContainerStyle = launchStyles.launchContainerStyle;
@@ -146,6 +165,10 @@
 			/* non-fatal */
 		}
 		void getLaunchPageConfig().then((config) => { launchPageConfig = config; }).catch((err) => { console.warn('[Login] Failed to load launch page config:', err); });
+		void getPublicAuthPolicy().then((policy) => {
+			authPolicy = policy;
+			if (!policy.allowRegister && !wizardMode) authMode = 'login';
+		});
 		void getSetupStatus().then((status) => { if (status.setupRequired) { wizardMode = true; authMode = 'register'; } });
 		const configured = getConfiguredServerUrl();
 		if (configured) { serverDomain = configured; showConnectionPrompt = false; return; }
@@ -159,7 +182,7 @@
 	<style>{launchCustomCss}</style>
 </svelte:head>
 
-<div class="login-container" style={launchContainerStyle}>
+<div class="login-container" class:has-atmosphere={!!atmosphereUrl} data-login-brand={invertHostLogo ? 'wabi' : 'custom'} style={launchContainerStyle}>
 	<div class="login-shell" class:has-launch={!!activeLaunchPageConfig}>
 		{#if activeLaunchPageConfig}
 			<LaunchPanel config={activeLaunchPageConfig} />
@@ -167,12 +190,16 @@
 
 		<div class="login-box" class:login-box-default={!activeLaunchPageConfig} style={launchCardStyle}>
 			<div class="login-brand-panel">
-				<img src={activeLaunchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.webp'} alt={activeLaunchPageConfig?.brandName || fallbackBrand.name || brandName} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} />
+				<img src={hostLogoUrl} alt={hostBrandName} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} class:login-logo-invert={invertHostLogo} />
 				{#if activeLaunchPageConfig}
-					<h2 class="launch-headline">{activeLaunchPageConfig.headline}</h2>
-					<p class="launch-subheadline">{activeLaunchPageConfig.subheadline}</p>
+					{#if activeLaunchPageConfig.headline}
+						<h2 class="launch-headline">{activeLaunchPageConfig.headline}</h2>
+					{/if}
+					{#if activeLaunchPageConfig.subheadline}
+						<p class="launch-subheadline">{activeLaunchPageConfig.subheadline}</p>
+					{/if}
 				{:else}
-					<h1 class="login-title">{brandName}</h1>
+					<h1 class="login-title">{hostBrandName}</h1>
 				{/if}
 			</div>
 
@@ -258,7 +285,11 @@
 								</button>
 							</form>
 							<p class="auth-alt-prompt">
-								{$_('login.auth.create_account_prompt')} <button type="button" class="auth-link" on:click={() => switchAuthMode('register')}>{$_('login.auth.create_account_link')}</button>
+								{#if authPolicy.allowRegister}
+									{$_('login.auth.create_account_prompt')} <button type="button" class="auth-link" on:click={() => switchAuthMode('register')}>{$_('login.auth.create_account_link')}</button>
+								{:else}
+									Registration is closed on this server.
+								{/if}
 							</p>
 						{:else}
 							<form class="auth-form" on:submit|preventDefault={handleRegister}>
@@ -290,6 +321,7 @@
 							</p>
 						{/if}
 
+						{#if authPolicy.allowGuest}
 						<div class="auth-divider">
 							<span>guest access</span>
 						</div>
@@ -314,6 +346,7 @@
 							<button type="button" class="guest-expand" on:click={() => { guestExpanded = true; error = ''; }}>
 								{$_('login.auth.guest_access_link')}
 							</button>
+						{/if}
 						{/if}
 
 						<div class="auth-footer-row">

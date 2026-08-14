@@ -79,7 +79,8 @@ function defaultState(): BoardState {
 		selection: new Set(),
 		undoStack: [],
 		redoStack: [],
-		isDirty: false
+		isDirty: false,
+		canvasBgColor: '#e6e6e6'
 	};
 }
 
@@ -165,7 +166,7 @@ function setDocument(doc: WhiteboardDocument): void {
 			version: typeof doc.version === 'number' ? doc.version : 0,
 			policy: doc.policy ? { ...doc.policy } : { ...DEFAULT_WHITEBOARD_POLICY },
 			meta: doc.meta ? { ...doc.meta } : { updatedAt: 0, updatedBy: 0 },
-			canvasBgColor: typeof doc.canvasBgColor === 'string' ? doc.canvasBgColor : undefined,
+			canvasBgColor: typeof doc.canvasBgColor === 'string' && doc.canvasBgColor ? doc.canvasBgColor : '#e6e6e6',
 			elements,
 			layers,
 			activeLayerId,
@@ -314,6 +315,10 @@ function deleteLayerSilent(id: string): void {
 
 function reorderLayer(id: string, dir: 'front' | 'back' | 'forward' | 'backward'): void {
 	activeStore().update((s) => fromState(s, layerOps.reorderLayer(toState(s), id, dir, notifyPatch)));
+}
+
+function moveLayerToIndex(id: string, targetIndex: number): void {
+	activeStore().update((s) => fromState(s, layerOps.moveLayerToIndex(toState(s), id, targetIndex, notifyPatch)));
 }
 
 function reorderLayerSilent(id: string, dir: 'front' | 'back' | 'forward' | 'backward'): void {
@@ -490,6 +495,7 @@ export const boardStore = {
 	deleteLayer,
 	deleteLayerSilent,
 	reorderLayer,
+	moveLayerToIndex,
 	reorderLayerSilent,
 	setActiveLayerId,
 	setActiveLayerIdSilent,

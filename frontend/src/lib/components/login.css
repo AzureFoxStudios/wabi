@@ -92,9 +92,37 @@
 .login-logo {
 	height: min(280px, 26vh);
 	margin-bottom: 1.5rem;
-	filter: invert(1) drop-shadow(0 8px 28px rgba(0, 0, 0, 0.45));
+	filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.45));
 	animation: logoFadeIn 0.65s ease-out;
 	transition: height 0.3s ease, margin-bottom 0.3s ease;
+}
+
+/* Only the original black Wabi mark needs invert. Host logos stay as uploaded. */
+.login-logo.login-logo-invert {
+	filter: invert(1) drop-shadow(0 8px 28px rgba(0, 0, 0, 0.45));
+}
+
+.login-container.has-atmosphere {
+	position: relative;
+	background-size: cover;
+	background-position: center;
+	background-repeat: no-repeat;
+}
+
+.login-container.has-atmosphere::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	pointer-events: none;
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--surface-app) 42%, transparent), color-mix(in srgb, var(--surface-sunken) 58%, transparent)),
+		radial-gradient(ellipse 70rem 48rem at 50% -8%, color-mix(in srgb, var(--accent-primary-color) 16%, transparent), transparent 70%);
+}
+
+.login-container.has-atmosphere > .login-shell {
+	position: relative;
+	z-index: 1;
 }
 
 .login-logo.login-logo-compact {

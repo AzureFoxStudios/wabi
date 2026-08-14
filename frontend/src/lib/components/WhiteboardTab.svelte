@@ -137,9 +137,9 @@
 	function ensureCursorCleanupTimer(): void {
 		if (cursorCleanupTimer) return;
 		cursorCleanupTimer = setInterval(() => {
-			const cutoff = Date.now() - 6000;
+			const cutoff = Date.now() - 2500;
 			remoteCursors = remoteCursors.filter((cursor) => cursor.lastSeenAt >= cutoff);
-		}, 3000);
+		}, 800);
 	}
 
 	function syncChannelSession(nextChannelId: string): void {
@@ -162,10 +162,11 @@
 			onRemoteCursor(payload) {
 				const cursor = payload.cursor as { x?: number; y?: number; username?: string; color?: string } | null;
 				if (!cursor || typeof cursor.x !== 'number' || typeof cursor.y !== 'number') return;
+				const existing = remoteCursors.find((item) => item.userId === payload.userId);
 				const entry: RemoteCursorEntry = {
 					userId: payload.userId,
-					username: cursor.username || payload.userId,
-					color: cursor.color || '#6366f1',
+					username: cursor.username || existing?.username || payload.userId,
+					color: cursor.color || existing?.color || '#6366f1',
 					x: cursor.x,
 					y: cursor.y,
 					lastSeenAt: Date.now()

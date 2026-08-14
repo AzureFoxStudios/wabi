@@ -34,7 +34,8 @@ async function refreshSavedServerMetadata(url: string): Promise<void> {
 						logoUrl: launchPageConfig.logoUrl,
 						heroImageUrl: launchPageConfig.heroImageUrl,
 						subheadline: launchPageConfig.subheadline,
-						palette: launchPageConfig.palette
+						palette: launchPageConfig.palette,
+						brandProfile: launchPageConfig.brandProfile
 					}
 					: null
 			};

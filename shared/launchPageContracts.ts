@@ -27,4 +27,5 @@ export interface LaunchPageConfig {
 	highlights: LaunchPageHighlight[];
 	footerNote: string | null;
 	palette: LaunchPagePalette;
+	brandProfile?: string | null;
 }

@@ -335,11 +335,12 @@
 					const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
 					if (!entries.length) return;
 
-					// Prefer active/last-connected entry
-					const sorted = [...entries].sort(
-						(a, b) => (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0)
-					);
-					const entry = sorted[0];
+					// Prefer the entry for this origin. Never paint another server's
+					// identity while visiting an unknown host.
+					const currentOrigin = window.location.origin;
+					const entry = entries.find((candidate) => {
+						try { return new URL(candidate?.url || '').origin === currentOrigin; } catch (_) { return false; }
+					}) || null;
 					if (!entry || typeof entry !== 'object') return;
 
 					const neutral = entry.useNeutralBranding === true;
@@ -377,7 +378,37 @@
 				} catch (_) {
 					/* ignore corrupt storage */
 				}
-			})();
+					if (!window.__WABI_BOOT_BRAND__) {
+						fetch('/api/public/launch-page', { credentials: 'omit' })
+							.then((response) => response.ok ? response.json() : null)
+							.then((launch) => {
+								if (!launch || typeof launch !== 'object') return;
+								const brandName = typeof launch.brandName === 'string' ? launch.brandName.trim() : '';
+								const logoUrl = typeof launch.logoUrl === 'string' ? launch.logoUrl.trim() : '';
+								const accent = typeof launch.palette?.accent === 'string' ? launch.palette.accent : '';
+								if (!brandName && !logoUrl && !accent) return;
+								const snapshot = { brandName, logoUrl, accent, force: true };
+								window.__WABI_BOOT_BRAND__ = snapshot;
+								try {
+									const current = JSON.parse(localStorage.getItem('wabi.savedServers.v1') || '{}');
+									const entries = Array.isArray(current.entries) ? current.entries : [];
+									const index = entries.findIndex((candidate) => {
+										try { return new URL(candidate?.url || '').origin === window.location.origin; } catch (_) { return false; }
+									});
+									if (index >= 0) {
+										entries[index].launchPageBranding = {
+											brandName: launch.brandName || '', logoUrl: launch.logoUrl || '',
+											heroImageUrl: launch.heroImageUrl || null, subheadline: launch.subheadline || '',
+											palette: launch.palette || { accent: accent }, brandProfile: launch.brandProfile || null
+										};
+										localStorage.setItem('wabi.savedServers.v1', JSON.stringify({ ...current, entries }));
+									}
+								} catch (_) { /* cache is best effort */ }
+								if (typeof window.__applyWabiBootBrand === 'function') window.__applyWabiBootBrand(snapshot);
+							})
+							.catch(() => { /* fallback shell remains available */ });
+					}
+				})();
 		</script>
 		%sveltekit.head%
 	</head>
@@ -467,6 +498,11 @@
 						}
 					}
 
+					const defaultWabiLogo = /(?:^|\/)(?:wabi-logo(?:-small)?\.webp|icon\.png)(?:\?|$)/i.test(snap.logoUrl || '');
+					const customHost =
+						!snap.neutral &&
+						((snap.brandName && snap.brandName !== 'Wabi') || (snap.logoUrl && !defaultWabiLogo));
+
 					if (snap.neutral) {
 						shell.dataset.bootBrand = 'neutral';
 						shell.style.setProperty('--boot-accent', snap.accent || '#a1a1aa');
@@ -479,7 +515,7 @@
 							logo.removeAttribute('src');
 							logo.alt = '';
 						}
-					} else if (snap.brandName || snap.logoUrl) {
+					} else if (customHost) {
 						shell.dataset.bootBrand = 'custom';
 						document.documentElement.removeAttribute('data-neutral-branding');
 						if (title) {

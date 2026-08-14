@@ -365,11 +365,71 @@
 		}
 		dispatch('openPaymentHistory');
 	}
+
+	const previewHandle = $derived(
+		$currentUser?.handle
+			? `@${$currentUser.handle}`
+			: $currentUser?.username
+				? `@${$currentUser.username}`
+				: 'No handle'
+	);
+	const previewName = $derived(displayNameDraft.trim() || $currentUser?.username || 'You');
+	const previewJoined = $derived(
+		new Date($currentUser?.joinedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+	);
+	const previewStatus = $derived($currentUser?.status || 'offline');
+	const previewStatusLabel = $derived(
+		previewStatus === 'active' ? 'Online' : previewStatus === 'away' ? 'Away' : previewStatus === 'busy' ? 'Busy' : 'Offline'
+	);
 </script>
 
 <input type="file" accept="image/*" id="banner-file-input" class="hidden-file-input" />
 <input type="file" accept="image/png" id="overlay-file-input" class="hidden-file-input" />
 
+<section class="profile-settings-layout">
+	<div class="profile-preview-column">
+		<p class="profile-preview-kicker">How others see you</p>
+		<div class="profile-preview-card" aria-label="Live profile preview">
+			<div
+				class="profile-preview-banner"
+				class:is-empty={!$currentUser?.bannerUrl || !showBannerLocal || disableAllBannersLocal}
+				style={$currentUser?.bannerUrl && showBannerLocal && !disableAllBannersLocal
+					? `background-image: url(${$currentUser.bannerUrl})`
+					: `background: linear-gradient(135deg, ${$currentUser?.color || 'var(--accent-secondary-color)'}, var(--accent-primary-color))`}
+			></div>
+			<div class="profile-preview-avatar-wrap">
+				<div class="profile-preview-avatar">
+					{#if $currentUser?.profilePicture}
+						<img src={$currentUser.profilePicture} alt="" />
+					{:else}
+						<span class="profile-preview-avatar-fallback" style="--avatar-color: {$currentUser?.color || 'var(--accent-primary-color)'}">
+							{previewName.charAt(0).toUpperCase()}
+						</span>
+					{/if}
+					{#if $currentUser?.overlayUrl && showOverlayLocal && !disableAllBannersLocal}
+						<span class="profile-preview-overlay" style="background-image: url({$currentUser.overlayUrl})"></span>
+					{/if}
+					<span
+						class="profile-preview-status"
+						class:away={previewStatus === 'away'}
+						class:busy={previewStatus === 'busy'}
+						class:offline={previewStatus === 'offline'}
+						title={previewStatusLabel}
+					></span>
+				</div>
+			</div>
+			<div class="profile-preview-body">
+				<strong class="profile-preview-name">{previewName}</strong>
+				<span class="profile-preview-handle">{previewHandle}</span>
+				{#if bioDraft.trim()}
+					<p class="profile-preview-bio">{bioDraft.trim()}</p>
+				{/if}
+				<span class="profile-preview-meta">Member since {previewJoined}</span>
+			</div>
+		</div>
+	</div>
+
+	<div class="profile-editor-column">
 <div class="profile-mock">
 	<button
 		type="button"
@@ -383,7 +443,7 @@
 		title="Change banner"
 		aria-label="Change banner"
 	>
-		<span class="profile-mock-banner-hint">{bannerUploading ? 'Uploading profile banner…' : 'Profile banner · Change'}</span>
+		<span class="profile-mock-banner-hint">{bannerUploading ? 'Uploading banner…' : 'Change banner'}</span>
 	</button>
 
 	<div class="profile-mock-body">
@@ -415,7 +475,7 @@
 					class:offline={!$currentUser || $currentUser.status === 'offline'}
 				></span>
 			</button>
-			<span class="profile-mock-media-label">Profile picture · click to upload</span>
+			<span class="profile-mock-media-label">Profile picture</span>
 			<button
 				type="button"
 				class="profile-mock-overlay-slot"
@@ -431,7 +491,7 @@
 					<span class="profile-mock-overlay-empty" aria-hidden="true"></span>
 				{/if}
 			</button>
-			<span class="profile-mock-media-label">Avatar overlay · click to upload</span>
+			<span class="profile-mock-media-label">Avatar overlay</span>
 		</div>
 
 		<div class="profile-mock-identity">
@@ -506,6 +566,8 @@
 		</label>
 	</div>
 </div>
+	</div>
+</section>
 
 <div class="settings-section">
 	<div class="settings-group-card tight">

@@ -155,13 +155,17 @@ export function getSelectionHandles(bbox: BBox, vp: WhiteboardViewport, size: nu
 }
 
 export function hitTestHandle(handles: Handle[], sx: number, sy: number, size: number): Handle | null {
-	const half = size / 2;
+	let best: Handle | null = null;
+	let bestDist = Infinity;
+	const radius = Math.max(10, size / 2);
 	for (const h of handles) {
-		if (Math.abs(sx - h.x) <= half && Math.abs(sy - h.y) <= half) {
-			return h;
+		const dist = Math.hypot(sx - h.x, sy - h.y);
+		if (dist <= radius && dist < bestDist) {
+			best = h;
+			bestDist = dist;
 		}
 	}
-	return null;
+	return best;
 }
 
 // ---------------------------------------------------------------------------
