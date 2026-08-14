@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { switchChannel, channels } from '$lib/socket';
 	import { serverSettings, toggleServerMutedChannelId, getActiveServerUrl } from '$lib/serverSettings';
+	import { roleDefinitions } from '$lib/presenceStore';
 
 	let generalChannel: Channel | undefined;
 	$: generalChannel = $channels.find((ch) => ch.type === 'text' && ch.name === 'general');
+
+	let selectedRoles = $state<Set<string>>(new Set());
+	const claimableRoles = $derived(
+		$roleDefinitions.filter((role) => role.claimable && role.displayName)
+	);
 
 	function isHidden(channelId: string): boolean {
 		const server = $serverSettings[getActiveServerUrl() || ''];
@@ -12,6 +18,13 @@
 
 	function toggleRoom(channelId: string): void {
 		toggleServerMutedChannelId(channelId);
+	}
+
+	function toggleRole(name: string): void {
+		const next = new Set(selectedRoles);
+		if (next.has(name)) next.delete(name);
+		else next.add(name);
+		selectedRoles = next;
 	}
 
 	function openGeneral() {
@@ -31,11 +44,19 @@
 		<section class="reception-section">
 			<h2>What are you here for?</h2>
 			<div class="chip-row">
-				<button type="button" class="chip">Artist</button>
-				<button type="button" class="chip">Writer</button>
-				<button type="button" class="chip">Voice</button>
-				<button type="button" class="chip">Dev</button>
-				<button type="button" class="chip">Lurker</button>
+				{#each claimableRoles as role}
+					<button
+						type="button"
+						class="chip"
+						class:chip-on={selectedRoles.has(role.displayName)}
+						on:click={() => toggleRole(role.displayName)}
+					>
+						{role.displayName}
+					</button>
+				{/each}
+				{#if claimableRoles.length === 0}
+					<span class="reception-empty">No roles set up yet.</span>
+				{/if}
 			</div>
 		</section>
 
@@ -103,6 +124,15 @@
 		padding: 8px 12px;
 		border-radius: 9999px;
 		cursor: pointer;
+	}
+	.chip-on {
+		background: #5865f2;
+		border-color: #5865f2;
+		color: white;
+	}
+	.reception-empty {
+		color: #b9bbbe;
+		font-size: 13px;
 	}
 	.room-list {
 		display: grid;
