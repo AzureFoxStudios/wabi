@@ -6,7 +6,7 @@ export interface LoreRepo {
 	createdBy: number;
 	createdAt: number;
 	/** 'native' (default) or { mirror: { upstream_url } } for read-only mirrors. Optional for backwards compat. */
-	class?: 'native' | { mirror?: { upstream_url?: string } } | null;
+	class?: 'native' | 'imported' | 'mirror' | { mirror?: { upstream_url?: string } } | null;
 	/** When true, uploads land on an uploads/* review line and need approval to become official. */
 	auto_branch_on_upload?: boolean;
 	/** Source URL retained when files were imported from Git. */
@@ -14,13 +14,26 @@ export interface LoreRepo {
 }
 
 /** Error thrown by lore API helpers — carries the HTTP status for callers to branch on. */
+function normalizeRepoClass(raw: unknown): LoreRepo['class'] {
+	const strCls = typeof raw === 'string' ? raw : undefined;
+	const objCls = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined;
+	if (strCls === 'native' || strCls === 'imported' || strCls === 'mirror') return strCls;
+	if (objCls?.type === 'native') return 'native';
+	if (objCls?.type === 'imported') return 'imported';
+	if (objCls?.type === 'mirror' || objCls?.mirror || objCls?.upstream_url) {
+		const mirror = objCls.mirror as { upstream_url?: string } | undefined;
+		return { mirror: { upstream_url: mirror?.upstream_url ?? (typeof objCls.upstream_url === 'string' ? objCls.upstream_url : undefined) } };
+	}
+	return 'native';
+}
+
 function normalizeLoreRepo(raw: any): LoreRepo {
 	return {
 		channelId: raw.channelId ?? raw.channel_id,
 		repoName: raw.repoName ?? raw.repo_name ?? 'Unnamed repository',
 		createdBy: raw.createdBy ?? raw.created_by,
 		createdAt: raw.createdAt ?? raw.created_at,
-		class: raw.class ?? null,
+		class: normalizeRepoClass(raw.class ?? raw.repo_class ?? raw.type),
 		auto_branch_on_upload: raw.auto_branch_on_upload ?? raw.autoBranchOnUpload ?? false,
 		imported_from: raw.imported_from ?? raw.importedFrom ?? null
 	};

@@ -19,7 +19,7 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 	let activeChannelId = $derived(get(currentChannel));
 	let allChannels = $derived(get(channels));
 
-	let loreChannels = $derived(allChannels.filter((c) => c.type === 'lore'));
+	let loreChannels = $derived(allChannels.filter((c) => (c.type as string | undefined) === 'lore'));
 
 	let selectedId = $state<string | null>(null);
 	let activeTab = $state<'overview' | 'files' | 'history' | 'review' | 'settings'>('overview');
@@ -130,10 +130,10 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 
 	function repoKind(repo: LoreRepo | null): 'native' | 'mirror' | 'imported' | null {
 		if (!repo) return null;
-		const c = repo.class;
-		if (c && typeof c === 'object' && 'mirror' in c) return 'mirror';
-		if (c === 'native' || c == null) return 'native';
-		return 'imported';
+		const kind = typeof repo.class === 'string' ? repo.class : null;
+		if (kind === 'mirror' || (repo.class && typeof repo.class === 'object' && 'mirror' in repo.class)) return 'mirror';
+		if (kind === 'imported' || repo.imported_from) return 'imported';
+		return 'native';
 	}
 
 	onMount(() => {

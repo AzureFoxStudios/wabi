@@ -28,7 +28,7 @@
 
 	let activeChannelId = $derived(get(currentChannel));
 	let allChannels = $derived(get(channels));
-	let loreChannels = $derived(allChannels.filter((c) => c.type === 'lore'));
+	let loreChannels = $derived(allChannels.filter((c) => (c.type as string | undefined) === 'lore'));
 
 	let spaces = $state<Record<number, SpaceRepo>>({});
 	let spacesLoaded = $state(false);
