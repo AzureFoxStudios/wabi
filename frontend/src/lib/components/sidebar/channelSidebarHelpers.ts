@@ -82,7 +82,7 @@ export function sortChannelsByPosition(channels: Channel[]): Channel[] {
 
 export type MixedRootItem =
 	| { kind: 'folder'; id: string; channel: Channel; children: Channel[] }
-	| { kind: 'channel'; id: string; channel: Channel };
+	| { kind: 'channel'; id: string; channel: Channel; isReceptionPinned?: boolean };
 
 /** One root list: folders and uncategorized channels share the same position space. */
 export function buildMixedRoot(all: Channel[], sidebarChannels: Channel[]): MixedRootItem[] {
@@ -104,7 +104,18 @@ export function buildMixedRoot(all: Channel[], sidebarChannels: Channel[]): Mixe
 		}
 	}
 
+	const reception = all.find((channel) => (channel.type as string | undefined) === 'reception');
 	const mixed: MixedRootItem[] = [
+		...(reception
+			? [
+					{
+						kind: 'channel' as const,
+						id: reception.id,
+						channel: reception,
+						isReceptionPinned: true
+					} satisfies MixedRootItem
+				]
+			: []),
 		...folders.map((folder) => ({
 			kind: 'folder' as const,
 			id: folder.id,
