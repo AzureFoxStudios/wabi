@@ -24,6 +24,7 @@ export const QUEUE_ACTION = {
 	DELETE_EMOJI: 'delete-emoji',
 	DELETE_EMOJI_ROLE_RULE: 'delete-emoji-role-rule',
 	CLEAR_CHANNEL_MESSAGES: 'clear-channel-messages',
+	RECEPTION_TOGGLE: 'reception-toggle',
 } as const;
 
 export type QueueAction = (typeof QUEUE_ACTION)[keyof typeof QUEUE_ACTION];
