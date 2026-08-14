@@ -62,6 +62,7 @@
 	import LoreChannelCard from './lore/LoreChannelCard.svelte';
 	import ForumChannel from './ForumChannel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
+import ReceptionBoard from './ReceptionBoard.svelte';
 import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
 import { LORE_ADDON_ID } from '$lib/loreWorkspace';
@@ -485,7 +486,9 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		{:else if currentChannelType === 'wiki'}
 			<WikiChannel />
 		{:else if currentChannelType === 'planning'}
-			<PlannerWorkspace />
+				<PlannerWorkspace />
+		{:else if currentChannelType === 'reception'}
+				<ReceptionBoard />
 		{:else if isRoutedChannelType(currentChannelType)}
 			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType as 'stage'} />
 		{:else}
