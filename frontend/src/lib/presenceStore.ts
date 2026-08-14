@@ -43,6 +43,7 @@ export interface RoleDefinition {
 	priority: number;
 	permissions: string[];
 	color?: string;
+	claimable?: boolean;
 }
 
 // ============================================================================

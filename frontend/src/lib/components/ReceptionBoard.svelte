@@ -1,9 +1,18 @@
 <script lang="ts">
 	import { switchChannel, channels } from '$lib/socket';
-	import type { Channel } from '$lib/socket-types';
+	import { serverSettings, toggleServerMutedChannelId, getActiveServerUrl } from '$lib/serverSettings';
 
 	let generalChannel: Channel | undefined;
 	$: generalChannel = $channels.find((ch) => ch.type === 'text' && ch.name === 'general');
+
+	function isHidden(channelId: string): boolean {
+		const server = $serverSettings[getActiveServerUrl() || ''];
+		return Array.isArray(server?.mutedChannelIds) && server.mutedChannelIds.includes(channelId);
+	}
+
+	function toggleRoom(channelId: string): void {
+		toggleServerMutedChannelId(channelId);
+	}
 
 	function openGeneral() {
 		if (generalChannel?.id) {
@@ -36,10 +45,15 @@
 			<div class="room-list">
 				{#each $channels as ch (ch.id)}
 					{#if ch.type !== 'dm' && ch.type !== 'group'}
-						<label class="room-row">
+						<button
+							type="button"
+							class="room-row"
+							class:room-row-off={isHidden(ch.id)}
+							on:click={() => toggleRoom(ch.id)}
+						>
 							<span class="room-name">#{ch.name}</span>
-							<input type="checkbox" checked />
-						</label>
+							<span class="room-status">{isHidden(ch.id) ? 'Off' : 'On'}</span>
+						</button>
 					{/if}
 				{/each}
 			</div>
@@ -102,6 +116,16 @@
 		border-radius: 8px;
 		background: #2f3136;
 		color: #dcddde;
+		width: 100%;
+		text-align: left;
+		cursor: pointer;
+	}
+	.room-row-off {
+		opacity: 0.7;
+	}
+	.room-status {
+		font-size: 12px;
+		opacity: 0.8;
 	}
 	.reception-footer {
 		display: flex;
