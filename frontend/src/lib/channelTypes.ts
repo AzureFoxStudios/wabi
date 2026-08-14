@@ -1,7 +1,7 @@
 import type { Channel } from './socket-types';
 
 export type RoutedChannelType = 'forum' | 'gallery' | 'wiki' | 'stage' | 'lore' | 'planning';
-export type ChannelType = NonNullable<Channel['type']> | RoutedChannelType;
+export type ChannelType = NonNullable<Channel['type']> | RoutedChannelType | 'reception';
 
 const ROUTED_CHANNEL_TYPES = new Set<string>(['forum', 'gallery', 'wiki', 'stage', 'lore', 'planning']);
 
@@ -34,6 +34,8 @@ export function getChannelTypeLabel(type: string | null | undefined): string {
 			return 'Code';
 		case 'planning':
 			return 'Planning';
+		case 'reception':
+			return 'Reception';
 		default:
 			return 'Text';
 	}
