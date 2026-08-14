@@ -8,8 +8,12 @@
 	{#if config.heroImageUrl}
 		<img class="launch-hero-image" src={config.heroImageUrl} alt={config.brandName} />
 	{/if}
-	<div class="launch-brand">{config.brandName}</div>
-	<h1>{config.heroTitle || config.headline}</h1>
+	{#if config.brandName}
+		<div class="launch-brand">{config.brandName}</div>
+	{/if}
+	{#if config.heroTitle || config.headline}
+		<h1>{config.heroTitle || config.headline}</h1>
+	{/if}
 	{#if config.heroBody || config.subheadline}
 		<p>{config.heroBody || config.subheadline}</p>
 	{/if}
@@ -18,7 +22,7 @@
 			{config.heroPrimaryCtaLabel}
 		</a>
 	{/if}
-	{#if config.highlights.length > 0}
+	{#if config.highlights?.length}
 		<ul class="launch-highlights">
 			{#each config.highlights as highlight, i (i)}
 				<li>

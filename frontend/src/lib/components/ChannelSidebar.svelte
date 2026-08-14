@@ -48,6 +48,7 @@
 	import WikiChannelList from './sidebar/WikiChannelList.svelte';
 	import LoreChannelList from './sidebar/LoreChannelList.svelte';
 	import UnifiedChannelList from './sidebar/UnifiedChannelList.svelte';
+	import { buildMixedRoot, filterMixedRoot, sortChannelsByPosition } from './sidebar/channelSidebarHelpers';
 	import VoiceUserCard from './sidebar/VoiceUserCard.svelte';
 	import ProfileCard from './sidebar/ProfileCard.svelte';
 	import CreateChannelForm from './sidebar/CreateChannelForm.svelte';
@@ -158,7 +159,7 @@
 	function shouldHideChannelFromList(ch: Channel) { return $displayEnhancementSettingsStore.hideMutedCategoriesEnabled && $currentChannel !== ch.id && isChannelLocallyMuted(ch.id); }
 
 		function sortByPosition(channels: Channel[]): Channel[] {
-		return [...channels].sort((a, b) => (a.position ?? 999) - (b.position ?? 999) || a.name.localeCompare(b.name));
+		return sortChannelsByPosition(channels);
 	}
 
 	/**
@@ -232,18 +233,7 @@
 		...loreChannelsAll,
 		...planningChannelsAll,
 	].filter(ch => (ch.type as string | undefined) !== 'category');
-	$: unifiedCategoryMap = groupByCategory(unifiedSidebarChannels, $channels);
-	$: filteredUnifiedCategoryMap = (() => {
-		const query = channelSearchQuery.trim().toLowerCase();
-		if (!query) return unifiedCategoryMap;
-		const categories = unifiedCategoryMap.categories
-			.map((cat) => ({ ...cat, channels: cat.channels.filter((channel) => channel.name.toLowerCase().includes(query)) }))
-			.filter((cat) => cat.name.toLowerCase().includes(query) || cat.channels.length > 0);
-		return {
-			categories,
-			uncategorized: unifiedCategoryMap.uncategorized.filter((channel) => channel.name.toLowerCase().includes(query))
-		};
-	})();
+	$: mixedRootItems = filterMixedRoot(buildMixedRoot($channels, unifiedSidebarChannels), channelSearchQuery);
 	$: unifiedChannelCount = unifiedSidebarChannels.length;
 	$: workspaceChannelCount = textChannelsAll.length + groupChannels.length + voiceChannels.length + galleryChannelsAll.length + forumChannelsAll.length + wikiChannelsAll.length + loreChannelsAll.length + planningChannelsAll.length;
 	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
@@ -438,6 +428,57 @@
 		}
 	}
 
+	function rootItems(): Channel[] {
+		const folderIds = new Set(
+			$channels.filter((c) => (c.type as string | undefined) === 'category').map((c) => c.id)
+		);
+		return $channels
+			.filter((c) => {
+				const type = c.type as string | undefined;
+				if (type === 'thread_public' || type === 'thread_private') return false;
+				if (type === 'category') return true;
+				return !c.parentId || !folderIds.has(c.parentId);
+			})
+			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999) || a.name.localeCompare(b.name));
+	}
+
+	function emitRootOrders(nextRoot: Channel[], extra: { id: string; position: number; parentId: string | null }[] = []) {
+		const orders = nextRoot.map((channel, index) => ({
+			id: channel.id,
+			position: index,
+			parentId: null
+		}));
+		for (const item of extra) {
+			if (!orders.some((order) => order.id === item.id)) orders.push(item);
+		}
+		if (orders.length > 0) reorderChannels(orders);
+	}
+
+	function sectionOf(parentId: string | null) {
+		return $channels
+			.filter(
+				(c) =>
+					(c.parentId ?? null) === parentId &&
+					(c.type as string | undefined) !== 'category' &&
+					(c.type as string | undefined) !== 'thread_public' &&
+					(c.type as string | undefined) !== 'thread_private'
+			)
+			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+	}
+
+	function insertRelative(list: Channel[], fromId: string, toId: string, pos: 'before' | 'after', fallback?: Channel): Channel[] {
+		const next = list.filter((channel) => channel.id !== fromId);
+		const moved = list.find((channel) => channel.id === fromId) ?? fallback;
+		const toIdx = next.findIndex((channel) => channel.id === toId);
+		if (!moved) return next;
+		if (toIdx === -1) {
+			next.push(moved);
+			return next;
+		}
+		next.splice(pos === 'after' ? toIdx + 1 : toIdx, 0, moved);
+		return next;
+	}
+
 	function handleChannelDrop(e: DragEvent, targetChannelId: string) {
 		e.preventDefault();
 		e.stopPropagation();
@@ -450,7 +491,14 @@
 			dropCategoryPosition = null;
 		};
 		if (draggedCategoryId) {
-			// Dropping a folder onto a channel: treat as "before/after that channel's parent section" — ignore for now
+			const target = $channels.find((c) => c.id === targetChannelId);
+			if (target) {
+				const pos = dropPosition ?? 'before';
+				const nextRoot = insertRelative(rootItems().filter((c) => c.id !== draggedCategoryId), draggedCategoryId, target.id, pos);
+				const folder = $channels.find((c) => c.id === draggedCategoryId);
+				if (folder) emitRootOrders(insertRelative(rootItems(), folder.id, target.id, pos));
+				else emitRootOrders(nextRoot);
+			}
 			clearDrag();
 			return;
 		}
@@ -459,76 +507,56 @@
 			return;
 		}
 		const allCh = $channels;
-		const draggedIdx = allCh.findIndex((c) => c.id === draggedChannelId);
-		const targetIdx = allCh.findIndex((c) => c.id === targetChannelId);
-		if (draggedIdx === -1 || targetIdx === -1) {
+		const dragged = allCh.find((c) => c.id === draggedChannelId);
+		const target = allCh.find((c) => c.id === targetChannelId);
+		if (!dragged || !target) {
 			clearDrag();
 			return;
 		}
 
-		const dragged = allCh[draggedIdx];
-		const target = allCh[targetIdx];
-		if (!sameChannelFamily(dragged, target)) {
-			clearDrag();
-			return;
-		}
-
-		const targetParentId = target.parentId ?? null;
-		const sourceParentId = dragged.parentId ?? null;
 		const pos = dropPosition ?? 'before';
-		const orders: { id: string; position: number; parentId: string | null }[] = [];
+		const folderIds = new Set(allCh.filter((c) => (c.type as string | undefined) === 'category').map((c) => c.id));
+		const targetIsRoot = !target.parentId || !folderIds.has(target.parentId);
+		const extra: { id: string; position: number; parentId: string | null }[] = [];
 
-		// Section = same parent folder only (any type). Exclude category channels.
-		const sectionOf = (parentId: string | null) =>
-			allCh
-				.filter(
-					(c) =>
-						(c.parentId ?? null) === parentId &&
-						(c.type as string | undefined) !== 'category' &&
-						(c.type as string | undefined) !== 'thread_public' &&
-						(c.type as string | undefined) !== 'thread_private'
-				)
-				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
-
-		if (sourceParentId === targetParentId) {
-			const sectionChs = sectionOf(targetParentId);
-			const fromIdx = sectionChs.findIndex((c) => c.id === dragged.id);
-			const toIdx = sectionChs.findIndex((c) => c.id === target.id);
-			if (fromIdx === -1 || toIdx === -1) {
-				clearDrag();
-				return;
+		if (targetIsRoot) {
+			const nextRoot = insertRelative(
+				rootItems().map((channel) =>
+					channel.id === dragged.id ? { ...channel, parentId: undefined } : channel
+				),
+				dragged.id,
+				target.id,
+				pos,
+				{ ...dragged, parentId: undefined }
+			);
+			if (dragged.parentId && folderIds.has(dragged.parentId)) {
+				sectionOf(dragged.parentId)
+					.filter((channel) => channel.id !== dragged.id)
+					.forEach((channel, index) => extra.push({ id: channel.id, position: index, parentId: dragged.parentId ?? null }));
 			}
-			const [moved] = sectionChs.splice(fromIdx, 1);
-			let insertAt = toIdx;
-			if (fromIdx < toIdx) {
-				insertAt = pos === 'after' ? toIdx : toIdx - 1;
-			} else {
-				insertAt = pos === 'after' ? toIdx + 1 : toIdx;
-			}
-			insertAt = Math.max(0, Math.min(sectionChs.length, insertAt));
-			sectionChs.splice(insertAt, 0, moved);
-			sectionChs.forEach((ch, i) => {
-				orders.push({ id: ch.id, position: i, parentId: targetParentId });
-			});
+			emitRootOrders(nextRoot, extra);
 		} else {
-			const targetSection = sectionOf(targetParentId).filter((c) => c.id !== dragged.id);
-			const toIdx = targetSection.findIndex((c) => c.id === target.id);
-			const insertAt =
-				toIdx === -1 ? targetSection.length : pos === 'after' ? toIdx + 1 : toIdx;
-			targetSection.splice(Math.max(0, insertAt), 0, dragged);
-			targetSection.forEach((ch, i) => {
-				orders.push({ id: ch.id, position: i, parentId: targetParentId });
-			});
-
-			const fromSection = sectionOf(sourceParentId).filter((c) => c.id !== dragged.id);
-			fromSection.forEach((ch, i) => {
-				if (!orders.some((o) => o.id === ch.id)) {
-					orders.push({ id: ch.id, position: i, parentId: sourceParentId });
+			const targetParentId = target.parentId ?? null;
+			const nextChildren = insertRelative(
+				sectionOf(targetParentId).filter((channel) => channel.id !== dragged.id).concat(
+					dragged.parentId === targetParentId ? [] : [dragged]
+				),
+				dragged.id,
+				target.id,
+				pos
+			);
+			nextChildren.forEach((channel, index) => extra.push({ id: channel.id, position: index, parentId: targetParentId }));
+			if (dragged.parentId !== targetParentId) {
+				if (dragged.parentId && folderIds.has(dragged.parentId)) {
+					sectionOf(dragged.parentId)
+						.filter((channel) => channel.id !== dragged.id)
+						.forEach((channel, index) => extra.push({ id: channel.id, position: index, parentId: dragged.parentId ?? null }));
 				}
-			});
+				emitRootOrders(rootItems().filter((channel) => channel.id !== dragged.id), extra);
+			} else if (extra.length > 0) {
+				reorderChannels(extra);
+			}
 		}
-
-		if (orders.length > 0) reorderChannels(orders);
 		clearDrag();
 	}
 
@@ -576,74 +604,56 @@
 
 	/** Move a channel out of any folder and into the top-level channel list. */
 	function moveChannelToRoot(channelId: string, requestedIndex?: number) {
-		const allCh = $channels;
-		const dragged = allCh.find((c) => c.id === channelId);
+		const dragged = $channels.find((c) => c.id === channelId);
 		if (!dragged || (dragged.type as string | undefined) === 'category') return;
-		const sourceParentId = dragged.parentId ?? null;
-		const rootList = allCh
-			.filter((c) => (c.parentId ?? null) === null && c.id !== dragged.id && (c.type as string | undefined) !== 'category')
-			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
-		const orders: { id: string; position: number; parentId: string | null }[] = [];
-		const insertAt = Math.max(0, Math.min(rootList.length, requestedIndex ?? rootList.length));
-		rootList.splice(insertAt, 0, dragged);
-		rootList.forEach((ch, i) => orders.push({ id: ch.id, position: i, parentId: null }));
-		if (sourceParentId !== null) {
-			allCh
-				.filter((c) => (c.parentId ?? null) === sourceParentId && c.id !== dragged.id && (c.type as string | undefined) !== 'category')
-				.sort((a, b) => (a.position ?? 999) - (b.position ?? 999))
-				.forEach((ch, i) => orders.push({ id: ch.id, position: i, parentId: sourceParentId }));
+		const extra: { id: string; position: number; parentId: string | null }[] = [];
+		if (dragged.parentId) {
+			sectionOf(dragged.parentId)
+				.filter((channel) => channel.id !== dragged.id)
+				.forEach((channel, index) => extra.push({ id: channel.id, position: index, parentId: dragged.parentId ?? null }));
 		}
-		if (orders.length > 0) reorderChannels(orders);
+		const nextRoot = rootItems().filter((channel) => channel.id !== dragged.id);
+		const insertAt = Math.max(0, Math.min(nextRoot.length, requestedIndex ?? nextRoot.length));
+		nextRoot.splice(insertAt, 0, { ...dragged, parentId: undefined });
+		emitRootOrders(nextRoot, extra);
 	}
 
 	function handleRootDrop(e: DragEvent) {
 		e.preventDefault();
 		e.stopPropagation();
 		if (draggedChannelId) moveChannelToRoot(draggedChannelId, 0);
+		if (draggedCategoryId) {
+			const next = rootItems().filter((channel) => channel.id !== draggedCategoryId);
+			const folder = $channels.find((channel) => channel.id === draggedCategoryId);
+			if (folder) next.splice(0, 0, folder);
+			emitRootOrders(next);
+		}
 		handleChannelDragEnd();
 	}
 
 	/** Reorder a channel into the root sequence immediately before or after a folder. */
 	function moveChannelAroundCategory(channelId: string, categoryId: string, position: 'before' | 'after') {
-		const allCh = $channels;
-		const dragged = allCh.find((c) => c.id === channelId);
+		const dragged = $channels.find((c) => c.id === channelId);
 		if (!dragged || (dragged.type as string | undefined) === 'category') return;
-		const rootItems = allCh
-			.filter((c) => (c.parentId ?? null) === null)
-			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
-		const next = rootItems.filter((c) => c.id !== dragged.id);
-		const categoryIndex = next.findIndex((c) => c.id === categoryId);
-		if (categoryIndex < 0) return;
-		next.splice(position === 'after' ? categoryIndex + 1 : categoryIndex, 0, dragged);
-		const orders = next.map((channel, index) => ({ id: channel.id, position: index, parentId: null as string | null }));
-		const sourceChildren = allCh
-			.filter((c) => c.parentId === dragged.parentId && c.id !== dragged.id && (c.type as string | undefined) !== 'category')
-			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
-		sourceChildren.forEach((channel, index) => orders.push({ id: channel.id, position: index, parentId: dragged.parentId ?? null }));
-		reorderChannels(orders);
+		const extra: { id: string; position: number; parentId: string | null }[] = [];
+		if (dragged.parentId) {
+			sectionOf(dragged.parentId)
+				.filter((channel) => channel.id !== dragged.id)
+				.forEach((channel, index) => extra.push({ id: channel.id, position: index, parentId: dragged.parentId ?? null }));
+		}
+		const nextRoot = insertRelative(
+			rootItems().map((channel) => (channel.id === dragged.id ? { ...channel, parentId: undefined } : channel)),
+			dragged.id,
+			categoryId,
+			position,
+			{ ...dragged, parentId: undefined }
+		);
+		emitRootOrders(nextRoot, extra);
 	}
 
-	/** Reorder category folders among themselves (global category position). */
+	/** Reorder a folder among the mixed root list, not a separate folder-only list. */
 	function reorderCategoryFolders(fromId: string, toId: string, pos: 'before' | 'after') {
-		const cats = $channels
-			.filter((c) => (c.type as string | undefined) === 'category')
-			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
-		const fromIdx = cats.findIndex((c) => c.id === fromId);
-		const toIdx = cats.findIndex((c) => c.id === toId);
-		if (fromIdx === -1 || toIdx === -1 || fromId === toId) return;
-		const next = [...cats];
-		const [moved] = next.splice(fromIdx, 1);
-		let insertAt = toIdx;
-		if (fromIdx < toIdx) {
-			insertAt = pos === 'after' ? toIdx : toIdx - 1;
-		} else {
-			insertAt = pos === 'after' ? toIdx + 1 : toIdx;
-		}
-		insertAt = Math.max(0, Math.min(next.length, insertAt));
-		next.splice(insertAt, 0, moved);
-		// Categories are top-level — parentId stays null
-		const orders = next.map((ch, i) => ({ id: ch.id, position: i, parentId: null as string | null }));
-		reorderChannels(orders);
+		emitRootOrders(insertRelative(rootItems(), fromId, toId, pos));
 	}
 
 	function handleCategoryDragOver(e: DragEvent, catId: string) {
@@ -1027,54 +1037,57 @@
 		<button class="section-add-btn section-category-btn" class:active={showCreateInput && newChannelType === 'category'} on:click={openCreateFormForCategory} title="Create category" aria-label="Create category"><span class="plus-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg></span></button>{/if}
 		</div>
 		{#if isTextSectionExpanded}
-		{#if draggedChannelId && !draggedCategoryId}
+		{#if draggedChannelId || draggedCategoryId}
 			<div
 				class="root-drop-gap"
 				role="listitem"
 				on:dragover|stopPropagation={(e) => { e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = 'move'); }}
 				on:drop|stopPropagation={handleRootDrop}
 			>
-				<span>Drop at top level</span>
+				<span>Drop at top</span>
 			</div>
 		{/if}
-	{#each filteredUnifiedCategoryMap.categories as cat (cat.id)}
+	{#each mixedRootItems as item (item.id)}
+		{#if item.kind === 'folder'}
 		<div
 			class="category-row"
-			class:drop-target={categoryDropTargetClass(cat.id) === 'drop-target'}
-			class:drop-before={categoryDropTargetClass(cat.id) === 'drop-before'}
-			class:drop-after={categoryDropTargetClass(cat.id) === 'drop-after'}
-			class:is-dragging={draggedCategoryId === cat.id}
+			class:drop-target={categoryDropTargetClass(item.id) === 'drop-target'}
+			class:drop-before={categoryDropTargetClass(item.id) === 'drop-before'}
+			class:drop-after={categoryDropTargetClass(item.id) === 'drop-after'}
+			class:is-dragging={draggedCategoryId === item.id}
 			draggable="true"
-			title="Drag to reorder folders · Drop channels here to nest"
-			on:dragstart|stopPropagation={(e) => handleCategoryFolderDragStart(e, cat.id)}
-			on:dragover|stopPropagation={(e) => handleCategoryDragOver(e, cat.id)}
-			on:dragleave|stopPropagation={() => handleCategoryDragLeave(cat.id)}
-			on:drop|stopPropagation={(e) => handleCategoryDrop(e, cat.id)}
+			title="Drag to move this folder · Drop a channel on the middle to nest it"
+			on:dragstart|stopPropagation={(e) => handleCategoryFolderDragStart(e, item.id)}
+			on:dragover|stopPropagation={(e) => handleCategoryDragOver(e, item.id)}
+			on:dragleave|stopPropagation={() => handleCategoryDragLeave(item.id)}
+			on:drop|stopPropagation={(e) => handleCategoryDrop(e, item.id)}
 			on:dragend={handleChannelDragEnd}
-			on:contextmenu={(e) => handleChannelRightClick(e, cat.channel)}
-			use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, cat.channel) }}
+			on:contextmenu={(e) => handleChannelRightClick(e, item.channel)}
+			use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, item.channel) }}
 		>
-			<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(cat.id)} on:click={() => toggleCategory(cat.id)}>
+			<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(item.id)} on:click={() => toggleCategory(item.id)}>
 				<span class="category-drag-grip" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
 				<span class="category-chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
 				<span class="category-folder-icon"><svg class="category-folder-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>
-				<span class="category-name">{cat.name}<span class="category-count">{cat.channels.length}</span></span>
+				<span class="category-name">{item.channel.name}<span class="category-count">{item.children.length}</span></span>
 			</button>
 		</div>
-		{#if !collapsedCategories.has(cat.id)}
+		{#if !collapsedCategories.has(item.id)}
 			<div
 				class="category-channels"
-				data-category-id={cat.id}
-				class:drop-target={dropTargetCategoryId === cat.id && !draggedCategoryId}
-				on:dragover|stopPropagation={(e) => handleCategoryDragOver(e, cat.id)}
-				on:dragleave|stopPropagation={() => handleCategoryDragLeave(cat.id)}
-				on:drop|stopPropagation={(e) => handleCategoryDrop(e, cat.id)}
+				data-category-id={item.id}
+				class:drop-target={dropTargetCategoryId === item.id && !draggedCategoryId}
+				on:dragover|stopPropagation={(e) => handleCategoryDragOver(e, item.id)}
+				on:dragleave|stopPropagation={() => handleCategoryDragLeave(item.id)}
+				on:drop|stopPropagation={(e) => handleCategoryDrop(e, item.id)}
 			>
-				<UnifiedChannelList channels={cat.channels} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+				<UnifiedChannelList channels={item.children} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 			</div>
 		{/if}
+		{:else}
+		<UnifiedChannelList channels={[item.channel]} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+		{/if}
 	{/each}
-	<UnifiedChannelList channels={filteredUnifiedCategoryMap.uncategorized} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 	{/if}
 
 		</div>

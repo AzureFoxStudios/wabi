@@ -73,3 +73,73 @@ export function getVoiceOccupancyTitle(channel: Channel, memberCount: number): s
 	if (limit === null) return `${memberCount} in voice`;
 	return `${memberCount}/${limit} in voice`;
 }
+
+export function sortChannelsByPosition(channels: Channel[]): Channel[] {
+	return [...channels].sort(
+		(a, b) => (a.position ?? 999) - (b.position ?? 999) || a.name.localeCompare(b.name)
+	);
+}
+
+export type MixedRootItem =
+	| { kind: 'folder'; id: string; channel: Channel; children: Channel[] }
+	| { kind: 'channel'; id: string; channel: Channel };
+
+/** One root list: folders and uncategorized channels share the same position space. */
+export function buildMixedRoot(all: Channel[], sidebarChannels: Channel[]): MixedRootItem[] {
+	const folders = sortChannelsByPosition(
+		all.filter((channel) => (channel.type as string | undefined) === 'category')
+	);
+	const folderIds = new Set(folders.map((folder) => folder.id));
+	const childrenByFolder = new Map<string, Channel[]>();
+	const uncategorized: Channel[] = [];
+
+	for (const channel of sidebarChannels) {
+		if ((channel.type as string | undefined) === 'category') continue;
+		if (channel.parentId && folderIds.has(channel.parentId)) {
+			const children = childrenByFolder.get(channel.parentId) ?? [];
+			children.push(channel);
+			childrenByFolder.set(channel.parentId, children);
+		} else {
+			uncategorized.push(channel);
+		}
+	}
+
+	const mixed: MixedRootItem[] = [
+		...folders.map((folder) => ({
+			kind: 'folder' as const,
+			id: folder.id,
+			channel: folder,
+			children: sortChannelsByPosition(childrenByFolder.get(folder.id) ?? [])
+		})),
+		...sortChannelsByPosition(uncategorized).map((channel) => ({
+			kind: 'channel' as const,
+			id: channel.id,
+			channel
+		}))
+	];
+
+	return mixed.sort(
+		(a, b) =>
+			(a.channel.position ?? 999) - (b.channel.position ?? 999) ||
+			a.channel.name.localeCompare(b.channel.name)
+	);
+}
+
+export function filterMixedRoot(items: MixedRootItem[], query: string): MixedRootItem[] {
+	const needle = query.trim().toLowerCase();
+	if (!needle) return items;
+	return items
+		.map((item) => {
+			if (item.kind === 'channel') {
+				return item.channel.name.toLowerCase().includes(needle) ? item : null;
+			}
+			const children = item.children.filter((channel) =>
+				channel.name.toLowerCase().includes(needle)
+			);
+			if (item.channel.name.toLowerCase().includes(needle) || children.length > 0) {
+				return { ...item, children };
+			}
+			return null;
+		})
+		.filter((item): item is MixedRootItem => item !== null);
+}

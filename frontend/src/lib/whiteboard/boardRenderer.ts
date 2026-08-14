@@ -555,7 +555,7 @@ function renderMath(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 
 export function renderGrid(ctx: CanvasRenderingContext2D, viewport: WhiteboardViewport, w: number, h: number, gridSize: number): void {
 	const effectiveGrid = gridSize * viewport.zoom;
-	if (effectiveGrid < 6) return; // Too dense
+	if (effectiveGrid < 6) return;
 
 	const startX = -(viewport.x * viewport.zoom) % effectiveGrid;
 	const startY = -(viewport.y * viewport.zoom) % effectiveGrid;
@@ -565,7 +565,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, viewport: WhiteboardVi
 
 	ctx.save();
 	ctx.lineWidth = 1;
-	ctx.strokeStyle = 'rgba(129, 140, 248, 0.16)';
+	ctx.strokeStyle = 'rgba(30, 41, 59, 0.10)';
 	for (let x = startX; x < w; x += effectiveGrid) {
 		ctx.beginPath();
 		ctx.moveTo(Math.round(x) + 0.5, 0);
@@ -579,7 +579,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, viewport: WhiteboardVi
 		ctx.stroke();
 	}
 
-	ctx.strokeStyle = 'rgba(129, 140, 248, 0.3)';
+	ctx.strokeStyle = 'rgba(30, 41, 59, 0.22)';
 	for (let x = majorOffsetX; x < w; x += majorEvery) {
 		ctx.beginPath();
 		ctx.moveTo(Math.round(x) + 0.5, 0);
@@ -591,6 +591,21 @@ export function renderGrid(ctx: CanvasRenderingContext2D, viewport: WhiteboardVi
 		ctx.moveTo(0, Math.round(y) + 0.5);
 		ctx.lineTo(w, Math.round(y) + 0.5);
 		ctx.stroke();
+	}
+
+	if (effectiveGrid >= 10) {
+		ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+		ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+		ctx.textBaseline = 'top';
+		for (let x = majorOffsetX; x < w; x += majorEvery) {
+			const boardX = Math.round(viewport.x + x / viewport.zoom);
+			ctx.fillText(String(boardX), Math.round(x) + 4, 4);
+		}
+		ctx.textBaseline = 'bottom';
+		for (let y = majorOffsetY; y < h; y += majorEvery) {
+			const boardY = Math.round(viewport.y + y / viewport.zoom);
+			ctx.fillText(String(boardY), 4, Math.round(y) - 2);
+		}
 	}
 	ctx.restore();
 }
@@ -613,7 +628,7 @@ export function renderSelectionBox(ctx: CanvasRenderingContext2D, bbox: BBox, vi
 }
 
 export function renderHandles(ctx: CanvasRenderingContext2D, handles: Handle[]): void {
-	const size = 8;
+	const size = 12;
 	for (const h of handles) {
 		if (h.position === 'rotate') {
 			// Rotate handle: circle with crosshair
@@ -692,19 +707,20 @@ export function renderRemoteCursors(ctx: CanvasRenderingContext2D, cursors: Remo
 		const screen = boardToScreen(c.x, c.y, viewport);
 		const color = c.color || '#6366f1';
 
-		// Cursor dot
 		ctx.fillStyle = color;
 		ctx.beginPath();
-		ctx.arc(screen.x, screen.y, 4, 0, Math.PI * 2);
+		ctx.arc(screen.x, screen.y, 5, 0, Math.PI * 2);
 		ctx.fill();
+		ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+		ctx.lineWidth = 1.5;
+		ctx.stroke();
 
-		// Username label
 		ctx.font = '11px sans-serif';
 		const tw = ctx.measureText(c.username).width;
 		const lx = screen.x + 8;
 		const ly = screen.y - 6;
 		ctx.fillStyle = color;
-		ctx.globalAlpha = 0.85;
+		ctx.globalAlpha = 0.88;
 		const pad = 3;
 		ctx.beginPath();
 		ctx.roundRect(lx - pad, ly - 11 - pad, tw + pad * 2, 14 + pad, 4);

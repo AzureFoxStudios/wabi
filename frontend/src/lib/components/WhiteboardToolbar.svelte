@@ -39,13 +39,6 @@
 		{ id: 'align-bottom', label: 'Align bottom', icon: 'align-bottom' }
 	];
 
-	const colorSwatches = [
-		'#1f2937', '#b91c1c', '#c2410c', '#a16207',
-		'#166534', '#0369a1', '#6d28d9', '#be185d',
-		'#1e40af', '#9333ea', '#ea580c', '#059669',
-		'#f59e0b', '#ec4899', '#475569', '#ffffff'
-	];
-
 	const strokeWidths = [1, 2, 4, 8];
 
 	export let onExportPng: (() => void) | null = null;
@@ -230,9 +223,26 @@
 	function setStrokeDash(dash: number[] | undefined) {
 		boardStore.setStyle({ strokeDash: dash });
 	}
+
+	const colorSwatches = ['#111111', '#ffffff', '#e11d48', '#f59e0b', '#16a34a', '#2563eb', '#7c3aed'];
+	let toolbarPinned = false;
+	let toolbarHover = false;
+	$: toolbarOpen = toolbarPinned || toolbarHover;
 </script>
 
-<div class="wb-toolbar">
+<div
+	class="wb-toolbar-rail"
+	class:open={toolbarOpen}
+	class:pinned={toolbarPinned}
+	role="toolbar"
+	aria-label="Whiteboard tools"
+	on:mouseenter={() => (toolbarHover = true)}
+	on:mouseleave={() => (toolbarHover = false)}
+>
+	<button type="button" class="wb-rail-toggle" on:click={() => (toolbarPinned = !toolbarPinned)} aria-pressed={toolbarPinned} title={toolbarPinned ? 'Collapse tools' : 'Keep tools open'}>
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h12M4 10h12M4 14h12"/></svg>
+	</button>
+	<div class="wb-toolbar">
 	<div class="wb-toolbar-section tools">
 		<span class="wb-toolbar-group-label">Tools</span>
 		{#each tools as tool}
@@ -356,67 +366,24 @@
 	<div class="wb-toolbar-divider"></div>
 
 	<div class="wb-toolbar-section colors">
-		<span class="wb-toolbar-group-label">Color</span>
-		<div class="wb-color-picker">
-			<div class="wb-color-field">
-				<input
-					type="color"
-					class="wb-color-native"
-					value={$currentStyle.strokeColor}
-					on:input={(e) => pickStrokeColor((e.currentTarget as HTMLInputElement).value)}
-					disabled={readOnly}
-					title="Stroke color"
-				/>
-				<input
-					type="text"
-					class="wb-color-text"
-					placeholder="#000000"
-					value={strokeColorInput}
-					on:input={(e) => setStrokeColor((e.currentTarget as HTMLInputElement).value)}
-					on:blur={() => { strokeColorInput = $currentStyle.strokeColor }}
-					disabled={readOnly}
-					aria-label="Stroke color hex"
-				/>
-			</div>
-			<div class="wb-color-field">
-				<span class="wb-color-label wb-fill-label">Fill</span>
-				<input
-					type="color"
-					class="wb-color-native"
-					value={$currentStyle.fillColor}
-					on:input={(e) => pickFillColor((e.currentTarget as HTMLInputElement).value)}
-					disabled={readOnly}
-					title="Fill color"
-				/>
-				<input
-					type="text"
-					class="wb-color-text"
-					placeholder="#000000"
-					value={fillColorInput}
-					on:input={(e) => setFillColor((e.currentTarget as HTMLInputElement).value)}
-					on:blur={() => { fillColorInput = $currentStyle.fillColor }}
-					disabled={readOnly}
-					aria-label="Fill color hex"
-				/>
-			</div>
-		</div>
-		<div class="wb-swatch-row">
+		<label class="wb-color-quick" title="Stroke color">
+			<span>Ink</span>
+			<input type="color" value={$currentStyle.strokeColor} on:input={(e) => pickStrokeColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label="Stroke color" />
+		</label>
+		<label class="wb-color-quick" title="Fill color">
+			<span>Fill</span>
+			<input type="color" value={$currentStyle.fillColor === 'transparent' ? '#ffffff' : $currentStyle.fillColor} on:input={(e) => pickFillColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label="Fill color" />
+		</label>
+		<div class="wb-swatch-row" role="group" aria-label="Ink swatches">
 			{#each colorSwatches as color}
-				<button
-					class="wb-color-swatch"
-					class:active={$currentStyle.strokeColor === color}
-					style="--swatch-color: {color}"
-					on:click={() => pickStrokeColor(color)}
-					disabled={readOnly}
-					title={color}
-				></button>
+				<button type="button" class="wb-color-swatch" class:active={$currentStyle.strokeColor === color} style="--swatch-color: {color}" on:click={() => pickStrokeColor(color)} disabled={readOnly} title={color}></button>
 			{/each}
-			</div>
-			</div>
+		</div>
+	</div>
 
-			<div class="wb-toolbar-divider"></div>
+	<div class="wb-toolbar-divider"></div>
 
-			<!-- Canvas background color -->
+	<!-- Canvas background color -->
 			<div class="wb-toolbar-section canvas-bg">
 			<button class="wb-tool-btn" title="Canvas background" on:click={() => canvasBgInput = $boardState.canvasBgColor || ''} disabled={readOnly}>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="14" height="14" rx="2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg>
@@ -567,6 +534,7 @@
 			<span>{policyBadge.label}</span>
 		</div>
 	{/if}
+	</div>
 </div>
 
 {#if mathEditorOpen}
@@ -601,24 +569,50 @@
 {/if}
 
 <style>
-	.wb-toolbar {
+	.wb-toolbar-rail {
 		position: absolute;
-		top: 4.35rem;
-		left: 1rem;
-		transform: none;
+		top: 4.1rem;
+		left: 0.7rem;
 		z-index: 20;
 		display: flex;
 		align-items: flex-start;
-		gap: 0.55rem;
-		padding: 0.55rem 0.65rem;
-		border-radius: 11px;
+		gap: 0.35rem;
+		max-width: calc(100% - 1.4rem);
+	}
+
+	.wb-rail-toggle {
+		width: 2rem;
+		height: 2rem;
+		border: 1px solid color-mix(in srgb, var(--text-heading, #fff) 16%, transparent);
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--surface-base, #24243e) 92%, transparent);
+		color: var(--text-heading, #f8fafc);
+		cursor: pointer;
+	}
+
+	.wb-rail-toggle svg {
+		width: 1rem;
+		height: 1rem;
+	}
+
+	.wb-toolbar {
+		display: none;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.35rem 0.45rem;
+		border-radius: 10px;
 		background: color-mix(in srgb, var(--surface-base, #24243e) 94%, transparent);
-		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 20%, transparent);
-		box-shadow: 0 8px 24px rgba(var(--surface-app-rgb, 15, 23, 42), 0.2);
+		border: 1px solid color-mix(in srgb, var(--text-heading, #fff) 14%, transparent);
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
 		user-select: none;
-		max-width: calc(100% - 2rem);
+		max-width: calc(100vw - 5rem);
 		overflow-x: auto;
 		scrollbar-width: thin;
+	}
+
+	.wb-toolbar-rail.open .wb-toolbar,
+	.wb-toolbar-rail:focus-within .wb-toolbar {
+		display: flex;
 	}
 
 	.wb-toolbar-section {
@@ -626,17 +620,11 @@
 		align-items: center;
 		gap: 3px;
 		flex-shrink: 0;
-		min-height: 2.25rem;
+		min-height: 2rem;
 	}
 
 	.wb-toolbar-group-label {
-		align-self: flex-start;
-		margin: 0 0.15rem 0 0.1rem;
-		font-size: 0.58rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: color-mix(in srgb, var(--text-secondary, #b3b3ff) 68%, transparent);
+		display: none;
 	}
 
 	.wb-toolbar-section.tools,
@@ -644,21 +632,37 @@
 	.wb-toolbar-section.exports,
 	.wb-toolbar-section.colors,
 	.wb-brush-settings {
-		flex-direction: column;
-		align-items: stretch;
-		gap: 0.3rem;
-		padding: 0 0.2rem;
-	}
-
-	.wb-toolbar-section.tools {
 		flex-direction: row;
 		align-items: center;
-		flex-wrap: wrap;
-		max-width: 16rem;
+		flex-wrap: nowrap;
+		max-width: none;
+		padding: 0;
 	}
 
-	.wb-toolbar-section.tools .wb-toolbar-group-label {
-		width: 100%;
+	.wb-color-quick-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.wb-color-quick {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.58rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		color: var(--text-secondary, #d7ddf5);
+	}
+
+	.wb-color-quick input {
+		width: 1.35rem;
+		height: 1.35rem;
+		padding: 0;
+		border: 1px solid color-mix(in srgb, var(--text-inverse, #fff) 32%, transparent);
+		border-radius: 5px;
+		background: transparent;
+		cursor: pointer;
 	}
 
 	.wb-toolbar-section.actions,

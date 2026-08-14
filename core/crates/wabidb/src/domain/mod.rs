@@ -232,6 +232,7 @@ pub struct RoleDefinition {
     pub role: MemberRole,
     pub permissions: u64,
     pub description: String,
+    pub claimable: bool,
 }
 
 /// A custom emote definition.

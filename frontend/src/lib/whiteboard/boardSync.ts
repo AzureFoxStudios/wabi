@@ -227,11 +227,15 @@ export function cancelSnapshotSave(boardId: string): void {
 // ---------------------------------------------------------------------------
 
 let lastCursorBroadcast = 0;
+let lastCursorX = Number.NaN;
+let lastCursorY = Number.NaN;
 
 export function broadcastCursor(boardId: string, data: { x: number; y: number; username: string; color: string }): void {
 	const now = Date.now();
-	if (now - lastCursorBroadcast < 50) return;
+	if (now - lastCursorBroadcast < 100 || (Math.abs(data.x - lastCursorX) < 2 && Math.abs(data.y - lastCursorY) < 2)) return;
 	lastCursorBroadcast = now;
+	lastCursorX = data.x;
+	lastCursorY = data.y;
 	sendWhiteboardCursor(boardId, data);
 }
 

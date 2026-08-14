@@ -213,7 +213,8 @@ export type AdminPolicyKey =
 	| 'payments_access'
 	| 'community_node_announcements'
 	| 'community_node_access'
-	| 'frontend_app_metadata';
+	| 'frontend_app_metadata'
+	| 'auth_policy';
 export interface DictionaryEntry {
 	id?: number;
 	term: string;

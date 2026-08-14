@@ -487,8 +487,8 @@ export function createSelectTool(): ToolHandler {
 						const selectedEls = state.elements.filter((el) => state.selection.has(el.id));
 						const selBBox = getSelectionBBox(selectedEls);
 						if (selBBox) {
-							const handles = getSelectionHandles(selBBox, vp, 8);
-							const hitHandle = hitTestHandle(handles, e.screenX, e.screenY, 12);
+							const handles = getSelectionHandles(selBBox, vp, 12);
+							const hitHandle = hitTestHandle(handles, e.screenX, e.screenY, 22);
 							if (hitHandle) {
 								if (hitHandle.position === 'rotate') {
 									return createRotateInteraction(selectedEls, selBBox, e);
@@ -601,7 +601,7 @@ function createResizeInteraction(
 			}
 
 			// Shift = uniform scale
-			const uniformScale = e.shiftKey;
+			const uniformScale = e.shiftKey || handle === 'se' || handle === 'sw' || handle === 'ne' || handle === 'nw';
 
 			let newX = origX, newY = origY, newW = origW, newH = origH;
 
@@ -624,9 +624,8 @@ function createResizeInteraction(
 				newH = origH * primaryScale;
 			}
 
-			// Prevent negative sizes
-			if (newW < 1) { newW = 1; }
-			if (newH < 1) { newH = 1; }
+			if (newW < 8) { if (handle.includes('w')) newX = origX + origW - 8; newW = 8; }
+			if (newH < 8) { if (handle.includes('n')) newY = origY + origH - 8; newH = 8; }
 
 			// Apply scaled positions to all selected elements
 			for (const orig of origPositions) {

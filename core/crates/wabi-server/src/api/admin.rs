@@ -86,6 +86,8 @@ pub struct FrontendAppMetadataPolicy {
     pub tagline: Option<String>,
     #[serde(rename = "launchPageFallbackEnabled")]
     pub launch_page_fallback_enabled: bool,
+    #[serde(rename = "brandProfile")]
+    pub brand_profile: Option<String>,
 }
 
 impl Default for FrontendAppMetadataPolicy {
@@ -98,7 +100,25 @@ impl Default for FrontendAppMetadataPolicy {
             description: None,
             tagline: None,
             launch_page_fallback_enabled: true,
+            brand_profile: None,
         }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuthPolicy {
+    pub mode: String,
+    #[serde(rename = "allowGuest")]
+    pub allow_guest: bool,
+    #[serde(rename = "allowRegister")]
+    pub allow_register: bool,
+    #[serde(rename = "emailVerifyRequired")]
+    pub email_verify_required: bool,
+}
+
+impl Default for AuthPolicy {
+    fn default() -> Self {
+        Self { mode: "open".into(), allow_guest: true, allow_register: true, email_verify_required: false }
     }
 }
 
@@ -571,6 +591,7 @@ fn policy_default(key: &str) -> Value {
         "frontend_app_metadata" => {
             serde_json::to_value(FrontendAppMetadataPolicy::default()).unwrap()
         }
+        "auth_policy" => serde_json::to_value(AuthPolicy::default()).unwrap(),
         "upload_limits" => serde_json::to_value(UploadLimitConfig::default()).unwrap(),
         "download_limits" => serde_json::to_value(DownloadLimitConfig::default()).unwrap(),
         "community_node_access" => {
@@ -589,6 +610,7 @@ fn is_valid_policy_key(key: &str) -> bool {
         "payments_access"
             | "runtime_tuning"
             | "frontend_app_metadata"
+            | "auth_policy"
             | "upload_limits"
             | "download_limits"
             | "community_node_access"

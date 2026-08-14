@@ -46413,3 +46413,36 @@ The knowledgebox is intentionally separate from Wabi and Lore. Wabi remains cano
 ### Identity and pairing
 ```
 
+
+---
+
+## 2026-08-13 09:40:55 +07 — Carl posted
+
+### wabidb commits
+
+```
+8cb4344 fix: channel persistence, profile popout lifecycle, message actions, and glimpse handling
+```
+
+
+---
+
+## 2026-08-13 14:20:56 +07 — Carl posted
+
+### wabidb commits
+
+```
+b0f9a16 feat(reception): append ChannelKind::Reception = 13
+```
+
+
+---
+
+## 2026-08-13 14:24:56 +07 — Carl posted
+
+### wabidb commits
+
+```
+b0f9a16 feat(reception): append ChannelKind::Reception = 13
+```
+

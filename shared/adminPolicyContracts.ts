@@ -6,6 +6,16 @@ export interface FrontendAppMetadataPolicy {
   description: string | null;
   tagline: string | null;
   launchPageFallbackEnabled: boolean;
+  brandProfile?: string | null;
+}
+
+export type AuthPolicyMode = 'open' | 'invite' | 'verified';
+
+export interface AuthPolicy {
+  mode: AuthPolicyMode;
+  allowGuest: boolean;
+  allowRegister: boolean;
+  emailVerifyRequired: boolean;
 }
 
 export interface PaymentAccessPolicy {

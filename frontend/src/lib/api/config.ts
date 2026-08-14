@@ -1,5 +1,5 @@
 import type { LaunchPageConfig } from '../../../../shared/launchPageContracts';
-import type { FrontendAppMetadataPolicy } from '../../../../shared/adminPolicyContracts';
+import type { AuthPolicy, FrontendAppMetadataPolicy } from '../../../../shared/adminPolicyContracts';
 import { getApiBaseFor, fetchWithTimeout, LAUNCH_PAGE_TIMEOUT_MS } from './utils';
 
 export interface PublicBackendEndpoint {
@@ -56,6 +56,25 @@ export async function getPublicFrontendAppMetadata(baseUrl?: string | null): Pro
 		return await res.json();
 	} catch {
 		return null;
+	}
+}
+
+export async function getPublicAuthPolicy(baseUrl?: string | null): Promise<AuthPolicy> {
+	const fallback: AuthPolicy = { mode: 'open', allowGuest: true, allowRegister: true, emailVerifyRequired: false };
+	try {
+		const res = await fetchWithTimeout(`${getApiBaseFor(baseUrl)}/api/public/auth-policy`, {
+			method: 'GET', timeoutMs: LAUNCH_PAGE_TIMEOUT_MS, retries: 2
+		});
+		if (!res.ok) return fallback;
+		const data = (await res.json()) as Partial<AuthPolicy>;
+		return {
+			mode: data.mode === 'invite' || data.mode === 'verified' ? data.mode : 'open',
+			allowGuest: data.allowGuest !== false,
+			allowRegister: data.allowRegister !== false,
+			emailVerifyRequired: data.emailVerifyRequired === true
+		};
+	} catch {
+		return fallback;
 	}
 }
 
