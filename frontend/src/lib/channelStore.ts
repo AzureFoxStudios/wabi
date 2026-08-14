@@ -102,7 +102,7 @@ export function switchChannel(channelId: string): void {
 	joinChannel(channelId);
 }
 
-export type CreateableChannelType = 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' | 'lore' | 'planning' | 'category';
+export type CreateableChannelType = 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' | 'lore' | 'planning' | 'reception' | 'category';
 
 export async function createChannel(
 	channelName: string,
