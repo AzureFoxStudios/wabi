@@ -29,7 +29,7 @@ const DRAIN_DISPATCH: Record<string, string> = {
 	'delete-emoji': 'delete-emoji',
 	'delete-emoji-role-rule': 'delete-emoji-role-rule',
 	'clear-channel-messages': 'clear-channel-messages',
-	'reception-toggle': 'reception-toggle',
+	'toggle-reception': 'toggle-reception',
 };
 
 export async function drainOutboundQueue(): Promise<void> {

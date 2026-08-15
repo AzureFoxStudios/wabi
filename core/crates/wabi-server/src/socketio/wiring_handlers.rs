@@ -136,30 +136,20 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
     drop(socket.emit("assign-role-success", &json!({ "targetUserId": target_user_id, "role": role_name })));
 }
 
-pub async fn handle_reception_toggle(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
-    let actor_id = match data.get("userId").and_then(|v| v.as_u64()) {
-        Some(id) => id,
-        None => {
-            let _ = socket.emit("reception-toggle-error", &json!({ "error": "Missing userId" }));
-            return;
-        }
-    };
-
-    let Ok(Some(user)) = state.app.wdb.get_user(actor_id).await else {
-        let _ = socket.emit("reception-toggle-error", &json!({ "error": "User not found" }));
-        return;
-    };
-
-    if user.highestRole != "owner" {
-        let _ = socket.emit("reception-toggle-error", &json!({ "error": "Only the server owner can manage Reception" }));
+pub async fn handle_toggle_reception(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
+    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
+    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    if !state.app.is_owner(caller_id).await {
+        warn!("[sio] toggle-reception: user {} not authorized", caller_id);
+        let _ = socket.emit("toggle-reception-error", &json!({ "error": "Only the server owner can manage Reception" }));
         return;
     }
 
     let enabled = data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
     if enabled {
-        let _ = io.emit("reception-toggle-success", &json!({ "enabled": true }));
+        let _ = io.emit("toggle-reception-success", &json!({ "enabled": true }));
     } else {
-        let _ = io.emit("reception-toggle-success", &json!({ "enabled": false }));
+        let _ = io.emit("toggle-reception-success", &json!({ "enabled": false }));
     }
 }
 
