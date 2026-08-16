@@ -45,9 +45,6 @@ pub struct AppState {
     pub live_channel_ttl_ms: Arc<RwLock<HashMap<String, u64>>>,
     /// Per-channel live room message count cap. Default: 1000.
     pub live_channel_cap: Arc<RwLock<HashMap<String, u64>>>,
-    pub message_expiries: Arc<RwLock<HashMap<String, i64>>>,
-    /// The user ID of the server owner (first registrant).
-    /// None until the first account is created.
     pub owner_user_id: RwLock<Option<i64>>,
     /// Token revocation state. A stolen/compromised JWT can be killed
     /// without rotating the signing secret: individual `jti`s, entire
@@ -274,7 +271,6 @@ impl AppState {
             channel_auto_delete_label: Arc::new(RwLock::new(HashMap::new())),
             live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
             live_channel_cap: Arc::new(RwLock::new(HashMap::new())),
-            message_expiries: Arc::new(RwLock::new(HashMap::new())),
             owner_user_id,
             revocation_file,
             revocations,

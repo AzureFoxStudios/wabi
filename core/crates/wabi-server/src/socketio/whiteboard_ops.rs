@@ -30,6 +30,13 @@ pub(crate) fn whiteboard_versions() -> &'static Mutex<HashMap<String, u64>> {
     WHITEBOARD_VERSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Remove a board's version entry from the global map. Call when a
+/// whiteboard channel is deleted so dead entries don't accumulate
+/// forever (the map is insert-only otherwise).
+pub(crate) fn remove_board_version(board_id: &str) {
+    whiteboard_versions().lock().unwrap().remove(board_id);
+}
+
 /// Resolve the current version for a board: in-memory map first, then the
 /// persisted document, else 0 (fresh board).
 async fn current_version(state: &SioState, board_id: &str) -> u64 {

@@ -420,6 +420,14 @@ async fn delete_channel(
         }
     }
 
+    // Clean up the static whiteboard version map for deleted channels.
+    // The map is insert-only (on join/snapshot), so without this hook,
+    // dead board entries survive channel deletion and grow forever.
+    for channel_id in &deleted_ids {
+        let board_id = format!("channel:{}", channel_id);
+        crate::socketio::remove_board_version(&board_id);
+    }
+
     // Notify connected clients immediately; each client also removes nested
     // descendants from its local channel tree. Uses the same broadcast
     // pattern as emoji upload (api/emoji.rs): the SocketIo handle is sent
