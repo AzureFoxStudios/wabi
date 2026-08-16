@@ -229,6 +229,36 @@ fn user_id_from_token(token: &str, secret: &str) -> Option<i64> {
         .and_then(|d| d.claims.sub.parse().ok())
 }
 
+/// True if the socket's bearer token has been revoked (password change on
+/// another session, logout-everywhere, admin kick). REST requests check this
+/// in `auth_extractor`; without this check a revoked token keeps full live
+/// socket access until the JWT expires. Guest sockets carry an empty token
+/// and are unaffected; a token that fails to decode keeps its existing
+/// unauthenticated treatment.
+async fn socket_token_revoked(app: &AppState, token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+    #[derive(Deserialize)]
+    struct C {
+        sub: String,
+        jti: String,
+        iat: i64,
+    }
+    let key = DecodingKey::from_secret(app.config.jwt_secret.as_bytes());
+    let mut v = Validation::default();
+    v.validate_exp = true;
+    v.leeway = 60;
+    match decode::<C>(token, &key, &v) {
+        Ok(d) => {
+            let sub = d.claims.sub.parse::<i64>().unwrap_or(-1);
+            app.is_token_revoked(&d.claims.jti, sub, d.claims.iat).await
+        }
+        Err(_) => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Protocol mapping helpers
 // ---------------------------------------------------------------------------

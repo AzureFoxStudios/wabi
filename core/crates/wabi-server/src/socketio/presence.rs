@@ -26,6 +26,15 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         .map(|t| t.0.clone())
         .unwrap_or_default();
 
+    if socket_token_revoked(&state.app, &token).await {
+        let _ = socket.emit(
+            "auth-revoked",
+            &json!({ "reason": "session revoked; please sign in again" }),
+        );
+        let _ = socket.disconnect();
+        return;
+    }
+
     let authed_username = if !token.is_empty() {
         username_from_token(&token, &state.app.config.jwt_secret)
             .unwrap_or_else(|| username.clone())
@@ -248,6 +257,14 @@ async fn on_update_profile(
         .get::<AuthToken>()
         .map(|t| t.0.clone())
         .unwrap_or_default();
+
+    if socket_token_revoked(&state.app, &token).await {
+        let _ = socket.emit(
+            "profile-update-failed",
+            &json!({ "reason": "session revoked; please sign in again" }),
+        );
+        return;
+    }
 
     let db_user_id = if !token.is_empty() {
         user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1)

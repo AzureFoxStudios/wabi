@@ -31,6 +31,15 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         .get::<AuthToken>()
         .map(|t| t.0.clone())
         .unwrap_or_default();
+    if socket_token_revoked(&state.app, &token).await {
+        warn!("[sio] rejected message from revoked session");
+        let _ = socket.emit(
+            "auth-revoked",
+            &json!({ "reason": "session revoked; please sign in again" }),
+        );
+        let _ = socket.disconnect();
+        return;
+    }
     let username = username_from_token(&token, &state.app.config.jwt_secret)
         .unwrap_or_else(|| "unknown".to_string());
     let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
