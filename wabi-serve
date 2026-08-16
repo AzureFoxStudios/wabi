@@ -1,9 +1,16 @@
 #!/bin/bash
-# Wabi serve — the runtime is now wabidb.
-# Use the wabidb binary directly with the --data-dir flag:
-#   cargo run --release --bin wabidb -- --data-dir /app/data
+# Wabi serve is now documented in INSTALL.md
 #
-# Previously this script started SpacetimeDB + published a module.
-# Those steps are no longer needed.
-echo "wabi-serve is deprecated. Use 'cargo run --release --bin wabidb -- --data-dir /app/data' instead." >&2
-exit 1
+# Quick paths:
+#   Docker:   docker compose up -d
+#   Cargo:    cargo build --release -p wabi-server && ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
+#
+# Full guide: https://github.com/AzureFoxStudios/wabi/blob/main/INSTALL.md
+echo "wabi-serve is no longer a launcher. See INSTALL.md for how to run Wabi." >&2
+echo "" >&2
+echo "  Docker:   docker compose up -d" >&2
+echo "  Cargo:    cargo build --release -p wabi-server" >&2
+echo "            ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000" >&2
+echo "" >&2
+echo "Full guide: https://github.com/AzureFoxStudios/wabi/blob/main/INSTALL.md" >&2
+exit 0

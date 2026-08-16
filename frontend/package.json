@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite dev",
     "dev:mock": "VITE_WABI_LOCAL_MOCK=1 vite dev --host 127.0.0.1 --port 5173",
-    "build": "npm run build:only",
+    "build": "if [ -z \"$STATIC_BUILD\" ]; then echo '' && echo '⚠️  STATIC_BUILD is unset. Default frontend build uses adapter-node (no index.html).' && echo '    For production / Docker / deploy, use: npm run build:static' && echo '    The static build (adapter-static) emits index.html for rust_embed.' && echo '' && echo '    Building with adapter-node anyway (for dev/SSR use). Set STATIC_BUILD=1 to silence.' && echo ''; fi && vite build",
+    "build:static": "STATIC_BUILD=1 vite build",
     "build:only": "vite build",
     "build:tauri": "node scripts/build-tauri.mjs",
     "preview": "vite preview",

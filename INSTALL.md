@@ -95,6 +95,24 @@ Default voice does **not** need open UDP or Cloudflare.
 
 ---
 
+## Common pitfalls
+
+1. **`STATIC_BUILD=1` is required for the frontend build.** If you run `npm run build` without it, SvelteKit uses `adapter-node` and emits `handler.js`/`server/` — **no `index.html`**. The Rust binary embeds the frontend via `rust_embed` at compile time, so it needs the static `index.html`. `/health` will return 200 but every page route 404. Fix: `cd frontend && STATIC_BUILD=1 npm run build`, then rebuild the binary.
+
+2. **First account is the owner.** The first user registered becomes the server admin/owner. Use a strong password. Don't create throwaway accounts first.
+
+3. **WabiDB engine lock can survive a stop/restart.** If the server won't start with "engine already running", clear both lock files: `rm -f data/wabi-server/.lock data/wabi-server/wabidb/.lock`.
+
+4. **Auth token bounce (login page flash → bounce to /login).** This is a stale JWT in the browser's `localStorage`, not a server bug. Hard refresh does NOT clear it — clear site data for the domain.
+
+5. **`TURN_HMAC_KEY` is required in `.env` even if you don't use TURN.** Compose interpolates `${TURN_HMAC_KEY:?...}` unconditionally. Generate one: `openssl rand -base64 32`.
+
+6. **Cloudflare tunnel strips WebSocket upgrade.** If your app disconnects immediately behind CF, set `transports: ['websocket', 'polling']` in the socket.io client. See `docs/NETWORKING.md`.
+
+7. **`docker compose up -d --build` does NOT rebuild the Rust binary.** The Dockerfile is runtime-only. The binary is bind-mounted from `./target/release/wabi-server`. To ship a new binary: rebuild on host, then `docker compose restart wabi-server`.
+
+8. **Stale scripts in this repo are removed.** `scripts/setup.sh` and `docker-compose.bun.yml` are gone. The canonical paths are `docker-compose.yml` + `.env` (Docker) or bare cargo.
+
 ## Stale docs
 
 - `DEPLOYMENT_READY.md`, much of `PROJECT_DOCS/02-deployment/DEPLOYMENT.md` — STDB-era; prefer this file + `docker-compose.yml` header + `docs/NETWORKING.md`.
