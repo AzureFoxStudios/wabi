@@ -329,7 +329,8 @@ export function createImportHandlers(
 		try {
 			const uploaded = await uploadWhiteboardImage(boardId, nextImport.file);
 			const state = get(boardStore);
-			const targetLayer = resolveImportLayer(nextImport);
+			const imageLayer = boardStore.addRasterLayer(nextImport.file.name.replace(/\.[^.]+$/, '') || 'Image');
+			const targetLayer = { layerId: imageLayer.id };
 			const imageEl = createWhiteboardImageElement(
 				uploaded, state.viewport,
 				canvasWidth || containerEl?.clientWidth || 960,
