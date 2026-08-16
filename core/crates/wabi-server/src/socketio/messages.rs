@@ -149,10 +149,6 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
                 delete_after_ms = Some(DEFAULT_CHANNEL_AUTO_DELETE_MS);
             }
             if let Some(ms) = delete_after_ms {
-                state.app.message_expiries.write().await.insert(
-                    message_id.clone(),
-                    timestamp.saturating_add(ms as i64),
-                );
                 let wdb = state.app.wdb.clone();
                 let session = state.app.session_messages.clone();
                 let msg_id = message_id.clone();
