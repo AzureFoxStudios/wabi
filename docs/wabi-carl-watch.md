@@ -46446,3 +46446,25 @@ b0f9a16 feat(reception): append ChannelKind::Reception = 13
 b0f9a16 feat(reception): append ChannelKind::Reception = 13
 ```
 
+
+---
+
+## 2026-08-14 10:28:04 +07 — Carl posted
+
+### wabidb commits
+
+```
+c4ac3b1 feat(reception): add ChannelType + ReceptionBoard shell
+```
+
+
+---
+
+## 2026-08-14 10:36:04 +07 — Carl posted
+
+### wabidb commits
+
+```
+64ea695 feat(reception): add claimable role field + board room toggle
+```
+

@@ -3,8 +3,7 @@
 	import { serverSettings, toggleServerMutedChannelId, getActiveServerUrl } from '$lib/serverSettings';
 	import { roleDefinitions } from '$lib/presenceStore';
 
-	let generalChannel: Channel | undefined;
-	$: generalChannel = $channels.find((ch) => ch.type === 'text' && ch.name === 'general');
+	const generalChannel = $derived($channels.find((ch) => ch.type === 'text' && ch.name === 'general'));
 
 	let selectedRoles = $state<Set<string>>(new Set());
 	const claimableRoles = $derived(
@@ -49,7 +48,7 @@
 						type="button"
 						class="chip"
 						class:chip-on={selectedRoles.has(role.displayName)}
-						on:click={() => toggleRole(role.displayName)}
+						onclick={() => toggleRole(role.displayName)}
 					>
 						{role.displayName}
 					</button>
@@ -70,7 +69,7 @@
 							type="button"
 							class="room-row"
 							class:room-row-off={isHidden(ch.id)}
-							on:click={() => toggleRoom(ch.id)}
+							onclick={() => toggleRoom(ch.id)}
 						>
 							<span class="room-name">#{ch.name}</span>
 							<span class="room-status">{isHidden(ch.id) ? 'Off' : 'On'}</span>
