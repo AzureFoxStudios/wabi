@@ -1,4 +1,0 @@
-# Wabi Blacklist
-# Format: type|value|reason|expires_timestamp
-# Types: user, ip
-# expires_timestamp: Unix timestamp (0 = never expires)
