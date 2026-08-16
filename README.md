@@ -140,43 +140,63 @@ Implementation: `frontend/src/lib/callingScreenShare.ts`, `frontend/src/lib/medi
 
 See full architecture and deep technical docs in `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` and `PROJECT_DOCS/archive/CODEBASE_OVERVIEW.md`.
 
-## Quick start (recommended: Docker or Podman)
+## Quick start
 
-If you can run Docker or Podman, you can run Wabi. Works on **Windows, Mac, and Linux** with zero config.
+### Docker (recommended)
+
+Works on **Windows, Mac, and Linux** with Docker or Podman.
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
 cd wabi
-docker compose up -d --build
-```
-
-Open `http://localhost:3000`, create the owner account, and you're in. No `.env` editing is required for local bring-up; localhost defaults are baked into Compose, and backend secrets are auto-generated on first boot.
-
-If your host ships Podman instead of Docker, replace `docker compose` with `podman compose`. The setup and launch scripts auto-detect either runtime; set `WABI_CONTAINER_RUNTIME=podman` to force Podman when both are installed.
-
-**Optional: include TURN for production-quality calling:**
-
-```bash
-docker compose --profile turn up -d --build
-```
-
-Default local endpoints:
-- Frontend: `http://localhost:3000`
-- Backend: `http://localhost:8080`
-- Health check: `http://localhost:8080/health`
-
-For public domains, TURN, reverse proxies, mesh config, or other non-local settings, use `./scripts/setup.sh` on Linux or `scripts/setup-forWindows.ps1` on Windows. Login-page branding is configured separately via `data/launch-page.json`.
-
-### Manual .env setup (advanced)
-
-If you prefer to set secrets manually:
-
-```bash
 cp .env.example .env
-cp frontend/.env.example frontend/.env
-# Edit .env with your JWT_SECRET, domain, etc.
-docker compose up -d --build
+# Edit WABI_JWT_KEY and WABIDB_ROOT_KEY in .env (see comments)
+docker compose up -d
 ```
+
+Open `http://localhost:3001`, create the owner account, and you're in.
+
+If you ship Podman instead of Docker, replace `docker compose` with `podman compose`.
+
+**Optional: voice/video calling via TURN:**
+
+```bash
+# Also set TURN_HMAC_KEY in .env before running:
+docker compose --profile turn up -d
+```
+
+### Cargo (bare metal)
+
+```bash
+git clone https://github.com/AzureFoxStudios/wabi.git
+cd wabi
+cd frontend && STATIC_BUILD=1 npm run build && cd ..
+cargo build --release -p wabi-server
+mkdir -p data/wabi-server uploads plugins
+export WABI_JWT_KEY="$(openssl rand -base64 48)"
+export WABIDB_ROOT_KEY="$(openssl rand -hex 32)"
+./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
+```
+
+Open `http://localhost:3000`, create the owner account.
+
+### Local development
+
+```bash
+bun run dev
+```
+
+Then open `http://localhost:5173` (frontend) + `http://localhost:3001` (backend). See `docs/NETWORKING.md` for networking details.
+
+### Deployment paths (pick one)
+
+| Path | Entry point | Use when |
+|------|-------------|----------|
+| **Docker / Podman** | `docker-compose.yml` + `.env` | Most self-hosters, production servers |
+| **Bare cargo** | `cargo build --release -p wabi-server` | No-Docker hosts, dev, debugging |
+| **`scripts/launch.sh`** | `wabi.config` → `.env` | Local dev with tunneling/turn profiles |
+
+> **NOTE:** `scripts/setup.sh` and `docker-compose.bun.yml` are **removed**. Use `docker-compose.yml` (this repo's canonical compose) and `.env.example`.
 
 ## Public Access Without Port Forwarding
 
@@ -201,40 +221,17 @@ docker compose --profile tunnel --profile tunnel-named up -d --build
 
 In both modes, Wabi routes frontend + backend through `Caddyfile.tunnel` so `/api` and `/socket.io` stay on one origin.
 
-## Guided setup (server bootstrap)
+## Launch helper (optional)
 
-For first-time server provisioning, use:
-
-```bash
-./scripts/setup.sh
-```
-
-The setup wizard asks a few questions, generates your config files, helps with Caddy, and prints the exact deploy commands.
-
-Windows guided setup without WSL:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/setup-forWindows.ps1
-```
-
-Windows deploy helper (requires WSL):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/launch-forWindows.ps1
-```
-
-Use `setup-forWindows.ps1` for first-run config generation on Windows. `launch-forWindows.ps1` is a WSL wrapper around the more advanced `launch.sh` deploy helper.
-
-Optional operator config (used by `scripts/launch.sh`):
+For local dev with profiles (tunnels, TURN, media gateway), use:
 
 ```bash
 cp wabi.config.example wabi.config
+# Edit wabi.config
+./scripts/launch.sh
 ```
 
-`wabi.config` is the operator-friendly control file (`PROFILE`, `RUNTIME`, `CALLS`, plugin/privacy toggles).  
-Edit `wabi.config`, then run `./scripts/launch.sh`; it syncs supported keys into `.env` and `frontend/.env`.
-
-### Relay Node Setup (separate from core server setup)
+`launch.sh` is optional. For production servers, `docker-compose.yml` + `.env` is the simpler path.
 
 Relay node deployment is intentionally separate from core server launch.
 
@@ -332,24 +329,19 @@ Primary env files:
 - `.env` (backend/runtime/deployment/turn/media flags)
 - `frontend/.env` (socket URL, TURN client config, GIF key)
 
-Start from:
-- `.env.example`
-- `frontend/.env.example`
+Start from `.env.example` (root). If you use `scripts/launch.sh`, treat `wabi.config` as your primary operator surface and avoid hand-editing env files unless you need an advanced variable not exposed there.
 
-If you use `scripts/launch.sh`, treat `wabi.config` as your primary operator surface and avoid hand-editing env files unless you need an advanced variable not exposed there.
 `scripts/launch.sh` does not configure relay-node deployment; relay setup uses `scripts/relay-launch.sh`.
 
 Important settings to review before production:
 - `FRONTEND_URL`, `PUBLIC_URL`, `ALLOWED_ORIGINS`
-- `JWT_SECRET`
-- `TURN_EXTERNAL_IP`, `TURN_REALM`, `TURN_SHARED_SECRET`
-- `WABI_MODE`, `WABI_RUNTIME`, `JWT_SIGNING_KEY` (see docker-compose.yml for required env)
+- `WABI_JWT_KEY` (generate: `openssl rand -base64 48`)
+- `WABIDB_ROOT_KEY` (generate: `openssl rand -hex 32`)
+- `TURN_HMAC_KEY` (only when using `--profile turn`)
+- `WABI_MODE`, `WABI_RUNTIME`, `WABI_SERVER_ROLE`
 - `PLUGINS_ENABLED`, `PLUGINS_ALLOW_INSTALL` (both default to `false`)
-- `WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED` / `VITE_VIDEO_COMPRESSION_CLIENT_METRICS` (both default to `false`)
-Server data dir and storage config (see `docker-compose.yml`)
+- Server data dir and storage config (see `docker-compose.yml`)
 - Optional launch page branding: `WABI_LAUNCH_PAGE_JSON` or `WABI_LAUNCH_PAGE_PATH`
-
-If you are new to this, start with `./scripts/setup.sh` and only edit advanced variables later.
 
 ### Custom Login Launch Page
 
