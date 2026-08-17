@@ -50,7 +50,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 governor = { version = "0.6", features = ["std"] }
 
 # SpacetimeDB (HTTP API only)
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 regex = "1"
 sha2 = "0.10"
 hex = "0.4"
