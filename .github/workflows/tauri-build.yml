@@ -22,14 +22,19 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: oven-sh/setup-bun@v2
         with:
+          bun-version: 1.3.14
+
+      - name: Setup Rust (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain-file: rust-toolchain.toml
           targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-msvc,x86_64-apple-darwin
 
       - name: Install Linux dependencies
@@ -41,23 +46,26 @@ jobs:
       - name: Setup icons
         run: node scripts/setup-icons.js
 
-      - name: Install frontend dependencies
-        run: cd frontend && bun install
+      - name: Install frontend dependencies (locked)
+        run: cd frontend && npm ci --no-audit --no-fund
 
+      # STATIC_BUILD=1 emits the adapter-static SPA (index.html); the default
+      # build is adapter-node and produces nothing Tauri can serve. The Tauri
+      # build's own beforeBuildCommand re-runs this with TAURI_ENV_PLATFORM set.
       - name: Build frontend
-        run: cd frontend && bun run build
+        run: cd frontend && STATIC_BUILD=1 npm run build
 
       - name: Install Tauri dependencies (Windows & macOS)
         if: runner.os == 'Windows' || runner.os == 'macOS'
         run: |
           cd frontend
-          bun install
+          npm ci --no-audit --no-fund
 
       - name: Build Tauri app
         working-directory: .
         run: |
           echo "Starting Tauri build..."
-          bunx @tauri-apps/cli build --ci
+          bunx @tauri-apps/cli@2.11.4 build --ci
         env:
           RUST_BACKTRACE: 1
           RUST_LOG: debug
