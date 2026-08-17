@@ -52,7 +52,7 @@ governor = { version = "0.6", features = ["std"] }
 # SpacetimeDB (HTTP API only)
 reqwest = { version = "0.12", features = ["json"] }
 regex = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 rand = "0.8"
 
