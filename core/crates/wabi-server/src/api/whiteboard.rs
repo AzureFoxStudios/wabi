@@ -75,7 +75,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 fn whiteboard_scope_tag(board_id: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(board_id.as_bytes());
-    format!("{:x}", hasher.finalize())[..16].to_string()
+    hex::encode(hasher.finalize())[..16].to_string()
 }
 
 /// Create a unique file ID scoped to a board.
