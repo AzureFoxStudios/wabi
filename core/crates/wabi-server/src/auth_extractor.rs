@@ -41,6 +41,10 @@ pub struct AuthUser {
     pub jti: String,
     /// True when authenticated with an opaque `Bot <token>` credential.
     pub is_bot: bool,
+    /// Present when authenticated with a lore connect token
+    /// (`Bearer wblore_…`): "read" or "read,write". Route handlers enforce
+    /// write scope; None means a full user JWT/bot credential.
+    pub lore_scopes: Option<String>,
 }
 
 impl AuthUser {
@@ -55,7 +59,18 @@ impl AuthUser {
             is_guest: claims.is_guest,
             jti: claims.jti,
             is_bot: false,
+            lore_scopes: None,
         })
+    }
+
+    /// True when this credential may write lore files. Full user/bot
+    /// credentials rely on the route's role gates; lore tokens must carry
+    /// the explicit write scope.
+    pub fn may_write_lore(&self) -> bool {
+        match &self.lore_scopes {
+            None => true,
+            Some(scopes) => scopes.to_ascii_lowercase().contains("write"),
+        }
     }
 }
 
@@ -99,6 +114,39 @@ async fn bot_auth_user(
         is_guest: false,
         jti: String::new(),
         is_bot: true,
+        lore_scopes: None,
+    }))
+}
+
+/// Resolve a `Bearer wblore_…` connect token (server-minted per channel by
+/// the lore API) into the minting user's identity plus its scopes. The
+/// plaintext token is never stored — only its SHA-256, looked up here.
+async fn lore_token_auth_user(
+    app_state: &AppState,
+    token: &str,
+) -> Result<Option<AuthUser>, AppError> {
+    use sha2::{Digest, Sha256};
+    let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+    let Some(record) = app_state.wdb.lore_get_token(&token_hash).await? else {
+        return Ok(None);
+    };
+    let username = match app_state.wdb.get_user(record.user_id as u64).await {
+        Ok(Some(user)) => user.username,
+        Ok(None) => return Ok(None),
+        Err(e) => {
+            return Err(AppError::Internal(format!(
+                "failed to load lore token owner {0}: {e}",
+                record.user_id
+            )));
+        }
+    };
+    Ok(Some(AuthUser {
+        user_id: record.user_id,
+        username,
+        is_guest: false,
+        jti: format!("lore-token:{}", &token_hash[..token_hash.len().min(12)]),
+        is_bot: false,
+        lore_scopes: Some(record.scopes),
     }))
 }
 
@@ -141,17 +189,34 @@ where
             AppError::Unauthorized("missing Bearer prefix".into()).into_response()
         })?;
 
-        let claims = decode_token(token, &app_state.config.jwt_secret)
-            .await
-            .map_err(|e| e.into_response())?;
-
-        // Reject revoked tokens (single jti, whole user, or pre-epoch).
-        let sub = claims.sub.parse::<i64>().unwrap_or(-1);
-        if app_state.is_token_revoked(&claims.jti, sub, claims.iat).await {
-            return Err(AppError::Unauthorized("token revoked".into()).into_response());
+        // Lore connect tokens are opaque (not JWTs) — try JWT first so real
+        // JWTs never hit the token table, then fall back to wblore_ lookup.
+        match decode_token(token, &app_state.config.jwt_secret).await {
+            Ok(claims) => {
+                // Reject revoked tokens (single jti, whole user, or pre-epoch).
+                let sub = claims.sub.parse::<i64>().unwrap_or(-1);
+                if app_state
+                    .is_token_revoked(&claims.jti, sub, claims.iat)
+                    .await
+                {
+                    return Err(AppError::Unauthorized("token revoked".into()).into_response());
+                }
+                AuthUser::from_claims(claims).map_err(|e| e.into_response())
+            }
+            Err(jwt_err) => {
+                if token.starts_with("wblore_") {
+                    return match lore_token_auth_user(&app_state, token).await {
+                        Ok(Some(auth)) => Ok(auth),
+                        Ok(None) => Err(AppError::Unauthorized(
+                            "invalid or revoked lore connect token".into(),
+                        )
+                        .into_response()),
+                        Err(e) => Err(e.into_response()),
+                    };
+                }
+                Err(jwt_err.into_response())
+            }
         }
-
-        AuthUser::from_claims(claims).map_err(|e| e.into_response())
     }
 }
 
@@ -192,7 +257,17 @@ where
                 Ok(user) => Ok(OptionalAuthUser(Some(user))),
                 Err(_) => Ok(OptionalAuthUser(None)),
             },
-            Err(_) => Ok(OptionalAuthUser(None)),
+            Err(_) => {
+                // Lore connect tokens also work for optional-auth routes
+                // (e.g. signed-URL-less downloads).
+                if token.starts_with("wblore_") {
+                    let auth = lore_token_auth_user(&app_state, token)
+                        .await
+                        .unwrap_or(None);
+                    return Ok(OptionalAuthUser(auth));
+                }
+                Ok(OptionalAuthUser(None))
+            }
         }
     }
 }

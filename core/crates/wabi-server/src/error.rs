@@ -27,6 +27,9 @@ pub enum AppError {
     #[allow(dead_code)]
     NotFound(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -61,6 +64,7 @@ impl IntoResponse for AppError {
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::Database(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::Bcrypt(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),

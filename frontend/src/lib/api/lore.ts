@@ -204,23 +204,27 @@ export async function uploadLoreFile(
 	token: string,
 	channelId: number,
 	path: string,
-	file: File,
-	message?: string
+	file: File | Blob | string,
+	message?: string,
+	ifMatch?: string | null
 ): Promise<LoreUploadResult> {
 	const params = new URLSearchParams();
 	if (message) params.set('message', message);
-	if (path) params.set('repo_path', path);
+	if (typeof file !== 'string' && path) params.set('repo_path', path);
 	const url = `${loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}`)}?${params.toString()}`;
+	const headers: Record<string, string> = {
+		Authorization: `Bearer ${token}`,
+		'Content-Type': 'application/octet-stream'
+	};
+	if (ifMatch !== undefined) headers['If-Match'] = ifMatch === null ? '""' : `"${ifMatch}"`;
 	const res = await fetchWithTimeout(url, {
 		method: 'PUT',
-		headers: {
-			Authorization: `Bearer ${token}`,
-			'Content-Type': 'application/octet-stream'
-		},
-		body: await file.arrayBuffer()
+		headers,
+		body: typeof file === 'string' ? file : await file.arrayBuffer()
 	});
 	if (!res.ok) {
 		const err = await res.json().catch(() => ({}));
+		if (res.status === 409) throw new LoreConflictError((err as any).currentEtag ?? null);
 		throw new Error((err as any).error || 'Failed to upload file');
 	}
 	return (await res.json()) as LoreUploadResult;
@@ -364,18 +368,185 @@ export async function getSignedLoreUrl(
 	return payload.url;
 }
 
-export async function deleteLoreFile(token: string, channelId: number, path: string, message?: string): Promise<void> {
+export async function deleteLoreFile(
+	token: string,
+	channelId: number,
+	path: string,
+	message?: string,
+	ifMatch?: string
+): Promise<void> {
+	const headers: Record<string, string> = {
+		Authorization: `Bearer ${token}`,
+		'Content-Type': 'application/json'
+	};
+	if (ifMatch !== undefined) headers['If-Match'] = `"${ifMatch}"`;
 	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}`), {
 		method: 'DELETE',
-		headers: {
-			Authorization: `Bearer ${token}`,
-			'Content-Type': 'application/json'
-		},
+		headers,
 		body: JSON.stringify({ message: message || '' })
 	});
 	if (!res.ok) {
 		const err = await res.json().catch(() => ({}));
+		if (res.status === 409) throw new LoreConflictError((err as any).currentEtag ?? null);
 		throw new Error((err as any).error || 'Failed to delete file');
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sync protocol: optimistic concurrency (ETag / If-Match), manifest, change
+// feed, and server-minted connect tokens.
+// ---------------------------------------------------------------------------
+
+/** Thrown when a PUT/DELETE is rejected because the file changed on the server. */
+export class LoreConflictError extends Error {
+	/** The server's current etag — fetch it and reapply your edit. */
+	currentEtag: string | null;
+	constructor(currentEtag: string | null) {
+		super('File changed on the server since you loaded it');
+		this.name = 'LoreConflictError';
+		this.currentEtag = currentEtag;
+	}
+}
+
+/** Download text content + its etag (the editor's baseline for If-Match). */
+export async function downloadLoreFileText(
+	token: string,
+	channelId: number,
+	path: string,
+	revision?: string
+): Promise<{ content: string; etag: string | null }> {
+	const params = new URLSearchParams();
+	if (revision) params.set('revision', revision);
+	const url = `${loreUrl(`/repos/${channelId}/files/${encodeURIComponent(path)}`)}?${params.toString()}`;
+	const res = await fetchWithTimeout(url, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw new Error((err as any).error || 'Failed to load file');
+	}
+	const etag = res.headers.get('ETag')?.replace(/^W\/|"|"$|^"$/g, '') ?? null;
+	return { content: await res.text(), etag };
+}
+
+/** Save editor content as a versioned upload. Throws LoreConflictError on 409. */
+export async function saveLoreFileContent(
+	token: string,
+	channelId: number,
+	path: string,
+	content: string,
+	baselineEtag: string | null,
+	message?: string
+): Promise<LoreUploadResult> {
+	return uploadLoreFile(
+		token,
+		channelId,
+		path,
+		content,
+		message || `Edit ${path} in Wabi`,
+		baselineEtag
+	);
+}
+
+export interface LoreManifest {
+	channelId: number;
+	files: LoreFileInfo[];
+	headRevision: string;
+	readOnly: boolean;
+}
+
+export async function getLoreManifest(token: string, channelId: number): Promise<LoreManifest> {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/manifest`), {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw new Error((err as any).error || 'Failed to load manifest');
+	}
+	return (await res.json()) as LoreManifest;
+}
+
+export interface LoreChangeEntry {
+	seq: number;
+	path: string;
+	action: 'upload' | 'delete' | 'snapshot' | string;
+	etag?: string | null;
+	revision?: string;
+	authorUserId?: number;
+}
+
+export async function getLoreChanges(
+	token: string,
+	channelId: number,
+	since = 0
+): Promise<{ latestSeq: number; changes: LoreChangeEntry[] }> {
+	const res = await fetchWithTimeout(
+		loreUrl(`/repos/${channelId}/changes?since=${since}`),
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw new Error((err as any).error || 'Failed to load changes');
+	}
+	return await res.json();
+}
+
+export interface LoreConnectTokenInfo {
+	tokenHashPrefix: string;
+	scopes: string;
+	userId: number;
+	createdAtMicros: number;
+}
+
+/** Mint a server-side connect token (plaintext returned exactly once). */
+export async function mintLoreConnectToken(
+	token: string,
+	channelId: number,
+	scopes: 'read' | 'write'
+): Promise<{ token: string; tokenHashPrefix: string; scopes: string }> {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/connect-tokens`), {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ scopes })
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw new Error((err as any).error || 'Failed to mint connect token');
+	}
+	return await res.json();
+}
+
+export async function listLoreConnectTokens(
+	token: string,
+	channelId: number
+): Promise<LoreConnectTokenInfo[]> {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/connect-tokens`), {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) return [];
+	const payload = (await res.json()) as { tokens?: LoreConnectTokenInfo[] };
+	return payload.tokens ?? [];
+}
+
+export async function revokeLoreConnectToken(
+	token: string,
+	channelId: number,
+	tokenHash: string
+): Promise<void> {
+	const res = await fetchWithTimeout(
+		loreUrl(`/repos/${channelId}/connect-tokens/${encodeURIComponent(tokenHash)}`),
+		{
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${token}` }
+		}
+	);
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw new Error((err as any).error || 'Failed to revoke token');
 	}
 }
 

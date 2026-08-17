@@ -144,19 +144,19 @@ See full architecture and deep technical docs in `PROJECT_DOCS/01-architecture/A
 
 ### Docker (recommended)
 
-Works on **Windows, Mac, and Linux** with Docker or Podman.
+Works on **Windows, Mac, and Linux** with Docker or Podman. No `.env`, no secrets to generate — first boot creates them inside `./data/wabi-server` automatically.
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
 cd wabi
-cp .env.example .env
-# Edit WABI_JWT_KEY and WABIDB_ROOT_KEY in .env (see comments)
-docker compose up -d
+docker compose up -d --build
 ```
 
-Open `http://localhost:3001`, create the owner account, and you're in.
+The first build compiles the frontend and the Rust server from source (10+ minutes, cached afterwards). Open `http://localhost:3001`, create the owner account, pick who can join, and you're in.
 
 If you ship Podman instead of Docker, replace `docker compose` with `podman compose`.
+
+Manage secrets yourself instead? `cp .env.example .env`, set `WABI_JWT_KEY` / `WABIDB_ROOT_KEY` there — env values always override the auto-generated ones.
 
 **Optional: voice/video calling via TURN:**
 
@@ -173,10 +173,10 @@ cd wabi
 cd frontend && STATIC_BUILD=1 npm run build && cd ..
 cargo build --release -p wabi-server
 mkdir -p data/wabi-server uploads plugins
-export WABI_JWT_KEY="$(openssl rand -base64 48)"
-export WABIDB_ROOT_KEY="$(openssl rand -hex 32)"
 ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
 ```
+
+Secrets (`jwt_secret`, `root_key`) are generated on first boot inside the data dir. Set `WABI_JWT_KEY` / `WABIDB_ROOT_KEY` env vars to manage them yourself.
 
 Open `http://localhost:3000`, create the owner account.
 
@@ -335,8 +335,7 @@ Start from `.env.example` (root). If you use `scripts/launch.sh`, treat `wabi.co
 
 Important settings to review before production:
 - `FRONTEND_URL`, `PUBLIC_URL`, `ALLOWED_ORIGINS`
-- `WABI_JWT_KEY` (generate: `openssl rand -base64 48`)
-- `WABIDB_ROOT_KEY` (generate: `openssl rand -hex 32`)
+- `WABI_JWT_KEY` / `WABIDB_ROOT_KEY` (optional — auto-generated into the data dir on first boot; set them only if you manage secrets externally. **Back up the data dir**: it contains the root key, and losing it loses the server's data)
 - `TURN_HMAC_KEY` (only when using `--profile turn`)
 - `WABI_MODE`, `WABI_RUNTIME`, `WABI_SERVER_ROLE`
 - `PLUGINS_ENABLED`, `PLUGINS_ALLOW_INSTALL` (both default to `false`)

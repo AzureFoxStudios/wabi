@@ -82,13 +82,28 @@ async fn handle_register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>> {
-    let auth_policy = load_auth_policy(&state);
-    if auth_policy.get("allowRegister").and_then(Value::as_bool) == Some(false) {
-        return Err(AppError::Forbidden("Registration is closed on this server".into()));
-    }
-    if auth_policy.get("mode").and_then(Value::as_str) == Some("invite") {
-        return Err(AppError::Forbidden("An invite is required to register on this server".into()));
-    }
+    // Fresh-server setup window: exactly one account (the owner) may be
+    // created, serialized under the setup lock so concurrent first
+    // registrations can't interleave with the claim. The claim ignores the
+    // auth policy — the owner account is bootstrap, not a join.
+    let _setup_guard = if state.needs_setup().await {
+        let guard = state.setup_claim_lock.lock().await;
+        if !state.needs_setup().await {
+            return Err(AppError::Conflict(
+                "Owner already claimed on this fresh server; registration now follows the server's auth policy".into(),
+            ));
+        }
+        Some(guard)
+    } else {
+        let auth_policy = load_auth_policy(&state);
+        if auth_policy.get("allowRegister").and_then(Value::as_bool) == Some(false) {
+            return Err(AppError::Forbidden("Registration is closed on this server".into()));
+        }
+        if auth_policy.get("mode").and_then(Value::as_str) == Some("invite") {
+            return Err(AppError::Forbidden("An invite is required to register on this server".into()));
+        }
+        None
+    };
     if req.username.trim().is_empty() {
         return Err(AppError::BadRequest("Username cannot be empty".into()));
     }

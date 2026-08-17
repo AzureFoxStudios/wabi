@@ -187,6 +187,10 @@ pub struct LoreFileInfo {
     pub path: String,
     pub size: u64,
     pub status: String, // "added", "modified", "deleted", "clean"
+    /// Content etag (SHA-256, or `q-…` sampled for large files). Used for
+    /// optimistic concurrency (If-Match) and client-side change detection.
+    #[serde(default)]
+    pub etag: Option<String>,
 }
 
 /// Branch information.
@@ -253,7 +257,7 @@ impl Default for LoreConfig {
         Self {
             enabled: false,
             mode: LoreMode::Embedded,
-            lore_server_url: "lore://localhost:41337".into(),
+            lore_server_url: "lore://localhost:10000".into(),
             lore_binary_path: PathBuf::from("lore"),
             lore_data_dir: PathBuf::from("/var/wabi/lore"),
             default_blob_max_size_mb: 1024,
@@ -296,6 +300,125 @@ async fn run_lore(
     Ok(output)
 }
 
+// ---------------------------------------------------------------------------
+// ETags (optimistic concurrency) + revision content cache
+// ---------------------------------------------------------------------------
+
+/// Files up to this size get a full-content SHA-256 etag; larger files get a
+/// sampled etag (size + mtime + first/last 32 KiB) prefixed `q-` so clients
+/// can tell the two apart. Both wabi-server and wabi-sync use this exact
+/// algorithm — changing it is a wire-protocol break.
+const ETAG_FULL_HASH_MAX_BYTES: u64 = 4 * 1024 * 1024;
+const ETAG_SAMPLE_BYTES: u64 = 32 * 1024;
+
+/// ETag for in-memory bytes (the just-uploaded body). Always a full hash —
+/// callers already hold the bytes, so sampling saves nothing.
+pub fn etag_for_bytes(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
+}
+
+/// Compute the etag for a file on disk. Files above
+/// [`ETAG_FULL_HASH_MAX_BYTES`] are sampled (size + mtime + head/tail bytes)
+/// to keep manifest calls cheap on large binary assets.
+pub async fn file_etag(path: &std::path::Path) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    let meta = tokio::fs::metadata(path).await?;
+    if meta.len() <= ETAG_FULL_HASH_MAX_BYTES {
+        let bytes = tokio::fs::read(path).await?;
+        return Ok(etag_for_bytes(&bytes));
+    }
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut file = tokio::fs::File::open(path).await?;
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut head = vec![0u8; ETAG_SAMPLE_BYTES as usize];
+    let head_len = file.read(&mut head).await?;
+    head.truncate(head_len);
+    file.seek(std::io::SeekFrom::End(-(ETAG_SAMPLE_BYTES.min(meta.len()) as i64)))
+        .await?;
+    let mut tail = vec![0u8; ETAG_SAMPLE_BYTES as usize];
+    let tail_len = file.read(&mut tail).await?;
+    tail.truncate(tail_len);
+    let mut hasher = Sha256::new();
+    hasher.update(meta.len().to_le_bytes());
+    hasher.update(mtime.to_le_bytes());
+    hasher.update(&head);
+    hasher.update(&tail);
+    Ok(format!("q-{}", hex::encode(hasher.finalize())))
+}
+
+/// Cached (size, mtime) → etag so `list_files` doesn't re-hash unchanged
+/// files on every call.
+type EtagCache = std::sync::Mutex<HashMap<(i64, String), (u64, u128, String)>>;
+
+async fn etag_cached(
+    cache: &EtagCache,
+    channel_id: i64,
+    path: &str,
+    full_path: &std::path::Path,
+) -> Option<String> {
+    let meta = tokio::fs::metadata(full_path).await.ok()?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    {
+        let cache = cache.lock().unwrap();
+        if let Some((size, seen_mtime, etag)) = cache.get(&(channel_id, path.to_string())) {
+            if *size == meta.len() && *seen_mtime == mtime {
+                return Some(etag.clone());
+            }
+        }
+    }
+    let etag = file_etag(full_path).await.ok()?;
+    cache
+        .lock()
+        .unwrap()
+        .insert((channel_id, path.to_string()), (meta.len(), mtime, etag.clone()));
+    Some(etag)
+}
+
+/// Path of a cached file version:
+/// `<lore_data_dir>/<channel_id>.revcache/<revision>/<repo_path>`.
+/// Lives OUTSIDE the working tree so `lore status` never sees it.
+fn rev_cache_path(lore_data_dir: &std::path::Path, channel_id: i64, revision: &str, repo_path: &str) -> PathBuf {
+    lore_data_dir
+        .join(format!("{}.revcache", channel_id))
+        .join(revision)
+        .join(repo_path)
+}
+
+/// Best-effort copy of a just-committed file version into the revision
+/// cache so `?revision=` downloads work without lore CLI support.
+async fn cache_revision_content(
+    lore_data_dir: &std::path::Path,
+    channel_id: i64,
+    revision: &str,
+    repo_path: &str,
+    working_tree: &std::path::Path,
+) {
+    if revision.is_empty() {
+        return;
+    }
+    let dest = rev_cache_path(lore_data_dir, channel_id, revision, repo_path);
+    if let Some(parent) = dest.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            warn!(error = %e, repo_path, "revcache: create dir failed");
+            return;
+        }
+    }
+    if let Err(e) = tokio::fs::copy(working_tree.join(repo_path), &dest).await {
+        warn!(error = %e, repo_path, revision, "revcache: copy failed");
+    }
+}
+
 /// TTL for the external-mirror fetch cache. After this long the cache is
 /// considered stale and the next read re-runs `git clone --depth 1`.
 const MIRROR_CACHE_TTL_SECS: u64 = 600;
@@ -334,6 +457,8 @@ pub struct LoreService {
     pub mirror: mirror::MirrorService,
     /// Ignore filters per channel (lazy-loaded, mtime-checked)
     ignore_filters: std::sync::RwLock<HashMap<i64, Arc<ignore::LazyRepoFilter>>>,
+    /// (size, mtime) → etag memo so listings don't re-hash unchanged files
+    etag_cache: EtagCache,
 }
 
 impl LoreService {
@@ -347,11 +472,22 @@ impl LoreService {
             config,
             repos: RwLock::new(HashMap::new()),
             ignore_filters: std::sync::RwLock::new(HashMap::new()),
+            etag_cache: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
     pub fn recordings_channel_name(&self) -> &str {
         &self.config.recordings_channel_name
+    }
+
+    /// Configured per-file size cap in bytes (`default_blob_max_size_mb`).
+    pub fn blob_max_size_bytes(&self) -> u64 {
+        u64::from(self.config.default_blob_max_size_mb) * 1024 * 1024
+    }
+
+    /// Working-tree path for a channel's repo, if registered.
+    pub async fn repo_working_tree(&self, channel_id: i64) -> Option<PathBuf> {
+        self.get_repo(channel_id).await.map(|r| r.working_tree)
     }
 
         /// Get or create the ignore filter for a channel's repo.
@@ -788,20 +924,12 @@ impl LoreService {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut files: Vec<LoreFileInfo> = stdout
             .lines()
-            .filter(|l| !l.is_empty() && !l.starts_with("Repository") && !l.starts_with("On branch"))
-            .map(|line| {
-                // Parse "A file/path" or "M file/path" or just "file/path"
-                let (status, path) = if let Some((s, p)) = line.split_once(' ') {
-                    (s.trim(), p.trim())
-                } else {
-                    ("clean", line.trim())
-                };
-
-                LoreFileInfo {
-                    path: path.to_string(),
-                    size: 0,
-                    status: status.to_string(),
-                }
+            .filter_map(parse_status_line)
+            .map(|(status, path)| LoreFileInfo {
+                path,
+                size: 0,
+                status,
+                etag: None,
             })
             .collect();
 
@@ -814,12 +942,13 @@ impl LoreService {
         let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
         files.retain(|f| !filter.is_ignored(&f.path));
 
-        // Enrich with file sizes from the filesystem
+        // Enrich with file sizes and etags from the filesystem
         for file in files.iter_mut() {
             let full_path = repo.working_tree.join(&file.path);
             if let Ok(metadata) = tokio::fs::metadata(&full_path).await {
                 file.size = metadata.len();
             }
+            file.etag = etag_cached(&self.etag_cache, channel_id, &file.path, &full_path).await;
         }
 
         Ok(files)
@@ -854,6 +983,7 @@ impl LoreService {
                 path: path.to_string(),
                 size: 0,
                 status: "clean".to_string(),
+                etag: None,
             })
             .collect();
 
@@ -869,9 +999,34 @@ impl LoreService {
             if let Ok(metadata) = tokio::fs::metadata(&full_path).await {
                 file.size = metadata.len();
             }
+            file.etag = etag_cached(&self.etag_cache, repo.channel_id, &file.path, &full_path).await;
         }
 
         Ok(files)
+    }
+
+    /// Current head etag of a single file (None = file does not exist).
+    /// Used by the API for If-Match conflict checks on PUT/DELETE.
+    pub async fn head_etag(
+        &self,
+        channel_id: i64,
+        repo_path: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let repo = self
+            .get_repo(channel_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+        let base = if repo.read_only() {
+            self.ensure_mirror_cache(&repo).await?
+        } else {
+            self.sync_repo(&repo).await?;
+            repo.working_tree.clone()
+        };
+        let full = base.join(repo_path);
+        if !tokio::fs::try_exists(&full).await.unwrap_or(false) {
+            return Ok(None);
+        }
+        Ok(Some(file_etag(&full).await?))
     }
 
     /// Resolve a file inside a mirror repo's fetch cache, cloning it on demand.
@@ -921,6 +1076,19 @@ impl LoreService {
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
         self.ensure_writable(&repo)?;
 
+        // Reject ignored paths BEFORE touching the working tree or creating a
+        // review branch — a late rejection used to leave the uploaded bytes
+        // on disk and the repo stranded on the review branch.
+        {
+            let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
+            if filter.is_ignored(repo_path) {
+                return Err(anyhow::anyhow!(
+                    "path '{}' is ignored by .wabiignore",
+                    repo_path
+                ));
+            }
+        }
+
         // Artist-friendly review flow: switch to a fresh per-upload branch
         // BEFORE touching the working tree so the new file lands on the branch,
         // then switch back to the mainline after committing.
@@ -965,15 +1133,6 @@ impl LoreService {
         // Copy file into working tree
         tokio::fs::copy(local_path, &dest).await?;
 
-        // Check if the path is ignored
-        let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
-        if filter.is_ignored(repo_path) {
-            return Err(anyhow::anyhow!(
-                "path '{}' is ignored by .wabiignore",
-                repo_path
-            ));
-        }
-
         // Stage the file
         run_lore(
             &self.config.lore_binary_path,
@@ -1010,6 +1169,17 @@ impl LoreService {
         let stdout = String::from_utf8_lossy(&commit_output.stdout);
         let revision = parse_revision_from_output(&stdout);
 
+        // Persist this version's bytes so `?revision=` downloads work without
+        // relying on unverified lore CLI capabilities.
+        cache_revision_content(
+            &self.config.lore_data_dir,
+            channel_id,
+            &revision.hash,
+            repo_path,
+            &repo.working_tree,
+        )
+        .await;
+
         info!(
             channel_id,
             repo_path,
@@ -1017,10 +1187,29 @@ impl LoreService {
             "Uploaded file to Lore repo"
         );
 
+        let size = tokio::fs::metadata(&dest).await.map(|m| m.len()).unwrap_or(0);
+        let etag = file_etag(&dest).await.ok();
+        // The file may have changed again on disk; the cache is keyed by
+        // (size, mtime) so a stale entry self-heals on next read.
+        if let Some(etag) = &etag {
+            let mtime = tokio::fs::metadata(&dest)
+                .await
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            self.etag_cache.lock().unwrap().insert(
+                (channel_id, repo_path.to_string()),
+                (size, mtime, etag.clone()),
+            );
+        }
+
         let file_info = LoreFileInfo {
             path: repo_path.to_string(),
-            size: 0,
+            size,
             status: "added".to_string(),
+            etag,
         };
 
         Ok(LoreUploadResult {
@@ -1032,18 +1221,37 @@ impl LoreService {
     }
 
     /// Download a file from the Lore repo to a local path.
-    /// Supports optional revision pinning.
+    /// Supports revision pinning: revision-pinned reads are served from the
+    /// local revision cache (populated at wabi-mediated commit time); head
+    /// reads come from the (synced) working tree.
     pub async fn download_file(
         &self,
         channel_id: i64,
         repo_path: &str,
         output_path: &str,
-        _revision: Option<&str>,
+        revision: Option<&str>,
     ) -> anyhow::Result<()> {
         let repo = self
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+
+        if let Some(rev) = revision.filter(|r| !r.is_empty()) {
+            if repo.read_only() {
+                anyhow::bail!("revision pinning is not supported for read-only mirror repos");
+            }
+            let cached =
+                rev_cache_path(&self.config.lore_data_dir, channel_id, rev, repo_path);
+            if !cached.exists() {
+                anyhow::bail!(
+                    "no cached content for '{repo_path}' at revision '{rev}' \
+                     (only versions committed through Wabi are cached)"
+                );
+            }
+            tokio::fs::copy(&cached, output_path).await?;
+            debug!(repo_path, rev, "Downloaded from revision cache");
+            return Ok(());
+        }
 
         // Mirror downloads are served from the git fetch cache via
         // `mirror_cache_file` — the lore CLI path never runs for mirrors.
@@ -1103,7 +1311,8 @@ impl LoreService {
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
         // Mirror repos: history comes from `git log` on the shallow fetch
-        // cache. Note the shallow clone only carries the tip commit.
+        // cache, with native git path filtering. Note the shallow clone only
+        // carries the tip commit.
         if repo.read_only() {
             return self.mirror_history(&repo, path_filter).await;
         }
@@ -1119,23 +1328,34 @@ impl LoreService {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let revisions = parse_history_output(&stdout);
 
-        // If a specific file path is requested, filter revisions that touched it
-        // (full implementation would use `lore file history` if available)
+        // `lore history` has no per-path mode, so a path filter cannot be
+        // applied here honestly — the API layer filters via WabiDB commit
+        // records (which carry file paths) for native repos. Unfiltered
+        // callers get the whole-repo history.
         Ok(revisions)
     }
 
     /// Serve revision history from a mirror repo's fetch cache via
-    /// `git log` (shallow clone → tip commit only).
+    /// `git log` (shallow clone → tip commit only). Git filters by path
+    /// natively, so the path filter is honored exactly.
     async fn mirror_history(
         &self,
         repo: &LoreRepo,
-        _path_filter: &str,
+        path_filter: &str,
     ) -> anyhow::Result<Vec<LoreRevision>> {
         let cache = self.ensure_mirror_cache(repo).await?;
 
+        let mut args = vec![
+            "log".to_string(),
+            "--pretty=format:%H%n%an%n%at%n%s".to_string(),
+        ];
+        if !path_filter.is_empty() {
+            args.push("--".to_string());
+            args.push(path_filter.to_string());
+        }
         let output = Command::new("git")
             .current_dir(&cache)
-            .args(["log", "--pretty=format:%H%n%an%n%at%n%s"])
+            .args(&args)
             .output()
             .await?;
         if !output.status.success() {
@@ -1176,7 +1396,18 @@ impl LoreService {
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
-        self.ensure_writable(&repo)?;
+
+        // Mirror repos are read-only: the working tree IS the fetched upstream
+        // state, so there is never a local-vs-head diff. Report empty rather
+        // than refusing — diff is a read operation.
+        if repo.read_only() {
+            return Ok(LoreDiff {
+                path: repo_path.to_string(),
+                unified_diff: String::new(),
+                lines_added: 0,
+                lines_removed: 0,
+            });
+        }
 
         let output = run_lore(
             &self.config.lore_binary_path,
@@ -1285,9 +1516,12 @@ impl LoreService {
         Ok(())
     }
 
-    /// Merge a branch into the current branch.
-    /// Lore doesn't have a direct merge command — we switch to the target branch,
-    /// sync, then switch back.
+    /// Merge a branch into the current branch using `lore branch merge`.
+    ///
+    /// The current branch is captured first; `lore branch merge <src>` merges
+    /// the source into the currently checked-out branch, so we refuse when the
+    /// requested branch IS the current one (nothing to merge into itself) and
+    /// push the merged result afterwards.
     pub async fn merge_branch(
         &self,
         channel_id: i64,
@@ -1299,25 +1533,31 @@ impl LoreService {
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
         self.ensure_writable(&repo)?;
 
-        // Switch to the branch to merge
+        let current = self.current_branch_name(&repo).await?;
+        if current == branch_name {
+            anyhow::bail!(
+                "branch '{branch_name}' is already checked out; merge a different branch into it"
+            );
+        }
+
+        // Merge the source branch into the current branch.
         run_lore(
             &self.config.lore_binary_path,
             &repo.working_tree,
-            &["branch", "switch", branch_name],
+            &["branch", "merge", branch_name],
             self.config.mode
         )
         .await?;
 
-        // Sync to get latest
-        run_lore(
-            &self.config.lore_binary_path,
-            &repo.working_tree,
-            &["sync"],
-            self.config.mode
-        )
-        .await?;
+        // Sync + publish the merged result (no-ops in embedded mode).
+        self.sync_repo(&repo).await?;
+        self.push_repo(&repo).await?;
 
-        info!(branch_name, "Merged branch in Lore repo");
+        info!(
+            from = branch_name,
+            into = current,
+            "Merged branch in Lore repo"
+        );
         Ok(())
     }
 
@@ -1596,7 +1836,24 @@ impl LoreService {
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
-        self.ensure_writable(&repo)?;
+
+        // Mirror repos: both revisions are git objects in the fetch cache, so
+        // diff with git directly.
+        if repo.read_only() {
+            let cache = self.ensure_mirror_cache(&repo).await?;
+            let output = Command::new("git")
+                .current_dir(&cache)
+                .args(["diff", from, to, "--", repo_path])
+                .output()
+                .await?;
+            if !output.status.success() {
+                anyhow::bail!(
+                    "git diff failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
 
         // Lore diff: compare two revisions
         // If from/to are revision hashes, use `lore diff <from> <to> <path>`
@@ -1622,21 +1879,45 @@ impl LoreService {
         }
     }
 
-    /// Health check — verify the Lore CLI and server are reachable.
+    /// Health check — verify the Lore CLI and, in sidecar/remote modes, that
+    /// the configured lore server is actually reachable (TCP connect with a
+    /// short timeout). Embedded mode is offline-local only.
     pub async fn health_check(&self) -> anyhow::Result<()> {
         // Embedded mode is offline-local only — no server to ping.
         if matches!(self.config.mode, LoreMode::Embedded) {
             return Ok(());
         }
-        // Try running `lore --version` to verify CLI is available
+        // Verify the CLI is available
         let output = Command::new(&self.config.lore_binary_path)
             .arg("--version")
             .output()
             .await?;
-
         if !output.status.success() {
             anyhow::bail!("Lore CLI not available: {}", String::from_utf8_lossy(&output.stderr));
         }
+
+        // Verify the configured lore server is reachable — a present CLI with
+        // a dead server would otherwise report healthy.
+        let server = self
+            .config
+            .lore_server_url
+            .trim_start_matches("lore://")
+            .trim_end_matches('/')
+            .to_string();
+        let (host, port) = server.rsplit_once(':').ok_or_else(|| {
+            anyhow::anyhow!("invalid lore server url '{}'", self.config.lore_server_url)
+        })?;
+        let port: u16 = port.parse().map_err(|_| {
+            anyhow::anyhow!("invalid lore server port in '{}'", self.config.lore_server_url)
+        })?;
+        let connect = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            tokio::net::TcpStream::connect((host, port)),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("lore server {host}:{port} unreachable (timeout)"))?
+        .map_err(|e| anyhow::anyhow!("lore server {host}:{port} unreachable: {e}"))?;
+        drop(connect);
 
         Ok(())
     }
@@ -1648,7 +1929,7 @@ impl LoreService {
         &self,
         channel_id: i64,
         repo_path: &str,
-        _user_id: i64,
+        user_id: i64,
     ) -> anyhow::Result<LoreFileLock> {
         let repo = self
             .get_repo(channel_id)
@@ -1656,18 +1937,20 @@ impl LoreService {
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
         self.ensure_writable(&repo)?;
 
+        let locked_at = chrono::Utc::now().to_rfc3339();
+
         // Embedded mode has no server to hold lock state — degrade to a local
-        // record with no lock owner rather than erroring.
+        // record rather than erroring.
         if matches!(self.config.mode, LoreMode::Embedded) {
             info!(repo_path, "offline repo: file lock degraded (no server)");
             return Ok(LoreFileLock {
                 path: repo_path.to_string(),
-                locked_by: None,
-                locked_at: Some(chrono::Utc::now().to_rfc3339()),
+                locked_by: Some(user_id.to_string()),
+                locked_at: Some(locked_at),
             });
         }
 
-        run_lore(
+        let output = run_lore(
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["lock", repo_path],
@@ -1677,10 +1960,21 @@ impl LoreService {
 
         info!(repo_path, "Locked file in Lore repo");
 
+        // Prefer the owner the lore server reports ("locked by <name>"),
+        // falling back to the requesting user's id — Wabi knows who asked.
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let server_reported = stdout.lines().find_map(|l| {
+            let l = l.trim();
+            l.to_ascii_lowercase()
+                .starts_with("locked by")
+                .then(|| l.split_once(':').map(|(_, name)| name.trim().to_string()))
+                .flatten()
+        });
+
         Ok(LoreFileLock {
             path: repo_path.to_string(),
-            locked_by: None, // Parse from output if available
-            locked_at: None,
+            locked_by: Some(server_reported.unwrap_or_else(|| user_id.to_string())),
+            locked_at: Some(locked_at),
         })
     }
 
@@ -1778,7 +2072,26 @@ impl LoreService {
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
-        self.ensure_writable(&repo)?;
+
+        // Mirror repos: report from the git fetch cache — status is a read.
+        if repo.read_only() {
+            let cache = self.ensure_mirror_cache(&repo).await?;
+            let output = Command::new("git")
+                .current_dir(&cache)
+                .args(["status", "--short"])
+                .output()
+                .await?;
+            if !output.status.success() {
+                anyhow::bail!(
+                    "git status failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            return Ok(format!(
+                "read-only mirror (upstream snapshot)\n{}",
+                String::from_utf8_lossy(&output.stdout)
+            ));
+        }
 
         let output = run_lore(
             &self.config.lore_binary_path,
@@ -1988,14 +2301,19 @@ fn sanitize_username(author_id: i64) -> String {
 }
 
 /// Parse revision info from `lore commit` output.
+///
+/// Lore writes prose progress lines ("Fragmenting files…", "Committing…")
+/// before the metadata block and an indented message line, so only indented
+/// lines are treated as the commit message — unindented prose used to leak
+/// into `revision.message`.
 fn parse_revision_from_output(output: &str) -> LoreRevision {
     let mut hash = String::new();
     let mut revision_number = 0u64;
     let mut message = String::new();
     let mut timestamp = String::new();
 
-    for line in output.lines() {
-        let line = line.trim();
+    for raw_line in output.lines() {
+        let line = raw_line.trim();
         if line.starts_with("Signature") {
             if let Some(h) = line.split(':').nth(1) {
                 hash = h.trim().to_string();
@@ -2010,7 +2328,10 @@ fn parse_revision_from_output(output: &str) -> LoreRevision {
             }
         } else if line.starts_with("Commit succeeded") {
             break;
-        } else if !line.is_empty() && message.is_empty() {
+        } else if raw_line.starts_with(char::is_whitespace)
+            && !line.is_empty()
+            && message.is_empty()
+        {
             message = line.to_string();
         }
     }
@@ -2025,17 +2346,91 @@ fn parse_revision_from_output(output: &str) -> LoreRevision {
     }
 }
 
+/// Parse one line of `lore status --scan` output into `(status, path)`.
+///
+/// Lore mixes prose into status output (progress lines, repository headers,
+/// summaries). Those used to be treated as file paths, which 500'd file
+/// listings. A line is a file entry only when it is either
+/// `<status-char> <path>` (A/M/D/R/C/!/?/…) or a bare path-shaped token
+/// (contains `/` or a `.ext`, no spaces, no trailing `:`).
+pub(crate) fn parse_status_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Known prose prefixes seen in lore status/commit output.
+    const PROSE_PREFIXES: [&str; 10] = [
+        "Repository",
+        "On branch",
+        "Branch",
+        "Scanning",
+        "Committing",
+        "Committed",
+        "Syncing",
+        "Synchronizing",
+        "Fragmenting",
+        "Working tree",
+    ];
+    if PROSE_PREFIXES.iter().any(|p| trimmed.starts_with(p)) {
+        return None;
+    }
+
+    let looks_like_path = |p: &str| {
+        !p.is_empty()
+            && !p.contains(' ')
+            && !p.ends_with(':')
+            && (p.contains('/') || p.contains('.'))
+    };
+
+    // "<status> <path>" form
+    if let Some((status, path)) = trimmed.split_once(' ') {
+        let status = status.trim();
+        let path = path.trim();
+        if status.len() <= 2
+            && status
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c == '?' || c == '!')
+            && looks_like_path(path)
+        {
+            return Some((status.to_string(), path.to_string()));
+        }
+    }
+
+    // Bare path form
+    if looks_like_path(trimmed) {
+        return Some(("clean".to_string(), trimmed.to_string()));
+    }
+    None
+}
+
 /// Parse revision history from `lore history` output.
+///
+/// Metadata lines are `Key : value` at column 0; commit messages are indented
+/// continuation lines (see the fixtures in the tests below). Unindented
+/// unknown lines are prose and are skipped rather than swallowed into the
+/// current entry's message.
 fn parse_history_output(output: &str) -> Vec<LoreRevision> {
     let mut revisions = Vec::new();
     let mut current: Option<LoreRevision> = None;
 
-    for line in output.lines() {
-        let line = line.trim();
+    for raw_line in output.lines() {
+        let line = raw_line.trim();
         if line.is_empty() {
             if let Some(r) = current.take() {
                 revisions.push(r);
             }
+            continue;
+        }
+
+        let is_metadata = line.starts_with("Signature")
+            || line.starts_with("Revision")
+            || line.starts_with("Date")
+            || line.starts_with("Parent")
+            || line.starts_with("Branch");
+        let is_message = raw_line.starts_with(char::is_whitespace);
+        if !is_metadata && !is_message {
+            // Unindented unknown line = prose → skip WITHOUT creating an
+            // entry (prose between commits used to mint phantom revisions).
             continue;
         }
 
@@ -2066,12 +2461,12 @@ fn parse_history_output(output: &str) -> Vec<LoreRevision> {
             }
         } else if line.starts_with("Branch") {
             // Skip branch line
-        } else if !entry.message.is_empty() {
-            // Append to message
-            entry.message.push('\n');
+        } else {
+            // Indented continuation → commit message body
+            if !entry.message.is_empty() {
+                entry.message.push('\n');
+            }
             entry.message.push_str(line);
-        } else if !line.starts_with("Repository") {
-            entry.message = line.to_string();
         }
     }
 
@@ -2103,6 +2498,108 @@ Commit succeeded"#;
         assert_eq!(revision.revision_number, 1);
         assert!(!revision.hash.is_empty());
         assert!(!revision.timestamp.is_empty());
+        // The indented message line, not the prose progress lines above it.
+        assert_eq!(revision.message, "Initial revision");
+    }
+
+    #[test]
+    fn test_parse_status_line_rejects_prose() {
+        // Real-shaped lore status output with prose mixed in.
+        let output = r#"Repository: 3f2a1b4c5d6e7f8a923b5e2b2f74fbe8
+On branch e726318bbc3fd75ac8733a7e030cc35b
+Scanning working tree for changes
+A src/main.rs
+M docs/readme.md
+Committed 2/2 directories, 2/2 files, 269.00 bytes
+Fragmenting files and updating tree hashes
+D old/legacy.txt"#;
+
+        let files: Vec<(String, String)> = output.lines().filter_map(parse_status_line).collect();
+        assert_eq!(
+            files,
+            vec![
+                ("A".to_string(), "src/main.rs".to_string()),
+                ("M".to_string(), "docs/readme.md".to_string()),
+                ("D".to_string(), "old/legacy.txt".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_status_line_bare_paths_and_noise() {
+        assert_eq!(
+            parse_status_line("assets/textures/skin.png"),
+            Some(("clean".into(), "assets/textures/skin.png".into()))
+        );
+        assert_eq!(
+            parse_status_line("notes.txt"),
+            Some(("clean".into(), "notes.txt".into()))
+        );
+        // Summary lines, headers, and sentences are not paths.
+        assert_eq!(parse_status_line("3 files changed"), None);
+        assert_eq!(parse_status_line("Working tree clean"), None);
+        assert_eq!(parse_status_line("Syncing with lore://host:10000"), None);
+        assert_eq!(parse_status_line(""), None);
+    }
+
+    #[test]
+    fn test_parse_history_skips_prose_between_entries() {
+        let output = r#"Revision  : 3
+Signature : 352cba705adcadb430541b5dd8c80f8da13c38dae1a3e4f4f12307d010acc3ca
+Branch    : e726318bbc3fd75ac8733a7e030cc35b
+Date      : Sat, 8 Aug 2026 03:06:29 +0000
+    Add Wabi Rust skeleton
+
+Scanning repository metadata
+3 revisions displayed
+
+Revision  : 2
+Signature : a42adab82488bc6fbe024520a6a5fb689e03ad6c1135d64b72aa89ffb8ff14b
+Branch    : e726318bbc3fd75ac8733a7e030cc35b
+Date      : Sat, 8 Aug 2026 03:05:43 +0000
+    Add feature module"#;
+
+        let revisions = parse_history_output(output);
+        assert_eq!(revisions.len(), 2);
+        assert_eq!(revisions[0].revision_number, 3);
+        assert_eq!(revisions[0].message, "Add Wabi Rust skeleton");
+        assert_eq!(revisions[1].revision_number, 2);
+        assert_eq!(revisions[1].message, "Add feature module");
+    }
+
+    #[tokio::test]
+    async fn test_etag_for_bytes_stable_and_sensitive() {
+        let a = etag_for_bytes(b"hello world");
+        let b = etag_for_bytes(b"hello world");
+        let c = etag_for_bytes(b"hello world!");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(a.len(), 64); // hex sha-256
+    }
+
+    #[tokio::test]
+    async fn test_file_etag_small_file_matches_bytes_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("f.bin");
+        tokio::fs::write(&p, b"small payload").await.unwrap();
+        let etag = file_etag(&p).await.unwrap();
+        assert_eq!(etag, etag_for_bytes(b"small payload"));
+    }
+
+    #[tokio::test]
+    async fn test_rev_cache_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("225");
+        tokio::fs::create_dir_all(tree.join("src")).await.unwrap();
+        tokio::fs::write(tree.join("src/main.rs"), b"fn main() {}").await.unwrap();
+
+        let rev = "abc123";
+        cache_revision_content(dir.path(), 225, rev, "src/main.rs", &tree).await;
+        let cached = rev_cache_path(dir.path(), 225, rev, "src/main.rs");
+        let content = tokio::fs::read(&cached).await.unwrap();
+        assert_eq!(content, b"fn main() {}");
+        // Outside the working tree, so lore status never sees it.
+        assert!(cached.starts_with(dir.path().join("225.revcache")));
     }
 
     #[test]

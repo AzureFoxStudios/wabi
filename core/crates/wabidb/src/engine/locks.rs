@@ -73,16 +73,10 @@ impl SequencerPermit {
     }
 
     /// Permanently hand off the permit. After this call, the semaphore
-    /// is permanently held (the permit is never returned to the pool).
-    /// Used when the sequencer task is detached and the permit must
-    /// outlive any function that created it.
+    /// slot is never returned to the pool — the sequencer's write right
+    /// outlives any single owner. Implemented by leaking the owned permit.
     pub fn into_static(self) {
-        // OwnedSemaphorePermit is dropped here, returning the permit.
-        // For a permanent handoff, the caller should use a different
-        // approach: e.g., keep the permit in a `Box::leak` or use
-        // `Arc<OwnedSemaphorePermit>`. For now, this is a no-op
-        // that explicitly consumes self to make the handoff intent clear.
-        let _ = self._permit;
+        std::mem::forget(self._permit);
     }
 }
 
@@ -241,8 +235,14 @@ impl ProjectionState {
 
     /// Advance the `applied_commit_seq` watermark. Called by the
     /// dispatcher after each successful apply.
+    ///
+    /// Monotonic: a lower value never overwrites a higher one. Without
+    /// this guard, replay to a high watermark followed by a write at a
+    /// lower seq would regress the linearizability barrier.
     pub(crate) fn advance_watermark(&self, new_watermark: u64) {
-        self.applied_commit_seq.store(new_watermark, Ordering::Release);
+        let _ = self
+            .applied_commit_seq
+            .fetch_max(new_watermark, Ordering::AcqRel);
     }
 
     /// Remove a single entry from a named index. Returns `true` if the
@@ -304,8 +304,13 @@ impl ProjectionState {
     /// Set the `applied_commit_seq` watermark. Used by the
     /// `LinearizabilityBarrier` (which is the public API for advancing).
     /// Internally delegates to the atomic store.
+    ///
+    /// Monotonic: same guarantee as [`Self::advance_watermark`] — the
+    /// watermark can only move forward.
     pub fn set_applied_commit_seq(&self, new_watermark: u64) {
-        self.applied_commit_seq.store(new_watermark, Ordering::Release);
+        let _ = self
+            .applied_commit_seq
+            .fetch_max(new_watermark, Ordering::AcqRel);
     }
 }
 

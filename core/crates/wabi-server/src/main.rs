@@ -28,6 +28,7 @@ mod lore;
 mod nodes;
 mod rate_limit;
 mod replication_transport;
+mod secrets;
 mod socketio;
 mod socketio_impl;
 mod standby;
@@ -60,6 +61,7 @@ use tracing::info;
 
 use crate::api::routes::create_api_router;
 use crate::config::{ServerConfig, ServerRole};
+use crate::secrets::resolve_jwt_secret;
 
 /// Serve a file from the uploads directory
 async fn serve_upload(
@@ -161,7 +163,7 @@ struct Args {
 /// Maintenance: delete messages whose author has no corresponding user
 /// record. These "ghost" messages render as `Unknown user` / `1` because the
 /// author id (e.g. an early/test account) was never persisted as a profile.
-/// Run with `WABI_PURGE_ORPHANS=1 WABIDB_ROOT_KEY=... wabi-server --data-dir ./data`.
+/// Run with `WABI_PURGE_ORPHANS=1 wabi-server --data-dir ./data`.
 async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
     use crate::adapter::WdbAdapter;
     use wabidb::engine::wabi_store::WabiStore;
@@ -371,39 +373,6 @@ mod cors_tests {
         assert!(is_safe_local_origin("localhost"));
         assert!(is_safe_local_origin("127.0.0.1"));
     }
-}
-
-/// Resolve the JWT signing secret.
-///
-/// Priority: `JWT_SECRET` env var > persisted `<data_dir>/jwt_secret` >
-/// freshly generated + persisted. We never fall back to a hardcoded weak
-/// default, because a known secret lets anyone forge tokens for any user
-/// (including the owner).
-fn resolve_jwt_secret(data_dir: &str) -> String {
-    const WEAK: &str = "dev-secret-change-in-production";
-    if let Ok(env) = std::env::var("JWT_SECRET") {
-        if !env.is_empty() && env != WEAK {
-            return env;
-        }
-        if env == WEAK {
-            tracing::warn!("[security] JWT_SECRET is set to the weak built-in default; set a strong secret");
-            return env;
-        }
-    }
-    let path = std::path::PathBuf::from(data_dir).join("jwt_secret");
-    if let Ok(s) = std::fs::read_to_string(&path) {
-        let t = s.trim().to_string();
-        if !t.is_empty() {
-            return t;
-        }
-    }
-    let secret = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
-    if let Err(e) = std::fs::write(&path, &secret) {
-        tracing::warn!("[security] failed to persist jwt_secret: {e}");
-    } else {
-        tracing::info!("[security] generated and persisted a new jwt_secret to {path:?}");
-    }
-    secret
 }
 
 #[tokio::main]

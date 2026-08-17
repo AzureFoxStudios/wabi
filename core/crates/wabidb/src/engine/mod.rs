@@ -195,19 +195,12 @@ impl WabiDbEngine {
             }
         }
 
-        // 2. Lock file: write PID, fsync file + parent directory
+        // 2. Lock file: atomically create (O_EXCL), write PID, fsync file +
+        // parent directory. A stale lock left by a dead process is stolen;
+        // a lock held by a LIVE process refuses to start.
         let lock_path = data_dir.join(".lock");
-        if lock_path.exists() {
-            return Err(WabiError::AlreadyRunning);
-        }
         let pid = std::process::id();
-        tokio::fs::write(&lock_path, pid.to_string()).await.map_err(|e| {
-            WabiError::Io(std::io::Error::new(e.kind(), format!("lock file write: {e}")))
-        })?;
-        {
-            let f = tokio::fs::File::open(&lock_path).await.map_err(WabiError::Io)?;
-            f.sync_all().await.map_err(WabiError::Io)?;
-        }
+        acquire_lock_file(&lock_path, pid).await?;
         fsync_dir(data_dir).await?;
 
         // 3. Load the bootstrap key
@@ -268,8 +261,9 @@ impl WabiDbEngine {
         )?;
         let dispatcher_tx = dispatcher_handle.sender;
 
-        // 7.2 Replay events after the snapshot watermark
-        replay::replay_projections(
+        // 7.2 Replay events after the snapshot watermark.
+        // Returns the highest commit_seq observed on disk (orphans included).
+        let replay_high_seq = replay::replay_projections(
             data_dir,
             &key_registry,
             &bootstrap_key,
@@ -286,6 +280,27 @@ impl WabiDbEngine {
         let (batcher, batcher_fut) = new_batcher(commit_index_dir, None, None);
         let replication_batcher = Some(batcher.clone());
         tokio::spawn(batcher_fut);
+
+        // 8.1 Recover the sequencer's high-water mark: the max commit_seq
+        // across the commit index, the on-disk segments (replay scan), and
+        // the snapshot watermark. The sequencer continues ABOVE this number
+        // so a restart never reuses a commit_seq that a prior incarnation
+        // already encrypted with the same derived stream key (nonce reuse,
+        // Council Review #1 §1.1) or recorded in the commit index.
+        let index_high_seq = crate::commit_index::batcher::read_all_entries(
+            &data_dir.join("global").join("commit-index"),
+        )
+        .map(|entries| entries.iter().map(|e| e.commit_seq).max().unwrap_or(0))
+        .unwrap_or(0);
+        let recovered_high_seq = replay_high_seq.max(index_high_seq).max(snapshot_watermark);
+        if recovered_high_seq > 0 {
+            tracing::info!(
+                "sequencer continuing above commit_seq {recovered_high_seq} \
+                 (segments={replay_high_seq} index={index_high_seq} snapshot={snapshot_watermark})"
+            );
+            // Keep the manifest's recorded high-water mark current (best-effort).
+            update_manifest_high_seq(data_dir, recovered_high_seq);
+        }
 
         // 9. Create command channel and acquire the sequencer permit
         let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(1024);
@@ -305,6 +320,7 @@ impl WabiDbEngine {
                 barrier_clone,
                 cmd_rx,
                 data_dir_clone,
+                recovered_high_seq,
             )
             .await
         });
@@ -607,6 +623,120 @@ impl WabiDbEngine {
     }
 }
 
+/// Atomically acquire the engine lock file (O_EXCL semantics).
+///
+/// - Free path: `create_new` succeeds → we own the lock; write our PID.
+/// - Held by a live process: `WabiError::AlreadyRunning`.
+/// - Held by a DEAD process (crash / kill -9 left the file behind): steal
+///   the lock. This removes the manual "rm the lock files" deploy step for
+///   the common case; an operator can still delete the file by hand if the
+///   PID is somehow wrong.
+async fn acquire_lock_file(lock_path: &std::path::Path, pid: u32) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    for attempt in 0..2 {
+        match tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)
+            .await
+        {
+            Ok(mut f) => {
+                f.write_all(pid.to_string().as_bytes())
+                    .await
+                    .map_err(|e| {
+                        WabiError::Io(std::io::Error::new(e.kind(), format!("lock file write: {e}")))
+                    })?;
+                f.sync_all().await.map_err(WabiError::Io)?;
+                return Ok(());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if attempt > 0 {
+                    return Err(WabiError::AlreadyRunning);
+                }
+                // Inspect the holder. A dead PID means a stale lock: steal it.
+                let holder_pid = tokio::fs::read_to_string(lock_path)
+                    .await
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u32>().ok());
+                let steal = match holder_pid {
+                    Some(holder) if holder != pid && !process_alive(holder) => true,
+                    Some(_) => false,
+                    None => true, // unparseable/empty lock file: treat as stale
+                };
+                if !steal {
+                    return Err(WabiError::AlreadyRunning);
+                }
+                tracing::warn!(
+                    "engine lock held by dead pid {:?}; removing stale lock",
+                    holder_pid
+                );
+                let _ = tokio::fs::remove_file(lock_path).await;
+                // loop retries the create_new exactly once
+            }
+            Err(e) => {
+                return Err(WabiError::Io(std::io::Error::new(
+                    e.kind(),
+                    format!("lock file open: {e}"),
+                )));
+            }
+        }
+    }
+    Err(WabiError::AlreadyRunning)
+}
+
+/// Whether a PID is alive on this host.
+///
+/// Linux: `/proc/<pid>` exists iff the process is alive. On platforms
+/// without `/proc`, report `true` (conservative — never steal a lock from
+/// a holder we cannot probe).
+fn process_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let proc_root = std::path::Path::new("/proc");
+        if !proc_root.exists() {
+            return true;
+        }
+        proc_root.join(pid.to_string()).exists()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        true
+    }
+}
+
+/// Best-effort update of the manifest's `highest_commit_seq` so the backup
+/// artifact reflects reality. Failures are logged by the caller's context
+/// and never block engine startup.
+fn update_manifest_high_seq(data_dir: &std::path::Path, high: u64) {
+    if high == 0 {
+        return;
+    }
+    let path = data_dir.join("storage-manifest.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return;
+    };
+    let current = value
+        .get("highest_commit_seq")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if current >= high {
+        return;
+    }
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("highest_commit_seq".to_string(), serde_json::json!(high));
+        if let Ok(bytes) = serde_json::to_vec_pretty(&value) {
+            if let Err(e) = std::fs::write(&path, bytes) {
+                tracing::warn!("manifest highest_commit_seq update failed: {e}");
+            }
+        }
+    }
+}
+
 impl Drop for WabiDbEngine {
     fn drop(&mut self) {
         // Persist projection state snapshot before shutdown.
@@ -645,7 +775,9 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::forum::ForumProjection;
     use crate::projections::incidents::IncidentProjection;
     use crate::projections::layouts::LayoutsProjection;
-    use crate::projections::lore::{LoreCommitProjection, LoreRepoProjection};
+    use crate::projections::lore::{
+        LoreCommitProjection, LoreFileChangeProjection, LoreRepoProjection, LoreTokenProjection,
+    };
     use crate::projections::messages::MessagesProjection;
     use crate::projections::noop::NoopProjection;
     use crate::projections::reactions::ReactionsProjection;
@@ -808,6 +940,18 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             handler: Arc::new(LoreCommitProjection),
             index_name: "lore_commits",
             record_type_name: "wabidb::projections::lore::LoreCommitRecord",
+        },
+        ProjectionRegistration {
+            event_types: &["lore_file_change"],
+            handler: Arc::new(LoreFileChangeProjection),
+            index_name: "lore_file_changes",
+            record_type_name: "wabidb::projections::lore::LoreFileChangeRecord",
+        },
+        ProjectionRegistration {
+            event_types: &["lore_token_minted", "lore_token_revoked"],
+            handler: Arc::new(LoreTokenProjection),
+            index_name: "lore_tokens",
+            record_type_name: "wabidb::projections::lore::LoreTokenRecord",
         },
         ProjectionRegistration {
             event_types: &[

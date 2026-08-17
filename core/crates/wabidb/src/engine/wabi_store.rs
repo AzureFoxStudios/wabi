@@ -7,7 +7,7 @@ use crate::domain::{
     WikiPage, WikiRevision,
 };
 use crate::error::Result;
-use crate::projections::lore::LoreRepoRecord;
+use crate::projections::lore::{LoreCommitRecord, LoreFileChangeRecord, LoreRepoRecord, LoreTokenRecord};
 
 /// The storage API trait for WabiDB.
 ///
@@ -749,6 +749,60 @@ pub trait WabiStore: Send + Sync {
     /// Record a Lore commit in the event log.
     async fn lore_commit(&self, _channel_id: i64, _commit_hash: &str, _repo_name: &str, _file_path: &str, _message: &str, _author_user_id: i64) -> Result<()> {
         Ok(())
+    }
+
+    /// List a channel's Lore commit records (newest last).
+    async fn list_lore_commits(&self, _channel_id: i64) -> Result<Vec<LoreCommitRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Append a per-file change to the channel's sync change feed. Returns
+    /// the change's cursor (commit_seq).
+    async fn lore_file_change(
+        &self,
+        _channel_id: i64,
+        _path: &str,
+        _action: &str,
+        _etag: Option<&str>,
+        _revision: &str,
+        _author_user_id: i64,
+    ) -> Result<u64> {
+        Ok(0)
+    }
+
+    /// Changes for a channel with seq > since, oldest first.
+    async fn list_lore_file_changes(
+        &self,
+        _channel_id: i64,
+        _since: u64,
+    ) -> Result<Vec<LoreFileChangeRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Mint (persist) an external-tool connect token record.
+    async fn lore_mint_token(
+        &self,
+        _token_hash: &str,
+        _channel_id: i64,
+        _user_id: i64,
+        _scopes: &str,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Revoke a connect token by hash.
+    async fn lore_revoke_token(&self, _token_hash: &str, _revoked_by: i64) -> Result<()> {
+        Ok(())
+    }
+
+    /// Look up a connect token by hash (auth path).
+    async fn lore_get_token(&self, _token_hash: &str) -> Result<Option<LoreTokenRecord>> {
+        Ok(None)
+    }
+
+    /// List a channel's active connect tokens (management UI).
+    async fn list_lore_tokens(&self, _channel_id: i64) -> Result<Vec<LoreTokenRecord>> {
+        Ok(Vec::new())
     }
 
     // --- gallery ---

@@ -11,7 +11,16 @@
 //! `ReplayEnvelope { event_type, stream_id, payload }`. Records written before
 //! the envelope change lack this structure; they are silently skipped when
 //! deserialization fails.
+//!
+//! # Commit index filtering (Council Review #1 §2.2, Option B)
+//!
+//! Records whose `commit_seq` has no entry in the global commit index are
+//! orphans (writes that crashed before the index append). They are skipped:
+//! the commit index is the source of truth for which commits exist. If the
+//! index is missing or empty while segments exist, replay falls back to
+//! applying everything (least-data-loss) and logs a warning.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use tokio::sync::Mutex;
@@ -31,10 +40,14 @@ use crate::stream_log::segment_reader::SegmentReader;
 /// decrypts each record, deserializes the [`ReplayEnvelope`], and dispatches
 /// the event through the registered projection handlers.
 ///
+/// Returns the highest `commit_seq` observed in ANY on-disk record —
+/// including orphaned and skipped records. Callers use this to seed the
+/// commit sequencer so a restart never reuses a seq that a previous
+/// incarnation already encrypted with the same (deterministically derived)
+/// stream key (AES-GCM nonce reuse, Council Review #1 §1.1).
+///
 /// Records with `commit_seq <= snapshot_watermark` are skipped — they are
-/// already reflected in a loaded snapshot. Records that fail to decrypt or
-/// deserialize (e.g. old-format segments written before the envelope change)
-/// are silently skipped.
+/// already reflected in a loaded snapshot.
 pub async fn replay_projections(
     data_dir: &Path,
     key_registry: &Mutex<StreamKeyRegistry>,
@@ -43,13 +56,24 @@ pub async fn replay_projections(
     dispatch_table: &DispatchTable,
     barrier: &LinearizabilityBarrier,
     snapshot_watermark: u64,
-) -> Result<()> {
+) -> Result<u64> {
     let streams_dir = data_dir.join("streams");
     if !tokio::fs::try_exists(&streams_dir).await.unwrap_or(false) {
-        return Ok(());
+        return Ok(snapshot_watermark);
     }
 
+    // --- Load the committed seq set (Option B orphan filter) ---
+    let commit_index_dir = data_dir.join("global").join("commit-index");
+    let committed: HashSet<u64> =
+        crate::commit_index::batcher::read_all_entries(&commit_index_dir)
+            .map(|entries| entries.into_iter().map(|e| e.commit_seq).collect())
+            .unwrap_or_default();
+    let have_index = !committed.is_empty();
+
     let mut highest_seq = snapshot_watermark;
+    let mut orphan_skipped: u64 = 0;
+    let mut decrypt_skipped: u64 = 0;
+    let mut replayed: u64 = 0;
     let mut kind_reader = tokio::fs::read_dir(&streams_dir).await?;
 
     while let Some(kind_entry) = kind_reader.next_entry().await? {
@@ -125,8 +149,20 @@ pub async fn replay_projections(
                 for rec in &records {
                     let commit_seq = rec.header.commit_seq;
 
+                    // Track the max seq seen on disk BEFORE any filtering:
+                    // even skipped/orphaned records consumed their nonce and
+                    // must never be reused by a restarted sequencer.
+                    highest_seq = highest_seq.max(commit_seq);
+
                     // Skip records that are already reflected in the snapshot.
                     if commit_seq <= snapshot_watermark {
+                        continue;
+                    }
+
+                    // Option B: records absent from the commit index are
+                    // orphans of partially-committed commands — skip them.
+                    if have_index && !committed.contains(&commit_seq) {
+                        orphan_skipped += 1;
                         continue;
                     }
 
@@ -150,6 +186,7 @@ pub async fn replay_projections(
                     let env_bytes = match decrypt_record(&key, commit_seq, &header_bytes, &rec.payload) {
                         Ok(b) => b,
                         Err(e) => {
+                            decrypt_skipped += 1;
                             tracing::debug!(
                                 "replay: decrypt failed for stream={stream_id} seq={commit_seq}: {e}"
                             );
@@ -180,8 +217,7 @@ pub async fn replay_projections(
                             );
                         }
                     }
-
-                    highest_seq = highest_seq.max(commit_seq);
+                    replayed += 1;
                 }
             }
         }
@@ -191,6 +227,17 @@ pub async fn replay_projections(
         barrier.advance(highest_seq)?;
     }
 
-    tracing::info!("replayed projections up to commit_seq={highest_seq}");
-    Ok(())
+    if !have_index {
+        tracing::warn!(
+            "replay: commit index empty/missing; applied all segment records without orphan filtering"
+        );
+    }
+    if orphan_skipped > 0 || decrypt_skipped > 0 {
+        tracing::warn!(
+            "replay: complete. applied={replayed} orphan_skipped={orphan_skipped} decrypt_skipped={decrypt_skipped} highest_seq={highest_seq}"
+        );
+    } else {
+        tracing::info!("replayed projections up to commit_seq={highest_seq} (applied={replayed})");
+    }
+    Ok(highest_seq)
 }

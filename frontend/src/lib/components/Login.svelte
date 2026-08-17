@@ -1,7 +1,7 @@
 	<script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { register, login, saveUserSettings, getLaunchPageConfig, getPublicAuthPolicy, getSetupStatus, type LaunchPageConfig } from '$lib/api';
+	import { register, login, saveUserSettings, getLaunchPageConfig, getPublicAuthPolicy, getSetupStatus, saveAdminPolicy, type LaunchPageConfig } from '$lib/api';
 	import type { AuthPolicy } from '../../../../shared/adminPolicyContracts';
 	import { clearAuthSession, setAuthToken, setPersistentAuthToken, setStoredDbUserId } from '$lib/authSession';
 		import { retryDecryptLoadedDmMessages } from '$lib/socket';
@@ -37,6 +37,10 @@
 	let selectedLocale = 'en';
 	let launchPageConfig: LaunchPageConfig | null = null;
 	let wizardMode = false;
+	let wizardStep: 1 | 2 = 1;
+	let pendingOwnerLogin: { username: string; token: string } | null = null;
+	let joinPolicy: 'open' | 'closed' = 'open';
+	let allowGuests = true;
 	let showPassword = false;
 	let authPolicy: AuthPolicy = { mode: 'open', allowGuest: true, allowRegister: true, emailVerifyRequired: false };
 
@@ -99,10 +103,36 @@
 			const result = await register(username, password, cleanHandle);
 			setAuthToken(result.token);
 			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
-			if (wizardMode) dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
+			if (wizardMode) {
+				// Owner account created — continue to the join-policy step before entering.
+				pendingOwnerLogin = { username: result.user.username, token: result.token };
+				wizardStep = 2;
+			}
 			else { pendingRegisteredLogin = { username: result.user.username, token: result.token }; showHomeExperiencePrompt = true; }
 		} catch (err) { error = err instanceof Error ? err.message : t('login.errors.registration_failed'); }
 		finally { loading = false; }
+	}
+
+	async function completeWizardJoinPolicy() {
+		if (!pendingOwnerLogin) return;
+		loading = true; error = '';
+		try {
+			// Owner token is admin on a fresh server; persist the join choice so
+			// it governs registration/guest access immediately.
+			await saveAdminPolicy(pendingOwnerLogin.token, 'auth_policy', {
+				mode: 'open',
+				allowRegister: joinPolicy === 'open',
+				allowGuest: allowGuests,
+				emailVerifyRequired: false
+			});
+			dispatch('login', { username: pendingOwnerLogin.username, token: pendingOwnerLogin.token, authMethod: 'registered' });
+			pendingOwnerLogin = null;
+		} catch (err) {
+			error = err instanceof Error ? err.message : t('login.wizard.join_save_failed');
+			// The owner account exists regardless; let them in even if the policy save failed.
+			dispatch('login', { username: pendingOwnerLogin.username, token: pendingOwnerLogin.token, authMethod: 'registered' });
+			pendingOwnerLogin = null;
+		} finally { loading = false; }
 	}
 
 	async function completeRegistrationHomeExperience(mode: HomeExperienceMode) {
@@ -207,7 +237,7 @@
 				{#if showConnectionPrompt}
 					<LoginConnectionPrompt bind:serverDomain {loading} on:applied={() => (showConnectionPrompt = false)} />
 				{:else}
-					{#if wizardMode}
+					{#if wizardMode && wizardStep === 1}
 						<div class="wizard">
 							<h3>{$_('login.wizard.welcome')}</h3>
 							<p class="wizard-subtitle">{$_('login.wizard.owner_subtitle')}</p>
@@ -230,6 +260,43 @@
 							</form>
 
 							<p class="wizard-note wizard-note-standalone">{$_('login.wizard.advanced_setup_note')}</p>
+						</div>
+
+					{:else if wizardMode && wizardStep === 2}
+						<div class="wizard">
+							<h3>{$_('login.wizard.join_title')}</h3>
+							<p class="wizard-subtitle">{$_('login.wizard.join_subtitle')}</p>
+
+							{#if error}
+								<div class="error-message">{error}</div>
+							{/if}
+
+							<div class="join-policy-options" role="radiogroup" aria-label={$_('login.wizard.join_title')}>
+								<label class="join-option" class:selected={joinPolicy === 'open'}>
+									<input type="radio" name="join-policy" value="open" bind:group={joinPolicy} disabled={loading} />
+									<span class="join-option-title">{$_('login.wizard.join_open_label')}</span>
+									<span class="join-option-desc">{$_('login.wizard.join_open_desc')}</span>
+								</label>
+								<label class="join-option" class:selected={joinPolicy === 'closed'}>
+									<input type="radio" name="join-policy" value="closed" bind:group={joinPolicy} disabled={loading} />
+									<span class="join-option-title">{$_('login.wizard.join_closed_label')}</span>
+									<span class="join-option-desc">{$_('login.wizard.join_closed_desc')}</span>
+								</label>
+							</div>
+
+							<label class="join-guest-row">
+								<input type="checkbox" bind:checked={allowGuests} disabled={loading} />
+								<span>
+									<span class="join-option-title">{$_('login.wizard.join_guest_label')}</span>
+									<span class="join-option-desc">{$_('login.wizard.join_guest_desc')}</span>
+								</span>
+							</label>
+
+							<button type="button" class="auth-btn auth-btn-primary" disabled={loading} on:click={completeWizardJoinPolicy}>
+								{loading ? $_('login.wizard.finishing') : $_('login.wizard.finish')}
+							</button>
+
+							<p class="wizard-note wizard-note-standalone">{$_('login.wizard.join_note')}</p>
 						</div>
 
 					{:else if showHomeExperiencePrompt}

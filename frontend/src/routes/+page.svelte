@@ -216,6 +216,8 @@
 			if (setupRequired) {
 				// Fresh server — force first-user setup flow.
 				// This is the important part: server wins over localStorage.
+				const bootTitle = document.getElementById('wabi-boot-title');
+				if (bootTitle) bootTitle.textContent = 'Setting up Wabi';
 				localStorage.removeItem('wabi_has_logged_in');
 				loggedIn = false;
 				syncFollowNotificationPoller(false);

@@ -1,15 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { getAuthToken } from '$lib/authSession';
 	import {
-		loadLoreConnectConfig,
-		saveLoreConnectConfig,
-		generateLoreAccessToken,
-		buildLoreConnectSnippets,
-		type LoreConnectSnippet
+		parseLoreChannelId,
+		mintLoreConnectToken,
+		listLoreConnectTokens,
+		revokeLoreConnectToken,
+		type LoreConnectTokenInfo
 	} from '$lib/api/lore';
 
-	/** W6b: External-tool Connect — per-channel server URL, repo id, access token + SDK setup snippets. */
+	/** W6b: External-tool Connect — server-minted tokens + wabi-sync quick start. */
 	let { channelKey, repoId, repoName, onclose }: {
 		channelKey: string;
 		repoId: number | null;
@@ -19,29 +20,73 @@
 
 	let serverUrl = $state(getServerUrl());
 	let repoIdText = $state('');
+	let channelId = $state<number | null>(null);
 	let token = $state('');
-	let activeLang = $state('js');
+	let tokenScopes = $state<'read' | 'write'>('write');
+	let tokenJustMinted = $state(false);
+	let minting = $state(false);
+	let mintError = $state<string | null>(null);
+	let tokens = $state<LoreConnectTokenInfo[]>([]);
 	let copied = $state('');
 	let showToken = $state(false);
 
 	onMount(() => {
-		const cfg = loadLoreConnectConfig(channelKey);
-		if (cfg) {
-			if (cfg.serverUrl) serverUrl = cfg.serverUrl;
-			if (cfg.repoId) repoIdText = cfg.repoId;
-			if (cfg.token) token = cfg.token;
-		} else {
-			repoIdText = repoId != null ? String(repoId) : '';
-			saveLoreConnectConfig(channelKey, { serverUrl, repoId: repoIdText, token });
+		channelId = parseLoreChannelId(channelKey) ?? repoId;
+		repoIdText = channelId != null ? String(channelId) : '';
+		void refreshTokens();
+	});
+
+	async function refreshTokens() {
+		const t = getAuthToken();
+		if (!t || channelId == null) return;
+		try {
+			tokens = await listLoreConnectTokens(t, channelId);
+		} catch {
+			tokens = [];
 		}
-	});
+	}
 
-	$effect(() => {
-		saveLoreConnectConfig(channelKey, { serverUrl, repoId: repoIdText, token });
-	});
+	async function mintToken() {
+		const t = getAuthToken();
+		if (!t || channelId == null) {
+			mintError = 'Sign in and open a connected channel first.';
+			return;
+		}
+		minting = true;
+		mintError = null;
+		try {
+			const result = await mintLoreConnectToken(t, channelId, tokenScopes);
+			token = result.token;
+			tokenJustMinted = true;
+			showToken = true;
+			void refreshTokens();
+		} catch (e) {
+			mintError = e instanceof Error ? e.message : 'Failed to mint token';
+		} finally {
+			minting = false;
+		}
+	}
 
-	const snippets = $derived.by(() => buildLoreConnectSnippets(serverUrl, repoIdText, token));
-	const activeSnippet = $derived(snippets.find((s) => s.lang === activeLang) || snippets[0]);
+	async function revokeToken(hashPrefix: string) {
+		const t = getAuthToken();
+		if (!t || channelId == null) return;
+		try {
+			await revokeLoreConnectToken(t, channelId, hashPrefix);
+			void refreshTokens();
+		} catch {
+			// The list refresh will reflect reality.
+		}
+	}
+
+	/** wabi-sync commands tailored to this channel + server. */
+	let syncCommands = $derived.by(() => {
+		const id = channelId != null ? `ch_${channelId.toString(16)}` : 'ch_…';
+		return [
+			{ label: '1. Save your token', code: `wabi-sync login ${serverUrl}` },
+			{ label: '2. Link a folder', code: `wabi-sync link ${id} ~/code/${repoName || 'my-project'}` },
+			{ label: '3. Keep it running', code: `wabi-sync watch` }
+		];
+	});
 
 	async function copyText(text: string, label: string): Promise<void> {
 		try {
@@ -65,10 +110,6 @@
 				if (copied === label) copied = '';
 			}, 1500);
 		}
-	}
-
-	function generateToken() {
-		token = generateLoreAccessToken();
 	}
 
 	function handleBackdropKeydown(event: KeyboardEvent) {
@@ -147,16 +188,22 @@
 				</div>
 
 				<div class="lore-connect-field">
-					<span class="lore-connect-label">Access token</span>
+					<span class="lore-connect-label">Connect token (server-minted)</span>
 					<div class="lore-connect-input-row">
 						<input
 							class="lore-input lore-connect-input lore-connect-token"
 							type={showToken ? 'text' : 'password'}
 							value={token}
-							placeholder="Generate an access token"
-							oninput={(e) => (token = (e.currentTarget as HTMLInputElement).value)}
+							placeholder="Mint a token to connect external tools"
+							readonly
 						/>
-						<button class="lore-btn lore-btn-sm" onclick={generateToken}>Generate</button>
+						<select class="lore-input" bind:value={tokenScopes} title="Token scope">
+							<option value="write">read+write</option>
+							<option value="read">read-only</option>
+						</select>
+						<button class="lore-btn lore-btn-sm" onclick={mintToken} disabled={minting}>
+							{minting ? '…' : 'Mint'}
+						</button>
 						<button class="lore-btn lore-btn-sm" onclick={() => copyText(token, 'token')} disabled={!token}>
 							{copied === 'token' ? 'Copied' : 'Copy'}
 						</button>
@@ -164,33 +211,54 @@
 							{showToken ? 'Hide' : 'Show'}
 						</button>
 					</div>
-					<p class="lore-connect-hint">The token is stored in this browser for this channel. Paste it into your external tool along with the server URL and repo id.</p>
+					<p class="lore-connect-hint">
+						Tokens are minted by the server and stored hashed — the plaintext is shown once, right here.
+						{#if tokenJustMinted}<strong>Copy it now; it will not be shown again.</strong>{/if}
+						Scopes apply to the Lore API only and inherit your channel access.
+					</p>
+					{#if mintError}
+						<p class="lore-connect-hint lore-connect-error">{mintError}</p>
+					{/if}
 				</div>
+
+				{#if tokens.length > 0}
+					<div class="lore-connect-field">
+						<span class="lore-connect-label">Active tokens ({tokens.length})</span>
+						<div class="lore-connect-token-list">
+							{#each tokens as t (t.tokenHashPrefix)}
+								<div class="lore-connect-token-row">
+									<code>{t.tokenHashPrefix}…</code>
+									<span class="lore-connect-token-scope">{t.scopes}</span>
+									<span class="lore-connect-token-scope">user {t.userId}</span>
+									<button class="lore-btn lore-btn-sm lore-btn-danger" onclick={() => revokeToken(t.tokenHashPrefix)}>
+										Revoke
+									</button>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			</section>
 
 			<section class="lore-connect-section">
 				<div class="lore-connect-snippets-head">
-					<h4>Setup snippets</h4>
-					<button class="lore-btn lore-btn-sm" onclick={() => activeSnippet && copyText(activeSnippet.code, activeSnippet.lang)}>
-						{copied === activeSnippet?.lang ? 'Copied' : 'Copy code'}
-					</button>
+					<h4>Sync your editor (VS Code, Sublime, vim, …)</h4>
 				</div>
-				<div class="lore-connect-lang-tabs" role="tablist" aria-label="Setup snippet language">
-					{#each snippets as s}
-						<button
-							class="lore-connect-lang-tab"
-							class:active={s.lang === activeLang}
-							role="tab"
-							aria-selected={s.lang === activeLang}
-							onclick={() => (activeLang = s.lang)}
-						>
-							{s.label.split(' (')[0]}
-						</button>
-					{/each}
-				</div>
-				{#if activeSnippet}
-					<pre class="lore-connect-code"><code>{activeSnippet.code}</code></pre>
-				{/if}
+				<p class="lore-connect-hint">
+					<code>wabi-sync</code> is a folder-level two-way sync daemon — any editor works, because it
+					syncs a plain folder. Run the three commands below (paste your minted token when asked).
+				</p>
+				{#each syncCommands as cmd (cmd.label)}
+					<div class="lore-connect-cmd">
+						<span class="lore-connect-cmd-label">{cmd.label}</span>
+						<div class="lore-connect-input-row">
+							<pre class="lore-connect-code lore-connect-cmd-code"><code>{cmd.code}</code></pre>
+							<button class="lore-btn lore-btn-sm" onclick={() => copyText(cmd.code, cmd.label)}>
+								{copied === cmd.label ? 'Copied' : 'Copy'}
+							</button>
+						</div>
+					</div>
+				{/each}
 			</section>
 		</div>
 	</div>
@@ -314,6 +382,55 @@
 		font-size: 12px;
 		color: var(--text-muted-color, #888);
 		line-height: 1.4;
+	}
+
+	.lore-connect-error {
+		color: var(--color-danger, #ef4444);
+	}
+
+	.lore-connect-token-list {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.lore-connect-token-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 8px;
+		border: 1px solid var(--border-color, #2a2a3e);
+		border-radius: 6px;
+		font-size: 12px;
+	}
+
+	.lore-connect-token-row code {
+		font-family: var(--font-mono, monospace);
+		color: var(--text-primary-color, #eee);
+	}
+
+	.lore-connect-token-scope {
+		color: var(--text-muted-color, #888);
+	}
+
+	.lore-btn-danger {
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 80%, transparent);
+	}
+
+	.lore-connect-cmd {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.lore-connect-cmd-label {
+		font-size: 12px;
+		color: var(--text-muted-color, #888);
+	}
+
+	.lore-connect-cmd-code {
+		flex: 1;
+		padding: 10px 12px;
 	}
 
 	.lore-connect-snippets-head {

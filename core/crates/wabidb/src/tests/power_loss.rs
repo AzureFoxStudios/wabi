@@ -212,6 +212,10 @@ fn spawn_crash_child(
 
 /// Open the engine, register a stream, and commit `n` commands.
 /// After this, the engine will have committed seq 1..=n.
+///
+/// Uses the deterministic (bootstrap-derived) stream key so every
+/// generation of this test reopens with the SAME key and prior records
+/// stay decryptable across restarts.
 async fn populate_engine(
     data_dir: &std::path::Path,
     n: u64,
@@ -225,7 +229,7 @@ async fn populate_engine(
         sync_transport: None,
         };
     let engine = WabiDbEngine::open(config).await.unwrap();
-    engine.register_stream_key("ch_crash", [0xABu8; 32]).await.unwrap();
+    engine.get_or_create_stream_key("ch_crash").await.unwrap();
     for i in 1..=n {
         let outcome = engine.run_command(make_crash_cmd(i, "ch_crash", 1, b"prior data")).await.unwrap();
         assert_eq!(outcome.commit_seq, i);
@@ -234,10 +238,11 @@ async fn populate_engine(
     tokio::time::sleep(Duration::from_millis(50)).await;
 }
 
-/// Verify recovery after a crash: engine reopens and prior commits are
-/// intact. The sequencer always starts at seq 1 after restart, so we do
-/// not assert a specific seq — we just verify the engine is functional,
-/// the projection state reflects the prior data, and a new write succeeds.
+/// Verify recovery after a crash: engine reopens on the EXISTING commit
+/// index and segments. The sequencer resumes above the recovered
+/// high-water mark, so a fresh write must get `commit_seq > prior highest`,
+/// and the commit index must contain strictly increasing, duplicate-free
+/// seqs across all `.widx` files.
 async fn verify_recovery(
     data_dir: &std::path::Path,
     expected_prior_count: u64,
@@ -245,12 +250,6 @@ async fn verify_recovery(
     // Remove the stale lock file left by the crashed child process.
     let lock_path = data_dir.join(".lock");
     let _ = std::fs::remove_file(&lock_path);
-
-    // Remove stale commit-index files left by the crashed child's batcher.
-    let ci_dir = data_dir.join("global").join("commit-index");
-    if ci_dir.exists() {
-        let _ = std::fs::remove_dir_all(&ci_dir);
-    }
 
     let config = WabiDbConfig {
         data_dir: data_dir.to_path_buf(),
@@ -268,9 +267,30 @@ async fn verify_recovery(
     assert!(applied >= expected_prior_count,
         "expected at least {expected_prior_count} prior commits, got {applied}");
 
-    // Submit a fresh command to verify the engine is functional.
-    let outcome = engine.run_command(make_crash_cmd(u64::MAX, "ch_crash", 1, b"recovery verify")).await.unwrap();
-    assert!(outcome.commit_seq > 0, "engine should assign a positive commit_seq");
+    // The recovered commit index must be duplicate-free and ordered.
+    let ci_dir = data_dir.join("global").join("commit-index");
+    let entries = crate::commit_index::batcher::read_all_entries(&ci_dir).unwrap();
+    let seqs: Vec<u64> = entries.iter().map(|e| e.commit_seq).collect();
+    let mut sorted = seqs.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert!(
+        seqs == sorted,
+        "commit index seqs must be strictly increasing with no duplicates, got {seqs:?}"
+    );
+
+    // Submit a fresh command: it must land ABOVE the recovered high-water
+    // mark (never reuse a seq from a previous incarnation).
+    let outcome = engine
+        .run_command(make_crash_cmd(u64::MAX, "ch_crash", 1, b"recovery verify"))
+        .await
+        .unwrap();
+    assert!(
+        outcome.commit_seq > expected_prior_count,
+        "post-restart commit_seq {} must exceed prior high-water mark {}",
+        outcome.commit_seq,
+        expected_prior_count
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -290,14 +310,6 @@ fn run_crash_child() {
     let data_dir = std::env::var("WABIDB_DATA_DIR")
         .expect("WABIDB_DATA_DIR must be set for crash child");
     let path = std::path::PathBuf::from(&data_dir);
-
-    // Remove stale commit-index files left by the parent's engine.
-    // The batcher always starts at widx_number=0 and uses create_new(true),
-    // so existing .widx files from a prior session cause a conflict.
-    let ci_dir = path.join("global").join("commit-index");
-    if ci_dir.exists() {
-        let _ = std::fs::remove_dir_all(&ci_dir);
-    }
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
@@ -424,4 +436,103 @@ fn crash_after_projection_update() {
 
     // Verify recovery: engine reopens with prior commits intact.
     parent_rt.block_on(verify_recovery(dir.path(), 100));
+}
+
+// ---------------------------------------------------------------------------
+// Restart safety regression test (no crash harness needed)
+// ---------------------------------------------------------------------------
+
+/// Graceful restart must never reset the commit sequencer.
+///
+/// Regression test for the audit finding that `next_commit_seq` restarted
+/// at 1 on every boot: duplicate `commit_seq`s across generations caused
+/// (a) AES-GCM nonce reuse — the stream key is deterministically re-derived
+/// and the nonce IS the commit_seq — and (b) duplicate generations of events
+/// replayed into projections. With seq seeding at open, three generations of
+/// writes must produce one strictly-increasing commit history.
+#[tokio::test]
+async fn restart_never_reuses_commit_seq() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Generation 1: commits 1..=5 (graceful drop saves snapshot + removes lock).
+    populate_engine(dir.path(), 5).await;
+
+    // Generation 2: reopen on the SAME data dir; new writes must continue
+    // above the recovered high-water mark.
+    {
+        let config = WabiDbConfig {
+            data_dir: dir.path().to_path_buf(),
+            bootstrap_source: BootstrapSource::Provided([0xABu8; 32]),
+            bootstrap_salt: None,
+            allow_init: true,
+            replication_config: None,
+            sync_transport: None,
+        };
+        let engine = WabiDbEngine::open(config).await.unwrap();
+        engine.get_or_create_stream_key("ch_crash").await.unwrap();
+
+        let first = engine
+            .run_command(make_crash_cmd(50, "ch_crash", 1, b"gen2 first"))
+            .await
+            .unwrap();
+        assert!(
+            first.commit_seq > 5,
+            "generation-2 write got seq {} after 5 prior commits; sequencer reset detected",
+            first.commit_seq
+        );
+
+        let second = engine
+            .run_command(make_crash_cmd(51, "ch_crash", 1, b"gen2 second"))
+            .await
+            .unwrap();
+        assert_eq!(
+            second.commit_seq,
+            first.commit_seq + 1,
+            "seqs within a generation must be contiguous"
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // Generation 3: reopen again. The commit index must hold exactly 7
+    // strictly-increasing entries and the watermark must cover them all.
+    {
+        let lock_path = dir.path().join(".lock");
+        let _ = std::fs::remove_file(&lock_path); // no-op on graceful drop
+
+        let config = WabiDbConfig {
+            data_dir: dir.path().to_path_buf(),
+            bootstrap_source: BootstrapSource::Provided([0xABu8; 32]),
+            bootstrap_salt: None,
+            allow_init: true,
+            replication_config: None,
+            sync_transport: None,
+        };
+        let engine = WabiDbEngine::open(config).await.unwrap();
+        engine.get_or_create_stream_key("ch_crash").await.unwrap();
+
+        let ci_dir = dir.path().join("global").join("commit-index");
+        let entries = crate::commit_index::batcher::read_all_entries(&ci_dir).unwrap();
+        let seqs: Vec<u64> = entries.iter().map(|e| e.commit_seq).collect();
+        assert_eq!(seqs.len(), 7, "expected 5 + 2 commits in the index, got {seqs:?}");
+        let mut sorted = seqs.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(seqs, sorted, "commit index must have no duplicate seqs: {seqs:?}");
+
+        let applied = engine.projection_state().applied_commit_seq();
+        assert!(
+            applied >= 7,
+            "watermark after replay must cover all commits, got {applied}"
+        );
+
+        let third = engine
+            .run_command(make_crash_cmd(52, "ch_crash", 1, b"gen3"))
+            .await
+            .unwrap();
+        assert!(
+            third.commit_seq > seqs.iter().copied().max().unwrap(),
+            "generation-3 write must exceed all recovered seqs"
+        );
+    }
 }

@@ -1,14 +1,24 @@
 node_modules
+**/node_modules
 .git
 .gitignore
 *.log
 dist
 build
 .svelte-kit
+frontend/.svelte-kit
+frontend/build
 .env
 .env.local
+frontend/.env
+frontend/.env.local
 README.md
 *.md
+
+# Host runtime state — bind-mounted at runtime, never baked into the image
+data
+uploads
+plugins
 
 # Docker files
 Dockerfile

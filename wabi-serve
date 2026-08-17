@@ -1,14 +1,14 @@
 #!/bin/bash
 # Wabi serve is now documented in INSTALL.md
 #
-# Quick paths:
-#   Docker:   docker compose up -d
+# Quick paths (no secrets needed — first boot generates them into ./data):
+#   Docker:   docker compose up -d --build
 #   Cargo:    cargo build --release -p wabi-server && ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
 #
 # Full guide: https://github.com/AzureFoxStudios/wabi/blob/main/INSTALL.md
 echo "wabi-serve is no longer a launcher. See INSTALL.md for how to run Wabi." >&2
 echo "" >&2
-echo "  Docker:   docker compose up -d" >&2
+echo "  Docker:   docker compose up -d --build" >&2
 echo "  Cargo:    cargo build --release -p wabi-server" >&2
 echo "            ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000" >&2
 echo "" >&2

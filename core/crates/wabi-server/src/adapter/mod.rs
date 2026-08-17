@@ -41,9 +41,24 @@ pub struct WdbAdapter {
 
 #[allow(dead_code)]
 impl WdbAdapter {
-    /// Open the engine at the given data dir (uses `from_env_var` config).
+    /// Engine config with the bootstrap key resolved the server way:
+    /// `WABIDB_ROOT_KEY` env > persisted `<data_dir>/root_key` >
+    /// generated + persisted (see `crate::secrets::resolve_root_key`).
+    pub fn resolved_config(data_dir: &Path) -> Result<WabiDbConfig> {
+        let key = crate::secrets::resolve_root_key(data_dir)
+            .map_err(|e| WabiError::Corrupt {
+                location: "wabidb root key resolution".into(),
+                detail: format!("failed to resolve bootstrap root key: {e}"),
+            })?;
+        Ok(WabiDbConfig::new(
+            data_dir.to_path_buf(),
+            wabidb::crypto::bootstrap::BootstrapSource::Provided(key),
+        ))
+    }
+
+    /// Open the engine at the given data dir with the resolved bootstrap key.
     pub async fn open(data_dir: &Path) -> Result<Self> {
-        let config = WabiDbConfig::from_env_var(data_dir.to_path_buf());
+        let config = Self::resolved_config(data_dir)?;
         let engine = WabiDbEngine::open(config).await?;
         Ok(Self { engine: Arc::new(engine) })
     }
@@ -2587,6 +2602,127 @@ impl WabiStore for WdbAdapter {
         )
         .await?;
         Ok(())
+    }
+
+    async fn list_lore_commits(
+        &self,
+        channel_id: i64,
+    ) -> Result<Vec<wabidb::projections::lore::LoreCommitRecord>> {
+        use wabidb::projections::lore::LoreCommitProjection;
+        let state = self.engine.projection_state();
+        LoreCommitProjection::list_commits(&state, channel_id)
+    }
+
+    async fn lore_file_change(
+        &self,
+        channel_id: i64,
+        path: &str,
+        action: &str,
+        etag: Option<&str>,
+        revision: &str,
+        author_user_id: i64,
+    ) -> Result<u64> {
+        use wabidb::projections::lore::{encode_change_record, LoreFileChangeRecord};
+        let record = LoreFileChangeRecord {
+            // Overwritten by the projection with the authoritative commit_seq.
+            seq: 0,
+            channel_id,
+            path: path.to_string(),
+            action: action.to_string(),
+            etag: etag.map(str::to_string),
+            revision: revision.to_string(),
+            author_user_id,
+            timestamp_micros: now_micros(),
+        };
+        let payload = encode_change_record(&record);
+        let seq = self
+            .run(
+                author_user_id as u64,
+                "lore_file_change",
+                channel_id.to_string(),
+                "lore_file_change",
+                6,
+                payload,
+                true,
+                None,
+            )
+            .await?;
+        Ok(seq)
+    }
+
+    async fn list_lore_file_changes(
+        &self,
+        channel_id: i64,
+        since: u64,
+    ) -> Result<Vec<wabidb::projections::lore::LoreFileChangeRecord>> {
+        use wabidb::projections::lore::LoreFileChangeProjection;
+        let state = self.engine.projection_state();
+        LoreFileChangeProjection::list_changes(&state, channel_id, since)
+    }
+
+    async fn lore_mint_token(
+        &self,
+        token_hash: &str,
+        channel_id: i64,
+        user_id: i64,
+        scopes: &str,
+    ) -> Result<()> {
+        use wabidb::projections::lore::{encode_token_record, LoreTokenRecord};
+        let record = LoreTokenRecord {
+            token_hash: token_hash.to_string(),
+            channel_id,
+            user_id,
+            scopes: scopes.to_string(),
+            created_at_micros: now_micros(),
+            revoked: false,
+        };
+        let payload = encode_token_record(&record);
+        self.run(
+            user_id as u64,
+            "lore_mint_token",
+            channel_id.to_string(),
+            "lore_token_minted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn lore_revoke_token(&self, token_hash: &str, revoked_by: i64) -> Result<()> {
+        let payload = token_hash.as_bytes().to_vec();
+        self.run(
+            revoked_by as u64,
+            "lore_revoke_token",
+            "lore-tokens".to_string(),
+            "lore_token_revoked",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn lore_get_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<wabidb::projections::lore::LoreTokenRecord>> {
+        use wabidb::projections::lore::LoreTokenProjection;
+        let state = self.engine.projection_state();
+        LoreTokenProjection::get_token(&state, token_hash)
+    }
+
+    async fn list_lore_tokens(
+        &self,
+        channel_id: i64,
+    ) -> Result<Vec<wabidb::projections::lore::LoreTokenRecord>> {
+        use wabidb::projections::lore::LoreTokenProjection;
+        let state = self.engine.projection_state();
+        LoreTokenProjection::list_tokens(&state, channel_id)
     }
 
     // ================================================================
