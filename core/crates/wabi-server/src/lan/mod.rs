@@ -80,6 +80,7 @@ pub fn sign_token(secret: &str, token: &mut SignedLocalRouteToken) {
         token.expires_at
     );
     use hmac::{Hmac, Mac};
+    use sha2::digest::KeyInit;
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
     let mut mac =

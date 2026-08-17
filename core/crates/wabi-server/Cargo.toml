@@ -50,9 +50,9 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 governor = { version = "0.6", features = ["std"] }
 
 # SpacetimeDB (HTTP API only)
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "query"] }
 regex = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 rand = "0.8"
 
@@ -60,7 +60,7 @@ rand = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 
 # JWT
-jsonwebtoken = "9"
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 
 # Password hashing
 bcrypt = "0.17"
@@ -72,8 +72,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 clap = { version = "4", features = ["derive"] }
 
 # HMAC for TURN
-hmac = "0.12"
-sha1 = "0.10"
+hmac = "0.13"
+sha1 = "0.11"
 base64 = "0.22"
 
 # mDNS LAN discovery

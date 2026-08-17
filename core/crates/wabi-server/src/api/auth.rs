@@ -633,6 +633,7 @@ pub async fn handle_turn_credentials(
 /// Generate TURN password using HMAC
 fn generate_turn_password(username: &str, secret: &str, _expiry: u64) -> String {
     use hmac::{Hmac, Mac};
+    use sha2::digest::KeyInit;
     use sha1::Sha1;
 
     type HmacSha1 = Hmac<Sha1>;

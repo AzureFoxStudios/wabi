@@ -582,7 +582,7 @@ impl AppState {
     fn hash_code(code: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(code.as_bytes());
-        format!("{:x}", hasher.finalize())
+        hex::encode(hasher.finalize())
     }
 
     /// Generate `count` one-time recovery codes for `user_id`. The plaintext
