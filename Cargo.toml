@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/wabi-core",
+  "crates/wabi-sync",
   "core/crates/wabi-server",
   "core/crates/wabi-tui",
   "core/crates/wabidb",

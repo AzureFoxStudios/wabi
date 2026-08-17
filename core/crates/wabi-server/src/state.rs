@@ -46,6 +46,10 @@ pub struct AppState {
     /// Per-channel live room message count cap. Default: 1000.
     pub live_channel_cap: Arc<RwLock<HashMap<String, u64>>>,
     pub owner_user_id: RwLock<Option<i64>>,
+    /// Serialises the fresh-server setup window (create user + claim
+    /// ownership) so concurrent first registrations can't interleave:
+    /// exactly one account is created before an owner exists.
+    pub setup_claim_lock: tokio::sync::Mutex<()>,
     /// Token revocation state. A stolen/compromised JWT can be killed
     /// without rotating the signing secret: individual `jti`s, entire
     /// users, or all tokens issued before an `epoch` can be revoked.
@@ -272,6 +276,7 @@ impl AppState {
             live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
             live_channel_cap: Arc::new(RwLock::new(HashMap::new())),
             owner_user_id,
+            setup_claim_lock: tokio::sync::Mutex::new(()),
             revocation_file,
             revocations,
             recovery_file,

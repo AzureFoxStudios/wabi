@@ -25,15 +25,14 @@ cd frontend && STATIC_BUILD=1 npm run build && cd ..
 # 2) Binary
 cargo build --release -p wabi-server
 
-# 3) Secrets + data
+# 3) Data dirs (secrets auto-generate into the data dir on first boot)
 mkdir -p data/wabi-server uploads plugins
-export WABI_JWT_KEY="$(openssl rand -base64 48)"
-export WABIDB_ROOT_KEY="$(openssl rand -hex 32)"
-# binary also accepts JWT_SECRET (legacy alias)
 
 # 4) Run
 ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
 ```
+
+Secrets: first boot generates `<data_dir>/jwt_secret` and `<data_dir>/wabidb/root_key` (mode 0600) if no env var provides them. To manage secrets externally instead, export `WABI_JWT_KEY` (JWT_SECRET is a legacy alias) and `WABIDB_ROOT_KEY` (64 hex chars) — env always wins over the files. **Back the data dir up**: the root key is not recoverable, and losing it loses the data.
 
 **Check:**
 ```bash
@@ -50,25 +49,28 @@ If `/` is 404, rebuild frontend with `STATIC_BUILD=1` then rebuild the binary (e
 ## Docker (same binary, containerized)
 
 ```bash
-# .env (required for compose)
-# WABI_JWT_KEY=...
-# WABIDB_ROOT_KEY=...  # 64 hex chars
-
-docker compose up -d          # only wabi-server by default
+docker compose up -d --build   # first build compiles frontend + server (~10+ min, cached after)
 # optional profiles: tunnel, tunnel-named, turn, sfu, ...
 ```
 
-Compose bind-mounts `./target/release/wabi-server` (read-only) in the current layout — rebuild the binary on the host, then restart the container. Default publish: host `3001` → container `3000`.
+The image is a multi-stage build (frontend → cargo → runtime), so a fresh clone needs no host toolchain. No `.env` is required: secrets auto-generate into the bind-mounted `./data/wabi-server` on first boot. Set `WABI_JWT_KEY` / `WABIDB_ROOT_KEY` in `.env` only if you manage secrets externally. Default publish: host `3001` → container `3000`.
+
+Dev override: to run a host-built binary instead of the image's, mount it over the baked-in one and restart:
+
+```yaml
+volumes:
+  - ./target/release/wabi-server:/wabi-server:ro
+```
 
 Bare docker without compose is fine:
 ```bash
-docker run --rm -p 3001:3000 --env-file .env \
+docker run --rm -p 3001:3000 \
   -v "$PWD/data/wabi-server:/data" \
-  -v "$PWD/target/release/wabi-server:/wabi-server:ro" \
-  --user 1000:1000 --entrypoint /wabi-server \
-  wabi-wabi-server --data-dir /data --host 0.0.0.0 --port 3000
+  --user 1000:1000 \
+  $(docker build -q -f core/crates/wabi-server/Dockerfile .) \
+  --data-dir /data --host 0.0.0.0 --port 3000
 ```
-(Image name/tags may vary; the contract is: one process, one data dir, two secrets.)
+(The contract is: one process, one data dir, zero required secrets.)
 
 ---
 
@@ -79,7 +81,7 @@ Live Tim is already this stack:
 - Caddy tunnel container (optional edge)
 - cloudflared connectors (optional public)
 
-Update flow: rebuild binary (and static frontend if UI changed) → restart `wabi-server` → leave Caddy/tunnel unless edge config changed.
+Update flow: `docker compose up -d --build wabi-server` (image rebuilds frontend + binary; host-built binary override also works — see Docker section) → leave Caddy/tunnel unless edge config changed.
 
 ---
 
@@ -105,13 +107,13 @@ Default voice does **not** need open UDP or Cloudflare.
 
 4. **Auth token bounce (login page flash → bounce to /login).** This is a stale JWT in the browser's `localStorage`, not a server bug. Hard refresh does NOT clear it — clear site data for the domain.
 
-5. **`TURN_HMAC_KEY` is required in `.env` even if you don't use TURN.** Compose interpolates `${TURN_HMAC_KEY:?...}` unconditionally. Generate one: `openssl rand -base64 32`.
+5. **`TURN_HMAC_KEY` is required when the turn profile runs.** The coturn entrypoint refuses to start without it (compose no longer fails interpolation for everyone else). Generate one: `openssl rand -base64 32`.
 
 6. **Cloudflare tunnel strips WebSocket upgrade.** If your app disconnects immediately behind CF, set `transports: ['websocket', 'polling']` in the socket.io client. See `docs/NETWORKING.md`.
 
-7. **`docker compose up -d --build` does NOT rebuild the Rust binary.** The Dockerfile is runtime-only. The binary is bind-mounted from `./target/release/wabi-server`. To ship a new binary: rebuild on host, then `docker compose restart wabi-server`.
+7. **Back up the data dir — it holds the root key.** `data/wabi-server/wabidb/root_key` (auto-generated on first boot) encrypts the engine's stream keys. Losing it loses the data; it is not derivable from anywhere else. The whole `data/` directory is the backup unit.
 
-8. **Stale scripts in this repo are removed.** `scripts/setup.sh` and `docker-compose.bun.yml` are gone. The canonical paths are `docker-compose.yml` + `.env` (Docker) or bare cargo.
+8. **Stale scripts in this repo are removed.** `scripts/setup.sh` and `docker-compose.bun.yml` are gone. The canonical paths are `docker-compose.yml` + optional `.env` (Docker) or bare cargo.
 
 ## Stale docs
 

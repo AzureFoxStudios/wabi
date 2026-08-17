@@ -19,6 +19,7 @@ import type { PaymentUserBlock } from '../../../../shared/paymentContracts';
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
 
 export type AdminPolicyKey =
+	| 'auth_policy'
 	| 'upload_limits'
 	| 'download_limits'
 	| 'runtime_tuning'

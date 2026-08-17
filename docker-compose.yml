@@ -9,8 +9,15 @@
 # There is no SpacetimeDB service. There are no STDB proxies. Wabidb replaces STDB
 # as the source of truth for all state (messages, channels, DMs, users, etc.).
 #
-# The binary at ./target/release/wabi-server is bind-mounted; rebuild locally
-# (`cargo build --release -p wabi-server`) and restart the container to ship.
+# The image builds the frontend + binary from source (multi-stage Dockerfile),
+# so a fresh clone + `docker compose up -d --build` just works. To test a
+# host-built binary instead, mount ./target/release/wabi-server over
+# /wabi-server (read-only) and restart the container.
+#
+# Secrets are OPTIONAL: with no .env at all, first boot auto-generates the JWT
+# secret and the WabiDB root key and persists them inside ./data/wabi-server.
+# Set WABI_JWT_KEY / WABIDB_ROOT_KEY in .env only if you manage secrets
+# externally (env always overrides the persisted files).
 #
 # Default `docker compose up -d` brings up only wabi-server.
 # Optional services (coturn, media-gateway, livekit, tunnels) live under
@@ -18,10 +25,8 @@
 #
 # Security posture:
 # - wabi-server runs as UID/GID 1000 (non-root)
-# - The bind-mounted binary is mounted read-only (:ro)
 # - No privileged: true, no cap_add, no host network anywhere
-# - All bind-mounts are scoped to the project tree (./data, ./uploads, ./plugins, ./target)
-# - JWT signing key MUST be supplied via .env; compose refuses to start if missing
+# - All bind-mounts are scoped to the project tree (./data, ./uploads, ./plugins)
 # - Dev-only defaults for non-secret config (ports, paths, intervals)
 # - Cross-platform: works on Linux and Windows (Docker Desktop runs Linux VM)
 
@@ -42,10 +47,9 @@ services:
       - WABI_PORT=3000
       - WABI_HOST=0.0.0.0
       - WABI_DATA_DIR=/data
-      # JWT signing key - REQUIRED. Set in .env as WABI_JWT_KEY=<random-64-chars>
-      # Compose refuses to start if WABI_JWT_KEY is empty or missing.
-      - WABI_JWT_KEY=${WABI_JWT_KEY:?WABI_JWT_KEY must be set in .env (64+ random chars)}
-      - WABIDB_ROOT_KEY=${WABIDB_ROOT_KEY:?WABIDB_ROOT_KEY must be set (64 hex chars = 32-byte key)}
+      # Secrets (WABI_JWT_KEY / WABIDB_ROOT_KEY) are intentionally NOT set here:
+      # first boot auto-generates and persists them in /data when absent, and
+      # values from .env flow in via env_file above when operators set them.
       - WABI_SERVER_INSTANCE_ID=${WABI_SERVER_INSTANCE_ID:-}
       - WABI_SERVER_REGION=${WABI_SERVER_REGION:-}
       - WABI_SERVER_ROLE=${WABI_SERVER_ROLE:-authority}
@@ -56,15 +60,13 @@ services:
       - WABI_ADMIN_USER_IDS=${WABI_ADMIN_USER_IDS:-}
       - WABI_BLACKLIST_FILE=/data/blacklist.txt
     volumes:
-      # Engine data directory (wabidb streams, commit index, snapshots, blobs)
+      # Engine data directory (wabidb streams, commit index, snapshots, blobs,
+      # plus the auto-generated jwt_secret and root_key on first boot)
       - ./data/wabi-server:/data:Z,U
       # User uploads (chat media)
       - ./uploads:/app/uploads:Z,U
       # Hot-loaded plugins
       - ./plugins:/app/plugins:Z,U
-      # Host-built Rust binary, mounted read-only
-      - ./target/release/wabi-server:/wabi-server:ro,Z
-    entrypoint: ["/wabi-server"]
     command: ["--data-dir", "/data", "--host", "0.0.0.0", "--port", "3000"]
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/health || exit 1"]
@@ -138,8 +140,11 @@ services:
     environment:
       - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
       - TURN_REALM=${TURN_REALM:-localhost}
-      # TURN HMAC key - REQUIRED when TURN is enabled. Set in .env as TURN_HMAC_KEY=<random>
-      - TURN_HMAC_KEY=${TURN_HMAC_KEY:?TURN_HMAC_KEY must be set in .env when using turn profile}
+      # TURN HMAC key - REQUIRED when the turn profile runs. Not interpolated
+      # with :? (that breaks `compose config`/`up` for everyone, even without
+      # the profile); the coturn entrypoint refuses to start without it.
+      # Generate: openssl rand -base64 32
+      - TURN_HMAC_KEY=${TURN_HMAC_KEY:-}
       - WABI_AUTOGEN_PATH=/wabi-data/.wabi-autogen
     depends_on:
       wabi-server:

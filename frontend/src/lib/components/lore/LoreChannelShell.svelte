@@ -9,10 +9,12 @@
 		loreLoading,
 		loreHealth,
 		loreError,
+		loreLiveChange,
 		loadLoreRepo,
 		loadLoreHistory,
 		loadLoreHealth,
 		loadLoreFileDiff,
+		subscribeLoreLive,
 	} from '$lib/loreStore';
 	import {
 		getSignedLoreUrl,
@@ -118,6 +120,26 @@
 		}
 		return acc;
 	}, [] as Array<{ date: string; count: number }>));
+
+	// W6e: live refresh on server-pushed `lore:file-changed` (web edits,
+	// uploads, and wabi-sync pushes from other machines). Debounced so a
+	// burst of changes triggers one reload.
+	let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() => {
+		const unsubSocket = subscribeLoreLive();
+		const unsubStore = loreLiveChange.subscribe(() => {
+			clearTimeout(liveRefreshTimer);
+			liveRefreshTimer = setTimeout(() => {
+				void loadLoreRepo();
+				void loadLoreHistory();
+			}, 400);
+		});
+		return () => {
+			unsubSocket();
+			unsubStore();
+			clearTimeout(liveRefreshTimer);
+		};
+	});
 
 	// Audit events (placeholder — real data comes from backend audit log endpoint)
 	let auditEvents = $state<Array<{
@@ -663,6 +685,10 @@
 								fileInfo={selectedFileInfo}
 								loading={isLoading}
 								onClose={() => { selectedPath = null; fileContent = null; }}
+								canEdit={canAssetWrite}
+								token={getAuthToken() ?? undefined}
+								channelId={parseLoreChannelId(activeChannel) ?? undefined}
+								onSaved={() => { void loadLoreRepo(); void loadLoreHistory(); }}
 							/>
 						{/if}
 					{:else}
@@ -700,6 +726,7 @@
 							diff={fileDiff}
 							mode={diffMode}
 							onModeChange={(m) => diffMode = m}
+							filePath={selectedPath ?? undefined}
 						/>
 					{:else}
 						<div class="diff-placeholder">

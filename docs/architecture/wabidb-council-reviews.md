@@ -87,6 +87,21 @@ These council decisions resolved the 3 open questions in the wabidb-20 design do
 - [x] wabidb-20 design doc §8: convert open questions to resolved (per Council Review #0)
 - [ ] Future: wabidb-79 review will add skipped-key cache cap
 
+### Implementation enforcement (2026-08-16)
+
+The 2026-08-16 engine audit found that three of this review's invariants
+were documented but not implemented — the sequencer reset `commit_seq` to 1
+on every restart (violating §1.1 "the global sequencer never resets" and
+§2.4 "never reuse a burned commit_seq", with the nonce-reuse consequences
+§1.1 predicted), segments were not fsynced before the acknowledging index
+fsync (§2.3's durability-await held for the index alone), and replay did
+not skip orphans (§2.2's "Recovery MUST skip them"). All three are now
+enforced in code: the sequencer is seeded at open from the recovered
+high-water mark (segments — orphans included — commit index, snapshot
+watermark), touched segment writers fsync before the index submit, and
+`replay_projections` filters by the committed seq set. See
+`docs/plans/2026-08-16-wabidb-restart-recovery-fix.md`.
+
 ---
 
 ## Council Review #2: wabidb-72 (10 Crash/Resume Tests)

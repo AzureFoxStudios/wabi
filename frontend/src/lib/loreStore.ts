@@ -1,6 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { getAuthToken } from '$lib/authSession';
-import { currentChannel } from '$lib/socket';
+import { currentChannel, getSocket } from '$lib/socket';
 import {
 	getLoreRepo,
 	listLoreFiles,
@@ -25,6 +25,39 @@ export const loreFileDiff = writable<string | null>(null);
 export const loreLoading = writable(false);
 export const loreError = writable<string | null>(null);
 export const loreHealth = writable<string | null>(null);
+
+/** Latest server-pushed lore change (socket event `lore:file-changed`). */
+export interface LoreLiveChange {
+	path: string;
+	action: string;
+	etag?: string | null;
+	revision?: string;
+	authorUserId?: number;
+	pendingReview?: boolean;
+	reviewBranch?: string | null;
+	cursor?: number;
+}
+export const loreLiveChange = writable<LoreLiveChange | null>(null);
+
+/**
+ * Subscribe to live lore file changes (W6e). The server emits
+ * `lore:file-changed` to the channel room after every wabi-mediated
+ * upload/delete/snapshot — including wabi-sync pushes from other machines.
+ * Returns an unsubscribe function.
+ */
+export function subscribeLoreLive(): () => void {
+	const s = getSocket();
+	if (!s) return () => {};
+	const handler = (payload: LoreLiveChange) => {
+		if (payload && typeof payload.path === 'string') {
+			loreLiveChange.set(payload);
+		}
+	};
+	s.on('lore:file-changed', handler as never);
+	return () => {
+		s.off('lore:file-changed', handler as never);
+	};
+}
 
 async function refresh(load: () => Promise<void>) {
 	loreLoading.set(true);

@@ -695,6 +695,77 @@
 	text-align: center;
 }
 
+/* ---------- Wizard step 2: join policy ---------- */
+
+.join-policy-options {
+	display: flex;
+	flex-direction: column;
+	gap: 0.7rem;
+	margin-bottom: 0.9rem;
+}
+
+.join-option {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	grid-template-rows: auto auto;
+	column-gap: 0.7rem;
+	align-items: center;
+	padding: 0.8rem 0.9rem;
+	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
+	border-radius: 0.8rem;
+	cursor: pointer;
+	transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.join-option input[type='radio'] {
+	grid-row: 1 / span 2;
+	margin: 0;
+	accent-color: var(--accent-primary-color);
+}
+
+.join-option.selected {
+	border-color: var(--accent-primary-color);
+	background-color: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
+}
+
+.join-option-title {
+	font-size: var(--font-size-base);
+	font-weight: 600;
+	color: var(--text-heading);
+}
+
+.join-option-desc {
+	grid-column: 2;
+	font-size: var(--font-size-sm);
+	color: var(--text-secondary);
+	line-height: 1.45;
+}
+
+.join-guest-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.7rem;
+	margin-bottom: 1.1rem;
+	padding: 0.8rem 0.9rem;
+	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
+	border-radius: 0.8rem;
+	cursor: pointer;
+}
+
+.join-guest-row input[type='checkbox'] {
+	margin: 0.2rem 0 0;
+	accent-color: var(--accent-primary-color);
+}
+
+.join-guest-row .join-option-title,
+.join-guest-row .join-option-desc {
+	display: block;
+}
+
+.join-guest-row .join-option-desc {
+	grid-column: auto;
+}
+
 /* ---------- Footer (locale + server) — single row, same column ---------- */
 
 .auth-footer-row {

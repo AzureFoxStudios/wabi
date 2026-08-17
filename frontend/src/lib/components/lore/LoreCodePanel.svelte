@@ -94,6 +94,10 @@
 						fileInfo={fileInfo}
 						loading={loadingFile}
 						onClose={() => { selectedPath = null; fileContent = null; }}
+						canEdit={true}
+						token={getAuthToken() ?? undefined}
+						{channelId}
+						onSaved={() => { void refresh(); }}
 					/>
 				</div>
 			{/if}

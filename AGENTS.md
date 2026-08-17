@@ -50,6 +50,7 @@ Dev ports: 5173 = Vite (`bun run dev`), 3001 = `wabi-server` backend. `serverUrl
 7. **Headless Chromium cannot render Wabi** (Skia `SkFontMgr_FontConfigInterface Not implemented` crash at first paint). Verify UI in a real browser; use headless only for HTTP/route checks.
 8. **Adapter emit-shape is not uniform.** When adding an event via `WdbAdapter`, copy the emit call from the TARGET module's existing create method (forum uses `self.wdb.emit(event)`, wiki uses `self.run(actor, "op", channel_id, "event_type", 6, payload, true, None)`). A wrong emit compiles but silently doesn't persist.
 9. **Two lock files on restart/deploy**: `data/wabi-server/.lock` AND the deeper engine lock `data/wabi-server/wabidb/.lock`. Remove BOTH or the server won't start after a swap.
+10. **No parallel subagents.** The zai Start plan allows only one concurrent model stream; extra agents get 429 "user concurrency limit exceeded" and die as "Subagent was inactive for 600000ms". Spawn at most one Agent per message (never batched with other tool calls); prefer direct Read/Grep exploration when practical.
 
 ## Contribution rules
 

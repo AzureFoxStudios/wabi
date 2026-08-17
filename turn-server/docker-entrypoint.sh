@@ -2,6 +2,14 @@
 set -e
 mkdir -p /var/log/turnserver
 
+# A TURN shared secret must be operator-generated; a known default would let
+# anyone mint TURN credentials for this server.
+if [ -z "${TURN_HMAC_KEY:-}" ]; then
+    echo "ERROR: TURN_HMAC_KEY is not set. Generate one and put it in .env:" >&2
+    echo "  openssl rand -base64 32" >&2
+    exit 1
+fi
+
 # Replace ${VAR} and ${VAR:-default} placeholders with current env values.
 python3 - <<'PYCODE'
 import os, re, sys
@@ -9,7 +17,6 @@ path = "/etc/coturn/turnserver.conf"
 tmpl = "/etc/coturn/turnserver.conf.template"
 
 defaults = {
-    "TURN_HMAC_KEY": "yPldCsTKER+zUkshTyD1Kf+nHza+6tGOoV+DteD083Q=",
     "TURN_EXTERNAL_IP": "27.130.13.202",
     "TURN_REALM": "wabi.chat",
     "WABI_AUTOGEN_PATH": "/wabi-data/.wabi-autogen",

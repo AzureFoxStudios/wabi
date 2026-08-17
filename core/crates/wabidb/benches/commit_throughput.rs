@@ -7,10 +7,10 @@ use wabidb::engine::{WabiDbConfig, WabiDbEngine};
 use wabidb::format::record::RecordKind;
 use wabidb::sequencer::types::{CommandCommit, EventToWrite};
 
-/// Bench a run_command call. The command will fail with UnknownStreamKey
-/// (we can't register keys from outside without a public API). We measure
-/// the cost up to the failure point, which is most of the per-commit work
-/// (sequencer permit, batcher, commit log entry creation, encryption).
+/// Bench a run_command call through the FULL durable path: stream key
+/// derivation, JSON envelope, AES-GCM encrypt, segment write + fsync,
+/// commit-index write + fsync (durability-await), barrier advance, dispatch.
+/// One engine per benchmark; every iteration is a real committed command.
 fn bench_run_command(c: &mut Criterion, payload_size: usize) {
     let mut group = c.benchmark_group("run_command");
     group.throughput(Throughput::Bytes(payload_size as u64));
@@ -20,23 +20,27 @@ fn bench_run_command(c: &mut Criterion, payload_size: usize) {
     group.bench_function(
         format!("commit_{}", payload_size),
         |b| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let dir = tempdir().unwrap();
+            let config = WabiDbConfig {
+                data_dir: dir.path().to_path_buf(),
+                bootstrap_source: BootstrapSource::Provided([0u8; 32]),
+                bootstrap_salt: None,
+                allow_init: true,
+                replication_config: None,
+                sync_transport: None,
+            };
+            let engine = rt.block_on(WabiDbEngine::open(config)).unwrap();
+            // Register the stream key so the command reaches the durable
+            // write path instead of failing early with UnknownStreamKey.
+            rt.block_on(engine.get_or_create_stream_key("bench_stream")).unwrap();
+            let payload = vec![0xABu8; payload_size];
+
             b.iter(|| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                let dir = tempdir().unwrap();
-                let config = WabiDbConfig {
-                    data_dir: dir.path().to_path_buf(),
-                    bootstrap_source: BootstrapSource::Provided([0u8; 32]),
-                    bootstrap_salt: None,
-                    allow_init: true,
-                    replication_config: None,
-                    sync_transport: None,
-                };
-                let engine = rt.block_on(WabiDbEngine::open(config)).unwrap();
                 let (tx, _rx) = oneshot::channel();
-                let payload = vec![0xABu8; payload_size];
                 let cmd = CommandCommit {
                     caller_user_id: 0,
                     caller_device_id: "bench".into(),
@@ -47,18 +51,15 @@ fn bench_run_command(c: &mut Criterion, payload_size: usize) {
                         event_type: "bench_event".into(),
                         stream_kind: 6,
                         record_kind: RecordKind::Event,
-                        plaintext: black_box(payload),
+                        plaintext: black_box(payload.clone()),
                     }],
                     essential: false,
                     response_tx: tx,
                 };
-                // The command will fail with UnknownStreamKey (we can't
-                // register keys from outside without a public API). We
-                // measure the cost up to the failure point, which is
-                // most of the per-commit work.
-                let _ = rt.block_on(engine.run_command(cmd));
-                drop(engine);
-                drop(dir);
+                let outcome = rt.block_on(engine.run_command(cmd)).expect(
+                    "bench command must commit; UnknownStreamKey means the bench is off the durable path",
+                );
+                outcome.commit_seq
             });
         },
     );

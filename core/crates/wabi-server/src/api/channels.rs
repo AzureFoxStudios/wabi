@@ -253,12 +253,14 @@ async fn create_channel(
         }
     }
 
-    // Auto-create a Lore repo if asset_storage / lore kind is enabled
+    // Auto-create a Lore repo if asset_storage / lore kind is enabled.
+    // WABI_LORE_AUTO_CREATE=false opts out — repos are then created
+    // explicitly via POST /api/addons/lore/repos.
     let lore_channel_id = channel_id
         .strip_prefix("ch_")
         .and_then(|hex| i64::from_str_radix(hex, 16).ok())
         .unwrap_or(0);
-    if asset_storage {
+    if asset_storage && state.config.lore.auto_create_repos {
         #[cfg(feature = "wabi-lore")]
         {
             if lore_channel_id != 0 {

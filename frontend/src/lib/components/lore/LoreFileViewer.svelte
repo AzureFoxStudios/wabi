@@ -1,5 +1,24 @@
 <script lang="ts">
 	import type { LoreFileInfo } from '$lib/api/lore';
+	import {
+		LoreConflictError,
+		downloadLoreFileText,
+		saveLoreFileContent
+	} from '$lib/api/lore';
+	import { EditorState, type Extension } from '@codemirror/state';
+	import { EditorView, keymap, lineNumbers } from '@codemirror/view';
+	import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+	import { oneDark } from '@codemirror/theme-one-dark';
+	import { javascript } from '@codemirror/lang-javascript';
+	import { json } from '@codemirror/lang-json';
+	import { markdown } from '@codemirror/lang-markdown';
+	import { python } from '@codemirror/lang-python';
+	import { rust } from '@codemirror/lang-rust';
+	import { cpp } from '@codemirror/lang-cpp';
+	import { css } from '@codemirror/lang-css';
+	import { html } from '@codemirror/lang-html';
+	import { java } from '@codemirror/lang-java';
+	import { go } from '@codemirror/lang-go';
 
 	interface Props {
 		filePath: string;
@@ -7,17 +26,46 @@
 		fileInfo: LoreFileInfo | null;
 		loading: boolean;
 		onClose: () => void;
+		/** Enable the in-browser editor (role-gated by the caller). */
+		canEdit?: boolean;
+		/** Required for editing: auth token + channel the repo lives in. */
+		token?: string;
+		channelId?: number;
+		/** Called after a successful save so the caller can refresh listings. */
+		onSaved?: () => void;
 	}
 
-	let { filePath, fileContent, fileInfo, loading, onClose }: Props = $props();
+	let {
+		filePath,
+		fileContent,
+		fileInfo,
+		loading,
+		onClose,
+		canEdit = false,
+		token,
+		channelId,
+		onSaved
+	}: Props = $props();
 
 	let copied = $state(false);
+	let editing = $state(false);
+	let enteringEdit = $state(false);
+	let saving = $state(false);
+	let saveError = $state<string | null>(null);
+	/** Server etag the editor's content is based on (If-Match baseline). */
+	let baselineEtag = $state<string | null>(null);
+	/** Set when a save hit a 409 — carries the server's current etag. */
+	let conflict = $state<{ currentEtag: string | null } | null>(null);
+	let savedFlash = $state(false);
+
+	let host: HTMLDivElement | undefined = $state();
+	let view = $state<EditorView | null>(null);
 
 	function copyContent() {
 		if (fileContent) {
 			navigator.clipboard.writeText(fileContent);
 			copied = true;
-			setTimeout(() => copied = false, 2000);
+			setTimeout(() => (copied = false), 2000);
 		}
 	}
 
@@ -36,7 +84,199 @@
 	}
 
 	let lines = $derived(fileContent ? fileContent.split('\n') : []);
+
+	/** Map a file extension to a CodeMirror language extension. */
+	function languageFor(path: string): Extension | null {
+		const ext = path.includes('.') ? path.split('.').pop()!.toLowerCase() : '';
+		switch (ext) {
+			case 'js':
+			case 'mjs':
+			case 'cjs':
+				return javascript();
+			case 'ts':
+				return javascript({ typescript: true });
+			case 'jsx':
+				return javascript({ jsx: true });
+			case 'tsx':
+				return javascript({ typescript: true, jsx: true });
+			case 'json':
+				return json();
+			case 'md':
+			case 'markdown':
+				return markdown();
+			case 'py':
+				return python();
+			case 'rs':
+				return rust();
+			case 'c':
+			case 'h':
+			case 'cpp':
+			case 'cc':
+			case 'hpp':
+				return cpp();
+			case 'css':
+				return css();
+			case 'html':
+			case 'htm':
+			case 'svelte':
+			case 'vue':
+			case 'xml':
+				return html();
+			case 'java':
+				return java();
+			case 'go':
+				return go();
+			default:
+				return null;
+		}
+	}
+
+	/** Whether this file can be edited in the browser (text + not huge + creds). */
+	let editable = $derived(
+		canEdit &&
+			!!token &&
+			channelId !== undefined &&
+			!isBinary(fileContent) &&
+			!isLarge() &&
+			!filePath.endsWith('.png') // sanity: binary extensions never reach edit mode
+	);
+
+	async function enterEditMode() {
+		if (!token || channelId === undefined) return;
+		enteringEdit = true;
+		saveError = null;
+		conflict = null;
+		try {
+			// Re-fetch so the editor starts from the authoritative server content
+			// and captures its etag as the If-Match baseline.
+			const { content, etag } = await downloadLoreFileText(token, channelId, filePath);
+			fileContent = content;
+			baselineEtag = etag;
+			editing = true;
+		} catch (e) {
+			saveError = e instanceof Error ? e.message : 'Failed to load file for editing';
+		} finally {
+			enteringEdit = false;
+		}
+	}
+
+	function exitEditMode() {
+		editing = false;
+		conflict = null;
+		saveError = null;
+	}
+
+	async function performSave(ifMatch: string | null) {
+		if (!token || channelId === undefined || !view) return;
+		saving = true;
+		saveError = null;
+		conflict = null;
+		try {
+			const content = view.state.doc.toString();
+			const result = await saveLoreFileContent(
+				token,
+				channelId,
+				filePath,
+				content,
+				ifMatch,
+				`Edit ${filePath} in Wabi`
+			);
+			baselineEtag = result.etag || baselineEtag;
+			savedFlash = true;
+			setTimeout(() => (savedFlash = false), 1500);
+			onSaved?.();
+		} catch (e) {
+			if (e instanceof LoreConflictError) {
+				conflict = { currentEtag: e.currentEtag };
+			} else {
+				saveError = e instanceof Error ? e.message : 'Save failed';
+			}
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function save() {
+		await performSave(baselineEtag);
+	}
+
+	/** Conflict resolution: overwrite the server version with our content.
+	 *  A null currentEtag means the file vanished server-side — the save then
+	 *  runs create-only (If-Match: "") which is exactly the right guard. */
+	async function overwriteServer() {
+		await performSave(conflict ? conflict.currentEtag : null);
+	}
+
+	/** Conflict resolution: discard local edits, load the server version. */
+	async function reloadServer() {
+		if (!token || channelId === undefined) return;
+		saving = true;
+		try {
+			const { content, etag } = await downloadLoreFileText(token, channelId, filePath);
+			baselineEtag = etag;
+			if (view) {
+				view.dispatch({
+					changes: { from: 0, to: view.state.doc.length, insert: content }
+				});
+			}
+			fileContent = content;
+			conflict = null;
+		} catch (e) {
+			saveError = e instanceof Error ? e.message : 'Reload failed';
+		} finally {
+			saving = false;
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+			e.preventDefault();
+			if (editing && !saving) void save();
+		}
+	}
+
+	// CodeMirror lifecycle: (re)build the view when the file or mode changes.
+	$effect(() => {
+		if (!host) return;
+		if (isBinary(fileContent) || !fileContent) return;
+
+		const lang = languageFor(filePath);
+		const extensions: Extension[] = [
+			lineNumbers(),
+			history(),
+			keymap.of([
+				{
+					key: 'Mod-s',
+					preventDefault: true,
+					run: () => {
+						if (editing && !saving) void save();
+						return true;
+					}
+				},
+				...defaultKeymap,
+				...historyKeymap
+			]),
+			oneDark,
+			EditorView.lineWrapping
+		];
+		if (lang) extensions.push(lang);
+		if (!editing) {
+			extensions.push(EditorState.readOnly.of(true), EditorView.editable.of(false));
+		}
+
+		const v = new EditorView({
+			state: EditorState.create({ doc: fileContent, extensions }),
+			parent: host
+		});
+		view = v;
+		return () => {
+			v.destroy();
+			view = null;
+		};
+	});
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="lore-file-viewer">
 	<div class="viewer-toolbar">
@@ -45,8 +285,30 @@
 			{#if fileInfo}
 				<span class="file-size">{formatSize(fileInfo.size)}</span>
 			{/if}
+			{#if baselineEtag && editing}
+				<span class="file-hash" title={baselineEtag}>etag {baselineEtag.slice(0, 8)}…</span>
+			{/if}
+			{#if savedFlash}
+				<span class="saved-flash">saved ✓</span>
+			{/if}
 		</div>
 		<div class="viewer-actions">
+			{#if editable && !editing}
+				<button
+					class="action-btn edit-btn"
+					disabled={enteringEdit}
+					onclick={enterEditMode}
+					title="Edit this file (Ctrl/Cmd+S to save)"
+				>
+					{enteringEdit ? '…' : '✎'}
+				</button>
+			{/if}
+			{#if editing}
+				<button class="action-btn" disabled={saving} onclick={save} title="Save (Ctrl/Cmd+S)">
+					{saving ? '…' : '💾'}
+				</button>
+				<button class="action-btn" onclick={exitEditMode} title="Stop editing">👁</button>
+			{/if}
 			{#if !isBinary(fileContent) && fileContent}
 				<button class="action-btn" onclick={copyContent} aria-label="Copy file content">
 					{copied ? '✓' : '📋'}
@@ -55,6 +317,28 @@
 			<button class="action-btn close-btn" onclick={onClose} aria-label="Close file">✕</button>
 		</div>
 	</div>
+
+	{#if conflict}
+		<div class="conflict-bar" role="alert">
+			<div class="conflict-text">
+				⚠ <strong>{filePath} changed on the server</strong> while you were editing.
+				Your edits were NOT lost — choose what happens next.
+			</div>
+			<div class="conflict-actions">
+				<button class="conflict-btn primary" disabled={saving} onclick={overwriteServer}>
+					Overwrite server
+				</button>
+				<button class="conflict-btn" disabled={saving} onclick={reloadServer}>
+					Load server version
+				</button>
+				<button class="conflict-btn ghost" onclick={() => (conflict = null)}>Keep editing</button>
+			</div>
+		</div>
+	{/if}
+
+	{#if saveError}
+		<div class="save-error" role="alert">{saveError}</div>
+	{/if}
 
 	{#if loading}
 		<div class="viewer-loading">Loading...</div>
@@ -72,15 +356,13 @@
 			<pre class="preview-lines"><code>{lines.slice(0, 100).join('\n')}</code></pre>
 			<p class="large-note">Showing first 100 lines. Download for full content.</p>
 		</div>
+	{:else if editing}
+		<div class="editor-host" bind:this={host}></div>
 	{:else if fileContent}
-		<pre class="code-content"><code>
-			{#each lines as line, i}
-				<div class="code-line">
-					<span class="line-number">{i + 1}</span>
-					<span class="line-text">{line}</span>
-				</div>
-			{/each}
-		</code></pre>
+		<div class="editor-host readonly" bind:this={host}></div>
+		<noscript>
+			<pre class="code-content"><code>{fileContent}</code></pre>
+		</noscript>
 	{:else}
 		<div class="viewer-empty">No content</div>
 	{/if}
@@ -108,6 +390,7 @@
 		align-items: center;
 		gap: var(--space-2);
 		font-size: var(--font-size-sm);
+		min-width: 0;
 	}
 
 	.file-path {
@@ -119,9 +402,15 @@
 		white-space: nowrap;
 	}
 
-	.file-size, .file-hash {
+	.file-size,
+	.file-hash {
 		color: var(--text-muted);
 		font-family: var(--font-mono);
+		font-size: var(--font-size-xs);
+	}
+
+	.saved-flash {
+		color: var(--accent, #4caf50);
 		font-size: var(--font-size-xs);
 	}
 
@@ -140,41 +429,81 @@
 		color: var(--text-muted);
 	}
 
-	.action-btn:hover {
+	.action-btn:hover:not(:disabled) {
 		background: var(--surface-sunken);
 		color: var(--text-heading);
 	}
 
-	.code-content {
+	.edit-btn {
+		border-color: color-mix(in srgb, var(--text-muted) 30%, transparent);
+	}
+
+	.editor-host {
 		flex: 1;
-		margin: 0;
-		padding: var(--space-2);
-		overflow: auto;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.editor-host :global(.cm-editor) {
+		height: 100%;
+	}
+
+	.editor-host :global(.cm-scroller) {
 		font-family: var(--font-mono);
 		font-size: var(--font-size-sm);
-		line-height: 1.6;
 	}
 
-	.code-line {
+	.conflict-bar {
 		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-2);
+		background: color-mix(in srgb, #ff9800 12%, var(--surface-raised));
+		border-bottom: 1px solid color-mix(in srgb, #ff9800 40%, transparent);
 	}
 
-	.line-number {
-		display: inline-block;
-		width: 4em;
-		text-align: right;
-		padding-right: var(--space-2);
-		color: var(--text-muted);
-		user-select: none;
-		flex-shrink: 0;
-	}
-
-	.line-text {
-		white-space: pre;
+	.conflict-text {
+		font-size: var(--font-size-sm);
 		color: var(--text-heading);
 	}
 
-	.viewer-loading, .viewer-binary, .viewer-empty {
+	.conflict-actions {
+		display: flex;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+	}
+
+	.conflict-btn {
+		padding: 4px 10px;
+		border-radius: var(--radius-sm);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
+		background: var(--surface-raised);
+		color: var(--text-heading);
+		cursor: pointer;
+		font-size: var(--font-size-sm);
+	}
+
+	.conflict-btn.primary {
+		background: var(--accent, #4caf50);
+		border-color: transparent;
+		color: #fff;
+	}
+
+	.conflict-btn.ghost {
+		background: transparent;
+	}
+
+	.save-error {
+		padding: var(--space-1) var(--space-2);
+		font-size: var(--font-size-sm);
+		color: #ef5350;
+		background: color-mix(in srgb, #ef5350 10%, transparent);
+		border-bottom: 1px solid color-mix(in srgb, #ef5350 30%, transparent);
+	}
+
+	.viewer-loading,
+	.viewer-binary,
+	.viewer-empty {
 		display: flex;
 		align-items: center;
 		justify-content: center;

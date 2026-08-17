@@ -134,3 +134,4 @@ __pycache__/
 backend/data-spiderweb/
 frontend/test-results/
 frontend/wabi-failover.spec.js
+.zcode/

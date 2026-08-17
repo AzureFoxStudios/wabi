@@ -95,6 +95,7 @@ async fn engine_starts_and_serves_a_command() {
             Arc::clone(&barrier),
             cmd_rx,
             data_dir,
+            0,
         )
         .await
     });

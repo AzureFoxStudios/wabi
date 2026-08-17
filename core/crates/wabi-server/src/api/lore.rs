@@ -7,7 +7,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::auth_extractor::{AuthUser, OptionalAuthUser};
 use crate::error::{AppError, Result};
@@ -25,6 +25,121 @@ fn lore_signature(secret: &str, channel_id: i64, user_id: i64, path: &str, expir
         HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key size");
     mac.update(format!("{channel_id}|{user_id}|{path}|{expires}").as_bytes());
     hex::encode(mac.finalize().into_bytes())
+}
+
+// ---------------------------------------------------------------------------
+// Optimistic concurrency (ETag / If-Match)
+// ---------------------------------------------------------------------------
+
+/// Normalize an ETag header value for comparison: strips `W/`, surrounding
+/// quotes, and whitespace. Empty string means "file must not exist".
+fn normalize_etag_header(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches("W/")
+        .trim_matches('"')
+        .to_string()
+}
+
+/// Evaluate an `If-Match` precondition against the current head etag.
+///
+/// - `None` → no precondition, always Ok.
+/// - `Some("")` → create-only: the file must NOT exist.
+/// - `Some(etag)` / `Some("*")` → the file's current etag must match.
+///
+/// Returns the current etag on success, or a 409 response on stale/absent.
+fn check_if_match(
+    if_match: Option<&str>,
+    current: Option<String>,
+) -> std::result::Result<Option<String>, axum::response::Response> {
+    let Some(raw) = if_match else { return Ok(current) };
+    let expected = normalize_etag_header(raw);
+    if expected.is_empty() {
+        // Create-only: an existing file is a conflict.
+        if current.is_some() {
+            return Err(conflict_response(current));
+        }
+        return Ok(current);
+    }
+    if expected == "*" {
+        // Any existing version is fine, but the file must exist.
+        if current.is_none() {
+            return Err(conflict_response(None));
+        }
+        return Ok(current);
+    }
+    match &current {
+        Some(c) if normalize_etag_header(c) == expected => Ok(current),
+        _ => Err(conflict_response(current)),
+    }
+}
+
+/// 409 Conflict body for optimistic-concurrency failures. Carries the current
+/// etag so clients can diff/rebase against it.
+fn conflict_response(current_etag: Option<String>) -> axum::response::Response {
+    (
+        axum::http::StatusCode::CONFLICT,
+        Json(serde_json::json!({
+            "error": "file changed on the server since your last read; re-fetch and reapply",
+            "type": "StaleEtag",
+            "currentEtag": current_etag,
+        })),
+    )
+        .into_response()
+}
+
+/// Persist a lore commit + per-file change-feed entry. Both are best-effort
+/// at the HTTP layer (the lore write itself already succeeded) but failures
+/// are logged and surfaced via `wdbRecorded` in the response — never silent.
+#[derive(Default)]
+struct LoreWdbOutcome {
+    commit_recorded: bool,
+    change_cursor: u64,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record_lore_commit_and_change(
+    state: &AppState,
+    channel_id: i64,
+    repo_name: &str,
+    revision_hash: &str,
+    path: &str,
+    action: &str,
+    etag: Option<&str>,
+    message: &str,
+    user_id: i64,
+) -> LoreWdbOutcome {
+    let mut out = LoreWdbOutcome::default();
+    if let Err(e) = state
+        .wdb
+        .lore_commit(channel_id, revision_hash, repo_name, path, message, user_id)
+        .await
+    {
+        warn!(channel_id, path, error = %e, "failed to record LoreCommit event");
+    } else {
+        out.commit_recorded = true;
+    }
+    match state
+        .wdb
+        .lore_file_change(channel_id, path, action, etag, revision_hash, user_id)
+        .await
+    {
+        Ok(seq) => out.change_cursor = seq,
+        Err(e) => warn!(channel_id, path, error = %e, "failed to append lore_file_change"),
+    }
+    out
+}
+
+/// Broadcast `lore:file-changed` to the channel's socket room (wire id).
+/// Follows the retention-reaper pattern (state.sio handle, fire-and-forget).
+async fn emit_lore_file_changed(state: &AppState, channel_id: i64, payload: serde_json::Value) {
+    let room = format!("ch_{:x}", channel_id);
+    let io = state.sio.read().await.clone();
+    if let Some(io) = io {
+        if let Err(e) = io.to(room).emit("lore:file-changed", &payload).await {
+            warn!(channel_id, error = %e, "failed to emit lore:file-changed");
+        }
+    }
 }
 
 /// Workspace-role gates for Lore (L8).
@@ -71,6 +186,12 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // File operations
         .route("/repos/{channel_id}/files", axum::routing::get(list_files))
         .route("/repos/{channel_id}/files/{*path}", axum::routing::put(upload_file).get(download_file).delete(delete_file))
+        // Sync protocol: one-call manifest + cursor-ordered change feed
+        .route("/repos/{channel_id}/manifest", axum::routing::get(repo_manifest))
+        .route("/repos/{channel_id}/changes", axum::routing::get(repo_changes))
+        // Server-minted external-tool connect tokens (W6b, real this time)
+        .route("/repos/{channel_id}/connect-tokens", axum::routing::post(mint_connect_token).get(list_connect_tokens))
+        .route("/repos/{channel_id}/connect-tokens/{token_hash}", axum::routing::delete(revoke_connect_token))
         // File sub-operations — action-first paths avoid {*path} wildcard conflicts
         .route("/repos/{channel_id}/lock/{*path}", axum::routing::post(lock_file).delete(unlock_file))
         .route("/repos/{channel_id}/history/{*path}", axum::routing::get(file_level_history))
@@ -100,7 +221,46 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/repos/{channel_id}/mirror", axum::routing::post(register_mirror).get(get_mirror_config).delete(remove_mirror))
         .route("/repos/{channel_id}/mirror/run", axum::routing::post(run_mirror))
         .route("/repos/{channel_id}/mirror/configs", axum::routing::get(list_mirror_configs))
+        // Lore connect tokens carry scopes; mutating requests require "write".
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            lore_scope_guard,
+        ))
         .with_state(state)
+}
+
+/// Middleware: read-only lore connect tokens (`Bearer wblore_…` minted with
+/// scope "read") may perform GET/HEAD/OPTIONS only. Full user JWTs, bots,
+/// and unauthenticated requests pass through untouched — handler-level auth
+/// and role gates still apply.
+async fn lore_scope_guard(
+    State(state): State<Arc<AppState>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = req.method().clone();
+    if matches!(
+        method,
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    ) {
+        return next.run(req).await;
+    }
+    use axum::extract::FromRequestParts;
+    let (mut parts, body) = req.into_parts();
+    let auth = AuthUser::from_request_parts(&mut parts, &state).await;
+    let req = axum::extract::Request::from_parts(parts, body);
+    match auth {
+        Ok(auth) if auth.may_write_lore() => next.run(req).await,
+        Ok(_) => (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "this connect token is read-only",
+                "type": "ReadOnlyToken",
+            })),
+        )
+            .into_response(),
+        Err(_) => next.run(req).await,
+    }
 }
 
 async fn ensure_channel_member(
@@ -404,15 +564,43 @@ async fn snapshot(
     }
     let revision = lore.commit_staged(channel_id, &payload.message, auth.user_id).await?;
 
-    let repo = lore.get_repo(channel_id).await;
-    if let Some(repo) = repo {
-        let _ = state
-            .wdb
-            .lore_commit(channel_id, &revision.hash, &repo.repo_name, "*snapshot", &payload.message, auth.user_id)
-            .await;
+    let mut wdb_recorded = false;
+    let mut cursor = 0u64;
+    if let Some(repo) = lore.get_repo(channel_id).await {
+        let outcome = record_lore_commit_and_change(
+            &state,
+            channel_id,
+            &repo.repo_name,
+            &revision.hash,
+            "*snapshot",
+            "snapshot",
+            None,
+            &payload.message,
+            auth.user_id,
+        )
+        .await;
+        wdb_recorded = outcome.commit_recorded;
+        cursor = outcome.change_cursor;
     }
 
-    Ok(Json(serde_json::json!({ "revision": revision })).into_response())
+    emit_lore_file_changed(
+        &state,
+        channel_id,
+        serde_json::json!({
+            "action": "snapshot",
+            "path": "*snapshot",
+            "revision": revision.hash,
+            "authorUserId": auth.user_id,
+            "cursor": cursor,
+        }),
+    )
+    .await;
+
+    Ok(Json(serde_json::json!({
+        "revision": revision,
+        "wdbRecorded": wdb_recorded,
+        "cursor": cursor,
+    })).into_response())
 }
 
 // -- File operations --
@@ -434,6 +622,180 @@ async fn list_files(
     Ok(Json(serde_json::json!(files)))
 }
 
+// -- Sync protocol: manifest + change feed --
+
+/// GET /repos/{channel_id}/manifest — one call with everything a sync client
+/// needs to diff its local state against the repo: file list with etags plus
+/// the head lore revision.
+async fn repo_manifest(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+    let files = lore.list_files(channel_id, None).await?;
+    let head_revision = state
+        .wdb
+        .list_lore_commits(channel_id)
+        .await
+        .unwrap_or_default()
+        .last()
+        .map(|c| c.commit_hash.clone())
+        .unwrap_or_default();
+    Ok(Json(serde_json::json!({
+        "channelId": channel_id,
+        "files": files,
+        "headRevision": head_revision,
+        "readOnly": repo_read_only(&lore, channel_id).await,
+    })))
+}
+
+#[derive(Deserialize)]
+struct ChangesQuery {
+    since: Option<u64>,
+    /// Cap on returned entries (sync clients page through the feed).
+    limit: Option<usize>,
+}
+
+/// GET /repos/{channel_id}/changes?since=<cursor> — cursor-ordered per-file
+/// change feed. `since` is the commit_seq of the last change the client saw.
+async fn repo_changes(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Query(query): Query<ChangesQuery>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let since = query.since.unwrap_or(0);
+    let changes = state.wdb.list_lore_file_changes(channel_id, since).await?;
+    let latest = changes.last().map(|c| c.seq).unwrap_or(since);
+    let changes: Vec<serde_json::Value> = changes
+        .into_iter()
+        .take(query.limit.unwrap_or(1000))
+        .map(|c| {
+            serde_json::json!({
+                "seq": c.seq,
+                "path": c.path,
+                "action": c.action,
+                "etag": c.etag,
+                "revision": c.revision,
+                "authorUserId": c.author_user_id,
+                "timestampMicros": c.timestamp_micros,
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({
+        "channelId": channel_id,
+        "since": since,
+        "latestSeq": latest,
+        "changes": changes,
+    })))
+}
+
+// -- Connect tokens (server-minted, hashed at rest) --
+
+#[derive(Deserialize)]
+struct MintTokenPayload {
+    /// "read" (default) or "write" (= read + write).
+    scopes: Option<String>,
+}
+
+/// POST /repos/{channel_id}/connect-tokens — mint an opaque token for
+/// external tools (wabi-sync, editor scripts). Only the SHA-256 is stored;
+/// the plaintext is returned exactly once.
+async fn mint_connect_token(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<MintTokenPayload>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_asset_write_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Connect tokens require at least Artist role".into()));
+    }
+    // Normalize scopes: anything containing "write" gets read+write; else read.
+    let scopes = match payload.scopes.as_deref() {
+        Some(s) if s.to_ascii_lowercase().contains("write") => "read,write",
+        _ => "read",
+    };
+
+    use rand::Rng;
+    let secret: [u8; 32] = rand::thread_rng().gen();
+    let token = format!("wblore_{}", hex::encode(secret));
+    let token_hash = sha256_hex(token.as_bytes());
+
+    state
+        .wdb
+        .lore_mint_token(&token_hash, channel_id, auth.user_id, scopes)
+        .await?;
+
+    info!(channel_id, user_id = auth.user_id, scopes, "Lore connect token minted");
+    Ok(Json(serde_json::json!({
+        // Plaintext — shown once, never stored.
+        "token": token,
+        "tokenHashPrefix": &token_hash[..12],
+        "scopes": scopes,
+        "channelId": channel_id,
+    })))
+}
+
+/// GET /repos/{channel_id}/connect-tokens — list active tokens (hashes only).
+async fn list_connect_tokens(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_asset_write_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Connect token management requires at least Artist role".into()));
+    }
+    let tokens = state
+        .wdb
+        .list_lore_tokens(channel_id)
+        .await
+        .unwrap_or_default();
+    let tokens: Vec<serde_json::Value> = tokens
+        .into_iter()
+        .map(|t| {
+            serde_json::json!({
+                "tokenHashPrefix": &t.token_hash[..t.token_hash.len().min(12)],
+                "scopes": t.scopes,
+                "userId": t.user_id,
+                "createdAtMicros": t.created_at_micros,
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "tokens": tokens })))
+}
+
+/// DELETE /repos/{channel_id}/connect-tokens/{token_hash} — revoke by hash.
+async fn revoke_connect_token(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, token_hash)): Path<(i64, String)>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_asset_write_lore(&state, auth.user_id).await {
+        return Err(AppError::Forbidden("Connect token management requires at least Artist role".into()));
+    }
+    // Only revoke tokens that belong to this channel.
+    match state.wdb.lore_get_token(&token_hash).await? {
+        Some(record) if record.channel_id == channel_id => {
+            state.wdb.lore_revoke_token(&token_hash, auth.user_id).await?;
+            info!(channel_id, user_id = auth.user_id, "Lore connect token revoked");
+            Ok(Json(serde_json::json!({ "status": "ok" })))
+        }
+        _ => Err(AppError::NotFound("No such token for this channel".into())),
+    }
+}
+
+/// SHA-256 hex of arbitrary bytes (token hashing at mint + auth time).
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
+}
+
 #[derive(Deserialize)]
 struct UploadQuery {
     message: Option<String>,
@@ -445,6 +807,7 @@ async fn upload_file(
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<UploadQuery>,
+    headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -461,6 +824,30 @@ async fn upload_file(
         return Ok(mirror_read_only_response());
     }
 
+    // Enforce the configured per-file size cap (WABI_LORE_MAX_BLOB_MB).
+    let max_bytes = lore.blob_max_size_bytes();
+    if body.len() as u64 > max_bytes {
+        return Ok((
+            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({
+                "error": format!("file exceeds lore blob limit of {} MB", max_bytes / 1024 / 1024),
+                "type": "BlobTooLarge",
+            })),
+        )
+            .into_response());
+    }
+
+    // Optimistic concurrency: If-Match must equal the current head etag
+    // (or "" meaning "must not exist"). Absent If-Match = last-write-wins.
+    let current = lore.head_etag(channel_id, &repo_path).await?;
+    let current = match check_if_match(
+        headers.get(axum::http::header::IF_MATCH).and_then(|v| v.to_str().ok()),
+        current,
+    ) {
+        Ok(current) => current,
+        Err(conflict) => return Ok(conflict),
+    };
+
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join(format!("lore-upload-{}", uuid::Uuid::new_v4()));
     tokio::fs::write(&tmp_path, &body).await?;
@@ -471,19 +858,51 @@ async fn upload_file(
 
     let _ = tokio::fs::remove_file(&tmp_path).await;
 
-    let repo = lore.get_repo(channel_id).await;
-    if let Some(repo) = repo {
-        let _ = state
-            .wdb
-            .lore_commit(channel_id, &result.revision.hash, &repo.repo_name, &repo_path, &message, auth.user_id)
-            .await;
+    let etag = wabi_lore::etag_for_bytes(&body);
+    let mut wdb_recorded = false;
+    let mut cursor = 0u64;
+    if let Some(repo) = lore.get_repo(channel_id).await {
+        let outcome = record_lore_commit_and_change(
+            &state,
+            channel_id,
+            &repo.repo_name,
+            &result.revision.hash,
+            &repo_path,
+            "upload",
+            Some(&etag),
+            &message,
+            auth.user_id,
+        )
+        .await;
+        wdb_recorded = outcome.commit_recorded;
+        cursor = outcome.change_cursor;
     }
+    let _ = current; // consumed by check_if_match above
+
+    emit_lore_file_changed(
+        &state,
+        channel_id,
+        serde_json::json!({
+            "action": "upload",
+            "path": repo_path,
+            "etag": etag,
+            "revision": result.revision.hash,
+            "authorUserId": auth.user_id,
+            "pendingReview": result.pending_review,
+            "reviewBranch": result.review_branch,
+            "cursor": cursor,
+        }),
+    )
+    .await;
 
     Ok(Json(serde_json::json!({
         "revision": result.revision,
         "file": result.file_info,
+        "etag": etag,
         "pendingReview": result.pending_review,
         "reviewBranch": result.review_branch,
+        "wdbRecorded": wdb_recorded,
+        "cursor": cursor,
     })).into_response())
 }
 
@@ -574,25 +993,43 @@ async fn upload_recording(
 
     let _ = tokio::fs::remove_file(&tmp_path).await;
 
-    let repo = lore.get_repo(lore_channel_id).await;
-    if let Some(repo) = repo {
-        let _ = state
-            .wdb
-            .lore_commit(
-                lore_channel_id,
-                &revision.hash,
-                &repo.repo_name,
-                &repo_path,
-                &message,
-                auth.user_id,
-            )
-            .await;
+    let etag = wabi_lore::etag_for_bytes(&body);
+    let mut wdb_recorded = false;
+    if let Some(repo) = lore.get_repo(lore_channel_id).await {
+        let outcome = record_lore_commit_and_change(
+            &state,
+            lore_channel_id,
+            &repo.repo_name,
+            &revision.hash,
+            &repo_path,
+            "upload",
+            Some(&etag),
+            &message,
+            auth.user_id,
+        )
+        .await;
+        wdb_recorded = outcome.commit_recorded;
     }
+
+    emit_lore_file_changed(
+        &state,
+        lore_channel_id,
+        serde_json::json!({
+            "action": "upload",
+            "path": repo_path,
+            "etag": etag,
+            "revision": revision.hash,
+            "authorUserId": auth.user_id,
+        }),
+    )
+    .await;
 
     Ok(Json(serde_json::json!({
         "revision": revision,
         "file": file_info,
         "path": repo_path,
+        "etag": etag,
+        "wdbRecorded": wdb_recorded,
     })).into_response())
 }
 
@@ -737,6 +1174,26 @@ async fn download_file(
     let file_size = tokio::fs::metadata(&tmp_path).await?.len();
     let mime = mime_guess::from_path(&path).first_or_octet_stream();
 
+    // ETag of the served content (same algorithm as list/head etags, so a
+    // downloaded file's etag matches the manifest's).
+    let etag = wabi_lore::file_etag(&tmp_path)
+        .await
+        .unwrap_or_default();
+    let quoted_etag = format!("\"{etag}\"");
+
+    // If-None-Match → 304 when the client already has this version.
+    if let Some(inm) = headers.get(axum::http::header::IF_NONE_MATCH).and_then(|v| v.to_str().ok())
+    {
+        let inm = normalize_etag_header(inm);
+        if !inm.is_empty() && (inm == "*" || inm == etag) {
+            return Ok(axum::response::Response::builder()
+                .status(axum::http::StatusCode::NOT_MODIFIED)
+                .header(axum::http::header::ETAG, &quoted_etag)
+                .body(axum::body::Body::empty())
+                .unwrap());
+        }
+    }
+
     // Schedule cleanup after 5 minutes
     let cleanup_path = tmp_path.clone();
     tokio::spawn(async move {
@@ -763,6 +1220,7 @@ async fn download_file(
                     )
                     .header(axum::http::header::CONTENT_LENGTH, length.to_string())
                     .header(axum::http::header::ACCEPT_RANGES, "bytes")
+                    .header(axum::http::header::ETAG, &quoted_etag)
                     .body(axum::body::Body::from(buf))
                     .unwrap();
                 return Ok(resp);
@@ -776,7 +1234,8 @@ async fn download_file(
         .status(axum::http::StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
         .header(axum::http::header::CONTENT_LENGTH, data.len().to_string())
-        .header(axum::http::header::ACCEPT_RANGES, "bytes");
+        .header(axum::http::header::ACCEPT_RANGES, "bytes")
+        .header(axum::http::header::ETAG, &quoted_etag);
     // L7: ?download=1 → attachment disposition (direct web save)
     if query.download == Some(1) {
         let filename = path.rsplit('/').next().unwrap_or("download");
@@ -798,6 +1257,7 @@ async fn delete_file(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path((channel_id, path)): Path<(i64, String)>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<DeleteFilePayload>,
 ) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -812,10 +1272,49 @@ async fn delete_file(
     if repo_read_only(&lore, channel_id).await {
         return Ok(mirror_read_only_response());
     }
+
+    // Optimistic concurrency on deletes too.
+    let current = lore.head_etag(channel_id, &path).await?;
+    if let Err(conflict) = check_if_match(
+        headers.get(axum::http::header::IF_MATCH).and_then(|v| v.to_str().ok()),
+        current,
+    ) {
+        return Ok(conflict);
+    }
+
     lore.delete_file(channel_id, &path, &message).await?;
 
+    let mut cursor = 0u64;
+    if let Some(repo) = lore.get_repo(channel_id).await {
+        let outcome = record_lore_commit_and_change(
+            &state,
+            channel_id,
+            &repo.repo_name,
+            "",
+            &path,
+            "delete",
+            None,
+            &message,
+            auth.user_id,
+        )
+        .await;
+        cursor = outcome.change_cursor;
+    }
+
+    emit_lore_file_changed(
+        &state,
+        channel_id,
+        serde_json::json!({
+            "action": "delete",
+            "path": path,
+            "authorUserId": auth.user_id,
+            "cursor": cursor,
+        }),
+    )
+    .await;
+
     info!(channel_id, path, "File deleted from Lore repo");
-    Ok(Json(serde_json::json!({ "status": "ok" })).into_response())
+    Ok(Json(serde_json::json!({ "status": "ok", "cursor": cursor })).into_response())
 }
 
 // -- File locking --
@@ -878,6 +1377,33 @@ async fn file_level_history(
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
+
+    // Native repos: filter the WDB commit log, which carries file paths —
+    // `lore history` has no per-path mode, so post-filtering its output would
+    // be guesswork. Mirror repos keep the addon path (git filters natively).
+    if !repo_read_only(&lore, channel_id).await {
+        let records = state
+            .wdb
+            .list_lore_commits(channel_id)
+            .await
+            .unwrap_or_default();
+        let mut entries: Vec<serde_json::Value> = records
+            .into_iter()
+            .filter(|r| r.file_path == path)
+            .map(|r| {
+                serde_json::json!({
+                    "hash": r.commit_hash,
+                    "message": r.message,
+                    "authorUserId": r.author_user_id,
+                    "timestampMicros": r.timestamp_micros,
+                    "path": r.file_path,
+                })
+            })
+            .collect();
+        entries.reverse(); // newest first
+        return Ok(Json(serde_json::json!(entries)));
+    }
+
     let history = lore.file_level_history(channel_id, &path).await?;
     Ok(Json(serde_json::json!(history)))
 }
@@ -1032,9 +1558,13 @@ async fn start_editor_session(
         return Err(AppError::Forbidden("Editor sessions require Owner/Admin/Developer role".into()));
     }
     let lore = lore_service(&state).await?;
+    let working_tree = lore
+        .repo_working_tree(channel_id)
+        .await
+        .ok_or_else(|| AppError::NotFound("No Lore repo for this channel".into()))?;
     let session = lore
         .editor_bridge
-        .start_session(channel_id, auth.user_id, payload.repo_path)
+        .start_session(channel_id, auth.user_id, &working_tree, payload.repo_path)
         .await?;
     Ok(Json(serde_json::json!({ "session": session })))
 }
@@ -1093,13 +1623,18 @@ async fn run_script(
         return Err(AppError::Forbidden("Script execution requires Owner/Admin/Developer role".into()));
     }
     let lore = lore_service(&state).await?;
-    let working_dir = payload.working_dir.unwrap_or_else(|| {
-        format!(
-            "{}/{}",
-            lore.lore_server_url().replace("lore://", ""),
-            channel_id
-        )
-    });
+    // Default to the channel's actual working tree — not a mangled lore URL.
+    let working_dir = match payload.working_dir {
+        Some(dir) => dir,
+        None => match lore.repo_working_tree(channel_id).await {
+            Some(p) => p.to_string_lossy().to_string(),
+            None => {
+                return Err(AppError::NotFound(
+                    "No Lore repo working tree for this channel".into(),
+                ))
+            }
+        },
+    };
     let result = lore
         .script_runner
         .run_script(
@@ -1222,7 +1757,10 @@ async fn run_mirror(
         return Err(AppError::Forbidden("Mirror run requires Owner/Admin role".into()));
     }
     let lore = lore_service(&state).await?;
-    let result = lore.mirror.mirror(channel_id).await?;
+    let result = lore
+        .mirror
+        .mirror(channel_id, lore.repo_working_tree(channel_id).await.as_deref())
+        .await?;
     Ok(Json(serde_json::json!({ "result": result })))
 }
 
@@ -1241,4 +1779,236 @@ async fn list_mirror_configs(
         .filter(|c| c.channel_id == channel_id)
         .collect();
     Ok(Json(serde_json::json!({ "configs": configs })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- If-Match / ETag decision logic --
+
+    #[test]
+    fn if_match_absent_allows_anything() {
+        assert!(check_if_match(None, None).unwrap().is_none());
+        assert!(check_if_match(None, Some("abc".into())).unwrap() == Some("abc".into()));
+    }
+
+    #[test]
+    fn if_match_empty_means_create_only() {
+        // File exists → conflict; absent → OK.
+        assert!(check_if_match(Some(""), Some("abc".into())).is_err());
+        assert!(check_if_match(Some(""), None).unwrap().is_none());
+    }
+
+    #[test]
+    fn if_match_matching_etag_passes() {
+        let current = Some("etag123".to_string());
+        assert!(check_if_match(Some("etag123"), current.clone()).unwrap() == current);
+        // Header quoting/W-prefix is normalized.
+        assert!(check_if_match(Some("\"etag123\""), current.clone()).unwrap() == current);
+        assert!(check_if_match(Some("W/\"etag123\""), current).is_ok());
+    }
+
+    #[tokio::test]
+    async fn if_match_stale_etag_conflicts() {
+        let resp = check_if_match(Some("old"), Some("new".into())).unwrap_err();
+        // 409 with the current etag in the body.
+        let (parts, body) = resp.into_parts();
+        assert_eq!(parts.status, axum::http::StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(body, 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["type"], "StaleEtag");
+        assert_eq!(json["currentEtag"], "new");
+    }
+
+    #[test]
+    fn if_match_star_requires_existence() {
+        assert!(check_if_match(Some("*"), Some("x".into())).is_ok());
+        assert!(check_if_match(Some("*"), None).is_err());
+    }
+
+    #[tokio::test]
+    async fn conflict_response_is_409_with_current_etag() {
+        let resp = conflict_response(Some("cur".into()));
+        let (parts, body) = resp.into_parts();
+        assert_eq!(parts.status, axum::http::StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(body, 1024).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("cur"));
+    }
+
+    #[test]
+    fn byte_range_parsing() {
+        assert_eq!(parse_byte_range("bytes=0-9", 100), Some((0, 9)));
+        assert_eq!(parse_byte_range("bytes=50-", 100), Some((50, 99)));
+        assert_eq!(parse_byte_range("bytes=200-", 100), None);
+        assert_eq!(parse_byte_range("bytes=9-0", 100), None);
+    }
+
+    // -- End-to-end through LoreService with a stub lore CLI --
+    //
+    // The stub emulates the lore CLI well enough to exercise the real
+    // service: status lists real files from the working tree, commit emits
+    // parseable metadata with a fresh signature per call.
+
+    /// Bash stub standing in for the `lore` binary. Embedded-mode global
+    // flags (`--offline --local`) are stripped first.
+    const STUB_LORE: &str = r#"#!/usr/bin/env bash
+ARGS=()
+for a in "$@"; do
+  case "$a" in --offline|--local) ;; *) ARGS+=("$a") ;; esac
+done
+cmd="${ARGS[0]:-}"
+case "$cmd" in
+  repository)
+    echo "Repository created: ${ARGS[2]}"
+    ;;
+  status)
+    find . -type f \
+      ! -path './.lore/*' \
+      ! -name '.wabi-repo.json' \
+      ! -name '.wabiignore' \
+      ! -name '.loreignore' \
+      | sed 's|^\./||' | head -200
+    ;;
+  stage|push|sync|diff|lock)
+    exit 0
+    ;;
+  commit)
+    echo "Committing staged changes"
+    echo "Committed 1/1 files"
+    echo "Repository: 3f2a1b4c5d6e7f8a923b5e2b2f74fbe8"
+    echo "Revision  : 1"
+    echo "Signature : stub$RANDOM$RANDOM$RANDOM"
+    echo "Branch    : main"
+    echo "Date      : Wed, 16 Aug 2026 00:00:00 +0000"
+    echo "    stub commit message"
+    echo "Commit succeeded"
+    ;;
+  branch)
+    if [ "${ARGS[1]}" = "list" ]; then
+      echo "* main"
+    fi
+    ;;
+  history)
+    echo "Revision  : 1"
+    echo "Signature : stubhash0001"
+    echo "Branch    : main"
+    echo "Date      : Wed, 16 Aug 2026 00:00:00 +0000"
+    echo "    Initial revision"
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+exit 0
+"#;
+
+    fn stub_service(data_dir: &std::path::Path) -> wabi_lore::LoreService {
+        let stub_bin = data_dir.join("lore-stub.sh");
+        std::fs::write(&stub_bin, STUB_LORE).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+            enabled: true,
+            mode: wabi_lore::LoreMode::Embedded,
+            lore_server_url: "lore://localhost:10000".into(),
+            lore_binary_path: stub_bin,
+            lore_data_dir: data_dir.to_path_buf(),
+            default_blob_max_size_mb: 1,
+            recordings_channel_name: "Recordings".into(),
+        })
+    }
+
+    #[tokio::test]
+    async fn upload_download_revision_and_conflict_flow() {
+        let tmp = tempfile::tempdir().unwrap();
+        let service = stub_service(tmp.path());
+        let channel_id = 225i64;
+
+        service
+            .create_repo(channel_id, 1, "test-repo")
+            .await
+            .unwrap();
+
+        // Upload v1.
+        let src = tmp.path().join("src-v1.txt");
+        tokio::fs::write(&src, b"version one").await.unwrap();
+        let result = service
+            .upload_file(channel_id, src.to_str().unwrap(), "docs/file.txt", "v1", 7)
+            .await
+            .unwrap();
+        let rev1 = result.revision.hash.clone();
+        assert!(!rev1.is_empty(), "stub commit output must yield a revision hash");
+        assert_eq!(result.file_info.etag.as_deref(), Some(wabi_lore::etag_for_bytes(b"version one").as_str()));
+
+        // Head etag reflects the working tree.
+        let head = service.head_etag(channel_id, "docs/file.txt").await.unwrap();
+        assert_eq!(head.as_deref(), Some(wabi_lore::etag_for_bytes(b"version one").as_str()));
+
+        // Upload v2 (different revision).
+        tokio::fs::write(&src, b"version two!").await.unwrap();
+        let result2 = service
+            .upload_file(channel_id, src.to_str().unwrap(), "docs/file.txt", "v2", 7)
+            .await
+            .unwrap();
+        assert_ne!(result2.revision.hash, rev1);
+
+        // Head serves v2; the revision cache serves v1 at its revision.
+        let out = tmp.path().join("head.txt");
+        service
+            .download_file(channel_id, "docs/file.txt", out.to_str().unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(tokio::fs::read_to_string(&out).await.unwrap(), "version two!");
+
+        let out_v1 = tmp.path().join("v1.txt");
+        service
+            .download_file(channel_id, "docs/file.txt", out_v1.to_str().unwrap(), Some(&rev1))
+            .await
+            .unwrap();
+        assert_eq!(tokio::fs::read_to_string(&out_v1).await.unwrap(), "version one");
+
+        // Unknown revision → honest error, not silent head fallback.
+        let missing = service
+            .download_file(channel_id, "docs/file.txt", out.to_str().unwrap(), Some("nope"))
+            .await;
+        assert!(missing.is_err());
+
+        // Listing carries etags and excludes ignore-file sidecars.
+        let files = service.list_files(channel_id, None).await.unwrap();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"docs/file.txt"));
+        assert!(!paths.contains(&".wabi-repo.json"));
+        let listed = files.iter().find(|f| f.path == "docs/file.txt").unwrap();
+        assert!(listed.etag.is_some());
+        assert_eq!(listed.size, b"version two!".len() as u64);
+    }
+
+    #[tokio::test]
+    async fn ignored_upload_leaves_no_bytes_and_no_branch_rot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let service = stub_service(tmp.path());
+        let channel_id = 226i64;
+        service
+            .create_repo(channel_id, 1, "test-repo")
+            .await
+            .unwrap();
+
+        let src = tmp.path().join("node_modules-payload");
+        tokio::fs::write(&src, b"junk").await.unwrap();
+        let err = service
+            .upload_file(channel_id, src.to_str().unwrap(), "node_modules/pkg/index.js", "bad", 7)
+            .await;
+        assert!(err.is_err(), "node_modules is ignored by the seeded .wabiignore");
+
+        // The working tree must stay clean — the old code copied first.
+        let leaked = service
+            .list_files(channel_id, Some("node_modules"))
+            .await
+            .unwrap();
+        assert!(leaked.is_empty(), "rejected upload must not leave bytes behind");
+    }
 }

@@ -21,6 +21,7 @@ pub mod mesh;
 pub mod nodes;
 pub mod rate_limit;
 pub mod replication_transport;
+pub mod secrets;
 pub mod socketio;
 pub mod socketio_impl;
 pub mod standby;

@@ -137,18 +137,29 @@ struct WriterEntry {
 /// directly (not behind `Arc`). The registry is consulted (via `&self`) on every
 /// write to retrieve the active encryption key for each stream.
 ///
+/// `initial_commit_seq` is the highest `commit_seq` ever assigned by ANY prior
+/// incarnation of the engine (recovered at open from the commit index, the
+/// on-disk segments, and the snapshot watermark). The first new commit gets
+/// `initial_commit_seq + 1`. Because the AES-GCM nonce is derived from
+/// `commit_seq` and stream keys are deterministically re-derived across
+/// restarts, reusing a seq after a restart would repeat a (key, nonce) pair —
+/// Council Review #1 §1.1: "safe as long as the global sequencer never resets."
+///
 /// The loop processes one `CommandCommit` at a time:
 ///
 /// 1. Assign a monotonic `commit_seq` (burned on failure per §2.4).
 /// 2. For each event: encrypt with the stream's key, write to the stream's
 ///    `.wseg` segment via [`SegmentWriter`], record a [`StreamRef`].
-/// 3. Build a [`CommitIndexEntry`] and submit to the [`BatcherHandle`].
-/// 4. Wait for the batcher to fsync the entry (durability-await, §2.3).
-/// 5. Advance the [`LinearizabilityBarrier`] so readers see the new data.
-/// 6. Send a [`DispatchItem`] to the projection dispatcher. If the
+/// 3. Flush (fsync) every segment writer touched by this command, so the
+///    bytes the commit index references are durable BEFORE the index entry
+///    is fsynced (WAL ordering).
+/// 4. Build a [`CommitIndexEntry`] and submit to the [`BatcherHandle`].
+/// 5. Wait for the batcher to fsync the entry (durability-await, §2.3).
+/// 6. Advance the [`LinearizabilityBarrier`] so readers see the new data.
+/// 7. Send a [`DispatchItem`] to the projection dispatcher. If the
 ///    dispatcher's channel is full and the command is non-essential, reject
 ///    with `EngineBusy` instead of blocking.
-/// 7. Send the result back via `response_tx`.
+/// 8. Send the result back via `response_tx`.
 ///
 /// # Errors
 ///
@@ -163,9 +174,10 @@ pub async fn run(
     barrier: Arc<LinearizabilityBarrier>,
     mut command_rx: mpsc::Receiver<CommandCommit>,
     data_dir: PathBuf,
+    initial_commit_seq: u64,
 ) -> Result<()> {
     let mut writers: HashMap<String, WriterEntry> = HashMap::new();
-    let mut next_commit_seq: u64 = 1;
+    let mut next_commit_seq: u64 = initial_commit_seq.saturating_add(1).max(1);
 
     while let Some(command) = command_rx.recv().await {
         let commit_seq = next_commit_seq;
@@ -295,6 +307,18 @@ async fn process_command(
             if let Some(entry) = closed {
                 entry.writer.close().await?;
             }
+        }
+    }
+
+    // --- 1.5 Flush segment writers BEFORE the commit index append -------
+    // The commit index fsync is the durability point of the commit; every
+    // segment byte it references must be on stable storage first (WAL
+    // ordering). Without this, a power loss after the index fsync can leave
+    // an acknowledged commit pointing at page-cache-only segment bytes.
+    // (Writers rotated out above were closed, which flushes them.)
+    for event in &command.events {
+        if let Some(entry) = writers.get_mut(&event.stream_id) {
+            entry.writer.flush().await?;
         }
     }
 
@@ -518,6 +542,7 @@ mod tests {
                 barrier,
                 cmd_rx,
                 data_dir,
+                0,
             )
             .await
         });
@@ -641,6 +666,64 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // 3a. initial_commit_seq seeds the counter (restart safety)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn initial_commit_seq_seeds_counter() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry.lock().await
+            .create_stream("ch_seed", [0xABu8; 32])
+            .unwrap();
+
+        // Simulate a restart after 100 prior commits: the engine passes the
+        // recovered high-water mark and the sequencer must continue above it.
+        let sem = Arc::new(Semaphore::new(1));
+        let permit = SequencerPermit::acquire(&sem).await.unwrap();
+
+        let commit_index_dir = dir.path().join("global").join("commit-index");
+        tokio::fs::create_dir_all(&commit_index_dir).await.unwrap();
+        let (batcher, batcher_fut) = crate::commit_index::batcher::new_batcher(
+            commit_index_dir,
+            Some(10),
+            Some(Duration::from_millis(50)),
+        );
+        tokio::spawn(batcher_fut);
+
+        let (dispatcher_tx, _dispatcher_rx) = mpsc::channel::<DispatchItem>(16);
+        let state = Arc::new(ProjectionState::new());
+        let barrier = Arc::new(LinearizabilityBarrier::new(state));
+
+        let (cmd, rx) = make_cmd(1, true, "ch_seed", 1, b"after restart");
+        let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(16);
+        cmd_tx.send(cmd).await.unwrap();
+        drop(cmd_tx);
+
+        let handle = tokio::spawn(async move {
+            run(
+                permit,
+                registry,
+                batcher,
+                dispatcher_tx,
+                barrier,
+                cmd_rx,
+                dir.path().to_path_buf(),
+                100,
+            )
+            .await
+        });
+
+        let outcome = rx.await.unwrap().unwrap();
+        assert_eq!(
+            outcome.commit_seq, 101,
+            "sequencer must continue above the recovered high-water mark"
+        );
+
+        handle.await.unwrap().unwrap();
+    }
+
+    // -----------------------------------------------------------------------
     // 4. orphan_records_tolerated
     // -----------------------------------------------------------------------
 
@@ -748,6 +831,7 @@ mod tests {
             barrier,
             cmd_rx,
             dir.path().to_path_buf(),
+            0,
         )
         .await;
         assert!(sequencer_result.is_ok());
@@ -807,6 +891,7 @@ mod tests {
                 barrier,
                 cmd_rx,
                 dir.path().to_path_buf(),
+                0,
             )
             .await
         });
@@ -861,6 +946,7 @@ mod tests {
             barrier,
             cmd_rx,
             dir.path().to_path_buf(),
+            0,
         )
         .await;
         assert!(result.is_ok());
