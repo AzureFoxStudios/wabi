@@ -31,6 +31,7 @@
 12. [Operations & Runbook](#12-operations--runbook)
 13. [Developer Onboarding](#13-developer-onboarding)
 14. [Repo Classes, Artist Review Flow, External Mirrors & Git Import](#14-repo-classes-artist-review-flow-external-mirrors--git-import)
+14a. [wabi-sync — external editor sync CLI](#14a-wabi-sync--external-editor-sync-cli)
 15. [Known Limitations & Future Work](#15-known-limitations--future-work)
 16. [Glossary](#16-glossary)
 
@@ -374,11 +375,11 @@ and the Lore router at `/addons/lore` within it).
 
 | Method | Path | Description |
 |---|---|---|
-| `PUT` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Upload/stage a file. **Body is raw bytes** (`application/octet-stream`), with optional `?message=` and `?repo_path=` query params. Response: `{ revision, file, pendingReview, reviewBranch }`. When the repo has `autoBranchOnUpload`, the file is committed to a fresh `review/{user}/{ts}` branch and `pendingReview: true` with the branch name; otherwise `pendingReview: false` and no branch. |
-| `GET` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Download. Supports HTTP `Range` requests for seeking in large media. |
-| `DELETE` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Delete a file. |
-| `POST` | `/api/addons/lore/repos/{channel_id}/files/{*path}/lock` | Acquire a file lock (body optionally names the owner). |
-| `DELETE` | `/api/addons/lore/repos/{channel_id}/files/{*path}/lock` | Release a lock. |
+| `PUT` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Upload/stage a file. **Body is raw bytes** (`application/octet-stream`), with optional `?message=` and `?repo_path=` query params. Optional `If-Match` header for optimistic concurrency (§8.4a). Response: `{ revision, file, etag, pendingReview, reviewBranch, cursor, wdbRecorded }`. Over the blob limit → 413. Stale `If-Match` → 409 `StaleEtag`. |
+| `GET` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Download. Supports HTTP `Range` requests, `ETag`/`If-None-Match` (304), and `?revision=` pinning (§8.4a). |
+| `DELETE` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Delete a file. Optional `If-Match`. |
+| `POST` | `/api/addons/lore/repos/{channel_id}/lock/{*path}` | Acquire a file lock (returns `locked_by`/`locked_at`). |
+| `DELETE` | `/api/addons/lore/repos/{channel_id}/lock/{*path}` | Release a lock. |
 
 > **Note on `GET .../files/{*path}`:** this handler implements HTTP **Range**
 > support (206 Partial Content) with a stable on-disk cache under
@@ -390,8 +391,8 @@ and the Lore router at `/addons/lore` within it).
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/addons/lore/repos/{channel_id}/history` | Repo revision history. |
-| `GET` | `/api/addons/lore/repos/{channel_id}/files/{*path}/history` | File-level history. |
-| `GET` | `/api/addons/lore/repos/{channel_id}/files/{*path}/diff` | Diff two revisions (`?from=`/`?to=`). |
+| `GET` | `/api/addons/lore/repos/{channel_id}/history/{*path}` | File-level history (native repos filter the WDB commit log; mirrors use `git log -- <path>`). |
+| `GET` | `/api/addons/lore/repos/{channel_id}/diff/{*path}` | Diff (`?from=`/`?to=`). |
 
 ### 8.4 Branch operations
 
@@ -399,9 +400,56 @@ and the Lore router at `/addons/lore` within it).
 |---|---|---|
 | `GET` | `/api/addons/lore/repos/{channel_id}/branches` | List branches. |
 | `POST` | `/api/addons/lore/repos/{channel_id}/branches` | Create a branch. |
-| `POST` | `/api/addons/lore/repos/{channel_id}/branches/{name}/merge` | Merge a branch. |
+| `POST` | `/api/addons/lore/repos/{channel_id}/branches/{name}/merge` | Merge a branch into the current branch (`lore branch merge`), then sync+push. |
 | `POST` | `/api/addons/lore/repos/{channel_id}/review/{name}/approve` | Approve a review branch: merge it into mainline, then archive it (retire). See §14.2. |
 | `POST` | `/api/addons/lore/repos/{channel_id}/review/{name}/reject` | Reject a review branch: archive it without merging. See §14.2. |
+
+### 8.4a Optimistic concurrency (ETag / If-Match)
+
+Every file read carries an `ETag` (SHA-256 of content; `q-…` sampled for files
+> 4 MiB). Every write can carry a precondition:
+
+- `GET file` → response header `ETag`; send `If-None-Match` for a cheap **304**.
+- `PUT file` with `If-Match: "<etag>"` → succeeds only if that is still the
+  head version; otherwise **409** `{"type": "StaleEtag", "currentEtag": …}`.
+  `If-Match: ""` means create-only (must not exist). **No If-Match = last
+  write wins** (backwards compatible).
+- `DELETE file` accepts the same `If-Match` preconditions.
+
+Uploads over the configured `WABI_LORE_MAX_BLOB_MB` return **413**
+`{"type": "BlobTooLarge"}`.
+
+Revision-pinned reads: `GET …/files/{path}?revision=<hash>` serves the bytes
+captured at commit time from `<lore_data_dir>/<channel_id>.revcache/<rev>/`
+(head reads come from the working tree). Only versions committed through Wabi
+are cached — pinned reads of older foreign revisions 4xx honestly.
+
+### 8.4b Sync protocol (manifest + change feed)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/repos/{channel_id}/manifest` | One call: `{files: [{path, size, status, etag}], headRevision, readOnly}`. |
+| `GET` | `/repos/{channel_id}/changes?since=<seq>` | Cursor-ordered per-file feed: `{changes: [{seq, path, action, etag, revision, authorUserId, timestampMicros}], latestSeq}`. `seq` is the WabiDB commit_seq — monotonic, saved per write. |
+
+Every wabi-mediated upload/delete/snapshot also appends a `lore_file_change`
+event (projection `lore_file_changes`) and emits **`lore:file-changed`** to
+the channel's socket.io room (`ch_<hex>`) with
+`{action, path, etag, revision, authorUserId, pendingReview, cursor}` — this
+is what makes the web Code view and remote wabi-sync instances refresh live.
+
+### 8.4c Connect tokens (server-minted)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/repos/{channel_id}/connect-tokens` | Mint an opaque token (`{scopes: "read" \| "write"}`). Body returns the plaintext **once**; only its SHA-256 is stored (projection `lore_tokens`). |
+| `GET` | `/repos/{channel_id}/connect-tokens` | List active tokens (hash prefixes + scopes). |
+| `DELETE` | `/repos/{channel_id}/connect-tokens/{token_hash}` | Revoke. |
+
+Tokens authenticate as `Authorization: Bearer wblore_…` on Lore routes,
+resolve to the minting user (so membership/role gates still apply), and carry
+their scope: read-only tokens get **403** `{"type": "ReadOnlyToken"}` on any
+mutating request. This replaces the old client-side "generate token" button,
+which minted random bytes the server never validated.
 
 ### 8.5 Health
 
@@ -835,8 +883,49 @@ recorded in `LoreRepo.imported_from`.
 The default `mode = "embedded"` runs Lore fully offline against a local
 working tree. For mirrors this means `git` (not the Lore CLI) does the fetching;
 `sync_repo`/`push_repo` are no-ops that log `offline repo: sync skipped`, and
-file locks degrade to `locked_by: null` (no Lore server to consult). The `git`
+file locks degrade to a local record with no Lore server to consult. The `git`
 binary must be on the server's `PATH` for mirror/import features.
+
+---
+
+## 14a. wabi-sync — external editor sync CLI
+
+`crates/wabi-sync` is a workspace member producing the `wabi-sync` binary: a
+folder-level two-way sync daemon between a local directory and a channel's
+Lore repo. Because it syncs a plain folder, **any** editor works — VS Code,
+Sublime, vim, JetBrains, anything that edits files.
+
+```bash
+# 1. One-time setup (token comes from the channel's Connect panel, §8.4c)
+wabi-sync login https://wabi.example.com
+#    → paste the wblore_… token when prompted
+
+# 2. Bind a folder to a lore channel (accepts ch_e1 / 0xe1 / decimal)
+wabi-sync link ch_e1 ~/code/my-project
+
+# 3. Keep it running while you work
+wabi-sync watch                # FS events + change-feed polling, debounced
+```
+
+One-shot commands: `push`, `pull`, `sync`, `status`, `lock <path>`,
+`unlock <path>`.
+
+**How it decides what to move** (three-way, per file):
+
+- Local state: a recursive walk with gitignore-style `.wabiignore` matching
+  (plus hard-skips for `.wabi-sync*`, `.lore/`, `.git/`, repo sidecars).
+- Remote state: the manifest (§8.4b).
+- Baseline: the etag each path had at last successful sync, stored in
+  `.wabi-sync/state.json` alongside the change-feed cursor.
+- Local changed + remote unchanged → PUT with `If-Match: <baseline>`.
+- Remote changed + local unchanged → GET (etag-aware, 304 when possible).
+- Both changed → **never clobber**: the losing copy is preserved as
+  `<path>.wabi-conflict-<etag8>` and the canonical path takes the winner.
+- Deleted on one side, unmodified on the other → delete propagates.
+
+The client's etag algorithm is byte-identical to the server's — treat it as a
+wire contract. `.wabi-sync.json` (the link) is committed-adjacent; the
+`.wabi-sync/` state dir is per-machine and should itself be ignored.
 
 ---
 

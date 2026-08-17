@@ -586,16 +586,29 @@ mod tests {
                 files: vec![],
             };
 
-            let event = make_event(1, "message_created", &r);
+        let event = make_event(1, "message_created", &r);
         proj.apply(&event, &state).unwrap();
 
-        // message_id is overridden to format!("msg_{:x}", commit_seq)
-        let expected_msg_id = format!("msg_{:x}", event.commit_seq);
-        let key = encode_key("ch_01", &expected_msg_id);
+        // The writer-stamped UUID id is kept (golden rule 3: ids are UUIDs
+        // end-to-end; a seq-only id collapses in client keyed lists).
+        let key = encode_key("ch_01", "msg_01");
         let stored = state.get("messages", &key).unwrap();
         let decoded = decode_record(&stored).unwrap();
-        assert_eq!(decoded.message_id, expected_msg_id);
+        assert_eq!(decoded.message_id, "msg_01");
         assert_eq!(decoded.author_user_id, 42);
+
+        // Legacy producers with an empty id fall back to msg_{commit_seq:x}.
+        let mut legacy = r;
+        legacy.message_id = String::new();
+        let legacy_event = DurableEvent {
+            commit_seq: 7,
+            stream_id: "ch_01".into(),
+            event_type: "message_created".into(),
+            payload: encode_record(&legacy),
+        };
+        proj.apply(&legacy_event, &state).unwrap();
+        let legacy_key = encode_key("ch_01", "msg_7");
+        assert!(state.get("messages", &legacy_key).is_some());
     }
 
     #[test]

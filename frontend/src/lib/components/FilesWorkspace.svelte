@@ -12,6 +12,8 @@
 		type LoreFileInfo
 	} from '$lib/api/lore';
 	import { showToast } from '$lib/toast';
+	import LoreFileTree from './lore/LoreFileTree.svelte';
+	import LoreFileViewer from './lore/LoreFileViewer.svelte';
 
 	/** A connected space plus the channel it hangs off. */
 	interface SpaceRepo extends LoreRepo {
@@ -19,11 +21,12 @@
 		channelName: string;
 	}
 
-	interface DirEntry {
-		kind: 'folder' | 'file';
+	/** One in-flight or finished upload in the batch progress list. */
+	interface UploadJob {
 		name: string;
-		path: string;
-		size: number;
+		dest: string;
+		status: 'pending' | 'uploading' | 'done' | 'error' | 'conflict';
+		error?: string;
 	}
 
 	let activeChannelId = $derived(get(currentChannel));
@@ -34,24 +37,27 @@
 	let spacesLoaded = $state(false);
 
 	let selectedChannelId = $state<number | null>(null);
-	let currentPath = $state('');
 	let files = $state<LoreFileInfo[]>([]);
 	let loading = $state(false);
 	let loadError = $state<string | null>(null);
 
+	let selectedPath = $state<string | null>(null);
 	let previewPath = $state<string | null>(null);
 	let previewName = $state('');
 	let previewKind = $state<'image' | 'text' | 'other'>('other');
 	let previewUrl = $state<string | null>(null);
 	let previewText = $state<string | null>(null);
+	let previewInfo = $state<LoreFileInfo | null>(null);
 	let previewLoading = $state(false);
-	let fileSearch = $state('');
 	let searchAllSpaces = $state(false);
+	let globalSearchQuery = $state('');
 	let globalSearchResults = $state<Array<{ channelId: number; channelName: string; path: string; size: number }>>([]);
 	let globalSearchLoading = $state(false);
 
 	let isDragging = $state(false);
-	let uploading = $state(false);
+	let uploadJobs = $state<UploadJob[]>([]);
+	/** Uploads land in the folder of the current selection (root when none). */
+	let uploadFolder = $derived(selectedPath?.includes('/') ? selectedPath.slice(0, selectedPath.lastIndexOf('/')) : '');
 
 	const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp'];
 	const TEXT_EXT = [
@@ -59,6 +65,10 @@
 		'css', 'scss', 'html', 'htm', 'xml', 'yaml', 'yml', 'py', 'sh', 'bash',
 		'csv', 'log', 'sql', 'ini', 'conf', 'env', 'gitignore'
 	];
+	/** Concurrent uploads per batch — enough to overlap network latency without hammering the lore CLI. */
+	const UPLOAD_CONCURRENCY = 3;
+
+	let uploading = $derived(uploadJobs.some((j) => j.status === 'pending' || j.status === 'uploading'));
 
 	let selectedSpace = $derived(selectedChannelId !== null ? spaces[selectedChannelId ?? -1] ?? null : null);
 	let mirror = $derived(mirrorInfo(selectedSpace?.class));
@@ -68,14 +78,6 @@
 		Object.values(spaces)
 			.sort((a, b) => a.channelName.localeCompare(b.channelName))
 			.map((s) => ({ id: s.channelId, name: s.channelName }))
-	);
-
-	let crumbs = $derived(currentPath ? currentPath.split('/') : []);
-	let dirEntries = $derived(buildDir(files, currentPath));
-	let visibleDirEntries = $derived(
-		fileSearch.trim()
-			? dirEntries.filter((entry) => entry.name.toLowerCase().includes(fileSearch.trim().toLowerCase()) || entry.path.toLowerCase().includes(fileSearch.trim().toLowerCase()))
-			: dirEntries
 	);
 
 	/** Read the mirror payload off a space's class field (`class: { mirror: {...} }`). */
@@ -131,13 +133,15 @@
 		void loadSpaces();
 	});
 
-	async function loadFiles(channelId: number, prefix: string) {
+	/** Load the space's FULL file list — LoreFileTree builds the tree and
+	 *  filters search client-side, so per-prefix fetches are unnecessary. */
+	async function loadFiles(channelId: number) {
 		const token = getAuthToken();
 		if (!token) return;
 		loading = true;
 		loadError = null;
 		try {
-			files = await listLoreFiles(token, channelId, prefix);
+			files = await listLoreFiles(token, channelId);
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'Failed to load files';
 			files = [];
@@ -148,13 +152,13 @@
 
 	$effect(() => {
 		const id = selectedChannelId;
-		const prefix = currentPath;
-		if (id !== null) void loadFiles(id, prefix);
+		if (id !== null) void loadFiles(id);
 	});
 
+	/** Cross-space file search (Enter to run). */
 	async function searchAcrossSpaces(): Promise<void> {
-		const query = fileSearch.trim().toLowerCase();
-		if (!searchAllSpaces || !query) { globalSearchResults = []; return; }
+		const q = globalSearchQuery.trim().toLowerCase();
+		if (!searchAllSpaces || !q) { globalSearchResults = []; return; }
 		const token = getAuthToken();
 		if (!token) return;
 		globalSearchLoading = true;
@@ -162,46 +166,10 @@
 			const results: Array<{ channelId: number; channelName: string; path: string; size: number }> = [];
 			for (const space of Object.values(spaces)) {
 				const entries = await listLoreFiles(token, space.channelId);
-				for (const file of entries) if (file.path.toLowerCase().includes(query)) results.push({ channelId: space.channelId, channelName: space.channelName, path: file.path, size: file.size });
+				for (const file of entries) if (file.path.toLowerCase().includes(q)) results.push({ channelId: space.channelId, channelName: space.channelName, path: file.path, size: file.size });
 			}
 			globalSearchResults = results.slice(0, 100);
 		} finally { globalSearchLoading = false; }
-	}
-
-	function buildDir(flat: LoreFileInfo[], path: string): DirEntry[] {
-		const prefix = path ? `${path}/` : '';
-		const folders = new Set<string>();
-		const fileEntries: DirEntry[] = [];
-		for (const f of flat) {
-			if (!f.path.startsWith(prefix)) continue;
-			const rest = f.path.slice(prefix.length);
-			if (!rest) continue;
-			const slash = rest.indexOf('/');
-			if (slash === -1) {
-				fileEntries.push({ kind: 'file', name: rest, path: f.path, size: f.size });
-			} else {
-				folders.add(rest.slice(0, slash));
-			}
-		}
-		const folderEntries: DirEntry[] = [...folders].map((name) => ({
-			kind: 'folder',
-			name,
-			path: path ? `${path}/${name}` : name,
-			size: 0
-		}));
-		folderEntries.sort((a, b) => a.name.localeCompare(b.name));
-		fileEntries.sort((a, b) => a.name.localeCompare(b.name));
-		return [...folderEntries, ...fileEntries];
-	}
-
-	function goToBreadcrumb(index: number) {
-		currentPath = index <= 0 ? '' : crumbs.slice(0, index + 1).join('/');
-		clearPreview();
-	}
-
-	function openFolder(entry: DirEntry) {
-		currentPath = entry.path;
-		clearPreview();
 	}
 
 	function clearPreview() {
@@ -210,6 +178,7 @@
 		if (previewUrl) URL.revokeObjectURL(previewUrl);
 		previewUrl = null;
 		previewText = null;
+		previewInfo = null;
 		previewKind = 'other';
 	}
 
@@ -219,21 +188,22 @@
 		return path.slice(idx + 1).toLowerCase();
 	}
 
-	async function openPreview(entry: DirEntry, channelId = selectedChannelId) {
-		if (entry.kind !== 'file') return;
+	async function openPreview(path: string, channelId = selectedChannelId) {
 		const token = getAuthToken();
 		if (!token || channelId === null) return;
-		const isImage = IMAGE_EXT.includes(extOf(entry.path));
-		const isText = TEXT_EXT.includes(extOf(entry.path));
+		const info = files.find((f) => f.path === path) ?? null;
+		const isImage = IMAGE_EXT.includes(extOf(path));
+		const isText = TEXT_EXT.includes(extOf(path));
 		if (previewUrl) URL.revokeObjectURL(previewUrl);
-		previewPath = entry.path;
-		previewName = entry.name;
+		previewPath = path;
+		previewName = path.split('/').pop() ?? path;
 		previewKind = isImage ? 'image' : isText ? 'text' : 'other';
 		previewUrl = null;
 		previewText = null;
+		previewInfo = info;
 		previewLoading = true;
 		try {
-			const blob = await downloadLoreFile(token, channelId, entry.path);
+			const blob = await downloadLoreFile(token, channelId, path);
 			if (previewKind === 'image') {
 				previewUrl = URL.createObjectURL(blob);
 			} else if (previewKind === 'text') {
@@ -271,33 +241,63 @@
 		const id = Number(value);
 		if (Number.isFinite(id) && id !== selectedChannelId) {
 			selectedChannelId = id;
-			currentPath = '';
+			selectedPath = null;
 			files = [];
 			clearPreview();
 		}
 	}
 
+	function noContextMenu(path: string, event: MouseEvent) {
+		// The Files workspace has no context menu yet — suppress the browser's.
+		event.preventDefault();
+	}
+
+	/** Batched uploads: a small worker pool so a folder of files doesn't
+	 *  serialize, with a per-file progress list surfaced in the UI. */
 	async function handleUploadFiles(fileList: File[]) {
 		if (isMirror) return;
 		const token = getAuthToken();
-		if (!token || selectedChannelId === null) return;
-		uploading = true;
-		try {
-			for (const file of fileList) {
-				const dest = currentPath ? `${currentPath}/${file.name}` : file.name;
-				const result = await uploadLoreFile(token, selectedChannelId, dest, file);
-				if (result.pending_review) {
-					showToast('Saved as a new version — waiting for team review', 'info');
-				} else {
-					showToast('Saved — new version recorded', 'info');
+		const channelId = selectedChannelId;
+		if (!token || channelId === null) return;
+
+		const jobs: UploadJob[] = fileList.map((file) => ({
+			name: file.name,
+			dest: uploadFolder ? `${uploadFolder}/${file.name}` : file.name,
+			status: 'pending'
+		}));
+		uploadJobs = [...uploadJobs, ...jobs];
+		const baseIndex = uploadJobs.length - jobs.length;
+
+		let cursor = 0;
+		async function worker() {
+			while (cursor < jobs.length) {
+				const index = cursor++;
+				const file = fileList[index];
+				const job = jobs[index];
+				uploadJobs[baseIndex + index] = { ...job, status: 'uploading' };
+				uploadJobs = [...uploadJobs];
+				try {
+					const result = await uploadLoreFile(token, channelId!, job.dest, file);
+					uploadJobs[baseIndex + index] = { ...job, status: 'done' };
+					uploadJobs = [...uploadJobs];
+					if (result.pending_review) {
+						showToast(`${job.name} saved — waiting for team review`, 'info');
+					}
+				} catch (e) {
+					const message = e instanceof Error ? e.message : 'Upload failed';
+					uploadJobs[baseIndex + index] = { ...job, status: 'error', error: message };
+					uploadJobs = [...uploadJobs];
+					showToast(`${job.name}: ${message}`, 'error');
 				}
 			}
-			await loadFiles(selectedChannelId, currentPath);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Upload failed', 'error');
-		} finally {
-			uploading = false;
 		}
+		await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, jobs.length) }, worker));
+
+		// Prune finished jobs after a short delay so the user sees the outcome.
+		setTimeout(() => {
+			uploadJobs = uploadJobs.filter((j) => j.status === 'pending' || j.status === 'uploading');
+		}, 4000);
+		await loadFiles(channelId);
 	}
 
 	function onFileInput(event: Event) {
@@ -324,13 +324,6 @@
 		isDragging = false;
 		const list = e.dataTransfer?.files ? Array.from(e.dataTransfer.files) : [];
 		if (list.length) await handleUploadFiles(list);
-	}
-
-	function formatSize(bytes: number): string {
-		if (!bytes || bytes <= 0) return '—';
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 </script>
 
@@ -394,84 +387,78 @@
 			<div
 				class="files-pane"
 				class:drop-target={!isMirror}
+				role="region"
+				aria-label="File tree — drop files here to upload"
 				ondragover={onDragOver}
 				ondragleave={onDragLeave}
 				ondrop={onDrop}
 			>
 				<div class="file-toolbar">
-					<nav class="breadcrumbs" aria-label="File path">
-						<button class="crumb" class:active={!currentPath} onclick={() => goToBreadcrumb(0)}>Space root</button>
-					{#each crumbs as crumb, i}
-						<span class="crumb-sep">/</span>
-						<button class="crumb" class:active={i === crumbs.length - 1} onclick={() => goToBreadcrumb(i)}>{crumb}</button>
-					{/each}
-				</nav>
-					<input class="file-search" type="search" bind:value={fileSearch} onkeydown={(event) => event.key === 'Enter' && void searchAcrossSpaces()} placeholder="Search files" aria-label="Search files" /><label class="all-spaces-toggle"><input type="checkbox" bind:checked={searchAllSpaces} /> All spaces</label>
+					<span class="tree-label" title={uploadFolder ? `Uploads land in ${uploadFolder}/` : 'Uploads land at the space root'}>
+						{uploadFolder ? `…/${uploadFolder.split('/').pop()}/` : 'root'}
+					</span>
+					{#if searchAllSpaces}
+						<input
+							class="global-search-input"
+							type="search"
+							bind:value={globalSearchQuery}
+							onkeydown={(event) => event.key === 'Enter' && void searchAcrossSpaces()}
+							placeholder="Search across every space…"
+							aria-label="Search all spaces"
+						/>
+					{/if}
+					<label class="all-spaces-toggle"><input type="checkbox" bind:checked={searchAllSpaces} onchange={() => !searchAllSpaces && (globalSearchResults = [])} /> Search all spaces</label>
 				</div>
 
-				<div class="file-list">
-					{#if searchAllSpaces && fileSearch.trim()}
-						{#if globalSearchLoading}<div class="files-inline-loading">Searching all spaces…</div>{:else if globalSearchResults.length === 0}<div class="files-empty-folder">Press Enter to search all spaces.</div>{:else}{#each globalSearchResults as result}<button type="button" class="global-result" onclick={() => { selectedChannelId = result.channelId; currentPath = ''; fileSearch = ''; searchAllSpaces = false; void openPreview({ kind: 'file', name: result.path.split('/').pop() ?? result.path, path: result.path, size: result.size }, result.channelId); }}><strong>{result.path}</strong><small>{result.channelName}</small></button>{/each}{/if}
-					{:else if loading}
-						<div class="files-inline-loading">
-							<span class="spinner"></span>
-							<span>Loading files…</span>
-						</div>
-					{:else if loadError}
-						<div class="files-error">{loadError}</div>
-					{:else if visibleDirEntries.length === 0}
-						<div class="files-empty-folder">
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" width="44" height="44">
-								<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-							</svg>
-							{#if isMirror}
-								<p>This space is empty.</p>
-							{:else}
-								<p>Nothing here yet — drop files below to add them.</p>
-							{/if}
-						</div>
-					{:else}
-						{#each visibleDirEntries as entry}
-							<div class="file-row" role="row">
-								<button
-									class="row-main"
-									role="rowheader"
-									onclick={() => entry.kind === 'folder' ? openFolder(entry) : openPreview(entry)}
-									title={entry.kind === 'folder' ? `Open ${entry.name}` : `Preview ${entry.name}`}
-								>
-									<span class="row-icon">
-										{#if entry.kind === 'folder'}
-											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-												<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-											</svg>
-										{:else}
-											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-												<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-												<polyline points="14 2 14 8 20 8"/>
-											</svg>
-										{/if}
-									</span>
-									<span class="row-name">{entry.name}</span>
+				{#if searchAllSpaces}
+					<div class="global-search-list">
+						{#if globalSearchLoading}
+							<div class="files-inline-loading">Searching all spaces…</div>
+						{:else if globalSearchResults.length === 0}
+							<div class="files-empty-folder">Type a query and press Enter.</div>
+						{:else}
+							{#each globalSearchResults as result (result.channelId + result.path)}
+								<button type="button" class="global-result" onclick={() => { selectedChannelId = result.channelId; searchAllSpaces = false; void openPreview(result.path, result.channelId); }}>
+									<strong>{result.path}</strong>
+									<small>{result.channelName}</small>
 								</button>
-								{#if entry.kind === 'file'}
-									<span class="row-size">{formatSize(entry.size)}</span>
-									<button
-										class="row-download"
-										onclick={() => void downloadFile(entry.path)}
-										title="Download {entry.name}"
-										aria-label="Download {entry.name}"
-									>
-										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-											<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-											<polyline points="7 10 12 15 17 10"/>
-											<line x1="12" y1="15" x2="12" y2="3"/>
-										</svg>
-									</button>
-								{/if}
+							{/each}
+						{/if}
+					</div>
+				{:else}
+					<div class="file-tree-wrap">
+						{#if loading}
+							<div class="files-inline-loading">
+								<span class="spinner"></span>
+								<span>Loading files…</span>
 							</div>
+						{:else if loadError}
+							<div class="files-error">{loadError}</div>
+						{:else}
+							<LoreFileTree
+								{files}
+								selectedPath={selectedPath}
+								loading={false}
+								onSelect={(path) => { selectedPath = path; }}
+								onOpen={(path) => { selectedPath = path; void openPreview(path); }}
+								onContextMenu={noContextMenu}
+							/>
+						{/if}
+					</div>
+				{/if}
+
+				{#if uploadJobs.length > 0}
+					<ul class="upload-jobs" aria-label="Upload progress">
+						{#each uploadJobs as job (job.dest)}
+							<li class="upload-job {job.status}" title={job.dest}>
+								<span class="upload-job-name">{job.name}</span>
+								<span class="upload-job-status">
+									{#if job.status === 'uploading'}↑{:else if job.status === 'done'}✓{:else if job.status === 'error'}⚠{:else}…{/if}
+								</span>
+							</li>
 						{/each}
-					{/if}
-				</div>
+					</ul>
+				{/if}
 
 				{#if isDragging && !isMirror}
 					<div class="drop-overlay">
@@ -480,28 +467,38 @@
 							<polyline points="17 8 12 3 7 8"/>
 							<line x1="12" y1="3" x2="12" y2="15"/>
 						</svg>
-						<span>Drop to upload</span>
+						<span>Drop to upload{uploadFolder ? ` to ${uploadFolder}/` : ''}</span>
 					</div>
 				{/if}
 			</div>
 
 			<aside class="preview-pane">
 				{#if previewPath}
-					<div class="preview-header">
-						<span class="preview-name" title={previewPath}>{previewName}</span>
-						<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
-					</div>
-					<div class="preview-content">
-						{#if previewLoading}
-							<div class="preview-loading">
-								<span class="spinner"></span>
-								<span>Loading preview…</span>
-							</div>
-						{:else if previewKind === 'image' && previewUrl}
+					{#if previewKind === 'image' && previewUrl}
+						<div class="preview-header">
+							<span class="preview-name" title={previewPath}>{previewName}</span>
+							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
+						</div>
+						<div class="preview-content">
 							<img class="preview-image" src={previewUrl} alt={previewName} />
-						{:else if previewKind === 'text' && previewText !== null}
-							<pre class="preview-text">{previewText}</pre>
-						{:else}
+						</div>
+					{:else if previewKind === 'text'}
+						<div class="preview-viewer">
+							<LoreFileViewer
+								filePath={previewPath}
+								fileContent={previewLoading ? null : previewText}
+								fileInfo={previewInfo}
+								loading={previewLoading}
+								onClose={clearPreview}
+								canEdit={false}
+							/>
+						</div>
+					{:else}
+						<div class="preview-header">
+							<span class="preview-name" title={previewPath}>{previewName}</span>
+							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
+						</div>
+						<div class="preview-content">
 							<div class="preview-other">
 								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
 									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -510,8 +507,8 @@
 								<span>No inline preview for this file.</span>
 								<button class="preview-download" onclick={() => void downloadFile(previewPath!)}>Download</button>
 							</div>
-						{/if}
-					</div>
+						</div>
+					{/if}
 				{:else}
 					<div class="preview-placeholder">
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
@@ -688,130 +685,45 @@
 	}
 
 	.file-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
-	.file-search { min-width: 160px; max-width: 280px; padding: var(--space-1) var(--space-2); border: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent); border-radius: var(--radius-md); background: var(--surface-sunken); color: var(--text-heading); }
+	.tree-label { color: var(--text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.global-search-input { flex: 1; min-width: 160px; max-width: 340px; padding: var(--space-1) var(--space-2); border: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent); border-radius: var(--radius-md); background: var(--surface-sunken); color: var(--text-heading); }
 	.all-spaces-toggle { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-muted); font-size: var(--font-size-xs); white-space: nowrap; }
+	.global-search-list { flex: 1; overflow-y: auto; padding: var(--space-1); }
 	.global-result { display: flex; flex-direction: column; align-items: flex-start; width: 100%; gap: 2px; padding: var(--space-2); border: 0; border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent); background: transparent; color: var(--text-heading); cursor: pointer; text-align: left; }
 	.global-result:hover { background: var(--surface-raised); }
 	.global-result small { color: var(--text-muted); }
-	.breadcrumbs {
+	.file-tree-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-1); }
+
+	.upload-jobs {
 		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-1);
+		flex-direction: column;
+		gap: 2px;
+		margin: 0;
 		padding: var(--space-1) var(--space-2);
-		border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
-	}
-
-	.crumb {
-		padding: 2px var(--space-1);
-		border: none;
-		background: transparent;
-		border-radius: var(--radius-sm);
-		color: var(--text-muted);
-		font-size: var(--font-size-xs);
-		font-family: var(--font-mono);
-		cursor: pointer;
-		transition: all var(--duration-fast) var(--ease-out);
-	}
-
-	.crumb:hover {
-		background: var(--surface-raised);
-		color: var(--text-heading);
-	}
-
-	.crumb.active {
-		color: var(--accent-primary);
-		font-weight: 600;
-	}
-
-	.crumb-sep {
-		color: var(--text-muted);
-		opacity: 0.5;
-		font-size: var(--font-size-xs);
-	}
-
-	.file-list {
-		flex: 1;
+		border-top: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
+		list-style: none;
+		max-height: 120px;
 		overflow-y: auto;
-		padding: var(--space-1);
 	}
 
-	.file-row {
+	.upload-job {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
-		padding: 0 var(--space-1);
-		border-radius: var(--radius-sm);
-		transition: background var(--duration-fast) var(--ease-out);
-	}
-
-	.file-row:hover {
-		background: var(--surface-raised);
-	}
-
-	.row-main {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		align-items: center;
+		justify-content: space-between;
 		gap: var(--space-2);
-		padding: var(--space-1) 0;
-		border: none;
-		background: transparent;
-		color: var(--text-heading);
-		cursor: pointer;
-		text-align: left;
-	}
-
-	.row-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
+		font-size: var(--font-size-xs);
 		color: var(--text-muted);
 	}
 
-	.file-row:hover .row-icon {
-		color: var(--accent-primary);
-	}
-
-	.row-name {
+	.upload-job-name {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: var(--font-size-sm);
 	}
 
-	.row-size {
-		flex-shrink: 0;
-		font-size: var(--font-size-xs);
-		color: var(--text-muted);
-		font-family: var(--font-mono);
-	}
-
-	.row-download {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 28px;
-		border: none;
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--text-muted);
-		cursor: pointer;
-		opacity: 0;
-		transition: all var(--duration-fast) var(--ease-out);
-	}
-
-	.file-row:hover .row-download {
-		opacity: 1;
-	}
-
-	.row-download:hover {
-		background: var(--surface-sunken);
-		color: var(--text-heading);
-	}
+	.upload-job.done .upload-job-status { color: var(--color-success, #22c55e); }
+	.upload-job.error .upload-job-status { color: var(--color-danger, #ef4444); }
+	.upload-job.uploading .upload-job-status { color: var(--accent-primary); }
 
 	.files-inline-loading {
 		display: flex;
@@ -840,11 +752,6 @@
 		color: var(--text-muted);
 		opacity: 0.7;
 		height: 100%;
-	}
-
-	.files-empty-folder p {
-		margin: 0;
-		font-size: var(--font-size-sm);
 	}
 
 	.drop-overlay {
@@ -933,23 +840,17 @@
 		font-size: var(--font-size-sm);
 	}
 
+	.preview-viewer {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
 	.preview-image {
 		width: 100%;
 		object-fit: contain;
 		background: var(--surface-sunken);
-	}
-
-	.preview-text {
-		flex: 1;
-		margin: 0;
-		padding: var(--space-2);
-		overflow: auto;
-		white-space: pre-wrap;
-		word-break: break-word;
-		font-family: var(--font-mono);
-		font-size: var(--font-size-xs);
-		color: var(--text-secondary);
-		line-height: 1.6;
 	}
 
 	.preview-download {
