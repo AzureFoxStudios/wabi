@@ -195,6 +195,12 @@ export async function updateLoreRepoSettings(
 export interface LoreUploadResult {
 	revision: LoreRevision;
 	file: LoreFileInfo;
+	/** Content etag of the uploaded version (If-Match baseline for future saves). */
+	etag?: string;
+	/** Change-feed cursor after this write (wabi-sync advances over this). */
+	cursor?: number;
+	/** False when the WDB event write failed (the lore write itself succeeded). */
+	wdbRecorded?: boolean;
 	/** Set when auto_branch_on_upload routed the upload into an uploads/* review line. */
 	pending_review?: boolean;
 	review_branch?: string;

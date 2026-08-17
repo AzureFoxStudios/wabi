@@ -779,9 +779,9 @@ mod tests {
             files: vec![],
         };
         let payload = encode_record(&msg);
-        let expected_msg_id = format!("msg_{:x}", 1);
-
-        let key = encode_key("ch_01", &expected_msg_id);
+        // Writer-stamped ids are kept as-is (only empty legacy ids fall back
+        // to msg_{commit_seq:x}), so the lookup key uses the stamped id.
+        let key = encode_key("ch_01", "msg_01");
 
         handle
             .sender
