@@ -32,8 +32,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain-file: rust-toolchain.toml
           targets: ${{ matrix.target }}
 
       - name: Install musl tools (Linux only)

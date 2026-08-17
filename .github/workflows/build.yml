@@ -13,6 +13,17 @@ on:
 env:
   RUST_BACKTRACE: 1
 
+# Determinism contract for this workflow:
+#   - Rust comes from the committed rust-toolchain.toml (not @stable).
+#   - Frontend deps come from the committed frontend/package-lock.json via
+#     `npm ci` (bun.lock is gitignored and must never govern CI installs).
+#     There is NO fallback to an unlocked install: a stale lockfile must
+#     fail the build, not silently resolve new versions.
+#   - bun is a pinned script/test runner only (bun test / bunx).
+#   - The server build embeds the STATIC_BUILD=1 SPA (adapter-static,
+#     index.html). The default `npm run build` is adapter-node and cannot
+#     be served by rust_embed.
+
 jobs:
   build-tauri:
     permissions:
@@ -32,9 +43,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: install Rust (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain-file: rust-toolchain.toml
           targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: install dependencies (ubuntu only)
@@ -51,16 +63,23 @@ jobs:
             build-essential \
             libssl-dev
 
-      - name: install bun
-        uses: oven-sh/setup-bun@v1
+      - name: install node
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: install frontend dependencies
-        run: cd frontend && bun install
+      - name: install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: install frontend dependencies (locked)
+        run: cd frontend && npm ci --no-audit --no-fund
 
       - name: build Tauri
-        run: bunx @tauri-apps/cli build --ci ${{ matrix.args }}
+        run: bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -71,19 +90,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: install bun
-        uses: oven-sh/setup-bun@v1
+      - name: install Rust (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
         with:
-          bun-version: latest
+          toolchain-file: rust-toolchain.toml
 
-      - name: build frontend assets for embedding
-        run: cd frontend && bun install && bun run build
+      - name: install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # STATIC_BUILD=1 selects adapter-static, which emits the index.html
+      # SPA entry that rust_embed embeds and serve_static serves at '/'.
+      - name: build frontend assets for embedding (static SPA)
+        run: |
+          cd frontend
+          npm ci --no-audit --no-fund
+          STATIC_BUILD=1 npm run build
+          test -f build/index.html
 
       - name: build Rust server
         run: cargo build --release -p wabi-server
+
+      # Prove the release binary actually serves the embedded SPA, not just
+      # an adapter-node payload rust_embed cannot serve.
+      - name: smoke test server serves index.html
+        run: |
+          TMP_DATA="$(mktemp -d)"
+          ./target/release/wabi-server --data-dir "$TMP_DATA" --host 127.0.0.1 --port 3199 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3199/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3199/health >/dev/null
+          STATUS="$(curl -fsS -o /tmp/wabi-root.html -w '%{http_code}' http://127.0.0.1:3199/)"
+          test "$STATUS" = "200"
+          head -c 32 /tmp/wabi-root.html | grep -qi '<!doctype html'
+          echo "smoke OK: GET / -> 200 with index.html"
 
       - name: upload server artifact
         uses: actions/upload-artifact@v4
@@ -98,25 +145,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install bun
-        uses: oven-sh/setup-bun@v1
+      - name: install node
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: install dependencies
-        run: cd frontend && bun install --frozen-lockfile || bun install
+      - name: install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      # Deterministic install from the committed lockfile — no fallback.
+      # (bun install --frozen-lockfile with no bun.lock checked in resolves
+      # an unrestricted graph and exits 0, so it pins nothing.)
+      - name: install dependencies (locked)
+        run: cd frontend && npm ci --no-audit --no-fund
 
       - name: unit tests
         run: cd frontend && bun test src/lib
 
-      - name: build
-        run: cd frontend && bun run build
+      # Build the same static SPA the server embeds so the uploaded artifact
+      # matches production shape (index.html present).
+      - name: build (static SPA)
+        run: |
+          cd frontend
+          STATIC_BUILD=1 npm run build
+          test -f build/index.html
 
-      # Finding 8: do not soft-fail typecheck — surface regressions.
-      # Known pre-existing errors may still fail the job until cleaned up.
+      # svelte-check gates the job: currently 0 errors / warnings only.
+      # Soft-failing (continue-on-error) hid real regressions that ci.yml
+      # already hard-gates.
       - name: svelte-check
         run: cd frontend && bun run check
-        continue-on-error: true
 
       - name: upload frontend build
         uses: actions/upload-artifact@v4

@@ -9,7 +9,7 @@ set -euo pipefail
 # Safety guarantees (non-negotiable):
 #   - Never reads or writes data/, .env, or target/release/wabi-server
 #   - cargo test writes only to target/ (per-crate) and tempfile temp dirs
-#   - npm install writes only to frontend/node_modules + package-lock.json
+#   - npm ci writes only to frontend/node_modules (never mutates the lockfile)
 #   - bun test + svelte-check read frontend/src, never data/ or .env
 #   - GitHub Actions checks out a fresh temp dir per run — your dirty tree
 #     (modified files / untracked WIP) is never involved
@@ -45,8 +45,8 @@ if [ -d "$FRONTEND_DIR" ]; then
   cd "$FRONTEND_DIR"
 
   if command -v npm >/dev/null 2>&1; then
-    echo "==> npm install (frontend — canonical lockfile is package-lock.json)"
-    npm install
+    echo "==> npm ci (frontend — canonical lockfile is package-lock.json; no fallback)"
+    npm ci --no-audit --no-fund
   else
     echo "ERROR: 'npm' not found. Skipping frontend checks."
     cd "$REPO_ROOT"
