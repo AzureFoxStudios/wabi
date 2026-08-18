@@ -65,24 +65,6 @@ fn board_to_channel_id(board_id: &str) -> String {
     board_id.strip_prefix("channel:").unwrap_or(board_id).to_string()
 }
 
-/// Channel membership check — mirrors api/whiteboard.rs `can_access_channel`.
-async fn can_access_channel(state: &SioState, user_id: i64, channel_id: &str) -> bool {
-    if *state.app.owner_user_id.read().await == Some(user_id) {
-        return true;
-    }
-    if state.app.is_admin(user_id).await {
-        return true;
-    }
-    if let Ok(channels) = state.app.wdb.list_channels(Some(user_id as u64)).await {
-        for ch in &channels {
-            if ch.channel_id == channel_id {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 /// Default document for a board that has never been saved.
 fn default_document(board_id: &str) -> Value {
     json!({

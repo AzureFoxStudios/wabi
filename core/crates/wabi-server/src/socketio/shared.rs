@@ -229,6 +229,143 @@ fn user_id_from_token(token: &str, secret: &str) -> Option<i64> {
         .and_then(|d| d.claims.sub.parse().ok())
 }
 
+/// Resolved socket identity from a validated bearer token.
+#[derive(Clone, Debug)]
+pub struct SocketIdentity {
+    pub user_id: i64,
+    pub username: String,
+    pub is_guest: bool,
+    pub jti: String,
+    pub iat: i64,
+}
+
+/// Decode a JWT into the small subset of claims resolve_identity needs.
+/// Returns None on decode/expiry failure.
+async fn decode_socket_claims(token: &str, secret: &str) -> Option<SocketTokenClaims> {
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+    let key = DecodingKey::from_secret(secret.as_bytes());
+    let mut v = Validation::default();
+    v.validate_exp = true;
+    v.leeway = 60;
+    decode::<SocketTokenClaims>(token, &key, &v)
+        .ok()
+        .map(|d| d.claims)
+}
+
+#[derive(Deserialize)]
+struct SocketTokenClaims {
+    sub: String,
+    username: String,
+    #[serde(default)]
+    is_guest: bool,
+    #[serde(default)]
+    jti: String,
+    #[serde(default)]
+    iat: i64,
+}
+
+/// Resolve the socket's identity from its bearer token — decode once, check
+/// revocation, check ban. Returns None on any failure; the caller emits an
+/// error event and returns. For revoked tokens this emits `auth-revoked` and
+/// disconnects the socket before returning None.
+pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<SocketIdentity> {
+    let token = socket
+        .extensions
+        .get::<AuthToken>()
+        .map(|t| t.0.clone())
+        .unwrap_or_default();
+
+    if token.is_empty() {
+        return None;
+    }
+
+    // Revoked tokens get a disconnect, not just a rejected handler.
+    if socket_token_revoked(&state.app, &token).await {
+        let _ = socket.emit(
+            "auth-revoked",
+            &json!({ "reason": "session revoked; please sign in again" }),
+        );
+        let _ = socket.clone().disconnect();
+        return None;
+    }
+
+    let claims = decode_socket_claims(&token, &state.app.config.jwt_secret).await?;
+
+    let user_id = claims.sub.parse::<i64>().unwrap_or(-1);
+    if user_id <= 0 {
+        return None;
+    }
+
+    // Banned users are rejected at the socket-event level too (not just REST).
+    if let Ok(true) = state.app.wdb.is_user_banned(user_id as u64).await {
+        let _ = socket.emit("ban", &json!({ "reason": "You are banned from this server" }));
+        return None;
+    }
+
+    Some(SocketIdentity {
+        user_id,
+        username: claims.username,
+        is_guest: claims.is_guest,
+        jti: claims.jti,
+        iat: claims.iat,
+    })
+}
+
+/// Channel access check for non-DM channels. Owner → admin → membership.
+/// Mirrors the proven pattern in `socketio/whiteboard_ops.rs`.
+pub async fn can_access_channel(state: &SioState, user_id: i64, channel_id: &str) -> bool {
+    if *state.app.owner_user_id.read().await == Some(user_id) {
+        return true;
+    }
+    if state.app.is_admin(user_id).await {
+        return true;
+    }
+    if let Ok(channels) = state.app.wdb.list_channels(Some(user_id as u64)).await {
+        for ch in &channels {
+            if ch.channel_id == channel_id {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// DM-channel access check. Only the two participants may access. No
+/// admin/owner override — admins must not silently read DMs. Prefers the
+/// persisted members list; falls back to parsing `dm-user-{a}-user-{b}`.
+/// Unknown/parse-failure ⇒ deny.
+pub async fn can_access_dm(state: &SioState, user_id: i64, channel_id: &str) -> bool {
+    let my_stable_id = format!("user-{}", user_id);
+
+    // Prefer the persisted members list from the channel row.
+    if let Ok(channels) = state.app.wdb.get_channels_raw().await {
+        if let Some(channel) = channels.iter().find(|ch| {
+            ch.get("channel_id")
+                .or_else(|| ch.get("id"))
+                .and_then(|v| v.as_str())
+                == Some(channel_id)
+        }) {
+            if let Some(members) = channel.get("members").and_then(|v| v.as_array()) {
+                return members
+                    .iter()
+                    .any(|m| m.as_str() == Some(my_stable_id.as_str()));
+            }
+        }
+    }
+
+    // Fall back to parsing dm-user-{a}-user-{b}.
+    if let Some(rest) = channel_id.strip_prefix("dm-user-") {
+        let parts: Vec<&str> = rest.split("-user-").collect();
+        if parts.len() == 2 {
+            if let (Ok(a), Ok(b)) = (parts[0].parse::<i64>(), parts[1].parse::<i64>()) {
+                return user_id == a || user_id == b;
+            }
+        }
+    }
+
+    false
+}
+
 /// True if the socket's bearer token has been revoked (password change on
 /// another session, logout-everywhere, admin kick). REST requests check this
 /// in `auth_extractor`; without this check a revoked token keeps full live

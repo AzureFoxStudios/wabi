@@ -26,36 +26,43 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         }
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    if socket_token_revoked(&state.app, &token).await {
-        warn!("[sio] rejected message from revoked session");
-        let _ = socket.emit(
-            "auth-revoked",
-            &json!({ "reason": "session revoked; please sign in again" }),
-        );
-        let _ = socket.disconnect();
+    // Resolve identity — replaces scattered token plumbing.
+    let Some(identity) = resolve_identity(&socket, &state).await else {
+        let _ = socket.emit("message-error", &json!({ "channelId": &channel_id, "error": "authentication required" }));
+        return;
+    };
+    let user_id_num = identity.user_id;
+    let username = identity.username;
+
+    // Channel access check: DM rooms require can_access_dm, others can_access_channel.
+    let channel_kind: Option<String> = if let Ok(channels) = state.app.wdb.get_channels_raw().await {
+        channels.iter().find_map(|ch| {
+            let id = ch.get("channel_id").or_else(|| ch.get("id")).and_then(|v| v.as_str());
+            if id == Some(channel_id.as_str()) {
+                ch.get("type").or_else(|| ch.get("channel_type")).and_then(|v| v.as_str()).map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
+    let allowed = match channel_kind.as_deref() {
+        Some("dm") => can_access_dm(&state, user_id_num, &channel_id).await,
+        _ => can_access_channel(&state, user_id_num, &channel_id).await,
+    };
+    if !allowed {
+        warn!("[sio] user {} denied message to channel {}", user_id_num, channel_id);
+        let _ = socket.emit("message-error", &json!({ "channelId": &channel_id, "error": "access denied" }));
         return;
     }
-    let username = username_from_token(&token, &state.app.config.jwt_secret)
-        .unwrap_or_else(|| "unknown".to_string());
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
 
     // Check if user is muted
-    if user_id_num > 0 {
-        if let Ok(true) = state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
-            warn!("[sio] user {} muted in channel {}", user_id_num, channel_id);
-            return;
-        }
+    if let Ok(true) = state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
+        warn!("[sio] user {} muted in channel {}", user_id_num, channel_id);
+        return;
     }
-    let stable_id = if user_id_num > 0 {
-        format!("user-{}", user_id_num)
-    } else {
-        socket.id.to_string()
-    };
+    let stable_id = format!("user-{}", user_id_num);
 
     let color = {
         let connected = state.connected_users.read().await;
@@ -273,6 +280,36 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
         Some(id) => id.to_string(),
         None => return,
     };
+
+    // Resolve identity + channel access check.
+    let Some(identity) = resolve_identity(&socket, &state).await else {
+        let _ = socket.emit("history-error", &json!({ "channelId": &channel_id, "error": "authentication required" }));
+        return;
+    };
+    let user_id = identity.user_id;
+
+    let channel_kind: Option<String> = if let Ok(channels) = state.app.wdb.get_channels_raw().await {
+        channels.iter().find_map(|ch| {
+            let id = ch.get("channel_id").or_else(|| ch.get("id")).and_then(|v| v.as_str());
+            if id == Some(channel_id.as_str()) {
+                ch.get("type").or_else(|| ch.get("channel_type")).and_then(|v| v.as_str()).map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
+    let allowed = match channel_kind.as_deref() {
+        Some("dm") => can_access_dm(&state, user_id, &channel_id).await,
+        _ => can_access_channel(&state, user_id, &channel_id).await,
+    };
+    if !allowed {
+        warn!("[sio] user {} denied history for channel {}", user_id, channel_id);
+        let _ = socket.emit("history-error", &json!({ "channelId": &channel_id, "error": "access denied" }));
+        return;
+    }
+
     let limit = req
         .get("limit")
         .and_then(|v| v.as_u64())

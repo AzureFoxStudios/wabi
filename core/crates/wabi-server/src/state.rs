@@ -387,10 +387,26 @@ impl AppState {
         true
     }
 
-    /// Get the highest role for a user from WDB RBAC (default workspace)
-    /// TODO: wabidb RBAC projection
-    pub async fn get_user_highest_role(&self, _user_id: i64) -> String {
-        "Member".to_string()
+    /// Get the highest role for a user from WDB RBAC (default workspace).
+    /// Maps Owner/Admin/Moderator by name; `None` ⇒ `"Guest"` for guest
+    /// tokens, else `"Member"`. Used by `on_join_channel` min_role gate.
+    pub async fn get_user_highest_role(&self, user_id: i64) -> String {
+        if self.is_owner(user_id).await {
+            return "Owner".to_string();
+        }
+        match self
+            .wdb
+            .get_user_role("default-workspace", user_id as u64)
+            .await
+        {
+            Ok(role) => match role.as_deref() {
+                Some("Owner") => "Owner".to_string(),
+                Some("Admin") => "Admin".to_string(),
+                Some("Moderator") => "Moderator".to_string(),
+                _ => "Member".to_string(),
+            },
+            Err(_) => "Member".to_string(),
+        }
     }
 
     /// Returns true if the user is the server owner (first registrant).

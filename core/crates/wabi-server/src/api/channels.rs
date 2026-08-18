@@ -69,6 +69,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/{id}", axum::routing::get(get_channel))
         .route("/{id}", axum::routing::patch(update_channel))
         .route("/{id}", axum::routing::delete(delete_channel))
+        .route("/{id}/join", axum::routing::post(join_channel))
         .route("/{channel_id}/reactions", axum::routing::get(list_channel_reactions))
         .with_state(state)
 }
@@ -449,6 +450,81 @@ async fn delete_channel(
 struct DeleteChannelQuery {
     #[serde(default)]
     preserve_children: bool,
+}
+
+async fn join_channel(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let user_id = auth.user_id;
+
+    // Channel must exist.
+    let channel = state
+        .wdb
+        .get_channel(&id)
+        .await
+        .map_err(|e| AppError::Internal(format!("wdb get_channel: {e}")))?
+        .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
+
+    // Already a member? Check via list_channels (which filters by membership).
+    let already_member = state
+        .wdb
+        .list_channels(Some(user_id as u64))
+        .await
+        .map_err(|e| AppError::Internal(format!("wdb list_channels: {e}")))?
+        .iter()
+        .any(|c| c.channel_id == id);
+
+    if already_member {
+        return Ok(Json(serde_json::json!({ "joined": true, "channelId": id })));
+    }
+
+    // Check min_role gate (case-insensitive). Owners always pass.
+    let user_role = state.app.get_user_highest_role(user_id).await;
+    let role_priority = |r: &str| match r.to_lowercase().as_str() {
+        "owner" => 3,
+        "admin" => 2,
+        "moderator" => 1,
+        "member" => 1,
+        _ => 0,
+    };
+
+    // Fetch min_role from the channel raw row.
+    let min_role = state
+        .wdb
+        .get_channels_raw()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .find(|ch| {
+            ch.get("channel_id")
+                .or_else(|| ch.get("id"))
+                .and_then(|v| v.as_str())
+                == Some(&id)
+        })
+        .and_then(|ch| ch.get("min_role").and_then(|v| v.as_str()));
+
+    if let Some(min_role_str) = min_role {
+        if role_priority(&user_role) < role_priority(min_role_str) {
+            return Err(AppError::Unauthorized(format!(
+                "channel requires {min_role_str} role"
+            )));
+        }
+    }
+
+    // Add the caller as Member.
+    state
+        .wdb
+        .add_channel_member(
+            &id,
+            user_id as u64,
+            wabidb::domain::MemberRole::Member,
+        )
+        .await
+        .map_err(|e| AppError::Internal(format!("wdb add_channel_member: {e}")))?;
+
+    Ok(Json(serde_json::json!({ "joined": true, "channelId": id })))
 }
 
 async fn list_channel_reactions(

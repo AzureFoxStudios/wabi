@@ -26,35 +26,20 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         .map(|t| t.0.clone())
         .unwrap_or_default();
 
-    if socket_token_revoked(&state.app, &token).await {
-        let _ = socket.emit(
-            "auth-revoked",
-            &json!({ "reason": "session revoked; please sign in again" }),
-        );
-        let _ = socket.disconnect();
+    // Require a valid token — unauthenticated sockets get an error, not
+    // the init payload with the full user directory.
+    if token.is_empty() {
+        let _ = socket.emit("auth-required", &json!({ "reason": "authentication required" }));
         return;
     }
 
-    let authed_username = if !token.is_empty() {
-        username_from_token(&token, &state.app.config.jwt_secret)
-            .unwrap_or_else(|| username.clone())
-    } else {
-        username.clone()
+    let Some(identity) = resolve_identity(&socket, &state).await else {
+        let _ = socket.emit("auth-failed", &json!({ "reason": "invalid token" }));
+        return;
     };
 
-    let user_id_num = if !token.is_empty() {
-        user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1)
-    } else {
-        -1
-    };
-
-    // Check if banned
-    if user_id_num > 0 {
-        if let Ok(true) = state.app.wdb.is_user_banned(user_id_num as u64).await {
-            let _ = socket.emit("ban", &json!({ "reason": "You are banned from this server" }));
-            return;
-        }
-    }
+    let user_id_num = identity.user_id;
+    let authed_username = identity.username;
 
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
@@ -553,32 +538,52 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
 
 #[allow(dead_code)]
 async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState) {
-    // Get user ID from socket token
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id = if !token.is_empty() {
-        user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1)
+    // Resolve identity — unauthenticated sockets cannot join any room.
+    let Some(identity) = resolve_identity(&socket, &state).await else {
+        let _ = socket.emit("join-error", &json!({ "channelId": &channel_id, "error": "authentication required" }));
+        return;
+    };
+    let user_id = identity.user_id;
+
+    // DM channel access → can_access_dm; regular channel → can_access_channel.
+    let channel_kind: Option<String> = if let Ok(channels) = state.app.wdb.get_channels_raw().await {
+        channels.iter().find_map(|ch| {
+            let id = ch.get("channel_id").or_else(|| ch.get("id")).and_then(|v| v.as_str());
+            if id == Some(channel_id.as_str()) {
+                ch.get("type").or_else(|| ch.get("channel_type")).and_then(|v| v.as_str()).map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
     } else {
-        -1
+        None
     };
 
-    // Check channel minRole requirement
+    let allowed = match channel_kind.as_deref() {
+        Some("dm") => can_access_dm(&state, user_id, &channel_id).await,
+        _ => can_access_channel(&state, user_id, &channel_id).await,
+    };
+
+    if !allowed {
+        warn!("[sio] user {} denied access to channel {}", user_id, channel_id);
+        let _ = socket.emit("join-error", &json!({ "channelId": &channel_id, "error": "access denied" }));
+        return;
+    }
+
+    // Channel min_role gate (case-insensitive). Only enforced if a min_role is set.
     if let Ok(channels) = state.app.wdb.get_channels_raw().await {
         if let Some(channel) = channels.iter().find(|ch| ch.get("channel_id").and_then(|v| v.as_str()) == Some(&channel_id)) {
             if let Some(min_role_str) = channel.get("min_role").and_then(|v| v.as_str()) {
                 let user_role = state.app.get_user_highest_role(user_id).await;
-                // Simple role check: "guest" < "member" < "admin" < "owner"
-                let role_priority = |r: &str| match r {
+                let role_priority = |r: &str| match r.to_lowercase().as_str() {
                     "owner" => 3,
                     "admin" => 2,
-                    "member" => 1,
+                    "moderator" | "member" => 1,
                     _ => 0,
                 };
                 if role_priority(&user_role) < role_priority(min_role_str) {
                     warn!("[sio] user {} blocked from channel {}: requires {}, has {}", user_id, channel_id, min_role_str, user_role);
+                    let _ = socket.emit("join-error", &json!({ "channelId": &channel_id, "error": "insufficient role" }));
                     return;
                 }
             }
