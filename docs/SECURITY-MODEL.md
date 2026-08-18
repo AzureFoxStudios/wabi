@@ -275,3 +275,65 @@ and restart; all existing tokens become invalid and users re-auth.
   auth_extractor`.
 - The wabiDB audit projection tests cover `rbac_roles` maintenance on
   `role_assigned` / `role_removed`.
+
+---
+
+## 15. Recent security remediation (2026-08-18)
+
+A defensive security review of wabi-server/socket.io/addons/Tauri was conducted
+2026-08-17. The following findings were remediated in this branch:
+
+### WS-1 — Socket.IO event-level authorization
+- `resolve_identity`, `can_access_channel`, `can_access_dm` helpers added to
+  `socketio/shared.rs`.
+- `on_join` requires valid token (no init payload for anonymous sockets).
+- `on_join_channel`, `on_message`, `on_load_history` enforce channel access.
+- `on_create_dm` emits `dm-channel-added` to participants only (no broadcast).
+- `get_user_highest_role` maps real roles from WDB RBAC.
+- `POST /api/channels/{id}/join` self-join route added.
+
+### WS-2 — Unauthenticated endpoints
+- SSRF validation (`validate_outbound_url`) for `url-preview` + `image-proxy`:
+  http/https only, DNS resolution, rejects loopback/private/link-local/
+  multicast/unspecified.
+- Auth-required on preview, image-proxy, LAN, mesh status/config.
+- Sync token auth (`x-wabi-sync-token`, constant-time compare, 503 when unset).
+- LAN route token uses real user_id + derived HMAC key.
+- Webhook delivery disables redirects.
+- Removed `dataDir` from sync `/status` response.
+
+### WS-3 — Upload pipeline
+- `init-resume` requires session ownership (404 on mismatch).
+- `complete_upload` verifies token BEFORE removing session.
+- Guest/RBAC consistency: group avatar requires membership, branding requires
+  admin, profile picture requires non-guest.
+
+### WS-4 — Auth consistency & revocation durability
+- Replaced hand-rolled JWT decoders with `AuthUser` extractor (whiteboard
+  handlers, `handle_turn_credentials`, `nodes require_admin`).
+- `OptionalAuthUser` gains revocation check — revoked ⇒ `None`.
+- Removed dead `extract_user_id`/`extract_user_id_optional` from whiteboard.rs.
+
+### WS-5 — Rate limiting & guest provisioning
+- Rate limiter respects trusted proxies (`WABI_TRUSTED_PROXIES` env var).
+- Uses `ConnectInfo<SocketAddr>` for peer IP.
+- Bounded limiter map with eviction at 10k keys.
+- Guest creation rate-limited per IP (5/hour).
+
+### WS-6 — Capability-URL Phase 0 + whiteboard leftovers
+- `Cache-Control: private, max-age=3600` + `Referrer-Policy: no-referrer`
+  on `/uploads/` and SPA index.html responses.
+- Registry-backed kill-switch: `UploadRegistry::revoke/is_revoked`.
+- `serve_upload` returns 410 for revoked names.
+- Admin routes: `POST /api/admin/uploads/revoke` + `GET /api/admin/uploads`.
+- Whiteboard `serve_whiteboard_file` requires real auth.
+
+### WS-7 — Tauri hardening
+- Replaced `csp: null` with pragmatic CSP.
+- `open_external_url` allowlists http/https schemes only.
+
+### New environment variables
+| Variable | Purpose |
+|----------|---------|
+| `WABI_TRUSTED_PROXIES` | Comma-separated CIDRs of trusted proxies for rate limiting. Empty = no trusted proxies. |
+| `WABI_SYNC_TOKEN` | Required for `/api/sync/*` endpoints. Unset = 503. |

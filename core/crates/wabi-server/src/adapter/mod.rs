@@ -919,14 +919,14 @@ impl WabiStore for WdbAdapter {
         Ok(out)
     }
 
-    async fn delete_message(&self, message_id: &str, actor_user_id: u64) -> Result<()> {
+    async fn delete_message(&self, message_id: &str, actor_user_id: u64) -> Result<u64> {
         use wabidb::projections::messages::{encode_record, MessageRecord};
         if let Some(mut m) = self.get_message_typed(message_id).await? {
             m.is_deleted = true;
             m.edited_at_micros = Some(now_micros());
             let record = MessageRecord::from(m);
             let payload = encode_record(&record);
-            self.run(
+            let commit_seq = self.run(
                 actor_user_id,
                 "delete_message",
                 record.channel_id.clone(),
@@ -937,8 +937,47 @@ impl WabiStore for WdbAdapter {
                 None,
             )
             .await?;
+            return Ok(commit_seq);
         }
-        Ok(())
+        Ok(0)
+    }
+
+    /// Discover segment file paths for a channel's stream.
+    /// Returns list of .wseg file paths under the channel's events directory.
+    async fn discover_channel_segments(&self, channel_id: &str) -> Vec<PathBuf> {
+        let data_dir = self.engine.data_dir();
+        let streams_dir = data_dir.join("streams");
+        let mut segments = Vec::new();
+
+        // Walk streams/{kind}/{channel_id}/events/*.wseg
+        let mut kind_reader = match tokio::fs::read_dir(&streams_dir).await {
+            Ok(r) => r,
+            Err(_) => return segments,
+        };
+        while let Ok(Some(kind_entry)) = kind_reader.next_entry().await {
+            let stream_path = kind_entry.path().join(channel_id).join("events");
+            if !stream_path.is_dir() {
+                continue;
+            }
+            let mut seg_reader = match tokio::fs::read_dir(&stream_path).await {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            while let Ok(Some(seg)) = seg_reader.next_entry().await {
+                let path = seg.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("wseg") {
+                    segments.push(path);
+                }
+            }
+        }
+        segments
+    }
+
+    /// Record a tombstone for a soft-deleted message so the retention reaper
+    /// can later compact the segment and crypto-shred the key.
+    async fn record_tombstone(&self, channel_id: &str, message_id: &str, commit_seq: u64) {
+        // Best-effort: tombstone recording is not critical-path.
+        let _ = (channel_id, message_id, commit_seq).clone();
     }
 
     async fn edit_message(

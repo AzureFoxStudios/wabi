@@ -158,3 +158,37 @@ cleaner long-term fix but is deliberately out of scope for this patch.
 > gate. Full read enforcement deferred: Bearer-in-header auth is incompatible
 > with plain media elements without a dedicated blob-URL/signed-URL (or
 > media-cookie) project.
+
+---
+
+## 6. Phase 0 addendum (2026-08-18)
+
+A follow-up security review (2026-08-17) identified additional hardening for
+the upload pipeline. These are Phase 0/1 items per the accepted decision:
+
+### Registry-backed revocation kill-switch
+- `UploadRegistry::revoke(filename)` persists revocation in
+  `upload_registry.json` under a `revoked` set.
+- `serve_upload` returns **410 Gone** for revoked names.
+- Admin routes: `POST /api/admin/uploads/revoke {filename}` and
+  `GET /api/admin/uploads?channelId=` (admin-gated, no step-up).
+
+### Response headers
+- `/uploads/` responses now carry `Cache-Control: private, max-age=3600`
+  and `Referrer-Policy: no-referrer`.
+- SPA `index.html` response carries `Referrer-Policy: no-referrer`.
+
+### Whiteboard auth fix
+- `serve_whiteboard_file` now requires a valid token (the previous
+  "no Bearer ⇒ skip membership check" branch was removed).
+
+### Upload session hardening
+- `init-resume` requires `session.uploader_id == Some(auth.user_id)`;
+  mismatch ⇒ 404 (does not confirm the session's existence).
+- `complete_upload` verifies `upload_token` BEFORE removing the session
+  (previously a wrong-token finalize destroyed the session).
+
+### Guest/RBAC consistency
+- `upload_group_avatar` requires non-guest AND channel membership.
+- `upload_simple` (branding) requires `state.is_admin`.
+- `upload_profile_picture` requires non-guest.
