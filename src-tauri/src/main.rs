@@ -21,7 +21,12 @@ fn get_platform() -> String {
 
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
-    open::that(url).map_err(|e| e.to_string())
+    // WS-7b: allowlist http/https schemes only.
+    let parsed = url::Url::parse(&url).map_err(|e| format!("invalid URL: {e}"))?;
+    match parsed.scheme() {
+        "http" | "https" => open::that(url).map_err(|e| e.to_string()),
+        _ => Err(format!("scheme '{}' not allowed", parsed.scheme())),
+    }
 }
 
 pub fn run() {

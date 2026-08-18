@@ -414,6 +414,11 @@ impl WabiDbEngine {
         &self.data_dir
     }
 
+    /// Access the stream key registry for retention operations.
+    pub fn key_registry(&self) -> &Arc<tokio::sync::Mutex<StreamKeyRegistry>> {
+        &self.key_registry
+    }
+
     /// The bootstrap key (32 bytes). Held in memory only.
     pub fn bootstrap_key(&self) -> &[u8; 32] {
         &self.bootstrap_key
