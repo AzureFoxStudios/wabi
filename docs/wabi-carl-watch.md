@@ -46468,3 +46468,137 @@ c4ac3b1 feat(reception): add ChannelType + ReceptionBoard shell
 64ea695 feat(reception): add claimable role field + board room toggle
 ```
 
+
+---
+
+## 2026-08-18 08:48:50 +07 — Carl posted
+
+### New/updated docs
+
+#### `docs/architecture/overview.md`
+
+```
+# This is Wabi — architecture overview for AI agents
+
+The distilled mental model of the Wabi system, so you can work on it without deep-scanning the codebase. Facts verified against source (2026-08-06). Companion to `AGENTS.md` at the repo root.
+
+---
+
+## 1. System mental model
+
+**One binary.** `wabi-server` (Rust) is the entire product: Axum REST API + socket.io live updates + embedded frontend (rust_embed serves the static SPA with an `index.html` fallback — no SSR).
+
+**Event sourcing.** All durable state flows: command → event → projection.
+
+```
+REST /api/*  ─┐
+socket.io ────┤→ WabiStore trait (WdbAdapter) → CommandCommit → sequencer
+              │                                      │
+              │                              append-only event store (.wseg)
+              │                                      │
+              │                                      ▼
+              │                        ProjectionDispatcher → SkipMap indexes
+              │                                      │
+              ▼                                      ▼
+         response JSON                        typed query methods (list_*/get_*)
+        + socket broadcasts ◄── event ─────────────────┘
+```
+```
+
+#### `docs/architecture/wabidb-council-reviews.md`
+
+```
+# WabiDB Council Reviews
+
+> **Purpose:** Captures the outcomes of council-of-judgment reviews on the load-bearing WabiDB cards. Each review records the original design, the council's findings, the decisions taken, and the cards/actions that result.
+>
+> **Process:** Council reviews run on cards flagged as high-risk before implementation begins. Findings here propagate to the design docs and the kanban card bodies.
+>
+> **Reviewer model identity:** tracked per-entry (e.g. "Z.AI GLM 5.2", "Opus 4.8"). Reviews are independent — they get verified against the endstate doc and source code before any decision is final.
+
+---
+
+## Council Review #1: wabidb-05 (Per-Stream Encryption) + wabidb-15 (Commit Sequencer)
+
+**Date:** 2026-06-19
+**Reviewer:** Z.AI GLM 5.2 (Free)
+**Source of design context:** `docs/proposals/wabidb-endstate.md` §2.2, §4.4, §6.9, §11.4
+**Status:** Decisions logged, propagation to design doc and kanban cards pending verification
+
+### Part 1: wabidb-05 findings
+
+**1.1 Nonce uniqueness**
+- AES-GCM catastrophic failure occurs on (key, nonce) reuse.
+- Per-stream keys mean the safety requirement is: `commit_seq` strictly monotonic *within a single stream*. This is satisfied because the global sequencer assigns monotonic `commit_seq` and each stream receives a strictly increasing subset.
+- **Key rotation trap:** if a stream's encryption key is rotated, the new key must not reuse `commit_seq` values the old key used. Safe as long as the global sequencer never resets.
+- **Decision:** `StreamKeyRegistry` must enforce that a key is only used for a contiguous range of `commit_seq`s. On rotation, record `max_commit_seq` used by the old key. The sequencer must never encrypt a record with a `commit_seq` <= the key's `min_commit_seq`.
+
+```
+
+
+---
+
+## 2026-08-18 08:52:50 +07 — Carl posted
+
+### New/updated docs
+
+#### `docs/architecture/overview.md`
+
+```
+# This is Wabi — architecture overview for AI agents
+
+The distilled mental model of the Wabi system, so you can work on it without deep-scanning the codebase. Facts verified against source (2026-08-06). Companion to `AGENTS.md` at the repo root.
+
+---
+
+## 1. System mental model
+
+**One binary.** `wabi-server` (Rust) is the entire product: Axum REST API + socket.io live updates + embedded frontend (rust_embed serves the static SPA with an `index.html` fallback — no SSR).
+
+**Event sourcing.** All durable state flows: command → event → projection.
+
+```
+REST /api/*  ─┐
+socket.io ────┤→ WabiStore trait (WdbAdapter) → CommandCommit → sequencer
+              │                                      │
+              │                              append-only event store (.wseg)
+              │                                      │
+              │                                      ▼
+              │                        ProjectionDispatcher → SkipMap indexes
+              │                                      │
+              ▼                                      ▼
+         response JSON                        typed query methods (list_*/get_*)
+        + socket broadcasts ◄── event ─────────────────┘
+```
+```
+
+#### `docs/architecture/wabidb-council-reviews.md`
+
+```
+# WabiDB Council Reviews
+
+> **Purpose:** Captures the outcomes of council-of-judgment reviews on the load-bearing WabiDB cards. Each review records the original design, the council's findings, the decisions taken, and the cards/actions that result.
+>
+> **Process:** Council reviews run on cards flagged as high-risk before implementation begins. Findings here propagate to the design docs and the kanban card bodies.
+>
+> **Reviewer model identity:** tracked per-entry (e.g. "Z.AI GLM 5.2", "Opus 4.8"). Reviews are independent — they get verified against the endstate doc and source code before any decision is final.
+
+---
+
+## Council Review #1: wabidb-05 (Per-Stream Encryption) + wabidb-15 (Commit Sequencer)
+
+**Date:** 2026-06-19
+**Reviewer:** Z.AI GLM 5.2 (Free)
+**Source of design context:** `docs/proposals/wabidb-endstate.md` §2.2, §4.4, §6.9, §11.4
+**Status:** Decisions logged, propagation to design doc and kanban cards pending verification
+
+### Part 1: wabidb-05 findings
+
+**1.1 Nonce uniqueness**
+- AES-GCM catastrophic failure occurs on (key, nonce) reuse.
+- Per-stream keys mean the safety requirement is: `commit_seq` strictly monotonic *within a single stream*. This is satisfied because the global sequencer assigns monotonic `commit_seq` and each stream receives a strictly increasing subset.
+- **Key rotation trap:** if a stream's encryption key is rotated, the new key must not reuse `commit_seq` values the old key used. Safe as long as the global sequencer never resets.
+- **Decision:** `StreamKeyRegistry` must enforce that a key is only used for a contiguous range of `commit_seq`s. On rotation, record `max_commit_seq` used by the old key. The sequencer must never encrypt a record with a `commit_seq` <= the key's `min_commit_seq`.
+
+```
+

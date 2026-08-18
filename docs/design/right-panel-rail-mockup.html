@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wabi — Right Panel v5 (individual docked stubs)</title>
+<style>
+  :root {
+    --bg-sunken: #0f0c29;
+    --bg-base: #1a1a2e;
+    --bg-raised: #24243e;
+    --bg-hover: #2d2d4a;
+    --text-primary: #e0e0ff;
+    --text-secondary: #b3b3ff;
+    --text-muted: #9999ff;
+    --accent: #a855f7;
+    --accent-2: #c084fc;
+    --accent-rgb: 168, 85, 247;
+    --border-subtle: rgba(168, 85, 247, 0.14);
+    --border-faint: rgba(168, 85, 247, 0.08);
+    --online: #22c55e;
+    --away: #f59e0b;
+    --offline: #708090;
+    --stub-w: 46px;
+    --panel-default: 360px;
+    --panel-min: 240px;
+    --panel-max: 560px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg-sunken); color: var(--text-primary); overflow: hidden; }
+  .app { display: flex; height: 100vh; width: 100%; }
+
+  .server-rail { width: 64px; flex-shrink: 0; background: var(--bg-sunken); border-right: 1px solid var(--border-faint); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; }
+  .server-dot { width: 42px; height: 42px; border-radius: 50%; background: var(--bg-raised); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; color: var(--text-secondary); cursor: pointer; transition: border-radius .15s ease, background .15s ease; }
+  .server-dot:hover { border-radius: 34%; background: var(--bg-hover); }
+  .server-dot.active { border-radius: 34%; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
+
+  .channel-sidebar { width: 256px; flex-shrink: 0; background: var(--bg-base); border-right: 1px solid var(--border-faint); display: flex; flex-direction: column; padding: 16px 12px; gap: 4px; }
+  .sidebar-server-name { font-weight: 800; font-size: 15px; padding: 0 8px 10px; color: var(--text-primary); letter-spacing: .2px; }
+  .sidebar-group { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--text-muted); padding: 12px 8px 4px; }
+  .channel { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; color: var(--text-secondary); font-size: 14px; font-weight: 550; cursor: pointer; }
+  .channel:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .channel.active { background: rgba(var(--accent-rgb), .16); color: var(--text-primary); }
+  .channel .hash { color: var(--text-muted); font-weight: 600; }
+
+  .center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: linear-gradient(160deg, #14142a 0%, #1a1a2e 100%); }
+  .center-header { height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--border-faint); font-weight: 700; font-size: 15px; }
+  .center-header .topic { color: var(--text-muted); font-weight: 500; font-size: 13px; }
+  .center-body { flex: 1; overflow: hidden; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 78%; }
+  .msg .author { font-size: 13px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+  .msg .author .ts { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+  .msg .bubble { margin-top: 4px; background: var(--bg-raised); border: 1px solid var(--border-faint); border-radius: 10px; padding: 9px 12px; font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
+  .composer { flex-shrink: 0; margin: 0 16px 16px; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 11px 14px; color: var(--text-muted); font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .composer .hint { flex: 1; }
+
+  .right-zone { position: relative; display: flex; align-items: stretch; flex-shrink: 0; }
+
+  /* Stub strip — only shows docked stubs (individual bits), not a full catalog */
+  .stub-strip {
+    width: var(--stub-w); flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 10px 0; gap: 6px;
+    border-left: 1px solid var(--border-faint);
+    background: var(--bg-base);
+  }
+  .stub-add {
+    width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+    border: 1px dashed var(--border-subtle); background: transparent; color: var(--text-muted);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    transition: background .12s ease, color .12s ease;
+  }
+  .stub-add svg { width: 16px; height: 16px; }
+  .stub-add:hover { background: rgba(var(--accent-rgb), .14); color: var(--text-primary); }
+  .stub {
+    position: relative; width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+    border: 1px solid transparent; background: transparent; color: var(--text-muted);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .stub svg { width: 18px; height: 18px; }
+  .stub:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .stub.active { background: rgba(var(--accent-rgb), .2); border-color: rgba(var(--accent-rgb), .45); color: var(--text-primary); }
+  /* active stub connects to the open panel: a filled accent edge on its right */
+  .stub.active::before { content: ""; position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 3px; height: 18px; border-radius: 3px; background: linear-gradient(var(--accent), var(--accent-2)); }
+  .stub .tip {
+    position: absolute; right: 44px; top: 50%; transform: translateY(-50%);
+    background: var(--bg-raised); color: var(--text-primary);
+    border: 1px solid var(--border-subtle); border-radius: 6px;
+    padding: 4px 9px; font-size: 12px; font-weight: 600; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity .12s ease;
+    box-shadow: 0 4px 16px rgba(0,0,0,.35); z-index: 60;
+  }
+  .stub:hover .tip { opacity: 1; }
+  .stub .close {
+    position: absolute; top: -4px; right: -4px; width: 15px; height: 15px; border-radius: 50%;
+    background: var(--bg-raised); border: 1px solid var(--border-subtle); color: var(--text-muted);
+    font-size: 10px; line-height: 13px; text-align: center; opacity: 0; transition: opacity .12s ease; pointer-events: none;
+  }
+  .stub:hover .close { opacity: 1; pointer-events: auto; }
+  .stub .close:hover { color: #fff; background: var(--danger, #ef4444); border-color: var(--danger, #ef4444); }
+
+  /* Catalog flyout (from the + button) */
+  .catalog {
+    position: absolute; left: calc(var(--stub-w) + 4px); top: 10px; z-index: 90;
+    width: 190px; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 10px;
+    padding: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.5); display: none;
+  }
+  .catalog.show { display: block; }
+  .catalog-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--text-muted); padding: 6px 8px 4px; }
+  .catalog-item {
+    width: 100%; display: flex; align-items: center; gap: 9px;
+    padding: 7px 8px; border-radius: 7px; border: none; background: transparent;
+    color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left;
+  }
+  .catalog-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .catalog-item svg { width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0; }
+  .catalog-item.docked { opacity: .45; pointer-events: none; }
+
+  .panel {
+    position: relative; width: 0; overflow: hidden;
+    display: flex; flex-direction: column; flex-shrink: 0;
+    background: linear-gradient(180deg, rgba(26,26,46,.97), rgba(36,36,62,.94));
+    transition: width .18s cubic-bezier(.4,0,.2,1);
+    box-shadow: -8px 0 22px -8px rgba(0,0,0,.5);
+  }
+  .panel.open { width: var(--panel-default); }
+  .panel .resize-handle { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 10; display: none; background: linear-gradient(90deg, rgba(var(--accent-rgb),.28), transparent); }
+  .panel.open .resize-handle { display: block; }
+
+  .panel-header { height: 46px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--border-faint); font-weight: 750; font-size: 13px; color: var(--text-secondary); }
+  .panel-header > svg { width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0; }
+  .panel-header .title { flex: 1; }
+  .panel-header button { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border-faint); background: transparent; color: var(--text-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .panel-header button:hover { background: rgba(var(--accent-rgb), .12); color: var(--text-primary); border-color: rgba(var(--accent-rgb), .3); }
+  .panel-header button svg { width: 15px; height: 15px; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 8px; }
+
+  .member { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  .member:hover { background: var(--bg-hover); }
+  .member .avatar { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #fff; position: relative; }
+  .member .avatar .status { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--bg-base); }
+  .member .name { font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+  .member .sub { font-size: 11px; color: var(--text-muted); }
+  .panel-note { font-size: 12px; color: var(--text-muted); line-height: 1.5; background: rgba(var(--accent-rgb), .06); border: 1px dashed var(--border-faint); border-radius: 8px; padding: 10px 12px; margin: 6px 4px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; }
+  .row:hover { background: var(--bg-hover); }
+  .row .thumb { width: 40px; height: 40px; border-radius: 8px; background: var(--bg-hover); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+  .row .thumb svg { width: 18px; height: 18px; }
+  .row .rlabel { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+  .row .rsub { font-size: 11px; color: var(--text-muted); }
+  .thumb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 4px; }
+  .thumb-grid .cell { aspect-ratio: 1; border-radius: 8px; background: var(--bg-hover); }
+
+  .hint-bar {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    background: rgba(15,12,41,.9); border: 1px solid var(--border-subtle); border-radius: 999px;
+    padding: 8px 16px; font-size: 12.5px; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 12px; z-index: 100; pointer-events: none;
+    box-shadow: 0 6px 24px rgba(0,0,0,.4); white-space: nowrap;
+  }
+  .hint-bar b { color: var(--text-primary); }
+  .hint-bar .k { background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--text-muted); }
+
+  .toast {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%) translateY(-8px);
+    background: var(--bg-raised); border: 1px solid rgba(var(--accent-rgb), .4); color: var(--text-primary);
+    border-radius: 10px; padding: 10px 18px; font-size: 13px; font-weight: 600;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5); opacity: 0; transition: opacity .2s ease, transform .2s ease;
+    z-index: 200; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <nav class="server-rail">
+    <div class="server-dot active">W</div>
+    <div class="server-dot">A</div>
+    <div class="server-dot">S</div>
+    <div class="server-dot" style="font-size:20px">+</div>
+  </nav>
+
+  <aside class="channel-sidebar">
+    <div class="sidebar-server-name">Wabi Studio</div>
+    <div class="channel active"><span class="hash">#</span> general</div>
+    <div class="channel"><span class="hash">#</span> art-corner</div>
+    <div class="channel"><span class="hash">#</span> game-night</div>
+    <div class="channel"><span class="hash">#</span> music</div>
+    <div class="channel"><span class="hash">#</span> support</div>
+    <div class="sidebar-group">Voice</div>
+    <div class="channel"><span class="hash">🔊</span> lounge</div>
+  </aside>
+
+  <main class="center">
+    <div class="center-header"># general <span class="topic">— &nbsp; daily chatter &amp; announcements</span></div>
+    <div class="center-body">
+      <div class="msg"><div class="author">Mara <span class="ts">Today 2:41 PM</span></div><div class="bubble">Just dropped the new keyframe pass — the light rig finally feels right. Gonna render overnight.</div></div>
+      <div class="msg"><div class="author">Jon <span class="ts">Today 2:52 PM</span></div><div class="bubble">That emissive edge on the rim is sick. Can you push the bloom a touch more?</div></div>
+      <div class="msg"><div class="author">Mara <span class="ts">Today 2:55 PM</span></div><div class="bubble">On it. Also @everyone — media review at 6, bring your WIP.</div></div>
+    </div>
+    <div class="composer"><span class="hint">Message #general</span></div>
+  </main>
+
+  <div class="right-zone" id="rightZone">
+    <div class="stub-strip" id="stubStrip">
+      <button class="stub-add" id="stubAdd" title="Dock a panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></button>
+    </div>
+    <div class="catalog" id="catalog"></div>
+    <div class="panel" id="panel">
+      <div class="resize-handle" id="resizeHandle"></div>
+      <div class="panel-header">
+        <svg id="panelIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></svg>
+        <span class="title" id="panelTitle">People</span>
+        <button title="Open in center stage" id="btnCenter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg></button>
+        <button title="Collapse to stubs" id="btnCollapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5l7 7-7 7"></path><path d="M21 12H4"></path></svg></button>
+      </div>
+      <div class="panel-body" id="panelBody"></div>
+    </div>
+  </div>
+</div>
+
+<div class="hint-bar">
+  <span><b>individual stubs = docked panels only</b></span>
+  <span class="k">+</span><span>dock more</span>
+  <span class="k">click stub</span><span>pop out →</span>
+  <span class="k">drag ⟷</span><span>resize</span>
+  <span class="k">✕</span><span>undock</span>
+  <span class="k">⤢</span><span>center stage</span>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  var ICONS = {
+    users: '<circle cx="9" cy="8" r="3.5"></circle><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"></path><circle cx="16.5" cy="9" r="2.5"></circle><path d="M15 14.5c2.5.3 4.5 2.2 4.5 4.5"></path>',
+    dms: '<path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"></path><path d="M8 10h.01M12 10h.01M16 10h.01"></path>',
+    notes: '<path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M14 3v5h5"></path><path d="M8 13h8M8 17h5"></path>',
+    layers: '<path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 12.5l9 5 9-5"></path><path d="M3 17l9 5 9-5"></path>',
+    map: '<path d="M12 21s-7-5.6-7-11a7 7 0 0 1 14 0c0 5.4-7 11-7 11z"></path><circle cx="12" cy="10" r="2.5"></circle>',
+    media: '<rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="9" r="1.5"></circle><path d="M21 15l-5-5-8 8"></path>',
+    admin: '<path d="M12 3l7 2.5V11c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V5.5z"></path><path d="M9 12l2 2 4-4"></path>',
+    transfers: '<path d="M12 4v12"></path><path d="M8 8l4-4 4 4"></path><path d="M12 20V8"></path><path d="M8 16l4 4 4-4"></path>',
+    code: '<path d="M8 6l-5 6 5 6"></path><path d="M16 6l5 6-5 6"></path>'
+  };
+
+  var MEMBERS = [
+    { n: 'Mara', c: '#a855f7', s: 'var(--online)' },
+    { n: 'Jon', c: '#22c55e', s: 'var(--online)' },
+    { n: 'Tess', c: '#f59e0b', s: 'var(--away)' },
+    { n: 'Ravi', c: '#3b82f6', s: 'var(--online)' },
+    { n: 'Lena', c: '#ef4444', s: 'var(--offline)' }
+  ];
+  function memberList() {
+    return MEMBERS.map(function (m) {
+      return '<div class="member"><div class="avatar" style="background:' + m.c + '">' + m.n[0] + '<span class="status" style="background:' + m.s + '"></span></div><div><div class="name">' + m.n + '</div><div class="sub">' + (m.s === 'var(--offline)' ? 'Offline' : 'In studio') + '</div></div></div>';
+    }).join('');
+  }
+
+  var PANELS = [
+    { id: 'users', label: 'People', body: memberList() },
+    { id: 'dms', label: 'Messages', body: '<div class="row"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"></path></svg></div><div><div class="rlabel">Mara</div><div class="rsub">the render is running now…</div></div></div>' },
+    { id: 'notes', label: 'Notes', body: '<div class="panel-note">Scratchpad for the active channel.</div><div class="row"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M14 3v5h5"></path></svg></div><div><div class="rlabel">Media review checklist</div><div class="rsub">Edited 6m ago</div></div></div>' },
+    { id: 'whiteboard-layers', label: 'Layers', body: '<div class="row"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path></svg></div><div><div class="rlabel">Sketch layer</div><div class="rsub">visible</div></div></div>' },
+    { id: 'map', label: 'Map', body: '<div class="panel-note">Shared map / places view.</div><div class="row"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-5.6-7-11a7 7 0 0 1 14 0c0 5.4-7 11-7 11z"></path></svg></div><div><div class="rlabel">Studio HQ</div><div class="rsub">Pinned</div></div></div>' },
+    { id: 'media', label: 'Media', body: '<div class="thumb-grid"><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div></div>' },
+    { id: 'admin', label: 'Admin', body: '<div class="row"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.5V11c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V5.5z"></path></svg></div><div><div class="rlabel">Roles &amp; permissions</div><div class="rsub">4 mods, 1 admin</div></div></div>' },
+    { id: 'transfers', label: 'Transfers', body: '<div class="row"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12"></path><path d="M8 8l4-4 4 4"></path></svg></div><div><div class="rlabel">wip_render.exr</div><div class="rsub">2.1 GB · 62%</div></div></div>' },
+    { id: 'code', label: 'Code', body: '<div class="row"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6l-5 6 5 6"></path><path d="M16 6l5 6-5 6"></path></svg></div><div><div class="rlabel">wabi-studio</div><div class="rsub">main · 3 revisions</div></div></div>' }
+  ];
+
+  var stubStrip = document.getElementById('stubStrip');
+  var catalog = document.getElementById('catalog');
+  var panel = document.getElementById('panel');
+  var panelIcon = document.getElementById('panelIcon');
+  var panelTitle = document.getElementById('panelTitle');
+  var panelBody = document.getElementById('panelBody');
+  var rightZone = document.getElementById('rightZone');
+  var toast = document.getElementById('toast');
+  var resizeHandle = document.getElementById('resizeHandle');
+
+  var byId = {};
+  PANELS.forEach(function (p) { byId[p.id] = p; });
+
+  var dockedIds = ['users', 'media', 'map'];  // only these show as stubs
+  var openPanelId = null;
+  var panelWidth = 360;
+  var resizing = false;
+
+  function renderStubs() {
+    stubStrip.querySelectorAll('.stub').forEach(function (n) { n.remove(); });
+    dockedIds.forEach(function (id) {
+      var p = byId[id];
+      var b = document.createElement('button');
+      b.className = 'stub';
+      b.dataset.panel = id;
+      b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + ICONS[p.id] + '</svg><span class="tip">' + p.label + '</span><span class="close" title="Undock">✕</span>';
+      stubStrip.appendChild(b);
+    });
+    syncActive();
+  }
+
+  function renderCatalog() {
+    var html = '<div class="catalog-title">Dock a panel</div>';
+    PANELS.forEach(function (p) {
+      var docked = dockedIds.indexOf(p.id) !== -1;
+      html += '<button class="catalog-item' + (docked ? ' docked' : '') + '" data-panel="' + p.id + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + ICONS[p.id] + '</svg>' + p.label + (docked ? ' — docked' : '') + '</button>';
+    });
+    catalog.innerHTML = html;
+  }
+
+  function renderPanelContent(id) {
+    var p = byId[id];
+    panelIcon.innerHTML = ICONS[p.id];
+    panelTitle.textContent = p.label;
+    panelBody.innerHTML = p.body;
+  }
+
+  function openPanel(id) {
+    openPanelId = id;
+    renderPanelContent(id);
+    panel.classList.add('open');
+    panel.style.width = panelWidth + 'px';
+    syncActive();
+  }
+
+  function collapse() {
+    openPanelId = null;
+    panel.classList.remove('open');
+    panel.style.width = '';
+    syncActive();
+  }
+
+  function syncActive() {
+    stubStrip.querySelectorAll('.stub').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.panel === openPanelId);
+    });
+  }
+
+  // Stub click / ✕
+  stubStrip.addEventListener('click', function (e) {
+    var close = e.target.closest('.close');
+    var stub = e.target.closest('.stub');
+    if (close && stub) { dockedIds = dockedIds.filter(function (x) { return x !== stub.dataset.panel; }); if (openPanelId === stub.dataset.panel) collapse(); renderStubs(); renderCatalog(); return; }
+    if (!stub) return;
+    var id = stub.dataset.panel;
+    if (openPanelId === id) collapse(); else openPanel(id);
+  });
+
+  // "+" → catalog
+  document.getElementById('stubAdd').addEventListener('click', function () {
+    renderCatalog();
+    catalog.classList.toggle('show');
+  });
+  catalog.addEventListener('click', function (e) {
+    var item = e.target.closest('.catalog-item');
+    if (!item || item.classList.contains('docked')) return;
+    var id = item.dataset.panel;
+    if (dockedIds.indexOf(id) === -1) dockedIds.push(id);
+    catalog.classList.remove('show');
+    renderStubs();
+    openPanel(id);
+  });
+  // click away closes catalog
+  document.addEventListener('click', function (e) {
+    if (!catalog.contains(e.target) && e.target.id !== 'stubAdd' && !stubStrip.contains(e.target)) catalog.classList.remove('show');
+  });
+
+  // Collapse + center stage
+  document.getElementById('btnCollapse').addEventListener('click', collapse);
+  document.getElementById('btnCenter').addEventListener('click', function () {
+    if (!openPanelId) return;
+    toast.textContent = byId[openPanelId].label + ' → opens full in the center stage';
+    toast.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { toast.classList.remove('show'); }, 1600);
+    collapse();
+  });
+
+  // Drag-resize
+  resizeHandle.addEventListener('mousedown', function (e) {
+    if (!openPanelId) return;
+    e.preventDefault();
+    resizing = true;
+    document.addEventListener('mousemove', onResizeMove);
+    document.addEventListener('mouseup', onResizeUp);
+  });
+  function onResizeMove(e) {
+    if (!resizing) return;
+    var w = rightZone.getBoundingClientRect().right - e.clientX;
+    w = Math.max(240, Math.min(560, w));
+    panelWidth = w;
+    panel.style.width = w + 'px';
+  }
+  function onResizeUp() {
+    resizing = false;
+    document.removeEventListener('mousemove', onResizeMove);
+    document.removeEventListener('mouseup', onResizeUp);
+  }
+
+  renderStubs();
+})();
+</script>
+</body>
+</html>

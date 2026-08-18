@@ -107,8 +107,16 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
 
     // Emit dm-created to the initiating socket
     let _ = socket.emit("dm-created", &dm_event);
-    // Broadcast dm-channel-added to all other clients
-    let _ = io.broadcast().emit("dm-channel-added", &dm_event).await;
+    // Emit dm-channel-added to the two participants only — never broadcast
+    // to all clients (that leaks DM existence to non-participants).
+    let _ = io
+        .to(format!("user-{}", my_user_id))
+        .emit("dm-channel-added", &dm_event)
+        .await;
+    let _ = io
+        .to(target_stable_id)
+        .emit("dm-channel-added", &dm_event)
+        .await;
 }
 
 #[allow(dead_code)]
