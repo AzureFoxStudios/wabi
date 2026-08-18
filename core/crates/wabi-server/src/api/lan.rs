@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
+    auth_extractor::AuthUser,
     lan::{sign_token, LocalCapability, SignedLocalRouteToken},
     state::AppState,
 };
@@ -85,6 +86,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 
 async fn get_lan_route(
     State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
     Query(req): Query<RouteRequest>,
 ) -> Result<Json<RouteResponse>, LanRouteError> {
     // Decode capability
@@ -121,8 +123,7 @@ async fn get_lan_route(
         node_endpoint,
         capability,
         resource_id: req.resource_id,
-        user_id: 0, /* caller-anonymous for now; insert real user_id
-                     * once auth middleware extracts it */
+        user_id: _auth.user_id,
         issued_at: now,
         expires_at: expires,
         signature: String::new(),
@@ -138,7 +139,10 @@ async fn get_lan_route(
 // Discover LAN helpers
 // ---------------------------------------------------------------------------
 
-async fn get_lan_discover(State(state): State<Arc<AppState>>) -> Json<DiscoverResponse> {
+async fn get_lan_discover(
+    State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
+) -> Json<DiscoverResponse> {
     let nodes = state.node_registry.list_nodes().await;
     let now = chrono::Utc::now();
 

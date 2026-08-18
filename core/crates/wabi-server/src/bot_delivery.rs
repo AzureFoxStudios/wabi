@@ -61,6 +61,9 @@ pub fn spawn_message_created_delivery(
         }
         let client = match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
+            // Never follow redirects — the URL was validated at registration;
+            // a redirect at delivery time could bypass that validation.
+            .redirect(reqwest::redirect::Policy::none())
             .build()
         {
             Ok(c) => c,

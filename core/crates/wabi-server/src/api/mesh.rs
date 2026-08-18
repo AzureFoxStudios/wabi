@@ -4,6 +4,7 @@ use axum::{extract::State, http::StatusCode, response::Json, routing::get, routi
 use serde::Deserialize;
 use std::sync::Arc;
 
+use crate::auth_extractor::AuthUser;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -15,7 +16,13 @@ pub(crate) struct HeartbeatPayload {
 }
 
 /// Get mesh service status
-pub async fn get_mesh_status(State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+pub async fn get_mesh_status(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !state.is_admin(auth.user_id).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     match state.get_mesh_status().await {
         Ok(mesh_status) => Ok(Json(serde_json::json!(mesh_status))),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -23,7 +30,13 @@ pub async fn get_mesh_status(State(state): State<Arc<AppState>>) -> Result<Json<
 }
 
 /// Get mesh configuration
-pub async fn get_mesh_config(State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+pub async fn get_mesh_config(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !state.is_admin(auth.user_id).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
     match state.get_mesh_config().await {
         Ok(config) => Ok(Json(serde_json::json!(config))),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
