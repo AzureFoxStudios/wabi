@@ -195,8 +195,7 @@ async fn handle_send_message(
         "channelId": &req.channel_id,
         "message": message_view,
     });
-    let mut sio_rx = state.sio_broadcast_tx.subscribe();
-    if let Ok(io) = sio_rx.recv().await {
+    if let Some(io) = state.sio.read().await.clone() {
         let ch = req.channel_id.clone();
         let payload = msg_payload.clone();
         tokio::spawn(async move {

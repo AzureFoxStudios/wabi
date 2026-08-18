@@ -590,17 +590,13 @@ async fn main() -> anyhow::Result<()> {
     {
         let state = state.clone();
         tokio::spawn(async move {
-            let mut sio_rx = state.sio_broadcast_tx.subscribe();
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 interval.tick().await;
-                let io = match sio_rx.recv().await {
-                    Ok(io) => io,
-                    Err(_) => {
-                        tracing::warn!("[live-reaper] failed to receive SocketIo handle, retrying next tick");
-                        continue;
-                    }
+                let Some(io) = state.sio.read().await.clone() else {
+                    tracing::warn!("[live-reaper] SocketIo handle not available, skipping tick");
+                    continue;
                 };
 
                 // Snapshot the live channel set under the label lock.
@@ -788,20 +784,19 @@ async fn main() -> anyhow::Result<()> {
     let sio_layer = socketio::create_socket_layer(state.clone());
 
     // Spawn the subscription bridge: engine → Socket.IO push delivery.
-    // Waits for the SocketIo instance (sent to sio_broadcast_tx during
-    // layer creation), then reads from the engine's delivery broadcast
-    // and emits matching events to the appropriate Socket.IO rooms.
+    // Reads from the engine's delivery broadcast and emits matching events
+    // to the appropriate Socket.IO rooms.
     {
-        let mut sio_rx = state.sio_broadcast_tx.subscribe();
+        let state_clone = state.clone();
         let delivery_rx = state.wdb.engine().delivery_receiver();
         tokio::spawn(async move {
-            // Wait for the SocketIo instance to arrive on the broadcast.
-            let io = match sio_rx.recv().await {
-                Ok(io) => io,
-                Err(_) => {
-                    tracing::error!("subscription bridge: failed to receive SocketIo instance");
-                    return;
+            // Wait for the SocketIo instance to be available.
+            let io = loop {
+                if let Some(io) = state_clone.sio.read().await.clone() {
+                    break io;
                 }
+                tracing::warn!("subscription bridge: SocketIo handle not available, retrying in 1s");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             };
             let mut delivery_rx = delivery_rx;
             while let Ok(delivery) = delivery_rx.recv().await {
