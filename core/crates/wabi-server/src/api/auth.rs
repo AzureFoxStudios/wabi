@@ -561,32 +561,10 @@ pub struct TurnCredentialsPayload {
 /// Generate TURN credentials for WebRTC (GET, Bearer-authenticated)
 pub async fn handle_turn_credentials(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     axum::extract::Query(query): axum::extract::Query<TurnCredentialsQuery>,
 ) -> Result<Json<TurnCredentialsResponse>> {
-    use jsonwebtoken::{decode, DecodingKey, Validation};
-    #[derive(serde::Deserialize)]
-    struct C {
-        sub: String,
-    }
-
-    // Require valid auth token
-    let auth = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer ").map(str::to_owned))
-        .ok_or_else(|| AppError::Unauthorized("missing token".into()))?;
-    let key = DecodingKey::from_secret(state.config.jwt_secret.as_bytes());
-    let mut v = Validation::default();
-    v.validate_exp = true;
-    v.leeway = 60;
-    let claims = decode::<C>(&auth, &key, &v)
-        .map_err(|_| AppError::Unauthorized("invalid token".into()))?
-        .claims;
-    let user_id: i64 = claims
-        .sub
-        .parse()
-        .map_err(|_| AppError::Unauthorized("bad sub".into()))?;
+    let user_id = auth.user_id;
 
     if !state.config.turn_enabled {
         return Err(AppError::BadRequest("TURN server not enabled".into()));

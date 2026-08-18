@@ -253,10 +253,17 @@ where
         };
 
         match decode_token(token, &app_state.config.jwt_secret).await {
-            Ok(claims) => match AuthUser::from_claims(claims) {
-                Ok(user) => Ok(OptionalAuthUser(Some(user))),
-                Err(_) => Ok(OptionalAuthUser(None)),
-            },
+            Ok(claims) => {
+                let sub = claims.sub.parse::<i64>().unwrap_or(-1);
+                // WS-4b: revocation check for optional auth.
+                if app_state.is_token_revoked(&claims.jti, sub, claims.iat).await {
+                    return Ok(OptionalAuthUser(None));
+                }
+                match AuthUser::from_claims(claims) {
+                    Ok(user) => Ok(OptionalAuthUser(Some(user))),
+                    Err(_) => Ok(OptionalAuthUser(None)),
+                }
+            }
             Err(_) => {
                 // Lore connect tokens also work for optional-auth routes
                 // (e.g. signed-URL-less downloads).

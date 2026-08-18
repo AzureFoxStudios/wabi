@@ -64,7 +64,7 @@ async fn handle_ws_messages(
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             axum::extract::ws::Message::Text(text) => {
-                tracing::info!("Received socket message: {}", text);
+                tracing::debug!("Received socket message: {}", text);
                 // TODO: Parse Socket.IO packet and handle event
             }
             axum::extract::ws::Message::Close(_) => {
