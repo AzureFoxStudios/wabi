@@ -11,7 +11,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::{HashMap, HashSet}, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
 
 /// Classification of an uploaded file.
@@ -57,6 +57,9 @@ pub struct UploadMeta {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct UploadRegistryData {
     files: HashMap<String, UploadMeta>,
+    /// Revoked filenames. A revoked file returns 410 from serve paths.
+    #[serde(default)]
+    revoked: HashSet<String>,
 }
 
 /// Tolerant, JSON-persisted registry of uploaded-file ownership.
@@ -141,6 +144,20 @@ impl UploadRegistry {
     #[allow(dead_code)]
     pub async fn total_bytes_for_channel(&self, channel_id: &str) -> u64 {
         self.by_channel(channel_id).await.iter().map(|m| m.size).sum()
+    }
+
+    /// Revoke a filename. Returns true if the file was previously unrevoeked.
+    pub async fn revoke(&self, filename: &str) -> bool {
+        let mut guard = self.inner.write().await;
+        let newly_inserted = guard.revoked.insert(filename.to_string());
+        self.persist_locked(&guard).await;
+        newly_inserted
+    }
+
+    /// True if this filename has been revoked.
+    pub async fn is_revoked(&self, filename: &str) -> bool {
+        let guard = self.inner.read().await;
+        guard.revoked.contains(filename)
     }
 
     async fn persist_locked(&self, data: &UploadRegistryData) {
