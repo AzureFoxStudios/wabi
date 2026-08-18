@@ -177,6 +177,11 @@ async fn init_upload(
             .get(upload_id)
             .cloned()
         {
+            // WS-3a: when resuming, require the caller owns the session.
+            // Mismatch ⇒ 404 (do not confirm the session's existence).
+            if session.uploader_id != Some(auth.user_id) {
+                return Err(anyhow::anyhow!("Upload session not found").into());
+            }
             tracing::info!(
                 "Resume upload: {} ({} bytes so far)",
                 upload_id,
@@ -347,20 +352,33 @@ struct CompleteUploadResponse {
 /// Finalize an upload — move temp file to final location
 async fn complete_upload(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Json(req): Json<CompleteUploadRequest>,
 ) -> Result<Json<CompleteUploadResponse>> {
-    let session = state
+    // WS-3b: verify token BEFORE removing the session.
+    // Look up the session first without removing it.
+    let session = {
+        let sessions = state.upload_state.sessions.read().await;
+        let s = sessions
+            .get(&req.upload_id)
+            .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?
+            .clone();
+        if s.upload_token != req.upload_token {
+            return Err(anyhow::anyhow!("Invalid upload token").into());
+        }
+        if s.uploader_id != Some(auth.user_id) {
+            return Err(anyhow::anyhow!("Upload session not found").into());
+        }
+        s
+    };
+
+    // Now remove the session (token already verified).
+    state
         .upload_state
         .sessions
         .write()
         .await
-        .remove(&req.upload_id)
-        .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?;
-
-    // Verify token
-    if session.upload_token != req.upload_token {
-        return Err(anyhow::anyhow!("Invalid upload token").into());
-    }
+        .remove(&req.upload_id);
 
     // Final filename: UUID with original extension
     let final_name = format!("{}{}", session.upload_id, session.extension);
@@ -426,6 +444,11 @@ async fn upload_group_avatar(
 ) -> Result<Json<GroupAvatarResponse>> {
     use tokio::io::AsyncWriteExt;
 
+    // WS-3e: guests cannot upload group avatars.
+    if auth.is_guest {
+        return Err(anyhow::anyhow!("Guests cannot upload group avatars").into());
+    }
+
     let mut file_data: Vec<u8> = Vec::new();
     let mut filename = "avatar".to_string();
     let mut channel_id: Option<String> = None;
@@ -456,6 +479,20 @@ async fn upload_group_avatar(
     }
 
     let channel_id = channel_id.ok_or_else(|| anyhow::anyhow!("channel_id is required"))?;
+
+    // WS-3e: require channel membership to upload group avatar.
+    let is_member = state
+        .wdb
+        .list_channels(Some(auth.user_id as u64))
+        .await
+        .map_err(|e| anyhow::anyhow!("wdb list_channels: {e}"))?
+        .iter()
+        .any(|c| c.channel_id == channel_id);
+    let is_owner = state.is_owner(auth.user_id).await;
+    let is_admin = state.is_admin(auth.user_id).await;
+    if !is_owner && !is_admin && !is_member {
+        return Err(anyhow::anyhow!("Not a member of this channel").into());
+    }
 
     if file_data.is_empty() {
         return Err(anyhow::anyhow!("No file data provided").into());
@@ -553,6 +590,11 @@ async fn upload_simple(
         return Err(anyhow::anyhow!("Guests cannot upload branding assets").into());
     }
 
+    // WS-3e: require admin for branding uploads.
+    if !state.is_admin(auth.user_id).await {
+        return Err(anyhow::anyhow!("Only admins can upload branding assets").into());
+    }
+
     let mut file_data: Vec<u8> = Vec::new();
     let mut filename = "branding".to_string();
 
@@ -633,6 +675,11 @@ pub async fn upload_profile_picture(
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<ProfilePictureResponse>> {
     use tokio::io::AsyncWriteExt;
+
+    // WS-3e: guests cannot upload profile pictures.
+    if auth.is_guest {
+        return Err(anyhow::anyhow!("Guests cannot upload profile pictures").into());
+    }
 
     let mut file_data: Vec<u8> = Vec::new();
     let mut filename = "profile-picture.png".to_string();
