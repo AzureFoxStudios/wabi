@@ -4,7 +4,7 @@ import type {
 	PaymentProviderCapability
 } from '../../../../shared/paymentContracts';
 import type { PaymentAccessPolicy } from '../../../../shared/adminPolicyContracts';
-import { getApiBase, fetchWithTimeout, safeJsonParse, toQueryParam } from './utils';
+import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
 
 export interface PaymentIntent {
 	intentId: string;
@@ -80,37 +80,112 @@ export interface CreatePaymentIntentResponse {
 	events: PaymentEvent[];
 }
 
+/**
+ * v1 provider catalog. The Rust server's payment routes are PromptPay-only and
+ * expose no provider-list endpoint (`/api/payments/providers` does not exist),
+ * so the client advertises the built-in rail statically. When the payments
+ * projection lands (roadmap Phase 1) this becomes a real GET to the server.
+ */
+const PROMPTPAY_PROVIDER: PaymentProviderCapability = {
+	pluginId: 'promptpay',
+	providerName: 'PromptPay',
+	countries: ['TH'],
+	currencies: ['THB'],
+	methods: [
+		{
+			id: 'promptpay_qr',
+			label: 'PromptPay QR',
+			checkoutModes: ['qr'],
+			countries: ['TH'],
+			currencies: ['THB'],
+			enabledByDefault: true,
+			notes: 'Non-custodial Thai bank QR — paid straight to your PromptPay account. Confirmation is manual.'
+		}
+	],
+	nonCustodialOnly: true,
+	webhookSignatureRequired: false,
+	supportsRefunds: false,
+	supportsDisputes: false,
+	notes: 'Built-in rail: the QR is generated locally, money moves bank-to-bank, Wabi never touches it.'
+};
+
+export const V1_PROVIDER_CATALOG: PaymentProviderCapability[] = [PROMPTPAY_PROVIDER];
+
+/**
+ * Map a stored intent (Rust `api/payments/intents.rs` shape, camelCase JSONL)
+ * onto the frontend PaymentIntent contract.
+ */
+function mapIntent(raw: Record<string, any>): PaymentIntent {
+	const qrPayload = typeof raw.promptpayQrPayload === 'string' ? raw.promptpayQrPayload : '';
+	return {
+		intentId: String(raw.id || ''),
+		workspaceId: String(raw.workspaceId || 'default-workspace'),
+		createdByUserId: typeof raw.userId === 'number' ? raw.userId : null,
+		channelId: null,
+		pluginId: 'promptpay',
+		providerName: 'PromptPay',
+		providerIntentId: null,
+		amountMinor: Number(raw.amountMinor || 0),
+		currency: String(raw.currency || 'THB').toUpperCase(),
+		countryCode: 'TH',
+		status: mapIntentStatus(String(raw.status || 'pending')),
+		checkoutMode: 'qr',
+		customerRef: typeof raw.promptpayProxyId === 'string' ? raw.promptpayProxyId : null,
+		description: typeof raw.note === 'string' ? raw.note : null,
+		metadata: null,
+		presentation: qrPayload ? { mode: 'qr', qrData: qrPayload } : null,
+		failureCode: null,
+		failureMessage: null,
+		expiresAt: null,
+		completedAt: null,
+		refundedAt: null,
+		createdAt: Number(raw.createdAt || 0),
+		updatedAt: Number(raw.updatedAt || 0)
+	};
+}
+
+function mapIntentStatus(status: string): PaymentIntentStatus {
+	switch (status) {
+		case 'completed':
+			return 'succeeded';
+		case 'rejected':
+			return 'failed';
+		case 'expired':
+			return 'expired';
+		case 'pending':
+		default:
+			return 'pending';
+	}
+}
+
 export async function listPaymentProviders(filters?: {
 	countryCode?: string;
 	currency?: string;
 	amountMinor?: number;
 }): Promise<PaymentProviderCapability[]> {
-	const query = new URLSearchParams();
-	if (filters?.countryCode) query.set('country', filters.countryCode);
-	if (filters?.currency) query.set('currency', filters.currency);
-	const amountParam = toQueryParam(filters?.amountMinor);
-	if (amountParam) query.set('amountMinor', amountParam);
-
-	const suffix = query.size > 0 ? `?${query.toString()}` : '';
-	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/providers${suffix}`, { method: 'GET' });
-	const data = (await safeJsonParse(res)) as Record<string, any>;
-	if (!res.ok) {
-		throw new Error((data.error as string) || 'Failed to list payment providers');
-	}
-	return Array.isArray(data.providers) ? (data.providers as PaymentProviderCapability[]) : [];
+	// Static v1 catalog — see PROMPTPAY_PROVIDER comment. Filters stay advisory
+	// until the server can answer them.
+	void filters;
+	return V1_PROVIDER_CATALOG;
 }
 
 export async function createPaymentIntent(
 	token: string | null | undefined,
 	payload: CreatePaymentIntentPayload
 ): Promise<CreatePaymentIntentResponse> {
-	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/create`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/intents`, {
 		method: 'POST',
 		headers: {
 			...(token ? { Authorization: `Bearer ${token}` } : {}),
 			'Content-Type': 'application/json'
 		},
-		body: JSON.stringify(payload)
+		body: JSON.stringify({
+			provider: 'promptpay',
+			amountMinor: payload.amountMinor,
+			currency: payload.currency,
+			promptpayProxyId: payload.customerRef?.trim() || undefined,
+			note: payload.description?.trim() || undefined
+		})
 	});
 	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
@@ -118,10 +193,10 @@ export async function createPaymentIntent(
 	}
 	return {
 		success: Boolean(data.success),
-		reused: Boolean(data.reused),
-		idempotencyKey: typeof data.idempotencyKey === 'string' ? data.idempotencyKey : '',
-		intent: data.intent as PaymentIntent,
-		events: Array.isArray(data.events) ? (data.events as PaymentEvent[]) : []
+		reused: false,
+		idempotencyKey: '',
+		intent: mapIntent(data.intent || {}),
+		events: []
 	};
 }
 
@@ -130,52 +205,73 @@ export async function getPaymentIntent(
 	intentId: string,
 	options?: { refresh?: boolean; includeEvents?: boolean; eventLimit?: number }
 ): Promise<{ intent: PaymentIntent; events: PaymentEvent[]; providerRefreshError?: string | null }> {
-	const query = new URLSearchParams();
-	if (options?.refresh) query.set('refresh', 'true');
-	if (options?.includeEvents === false) query.set('includeEvents', 'false');
-	if (typeof options?.eventLimit === 'number' && Number.isFinite(options.eventLimit) && options.eventLimit > 0) {
-		query.set('eventLimit', String(Math.floor(options.eventLimit)));
-	}
-	const suffix = query.size > 0 ? `?${query.toString()}` : '';
-	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/${encodeURIComponent(intentId)}${suffix}`, {
+	void options;
+	if (!token) throw new Error('You must be logged in to view payment status.');
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/intents`, {
 		method: 'GET',
-		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+		headers: { Authorization: `Bearer ${token}` }
 	});
 	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load payment intent');
 	}
-	return {
-		intent: data.intent as PaymentIntent,
-		events: Array.isArray(data.events) ? (data.events as PaymentEvent[]) : [],
-		providerRefreshError:
-			typeof data.providerRefreshError === 'string' || data.providerRefreshError === null
-				? data.providerRefreshError
-				: undefined
-	};
+	const raw = Array.isArray(data.intents) ? data.intents.find((item) => item && item.id === intentId) : null;
+	if (!raw) throw new Error('Payment intent not found');
+	return { intent: mapIntent(raw), events: [], providerRefreshError: null };
 }
 
-export async function cancelPaymentIntent(
+/**
+ * Admin-only: mark a pending intent as paid after checking the bank statement.
+ * This is the manual-confirm half of the non-custodial handshake.
+ */
+export async function confirmPaymentIntent(
 	token: string | null | undefined,
 	intentId: string,
-	reason?: string
-): Promise<{ intent: PaymentIntent; events: PaymentEvent[] }> {
-	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/${encodeURIComponent(intentId)}/cancel`, {
-		method: 'POST',
-		headers: {
-			...(token ? { Authorization: `Bearer ${token}` } : {}),
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify({ reason: reason || 'Canceled by user' })
-	});
+	options?: { actualAmountMinor?: number; referenceNote?: string }
+): Promise<PaymentIntent> {
+	const res = await fetchWithTimeout(
+		`${getApiBase()}/api/payments/intents/${encodeURIComponent(intentId)}/confirm`,
+		{
+			method: 'POST',
+			headers: {
+				...(token ? { Authorization: `Bearer ${token}` } : {}),
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				actualAmountMinor: options?.actualAmountMinor,
+				referenceNote: options?.referenceNote
+			})
+		}
+	);
 	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
-		throw new Error(data.error || 'Failed to cancel payment intent');
+		throw new Error(data.error || 'Failed to confirm payment intent');
 	}
-	return {
-		intent: data.intent as PaymentIntent,
-		events: Array.isArray(data.events) ? (data.events as PaymentEvent[]) : []
-	};
+	return mapIntent(data.intent || {});
+}
+
+/** Admin-only: reject a pending intent (payment never arrived / wrong amount). */
+export async function rejectPaymentIntent(
+	token: string | null | undefined,
+	intentId: string,
+	referenceNote?: string
+): Promise<PaymentIntent> {
+	const res = await fetchWithTimeout(
+		`${getApiBase()}/api/payments/intents/${encodeURIComponent(intentId)}/reject`,
+		{
+			method: 'POST',
+			headers: {
+				...(token ? { Authorization: `Bearer ${token}` } : {}),
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ referenceNote })
+		}
+	);
+	const data = (await safeJsonParse(res)) as Record<string, any>;
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to reject payment intent');
+	}
+	return mapIntent(data.intent || {});
 }
 
 export async function getPaymentAccess(token: string | null | undefined): Promise<PaymentAccessStatusResponse> {
@@ -194,14 +290,17 @@ export async function getPaymentAccess(token: string | null | undefined): Promis
 			allowGuest: false,
 			allowedRoleNames: ['owner', 'admin', 'mod', 'member']
 		}) as PaymentAccessPolicy,
-		actor: (data.actor || {
-			authenticated: false,
+		// The Rust v1 routes enforce authentication only (no policy projection
+		// yet), so the actor is derived client-side from the session. The real
+		// actor gate lands with the WabiDB payment projection (Phase 1).
+		actor: {
+			authenticated: Boolean(token),
 			userId: null,
-			roles: ['guest'],
+			roles: [],
 			blocked: false,
-			canCreate: false,
-			reasonCode: 'unknown',
-			reason: 'Unavailable'
-		}) as PaymentAccessActorStatus
+			canCreate: Boolean(token),
+			reasonCode: null,
+			reason: null
+		}
 	};
 }

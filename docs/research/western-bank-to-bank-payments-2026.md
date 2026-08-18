@@ -231,8 +231,9 @@ middleman), or crypto (nothing shown).
   sellers to the crypto lane. For brand-name renaming, see §5c (EMI vIBAN
   lane) — it hides your *real account*, not your name, unless you registered a
   brand at the EMI.
-- **Volume thresholds are the seller's problem**: US 1099-K reporting (now
-  $600+, IRS threshold), UK income tax, EU micro-entrepreneur rules. The bazaar
+- **Volume thresholds are the seller's problem**: US 1099-K reporting (threshold
+  restored to $20,000 + 200 transactions for 2026+ by OBBBA — see §10 update;
+  Zelle never issues 1099-Ks), UK income tax, EU micro-entrepreneur rules. The bazaar
   should nudge sellers ("talk to your bank beyond X volume"), but Wabi is not
   the reporting entity because it doesn't process the money.
 - This is technical policy, not legal advice — same disclaimer as the payments
@@ -343,3 +344,40 @@ middleman), or crypto (nothing shown).
   onboarding); virtual-ibans.com EBA rules 2026 (PSD3 agreed Nov 2025,
   AMLR 10 Jul 2027); Stripe marketplace-payouts guide (2026-06: vIBAN
   per-seller model, payout KYC).
+
+## 10) Verification update — 2026-08-18
+
+Re-verification pass against live sources; conclusions unchanged except where
+noted. Full audit + implementation roadmap now lives in
+`docs/plans/2026-08-18-payments-p2p-audit-and-roadmap.md`.
+
+- **US 1099-K (corrects §6):** OBBBA (signed July 2025) restored the TPSO
+  reporting threshold to **$20,000 gross AND 200 transactions for 2026+**
+  (2024 was $5,000; 2025 $2,500). Separately confirmed: **Zelle never issues
+  1099-Ks** — it is a bank network, not a third-party settlement organization
+  (zelle.com FAQ). Net effect: under-threshold hobbyist sellers on US P2P rails
+  get no automatic federal reporting; income remains legally taxable.
+- **Zelle ToS (sharpens §5):** the standard Zelle Network terms, mirrored across
+  member banks, explicitly state the service "is intended for personal, not
+  business or commercial use" and prohibit sending/receiving payments in
+  connection with the sale of goods or services on personal profiles. Sellers
+  should use a bank-offered business profile where eligible, or Cash App/Venmo
+  business profiles, as the ToS-clean consumer alternatives.
+- **Privacy.com (confirms §5c):** still active, still US-only, still
+  identity-verified at signup, still **spend-side only** — virtual cards for
+  paying, never for receiving. Merchants can detect/decline its BIN ranges.
+  No role in a P2P marketplace except a buyer masking a card in a PSP checkout.
+- **Wero (re-confirmed):** still closed to third-party QR generation. Live in
+  BE/FR/DE; NL/LU expected 2026; large-scale e-commerce (request-to-pay QR,
+  France first) planned 2026; PoS 2026–27. "Watch item" conclusion stands.
+- **BOLT 12:** static, reusable Lightning receive offers are now widely
+  available in wallets — the crypto lane no longer needs an LNURL web server
+  for static receive QRs. Relevant when the crypto rail is built.
+- **Stablecoins (new fact for the crypto lane):** USDC is the top-ranked
+  stablecoin for business/creator payments in 2026, and Stripe now accepts USDC
+  from self-custody wallets on Ethereum, Solana, Polygon, and Base — that
+  four-chain set is the mainstream consumer checkout shape. Recommended Wabi
+  crypto pointers: **USDC (Base + Solana) primary, USDT (TRC-20) secondary**
+  (dominant among Thai/SEA users).
+- **EU EPC QR-067 (re-confirmed via §2 sources):** unchanged — open spec,
+  500+ scanning apps, ~a day of work to build. Remains the buildable EU lane.

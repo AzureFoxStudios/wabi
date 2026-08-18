@@ -14,7 +14,6 @@ struct CreateBreakoutRoomsPayload {
     #[serde(default)]
     room_count: Option<u32>,
     #[serde(default)]
-    #[allow(dead_code)]
     auto_assign: bool,
 }
 
@@ -79,15 +78,24 @@ async fn emit_voice_channel_state(state: &SioState, io: &SocketIo, channel_id: &
         .await;
 }
 
+/// A participant relocated by `move_voice_participant`, with the channel they
+/// came from. Used to notify the moved user's client so it can re-tune its
+/// media session (the server only moves roster state, not media).
+struct MovedParticipant {
+    participant: VoiceParticipant,
+    from_channel_id: String,
+}
+
 /// Move a user's primary voice presence into `to_channel_id`, removing them
 /// from whatever voice channel they were in. Returns the affected channels
-/// with their post-move rosters.
+/// with their post-move rosters, plus the moved participant when one was found.
 async fn move_voice_participant(
     state: &SioState,
     target_user_id: &str,
     to_channel_id: &str,
-) -> Vec<(String, Vec<Value>)> {
+) -> (Vec<(String, Vec<Value>)>, Option<MovedParticipant>) {
     let mut changed: Vec<(String, Vec<Value>)> = Vec::new();
+    let mut moved_info: Option<MovedParticipant> = None;
     {
         let mut voice = state.voice_channels.write().await;
         let mut moved: Option<VoiceParticipant> = None;
@@ -111,6 +119,10 @@ async fn move_voice_participant(
             }
             if removed.is_some() && moved.is_none() {
                 moved = removed;
+                moved_info = moved.clone().map(|p| MovedParticipant {
+                    participant: p,
+                    from_channel_id: channel_id.clone(),
+                });
             }
         }
         if let Some(p) = moved {
@@ -135,13 +147,72 @@ async fn move_voice_participant(
                 .unwrap_or_default(),
         ));
     }
-    changed
+    (changed, moved_info)
+}
+
+/// Tell the moved user's client to re-tune its media session. The roster move
+/// alone leaves the client's wabidb relay on the old channel's session, so
+/// without this the audio never follows the user.
+async fn emit_voice_self_moved(io: &SocketIo, moved: &MovedParticipant, to_channel_id: &str) {
+    let _ = io
+        .to(moved.participant.socket_id.clone())
+        .emit(
+            "voice-self-moved",
+            &json!({
+                "fromChannelId": moved.from_channel_id,
+                "toChannelId": to_channel_id,
+            }),
+        )
+        .await;
+}
+
+/// Round-robin `member_count` members across `room_count` rooms; returns the
+/// 0-based room index for each member.
+fn assign_breakout_round_robin(member_count: usize, room_count: usize) -> Vec<usize> {
+    if room_count == 0 {
+        return Vec::new();
+    }
+    (0..member_count).map(|i| i % room_count).collect()
+}
+
+/// Merge in-memory breakout metadata onto serialized channel views so clients
+/// can group breakout rooms under their parent (the flag is not persisted on
+/// the channel record). Covers the init snapshot / reconnects; live marking
+/// flows through the `breakout-rooms-created` event.
+async fn merge_breakout_flags(state: &SioState, channels: &mut [Value]) {
+    let by_id: HashMap<String, (String, u32)> = {
+        let breakouts = state.breakout_rooms.read().await;
+        let mut by_id = HashMap::new();
+        for rooms in breakouts.values() {
+            for room in rooms {
+                by_id.insert(
+                    room.id.clone(),
+                    (room.parent_channel_id.clone(), room.breakout_index),
+                );
+            }
+        }
+        by_id
+    };
+    if by_id.is_empty() {
+        return;
+    }
+    for ch in channels.iter_mut() {
+        let Some(id) = ch.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some((parent, index)) = by_id.get(id) else {
+            continue;
+        };
+        ch["isBreakout"] = json!(true);
+        ch["parentChannelId"] = json!(parent);
+        ch["breakoutIndex"] = json!(index);
+    }
 }
 
 /// Create N temporary breakout voice channels under a main voice channel.
 /// Payload: { parentChannelId, roomCount?, autoAssign? }
 #[allow(dead_code)]
-async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioState, _io: SocketIo) {
+async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let payload = match serde_json::from_value::<CreateBreakoutRoomsPayload>(data) {
         Ok(p) => p,
         Err(e) => {
@@ -229,6 +300,7 @@ async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioStat
         sessions.insert(parent_channel_id.clone(), created.clone());
     }
 
+    let auto_assign = payload.auto_assign;
     let rooms: Vec<Value> = created.iter().map(breakout_room_view).collect();
     let payload = json!({
         "parentChannelId": parent_channel_id,
@@ -236,6 +308,35 @@ async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioStat
     });
     let _ = socket.emit("breakout-rooms-created", &payload);
     let _ = socket.broadcast().emit("breakout-rooms-created", &payload).await;
+
+    if auto_assign {
+        let primary_members: Vec<String> = state
+            .voice_channels
+            .read()
+            .await
+            .get(&parent_channel_id)
+            .map(|members| {
+                members
+                    .iter()
+                    .filter(|p| !p.is_listening_only)
+                    .map(|p| p.stable_id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let assignments = assign_breakout_round_robin(primary_members.len(), created.len());
+        for (member, room_idx) in primary_members.iter().zip(assignments) {
+            let Some(room) = created.get(room_idx) else { continue };
+            let (changed, moved) = move_voice_participant(&state, member, &room.id).await;
+            if let Some(m) = &moved {
+                emit_voice_self_moved(&io, m, &room.id).await;
+            }
+            for (channel_id, members) in changed {
+                let _ = io
+                    .emit("voice-channel-state", &json!({ "channelId": channel_id, "members": members }))
+                    .await;
+            }
+        }
+    }
 }
 
 /// Close all breakouts under a voice channel and return users to main.
@@ -268,15 +369,31 @@ async fn on_close_breakout_rooms(socket: SocketRef, data: Value, state: SioState
     }
 
     {
-        let mut voice = state.voice_channels.write().await;
-        for room in &rooms {
-            if let Some(members) = voice.remove(&room.id) {
-                let parent_members = voice.entry(parent_channel_id.clone()).or_default();
-                for p in members {
-                    parent_members.retain(|m| m.socket_id != p.socket_id);
-                    parent_members.push(p);
+        let mut returned: Vec<(String, VoiceParticipant)> = Vec::new();
+        {
+            let mut voice = state.voice_channels.write().await;
+            for room in &rooms {
+                if let Some(members) = voice.remove(&room.id) {
+                    let parent_members = voice.entry(parent_channel_id.clone()).or_default();
+                    for p in members {
+                        parent_members.retain(|m| m.socket_id != p.socket_id);
+                        parent_members.push(p.clone());
+                        returned.push((room.id.clone(), p));
+                    }
                 }
             }
+        }
+        for (from_channel_id, p) in &returned {
+            let _ = io
+                .to(p.socket_id.clone())
+                .emit(
+                    "voice-self-moved",
+                    &json!({
+                        "fromChannelId": from_channel_id,
+                        "toChannelId": parent_channel_id,
+                    }),
+                )
+                .await;
         }
     }
 
@@ -335,7 +452,12 @@ async fn on_move_user_to_breakout(socket: SocketRef, data: Value, state: SioStat
         return;
     }
 
-    let changed = move_voice_participant(&state, &payload.target_user_id, &payload.to_channel_id).await;
+    let (changed, moved) =
+        move_voice_participant(&state, &payload.target_user_id, &payload.to_channel_id).await;
+
+    if let Some(m) = &moved {
+        emit_voice_self_moved(&io, m, &payload.to_channel_id).await;
+    }
 
     let _ = socket.emit(
         "breakout-user-moved",
@@ -368,7 +490,12 @@ async fn on_move_user_to_voice_channel(socket: SocketRef, data: Value, state: Si
         }
     };
 
-    let changed = move_voice_participant(&state, &payload.target_user_id, &payload.to_channel_id).await;
+    let (changed, moved) =
+        move_voice_participant(&state, &payload.target_user_id, &payload.to_channel_id).await;
+
+    if let Some(m) = &moved {
+        emit_voice_self_moved(&io, m, &payload.to_channel_id).await;
+    }
 
     let _ = socket.emit(
         "breakout-user-moved",
@@ -382,5 +509,30 @@ async fn on_move_user_to_voice_channel(socket: SocketRef, data: Value, state: Si
         let _ = io
             .emit("voice-channel-state", &json!({ "channelId": channel_id, "members": members }))
             .await;
+    }
+}
+
+#[cfg(test)]
+mod breakout_ops_tests {
+    use super::*;
+
+    #[test]
+    fn round_robin_distributes_evenly() {
+        assert_eq!(assign_breakout_round_robin(6, 3), vec![0, 1, 2, 0, 1, 2]);
+    }
+
+    #[test]
+    fn round_robin_with_more_rooms_than_members() {
+        assert_eq!(assign_breakout_round_robin(2, 4), vec![0, 1]);
+    }
+
+    #[test]
+    fn round_robin_zero_rooms_yields_empty() {
+        assert!(assign_breakout_round_robin(5, 0).is_empty());
+    }
+
+    #[test]
+    fn round_robin_zero_members_yields_empty() {
+        assert!(assign_breakout_round_robin(0, 3).is_empty());
     }
 }

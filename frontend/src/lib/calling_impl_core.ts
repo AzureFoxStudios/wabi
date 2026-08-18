@@ -2,7 +2,7 @@ import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
-import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall } from './callingWabidb';
+import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture } from './callingWabidb';
 import {
 	configureLivekitTokenRefresh
 } from './callingLivekitTokenRefresh';
@@ -486,6 +486,10 @@ async function syncLocalAudioState(): Promise<void> {
 	if (tasks.length > 0) {
 		await Promise.allSettled(tasks);
 	}
+
+	// Gate the wabidb relays too — transmit routing ("all listening channels"),
+	// mute, and deafen must behave the same on the default transport.
+	syncWabidbCapture((channelId) => shouldSendAudioToChannel(channelId));
 }
 
 async function renegotiateCallConnection(state: PeerConnectionState, socket: Socket): Promise<void> {
@@ -1284,6 +1288,67 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	}
 	void disconnectLivekitSfu();
 	void disconnectWabidbCall();
+}
+
+/**
+ * The server relocated this socket's voice presence (moderator drag, breakout
+ * auto-assign, breakout close). The roster move alone leaves our media session
+ * on the old channel — re-tune it so audio actually follows the user.
+ */
+export async function handleForcedVoiceMove(
+	socket: Socket,
+	fromChannelId: string,
+	toChannelId: string
+): Promise<void> {
+	if (!socket || fromChannelId === toChannelId) return;
+
+	const isPrimary = activeVoiceChannelId === fromChannelId;
+	const isListening = get(listeningVoiceChannels).includes(fromChannelId);
+	// Stale roster move for a channel we're not voice-connected to — ignore.
+	if (!isPrimary && !isListening) return;
+
+	await disconnectWabidbChannel(fromChannelId);
+	socket.emit('voice-channel-unsubscribe', { channelId: fromChannelId });
+	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== fromChannelId));
+
+	// While a DM/group call is active the channel stays a listen-only backdrop
+	// (TeamSpeak style) — mirror joinVoiceChannel's listenOnly rule so a forced
+	// move never starts a second capturing relay alongside the call.
+	const captureHere = isPrimary && !get(activeCallSessionId);
+
+	if (isPrimary) {
+		activeVoiceChannelId = toChannelId;
+		activeVoiceChannel.set({ id: toChannelId, name: toChannelId });
+	}
+	listeningVoiceChannels.update((channels) => (
+		channels.includes(toChannelId) ? channels : [...channels, toChannelId]
+	));
+
+	if (get(sfuMediaActive)) {
+		await disconnectLivekitSfu();
+		if (captureHere) {
+			await connectLivekitSfu(toChannelId, `${brandName} User`);
+		}
+	} else {
+		try {
+			await connectWabidbCall(socket, toChannelId, `${brandName} User`, undefined, undefined, !captureHere);
+		} catch (error) {
+			console.error('[Calling] Failed to re-tune wabidb relay after forced move:', error);
+		}
+	}
+
+	if (isPrimary) {
+		socket.emit('voice-channel-join', { channelId: toChannelId });
+		// Server-side join resets the roster transmit mode to "primary";
+		// re-assert an active broadcast routing so the roster stays honest.
+		if (get(voiceTransmitMode) === 'all-listening') {
+			socket.emit('set-voice-transmit-mode', { mode: 'all-listening' });
+		}
+		pushVoiceChannelNotice(`Moved to ${toChannelId}`);
+		playCallActionSound('join');
+	}
+	socket.emit('voice-channel-subscribe', { channelId: toChannelId });
+	syncSpatialAudioGraph();
 }
 
 export async function startCall(

@@ -37,6 +37,7 @@
 		setVoiceTransmitRoutingMode
 	} from '$lib/calling';
 	import ConfirmDialog from './ConfirmDialog.svelte';
+	import BreakoutRoomsModal from './BreakoutRoomsModal.svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
 	import UserPopout from './UserPopout.svelte';
@@ -328,7 +329,14 @@
 	}
 	async function handleLeaveVoice() { if (primaryVoiceChannelId) { await leaveVoiceChannel(primaryVoiceChannelId); return; } for (const id of connectedVoiceChannelIds) unsubscribeVoiceChannel(id); }
 	function hasBreakoutRooms(id: string) { return (breakoutChannelsByParent[id] || []).length > 0; }
-	function handleCreateBreakoutRooms(ch: Channel) { const n = Math.max(2, Math.ceil(getVoiceMembers(ch.id).length / 2)); const r = window.prompt(`Create breakout rooms for ${ch.name} (2-20):`, String(n)); const p = Number.parseInt(r || '', 10); if (Number.isFinite(p)) createBreakoutRooms(ch.id, p, true); }
+	let showBreakoutModal = false;
+	let breakoutTargetChannel: Channel | null = null;
+	function handleCreateBreakoutRooms(ch: Channel) { breakoutTargetChannel = ch; showBreakoutModal = true; }
+	function confirmCreateBreakoutRooms(roomCount: number, autoAssign: boolean) {
+		if (!breakoutTargetChannel) return;
+		createBreakoutRooms(breakoutTargetChannel.id, Math.min(20, Math.max(2, Math.round(roomCount))), autoAssign);
+		showBreakoutModal = false;
+	}
 	function handleCloseBreakoutRooms(ch: Channel) { closeBreakoutRooms(ch.id); }
 	function canDragVoiceMember(uid: string) { return !!$currentUser && (uid === $currentUser.id || ($currentUser.dbUserId && uid === `user-${$currentUser.dbUserId}`) || canModerateVoiceMembers); }
 	function handleVoiceMemberDragStart(e: DragEvent, chId: string, uid: string) { if (!canDragVoiceMember(uid)) { e.preventDefault(); return; } draggedVoiceMember = { userId: uid, channelId: chId }; voiceDropTargetChannelId = null; if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', JSON.stringify(draggedVoiceMember)); } }
@@ -1098,6 +1106,7 @@
 </div>
 
 {#if deleteChannelError}<div class="channel-delete-error" role="alert">{deleteChannelError}</div>{/if}
+<BreakoutRoomsModal open={showBreakoutModal} channelName={breakoutTargetChannel?.name || ''} memberCount={breakoutTargetChannel ? getVoiceMembers(breakoutTargetChannel.id).length : 0} onCreate={confirmCreateBreakoutRooms} onClose={() => { showBreakoutModal = false; }} />
 <ConfirmDialog isOpen={showDeleteConfirm} title={channelToDeleteIsCategory ? 'Delete Folder' : 'Delete Channel'} message={channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? `This folder contains ${channelToDeleteChildCount} channel${channelToDeleteChildCount === 1 ? '' : 's'}. Delete the folder only, or delete everything inside it too?` : `Delete channel #${channelToDeleteName || channelToDelete}? This action cannot be undone.`} confirmText={deletingChannel ? 'Deleting…' : channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? 'Delete folder and channels' : 'Delete'} secondaryText={channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? 'Delete folder, keep channels' : null} variant="danger" onConfirm={confirmDeleteChannel} onSecondary={() => void confirmDeleteChannelPreserveChildren()} onCancel={() => { if (!deletingChannel) showDeleteConfirm = false; }} />
 <PinnedMessagesModal bind:isOpen={showPinnedModal} channelId={selectedChannelForPinned} />
 <UserPopout user={$currentUser} bind:isOpen={showOwnProfilePopout} anchorElement={ownProfilePopoutAnchor} isOwnProfile={true} on:close={() => (showOwnProfilePopout = false)} on:openFullProfile={() => dispatch('openSettings')} />
