@@ -133,7 +133,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         views
     };
 
-    let channels: Vec<Value> = state
+    let mut channels: Vec<Value> = state
         .app
         .wdb
         .get_channels_raw()
@@ -142,6 +142,9 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         .iter()
         .map(row_to_channel_view)
         .collect();
+    // Mark breakout rooms so clients can group them under their parent —
+    // the flag lives in-memory (state.breakout_rooms), not on the channel row.
+    merge_breakout_flags(&state, &mut channels).await;
 
     let init = json!({
         "channels": channels,

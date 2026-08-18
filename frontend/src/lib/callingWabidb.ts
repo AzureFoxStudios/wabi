@@ -10,7 +10,8 @@ import { WabiDbCallState } from './wabidbCallConnection';
 import {
 	connectionState,
 	callTransportState,
-	localStream
+	localStream,
+	voiceTransmitMode
 } from './callingStateStores';
 import { getAuthToken, getStoredDbUserId } from './authSession';
 
@@ -67,6 +68,19 @@ export async function disconnectWabidbChannel(targetChannelId: string): Promise<
 		try { await wabidbCallState.leaveSession(targetSessionId, currentUserId ?? 0, ''); } catch (_) {}
 	}
 	sessionIds.delete(targetChannelId);
+}
+
+/**
+ * Re-evaluate outbound capture on every wabidb relay. `shouldCapture` decides
+ * per channel (transmit routing mode, mute/deafen) so the wabidb transport
+ * honors the same gating as the WebRTC/LiveKit paths in syncLocalAudioState.
+ */
+export function syncWabidbCapture(shouldCapture: (channelId: string) => boolean): void {
+	for (const [channelId, relay] of wabidbMediaRelays.entries()) {
+		try {
+			void relay.setCapture?.(shouldCapture(channelId));
+		} catch (_) {}
+	}
 }
 
 const defaultWabidbServer = import.meta.env.VITE_WABI_SERVER_URL ?? '';
@@ -162,7 +176,9 @@ export async function connectWabidbCall(
 				...(isDirectCall
 					? { kind: 'dm' as const, peerStableUserId: peerUserId }
 					: {}),
-				capture: !listenOnly,
+				// "All listening channels" broadcast captures into every
+				// subscribed channel session, not just the primary one.
+				capture: !listenOnly || get(voiceTransmitMode) === 'all-listening',
 			});
 			await relay.start(stream);
 			wabidbMediaRelays.set(targetChannelId, relay);

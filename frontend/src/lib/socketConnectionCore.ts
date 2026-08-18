@@ -17,6 +17,7 @@ import { drainOutboundQueue } from '$lib/wabidb/drain';
 import { getWabiDB } from '$lib/wabidb';
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
+import { upsertBreakoutRooms, removeBreakoutRooms } from './breakoutChannels';
 import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
 import { isRenderableMessage } from '$lib/displayEnhancements';
 import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
@@ -975,6 +976,27 @@ export class SocketManager {
 			if (!payload?.channelId) return;
 			_setVoiceChannelMembers(payload.channelId, Array.isArray(payload.members) ? payload.members : []);
 			console.log('[voice-channel-state] set members for', payload.channelId, 'count:', Array.isArray(payload.members) ? payload.members.length : 0);
+		});
+
+		// The server moved this socket's voice presence (breakout move, moderator
+		// drag, breakout close). Re-tune the local media session — the roster
+		// move alone would leave the wabidb relay on the old channel's session.
+		sock.on('voice-self-moved', (payload: { fromChannelId?: string; toChannelId?: string }) => {
+			if (!payload?.fromChannelId || !payload?.toChannelId) return;
+			void import('./calling').then(({ handleForcedVoiceMove }) =>
+				handleForcedVoiceMove(sock, payload.fromChannelId!, payload.toChannelId!)
+			).catch((error) => console.warn('[Socket] Failed to handle voice move:', error));
+		});
+
+		sock.on('breakout-rooms-created', (payload: {
+			parentChannelId?: string;
+			rooms?: Array<{ id?: string; name?: string; parentChannelId?: string; breakoutIndex?: number }>;
+		}) => {
+			channels.update((list) => upsertBreakoutRooms(list, payload));
+		});
+
+		sock.on('breakout-rooms-closed', (payload: { rooms?: Array<{ id?: string }> }) => {
+			channels.update((list) => removeBreakoutRooms(list, payload?.rooms));
 		});
 
 		sock.on('voice-channel-joined', (payload: { channelId?: string; user?: any }) => {

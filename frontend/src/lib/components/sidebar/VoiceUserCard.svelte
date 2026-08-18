@@ -34,6 +34,7 @@
 	$: activeListenChips = voiceChannels.filter(ch =>
 		$listeningVoiceChannels.includes(ch.id) || ch.id === runtimeActiveVoiceChannelId
 	);
+	$: isBroadcasting = $voiceTransmitMode === 'all-listening' && activeListenChips.length > 1 && !$callMuted;
 
 	function getCurrentVoiceChannelName(): string {
 		if (!runtimeActiveVoiceChannelId) return '';
@@ -73,6 +74,9 @@
 				<div>
 					<strong>Voice Connected</strong>
 					<small>{getCurrentVoiceChannelName()} / {$callConnectionState}</small>
+					{#if isBroadcasting}
+						<small class="voice-broadcast-badge">Broadcasting to {activeListenChips.length} channels</small>
+					{/if}
 				</div>
 			</div>
 			<span class="voice-chevron">{showVoiceDebugDetails ? 'v' : '>'}</span>
@@ -147,3 +151,17 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	.voice-broadcast-badge {
+		display: inline-block;
+		margin-top: 2px;
+		padding: 1px 6px;
+		border-radius: 999px;
+		background: rgba(152, 216, 200, 0.18);
+		color: var(--accent, #98d8c8);
+		font-size: 0.7rem;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+	}
+</style>

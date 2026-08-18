@@ -121,32 +121,7 @@ export class WabidbMediaRelay {
       }
 
       if (this.captureEnabled) {
-      this.opusRecorder = new OpusRecorder({
-        encoderSampleRate: 48000,
-        encoderChannels: 1,
-        streamPages: true,
-        numberOfChannels: 1,
-        // Must point at the bundled worker URL. The library defaults to
-        // "encoderWorker.min.js" at the site root, which the SPA fallback
-        // serves as text/html → worker is killed (MIME mismatch) and the
-        // media relay silently dies ("DOMException: The operation was
-        // aborted"). Same pattern as the decoder worker below.
-        encoderPath: new URL('opus-recorder/dist/encoderWorker.min.js', import.meta.url).href,
-      });
-
-      this.opusRecorder.ondataavailable = (data: ArrayBuffer) => {
-        if (this.isActive) {
-          // Base64 string payload — raw ArrayBuffer binary is silently dropped
-          // by the server's Data<serde_json::Value> extractor.
-          this.socket.emit('wabidb-media', {
-            sessionId: this.sessionId,
-            userId: this.userId,
-            payload: arrayBufferToBase64(data),
-          });
-        }
-      };
-
-      await this.opusRecorder.start(stream);
+        await this.startCapture();
       }
 
       this.onIncomingMediaHandler = (msg: any) => {
@@ -164,6 +139,53 @@ export class WabidbMediaRelay {
       this.onError?.(err);
       throw err;
     }
+  }
+
+  /**
+   * Toggle outbound capture without touching the receive path. Used when the
+   * transmit routing mode changes ("all listening channels" broadcast) or when
+   * mute/deafen state should gate the wabidb relay like it gates WebRTC/LiveKit.
+   */
+  async setCapture(enabled: boolean): Promise<void> {
+    if (this.captureEnabled === enabled) return;
+    this.captureEnabled = enabled;
+    if (!this.isActive) return;
+    if (enabled && this.localStream && !this.opusRecorder) {
+      await this.startCapture();
+    } else if (!enabled && this.opusRecorder) {
+      this.opusRecorder.stop();
+      this.opusRecorder = null;
+    }
+  }
+
+  private async startCapture(): Promise<void> {
+    if (!this.localStream || this.opusRecorder) return;
+    this.opusRecorder = new OpusRecorder({
+      encoderSampleRate: 48000,
+      encoderChannels: 1,
+      streamPages: true,
+      numberOfChannels: 1,
+      // Must point at the bundled worker URL. The library defaults to
+      // "encoderWorker.min.js" at the site root, which the SPA fallback
+      // serves as text/html → worker is killed (MIME mismatch) and the
+      // media relay silently dies ("DOMException: The operation was
+      // aborted"). Same pattern as the decoder worker below.
+      encoderPath: new URL('opus-recorder/dist/encoderWorker.min.js', import.meta.url).href,
+    });
+
+    this.opusRecorder.ondataavailable = (data: ArrayBuffer) => {
+      if (this.isActive && this.captureEnabled) {
+        // Base64 string payload — raw ArrayBuffer binary is silently dropped
+        // by the server's Data<serde_json::Value> extractor.
+        this.socket.emit('wabidb-media', {
+          sessionId: this.sessionId,
+          userId: this.userId,
+          payload: arrayBufferToBase64(data),
+        });
+      }
+    };
+
+    await this.opusRecorder.start(this.localStream);
   }
 
   private handleIncomingMedia(opusPayload: string): void {
