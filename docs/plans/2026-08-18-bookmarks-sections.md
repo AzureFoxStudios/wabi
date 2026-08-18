@@ -129,6 +129,48 @@ space. That is the seed of definable grouping.
 - No auto-promotion of ephemeral content into permanent notes. Permanence is
   always an explicit human act.
 
+## Part C — Global rail (the far-left icon dock)
+
+The mockup shows a far-left vertical icon rail: home, chat, calendar, tasks,
+files, settings. You spent much of the project trying to kill this rail, and
+rightly — a fully-expanded label rail is clutter. But the rail is functional
+(Discord has it for a reason), so the correct answer is **add it back with a
+narrow default and a user-tunable side + density.**
+
+### Three density states (user-toggled, NOT hover-driven)
+
+1. **Full** — icon + label, default for new users / onboarding.
+2. **Icons-only** — slim icon column, tooltip on hover. The daily driver.
+3. **Hidden** — for the people who hate it; a thin swipe-edge or `[` / `]` toggle
+   brings it back.
+
+Hover-to-reject is the wrong solution: it hides discoverability, breaks touch,
+and triggers on mouse-accident. Discord's actual default is icons-only — it
+works because the icons are always visible, just compact.
+
+### Side placement: left OR right
+
+A user setting — the rail can pin to the **left or right** edge of the viewport.
+
+- The mockup defaults to left (Discord convention).
+- Flipping to right is a common accessibility + preference option (right-handed
+  users who want the rail out of the primary left-to-right reading flow; RTL
+  layouts; or simply "I've always used it there").
+- Stored per-user. The section sidebar stays on its native side.
+
+### Internal structure
+
+The rail mixes two jobs — keep them visually distinct:
+
+- **Identity anchor** — the server logo at the very top, goes to the server
+  hub (as the mockup shows). Not a surface toggle, just the identity home.
+- **Surface icons** — home, chat, calendar, tasks, files. Grouped below the
+  logo. These switch the active surface/workspace.
+- **Settings** — pinned to the very bottom, separated from the surface group.
+
+Do not let the logo get lost in the icon list. It's the identity anchor, not a
+surface button.
+
 ## Task list (unscoped / not yet sequenced)
 
 - [ ] Confirm Section vs Category relationship (above, or a rename of the existing sidebar grouping).
@@ -141,3 +183,6 @@ space. That is the seed of definable grouping.
 - [ ] Server-default + user-override section model (create/reorder/rename/hide).
 - [ ] Default section template for new servers.
 - [ ] Pin vs star visual distinction (pin glyph = shared, star = personal).
+- [ ] Global rail: add back as narrow icon dock with three density states (full / icons-only / hidden).
+- [ ] Global rail: side placement toggle (left OR right), per-user.
+- [ ] Global rail: identity anchor (server logo → hub) separated from surface icons + settings at bottom.

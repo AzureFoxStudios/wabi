@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{header::FORWARDED, HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -8,6 +8,7 @@ use axum::{
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use serde_json::json;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -15,6 +16,8 @@ use tokio::sync::RwLock;
 pub struct RateLimitState {
     limiters: Arc<RwLock<HashMap<String, Arc<DefaultDirectRateLimiter>>>>,
     default_quota: Quota,
+    /// Trusted proxy CIDRs. Empty means no trusted proxies — client IP = socket peer.
+    trusted_proxies: Vec<ipnet::IpNet>,
 }
 
 impl RateLimitState {
@@ -30,45 +33,100 @@ impl RateLimitState {
         Self {
             limiters: Arc::new(RwLock::new(HashMap::new())),
             default_quota: quota,
+            trusted_proxies: Vec::new(),
         }
+    }
+
+    /// Set trusted proxy CIDRs from the WABI_TRUSTED_PROXIES env var.
+    pub fn with_trusted_proxies(mut self) -> Self {
+        if let Ok(val) = std::env::var("WABI_TRUSTED_PROXIES") {
+            self.trusted_proxies = val
+                .split(',')
+                .filter_map(|s| s.trim().parse::<ipnet::IpNet>().ok())
+                .collect();
+        }
+        self
     }
 
     async fn get_limiter(&self, key: &str) -> Arc<DefaultDirectRateLimiter> {
         let mut limiters = self.limiters.write().await;
+        // Bound the limiter map: retain only recently-used keys.
+        if limiters.len() > 10_000 {
+            // Simple eviction: drain half the map.
+            let keys: Vec<String> = limiters.keys().take(limiters.len() / 2).cloned().collect();
+            for k in keys {
+                limiters.remove(&k);
+            }
+        }
         limiters
             .entry(key.to_string())
             .or_insert_with(|| Arc::new(RateLimiter::direct(self.default_quota.clone())))
             .clone()
     }
 
-    fn extract_client_ip(headers: &HeaderMap) -> String {
-        headers
-            .get(FORWARDED)
+    /// Extract the client IP, respecting trusted proxies.
+    /// Empty trusted_proxies: client IP = socket peer address (headers ignored).
+    /// Non-empty + peer trusted: use the rightmost untrusted XFF entry.
+    /// Non-empty + peer untrusted: client IP = socket peer address.
+    fn extract_client_ip(&self, headers: &HeaderMap, peer: SocketAddr) -> String {
+        let peer_ip = peer.ip();
+        if self.trusted_proxies.is_empty() {
+            // No trusted proxies configured — ignore all forwarding headers.
+            return peer_ip.to_string();
+        }
+
+        // Check if the peer is a trusted proxy.
+        let peer_trusted = self.trusted_proxies.iter().any(|net| net.contains(&peer_ip));
+        if !peer_trusted {
+            return peer_ip.to_string();
+        }
+
+        // Peer is trusted — parse the rightmost untrusted XFF entry.
+        if let Some(xff) = headers
+            .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
-            .and_then(|s| {
-                s.split(',')
-                    .next()
-                    .and_then(|part| part.split(';').next())
-                    .and_then(|kv| kv.split('=').nth(1))
-                    .map(|ip| ip.trim().trim_matches('"').to_string())
-            })
-            .or_else(|| {
-                headers
-                    .get("x-forwarded-for")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.split(',').next().map(|ip| ip.trim().to_string()))
-            })
-            .or_else(|| {
-                headers
-                    .get("x-real-ip")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.trim().to_string())
-            })
-            .unwrap_or_else(|| "unknown".to_string())
+        {
+            let mut ip_str: Option<String> = None;
+            for entry in xff.split(',').rev() {
+                let candidate = entry.trim();
+                if let Ok(ip) = candidate.parse::<std::net::IpAddr>() {
+                    // Skip trusted proxies; take the first (rightmost) untrusted entry.
+                    let is_trusted = self.trusted_proxies.iter().any(|net| net.contains(&ip));
+                    if !is_trusted {
+                        ip_str = Some(candidate.to_string());
+                        break;
+                    }
+                }
+            }
+            if let Some(ip) = ip_str {
+                return ip;
+            }
+        }
+
+        // Fallback: use the Forwarded header.
+        if let Some(fwd) = headers.get(FORWARDED).and_then(|v| v.to_str().ok()) {
+            if let Some(for_val) = fwd.split(';').find_map(|part| {
+                part.trim().strip_prefix("for=").map(|s| {
+                    s.trim()
+                        .trim_matches('"')
+                        .trim_start_matches('[')
+                        .trim_end_matches(']')
+                })
+            }) {
+                return for_val.to_string();
+            }
+        }
+
+        peer_ip.to_string()
     }
 
-    pub async fn check_rate_limit(&self, headers: &HeaderMap, path: &str) -> Result<(), Response> {
-        let ip = Self::extract_client_ip(headers);
+    pub async fn check_rate_limit(
+        &self,
+        headers: &HeaderMap,
+        peer: SocketAddr,
+        path: &str,
+    ) -> Result<(), Response> {
+        let ip = self.extract_client_ip(headers, peer);
         let key = format!("{}:{}", ip, path);
 
         let limiter = self.get_limiter(&key).await;
@@ -90,13 +148,17 @@ impl RateLimitState {
 
 pub async fn rate_limit_middleware(
     State(rate_limit_state): State<RateLimitState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
     let path = request.uri().path().to_string();
 
-    if let Err(response) = rate_limit_state.check_rate_limit(&headers, &path).await {
+    if let Err(response) = rate_limit_state
+        .check_rate_limit(&headers, peer, &path)
+        .await
+    {
         return response;
     }
 
