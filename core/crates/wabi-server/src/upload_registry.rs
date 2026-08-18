@@ -228,4 +228,23 @@ mod tests {
 
         let _ = tokio::fs::remove_dir_all(&tmp).await;
     }
+
+    #[tokio::test]
+    async fn revoke_and_is_revoked_roundtrip() {
+        let tmp = std::env::temp_dir().join(format!("wabi-upload-reg-revoke-{}", Uuid::new_v4()));
+        let reg = UploadRegistry::new_persistent(&tmp);
+        reg.record("file-1.png", "pic.png", Some("ch_1"), Some(42), UploadKind::Attachment, 1024)
+            .await;
+
+        assert!(!reg.is_revoked("file-1.png").await);
+        assert!(reg.revoke("file-1.png").await); // newly revoked
+        assert!(!reg.revoke("file-1.png").await); // already revoked
+        assert!(reg.is_revoked("file-1.png").await);
+
+        // Reload from disk — revocation persists.
+        let reg2 = UploadRegistry::new_persistent(&tmp);
+        assert!(reg2.is_revoked("file-1.png").await);
+
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
+    }
 }
