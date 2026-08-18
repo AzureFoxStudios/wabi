@@ -10,6 +10,7 @@ use sha2::{Sha256, Digest};
 
 use crate::adapter::WdbAdapter;
 use wabidb::engine::wabi_store::WabiStore;
+use wabidb::retention::tombstone::TombstoneTable;
 use crate::api::upload::UploadState;
 use crate::blacklist::BlacklistManager;
 use crate::blobs::BlobRegistry;
@@ -45,6 +46,8 @@ pub struct AppState {
     pub live_channel_ttl_ms: Arc<RwLock<HashMap<String, u64>>>,
     /// Per-channel live room message count cap. Default: 1000.
     pub live_channel_cap: Arc<RwLock<HashMap<String, u64>>>,
+    // Tombstone table for retention — tracks soft-deleted messages pending compaction.
+    pub tombstone_table: Arc<RwLock<TombstoneTable>>,
     pub owner_user_id: RwLock<Option<i64>>,
     /// Serialises the fresh-server setup window (create user + claim
     /// ownership) so concurrent first registrations can't interleave:
@@ -273,6 +276,7 @@ impl AppState {
             channel_auto_delete_label: Arc::new(RwLock::new(HashMap::new())),
             live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
             live_channel_cap: Arc::new(RwLock::new(HashMap::new())),
+            tombstone_table: Arc::new(RwLock::new(TombstoneTable::new())),
             owner_user_id,
             setup_claim_lock: tokio::sync::Mutex::new(()),
             revocation_file,
