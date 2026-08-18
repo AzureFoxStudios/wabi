@@ -93,6 +93,11 @@ async fn serve_upload(
         }
     }
 
+    // WS-6b: revoked files return 410 Gone.
+    if state.upload_registry.is_revoked(&filename).await {
+        return (axum::http::StatusCode::GONE, "File has been revoked").into_response();
+    }
+
     match tokio::fs::read(&file_path).await {
         Ok(data) => {
             let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
@@ -110,6 +115,15 @@ async fn serve_upload(
             for (k, v) in crate::api::upload::upload_response_headers() {
                 headers.insert(k, v);
             }
+            // WS-6a: cache control + referrer policy for uploaded files.
+            headers.insert(
+                axum::http::header::CACHE_CONTROL,
+                "private, max-age=3600".parse().unwrap(),
+            );
+            headers.insert(
+                axum::http::header::REFERRER_POLICY,
+                "no-referrer".parse().unwrap(),
+            );
             (headers, data).into_response()
         }
         Err(e) => {
@@ -988,10 +1002,18 @@ async fn serve_static(uri: axum::extract::OriginalUri) -> impl IntoResponse {
         "public, max-age=31536000, immutable"
     };
 
+    // WS-6a: referrer policy on the SPA index.html response.
     match StaticAssets::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
-            ([(CONTENT_TYPE, mime.as_ref()), (CACHE_CONTROL, cache)], content.data).into_response()
+            let mut response = ([(CONTENT_TYPE, mime.as_ref()), (CACHE_CONTROL, cache)], content.data).into_response();
+            if path == "index.html" {
+                response.headers_mut().insert(
+                    axum::http::header::REFERRER_POLICY,
+                    "no-referrer".parse().unwrap(),
+                );
+            }
+            response
         }
         None => {
             // API paths that reach the static fallback are genuinely missing

@@ -642,6 +642,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/recovery-codes", post(recovery_codes))
         .route("/users/reset-password", post(reset_user_password))
         .route("/users/clear-login-lockout", post(clear_login_lockout))
+        .route("/uploads/revoke", post(revoke_upload))
+        .route("/uploads", get(list_uploads))
         .layer(axum::Extension(policy_store))
         .with_state(state)
 }
@@ -765,6 +767,17 @@ async fn reset_user_password(
 struct ClearLoginLockoutRequest {
     #[serde(rename = "targetUserId")]
     target_user_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RevokeUploadRequest {
+    filename: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListUploadsQuery {
+    #[serde(default)]
+    channel_id: Option<String>,
 }
 
 /// POST /api/admin/users/clear-login-lockout — the frontend admin UI calls
@@ -1248,4 +1261,33 @@ async fn recovery_codes(
     let codes = state.generate_recovery_codes(caller, 5).await;
     Json(json!({ "success": true, "codes": codes, "warning": "Store these safely; they are shown only once." }))
         .into_response()
+}
+
+/// Revoke an uploaded file (WS-6b). Returns 410 on subsequent access.
+async fn revoke_upload(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<RevokeUploadRequest>,
+) -> Response {
+    if let Err(resp) = admin_auth(&headers, &state).await {
+        return resp;
+    }
+    let newly_revoked = state.upload_registry.revoke(&req.filename).await;
+    Json(json!({ "success": true, "revoked": newly_revoked, "filename": req.filename })).into_response()
+}
+
+/// List uploaded files (WS-6b). Optionally filter by channel.
+async fn list_uploads(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<ListUploadsQuery>,
+) -> Response {
+    if let Err(resp) = admin_auth(&headers, &state).await {
+        return resp;
+    }
+    let files = match query.channel_id {
+        Some(ch) => state.upload_registry.by_channel(&ch).await,
+        None => state.upload_registry.list().await,
+    };
+    Json(json!({ "success": true, "files": files })).into_response()
 }
