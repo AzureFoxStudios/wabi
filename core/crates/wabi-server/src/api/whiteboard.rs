@@ -24,6 +24,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
+use crate::auth_extractor::AuthUser;
 use crate::error::Result;
 use crate::socketio::whiteboard_versions;
 use crate::state::AppState;
@@ -201,11 +202,11 @@ struct WhiteboardImageUploadResponse {
 async fn upload_whiteboard_image(
     State(state): State<Arc<AppState>>,
     Path(board_id): Path<String>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     mut multipart: axum::extract::Multipart,
 ) -> Result<impl IntoResponse> {
     // Auth check
-    let user_id = extract_user_id(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
 
     // Validate board ID
     let board_id = board_id.trim().to_string();
@@ -340,10 +341,10 @@ async fn upload_whiteboard_image(
 async fn serve_whiteboard_file(
     State(state): State<Arc<AppState>>,
     Path((board_id, file_id)): Path<(String, String)>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<impl IntoResponse> {
-    // Auth check (optional — allow guests with session cookie too)
-    let user_id = extract_user_id_optional(&headers, &state.config.jwt_secret);
+    // Auth check — require a valid token. Guests cannot access whiteboard files.
+    let user_id = auth.user_id;
 
     let board_id = board_id.trim().to_string();
     if board_id.is_empty() {
@@ -371,13 +372,11 @@ async fn serve_whiteboard_file(
         board_id.clone()
     };
 
-    if let Some(uid) = user_id {
-        if !can_access_channel(&state, Some(uid), None, &channel_id).await {
-            return Ok(Response::builder()
-                .status(StatusCode::FORBIDDEN)
-                .body(Body::from("Access denied"))
-                .unwrap());
-        }
+    if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
+        return Ok(Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(Body::from("Access denied"))
+            .unwrap());
     }
 
     // Serve the file
@@ -417,9 +416,9 @@ async fn serve_whiteboard_file(
 async fn get_board_document(
     State(state): State<Arc<AppState>>,
     Path(board_id): Path<String>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<impl IntoResponse> {
-    let user_id = extract_user_id(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
 
     let board_id = board_id.trim().to_string();
     if board_id.is_empty() {
@@ -469,10 +468,10 @@ async fn get_board_document(
 async fn put_board_document(
     State(state): State<Arc<AppState>>,
     Path(board_id): Path<String>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     body: axum::body::Bytes,
 ) -> Result<Response> {
-    let user_id = extract_user_id(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
 
     if body.len() > WHITEBOARD_MAX_DOCUMENT_BYTES {
         return Ok(json_error_response(
@@ -564,38 +563,7 @@ async fn put_board_document(
 // Auth helpers
 // ---------------------------------------------------------------------------
 
-fn extract_user_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> anyhow::Result<i64> {
-    use jsonwebtoken::{decode, DecodingKey, Validation};
 
-    let auth = headers
-        .get("authorization")
-        .ok_or_else(|| anyhow::anyhow!("Authentication required"))?
-        .to_str()
-        .map_err(|_| anyhow::anyhow!("invalid authorization header"))?;
-    let token = auth
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| anyhow::anyhow!("missing Bearer prefix"))?;
-
-    #[derive(serde::Deserialize)]
-    struct Claims {
-        sub: String,
-    }
-
-    let key = DecodingKey::from_secret(jwt_secret.as_bytes());
-    let mut v = Validation::default();
-    v.validate_exp = true;
-    v.leeway = 60;
-    let c =
-        decode::<Claims>(token, &key, &v).map_err(|e| anyhow::anyhow!("invalid token: {}", e))?;
-    c.claims
-        .sub
-        .parse::<i64>()
-        .map_err(|_| anyhow::anyhow!("invalid user_id in token"))
-}
-
-fn extract_user_id_optional(headers: &axum::http::HeaderMap, jwt_secret: &str) -> Option<i64> {
-    extract_user_id(headers, jwt_secret).ok()
-}
 
 // ---------------------------------------------------------------------------
 // Response helpers

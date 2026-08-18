@@ -139,15 +139,6 @@ async fn revoke_node(
     Ok(Json(json!({ "ok": true, "node": node })))
 }
 
-async fn require_admin(state: &Arc<AppState>, headers: &HeaderMap) -> Result<()> {
-    let user_id = claims_from_bearer(headers, &state.config.jwt_secret)
-        .ok_or_else(|| AppError::Unauthorized("valid auth token required".into()))?;
-    if !state.is_admin(user_id).await {
-        return Err(AppError::Unauthorized("admin access required".into()));
-    }
-    Ok(())
-}
-
 fn claims_from_bearer(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
     #[derive(serde::Deserialize)]
     struct Claims {
@@ -165,6 +156,40 @@ fn claims_from_bearer(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
         .sub
         .parse()
         .ok()
+}
+
+/// Require a valid auth token with revocation check. Returns user_id.
+/// WS-4a: replaced hand-rolled decoder with revocation-aware version.
+async fn require_admin(state: &Arc<AppState>, headers: &HeaderMap) -> Result<i64> {
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer ").map(str::to_owned))
+        .ok_or_else(|| AppError::Unauthorized("valid auth token required".into()))?;
+    let key = DecodingKey::from_secret(state.config.jwt_secret.as_bytes());
+    let mut validation = Validation::default();
+    validation.validate_exp = true;
+    validation.leeway = 60;
+    #[derive(serde::Deserialize)]
+    struct Claims {
+        sub: String,
+        #[serde(default)]
+        jti: String,
+        #[serde(default)]
+        iat: i64,
+    }
+    let claims = decode::<Claims>(&auth_header, &key, &validation)
+        .map_err(|_| AppError::Unauthorized("valid auth token required".into()))?
+        .claims;
+    let user_id = claims.sub.parse::<i64>().map_err(|_| AppError::Unauthorized("bad sub".into()))?;
+    // Revocation check — hand-rolled decoders bypassed this.
+    if state.is_token_revoked(&claims.jti, user_id, claims.iat).await {
+        return Err(AppError::Unauthorized("token revoked".into()));
+    }
+    if !state.is_admin(user_id).await {
+        return Err(AppError::Unauthorized("admin access required".into()));
+    }
+    Ok(user_id)
 }
 
 fn registry_error_to_app_error(error: NodeRegistryError) -> AppError {
