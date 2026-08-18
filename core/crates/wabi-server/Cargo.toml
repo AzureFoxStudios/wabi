@@ -24,6 +24,7 @@ mime_guess = "2"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 # Wabi core protocol
 wabi-core = { path = "../../../crates/wabi-core", features = ["ts"] }
@@ -48,6 +49,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 
 # Rate limiting
 governor = { version = "0.6", features = ["std"] }
+ipnet = "2"
 
 # SpacetimeDB (HTTP API only)
 reqwest = { version = "0.13", features = ["json", "query"] }

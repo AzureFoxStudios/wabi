@@ -5,7 +5,7 @@
 //! - POST /api/auth/login
 //! - POST /api/auth/guest
 
-use axum::{extract::State, Json, Router};
+use axum::{extract::{ConnectInfo, State}, Json, Router};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
@@ -316,8 +316,26 @@ async fn handle_recover(
 /// Guest login (no password required)
 async fn handle_guest(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
     Json(req): Json<GuestRequest>,
 ) -> Result<Json<AuthResponse>> {
+    // WS-5b: per-IP rate limit for guest creation.
+    let mut guest_limiter = state.guest_rate_limiter.write().await;
+    if guest_limiter.len() > 10_000 {
+        let keys: Vec<String> = guest_limiter.keys().take(guest_limiter.len() / 2).cloned().collect();
+        for k in keys {
+            guest_limiter.remove(&k);
+        }
+    }
+    let ip = peer.ip().to_string();
+    let count = guest_limiter.entry(ip).or_insert(0);
+    *count += 1;
+    // 5 guest creations per hour per IP.
+    if *count > 5 {
+        return Err(AppError::Forbidden("Guest creation rate limit exceeded. Try again later.".into()));
+    }
+    drop(guest_limiter);
+
     let auth_policy = load_auth_policy(&state);
     if auth_policy.get("allowGuest").and_then(Value::as_bool) == Some(false) {
         return Err(AppError::Forbidden("Guest access is disabled on this server".into()));

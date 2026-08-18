@@ -99,6 +99,8 @@ pub struct AppState {
     /// Steam addon server-side cache (60s TTL per steam id). Opt-in; only
     /// populated when STEAM_API_KEY is configured. See api/steam.rs.
     pub steam_cache: Arc<Mutex<crate::api::steam::SteamCache>>,
+    /// Guest creation rate limiter (IP → count). WS-5b.
+    pub guest_rate_limiter: Arc<RwLock<HashMap<String, u32>>>,
 }
 
 /// Channel manager for broadcast channels
@@ -298,6 +300,7 @@ impl AppState {
                 tx
             },
             steam_cache: Arc::new(Mutex::new(Default::default())),
+            guest_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 

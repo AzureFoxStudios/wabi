@@ -378,13 +378,48 @@ mod cors_tests {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize logging
+    // Default: info level, file appender with daily rotation (max 7 days)
+    let log_rotation_days: usize = std::env::var("WABI_LOG_RETENTION_DAYS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7);
+    let log_dir = std::env::var("WABI_LOG_DIR").unwrap_or_else(|_| "./logs".to_string());
+    let _ = std::fs::create_dir_all(&log_dir);
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "wabi-server.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive("wabi_server=info".parse()?)
                 .add_directive("tower_http=debug".parse()?),
         )
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .with_target(false)
+        .compact()
         .init();
+    // Spawn a background task to prune rotated log files older than log_rotation_days
+    let log_dir_clone = log_dir.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(86_400));
+        loop {
+            interval.tick().await;
+            if let Ok(entries) = std::fs::read_dir(&log_dir_clone) {
+                let cutoff = std::time::SystemTime::now()
+                    .checked_sub(std::time::Duration::from_secs(
+                        (log_rotation_days as u64).saturating_mul(86_400),
+                    ))
+                    .unwrap_or(std::time::SystemTime::now());
+                for entry in entries.flatten() {
+                    if let Ok(md) = entry.metadata() {
+                        if md.is_file() && md.modified().map(|m| m <= cutoff).unwrap_or(false) {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+        }
+    });
 
     // One-shot maintenance mode: purge messages whose author no longer
     // exists as a user (orphaned/ghost messages). Triggered via the

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Wabi — Right Panel v5 (individual docked stubs)</title>
+<title>Wabi — Right Panel v6 (individual Blender tabs)</title>
 <style>
   :root {
     --bg-sunken: #0f0c29;
@@ -21,7 +21,7 @@
     --online: #22c55e;
     --away: #f59e0b;
     --offline: #708090;
-    --stub-w: 46px;
+    --tab: 38px;             /* each tab is its own square */
     --panel-default: 360px;
     --panel-min: 240px;
     --panel-max: 560px;
@@ -56,36 +56,35 @@
   .composer { flex-shrink: 0; margin: 0 16px 16px; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 11px 14px; color: var(--text-muted); font-size: 14px; display: flex; align-items: center; gap: 8px; }
   .composer .hint { flex: 1; }
 
-  .right-zone { position: relative; display: flex; align-items: stretch; flex-shrink: 0; }
+  .right-zone {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    background: linear-gradient(180deg, #1e1e38 0%, #1a1a2e 100%);
+    border-left: 2px solid rgba(var(--accent-rgb), .25);
+  }
 
-  /* Stub strip — only shows docked stubs (individual bits), not a full catalog */
-  .stub-strip {
-    width: var(--stub-w); flex-shrink: 0;
+  /* Tab strip: a vertical row of INDIVIDUAL isolated squares on a visible rail */
+  .tab-strip {
     display: flex; flex-direction: column; align-items: center;
-    padding: 10px 0; gap: 6px;
-    border-left: 1px solid var(--border-faint);
-    background: var(--bg-base);
+    padding: 12px 8px; gap: 6px;
+    flex-shrink: 0;
+    min-width: 54px;
   }
-  .stub-add {
-    width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
-    border: 1px dashed var(--border-subtle); background: transparent; color: var(--text-muted);
-    display: flex; align-items: center; justify-content: center; cursor: pointer;
-    transition: background .12s ease, color .12s ease;
-  }
-  .stub-add svg { width: 16px; height: 16px; }
-  .stub-add:hover { background: rgba(var(--accent-rgb), .14); color: var(--text-primary); }
-  .stub {
-    position: relative; width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
-    border: 1px solid transparent; background: transparent; color: var(--text-muted);
+  .tab {
+    width: var(--tab); height: var(--tab); border-radius: 8px; flex-shrink: 0;
+    border: 1px solid rgba(var(--accent-rgb), .15); background: rgba(var(--accent-rgb), .08); color: var(--text-muted);
     display: flex; align-items: center; justify-content: center; cursor: pointer;
     transition: background .12s ease, color .12s ease, border-color .12s ease;
+    position: relative;
   }
-  .stub svg { width: 18px; height: 18px; }
-  .stub:hover { background: var(--bg-hover); color: var(--text-primary); }
-  .stub.active { background: rgba(var(--accent-rgb), .2); border-color: rgba(var(--accent-rgb), .45); color: var(--text-primary); }
-  /* active stub connects to the open panel: a filled accent edge on its right */
-  .stub.active::before { content: ""; position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 3px; height: 18px; border-radius: 3px; background: linear-gradient(var(--accent), var(--accent-2)); }
-  .stub .tip {
+  .tab svg { width: 18px; height: 18px; }
+  .tab:hover { background: rgba(var(--accent-rgb), .18); color: var(--text-primary); border-color: rgba(var(--accent-rgb), .3); }
+  .tab.active { background: rgba(var(--accent-rgb), .22); border-color: rgba(var(--accent-rgb), .5); color: var(--text-primary); }
+  /* active tab: accent LEFT edge, like Blender's selected tab */
+  .tab.active::before { content: ""; position: absolute; left: -1px; top: 6px; bottom: 6px; width: 3px; border-radius: 3px; background: linear-gradient(var(--accent), var(--accent-2)); }
+  .tab .tip {
     position: absolute; right: 44px; top: 50%; transform: translateY(-50%);
     background: var(--bg-raised); color: var(--text-primary);
     border: 1px solid var(--border-subtle); border-radius: 6px;
@@ -93,19 +92,54 @@
     opacity: 0; pointer-events: none; transition: opacity .12s ease;
     box-shadow: 0 4px 16px rgba(0,0,0,.35); z-index: 60;
   }
-  .stub:hover .tip { opacity: 1; }
-  .stub .close {
+  .tab:hover .tip { opacity: 1; }
+  .tab .close {
     position: absolute; top: -4px; right: -4px; width: 15px; height: 15px; border-radius: 50%;
     background: var(--bg-raised); border: 1px solid var(--border-subtle); color: var(--text-muted);
     font-size: 10px; line-height: 13px; text-align: center; opacity: 0; transition: opacity .12s ease; pointer-events: none;
   }
-  .stub:hover .close { opacity: 1; pointer-events: auto; }
-  .stub .close:hover { color: #fff; background: var(--danger, #ef4444); border-color: var(--danger, #ef4444); }
+  .tab:hover .close { opacity: 1; pointer-events: auto; }
+  .tab .close:hover { color: #fff; background: var(--danger, #ef4444); border-color: var(--danger, #ef4444); }
 
-  /* Catalog flyout (from the + button) */
+  /* "+" tab — THE permanent anchor. Bright solid button, "+ Dock" label, sits at TOP.
+     Softlock-proof: even with zero panels docked, this is always there. */
+  .tab.add {
+    width: auto; min-width: 44px; height: 42px;
+    border-radius: 10px;
+    border: 1px solid rgba(var(--accent-rgb), .85);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    color: #fff;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 18px 0 14px;
+    position: relative;
+    font-size: 13px; font-weight: 700;
+    cursor: pointer;
+    transition: background .12s ease, border-color .12s ease, box-shadow .12s ease, transform .12s ease;
+    box-shadow: 0 0 18px rgba(var(--accent-rgb), .5), 0 4px 12px rgba(0,0,0,.5);
+  }
+  .tab.add:hover {
+    background: linear-gradient(135deg, var(--accent-2) 0%, var(--accent) 100%);
+    border-color: rgba(var(--accent-rgb), 1);
+    color: #fff;
+    box-shadow: 0 0 28px rgba(var(--accent-rgb), .7), 0 4px 16px rgba(0,0,0,.6);
+    transform: scale(1.04);
+  }
+  .tab.add svg { width: 20px; height: 20px; flex-shrink: 0; stroke-width: 2.5; }
+  .tab.add .dock-label {
+    font-size: 13px; font-weight: 700; letter-spacing: .3px;
+    color: inherit; white-space: nowrap;
+  }
+  @keyframes dock-hint {
+    0%   { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), .8), 0 0 18px rgba(var(--accent-rgb), .5); }
+    70%  { box-shadow: 0 0 0 14px rgba(var(--accent-rgb), 0), 0 0 18px rgba(var(--accent-rgb), .5); }
+    100% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0), 0 0 18px rgba(var(--accent-rgb), .5); }
+  }
+  .tab.add { animation: dock-hint 2.4s ease-out 1; }
+
+  /* Catalog: opens to the LEFT (over chat), so it never spawns off-screen */
   .catalog {
-    position: absolute; left: calc(var(--stub-w) + 4px); top: 10px; z-index: 90;
-    width: 190px; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 10px;
+    position: absolute; right: 52px; top: 8px; z-index: 90;
+    width: 185px; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 10px;
     padding: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.5); display: none;
   }
   .catalog.show { display: block; }
@@ -117,8 +151,9 @@
   }
   .catalog-item:hover { background: var(--bg-hover); color: var(--text-primary); }
   .catalog-item svg { width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0; }
-  .catalog-item.docked { opacity: .45; pointer-events: none; }
+  .catalog-item.docked { opacity: .4; pointer-events: none; }
 
+  /* Panel: pops out to the RIGHT of the tabs */
   .panel {
     position: relative; width: 0; overflow: hidden;
     display: flex; flex-direction: column; flex-shrink: 0;
@@ -206,17 +241,18 @@
   </main>
 
   <div class="right-zone" id="rightZone">
-    <div class="stub-strip" id="stubStrip">
-      <button class="stub-add" id="stubAdd" title="Dock a panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></button>
-    </div>
+    <!-- Individual tabs: each is its own isolated square. No connecting column. -->
+    <div class="tab-strip" id="tabStrip"></div>
+    <!-- Catalog: opens to the LEFT (over chat), stays on-screen -->
     <div class="catalog" id="catalog"></div>
+    <!-- Panel pops out to the RIGHT of the tabs -->
     <div class="panel" id="panel">
       <div class="resize-handle" id="resizeHandle"></div>
       <div class="panel-header">
         <svg id="panelIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></svg>
         <span class="title" id="panelTitle">People</span>
         <button title="Open in center stage" id="btnCenter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg></button>
-        <button title="Collapse to stubs" id="btnCollapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5l7 7-7 7"></path><path d="M21 12H4"></path></svg></button>
+        <button title="Collapse to tabs" id="btnCollapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5l7 7-7 7"></path><path d="M21 12H4"></path></svg></button>
       </div>
       <div class="panel-body" id="panelBody"></div>
     </div>
@@ -224,9 +260,8 @@
 </div>
 
 <div class="hint-bar">
-  <span><b>individual stubs = docked panels only</b></span>
-  <span class="k">+</span><span>dock more</span>
-  <span class="k">click stub</span><span>pop out →</span>
+  <span><b>Dock</b> — always there, adds a panel</span>
+  <span class="k">click tab</span><span>pop out →</span>
   <span class="k">drag ⟷</span><span>resize</span>
   <span class="k">✕</span><span>undock</span>
   <span class="k">⤢</span><span>center stage</span>
@@ -272,7 +307,7 @@
     { id: 'code', label: 'Code', body: '<div class="row"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6l-5 6 5 6"></path><path d="M16 6l5 6-5 6"></path></svg></div><div><div class="rlabel">wabi-studio</div><div class="rsub">main · 3 revisions</div></div></div>' }
   ];
 
-  var stubStrip = document.getElementById('stubStrip');
+  var tabStrip = document.getElementById('tabStrip');
   var catalog = document.getElementById('catalog');
   var panel = document.getElementById('panel');
   var panelIcon = document.getElementById('panelIcon');
@@ -285,20 +320,28 @@
   var byId = {};
   PANELS.forEach(function (p) { byId[p.id] = p; });
 
-  var dockedIds = ['users', 'media', 'map'];  // only these show as stubs
+  var dockedIds = ['users', 'media', 'map'];
   var openPanelId = null;
   var panelWidth = 360;
   var resizing = false;
 
-  function renderStubs() {
-    stubStrip.querySelectorAll('.stub').forEach(function (n) { n.remove(); });
+  function renderTabs() {
+    tabStrip.querySelectorAll('.tab').forEach(function (n) { n.remove(); });
+    // "+" tab FIRST — always visible, the permanent anchor that prevents softlock.
+    // Even with zero docked panels, this is the one thing the user always sees.
+    var add = document.createElement('button');
+    add.className = 'tab add';
+    add.id = 'tabAdd';
+    add.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg><span class="dock-label">Dock</span>';
+    tabStrip.appendChild(add);
+    // docked tabs (individual isolated squares)
     dockedIds.forEach(function (id) {
       var p = byId[id];
       var b = document.createElement('button');
-      b.className = 'stub';
+      b.className = 'tab';
       b.dataset.panel = id;
       b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + ICONS[p.id] + '</svg><span class="tip">' + p.label + '</span><span class="close" title="Undock">✕</span>';
-      stubStrip.appendChild(b);
+      tabStrip.appendChild(b);
     });
     syncActive();
   }
@@ -335,23 +378,22 @@
   }
 
   function syncActive() {
-    stubStrip.querySelectorAll('.stub').forEach(function (b) {
+    tabStrip.querySelectorAll('.tab[data-panel]').forEach(function (b) {
       b.classList.toggle('active', b.dataset.panel === openPanelId);
     });
   }
 
-  // Stub click / ✕
-  stubStrip.addEventListener('click', function (e) {
+  // Tab click / ✕
+  tabStrip.addEventListener('click', function (e) {
     var close = e.target.closest('.close');
-    var stub = e.target.closest('.stub');
-    if (close && stub) { dockedIds = dockedIds.filter(function (x) { return x !== stub.dataset.panel; }); if (openPanelId === stub.dataset.panel) collapse(); renderStubs(); renderCatalog(); return; }
-    if (!stub) return;
-    var id = stub.dataset.panel;
-    if (openPanelId === id) collapse(); else openPanel(id);
+    var tab = e.target.closest('.tab[data-panel]');
+    if (close && tab) { dockedIds = dockedIds.filter(function (x) { return x !== tab.dataset.panel; }); if (openPanelId === tab.dataset.panel) collapse(); renderTabs(); renderCatalog(); return; }
+    if (tab) { var id = tab.dataset.panel; if (openPanelId === id) collapse(); else openPanel(id); }
   });
 
-  // "+" → catalog
-  document.getElementById('stubAdd').addEventListener('click', function () {
+  // "+" → catalog (opens to the LEFT, over chat, stays on-screen)
+  document.getElementById('tabAdd').addEventListener('click', function (e) {
+    e.stopPropagation();
     renderCatalog();
     catalog.classList.toggle('show');
   });
@@ -361,15 +403,13 @@
     var id = item.dataset.panel;
     if (dockedIds.indexOf(id) === -1) dockedIds.push(id);
     catalog.classList.remove('show');
-    renderStubs();
+    renderTabs();
     openPanel(id);
   });
-  // click away closes catalog
   document.addEventListener('click', function (e) {
-    if (!catalog.contains(e.target) && e.target.id !== 'stubAdd' && !stubStrip.contains(e.target)) catalog.classList.remove('show');
+    if (!catalog.contains(e.target) && e.target.id !== 'tabAdd' && !tabStrip.contains(e.target)) catalog.classList.remove('show');
   });
 
-  // Collapse + center stage
   document.getElementById('btnCollapse').addEventListener('click', collapse);
   document.getElementById('btnCenter').addEventListener('click', function () {
     if (!openPanelId) return;
@@ -380,7 +420,6 @@
     collapse();
   });
 
-  // Drag-resize
   resizeHandle.addEventListener('mousedown', function (e) {
     if (!openPanelId) return;
     e.preventDefault();
@@ -401,7 +440,7 @@
     document.removeEventListener('mouseup', onResizeUp);
   }
 
-  renderStubs();
+  renderTabs();
 })();
 </script>
 </body>
