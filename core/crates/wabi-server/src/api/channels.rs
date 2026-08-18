@@ -431,11 +431,8 @@ async fn delete_channel(
     }
 
     // Notify connected clients immediately; each client also removes nested
-    // descendants from its local channel tree. Uses the same broadcast
-    // pattern as emoji upload (api/emoji.rs): the SocketIo handle is sent
-    // once over sio_broadcast_tx during wiring and received here.
-    let mut sio_rx = state.sio_broadcast_tx.subscribe();
-    if let Ok(io) = sio_rx.recv().await {
+    // descendants from its local channel tree.
+    if let Some(io) = state.sio.read().await.clone() {
         let _ = io
             .broadcast()
             .emit(

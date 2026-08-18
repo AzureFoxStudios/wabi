@@ -513,8 +513,7 @@ async fn upload_group_avatar(
     }
 
     // Broadcast update to all connected clients via SocketIo
-    let mut rx = state.sio_broadcast_tx.subscribe();
-    if let Ok(io) = rx.recv().await {
+    if let Some(io) = state.sio.read().await.clone() {
         let _ = io
             .broadcast()
             .emit(

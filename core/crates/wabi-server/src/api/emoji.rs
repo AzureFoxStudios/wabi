@@ -138,8 +138,7 @@ pub async fn upload_emoji(
     // Broadcast the refreshed emote list so every client (including the
     // uploader) can merge custom emotes into their picker store.
     let emotes = state.wdb.get_emotes().await.unwrap_or_default();
-    let mut sio_rx = state.sio_broadcast_tx.subscribe();
-    if let Ok(io) = sio_rx.recv().await {
+    if let Some(io) = state.sio.read().await.clone() {
         let _ = io.broadcast().emit("emojis-list", &json!(emotes)).await;
     }
 

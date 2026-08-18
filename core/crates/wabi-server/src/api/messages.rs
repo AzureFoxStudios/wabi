@@ -52,8 +52,7 @@ async fn emit_steam_join_events(
     if appids.is_empty() {
         return;
     }
-    let mut sio_rx = state.sio_broadcast_tx.subscribe();
-    if let Ok(io) = sio_rx.recv().await {
+    if let Some(io) = state.sio.read().await.clone() {
         for appid in appids {
             let payload = json!({
                 "appid": appid,

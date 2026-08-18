@@ -73,9 +73,6 @@ pub struct AppState {
     pub upload_registry: UploadRegistry,
     /// Media room routing registry (voice/video assignment to helper nodes)
     pub media_registry: crate::media::MediaRoomRegistry,
-    /// Broadcasts the SocketIo handle so HTTP handlers (like avatar upload) can emit events
-    #[allow(dead_code)]
-    pub sio_broadcast_tx: broadcast::Sender<socketioxide::SocketIo>,
     /// Current Socket.IO handle for HTTP handlers that need to broadcast.
     pub sio: RwLock<Option<socketioxide::SocketIo>>,
     /// Blacklist manager for bans
@@ -202,7 +199,6 @@ impl AppState {
     /// initialization, no compat shim.
     pub async fn new(config: ServerConfig) -> anyhow::Result<Self> {
         let (ws_tx, _) = broadcast::channel(1000);
-        let (sio_broadcast_tx, _) = broadcast::channel(1);
         let owner_user_id = RwLock::new(None);
         let node_registry = NodeRegistry::new_persistent(
             config.node_id.clone(),
@@ -288,7 +284,6 @@ impl AppState {
             bot_registry,
             upload_registry,
             media_registry,
-            sio_broadcast_tx,
             sio: RwLock::new(None),
             blacklist: RwLock::new(None),
             mesh_service: RwLock::new(None),
