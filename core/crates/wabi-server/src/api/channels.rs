@@ -481,7 +481,7 @@ async fn join_channel(
     }
 
     // Check min_role gate (case-insensitive). Owners always pass.
-    let user_role = state.app.get_user_highest_role(user_id).await;
+    let user_role = state.get_user_highest_role(user_id).await;
     let role_priority = |r: &str| match r.to_lowercase().as_str() {
         "owner" => 3,
         "admin" => 2,
@@ -491,11 +491,8 @@ async fn join_channel(
     };
 
     // Fetch min_role from the channel raw row.
-    let min_role = state
-        .wdb
-        .get_channels_raw()
-        .await
-        .unwrap_or_default()
+    let channels_raw = state.wdb.get_channels_raw().await.unwrap_or_default();
+    let min_role = channels_raw
         .iter()
         .find(|ch| {
             ch.get("channel_id")

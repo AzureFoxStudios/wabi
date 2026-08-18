@@ -28,9 +28,38 @@ use axum::{extract::State, Json, Router};
 use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use axum::http::{HeaderMap, StatusCode};
 use tracing::info;
 
 use crate::state::AppState;
+
+/// Sync token guard — mirrors the operator-secret pattern: constant-time
+/// compare against WABI_SYNC_TOKEN env var. Returns Ok(()) on success,
+/// or a 503/401 response on failure.
+/// 
+/// When WABI_SYNC_TOKEN is unset/empty, all sync routes return 503.
+fn sync_token_guard(headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
+    let expected = std::env::var("WABI_SYNC_TOKEN").unwrap_or_default();
+    if expected.is_empty() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "sync token not configured"));
+    }
+    let provided = headers
+        .get("x-wabi-sync-token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    // Constant-time compare.
+    if expected.len() != provided.len() {
+        return Err((StatusCode::UNAUTHORIZED, "invalid sync token"));
+    }
+    let mut diff = 0u8;
+    for (a, b) in expected.bytes().zip(provided.bytes()) {
+        diff |= a ^ b;
+    }
+    if diff != 0 {
+        return Err((StatusCode::UNAUTHORIZED, "invalid sync token"));
+    }
+    Ok(())
+}
 
 /// Pull request: ask for entries committed after `since_commit_seq`.
 #[derive(Debug, Serialize, Deserialize)]
@@ -117,14 +146,16 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 /// Handle a pull request: return entries after `since_commit_seq`.
 async fn handle_pull(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(req): Json<SyncPullRequest>,
-) -> Result<Json<SyncPullResponse>, crate::error::AppError> {
+) -> Result<Json<SyncPullResponse>, (StatusCode, &'static str)> {
+    sync_token_guard(&headers)?;
     let engine = state.wdb.engine();
     let data_dir = engine.data_dir();
     let commit_index_dir = data_dir.join("global").join("commit-index");
 
     let all_entries = wabidb::commit_index::batcher::read_all_entries(&commit_index_dir)
-        .map_err(|e| crate::error::AppError::Internal(format!("read_all_entries: {e}")))?;
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "failed to read commit index"))?;
 
     let entries_since: Vec<SyncEntry> = all_entries
         .iter()
@@ -171,8 +202,10 @@ async fn handle_pull(
 /// appends each commit index entry to the local batcher.
 async fn handle_push(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(req): Json<SyncPushRequest>,
-) -> Result<Json<SyncPushResponse>, crate::error::AppError> {
+) -> Result<Json<SyncPushResponse>, (StatusCode, &'static str)> {
+    sync_token_guard(&headers)?;
     let engine = state.wdb.engine();
 
     for entry in &req.entries {
@@ -224,7 +257,7 @@ async fn handle_push(
         engine
             .ingest_replicated_commit(commit_entry, segments)
             .await
-            .map_err(|e| crate::error::AppError::Internal(format!("ingest: {e}")))?;
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "ingest failed"))?;
     }
 
     info!(
@@ -242,20 +275,20 @@ async fn handle_push(
 /// Status endpoint: returns the local node's latest commit_seq.
 async fn handle_status(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<serde_json::Value>, crate::error::AppError> {
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    sync_token_guard(&headers)?;
     let engine = state.wdb.engine();
-    let data_dir = engine.data_dir();
-    let commit_index_dir = data_dir.join("global").join("commit-index");
+    let commit_index_dir = engine.data_dir().join("global").join("commit-index");
 
     let all_entries = wabidb::commit_index::batcher::read_all_entries(&commit_index_dir)
-        .map_err(|e| crate::error::AppError::Internal(format!("read_all_entries: {e}")))?;
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "failed to read commit index"))?;
 
     let latest = all_entries.last().map(|e| e.commit_seq).unwrap_or(0);
 
     Ok(Json(serde_json::json!({
         "latestCommitSeq": latest,
         "totalEntries": all_entries.len(),
-        "dataDir": data_dir.display().to_string(),
         "replication": "stub",
     })))
 }

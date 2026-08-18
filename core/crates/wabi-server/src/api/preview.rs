@@ -12,12 +12,88 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::auth_extractor::AuthUser;
+use crate::error::{AppError, Result};
 use crate::state::AppState;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Image proxy
+// SSRF validation (shared by url-preview and image-proxy)
 // ─────────────────────────────────────────────────────────────────────────────
+
+const PREVIEW_MAX_BYTES: usize = 2 * 1024 * 1024; // 2 MB
+const IMAGE_PROXY_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
+
+/// Validate a URL for outbound fetches: http/https only, resolve and reject
+/// loopback / private / link-local / multicast / unspecified addresses.
+/// Returns the resolved SocketAddr on success.
+async fn validate_outbound_url(raw_url: &str) -> Result<std::net::SocketAddr> {
+    let url = reqwest::Url::parse(raw_url)
+        .map_err(|_| AppError::BadRequest("invalid URL".into()))?;
+
+    let scheme = url.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err(AppError::BadRequest("URL must be http or https".into()));
+    }
+
+    let host = url.host_str()
+        .ok_or_else(|| AppError::BadRequest("URL has no host".into()))?;
+
+    // Reject bare IP literals that are obviously internal.
+    if host.starts_with('[') && host.ends_with(']') {
+        let inner = &host[1..host.len()-1];
+        if let Ok(ip) = inner.parse::<std::net::Ipv6Addr>() {
+            if !is_public_ipv6(&ip) {
+                return Err(AppError::BadRequest("address not allowed".into()));
+            }
+        }
+    } else if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        if !is_public_ipv4(&ip) {
+            return Err(AppError::BadRequest("address not allowed".into()));
+        }
+    }
+
+    let port = url.port_or_known_default().unwrap_or(80);
+    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(format!("{}:{}", host, port))
+        .await
+        .map_err(|_| AppError::BadRequest("DNS resolution failed".into()))?
+        .collect();
+
+    let addr = addrs.into_iter().find(|a| {
+        match a.ip() {
+            std::net::IpAddr::V4(ip) => is_public_ipv4(&ip),
+            std::net::IpAddr::V6(ip) => is_public_ipv6(&ip),
+        }
+    }).ok_or_else(|| AppError::BadRequest("address not allowed".into()))?;
+
+    Ok(addr)
+}
+
+fn is_public_ipv4(ip: &std::net::Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    if octets[0] == 0 || octets[0] == 10 || octets[0] == 127 || octets[0] >= 224 {
+        return false;
+    }
+    if octets[0] == 169 && octets[1] == 254 { return false; }
+    if octets[0] == 172 && (octets[1] & 0xf0) == 16 { return false; }
+    if octets[0] == 192 && octets[1] == 168 { return false; }
+    if octets[0] == 198 && (octets[1] & 0xfe) == 18 { return false; }
+    if octets[0] == 100 && (octets[1] & 0xc0) == 64 { return false; }
+    if octets[0] == 192 && octets[1] == 0 && octets[2] == 0 { return false; }
+    true
+}
+
+fn is_public_ipv6(ip: &std::net::Ipv6Addr) -> bool {
+    let o = ip.segments();
+    if ip.is_unspecified() || ip.is_loopback() { return false; }
+    if (o[0] & 0xfe00) == 0xfc00 { return false; } // ULA
+    if (o[0] & 0xffc0) == 0xfe80 { return false; } // link-local
+    if (o[0] & 0xff00) == 0xff00 { return false; } // multicast
+    true
+}
+
+// ---------------------------------------------------------------------------
+// Image proxy
+// ---------------------------------------------------------------------------
 
 const PREVIEW_FETCH_TIMEOUT_MS: u64 = 8000;
 const OEMBED_FETCH_TIMEOUT_MS: u64 = 3000;
@@ -150,10 +226,16 @@ fn get_meta(html: &str, property: &str) -> Option<String> {
 
 pub async fn url_preview(
     State(_state): State<Arc<AppState>>,
+    _auth: AuthUser,
     Query(query): Query<UrlPreviewQuery>,
 ) -> Result<Json<UrlPreviewResponse>> {
+    // SSRF: validate scheme + resolve + reject internal addresses.
+    validate_outbound_url(&query.url).await?;
+
     let client = Client::builder()
         .timeout(std::time::Duration::from_millis(PREVIEW_FETCH_TIMEOUT_MS))
+        // Never follow redirects — each hop would need re-validation.
+        .redirect(reqwest::redirect::Policy::none())
         .build()?;
 
     if parse_youtube_id(&query.url).is_some() {
@@ -307,10 +389,16 @@ pub struct ImageProxyQuery {
 
 pub async fn image_proxy(
     State(_state): State<Arc<AppState>>,
+    _auth: AuthUser,
     Query(query): Query<ImageProxyQuery>,
 ) -> Result<axum::response::Response> {
+    // SSRF: validate scheme + resolve + reject internal addresses.
+    validate_outbound_url(&query.url).await?;
+
     let client = Client::builder()
         .timeout(std::time::Duration::from_millis(IMAGE_PROXY_TIMEOUT_MS))
+        // Never follow redirects.
+        .redirect(reqwest::redirect::Policy::none())
         .build()?;
 
     let response = client
@@ -335,6 +423,11 @@ pub async fn image_proxy(
         .unwrap_or("image/jpeg")
         .to_string();
 
+    // Require upstream content-type to start with image/.
+    if !content_type.to_lowercase().starts_with("image/") {
+        return Err(anyhow::anyhow!("not an image").into());
+    }
+
     let bytes = response
         .bytes()
         .await
@@ -343,6 +436,7 @@ pub async fn image_proxy(
     Ok(axum::response::Response::builder()
         .status(200)
         .header(axum::http::header::CONTENT_TYPE, content_type)
+        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(axum::http::header::CACHE_CONTROL, "public, max-age=86400")
         .body(axum::body::Body::from(bytes))
         .map_err(|e| anyhow::anyhow!("Failed to build response: {}", e))?)

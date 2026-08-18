@@ -68,7 +68,7 @@ impl std::str::FromStr for LocalCapability {
 }
 
 /// Sign a token with the authority's HMAC secret.
-pub fn sign_token(secret: &str, token: &mut SignedLocalRouteToken) {
+pub fn sign_token(jwt_secret: &str, token: &mut SignedLocalRouteToken) {
     let payload = format!(
         "{}:{}:{}:{}:{}:{}:{}",
         token.authority_node_id,
@@ -79,21 +79,25 @@ pub fn sign_token(secret: &str, token: &mut SignedLocalRouteToken) {
         token.user_id,
         token.expires_at
     );
-    use hmac::{Hmac, Mac};
-    use sha2::digest::KeyInit;
-    use sha2::Sha256;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::{Digest, Sha256};
     type HmacSha256 = Hmac<Sha256>;
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take any key size");
+    // Key separation: derive HMAC key as SHA-256(jwt_secret || "wabi-lan-route-v1")
+    // so the HMAC key is independent of the JWT signing secret.
+    let mut key_hasher = Sha256::new();
+    key_hasher.update(jwt_secret.as_bytes());
+    key_hasher.update(b"wabi-lan-route-v1");
+    let derived_key = key_hasher.finalize();
+    let mut mac = HmacSha256::new_from_slice(&derived_key).expect("HMAC can take any key size");
     mac.update(payload.as_bytes());
     let result = mac.finalize();
     token.signature = hex::encode(result.into_bytes());
 }
 
 /// Verify a token's HMAC signature matches the authority secret.
-pub fn verify_token(secret: &str, token: &SignedLocalRouteToken) -> bool {
+pub fn verify_token(jwt_secret: &str, token: &SignedLocalRouteToken) -> bool {
     let mut test = token.clone();
-    sign_token(secret, &mut test);
+    sign_token(jwt_secret, &mut test);
     test.signature == token.signature
 }
 
