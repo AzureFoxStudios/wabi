@@ -233,7 +233,7 @@ mod tests {
     async fn revoke_and_is_revoked_roundtrip() {
         let tmp = std::env::temp_dir().join(format!("wabi-upload-reg-revoke-{}", Uuid::new_v4()));
         let reg = UploadRegistry::new_persistent(&tmp);
-        reg.record("file-1.png", "pic.png", Some("ch_1"), Some(42), UploadKind::Attachment, 1024)
+        reg.record("file-1.png", "pic.png", Some("ch_1".to_string()), Some(42), UploadKind::Attachment, 1024)
             .await;
 
         assert!(!reg.is_revoked("file-1.png").await);
