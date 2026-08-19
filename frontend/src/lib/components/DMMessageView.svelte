@@ -3,9 +3,9 @@
 	import { channelMessages, channels, sendMessage, currentUser, users, sendTyping, emojis, syncNewerMessages, updateChannelSettings } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
+	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
 	import { getDmNotesStorageKey } from '$lib/notesStore';
 	import GroupAvatar from './GroupAvatar.svelte';
-	import ManualCashModal from '$lib/payments/ManualCashModal.svelte';
 	import NotesWorkspace from './NotesWorkspace.svelte';
 	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
 	import type { User, Message, Channel, MessageEntity } from '$lib/socket';
@@ -63,7 +63,6 @@
 	let showDmNotes = false;
 	let paymentSheetOpen = false;
 	let paymentSheetOpenSeed = 0;
-	let manualCashOpen = false;
 	let textareaElement: HTMLTextAreaElement;
 	let mentionMenuContainer: HTMLElement | null = null;
 	let showMentionSuggestions = false;
@@ -102,7 +101,7 @@
 	$: dmCharCount = messageInput.length;
 	$: dmCharCounterVisible = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.7;
 	$: dmCharCounterWarn = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.9;
-	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
+	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken()) && $paymentAccessStore.loaded && $paymentAccessStore.canCreate;
 	$: paymentTargetLabel = isGroup ? channel?.name || 'Group DM' : `DM with ${otherUser.username}`;
 	$: lineDmAddonEnabled = $lineDmAddonStore.enabled;
 	$: lineDmProfile = getLineDmResolvedProfile(channelId, $lineDmAddonStore);
@@ -124,8 +123,6 @@
 	) {
 		if ($pendingConversationPaymentLaunch.surface === 'payment_request') {
 			openPaymentSheet();
-		} else if (!isGroup) {
-			openManualCashModal();
 		}
 		clearConversationPaymentLaunch();
 	}
@@ -137,18 +134,6 @@
 		}
 		paymentSheetOpenSeed += 1;
 		paymentSheetOpen = true;
-	}
-
-	function openManualCashModal(): void {
-		if (!paymentButtonEnabled) {
-			alert('Sign in with a registered account to track manual cash trades.');
-			return;
-		}
-		if (isGroup) {
-			alert('Manual cash trades are only available in direct messages.');
-			return;
-		}
-		manualCashOpen = true;
 	}
 
 	function syncComposerEntities() {
@@ -552,17 +537,6 @@
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path><path d="M7 15h3"></path></svg>
 				<span>Pay</span>
 			</button>
-			{#if !isGroup}
-				<button
-					class="dm-notes-btn"
-					on:click={openManualCashModal}
-					title="Record manual cash trade"
-					disabled={!paymentButtonEnabled}
-				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.5"></circle><path d="M6 9h.01"></path><path d="M18 15h.01"></path></svg>
-					<span>Cash</span>
-				</button>
-			{/if}
 			<button
 				class="dm-notes-btn"
 				class:active={showDmNotes}
@@ -754,16 +728,6 @@
 	onManageConnections={() => {
 		paymentSheetOpen = false;
 		dispatch('openSettings', { paymentSurface: 'connections' });
-	}}
-/>
-
-<ManualCashModal
-	isOpen={manualCashOpen}
-	channelId={channelId}
-	targetLabel={paymentTargetLabel}
-	counterpartyLabel={otherUser.username}
-	onClose={() => {
-		manualCashOpen = false;
 	}}
 />
 

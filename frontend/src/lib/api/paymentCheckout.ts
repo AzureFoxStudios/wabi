@@ -5,6 +5,7 @@ import type {
 } from '../../../../shared/paymentContracts';
 import type { PaymentAccessPolicy } from '../../../../shared/adminPolicyContracts';
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
+import { hasAddonCapability } from '../addonInventory';
 
 export interface PaymentIntent {
 	intentId: string;
@@ -81,10 +82,11 @@ export interface CreatePaymentIntentResponse {
 }
 
 /**
- * v1 provider catalog. The Rust server's payment routes are PromptPay-only and
- * expose no provider-list endpoint (`/api/payments/providers` does not exist),
- * so the client advertises the built-in rail statically. When the payments
- * projection lands (roadmap Phase 1) this becomes a real GET to the server.
+ * Provider catalog (roadmap Phases 2-4). The server's payment routes expose no
+ * provider-list endpoint, so the client advertises the rails statically and
+ * filters them by the `/api/addons` capability list (`payments-crypto`,
+ * `payments-eu`, `payments-us` — compiled in via the `payments-rails` cargo
+ * feature). PromptPay is core and always advertised.
  */
 const PROMPTPAY_PROVIDER: PaymentProviderCapability = {
 	pluginId: 'promptpay',
@@ -109,31 +111,223 @@ const PROMPTPAY_PROVIDER: PaymentProviderCapability = {
 	notes: 'Built-in rail: the QR is generated locally, money moves bank-to-bank, Wabi never touches it.'
 };
 
+const CRYPTO_PROVIDER: PaymentProviderCapability = {
+	pluginId: 'payments-crypto',
+	providerName: 'Crypto (USDC/USDT/BTC/XMR)',
+	countries: [],
+	currencies: ['USDC', 'USDT', 'BTC', 'XMR'],
+	methods: [
+		{
+			id: 'usdc_base',
+			label: 'USDC on Base',
+			checkoutModes: ['qr'],
+			countries: [],
+			currencies: ['USDC'],
+			enabledByDefault: true,
+			notes: 'Non-custodial wallet QR — the payer sends USDC to your wallet address on Base (chain id 8453). Confirmation is manual.'
+		},
+		{
+			id: 'usdc_solana',
+			label: 'USDC on Solana',
+			checkoutModes: ['qr'],
+			countries: [],
+			currencies: ['USDC'],
+			enabledByDefault: true,
+			notes: 'Non-custodial wallet QR — the payer sends USDC to your Solana address. Confirmation is manual.'
+		},
+		{
+			id: 'usdt_tron',
+			label: 'USDT on Tron',
+			checkoutModes: ['qr'],
+			countries: [],
+			currencies: ['USDT'],
+			enabledByDefault: true,
+			notes: 'Non-custodial wallet QR — the payer sends USDT (TRC-20) to your Tron address. Confirmation is manual.'
+		},
+		{
+			id: 'btc',
+			label: 'Bitcoin',
+			checkoutModes: ['qr'],
+			countries: [],
+			currencies: ['BTC'],
+			enabledByDefault: true,
+			notes: 'Non-custodial wallet QR — the payer sends Bitcoin to your address. Confirmation is manual.'
+		},
+		{
+			id: 'lightning',
+			label: 'Lightning',
+			checkoutModes: ['qr'],
+			countries: [],
+			currencies: ['BTC'],
+			enabledByDefault: true,
+			notes: 'Non-custodial Lightning QR — the payer sends sats to your address. Confirmation is manual.'
+		},
+		{
+			id: 'monero',
+			label: 'Monero',
+			checkoutModes: ['qr'],
+			countries: [],
+			currencies: ['XMR'],
+			enabledByDefault: true,
+			notes: 'Non-custodial wallet QR — the payer sends XMR to your address. Confirmation is manual.'
+		}
+	],
+	nonCustodialOnly: true,
+	webhookSignatureRequired: false,
+	supportsRefunds: false,
+	supportsDisputes: false,
+	notes: 'Built-in rail: wallet QR codes, money moves wallet-to-wallet, Wabi never touches it.'
+};
+
+const EU_PROVIDER: PaymentProviderCapability = {
+	pluginId: 'payments-eu',
+	providerName: 'SEPA Instant',
+	countries: ['DE', 'FR', 'ES', 'IT', 'NL', 'BE', 'AT', 'IE', 'PT', 'FI', 'LU'],
+	currencies: ['EUR'],
+	methods: [
+		{
+			id: 'epc_qr',
+			label: 'EPC QR (SEPA Instant)',
+			checkoutModes: ['qr'],
+			countries: ['DE', 'FR', 'ES', 'IT', 'NL', 'BE', 'AT', 'IE', 'PT', 'FI', 'LU'],
+			currencies: ['EUR'],
+			enabledByDefault: true,
+			notes: 'EPC069-12 v3.1 QR — any EU banking app scans it and the money lands in seconds. Confirmation is manual.'
+		}
+	],
+	nonCustodialOnly: true,
+	webhookSignatureRequired: false,
+	supportsRefunds: false,
+	supportsDisputes: false,
+	notes: 'Built-in rail: the QR is generated locally, money moves bank-to-bank (instant), Wabi never touches it.'
+};
+
+const US_PROVIDER: PaymentProviderCapability = {
+	pluginId: 'payments-us',
+	providerName: 'US Instant Apps',
+	countries: ['US'],
+	currencies: ['USD'],
+	methods: [
+		{
+			id: 'cashapp_pointer',
+			label: 'Cash App',
+			checkoutModes: ['app_switch'],
+			countries: ['US'],
+			currencies: ['USD'],
+			enabledByDefault: true,
+			notes: 'Payer opens Cash App and sends to your $Cashtag. Confirmation is manual.'
+		},
+		{
+			id: 'venmo_handle',
+			label: 'Venmo',
+			checkoutModes: ['app_switch'],
+			countries: ['US'],
+			currencies: ['USD'],
+			enabledByDefault: true,
+			notes: 'Payer opens Venmo and sends to your @handle. Confirmation is manual.'
+		},
+		{
+			id: 'zelle_pointer',
+			label: 'Zelle',
+			checkoutModes: ['app_switch'],
+			countries: ['US'],
+			currencies: ['USD'],
+			enabledByDefault: true,
+			notes: 'Payer opens their banking app and sends via Zelle to your email or US mobile number. Confirmation is manual.'
+		},
+		{
+			id: 'ach_details',
+			label: 'ACH (routing/account)',
+			checkoutModes: ['app_switch'],
+			countries: ['US'],
+			currencies: ['USD'],
+			enabledByDefault: true,
+			notes: 'Payer initiates a bank ACH transfer to your routing/account numbers. Confirmation is manual.'
+		}
+	],
+	nonCustodialOnly: true,
+	webhookSignatureRequired: false,
+	supportsRefunds: false,
+	supportsDisputes: false,
+	notes: 'Built-in rail: app-to-app handles, money moves P2P, Wabi never touches it.'
+};
+
+const RAIL_PROVIDERS: Record<string, PaymentProviderCapability> = {
+	'payments-crypto': CRYPTO_PROVIDER,
+	'payments-eu': EU_PROVIDER,
+	'payments-us': US_PROVIDER
+};
+
 export const V1_PROVIDER_CATALOG: PaymentProviderCapability[] = [PROMPTPAY_PROVIDER];
+
+const PROVIDER_NAMES: Record<string, string> = {
+	promptpay: 'PromptPay',
+	'payments-crypto': 'Crypto (USDC/USDT/BTC/XMR)',
+	'payments-eu': 'SEPA Instant',
+	'payments-us': 'US Instant Apps'
+};
+
+function normalizeCheckoutMode(value: unknown): PaymentCheckoutMode {
+	if (
+		value === 'payment_link' ||
+		value === 'app_switch' ||
+		value === 'redirect' ||
+		value === 'tap_to_pay' ||
+		value === 'qr'
+	) {
+		return value;
+	}
+	return 'qr';
+}
 
 /**
  * Map a stored intent (Rust `api/payments/intents.rs` shape, camelCase JSONL)
  * onto the frontend PaymentIntent contract.
  */
-function mapIntent(raw: Record<string, any>): PaymentIntent {
+export function mapIntent(raw: Record<string, any>): PaymentIntent {
+	const provider = String(raw.provider || 'promptpay');
+	const isPromptPay = provider === 'promptpay' || provider === 'th-payments';
+	let presentation: Record<string, any> | null = null;
+	const presentationJson = typeof raw.presentationJson === 'string' ? raw.presentationJson : '';
+	if (presentationJson) {
+		try {
+			presentation = JSON.parse(presentationJson);
+		} catch {
+			presentation = null;
+		}
+	}
 	const qrPayload = typeof raw.promptpayQrPayload === 'string' ? raw.promptpayQrPayload : '';
+	if (!presentation && qrPayload) presentation = { mode: 'qr', qrData: qrPayload };
+	const mode = normalizeCheckoutMode(presentation?.mode);
+	const methodId = typeof raw.methodId === 'string' ? raw.methodId : mode === 'qr' ? 'promptpay_qr' : '';
+	const countryCode = typeof raw.countryCode === 'string' ? raw.countryCode : isPromptPay ? 'TH' : null;
 	return {
 		intentId: String(raw.id || ''),
 		workspaceId: String(raw.workspaceId || 'default-workspace'),
 		createdByUserId: typeof raw.userId === 'number' ? raw.userId : null,
 		channelId: null,
-		pluginId: 'promptpay',
-		providerName: 'PromptPay',
+		pluginId: provider,
+		providerName: PROVIDER_NAMES[provider] || 'Payment rail',
 		providerIntentId: null,
 		amountMinor: Number(raw.amountMinor || 0),
-		currency: String(raw.currency || 'THB').toUpperCase(),
-		countryCode: 'TH',
+		currency: String(raw.currency || 'USD').toUpperCase(),
+		countryCode,
 		status: mapIntentStatus(String(raw.status || 'pending')),
-		checkoutMode: 'qr',
-		customerRef: typeof raw.promptpayProxyId === 'string' ? raw.promptpayProxyId : null,
+		checkoutMode: mode,
+		customerRef: isPromptPay
+			? typeof raw.promptpayProxyId === 'string'
+				? raw.promptpayProxyId
+				: null
+			: typeof raw.providerRef === 'string'
+				? raw.providerRef
+				: null,
 		description: typeof raw.note === 'string' ? raw.note : null,
-		metadata: null,
-		presentation: qrPayload ? { mode: 'qr', qrData: qrPayload } : null,
+		metadata: {
+			methodId,
+			countryCode,
+			providerRef: typeof raw.providerRef === 'string' ? raw.providerRef : null
+		},
+		presentation,
 		failureCode: null,
 		failureMessage: null,
 		expiresAt: null,
@@ -163,16 +357,25 @@ export async function listPaymentProviders(filters?: {
 	currency?: string;
 	amountMinor?: number;
 }): Promise<PaymentProviderCapability[]> {
-	// Static v1 catalog — see PROMPTPAY_PROVIDER comment. Filters stay advisory
-	// until the server can answer them.
+	// Static catalog filtered by server capability — see the catalog comment.
+	// Filters stay advisory until the server can answer them.
 	void filters;
-	return V1_PROVIDER_CATALOG;
+	const rails = await Promise.all(
+		Object.keys(RAIL_PROVIDERS).map((id) => hasAddonCapability(id).then((ok) => ({ id, ok })))
+	);
+	const catalog = [...V1_PROVIDER_CATALOG];
+	for (const rail of rails) {
+		if (rail.ok) catalog.push(RAIL_PROVIDERS[rail.id]);
+	}
+	return catalog;
 }
 
 export async function createPaymentIntent(
 	token: string | null | undefined,
 	payload: CreatePaymentIntentPayload
 ): Promise<CreatePaymentIntentResponse> {
+	const isPromptPay = payload.pluginId === 'promptpay' || payload.pluginId === 'th-payments';
+	const customerRef = payload.customerRef?.trim() || undefined;
 	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/intents`, {
 		method: 'POST',
 		headers: {
@@ -180,10 +383,13 @@ export async function createPaymentIntent(
 			'Content-Type': 'application/json'
 		},
 		body: JSON.stringify({
-			provider: 'promptpay',
+			provider: payload.pluginId,
+			methodId: payload.methodId || (isPromptPay ? 'promptpay_qr' : undefined),
+			countryCode: payload.countryCode || undefined,
+			providerRef: isPromptPay ? undefined : customerRef,
+			promptpayProxyId: isPromptPay ? customerRef : undefined,
 			amountMinor: payload.amountMinor,
 			currency: payload.currency,
-			promptpayProxyId: payload.customerRef?.trim() || undefined,
 			note: payload.description?.trim() || undefined
 		})
 	});
@@ -274,6 +480,25 @@ export async function rejectPaymentIntent(
 	return mapIntent(data.intent || {});
 }
 
+export async function savePaymentAccess(
+	token: string,
+	policy: PaymentAccessPolicy
+): Promise<PaymentAccessPolicy> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/access`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ policy })
+	});
+	const data = (await safeJsonParse(res)) as Record<string, any>;
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to save payment access policy');
+	}
+	return (data.policy || policy) as PaymentAccessPolicy;
+}
+
 export async function getPaymentAccess(token: string | null | undefined): Promise<PaymentAccessStatusResponse> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/access`, {
 		method: 'GET',
@@ -290,9 +515,8 @@ export async function getPaymentAccess(token: string | null | undefined): Promis
 			allowGuest: false,
 			allowedRoleNames: ['owner', 'admin', 'mod', 'member']
 		}) as PaymentAccessPolicy,
-		// The Rust v1 routes enforce authentication only (no policy projection
-		// yet), so the actor is derived client-side from the session. The real
-		// actor gate lands with the WabiDB payment projection (Phase 1).
+		// The actor gate is derived client-side from the session; the WabiDB
+		// payment projection (Phase 1) serves the persisted access policy.
 		actor: {
 			authenticated: Boolean(token),
 			userId: null,

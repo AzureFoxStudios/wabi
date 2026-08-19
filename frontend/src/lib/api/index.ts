@@ -26,10 +26,13 @@ export { getApiBase, getApiBaseFor, API_TIMEOUT_MS, LAUNCH_PAGE_TIMEOUT_MS, RETR
 
 export {
 	listPaymentProviders,
+	V1_PROVIDER_CATALOG,
 	createPaymentIntent,
 	getPaymentIntent,
-	cancelPaymentIntent,
+	confirmPaymentIntent,
+	rejectPaymentIntent,
 	getPaymentAccess,
+	savePaymentAccess,
 	type PaymentIntent,
 	type PaymentEvent,
 	type PaymentAccessActorStatus,
@@ -70,21 +73,6 @@ export {
 	type OfflineDonationLedgerEntry,
 	type OfflineDonationAuditResponse
 } from './paymentDonations';
-
-// ============================================================================
-// RE-EXPORTS FROM paymentSettlements.ts
-// ============================================================================
-
-export {
-	listManualCashSettlements,
-	createManualCashSettlement,
-	confirmManualCashSettlement,
-	cancelManualCashSettlement,
-	disputeManualCashSettlement,
-	type ManualCashSettlementStatus,
-	type ManualCashSettlement,
-	type ManualCashSettlementListResponse
-} from './paymentSettlements';
 
 // ============================================================================
 // RE-EXPORTS FROM auth.ts

@@ -1,22 +1,41 @@
 <script lang="ts">
 	import PaymentSheetImpl from './PaymentSheetImpl.svelte';
 
-	export let isOpen = false;
-	export let onClose: () => void = () => {};
-	export let onManageConnections: () => void = () => {};
-	export let defaultChannelId: string | null = null;
-	export let defaultTargetLabel: string | null = null;
-	export let defaultTargetKind: 'channel' | 'dm' | 'group' | 'workspace' | null = null;
-	export let openSeed = 0;
-	export let initialAmountInput: string | null = null;
-	export let initialCurrency: string | null = null;
-	export let initialCountryCode: string | null = null;
-	export let initialDescription: string | null = null;
-	export let initialCustomerRef: string | null = null;
-	export let initialProviderId: string | null = null;
-	export let initialMethodId: string | null = null;
-	export let initialMetadata: Record<string, unknown> | null = null;
-	export let overlayZIndex: number | string | null = null;
+	let {
+		isOpen = false,
+		onClose,
+		onManageConnections,
+		defaultChannelId = null,
+		defaultTargetLabel = null,
+		defaultTargetKind = null,
+		openSeed = 0,
+		initialAmountInput = null,
+		initialCurrency = null,
+		initialCountryCode = null,
+		initialDescription = null,
+		initialCustomerRef = null,
+		initialProviderId = null,
+		initialMethodId = null,
+		initialMetadata = null,
+		overlayZIndex = null
+	}: {
+		isOpen?: boolean;
+		onClose?: () => void;
+		onManageConnections?: () => void;
+		defaultChannelId?: string | null;
+		defaultTargetLabel?: string | null;
+		defaultTargetKind?: 'channel' | 'dm' | 'group' | 'workspace' | null;
+		openSeed?: number;
+		initialAmountInput?: string | null;
+		initialCurrency?: string | null;
+		initialCountryCode?: string | null;
+		initialDescription?: string | null;
+		initialCustomerRef?: string | null;
+		initialProviderId?: string | null;
+		initialMethodId?: string | null;
+		initialMetadata?: Record<string, unknown> | null;
+		overlayZIndex?: number | string | null;
+	} = $props();
 </script>
 
 <PaymentSheetImpl

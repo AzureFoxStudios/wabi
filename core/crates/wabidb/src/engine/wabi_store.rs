@@ -8,6 +8,9 @@ use crate::domain::{
 };
 use crate::error::Result;
 use crate::projections::lore::{LoreCommitRecord, LoreFileChangeRecord, LoreRepoRecord, LoreTokenRecord};
+use crate::projections::payments::{
+    PaymentAccountLinkRecord, PaymentIntentRecord, PaymentUserBlockRecord,
+};
 
 /// The storage API trait for WabiDB.
 ///
@@ -697,6 +700,96 @@ pub trait WabiStore: Send + Sync {
 
     /// Resolve an incident (sets status to "resolved" and resolved_at).
     async fn resolve_incident(&self, _channel_id: &str, _incident_id: &str, _actor_user_id: u64) -> Result<()> {
+        Ok(())
+    }
+
+    // --- payments ---
+
+    /// Read a stored payment policy row (e.g. `policy:payments_access`).
+    async fn get_payment_policy(&self, _key: &str) -> Result<Option<serde_json::Value>> {
+        Ok(None)
+    }
+
+    /// Store a payment policy row.
+    async fn upsert_payment_policy(&self, _key: &str, _value: &serde_json::Value) -> Result<()> {
+        Ok(())
+    }
+
+    /// All saved account links for a user, newest-first.
+    async fn list_payment_account_links(
+        &self,
+        _user_id: i64,
+    ) -> Result<Vec<PaymentAccountLinkRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Upsert a user's account link (one row per plugin_id).
+    async fn upsert_payment_account_link(&self, _link: &PaymentAccountLinkRecord) -> Result<()> {
+        Ok(())
+    }
+
+    /// Remove a user's account link for a plugin.
+    async fn delete_payment_account_link(&self, _user_id: i64, _plugin_id: &str) -> Result<()> {
+        Ok(())
+    }
+
+    /// Persist a new payment intent (record carries its own id).
+    async fn create_payment_intent(&self, _intent: &PaymentIntentRecord) -> Result<()> {
+        Ok(())
+    }
+
+    /// List payment intents. `include_all` grants the admin view.
+    async fn list_payment_intents(
+        &self,
+        _user_id: i64,
+        _include_all: bool,
+    ) -> Result<Vec<PaymentIntentRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Look up a single intent by id (any owner).
+    async fn get_payment_intent(&self, _intent_id: &str) -> Result<Option<PaymentIntentRecord>> {
+        Ok(None)
+    }
+
+    /// Admin: mark a pending intent completed. Returns the updated record, or
+    /// `None` when the intent is missing / not pending.
+    async fn confirm_payment_intent(
+        &self,
+        _intent_id: &str,
+        _admin_user_id: i64,
+        _actual_amount_minor: Option<i64>,
+        _reference_note: Option<String>,
+    ) -> Result<Option<PaymentIntentRecord>> {
+        Ok(None)
+    }
+
+    /// Admin: reject a pending intent. Returns the updated record, or `None`
+    /// when the intent is missing / not pending.
+    async fn reject_payment_intent(
+        &self,
+        _intent_id: &str,
+        _admin_user_id: i64,
+        _reference_note: Option<String>,
+    ) -> Result<Option<PaymentIntentRecord>> {
+        Ok(None)
+    }
+
+    /// List admin-issued payment blocks in a workspace.
+    async fn list_payment_user_blocks(
+        &self,
+        _workspace_id: &str,
+    ) -> Result<Vec<PaymentUserBlockRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Upsert an admin-issued payment block.
+    async fn upsert_payment_user_block(&self, _block: &PaymentUserBlockRecord) -> Result<()> {
+        Ok(())
+    }
+
+    /// Remove an admin-issued payment block.
+    async fn delete_payment_user_block(&self, _workspace_id: &str, _user_id: i64) -> Result<()> {
         Ok(())
     }
 

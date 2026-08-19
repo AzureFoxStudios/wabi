@@ -24,6 +24,9 @@ use wabidb::domain::{
 };
 use wabidb::engine::wabi_store::WabiStore;
 use wabidb::projections::lore::LoreRepoRecord;
+use wabidb::projections::payments::{
+    PaymentAccountLinkRecord, PaymentIntentRecord, PaymentUserBlockRecord,
+};
 use wabidb::projections::query::QueryableProjection;
 use wabidb::engine::{WabiDbConfig, WabiDbEngine};
 use wabidb::error::{Result, WabiError};
@@ -1533,8 +1536,10 @@ impl WabiStore for WdbAdapter {
                     None,
                 ).await?;
             }
-            // Payment event types — written to the stream log for future
-            // projection processing. No projection handler exists in v1.
+            // Payment event types — retained for replay-compat/audit of the
+            // pre-Phase-1 envelope shape (no projection consumes these;
+            // superseded by the typed payment_* projection events written by
+            // the WdbAdapter payment store methods).
             ("payment", _) => {
                 let pl = serde_json::json!({
                     "entity": entity,
@@ -2503,6 +2508,238 @@ impl WabiStore for WdbAdapter {
             )
             .await?;
         }
+        Ok(())
+    }
+
+    // ================================================================
+    // Payments (Phase 1: event-sourced projection)
+    // ================================================================
+
+    async fn get_payment_policy(&self, key: &str) -> Result<Option<serde_json::Value>> {
+        use wabidb::projections::payments;
+        let state = self.engine.projection_state();
+        payments::PaymentsProjection::get_policy(&state, key)
+    }
+
+    async fn upsert_payment_policy(&self, key: &str, value: &serde_json::Value) -> Result<()> {
+        use wabidb::projections::payments::{encode_record, PaymentPolicyRecord};
+        let record = PaymentPolicyRecord::new(key, value);
+        let payload = encode_record(&record);
+        self.run(
+            0,
+            "upsert_payment_policy",
+            "payments".to_string(),
+            "payment_policy_upserted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn list_payment_account_links(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<PaymentAccountLinkRecord>> {
+        use wabidb::projections::payments;
+        let state = self.engine.projection_state();
+        payments::PaymentsProjection::list_account_links(&state, user_id)
+    }
+
+    async fn upsert_payment_account_link(&self, link: &PaymentAccountLinkRecord) -> Result<()> {
+        use wabidb::projections::payments::encode_record;
+        let payload = encode_record(link);
+        self.run(
+            link.user_id as u64,
+            "upsert_payment_account_link",
+            "payments".to_string(),
+            "payment_account_link_upserted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_payment_account_link(&self, user_id: i64, plugin_id: &str) -> Result<()> {
+        use wabidb::projections::payments::{encode_record, PaymentDeleteKey};
+        let key = PaymentDeleteKey {
+            user_id,
+            workspace_id: None,
+            plugin_id: Some(plugin_id.to_string()),
+        };
+        let payload = encode_record(&key);
+        self.run(
+            user_id as u64,
+            "delete_payment_account_link",
+            "payments".to_string(),
+            "payment_account_link_deleted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn create_payment_intent(&self, intent: &PaymentIntentRecord) -> Result<()> {
+        use wabidb::projections::payments::encode_record;
+        let payload = encode_record(intent);
+        self.run(
+            intent.user_id as u64,
+            "create_payment_intent",
+            "payments".to_string(),
+            "payment_intent_created",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn list_payment_intents(
+        &self,
+        user_id: i64,
+        include_all: bool,
+    ) -> Result<Vec<PaymentIntentRecord>> {
+        use wabidb::projections::payments;
+        let state = self.engine.projection_state();
+        payments::PaymentsProjection::list_intents(&state, user_id, include_all)
+    }
+
+    async fn get_payment_intent(&self, intent_id: &str) -> Result<Option<PaymentIntentRecord>> {
+        use wabidb::projections::payments;
+        let state = self.engine.projection_state();
+        payments::PaymentsProjection::get_intent_by_id(&state, intent_id)
+    }
+
+    async fn confirm_payment_intent(
+        &self,
+        intent_id: &str,
+        admin_user_id: i64,
+        actual_amount_minor: Option<i64>,
+        reference_note: Option<String>,
+    ) -> Result<Option<PaymentIntentRecord>> {
+        use wabidb::projections::payments;
+        let state = self.engine.projection_state();
+        let Some(mut record) = payments::PaymentsProjection::get_intent_by_id(&state, intent_id)?
+        else {
+            return Ok(None);
+        };
+        if record.status != "pending" {
+            return Ok(None);
+        }
+        let now = now_micros();
+        record.status = "completed".to_string();
+        record.updated_at = now;
+        record.confirmed_by = Some(admin_user_id);
+        record.confirm_note = reference_note;
+        if let Some(amt) = actual_amount_minor {
+            if amt > 0 {
+                record.amount_minor = amt;
+            }
+        }
+        let payload = payments::encode_record(&record);
+        self.run(
+            admin_user_id as u64,
+            "confirm_payment_intent",
+            "payments".to_string(),
+            "payment_intent_confirmed",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(Some(record))
+    }
+
+    async fn reject_payment_intent(
+        &self,
+        intent_id: &str,
+        admin_user_id: i64,
+        reference_note: Option<String>,
+    ) -> Result<Option<PaymentIntentRecord>> {
+        use wabidb::projections::payments;
+        let state = self.engine.projection_state();
+        let Some(mut record) = payments::PaymentsProjection::get_intent_by_id(&state, intent_id)?
+        else {
+            return Ok(None);
+        };
+        if record.status != "pending" {
+            return Ok(None);
+        }
+        record.status = "rejected".to_string();
+        record.updated_at = now_micros();
+        record.confirmed_by = Some(admin_user_id);
+        record.confirm_note = reference_note;
+        let payload = payments::encode_record(&record);
+        self.run(
+            admin_user_id as u64,
+            "reject_payment_intent",
+            "payments".to_string(),
+            "payment_intent_rejected",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(Some(record))
+    }
+
+    async fn list_payment_user_blocks(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<PaymentUserBlockRecord>> {
+        use wabidb::projections::payments;
+        let state = self.engine.projection_state();
+        payments::PaymentsProjection::list_user_blocks(&state, workspace_id)
+    }
+
+    async fn upsert_payment_user_block(&self, block: &PaymentUserBlockRecord) -> Result<()> {
+        use wabidb::projections::payments::encode_record;
+        let payload = encode_record(block);
+        self.run(
+            block.blocked_by_user_id.unwrap_or(0) as u64,
+            "upsert_payment_user_block",
+            "payments".to_string(),
+            "payment_user_block_upserted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_payment_user_block(&self, workspace_id: &str, user_id: i64) -> Result<()> {
+        use wabidb::projections::payments::{encode_record, PaymentDeleteKey};
+        let key = PaymentDeleteKey {
+            user_id,
+            workspace_id: Some(workspace_id.to_string()),
+            plugin_id: None,
+        };
+        let payload = encode_record(&key);
+        self.run(
+            user_id as u64,
+            "delete_payment_user_block",
+            "payments".to_string(),
+            "payment_user_block_deleted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
         Ok(())
     }
 

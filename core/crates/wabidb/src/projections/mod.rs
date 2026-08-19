@@ -23,6 +23,7 @@ pub mod lore;
 pub mod messages;
 pub mod noop;
 pub mod owner;
+pub mod payments;
 pub mod query;
 pub mod reactions;
 pub mod rebuild_auth;

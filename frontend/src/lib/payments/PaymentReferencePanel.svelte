@@ -3,17 +3,29 @@
 	import { brandName } from '$lib/branding';
 	import { maskReference } from '$lib/payments/paymentSheetHelpers';
 
-	export let selectedAccountLink: PaymentAccountLink | null = null;
-	export let accountLinksLoading = false;
-	export let isDirectReferenceDraft = false;
-	export let isServerDonationDraft = false;
-	export let isThaiPromptPayDraft = false;
-	export let isBitcoinQrDraft = false;
-	export let showCustomCustomerRef = false;
-	export let customerRef = '';
-	export let directReferenceTitle = 'Payment reference';
-	export let directReferencePlaceholder = 'Payment reference';
-	export let onManageConnections: () => void = () => {};
+	let {
+		selectedAccountLink = null,
+		accountLinksLoading = false,
+		isDirectReferenceDraft = false,
+		isServerDonationDraft = false,
+		isThaiPromptPayDraft = false,
+		showCustomCustomerRef = $bindable(false),
+		customerRef = $bindable(''),
+		directReferenceTitle = 'Payment reference',
+		directReferencePlaceholder = 'Payment reference',
+		onManageConnections
+	}: {
+		selectedAccountLink?: PaymentAccountLink | null;
+		accountLinksLoading?: boolean;
+		isDirectReferenceDraft?: boolean;
+		isServerDonationDraft?: boolean;
+		isThaiPromptPayDraft?: boolean;
+		showCustomCustomerRef?: boolean;
+		customerRef?: string;
+		directReferenceTitle?: string;
+		directReferencePlaceholder?: string;
+		onManageConnections?: () => void;
+	} = $props();
 </script>
 
 {#if isDirectReferenceDraft && !isServerDonationDraft}
@@ -26,9 +38,9 @@
 		{:else}
 			<p class="hint">
 				{#if isThaiPromptPayDraft}
-					Enter your own PromptPay number or registered PromptPay ID for this request.
-				{:else if isBitcoinQrDraft}
-					Enter your own Bitcoin address for this request.
+					Enter your own PromptPay number (Thai mobile or ID) for this request.
+				{:else}
+					Enter your own payment reference for this request.
 				{/if}
 			</p>
 		{/if}
@@ -45,15 +57,11 @@
 		{/if}
 		<div class="actions">
 			{#if selectedAccountLink}
-				<button class="action" on:click={() => (showCustomCustomerRef = !showCustomCustomerRef)}>
-					{#if isThaiPromptPayDraft}
-						{showCustomCustomerRef ? 'Use saved PromptPay number' : 'Use different number'}
-					{:else}
-						{showCustomCustomerRef ? 'Use saved Bitcoin address' : 'Use different address'}
-					{/if}
+				<button class="action" onclick={() => (showCustomCustomerRef = !showCustomCustomerRef)}>
+					{showCustomCustomerRef ? 'Use saved PromptPay number' : 'Use different number'}
 				</button>
 			{/if}
-			<button class="action" on:click={onManageConnections}>
+			<button class="action" onclick={() => onManageConnections?.()}>
 				{selectedAccountLink ? 'Edit in Saved References' : `Add ${directReferenceTitle}`}
 			</button>
 		</div>
@@ -75,7 +83,7 @@
 			</p>
 		{/if}
 		<div class="actions">
-			<button class="action" on:click={onManageConnections}>
+			<button class="action" onclick={() => onManageConnections?.()}>
 				{selectedAccountLink ? 'Manage Saved References' : 'Add Reference in Settings'}
 			</button>
 		</div>

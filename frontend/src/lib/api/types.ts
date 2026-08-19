@@ -146,42 +146,6 @@ export interface PublicBackendEndpointsResponse {
 	generatedAt: number;
 }
 
-export type ManualCashSettlementStatus =
-	| 'pending'
-	| 'confirmed_by_creator'
-	| 'confirmed_by_counterparty'
-	| 'completed'
-	| 'canceled'
-	| 'disputed';
-
-export interface ManualCashSettlement {
-	settlementId: string;
-	channelId: string | null;
-	amountMinor: number;
-	currency: string;
-	description: string | null;
-	status: ManualCashSettlementStatus;
-	createdByUserId: number;
-	counterpartyUserId: number | null;
-	creatorLabel: string;
-	counterpartyLabel: string;
-	creatorConfirmedAt: number | null;
-	counterpartyConfirmedAt: number | null;
-	completedAt: number | null;
-	createdAt: number;
-	updatedAt: number;
-	viewerRole: 'creator' | 'counterparty' | 'observer';
-	canConfirm: boolean;
-	canCancel: boolean;
-	canDispute: boolean;
-}
-
-export interface ManualCashSettlementListResponse {
-	success: boolean;
-	count: number;
-	items: ManualCashSettlement[];
-}
-
 export interface OfflineDonationLedgerEntry {
 	settlementId: string;
 	donorLabel: string;

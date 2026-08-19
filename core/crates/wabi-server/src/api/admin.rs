@@ -1035,7 +1035,15 @@ async fn list_payment_blocks(
     if let Err(resp) = admin_auth(&headers, &state).await {
         return resp;
     }
-    let blocks: Vec<PaymentUserBlock> = Vec::new();
+    let blocks = match state.wdb.list_payment_user_blocks("default-workspace").await {
+        Ok(blocks) => blocks,
+        Err(e) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to load payment blocks: {}", e),
+            )
+        }
+    };
     Json(json!({ "blocks": blocks })).into_response()
 }
 
@@ -1062,18 +1070,12 @@ async fn create_payment_block(
         blocked_at: now,
         expires_at: input.expires_at,
     };
-    let _ = state
-        .wdb
-        .ingest_event(
-            "payment",
-            "upsert_user_block",
-            &json!({
-                "userId": block.user_id,
-                "workspaceId": block.workspace_id,
-                "row": block,
-            }),
-        )
-        .await;
+    if let Err(e) = state.wdb.upsert_payment_user_block(&block).await {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to save payment block: {}", e),
+        );
+    }
     Json(json!({ "block": block })).into_response()
 }
 
@@ -1089,17 +1091,16 @@ async fn clear_payment_block(
     if !is_admin_user(admin_id, &state).await {
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
-    let _ = state
+    if let Err(e) = state
         .wdb
-        .ingest_event(
-            "payment",
-            "delete_user_block",
-            &json!({
-                "userId": blocked_user_id,
-                "workspaceId": "default-workspace",
-            }),
-        )
-        .await;
+        .delete_payment_user_block("default-workspace", blocked_user_id)
+        .await
+    {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to clear payment block: {}", e),
+        );
+    }
     Json(json!({ "cleared": true })).into_response()
 }
 

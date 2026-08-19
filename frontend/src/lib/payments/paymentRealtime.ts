@@ -20,12 +20,6 @@ export type PaymentRealtimeEventMap = {
 		settlementId?: string | null;
 		status?: string | null;
 	};
-	'manual-cash:updated': {
-		workspaceId: string;
-		settlementId: string;
-		channelId: string;
-		status: string;
-	};
 	'payments:account-links-updated': {
 		workspaceId: string;
 	};

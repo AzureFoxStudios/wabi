@@ -3,21 +3,26 @@
 	import {
 		createAdminOfflineDonation,
 		getAdminPaymentDonationConfig,
+		getPaymentAccess,
 		listAdminOfflineDonations,
 		listAdminPaymentDonationAudit,
 		listPaymentProviders,
 		refundAdminPaymentDonation,
 		saveAdminPaymentDonationConfig,
+		savePaymentAccess,
 		voidAdminOfflineDonation,
 		type OfflineDonationLedgerEntry,
+		type PaymentAccessPolicy,
 		type PaymentDonationConfig,
 		type PaymentDonationLedgerEntry,
 		type PaymentProviderCapability
 	} from '$lib/api';
 	import { getAuthToken } from '$lib/authSession';
+	import { refreshPaymentAccess } from '$lib/payments/paymentAccessStore';
 	import { subscribePaymentRealtimeEvent } from '$lib/payments/paymentRealtime';
 	import DonationConfig from './DonationConfig.svelte';
 	import OfflineDonations from './OfflineDonations.svelte';
+	import PaymentAccessPanel from './PaymentAccessPanel.svelte';
 	import {
 		formatDonationAuditAmount,
 		formatDonationAuditWhen,
@@ -61,6 +66,9 @@
 	let donationSuggestedAmountsInput = '5, 10, 25';
 	let paymentProviderCapabilities: PaymentProviderCapability[] = [];
 	let paymentProviderCapabilitiesLoaded = false;
+	let adminAccessPolicy: PaymentAccessPolicy | null = null;
+	let adminAccessLoading = false;
+	let adminAccessSaving = false;
 
 	$: adminDonationSelectedProvider =
 		paymentProviderCapabilities.find((provider) => provider.pluginId === adminDonationConfig.providerPluginId) || null;
@@ -81,6 +89,7 @@
 		adminDonationConfig.methodId
 	);
 	$: if (canManageAdmin && !adminDonationConfigLoaded) void loadAdminDonationConfig();
+	$: if (canManageAdmin && !adminAccessLoading && !adminAccessPolicy) void loadAdminAccessPolicy();
 	$: if (canManageAdmin && !adminDonationAuditLoaded) void loadAdminDonationAudit();
 	$: if (canManageAdmin && !adminOfflineDonationAuditLoaded) void loadAdminOfflineDonationAudit();
 
@@ -96,6 +105,8 @@
 			if (!canManageAdmin) return;
 			adminDonationConfigLoaded = false;
 			void loadAdminDonationConfig();
+			adminAccessPolicy = null;
+			void loadAdminAccessPolicy();
 		});
 		return () => {
 			unsubscribeDonationRealtime();
@@ -134,6 +145,44 @@
 			normalizeAdminDonationMethodSelection();
 		} catch (error) {
 			console.error('[Payments] Failed to load provider capabilities for settings:', error);
+		}
+	}
+
+	async function loadAdminAccessPolicy(): Promise<void> {
+		if (adminAccessLoading || !canManageAdmin) return;
+		const token = getAuthToken();
+		if (!token) return;
+		adminAccessLoading = true;
+		try {
+			const response = await getPaymentAccess(token);
+			adminAccessPolicy = response.policy || null;
+		} catch (error) {
+			console.error('[Payments] Failed to load access policy:', error);
+		} finally {
+			adminAccessLoading = false;
+		}
+	}
+
+	async function saveAccessPolicy(enabled: boolean): Promise<void> {
+		if (adminAccessSaving || !canManageAdmin) return;
+		const token = getAuthToken();
+		if (!token) {
+			alert('You must be logged in as admin/owner.');
+			return;
+		}
+		adminAccessSaving = true;
+		try {
+			adminAccessPolicy = await savePaymentAccess(token, {
+				enabled,
+				allowGuest: adminAccessPolicy?.allowGuest ?? false,
+				allowedRoleNames: adminAccessPolicy?.allowedRoleNames ?? ['owner', 'admin', 'mod', 'member']
+			});
+			void refreshPaymentAccess();
+			alert(enabled ? 'Payments enabled.' : 'Payments disabled. All payment entry points are now hidden.');
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to save payment access policy.');
+		} finally {
+			adminAccessSaving = false;
 		}
 	}
 
@@ -304,6 +353,15 @@
 		}
 	}
 </script>
+
+<PaymentAccessPanel
+	{canManageAdmin}
+	accessPolicy={adminAccessPolicy}
+	accessLoading={adminAccessLoading}
+	accessSaving={adminAccessSaving}
+	onEnable={() => void saveAccessPolicy(true)}
+	onDisable={() => void saveAccessPolicy(false)}
+/>
 
 <DonationConfig
 	{adminDonationConfig}

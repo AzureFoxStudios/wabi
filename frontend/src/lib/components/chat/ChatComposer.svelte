@@ -43,7 +43,6 @@
 	export let isTextareaFocused = false;
 	export let onExecuteCommand: (cmd: string) => Promise<void>;
 	export let onOpenPaymentSheet: (prefill?: { amountInput?: string; description?: string; customerRef?: string }) => void;
-	export let onOpenManualCash: () => void;
 
 	const dispatch = createEventDispatcher();
 	type SendChatMessage = (
@@ -460,7 +459,6 @@
 		<div class="input-buttons-right">
 			{#if paymentButtonEnabled}
 				<button class="input-icon-button" on:click={() => onOpenPaymentSheet()} title="Create payment request" aria-label="Create payment request"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M2.5 10h19"></path><path d="M7.5 15h4"></path></svg></button>
-				{#if isDMChannel}<button class="input-icon-button" on:click={onOpenManualCash} title="Record manual cash trade" aria-label="Record manual cash trade"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a2 2 0 0 1 2-2h4"></path><path d="M16 13v4a2 2 0 0 1-2 2h-4"></path><path d="M5 12h4"></path><path d="M15 12h4"></path><path d="m9 9 2 3-2 3"></path><path d="m15 9-2 3 2 3"></path></svg></button>{/if}
 			{/if}
 			<div class="media-menu-container" bind:this={mediaMenuContainer}>
 				<button class="input-icon-button add-button" on:click|stopPropagation={() => { showMediaMenu = !showMediaMenu; if (showMediaMenu) showEmojiPicker = false; }} title={$_('chat.compose.add_media')} aria-label={$_('chat.compose.add_media')}><span aria-hidden="true">+</span></button>

@@ -1,6 +1,7 @@
 # Payments P2P Audit & Roadmap — 2026-08-18
 
-Status: **Audit + roadmap (docs pass); Phase UX executed same day**
+Status: **Audit + roadmap (docs pass); Phase UX + Phase 1 (WabiDB payment
+projection) + Phases 2-4 (crypto / EPC SEPA / US rails) executed same day**
 Provenance: payments audit session 2026-08-18 (regional rails re-verified against
 Aug 2026 sources; repo state surveyed; legal posture question raised by Ronin).
 Related: `docs/research/western-bank-to-bank-payments-2026.md` (canonical rail
@@ -207,6 +208,40 @@ endpoints return empty until Phase 1 lands. Goals of the pass:
   will show about the seller (v1 PromptPay: bank-registered name) before the
   request is created.
 
+**Execution record (2026-08-18, frontend-only):**
+- `api/paymentCheckout.ts` rewritten against the REAL Rust routes
+  (`POST/GET /api/payments/intents`, `/intents/{id}/confirm|reject`); Rust
+  intent JSON mapped onto the frontend contract; provider list served from a
+  static v1 catalog (`V1_PROVIDER_CATALOG`, PromptPay/THB) — the previous
+  client called `/api/payments/providers`, `/create`, `/{id}`, `/{id}/cancel`,
+  none of which exist (the sheet 404'd end-to-end). User-side cancel removed
+  (no such route; admin confirm/reject clients added for Phase 1 UI).
+- `api/paymentHistory.ts`: history → `GET /intents`; account-links stored on
+  device (localStorage) with best-effort server mirror — the server store is a
+  no-op stub until Phase 1.
+- `paymentAccessStore.ts`: v1 no longer hides the payments UI (the policy
+  store is a server-side stub; intent routes enforce auth only). Restore
+  policy gating with Phase 1.
+- Manual-cash flow deleted end-to-end (modal, API client, `/cash` command,
+  composer button, context-menu items, launch surface) — it targeted routes
+  that no longer exist.
+- All 9 payments components migrated to Svelte 5 runes (`$props/$state/
+  $derived/$effect`, `onclick`, `$bindable`); dead bitcoin/western branches
+  removed; PromptPay rail keyed to pluginId `promptpay`.
+- `BaseModal.svelte`: additive optional `title`/`subtitle`/`headerTag` props
+  (renders a text header instead of requiring the header slot) — lets
+  runes-mode payments modals avoid snippet/slot interop; zero impact on the
+  ~100 legacy consumers.
+- `payment-sheet.css` + modal styles tokenized to the design system
+  (`--surface-*`, `--border-default`, `--radius-*`, `--duration-*`),
+  hover/active/focus-visible states, QR card enter animation, pending-status
+  pulse, `prefers-reduced-motion` respected; privacy-disclosure line added to
+  the PromptPay draft.
+- Verified: `bun run check` 0 errors (148 pre-existing app-wide warnings,
+  baseline unchanged); `STATIC_BUILD=1` production build passes. Live
+  browser verification still pending (golden rule 7) — spot-check the
+  PaymentSheet and Saved References modal on the next dev run.
+
 ## 6. Phased roadmap
 
 - **Phase 0 (this session):** this doc + research-doc verification update +
@@ -223,18 +258,370 @@ endpoints return empty until Phase 1 lands. Goals of the pass:
 - **Phase 5 (GATED — legal review before any code):** commission sheet /
   marketplace surface. Gate questions in §7.
 
+## 6b. Phase 1 execution record (2026-08-18)
+
+**Scope delivered:** payment account links + intents moved from JSONL into
+WabiDB events; policy + user-block storage landed; the no-op stub handlers are
+wired; JSONL→event migration hook added; tests accompany.
+
+**WabiDB (`core/crates/wabidb/`):**
+- New `projections/payments.rs`: `PaymentsProjection` (stream `"payments"`,
+  index names `payment_account_links`, `payment_intents`, `payment_policies`,
+  `payment_user_blocks`) + records (`PaymentAccountLinkRecord`,
+  `PaymentIntentRecord`, `PaymentPolicyRecord`, `PaymentUserBlockRecord`,
+  `PaymentDeleteKey`). All records camelCase-serialized, matching the old
+  `intents.jsonl` shape so the frontend contract is unchanged. Postcard cannot
+  encode `serde_json::Value`, so `PaymentPolicyRecord` stores `value_json:
+  String` (same approach as the audit projection).
+- Event types: `payment_account_link_upserted/deleted`,
+  `payment_intent_created/confirmed/rejected`, `payment_policy_upserted`,
+  `payment_user_block_upserted/deleted`. No existing postcard records were
+  touched (golden rule 5 — all records are new).
+- Registered in `build_type_registry()` (engine/mod.rs). 10 unit tests in
+  `projections::payments` pass.
+- `WabiStore` trait + `WdbAdapter` impls: get/upsert `payment_policy`,
+  list/upsert/delete `payment_account_link`, create/list/get/confirm/reject
+  `payment_intent` (confirm/reject validate `status == "pending"`; 404 unknown
+  intent, 409 non-pending), list/upsert/delete `payment_user_block`.
+
+**wabi-server:**
+- `api/payments/intents.rs` rewritten off JSONL: `create_intent` (PromptPay QR
+  build, `pi_{uuid}` ids, `WABI_PROMPTPAY_PROXY_ID`/`MERCHANT_NAME`/
+  `MERCHANT_CITY` env), `list_intents` (admin see-all), confirm/reject
+  (admin-only), `migrate_legacy_intents` (replays pre-Phase-1
+  `{data_dir}/payments/intents.jsonl` as `payment_intent_created`, skipping ids
+  already projected, then renames the file to `intents.jsonl.migrated-{ts}`;
+  spawned once from `payments::routes()`).
+- `api/payments/mod.rs` + `handlers.rs` + `api/admin.rs`: account-link and
+  user-block handlers wired to the store; `PaymentAccountLink`/
+  `PaymentUserBlock` are now type aliases to the wabidb records. The
+  `intents_mutex` in `state.rs` is gone.
+- The legacy `("payment", _)` ingest arm in `adapter/mod.rs` is retained
+  (replay-compat/audit); no projection consumes its `payment_{op}` envelope
+  events.
+- New integration suite `tests/payments_projection_contract.rs` (5 tests:
+  account links upsert/list/delete/scope, intent created/listed/confirmed/
+  persisted incl. restart replay, payment-access policy persists, user blocks
+  admin-only, reject flow + unknown intent).
+
+**Verified:** `cargo test -p wabidb --lib` 861 passed (incl. 10 new payments
+tests); `cargo test -p wabi-server` all green (98 unit + 107 onboarding + 5
+payments integration + others); `cargo check` clean (13 pre-existing unrelated
+warnings); frontend `bun run check` 0 errors, 0 payments warnings. Live browser
+verification of the sheet still pending (golden rule 7 — next dev run).
+
+**Debugging note:** three of the new integration tests initially failed at
+`register alice` with `Wdb(Io ENOENT)` on `global/commit-index/00000000.widx`.
+strace showed the test helper's `TempDir` was being dropped (bindings like
+`let (_, app)`), deleting the data dir out from under the engine — a test bug,
+not an engine race. Fixed by keeping the `TempDir` alive; engine untouched.
+
+## 6c. Phases 2-4 execution record (2026-08-18)
+
+**Scope delivered:** three optional, compile-time-`payments-rails`-gated rails
+as workspace addon crates; wabi-server routing, addons listing and integration
+tests; capability-gated frontend checkout. All non-custodial: Wabi builds the
+presentation, money moves outside Wabi, confirmation stays manual (Phase 1
+confirm/reject UX reused as-is). Phase 5 remains legally gated — see §7.
+
+**Addon crates (new workspace members):**
+- `core/addons/payments-crypto/backend`: chains `usdc_base` (chain id 8453),
+  `usdc_solana`, `usdt_tron` (TRC-20), `btc`, `lightning`, `monero`.
+  `RenderParams {chain, pointer, amount_minor, reference_code, merchant_name}`;
+  `presentation()` → `{mode:"qr", qrData, copyText, chain, referenceCode, note}`.
+  URI scheme per chain (`ethereum:` for EVM, `bitcoin:`, `lightning:`,
+  `monero:`). 6 tests.
+- `core/addons/payments-eu/backend`: EPC069-12 v3.1 QR builder. **CRC decision:
+  EPC069-12 defines NO checksum** — verified against the official v2.1 PDF
+  (downloaded to `/tmp/opencode/epc069-12.pdf`, extracted via pdftotext), the
+  v3.1 full text, the segno source, and the eupl reference implementation. The
+  remembered "9C31" Wikimedia CRC from an earlier session was a self-derived
+  construction, not an authoritative vector, and is discarded. Payload: up to 12
+  LF-joined elements `[BCD, 002, 1, SCT, BIC|"", name, IBAN, EUR{amount},
+  purpose|"", reference|"", text|"", info?]`, trailing empty optional lines
+  trimmed (min 7, through IBAN), last populated element has no trailing
+  separator, ≤331 bytes, charset always "1" (UTF-8), version "002", minimal
+  amount (EUR27, EUR12.3 — trailing zeros stripped), reference (≤35, ISO 11649)
+  XOR text (≤140), purpose exactly 4 chars, info ≤70. `presentation()` →
+  `{mode:"qr", qrData, copyText, rail:"sepa-instant", referenceCode, note}`. 8
+  tests incl. a byte-exact official V2 vector (François D'Alsace S.A.) and the
+  Wikimedia / Franz Mustermänn vectors.
+- `core/addons/payments-us/backend`: rails `cashapp_pointer`, `venmo_handle`,
+  `zelle_pointer`, `ach_details`; per-rail pointer validation;
+  `presentation()` → `{mode:"app_switch", pointer, pointerLabel, referenceCode,
+  disclosure, amountMinor, currency, note}`. 7 tests.
+
+**wabi-server:**
+- `Cargo.toml`: optional deps on the three crates; feature
+  `payments-rails = ["wabi-payments-crypto", "wabi-payments-eu",
+  "wabi-payments-us"]`.
+- `api/addons.rs`: cfg-gated `AddonCapability` entries for `payments-crypto`,
+  `payments-eu`, `payments-us` (each gated on its own crate feature,
+  `cargo_feature: Some("payments-rails")`, empty contributions/permissions) + 4
+  cfg-gated tests. Builds without the feature simply don't advertise them.
+- `api/payments/intents.rs`: `CreateIntentInput` extended with `method_id`,
+  `country_code`, `provider_ref`; `create_intent` routes per `provider` inside
+  `#[cfg(feature = ...)` blocks (off-build arms return `<rail> rail is not
+  enabled in this build (compile with --features payments-rails)`). Crypto:
+  chain from `method_id`, pointer from `provider_ref`, merchant name from env
+  `WABI_CRYPTO_MERCHANT_NAME` (default `WABI`), currency defaulted per chain via
+  `default_chain_currency()`. EU: IBAN from `provider_ref`, payee name from env
+  `WABI_EU_PAYEE_NAME` (default `WABI`), optional env `WABI_EU_BIC`, reference
+  set to the intent's `reference_code`. US: rail from `method_id`, pointer from
+  `provider_ref`, currency defaults USD. PromptPay branch unchanged (+
+  `method_id` "promptpay_qr", country "TH").
+- `reference_code()` / `rand_byte()` moved here from `wabi-payments-us` —
+  server-level plumbing shared by all rails: `WABI-XXXX` over the unambiguous
+  alphabet `2345679ACDEFGHJKMNPQRSTUVWXYZ` (no 0/O/1/I/8/B). The US crate keeps
+  its own tested copy for standalone use (documented in its docs).
+- New integration suite `tests/payments_rails_contract.rs` (5 tests,
+  `#![cfg(feature = "payments-rails")]` so plain `cargo test` skips it):
+  `/addons` lists all three rails; crypto intent round trip (create + confirm,
+  exact `ethereum:` qrData, WABI- reference); EU intent builds the EPC payload
+  (BCD/002/1/SCT, mod-97 IBAN, minimal EUR27 amount, structured reference as the
+  last element); US intent carries pointer + legal-name disclosure; invalid
+  inputs (bad wallet address, unknown chain, invalid IBAN, unknown rail) are
+  rejected 400 with nothing persisted.
+
+**Frontend (capability-gated via `hasAddonCapability` on `/api/addons`):**
+- `paymentCheckout.ts`: provider catalog now filters the three rail definitions
+  by server capability; `mapIntent` reads `provider` / `methodId` /
+  `countryCode` / `providerRef` / `presentationJson` and surfaces the parsed
+  presentation blob (PromptPay JSONL shape still maps identically);
+  `createPaymentIntent` sends `provider`, `methodId`, `countryCode`,
+  `providerRef` (PromptPay keeps `promptpayProxyId`).
+- `paymentSheetHelpers.ts`: route presets for USDC (Base) / USDT (Tron) / BTC /
+  Lightning / XMR, the Euro Area EPC QR (DE/EUR) and the US Cash App rail.
+- `PaymentConnectionsModal.svelte`: per-rail reference labels, placeholders and
+  help text (wallet address / IBAN / US handle).
+- `PaymentIntentCard.svelte`: `app_switch` branch now renders a copy-pointer
+  button plus the reference code and the legal-name disclosure (previously only
+  deep-link/fallback URLs).
+- `paymentRequestPresentation.ts`: the three rails map to
+  `external_confirmation` (settlement happens outside Wabi; app return is not
+  proof). `PaymentSheetBody` shows per-rail QR hints (wallet vs. EU banking app).
+
+**Verified:** `cargo test --workspace` green (861 wabidb lib + all server/other
+suites); `cargo test -p wabi-server` green with default features AND with
+`--features payments-rails` (103 lib + 112 lib + 5 rail-contract integration +
+existing suites); addon crates 6/8/7 green; frontend `bun run check` 0 errors.
+
+**Live smoke test (2026-08-18, headless HTTP):** ran the real binary with
+`--features payments-rails` against a throwaway data dir: `/api/addons` lists
+`payments-crypto`/`payments-eu`/`payments-us`; register → create intent on each
+rail (crypto `ethereum:` URI + WABI- reference; EU EPC payload with minimal
+`EUR27` amount and reference as last element; US app_switch with pointer +
+disclosure); GET `/api/payments/intents` lists all three; invalid IBAN → 400;
+admin confirm → `completed` with note. Full browser pass of the PaymentSheet
+still pending (golden rule 7 — next dev run).
+
+**Follow-up fixes folded in (same session):** frontend minor-unit decimals for
+crypto now match the addon crate (USDC/USDT 6, XMR 12 — previously only BTC 8
+was special-cased, so USDC/USDT/XMR amounts would have been ~4–10 orders of
+magnitude off); `mapIntent` exported from `paymentCheckout.ts` and reused by
+`paymentHistory.ts` (history was hardcoded to the promptpay shape); the ts-rs
+regen from `cargo test --workspace` stripped the manual `"category"|"lore"` /
+`position`/`parentId` additions to the generated protocol (restored per repo
+golden rule 4).
+
+**Payment UI omit switch (2026-08-19, "empty payment button" fix):** the
+`policy:payments_access` row was already persisted by Phase 1 (GET/POST
+`/api/payments/access`, admin-only POST); the frontend access store was
+deliberately ignoring it ("must NOT hide the UI" — written when the policy was
+a stub). Now that the policy is real, the omit behavior is a settings check,
+not a teardown:
+- `paymentAccessStore.ts` consumes the live policy: `policyEnabled` and
+  `canViewPaymentUi` = `policy.enabled`; `canCreate` = authenticated ∧ enabled.
+  Unknown policy (no row / server unreachable) fails open for viewing (the
+  sheet's empty state explains missing rails), creation stays auth-gated.
+  Pure `resolvePaymentAccessSnapshot(policy, token)` extracted for tests.
+- Entry-point gating: composer payment button (`Chat.svelte`) and DM payment
+  button (`DMMessageView.svelte`) now require `loaded ∧ canCreate`. History,
+  pending-intent completion and receipts stay accessible (real data, not empty
+  buttons). Default (no policy row) = hidden — servers with no rails no longer
+  show an empty payment button.
+- Admin settings (`settings/admin/PaymentAccessPanel.svelte`, rendered from
+  `AdminSettingsPayments.svelte`): master ON/OFF toggle. **Enabling is one
+  click; disabling is deliberately tedious** — the user must tick an
+  acknowledgment checkbox AND type `DISABLE` (case-insensitive, exact word,
+  `canConfirmDisable()` gate) before the button un-grays, so hiding payments
+  for everyone is a considered act. Save path: `savePaymentAccess()` client API
+  (new, exported from `$lib/api`) → POST → `refreshPaymentAccess()` updates the
+  global store immediately; the existing `payments:access-updated` realtime
+  event also reloads the panel.
+- Tests: `paymentAccessStore.test.ts` (8) covers fail-open/enabled/disabled
+  snapshot derivation and the disable-phrase gate. `bun test src/lib` 107 pass
+  (one flaky pre-existing order-dependent failure in `rightPanelStubStrip`),
+  `bun run check` 0 errors.
+- Note: disabling hides creation entry points; the policy is not enforced on
+  the intent routes themselves (auth-only), so direct API calls can still
+  create intents while the UI is omitted — fine for the privacy-first "omit"
+  goal; a hard server-side gate would be a Phase 5-era decision (it changes
+  the product contract, not just the UI).
+
+**Carry-forward:** Phase 0 live-browser PaymentSheet verification (golden rule
+7) pending — next dev run (this session also added the admin omit toggle, so
+the browser pass should exercise enable → buttons appear, disable-tedious flow
+→ buttons vanish); Phase 5 stays gated on §7 counsel answers.
+
+## 6d. WS-3 execution record — access policy enforcement (2026-08-18, ZCode)
+
+Closes the one gap from the Phase 1 audit: the persisted `payments_access`
+policy and payment user-blocks are now **enforced**, not just stored.
+
+- **Server** (`api/payments/`):
+  - `create_intent` enforces the access policy via the new
+    `evaluate_payment_access` (403 with a human reason for: blocked user,
+    disabled policy, disallowed role, guest without `allowGuest`).
+  - `extract_identity` decodes `(user_id, is_guest)` from the JWT (guest flag
+    was already a claim; the payments decoder just ignored it).
+  - `GET /payments/access` now returns a server-computed `actor`
+    (`PaymentAccessActorStatus` contract the frontend always expected).
+  - **Default policy flipped to `enabled: true`.** Semantic: the policy is an
+    admin kill-switch/restrictor, not an opt-in — matches the behavior every
+    server already had (any registered user could create intents). Flipping
+    the old default (`false`) would have bricked payments on upgrade the
+    moment enforcement landed.
+- **Tests**: new `payment_access_policy_enforced_in_create_intent` (member
+  create OK → disabled 403 → role-restrict 403 → restore → block 403 +
+  `actor.blocked` → clear → OK); `payment_access_policy_persists` updated for
+  the enabled default. Note discovered en passant: registration ids are NOT
+  small integers in order (first-boot seeding consumes some) — tests must
+  read the real id (`actor.userId`), never assume `userId: 2`.
+- **Frontend**: `paymentAccessStore` gates on the server actor (policy-only
+  fallback for old servers); account-links list is server-first with the
+  localStorage copy demoted to offline cache; Connections modal copy updated
+  (references are server-stored, device-cached).
+
 ## 7. Open questions (counsel review items, Phase 5 gate)
 
-1. DAC7 scope for self-hosted multi-seller instances: is an operator-run Wabi
-   with a commission sheet a "platform operator" if it never facilitates payment?
-2. DSA "online marketplace" definition boundary: pinned price sheet vs. listing
-   board.
-3. Thai RD platform-reporting thresholds for hobbyist-scale instances.
-4. Whether displaying third-party payment pointers creates any operator duty
-   in US state money-transmitter statutes (analysis says no; confirm).
+Research pass 2026-08-18 (web, primary sources where possible; NOT legal
+advice — each item still needs confirmation by counsel in the relevant
+jurisdiction before Phase 5 code).
+
+1. **DAC7 scope for self-hosted multi-seller instances** — Directive (EU)
+   2021/514, Art. 8ac + Annex V §I.A.1: a "Platform" is software connecting
+   Sellers to users for a Relevant Activity, "including any arrangement for
+   the collection and payment of a Consideration", BUT it "does not include
+   software that without any further intervention in carrying out a Relevant
+   Activity exclusively allows … (b) users to list or advertise a Relevant
+   Activity". Finding: a Wabi instance whose commercial surface is a pinned
+   price sheet + payment pointers, with funds moving P2P entirely outside
+   Wabi (never collected/paid by the operator), sits squarely in carve-out
+   (b) — it is not a DAC7 Platform. Secondary protections: EU nexus is
+   required anyway (EU-resident operator, or EU reportable sellers /
+   immovable property in a MS); the small-seller de minimis (<30 sales of
+   goods and ≤€2,000 consideration) shrinks reportable-seller scope further.
+   **Risk line:** the carve-out is "exclusively" — any Wabi-side collection
+   or payment of consideration (escrow, in-app checkout, fee/commission
+   routed through Wabi) flips the analysis. Member-State transposition
+   varies; confirm with counsel in the relevant MS.
+
+2. **DSA "online marketplace" definition boundary** — the DSA never defines
+   "online marketplace"; Chapter III Section 4 (Arts 29–32) applies to
+   "online platforms allowing consumers to conclude distance contracts with
+   traders" (B2C only). Leading analysis (Freshfields; ACM guidelines):
+   social-media-style contact between traders and consumers is NOT a
+   marketplace "unless such commercial activities are actively facilitated
+   by the platform provider (e.g., by way of a formal checkout process
+   directly on the platform)"; a shop selling only its own goods is not a
+   marketplace. Finding: a pinned price sheet where the buyer contacts the
+   seller and pays through external apps = the social-media-chat scenario —
+   not a DSA marketplace, as long as Wabi has no on-platform checkout or
+   contract conclusion. Baseline hosting/online-platform DSA duties apply to
+   Wabi as a chat platform regardless (independent of Phase 5). **Risk
+   lines:** any formal checkout/"buy now" that concludes a contract on Wabi
+   crosses the line; the P2B Regulation (EU 2019/1150) imposes transparency
+   duties on "online intermediation services" used by business users even
+   outside the DSA marketplace label — confirm if the sheet targets
+   business sellers.
+
+3. **Thai RD platform-reporting thresholds for hobbyist instances** — two
+   regimes:
+   - RD seller-revenue reporting (DG Revenue Notification 27 Dec 2023,
+     effective 1 Jan 2024): applies only to e-platforms ESTABLISHED IN
+     THAILAND with total revenue > THB 1,000 million (≈US$28M) per
+     accounting period; special accounts of sellers' online revenue filed
+     within 150 days of year-end. Hobbyist scale is orders of magnitude
+     below; irrelevant to self-hosted instances.
+   - Royal Decree on Digital Platform Service Businesses (2022, effective
+     Aug 2023, enforced by ETDA): notification + annual reporting applies
+     to operators with Thai revenue > THB 1.8M (individual) / THB 50M
+     (juristic) OR >5,000 average monthly Thai users — for electronic
+     intermediary services connecting merchants/consumers "regardless of
+     whether payment is actually made"; extraterritorial if Thai-language
+     interface / .th domain / THB payment / Thai governing law. Platforms
+     offering only the operator's own goods/services, and web-board +
+     hyperlink-only sites, are exempt or light-touch. Finding: a hobbyist
+     instance serving its own community is below every threshold; even a
+     paid service needs 5,000 monthly users or THB 1.8M/yr to trigger ETDA
+     notification. **Watch items:** ETDA's 2026 agenda includes a
+     designated-online-marketplace notification (Dec 2025) and a social
+     commerce notification — re-check before any storefront/checkout
+     feature; a commercial Wabi hosting business aimed at Thai users could
+     hit the thresholds.
+
+4. **US state money-transmitter statutes — pointer display duty** — state
+   MTL definitions and FinCEN's MSB rules turn on receiving/holding/
+   transmitting funds "on behalf of another person". Consistent authority
+   (Cornerstone, Tagada, FinCEN commentary): "pure software providers that
+   never control funds are generally outside the requirement"; the line is
+   control/constructive possession of funds — platforms that only pass
+   payment instructions while funds move directly payer→payee via third
+   parties are not money transmitters. Finding: the in-house analysis
+   holds — Wabi displaying Zelle/Venmo/crypto pointers with money moving
+   P2P through the payer's own app never receives, holds, or transmits
+   funds. **Risk lines:** the moment Wabi collects anything itself —
+   commission routed through Wabi, escrow, held balances, refund
+   intermediation, disbursement on behalf of sellers — it becomes an
+   intermediary touching funds (MTL per state + FinCEN MSB registration +
+   18 U.S.C. 1960 exposure if unlicensed). California's "facilitating"
+   language is broader than most states; confirm no state reads pointer
+   display as facilitation without fund control. Zelle network terms
+   already bar commercial use, so the sheet must stay personal-scale
+   (see §8).
+
+**Phase 5 design guardrails derived from the research (bind any future
+implementation):**
+- G1: Funds must always move P2P directly (payer's app → payee's account).
+  Wabi never collects, holds, escrows, or disburses money — including
+  commissions.
+- G2: No on-platform contract conclusion or checkout. Price sheet =
+  informational listing + payment pointers only (DAC7 carve-out (b) / DSA
+  no-conclusion boundary).
+- G3: Commission, if ever added, must be settled outside the payment flow
+  (separate P2P transfer) or deferred until counsel clears the DAC7/MSB
+  analysis.
+- G4: A Thai-operated commercial service re-checks ETDA thresholds
+  (>5,000 monthly users / THB 1.8M individual revenue) before launch.
+- G5: Keep the sheet personal-scale for US rails (Zelle/other network terms
+  bar commercial use).
 
 ## 8. Sources (2026-08-18 verification)
 
+- DAC7: Directive (EU) 2021/514 Art. 8ac + Annex V §I.A.1 (EUR-Lex);
+  European Commission DAC7 page; Dutch Tax Administration DAC7 platform
+  check (carve-outs: payments processing / listing-advertising / redirect
+  only); Lexology DAC7 summary (small-seller de minimis <30 sales / ≤€2,000);
+  dodopayments DAC7 guide (platform definition, exclusions, UK equivalent).
+- DSA marketplace boundary: Freshfields "DSA decoded #9 — The DSA and online
+  marketplaces" (2025-12); ACM draft DSA guidelines (B2C online marketplace
+  definition, distance-contract reference); William Fry / Baker McKenzie DSA
+  categorisation notes; LexisNexis distance-contract glossaries (Consumer
+  Rights Directive 2011/83/EU).
+- Thailand: DG Revenue Notification 27 Dec 2023 (Royal Gazette; Grant
+  Thornton Thailand; sherrings.com; thailand-business-news) — THB 1,000M
+  platform-revenue threshold; Royal Decree on Digital Platform Service
+  Businesses B.E. 2565 + ETDA thresholds (ETDA decree text; Tilleke;
+  LawPlus; IAPP; TDRI) — THB 1.8M/50M or 5,000 monthly users; ETDA 2026
+  roadmap (Silk Legal) incl. designated-marketplace + social commerce
+  notifications.
+- US MTL: Cornerstone Licensing "Who needs money transmitter licenses"
+  (software providers that never control funds are outside; control of
+  funds is the line); Tagada MTL guide (constructive possession test);
+  Torres Business Law (MSB vs money transmitter, payment processor
+  exception); ComplyOne (payment processor exemption elements); FinCEN MSB
+  framework via Torres; 18 U.S.C. 1960.
 - Wero status/expansion: wero-wallet.eu; banking.vision Wero 2025–2026;
   EPC insight. (Still BE/FR/DE; NL/LU 2026; e-comm QR France 2026; PoS 2026–27.)
 - US 1099-K: OBBBA (July 2025) restored $20,000/200-transaction threshold for

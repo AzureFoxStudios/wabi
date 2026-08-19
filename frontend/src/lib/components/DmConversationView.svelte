@@ -119,7 +119,6 @@
       bind:isTextareaFocused
       onExecuteCommand={async (_cmd: string) => {}}
       onOpenPaymentSheet={() => {}}
-      onOpenManualCash={() => {}}
     />
   </div>
 </div>

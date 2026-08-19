@@ -1,6 +1,7 @@
 import type { PaymentAccountLink } from '../../../../shared/adminPolicyContracts';
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
 import type { PaymentIntent, PaymentEvent } from './paymentCheckout';
+import { mapIntent } from './paymentCheckout';
 
 export interface PaymentHistoryResponse {
 	success: boolean;
@@ -11,10 +12,9 @@ export interface PaymentHistoryResponse {
 const ACCOUNT_LINKS_STORAGE_KEY = 'wabi.payment.account-links';
 
 /**
- * Saved payment references are kept on-device for v1: the server's
- * account-links store is a persistence stub (handlers.rs no-op until the
- * WabiDB payment projection lands — roadmap Phase 1). Links are also mirrored
- * to the server best-effort so the ingest events start flowing now.
+ * Saved payment references live on the server since the Phase 1 payment
+ * projection (scoped per user). The localStorage copy is a write-through
+ * cache so the sheet keeps working offline / against older servers.
  */
 function readStoredAccountLinks(): PaymentAccountLink[] {
 	if (typeof localStorage === 'undefined') return [];
@@ -32,11 +32,28 @@ function writeStoredAccountLinks(links: PaymentAccountLink[]): void {
 	try {
 		localStorage.setItem(ACCOUNT_LINKS_STORAGE_KEY, JSON.stringify(links));
 	} catch {
-		// Storage full/blocked — references simply won't persist across reloads.
+		// Storage full/blocked — the server copy remains authoritative.
 	}
 }
 
 export async function listPaymentAccountLinks(token: string | null | undefined): Promise<PaymentAccountLink[]> {
+	if (!token) return [];
+	try {
+		const res = await fetchWithTimeout(`${getApiBase()}/api/payments/account-links`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${token}` }
+		});
+		const data = (await safeJsonParse(res)) as Record<string, any>;
+		if (res.ok && Array.isArray(data.links)) {
+			const links = (data.links as PaymentAccountLink[]).filter(
+				(link) => Boolean(link.pluginId && link.providerAccountRef)
+			);
+			writeStoredAccountLinks(links);
+			return links;
+		}
+	} catch {
+		// Offline / old server — fall back to the device cache.
+	}
 	return readStoredAccountLinks().filter((link) => Boolean(link.pluginId && link.providerAccountRef));
 }
 
@@ -53,46 +70,9 @@ export async function listPaymentHistory(
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load payment history');
 	}
-	// The server returns Rust-shaped intents (see paymentCheckout.mapIntent is
-	// private); map inline to keep this self-contained.
-	const intents: PaymentIntent[] = (Array.isArray(data.intents) ? data.intents : []).map(
-		(raw: Record<string, any>) => {
-			const qrPayload = typeof raw.promptpayQrPayload === 'string' ? raw.promptpayQrPayload : '';
-			const status =
-				raw.status === 'completed'
-					? 'succeeded'
-					: raw.status === 'rejected'
-						? 'failed'
-						: raw.status === 'expired'
-							? 'expired'
-							: 'pending';
-			return {
-				intentId: String(raw.id || ''),
-				workspaceId: 'default-workspace',
-				createdByUserId: typeof raw.userId === 'number' ? raw.userId : null,
-				channelId: null,
-				pluginId: 'promptpay',
-				providerName: 'PromptPay',
-				providerIntentId: null,
-				amountMinor: Number(raw.amountMinor || 0),
-				currency: String(raw.currency || 'THB').toUpperCase(),
-				countryCode: 'TH',
-				status,
-				checkoutMode: 'qr' as const,
-				customerRef: typeof raw.promptpayProxyId === 'string' ? raw.promptpayProxyId : null,
-				description: typeof raw.note === 'string' ? raw.note : null,
-				metadata: null,
-				presentation: qrPayload ? { mode: 'qr', qrData: qrPayload } : null,
-				failureCode: null,
-				failureMessage: null,
-				expiresAt: null,
-				completedAt: null,
-				refundedAt: null,
-				createdAt: Number(raw.createdAt || 0),
-				updatedAt: Number(raw.updatedAt || 0)
-			};
-		}
-	);
+	// The server returns Rust-shaped intents; reuse the canonical mapper from
+	// paymentCheckout so all rails (promptpay/crypto/EPC/US) map identically.
+	const intents: PaymentIntent[] = (Array.isArray(data.intents) ? data.intents : []).map(mapIntent);
 	return { success: true, count: intents.length, intents };
 }
 

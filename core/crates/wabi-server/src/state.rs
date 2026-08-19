@@ -85,10 +85,6 @@ pub struct AppState {
     /// Lore addon service for version-controlled binary storage
     #[cfg(feature = "wabi-lore")]
     pub lore_service: RwLock<Option<Arc<crate::lore::LoreService>>>,
-    /// Serialises load+rewrite of the JSONL intents file so a concurrent
-    /// `create_intent` (append) is not lost between load and rewrite in
-    /// `confirm_intent` / `reject_intent`.
-    pub intents_mutex: tokio::sync::Mutex<()>,
     /// Monotonic per-process counter for call signal ids.
     /// Not durable across restarts; clients replay since-signal_id after reconnect.
     pub call_signal_counter: Arc<AtomicU64>,
@@ -295,7 +291,6 @@ impl AppState {
             mesh_service: RwLock::new(None),
             #[cfg(feature = "wabi-lore")]
             lore_service: RwLock::new(None),
-            intents_mutex: tokio::sync::Mutex::new(()),
             call_signal_counter: Arc::new(AtomicU64::new(0)),
             call_session_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             ws_conn_id_counter: Arc::new(Mutex::new(0)),

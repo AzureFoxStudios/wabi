@@ -4813,6 +4813,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "wabi-payments-crypto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "wabi-payments-eu"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "wabi-payments-us"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "wabi-server"
 version = "0.1.0"
 dependencies = [
@@ -4855,6 +4879,9 @@ dependencies = [
  "wabi-core",
  "wabi-lore",
  "wabi-mesh",
+ "wabi-payments-crypto",
+ "wabi-payments-eu",
+ "wabi-payments-us",
  "wabi-webhooks",
  "wabidb",
 ]

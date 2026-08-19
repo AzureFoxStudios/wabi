@@ -129,6 +129,71 @@ fn enabled_addons() -> Vec<AddonCapability> {
         },
     });
 
+    // payments rails (roadmap Phases 2-4) — optional feature `payments-rails`.
+    // The frontend payment catalog is gated on these via hasAddonCapability.
+    #[cfg(feature = "wabi-payments-crypto")]
+    out.push(AddonCapability {
+        id: "payments-crypto".into(),
+        name: "Payments - Crypto".into(),
+        version: "0.1.0".into(),
+        description: "Crypto payment pointers: USDC Base/Solana, USDT Tron, BTC (BIP21), Lightning (LNURL/BOLT12), Monero - rendered as scan-ready QR URIs".into(),
+        enabled: true,
+        backend_runtime: "rust".into(),
+        cargo_feature: Some("payments-rails".into()),
+        permissions: vec![],
+        frontend: FrontendInfo {
+            bundled: false,
+            contributions: FrontendContributions {
+                channel_types: vec![],
+                workspace_panels: vec![],
+                settings_pages: vec![],
+                mobile_tabs: vec![],
+            },
+        },
+    });
+
+    #[cfg(feature = "wabi-payments-eu")]
+    out.push(AddonCapability {
+        id: "payments-eu".into(),
+        name: "Payments - EU (SEPA)".into(),
+        version: "0.1.0".into(),
+        description: "SEPA Instant via EPC QR (EPC069-12 v3.1) - any EU banking app scans the code and settles in seconds".into(),
+        enabled: true,
+        backend_runtime: "rust".into(),
+        cargo_feature: Some("payments-rails".into()),
+        permissions: vec![],
+        frontend: FrontendInfo {
+            bundled: false,
+            contributions: FrontendContributions {
+                channel_types: vec![],
+                workspace_panels: vec![],
+                settings_pages: vec![],
+                mobile_tabs: vec![],
+            },
+        },
+    });
+
+    #[cfg(feature = "wabi-payments-us")]
+    out.push(AddonCapability {
+        id: "payments-us".into(),
+        name: "Payments - US".into(),
+        version: "0.1.0".into(),
+        description: "Manual US rails: CashApp/Venmo/Zelle pointers and ACH details with doxx-floor disclosures and WABI-XXXX reconciliation codes".into(),
+        enabled: true,
+        backend_runtime: "rust".into(),
+        cargo_feature: Some("payments-rails".into()),
+        permissions: vec![],
+        frontend: FrontendInfo {
+            bundled: false,
+            contributions: FrontendContributions {
+                channel_types: vec![],
+                workspace_panels: vec![],
+                settings_pages: vec![],
+                mobile_tabs: vec![],
+            },
+        },
+    });
+
     out
 }
 
@@ -205,5 +270,35 @@ mod tests {
     fn lore_absent_when_feature_off() {
         let addons = enabled_addons();
         assert!(addons.iter().all(|a| a.id != "lore"));
+    }
+
+    #[test]
+    #[cfg(feature = "wabi-payments-crypto")]
+    fn payments_crypto_present_when_feature_on() {
+        let addons = enabled_addons();
+        assert!(addons.iter().any(|a| a.id == "payments-crypto"));
+    }
+
+    #[test]
+    #[cfg(feature = "wabi-payments-eu")]
+    fn payments_eu_present_when_feature_on() {
+        let addons = enabled_addons();
+        assert!(addons.iter().any(|a| a.id == "payments-eu"));
+    }
+
+    #[test]
+    #[cfg(feature = "wabi-payments-us")]
+    fn payments_us_present_when_feature_on() {
+        let addons = enabled_addons();
+        assert!(addons.iter().any(|a| a.id == "payments-us"));
+    }
+
+    #[test]
+    #[cfg(not(feature = "payments-rails"))]
+    fn payments_rails_absent_when_feature_off() {
+        let addons = enabled_addons();
+        assert!(addons
+            .iter()
+            .all(|a| !a.id.starts_with("payments-")));
     }
 }
