@@ -20,7 +20,7 @@
 	.app-container.in-call {
 		height: 100dvh;
 	}
-	.user-panel-toggle, .resize-handle { display: none; }
+	.resize-handle { display: none; }
 	.nav-reopen-rail { display: none; }
 	.dm-notification-rail { display: none; }
 	.server-rail-container { display: none; }
@@ -45,8 +45,7 @@
 		pointer-events: auto;
 	}
 
-	.channel-sidebar-container,
-	.right-panel-container {
+	.channel-sidebar-container {
 		display: none;
 		position: fixed;
 		top: 0;

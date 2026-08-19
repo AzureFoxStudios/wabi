@@ -7,7 +7,7 @@ import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { createDefaultLayoutState, migrateLayoutState, getWorkspace } from '$lib/docking/layoutSchema';
 import { loadPersistedLayoutState, persistLayoutState, loadLayoutState as loadRemoteLayoutState, queuePersist as queueRemotePersist } from '$lib/docking/layoutPersistence';
-import { layoutState, activeWorkspace, layoutLoaded, persistTimer, setLayoutLoaded, setPersistTimer, DEFAULT_CONSTANTS } from './layoutStoreStates';
+import { layoutState, activeWorkspace, layoutLoaded, persistTimer, setLayoutLoaded, setPersistTimer, DEFAULT_CONSTANTS, seedStubStripIfAbsent } from './layoutStoreStates';
 import { applyWorkspaceToRuntime, syncWorkspaceFromRuntime } from './layoutStoreUtils';
 
 export async function loadLayoutState(): Promise<void> {
@@ -16,12 +16,14 @@ export async function loadLayoutState(): Promise<void> {
 		const remoteState = await loadRemoteLayoutState();
 		const persisted = remoteState ?? await loadPersistedLayoutState();
 		const migrated = migrateLayoutState(persisted);
+		seedStubStripIfAbsent(getWorkspace(migrated).panelDock.stacks);
 		layoutState.set(migrated);
 		activeWorkspace.set(migrated.activeWorkspace);
 		applyWorkspaceToRuntime(getWorkspace(migrated));
 	} catch (error) {
 		console.warn('[Docking] Layout recovery fell back to defaults:', error);
 		const fallback = createDefaultLayoutState();
+		seedStubStripIfAbsent(getWorkspace(fallback).panelDock.stacks);
 		layoutState.set(fallback);
 		activeWorkspace.set('default');
 		applyWorkspaceToRuntime(getWorkspace(fallback));

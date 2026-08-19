@@ -21,12 +21,11 @@ import {
 	layoutState,
 	activeWorkspace,
 	navDock,
-	rightPanelView,
+	rightPanelMode,
 	centerPanelView,
 	activeRightTab,
-	rightPanelDock,
+	pinnedPanelId,
 	showMobileChannels,
-	detachedPanelIds,
 	channelSidebarWidth,
 	rightPanelWidth,
 	isResizingChannel,
@@ -38,6 +37,9 @@ import {
 	pinnedDmChannelId,
 	pinnedDmOtherUser,
 	obviousGrabRails,
+	stubStrip,
+	stubSide,
+	focusMode,
 	NOTES_DM_ID,
 	layoutLoaded,
 	setLayoutLoaded,
@@ -45,31 +47,29 @@ import {
 	isApplyingLayout
 } from './layoutStoreStates';
 import {
-	toggleRightPanel,
+	peekPanel,
+	dismissPeek,
+	pinPanel,
+	unpinPanel,
+	closeRightPanel,
+	togglePinPanel,
 	openRightPanel,
-	setActiveRightPanel,
-	updateRightPanelDock,
-	moveRightPanelTab,
-	splitRightPanelTab,
-	resizeRightPanelStacks,
-	toggleRightPanelStackCollapsed,
-	toggleRightPanelStackPinned,
-	mergeRightPanelStack,
-	resetRightPanelDock
+	setDisplayedPanel,
+	addStub,
+	removeStub,
+	reorderStub,
+	resetStubs,
+	setStubSide
 } from './layoutStoreRightPanel';
 import {
 	setNavDock,
 	toggleNavDock,
 	collapseNav,
 	expandNav,
-	expandRight,
 	toggleNavCollapsed,
 	toggleMobileChannels,
 	toggleMobileUsers,
-	resetPanelsOnDesktop,
-	detachPanel,
-	dockPanel,
-	isPanelDetached
+	resetPanelsOnDesktop
 } from './layoutStoreNav';
 import {
 	setActiveWorkspace,
@@ -117,8 +117,8 @@ channelSidebarWidth.subscribe(() => {
 	if (!isApplyingLayout) scheduleSyncWorkspace();
 });
 rightPanelWidth.subscribe(() => queuePersist());
-rightPanelView.subscribe(() => queuePersist());
-rightPanelDock.subscribe(() => queuePersist());
+rightPanelMode.subscribe(() => queuePersist());
+pinnedPanelId.subscribe(() => queuePersist());
 navDock.subscribe(() => {
 	queuePersist();
 	if (!isApplyingLayout) scheduleSyncWorkspace();
@@ -239,7 +239,7 @@ const dockActions = {
 			if (zone === side) {
 				collapseNav();
 			} else {
-				rightPanelView.set('none');
+				closeRightPanel();
 			}
 		}
 	},
@@ -265,13 +265,13 @@ const isResizing = derived([isResizingChannel, isResizingRight], ([$isResizingCh
 const layout = derived(
 	[
 		isMobile,
-		rightPanelView,
+		rightPanelMode,
 		showMobileChannels,
 		channelSidebarWidth,
 		rightPanelWidth,
 		isInCall,
 		activeRightTab,
-		rightPanelDock,
+		pinnedPanelId,
 		selectedDmChannelId,
 		centerDmChannelId,
 		pinnedDmChannelId,
@@ -283,17 +283,18 @@ const layout = derived(
 		activeWorkspace,
 		layoutState,
 		obviousGrabRails,
-		detachedPanelIds
+		stubStrip,
+		stubSide
 	],
 	([
 		$isMobile,
-		$rightPanelView,
+		$rightPanelMode,
 		$showMobileChannels,
 		$channelSidebarWidth,
 		$rightPanelWidth,
 		$isInCall,
 		$activeRightTab,
-		$rightPanelDock,
+		$pinnedPanelId,
 		$selectedDmChannelId,
 		$centerDmChannelId,
 		$pinnedDmChannelId,
@@ -305,16 +306,17 @@ const layout = derived(
 		$activeWorkspace,
 		$layoutState,
 		$obviousGrabRails,
-		$detachedPanelIds
+		$stubStrip,
+		$stubSide
 	]) => {
-		const showRightPanel = !$isMobile && $rightPanelView !== 'none';
+		const showRightPanel = !$isMobile && $rightPanelMode !== 'none';
 
 		return {
 			isMobile: $isMobile,
 			isInCall: $isInCall,
-			rightPanelView: $rightPanelView,
+			rightPanelMode: $rightPanelMode,
 			activeRightTab: $activeRightTab,
-			rightPanelDock: $rightPanelDock,
+			pinnedPanelId: $pinnedPanelId,
 			showMobileChannels: $isMobile && $showMobileChannels,
 			showRightPanel,
 			channelSidebarWidth: $channelSidebarWidth,
@@ -333,7 +335,8 @@ const layout = derived(
 			workspaces: Object.keys($layoutState.workspaces ?? {}),
 			layoutVersion: $layoutState.layoutVersion,
 			obviousGrabRails: $obviousGrabRails,
-			detachedPanelIds: $detachedPanelIds
+			stubStrip: $stubStrip,
+			stubSide: $stubSide
 		};
 	}
 );
@@ -362,15 +365,28 @@ export const layoutStore = {
 	dmOtherUser,
 	pinnedDmOtherUser,
 	selectedGroupChannel,
-	rightPanelView,
+	rightPanelMode,
 	activeRightTab,
-	rightPanelDock,
+	pinnedPanelId,
 	showMobileChannels,
-	detachedPanelIds,
+	stubStrip,
+	stubSide,
+	focusMode,
 	obviousGrabRails,
 
 	// Right panel actions
-	toggleRightPanel,
+	peekPanel,
+	dismissPeek,
+	pinPanel,
+	unpinPanel,
+	closeRightPanel,
+	togglePinPanel,
+	setDisplayedPanel,
+	addStub,
+	removeStub,
+	reorderStub,
+	resetStubs,
+	setStubSide,
 	showUsersTab,
 	showDMsTab,
 	showAdminTab,
@@ -380,7 +396,6 @@ export const layoutStore = {
 	showMapTab,
 	showNotesTab,
 	openRightPanel,
-	setActiveRightPanel,
 	openDM,
 	openGroupDM,
 	openCenterDm,
@@ -398,7 +413,6 @@ export const layoutStore = {
 	toggleNavDock,
 	collapseNav,
 	expandNav,
-	expandRight,
 	toggleNavCollapsed,
 
 	// Workspace actions
@@ -410,17 +424,6 @@ export const layoutStore = {
 	exportLayoutJson,
 	importLayoutJson,
 
-	// Panel operations
-	moveRightPanelTab,
-	splitRightPanelTab,
-	resizeRightPanelStacks,
-	toggleRightPanelStackCollapsed,
-	toggleRightPanelStackPinned,
-	mergeRightPanelStack,
-	resetRightPanelDock,
-	detachPanel,
-	dockPanel,
-	isPanelDetached,
 	setObviousGrabRails: (enabled: boolean) => obviousGrabRails.set(Boolean(enabled))
 };
 

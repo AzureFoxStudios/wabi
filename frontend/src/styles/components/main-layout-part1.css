@@ -68,8 +68,15 @@
 	order: 3;
 }
 
-.right-panel-container {
+.right-panel-zone {
 	order: 4;
+}
+
+/* stubSide='left': the pinned zone docks at the LEFT extreme edge (spec §2:
+   "[left pinned zone] [nav-left] [main] ..."). Same specificity as the
+   nav-right rule below, so this must stay AFTER it to win ties. */
+.app-container .right-panel-zone.stub-left {
+	order: 0;
 }
 
 .app-container.nav-right .server-rail-container {
@@ -86,8 +93,10 @@
 	order: 1;
 }
 
-.app-container.nav-right .right-panel-container {
-	order: 2;
+/* spec §2 DOM order: [main] [nav-right] [right pinned zone] — the zone is the
+   rightmost child, tying with the rail at order 4 but later in DOM. */
+.app-container.nav-right .right-panel-zone {
+	order: 4;
 }
 
 .server-rail-container :global(.server-rail) {
@@ -111,12 +120,24 @@
 	border-left: none;
 }
 
-/* Desktop Right Panel — width comes from layoutStore via style:width.
-   flex-basis must NOT be fixed or it locks the panel and ignores resize. */
-.right-panel-container {
+/* Desktop Right Panel zone — inline width = rightPanelWidth + 24px strip gutter.
+   One DOM node serves both modes (spec §6): pinned = flex child, peek = fixed
+   overlay. The panel body occupies the inner rightPanelWidth; the 24px gutter
+   on the strip side is the stub strip's lane (and never blocks clicks). */
+.right-panel-zone {
 	flex: 0 0 auto;
 	position: relative;
 	height: 100dvh;
+	min-width: 0;
+	max-width: min(744px, calc(55vw + 24px));
+}
+
+.right-panel-body {
+	position: relative;
+	height: 100%;
+	min-width: 0;
+	display: flex;
+	overflow: hidden;
 	background:
 		linear-gradient(
 			180deg,
@@ -125,8 +146,81 @@
 		),
 		var(--surface-base);
 	border-left: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
+}
+
+.right-panel-body > * {
+	flex: 1;
 	min-width: 0;
-	max-width: min(720px, 55vw);
+}
+
+/* The 24px gutter sits on the strip side: for side-right the body is the
+   inner (left) 24px-short column; for side-left it is mirrored. */
+.right-panel-zone.stub-right .right-panel-body {
+	margin-right: 24px;
+	border-left: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
+	border-right: none;
+}
+
+.right-panel-zone.stub-left .right-panel-body {
+	margin-left: 24px;
+	border-left: none;
+	border-right: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
+}
+
+/* Peek mode: fixed overlay over the chat content with a slide-in and shadow.
+   z-index: one tier below the stub strip (1199) so revealed stubs float above
+   the panel body. No scrim — content stays readable (spec §6). */
+.right-panel-zone.peek {
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	z-index: calc(var(--z-popout, 1200) - 2);
+	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
+	animation: peek-in-right 0.22s var(--ease-out, ease-out) both;
+}
+
+.right-panel-zone.peek.stub-left {
+	left: 0;
+	right: auto;
+	box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4);
+	animation-name: peek-in-left;
+}
+
+@keyframes peek-in-right {
+	from {
+		transform: translateX(100%);
+	}
+	to {
+		transform: translateX(0);
+	}
+}
+
+@keyframes peek-in-left {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(0);
+	}
+}
+
+/* Pinned mode: plain flex child (resize handle floats on its inner edge). */
+.right-panel-zone:not(.peek) .resize-handle-right {
+	left: -4px;
+}
+
+.right-panel-zone.stub-left .resize-handle-right {
+	left: auto;
+	right: -4px;
+	border-left: none;
+	border-right: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
+}
+
+.right-panel-zone.stub-left .resize-handle-right:hover,
+.right-panel-zone.stub-left .resize-handle-right:focus-visible {
+	border-left: none;
+	border-right-color: color-mix(in srgb, var(--accent-secondary-color) 55%, transparent);
 }
 
 /* Resize handles */
@@ -217,46 +311,7 @@
 	z-index: var(--z-modal, 1200);
 }
 
-/* Toggle button on right edge */
-.user-panel-toggle {
-	position: absolute;
-	top: 50%;
-	right: 0;
-	transform: translateY(-50%);
-	width: 24px;
-	height: 64px;
-	background: var(--surface-base);
-	border: 1px solid var(--border-subtle);
-	border-right: none;
-	border-radius: var(--radius-md) 0 0 var(--radius-md);
-	cursor: pointer;
-	color: var(--text-secondary);
-	transition: all 0.2s ease;
-	z-index: var(--z-sticky);
-	opacity: 0.3;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.user-panel-toggle.has-unread::after {
-	content: attr(data-unread);
-	position: absolute;
-	top: 6px;
-	left: 4px;
-	min-width: 16px;
-	height: 16px;
-	padding: 0 4px;
-	border-radius: 999px;
-	background: var(--color-danger, #ef4444);
-	color: var(--text-inverse, #fff);
-	font-size: 0.68rem;
-	font-weight: 700;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	line-height: 1;
-}
+/* Toggle button on right edge — replaced by the stub strip (spec §1). */
 
 .dm-notification-rail {
 	position: absolute;
@@ -343,11 +398,6 @@
 		transform: translateY(0);
 	}
 }
-.user-panel-toggle:hover {
-	opacity: 1;
-	background: var(--accent-primary-color);
-	color: white;
-}
 
 .nav-reopen-rail {
 	position: absolute;
@@ -382,93 +432,6 @@
 	border-left: 1px solid var(--border-subtle);
 	border-right: none;
 	border-radius: var(--radius-md) 0 0 var(--radius-md);
-}
-
-.right-reopen-rail {
-	position: absolute;
-	top: 50%;
-	transform: translateY(-50%);
-	width: 18px;
-	height: 84px;
-	background: color-mix(in srgb, var(--surface-base) 86%, black 14%);
-	border: 1px solid var(--border-subtle);
-	border-right: none;
-	border-radius: var(--radius-md) 0 0 var(--radius-md);
-	color: var(--text-secondary);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: col-resize;
-	z-index: var(--z-sticky);
-	opacity: 0.75;
-	transition: opacity 0.18s ease, background 0.18s ease, color 0.18s ease;
-}
-
-.right-reopen-rail:hover {
-	opacity: 1;
-	background: var(--surface-hover);
-	color: var(--text-heading);
-}
-
-.right-reopen-rail.dock-right {
-	left: auto;
-	right: 0;
-	border-right: 1px solid var(--border-subtle);
-	border-left: none;
-	border-radius: 0 var(--radius-md) var(--radius-md) 0;
-}
-
-/* Transfer tray button */
-.transfer-tray-btn {
-	position: absolute;
-	top: 8px;
-	right: 8px;
-	z-index: calc(var(--z-sticky) + 1);
-	width: 32px;
-	height: 32px;
-	border-radius: 8px;
-	border: 1px solid var(--border-subtle);
-	background: var(--surface-base);
-	color: var(--text-secondary);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: pointer;
-	transition: all 0.18s ease;
-	opacity: 0.5;
-}
-
-.transfer-tray-btn:hover {
-	opacity: 1;
-	background: var(--accent-primary-color);
-	color: var(--text-inverse, #fff);
-	border-color: var(--accent-primary-color);
-}
-
-.transfer-tray-btn.has-active {
-	opacity: 0.85;
-	border-color: var(--accent-primary-color);
-	color: var(--accent-primary-color);
-}
-
-.transfer-tray-btn.has-active::after {
-	content: attr(data-badge);
-	position: absolute;
-	top: -4px;
-	right: -4px;
-	min-width: 16px;
-	height: 16px;
-	padding: 0 4px;
-	border-radius: 999px;
-	background: var(--color-danger, #ef4444);
-	color: var(--text-inverse, #fff);
-	font-size: 0.6rem;
-	font-weight: 700;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	line-height: 1;
-	pointer-events: none;
 }
 
 /* --- Mobile Styles --- */

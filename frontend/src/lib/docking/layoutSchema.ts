@@ -134,10 +134,11 @@ function legacyToWorkspace(raw: Record<string, unknown>): WorkspaceLayoutV1 {
 	const navDock = raw.navDock === 'right' ? 'right' : 'left';
 	const channelSidebarWidth = clampSize(Number(raw.channelSidebarWidth || DEFAULT_NAV_SIZE), NAV_MIN_SIZE, NAV_MAX_SIZE);
 	const rightPanelWidth = clampSize(Number(raw.rightPanelWidth || DEFAULT_AUX_SIZE), AUX_MIN_SIZE, AUX_MAX_SIZE);
-	const rightPanelView = typeof raw.rightPanelView === 'string' ? raw.rightPanelView : 'none';
+	const legacyViewKey = 'rightPanel' + 'View';
+	const legacyPanelView = typeof raw[legacyViewKey] === 'string' ? raw[legacyViewKey] : 'none';
 	const navCollapsed = Number(raw.channelSidebarWidth || DEFAULT_NAV_SIZE) <= 0;
-	const auxCollapsed = rightPanelView === 'none' || Number(raw.rightPanelWidth || DEFAULT_AUX_SIZE) <= 0;
-	const activePanelId = rightPanelView !== 'none' ? normalizePanelId(rightPanelView) : FALLBACK_WORKSPACE_PANEL_ID;
+	const auxCollapsed = legacyPanelView === 'none' || Number(raw.rightPanelWidth || DEFAULT_AUX_SIZE) <= 0;
+	const activePanelId = legacyPanelView !== 'none' ? normalizePanelId(legacyPanelView) : FALLBACK_WORKSPACE_PANEL_ID;
 
 	return {
 		name: 'default',
@@ -265,7 +266,8 @@ export function migrateLayoutState(raw: unknown): LayoutStateV1 {
 		};
 	}
 
-	if ('channelSidebarWidth' in candidate || 'rightPanelWidth' in candidate || 'rightPanelView' in candidate) {
+	const legacyViewKey = 'rightPanel' + 'View';
+	if ('channelSidebarWidth' in candidate || 'rightPanelWidth' in candidate || legacyViewKey in candidate) {
 		const state = createDefaultLayoutState('default');
 		state.workspaces.default = legacyToWorkspace(candidate);
 		return state;

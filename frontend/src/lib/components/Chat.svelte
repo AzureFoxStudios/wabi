@@ -29,7 +29,6 @@
 		type Channel
 	} from '$lib/socket';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
-	import ManualCashModal from '$lib/payments/ManualCashModal.svelte';
 	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -164,13 +163,12 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	})();
 
 	// ── Payment modals ──────────────────────────────────────────────────────────
-	let manualCashOpen = false;
 	let paymentSheetOpen = false;
 	let paymentSheetOpenSeed = 0;
 	let paymentSheetPrefillAmountInput: string | null = null;
 	let paymentSheetPrefillDescription: string | null = '';
 	let paymentSheetPrefillCustomerRef: string | null = '';
-	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken()) && $paymentAccessStore.canCreate;
+	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken()) && $paymentAccessStore.loaded && $paymentAccessStore.canCreate;
 	$: if ($currentUser?.dbUserId) void refreshPaymentAccess();
 
 	type PaymentSheetPrefill = { amountInput?: string | null; description?: string | null; customerRef?: string | null };
@@ -182,12 +180,6 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		paymentSheetPrefillCustomerRef = typeof prefill.customerRef === 'string' ? prefill.customerRef.trim() : '';
 		paymentSheetOpenSeed += 1;
 		paymentSheetOpen = true;
-	}
-
-	function openManualCashModal(): void {
-		if (!paymentButtonEnabled) { alert('Sign in with a registered account to track manual cash trades.'); return; }
-		if (!isDMChannel) { alert('Manual cash trades are only available in direct messages.'); return; }
-		manualCashOpen = true;
 	}
 
 	// ── Composer bindings ───────────────────────────────────────────────────────
@@ -378,7 +370,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 
 	function returnToMessagesView(): void {
 		if (chatSurface !== 'messages') setWhiteboardSurface($currentChannel, 'messages');
-		if ($layoutStore.rightPanelView === 'media') layoutStore.rightPanelView.set('none');
+		if ($layoutStore.rightPanelMode !== 'none' && $layoutStore.activeRightTab === 'media') layoutStore.closeRightPanel();
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) mobileTabQueue.closeAddonTab(READER_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) mobileTabQueue.closeAddonTab(MODEL_VIEWPORT_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
@@ -529,7 +521,6 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 				bind:isTextareaFocused
 				onExecuteCommand={executeCommand}
 				onOpenPaymentSheet={openPaymentSheet}
-				onOpenManualCash={openManualCashModal}
 			/>
 		{/if}
 	</div>
@@ -550,13 +541,4 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 				dispatch('openSettings', { paymentSurface: 'connections' });
 			}}
 			defaultChannelId={$currentChannel}
-		/>
-		<ManualCashModal
-			isOpen={manualCashOpen}
-			channelId={$currentChannel}
-			targetLabel={paymentTargetLabel}
-			counterpartyLabel={dmCallTargetUser?.username || 'Other user'}
-			onClose={() => {
-				manualCashOpen = false;
-			}}
 		/>

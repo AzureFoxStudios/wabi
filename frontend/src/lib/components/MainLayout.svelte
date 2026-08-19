@@ -3,7 +3,10 @@
 	import { fly } from 'svelte/transition';
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
-	import { centerPanelView, dmOtherUser } from '$lib/layoutStoreStates';
+	import { centerPanelView, dmOtherUser, focusMode } from '$lib/layoutStoreStates';
+	import { armPeekDismiss, cancelPeekDismiss } from '$lib/rightPeekGestures';
+	import { registerPluginWorkspacePanels } from '$lib/workspacePanels';
+	import { fetchPluginInventory } from '$lib/addonInventory';
 	import Chat from '$lib/components/Chat.svelte';
 import DmConversationView from '$lib/components/DmConversationView.svelte';
 import DmHub from '$lib/components/DmHub.svelte';
@@ -18,6 +21,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import ServerSwitcherPanel from '$lib/components/ServerSwitcherPanel.svelte';
 	import FollowingFeed from '$lib/components/FollowingFeed.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
+	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import CallDebugPanel from '$lib/components/CallDebugPanel.svelte';
 	import Settings from '$lib/components/Settings.svelte';
@@ -49,7 +53,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { openWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { savedServerRailItems } from '$lib/savedServers';
-	import { activeTransfers, incomingFileOffers } from '$lib/p2pFileTransfer';
 	// N1: floating QuickScratchpad
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
@@ -64,12 +67,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	// N1: overlay reactive
 	$: showQuickScratchpad = $quickScratchpadOpen;
 
-	$: mobileRightVisible = $layoutStore.isMobile && $layoutStore.rightPanelView !== 'none';
 	$: totalUnreadDMs = 0; // DM-strip: was Object.entries($channelUnreadCounts) for DM channels. Stubbed to 0.
-
-	$: transferBadgeCount = $incomingFileOffers.length + $activeTransfers.filter(
-		(t) => t.status !== 'complete' && t.status !== 'cancelled' && t.status !== 'failed'
-	).length;
 
 	let resizingChannel = false;
 	let resizingRight = false;
@@ -193,14 +191,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	function openMobileChat(): void {
 		layoutStore.showMobileChannels.set(false);
-		layoutStore.rightPanelView.set('none');
+		layoutStore.closeRightPanel();
 		activeView = 'chat';
 		layoutStore.closeDM();
 		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileBrowse(): void {
-		layoutStore.rightPanelView.set('none');
+		layoutStore.closeRightPanel();
 		layoutStore.showMobileChannels.set(true);
 		try {
 			history.pushState({ wabiMobileSheet: 'browse' }, '');
@@ -212,7 +210,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	function openMobileMessages(): void {
 		layoutStore.showMobileChannels.set(false);
-		layoutStore.rightPanelView.set('none');
+		layoutStore.closeRightPanel();
 		layoutStore.closeDM();
 		activeView = 'dm';
 		try {
@@ -225,7 +223,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	function openMobileYou(): void {
 		layoutStore.showMobileChannels.set(false);
-		layoutStore.rightPanelView.set('none');
+		layoutStore.closeRightPanel();
 		openSettings();
 		try {
 			history.pushState({ wabiMobileSheet: 'you' }, '');
@@ -240,7 +238,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (detail.view === 'chat') {
 			activeView = 'chat';
 			layoutStore.showMobileChannels.set(false);
-			layoutStore.rightPanelView.set('none');
+			layoutStore.closeRightPanel();
 			if (typeof detail.channelId === 'string' && detail.channelId) {
 				currentChannel.set(detail.channelId);
 				void joinChannel(detail.channelId);
@@ -250,7 +248,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (detail.view === 'dm' || detail.view === 'messages') {
 			activeView = 'dm';
 			layoutStore.showMobileChannels.set(false);
-			layoutStore.rightPanelView.set('none');
+			layoutStore.closeRightPanel();
 			if (typeof detail.channelId === 'string' && detail.channelId) {
 				layoutStore.openCenterDm(detail.channelId, null);
 				void joinChannel(detail.channelId);
@@ -270,8 +268,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			layoutStore.showMobileChannels.set(false);
 			return;
 		}
-		if ($layoutStore.rightPanelView !== 'none') {
-			layoutStore.rightPanelView.set('none');
+		if ($layoutStore.rightPanelMode !== 'none') {
+			layoutStore.closeRightPanel();
 			return;
 		}
 		if (activeView === 'dm') activeView = 'chat';
@@ -322,6 +320,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			id: NOTES_ADDON_ID,
 			label: 'Notes',
 			shortLabel: 'Notes'
+		});
+
+		// Plugin workspace panels were previously registered from RightPanel's
+		// mount; the stub strip never mounts a panel body, so registration
+		// lives here (runs on mobile too, where the strip is hidden).
+		void fetchPluginInventory().then((plugins) => {
+			if (!plugins) return;
+			registerPluginWorkspacePanels(plugins);
 		});
 
 		// Optional deep-link: #admin opens the full dashboard for staff.
@@ -489,8 +495,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			layoutStore.channelSidebarWidth.set(Math.max(0, Math.min(width, window.innerWidth)));
 		}
 		if (resizingRight) {
-			// Right panel can stretch to any width — measure from right edge of viewport
-			const newWidth = window.innerWidth - e.clientX;
+			// Measure from the viewport edge the strip sits on (spec: stub-side-aware).
+			const onLeft = $layoutStore.stubSide === 'left';
+			const newWidth = onLeft ? e.clientX : window.innerWidth - e.clientX;
 			layoutStore.rightPanelWidth.set(Math.max(0, newWidth));
 		}
 	}
@@ -501,9 +508,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			if (w < 50) layoutStore.channelSidebarWidth.set(0);
 		}
 		if (resizingRight) {
-			const w = get(layoutStore.rightPanelWidth);
-			if (w < 50) layoutStore.rightPanelWidth.set(0);
-			// else: keep user-set width (no snap to 220)
+			// Spec invariant: rightPanelWidth never zeroes (no close-by-drag).
 		}
 		layoutStore.isResizingChannel.set(false);
 		layoutStore.isResizingRight.set(false);
@@ -515,13 +520,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const width = isRightDock ? window.innerWidth - event.clientX : event.clientX;
 		layoutStore.channelSidebarWidth.set(Math.max(8, Math.min(width, window.innerWidth)));
 		layoutStore.isResizingChannel.set(true);
-	}
-
-	function startRightResizeFromClosed(event: MouseEvent) {
-		if ($layoutStore.isMobile) return;
-		const width = window.innerWidth - event.clientX;
-		layoutStore.rightPanelWidth.set(Math.max(8, Math.min(width, window.innerWidth)));
-		layoutStore.isResizingRight.set(true);
 	}
 
 	function getLastMessageTimestamp(channelId: string): number {
@@ -619,7 +617,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const nearLeftEdge = touchStartX <= MOBILE_EDGE_SWIPE_MIN_X_PX;
 		const nearRightEdge = touchStartX >= window.innerWidth - MOBILE_EDGE_SWIPE_MIN_X_PX;
 		const channelsOpen = $layoutStore.showMobileChannels;
-		const usersOpen = $layoutStore.rightPanelView !== 'none';
+		const usersOpen = $layoutStore.rightPanelMode !== 'none';
 		
 		// If starting near an edge and no panel is open, prepare for edge swipe
 		if (!channelsOpen && !usersOpen && (nearLeftEdge || nearRightEdge)) {
@@ -655,7 +653,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		}
 
 		const channelsOpen = $layoutStore.showMobileChannels;
-		const usersOpen = $layoutStore.rightPanelView !== 'none';
+		const usersOpen = $layoutStore.rightPanelMode !== 'none';
 		const width = Math.max(window.innerWidth, 1);
 
 		// Edge swipe to OPEN panels (from closed state)
@@ -753,20 +751,20 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const swipeLeft = deltaX < 0;
 		const swipeRight = deltaX > 0;
 		const channelsOpen = $layoutStore.showMobileChannels;
-		const usersOpen = $layoutStore.rightPanelView !== 'none';
+		const usersOpen = $layoutStore.rightPanelMode !== 'none';
 
 		// Edge swipe to OPEN panels from closed state
 		if (!channelsOpen && !usersOpen) {
 			if (swipeRight && swipePreviewTarget === 'channels') {
 				// Swiped right from left edge - open channels
 				layoutStore.showMobileChannels.set(true);
-				layoutStore.rightPanelView.set('none');
+				layoutStore.closeRightPanel();
 				resetTouchSwipe();
 				return;
 			}
 			if (swipeLeft && swipePreviewTarget === 'users') {
 				// Swiped left from right edge - open users
-				layoutStore.rightPanelView.set('full');
+				layoutStore.openRightPanel('users');
 				layoutStore.showMobileChannels.set(false);
 				resetTouchSwipe();
 				return;
@@ -776,7 +774,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		// Stage navigation: Channels <-> Chat <-> Users
 		if (channelsOpen && swipeLeft) {
 			layoutStore.showMobileChannels.set(false);
-			layoutStore.rightPanelView.set('none');
+			layoutStore.closeRightPanel();
 			resetTouchSwipe();
 			return;
 		}
@@ -789,7 +787,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		}
 
 		if (usersOpen && swipeRight) {
-			layoutStore.rightPanelView.set('none');
+			layoutStore.closeRightPanel();
 			layoutStore.showMobileChannels.set(false);
 			resetTouchSwipe();
 			return;
@@ -797,7 +795,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 		if (!channelsOpen && !usersOpen && swipeRight) {
 			layoutStore.showMobileChannels.set(true);
-			layoutStore.rightPanelView.set('none');
+			layoutStore.closeRightPanel();
 			resetTouchSwipe();
 			return;
 		}
@@ -866,7 +864,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	function getUsersPreviewTransform(): string {
-		const usersOpen = $layoutStore.rightPanelView !== 'none';
+		const usersOpen = $layoutStore.rightPanelMode !== 'none';
 		if (!swipePreviewActive || swipePreviewTarget !== 'users') {
 			// When users panel is open normally, no transform
 			if (usersOpen) return 'translateX(0)';
@@ -936,7 +934,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			type="button"
 			class:active={
 				!$layoutStore.showMobileChannels &&
-				$layoutStore.rightPanelView === 'none' &&
+				$layoutStore.rightPanelMode === 'none' &&
 				activeView !== 'dm' &&
 				!showSettings
 			}
@@ -984,13 +982,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	</nav>
 {/if}
 
-{#if $layoutStore.isMobile && ($layoutStore.showMobileChannels || $layoutStore.rightPanelView !== 'none')}
+{#if $layoutStore.isMobile && ($layoutStore.showMobileChannels || $layoutStore.rightPanelMode !== 'none')}
 	<!-- Mobile backdrop overlay - closes panels on tap -->
-	<div class="mobile-panel-backdrop" on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.rightPanelView.set('none'); }}></div>
+	<div class="mobile-panel-backdrop" on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.closeRightPanel(); }}></div>
 {/if}
 
 <div
 		class="app-container"
+		class:focus-mode={$focusMode}
 		class:resizing={$layoutStore.isResizing}
 		class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}
 		class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
@@ -1002,9 +1001,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			type="button"
 			class="nav-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
-			style:left={$layoutStore.navDock !== 'right' ? `${desktopServerRailOffset}px` : null}
+			style:left={$layoutStore.navDock !== 'right'
+				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'left' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth + 24 : 0)}px`
+				: null}
 			style:right={$layoutStore.navDock === 'right'
-				? `${desktopServerRailOffset + $layoutStore.rightPanelWidth}px`
+				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'right' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth + 24 : 0)}px`
 				: null}
 			on:click={layoutStore.expandNav}
 			on:mousedown|preventDefault={startChannelResizeFromClosed}
@@ -1065,29 +1066,40 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	{/if}
 
-	<!-- Right Panel - Desktop uses width-based, Mobile uses overlay -->
+	<!-- Right Panel — single mode-driven node (peek = fixed overlay, pinned = flex child).
+	       One DOM node for both modes so the panel never remounts on peek↔pin (spec §6). -->
 	{#if !$layoutStore.isMobile}
-		<!-- Desktop Right Panel — always visible, zero-width = hidden -->
-		<div
-			class="right-panel-container"
-			style:width="{$layoutStore.rightPanelWidth}px"
-			style:flex-basis="{$layoutStore.rightPanelWidth}px"
-			style:max-width="min(720px, 55vw)"
-		>
-			<!-- Right panel resize handle -->
-			<button
-				type="button"
-				class="resize-handle resize-handle-right"
-				aria-label="Resize right panel"
-				on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
-			></button>
-			<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
-		</div>
+		{#if $layoutStore.rightPanelMode !== 'none'}
+			<div
+				class="right-panel-zone"
+				class:peek={$layoutStore.rightPanelMode === 'peek'}
+				class:stub-right={$layoutStore.stubSide === 'right'}
+				class:stub-left={$layoutStore.stubSide === 'left'}
+				style:width="{$layoutStore.rightPanelWidth + 24}px"
+				style:flex-basis="{$layoutStore.rightPanelWidth + 24}px"
+				style:max-width="min(744px, calc(55vw + 24px))"
+				on:mouseenter={cancelPeekDismiss}
+				on:mouseleave={armPeekDismiss}
+			>
+				<div class="right-panel-body">
+					{#if $layoutStore.rightPanelMode === 'pinned'}
+						<button
+							type="button"
+							class="resize-handle resize-handle-right"
+							aria-label="Resize right panel"
+							on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
+						></button>
+					{/if}
+					<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
+				</div>
+			</div>
+		{/if}
+		<RightStubStrip />
 	{:else}
 		<!-- Mobile Right Panel Overlay -->
 		<div
 			class="mobile-right-overlay"
-			class:visible={$layoutStore.rightPanelView !== 'none'}
+			class:visible={$layoutStore.rightPanelMode !== 'none'}
 			class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users'}
 			style:transform={getUsersPreviewTransform()}
 			style:opacity={getPreviewOpacity()}
@@ -1149,69 +1161,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	</div>
 
-	<!-- Right panel restore rail (visible when right panel is closed) -->
-	{#if !$layoutStore.isMobile && $layoutStore.rightPanelWidth === 0}
-		<button
-			type="button"
-			class="right-reopen-rail"
-			class:dock-right={$layoutStore.navDock === 'right'}
-			style:right={$layoutStore.navDock === 'right'
-				? `${desktopServerRailOffset + $layoutStore.channelSidebarWidth}px`
-				: '0px'}
-			on:click={layoutStore.expandRight}
-			on:mousedown|preventDefault={startRightResizeFromClosed}
-			title="Open right panel"
-			aria-label="Open right panel"
-		>
-			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-				{#if $layoutStore.navDock === 'right'}
-					<polyline points="9 18 15 12 9 6"/>
-				{:else}
-					<polyline points="15 18 9 12 15 6"/>
-				{/if}
-			</svg>
-		</button>
-	{/if}
-
-	<!-- Desktop toggle button (visible when channel sidebar is closed) -->
-	{#if !$layoutStore.isMobile && $layoutStore.channelSidebarWidth === 0}
-		<button
-			class="user-panel-toggle"
-			
-			
-			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'
-			? `${desktopServerRailOffset + $layoutStore.rightPanelWidth}px`
-			: '0px'}
-			on:click={layoutStore.toggleRightPanel}
-			title={$_('shell.open_side_panel')}
-		>
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<polyline points="15 18 9 12 15 6"/>
-			</svg>
-		</button>
-	{/if}
-
 	<!-- Floating sub-window layer inside the app webview. This is the Odysseus-style panel system for Tauri/browser. -->
 	<FloatingPanelHost />
-
-	<!-- Transfer Center tray button (floating top-right; hidden when any right panel is open) -->
-	{#if !$layoutStore.isMobile && $layoutStore.rightPanelView === 'none'}
-		<button
-			type="button"
-			class="transfer-tray-btn"
-			class:has-active={transferBadgeCount > 0}
-			data-badge={transferBadgeCount > 99 ? '99+' : transferBadgeCount > 0 ? transferBadgeCount : ''}
-			on:click={() => layoutStore.openRightPanel('transfers')}
-			title="Open transfers"
-			aria-label="Open transfer center"
-		>
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-				<polyline points="7 10 12 15 17 10"></polyline>
-				<line x1="12" y1="15" x2="12" y2="3"></line>
-			</svg>
-		</button>
-	{/if}
 
 	{#if callDebugPanelEnabled}
 		<button

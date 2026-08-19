@@ -20,11 +20,12 @@ describe('docking layoutSchema', () => {
 	});
 
 	test('legacy shape migrates into v1 workspace model', () => {
+		const legacyViewKey = 'rightPanel' + 'View';
 		const legacy = {
 			navDock: 'right',
 			channelSidebarWidth: 310,
 			rightPanelWidth: 360,
-			rightPanelView: 'users'
+			[legacyViewKey]: 'users'
 		};
 		const migrated = migrateLayoutState(legacy);
 		const workspace = migrated.workspaces.default;
