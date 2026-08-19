@@ -9,19 +9,36 @@ use axum::{
 use serde_json::json;
 
 use super::{
-    extract_user_id, get_policy_row, is_admin_user, json_error, upsert_account_link, upsert_policy,
+    extract_user_id, get_policy_row, is_admin_user, json_error, upsert_policy,
     AccountLinkInput, ListQuery, PaymentAccessPolicy, PaymentAccountLink, PaymentDonationConfig,
     PaymentUserBlock, SaveAccessInput, SaveDonationInput, UserBlockInput, DEFAULT_WORKSPACE_ID,
 };
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
-pub async fn get_payment_access(State(state): State<Arc<AppState>>) -> Response {
+pub async fn get_payment_access(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
     let policy = match get_policy_row(&state, "policy:payments_access").await {
         Some(v) => serde_json::from_value::<PaymentAccessPolicy>(v).unwrap_or_default(),
         None => PaymentAccessPolicy::default(),
     };
-    Json(json!({ "success": true, "policy": policy })).into_response()
+    // WS-3: the actor is now computed server-side from the persisted policy
+    // and user blocks, matching the frontend PaymentAccessActorStatus contract.
+    let actor = match super::extract_identity(&headers, &state.config.jwt_secret) {
+        Ok((user_id, is_guest)) => super::evaluate_payment_access(&state, user_id, is_guest).await,
+        Err(_) => serde_json::json!({
+            "authenticated": false,
+            "userId": null,
+            "roles": [],
+            "blocked": false,
+            "canCreate": false,
+            "reasonCode": "unauthenticated",
+            "reason": "Sign in to create payments."
+        }),
+    };
+    Json(json!({ "success": true, "policy": policy, "actor": actor })).into_response()
 }
 
 pub async fn save_payment_access(
@@ -51,7 +68,7 @@ pub async fn list_account_links(
     headers: axum::http::HeaderMap,
     Query(query): Query<ListQuery>,
 ) -> Response {
-    let _user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -59,9 +76,15 @@ pub async fn list_account_links(
         .workspace_id
         .as_deref()
         .unwrap_or(DEFAULT_WORKSPACE_ID);
-    // WDB-compat: payment projections not in wabidb v1. Return empty.
-    // Real impl lands when the payment-policy projection is wired in.
-    let links: Vec<PaymentAccountLink> = Vec::new();
+    let links = match state.wdb.list_payment_account_links(user_id).await {
+        Ok(links) => links,
+        Err(e) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to load account links: {}", e),
+            )
+        }
+    };
     Json(json!({ "success": true, "links": links })).into_response()
 }
 
@@ -93,7 +116,12 @@ pub async fn create_account_link(
         linked_at: now,
         updated_at: now,
     };
-    upsert_account_link(&state, &link).await;
+    if let Err(e) = state.wdb.upsert_payment_account_link(&link).await {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to save account link: {}", e),
+        );
+    }
     Json(json!({ "success": true, "link": link })).into_response()
 }
 
@@ -106,18 +134,16 @@ pub async fn delete_account_link(
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
-    let _ = state
+    if let Err(e) = state
         .wdb
-        .ingest_event(
-            "payment",
-            "delete_account_link",
-            &json!({
-                "userId": user_id,
-                "pluginId": plugin_id,
-                "workspaceId": DEFAULT_WORKSPACE_ID,
-            }),
-        )
-        .await;
+        .delete_payment_account_link(user_id, &plugin_id)
+        .await
+    {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to delete account link: {}", e),
+        );
+    }
     Json(json!({ "success": true })).into_response()
 }
 
@@ -163,13 +189,19 @@ pub async fn list_user_blocks(
     if !is_admin_user(user_id, &state).await {
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
-    let _workspace_id = query
+    let workspace_id = query
         .workspace_id
         .as_deref()
         .unwrap_or(DEFAULT_WORKSPACE_ID);
-    // WDB-compat: payment projections not in wabidb v1. Return empty.
-    // Real impl lands when the payment-user-block projection is wired in.
-    let blocks: Vec<PaymentUserBlock> = Vec::new();
+    let blocks = match state.wdb.list_payment_user_blocks(workspace_id).await {
+        Ok(blocks) => blocks,
+        Err(e) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to load user blocks: {}", e),
+            )
+        }
+    };
     Json(json!({ "success": true, "blocks": blocks })).into_response()
 }
 
@@ -200,18 +232,12 @@ pub async fn create_user_block(
         blocked_at: now,
         expires_at: input.expires_at,
     };
-    let _ = state
-        .wdb
-        .ingest_event(
-            "payment",
-            "upsert_user_block",
-            &json!({
-                "userId": block.user_id,
-                "workspaceId": block.workspace_id,
-                "row": block,
-            }),
-        )
-        .await;
+    if let Err(e) = state.wdb.upsert_payment_user_block(&block).await {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to save user block: {}", e),
+        );
+    }
     Json(json!({ "success": true, "block": block })).into_response()
 }
 
@@ -227,17 +253,16 @@ pub async fn clear_user_block(
     if !is_admin_user(admin_id, &state).await {
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
-    let _ = state
+    if let Err(e) = state
         .wdb
-        .ingest_event(
-            "payment",
-            "delete_user_block",
-            &json!({
-                "userId": blocked_user_id,
-                "workspaceId": DEFAULT_WORKSPACE_ID,
-            }),
-        )
-        .await;
+        .delete_payment_user_block(DEFAULT_WORKSPACE_ID, blocked_user_id)
+        .await
+    {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to clear user block: {}", e),
+        );
+    }
     Json(json!({ "success": true })).into_response()
 }
 

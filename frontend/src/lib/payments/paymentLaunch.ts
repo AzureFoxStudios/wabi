@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 
-export type ConversationPaymentSurface = 'payment_request' | 'manual_cash';
+export type ConversationPaymentSurface = 'payment_request';
 
 export type PendingConversationPaymentLaunch = {
 	surface: ConversationPaymentSurface;

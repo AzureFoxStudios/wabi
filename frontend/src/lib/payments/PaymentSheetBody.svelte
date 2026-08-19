@@ -16,173 +16,181 @@
 		PaymentProviderCapability
 	} from '$lib/api';
 
-	export let isOpen = false;
-	export let onClose: () => void = () => {};
-	export let overlayZIndex: number | string | null = null;
-	export let defaultTargetLabel: string | null = null;
-	export let channelId = '';
-	export let loadingProviders = false;
-	export let providersLoaded = false;
-	export let providersError = '';
-	export let accessStatus: PaymentAccessActorStatus | null = null;
-	export let providers: PaymentProviderCapability[] = [];
-	export let routePresets: RoutePreset[] = [];
-	export let selectedRoutePreset: RoutePreset | null = null;
-	export let selectedProvider: PaymentProviderCapability | null = null;
-	export let selectedMethod: PaymentMethodCapability | null = null;
-	export let selectedAccountLink: PaymentAccountLink | null = null;
-	export let eligibleProviderMethods: PaymentMethodCapability[] = [];
-	export let providerCurrencyOptions: string[] = [];
-	export let providerCountryOptions: string[] = [];
-	export let selectedProviderId = '';
-	export let selectedMethodId = '';
-	export let amountInput = '100.00';
-	export let currency = '';
-	export let countryCode = '';
-	export let showAdvancedRouting = false;
-	export let showCustomCustomerRef = false;
-	export let customerRef = '';
-	export let showOptionalNote = false;
-	export let description = '';
-	export let accountLinksLoading = false;
-	export let isServerDonationDraft = false;
-	export let isThaiPromptPayDraft = false;
-	export let isBitcoinQrDraft = false;
-	export let isThaiQrIntent = false;
-	export let isBitcoinQrIntent = false;
-	export let missingRequiredThaiPromptPayReference = false;
-	export let missingRequiredBitcoinAddress = false;
-	export let creatingIntent = false;
-	export let actionInfo = '';
-	export let actionError = '';
-	export let activeIntent: PaymentIntent | null = null;
-	export let activeEvents: PaymentEvent[] = [];
-	export let presentation: Record<string, unknown> = {};
-	export let presentationMode: PaymentCheckoutMode = 'redirect';
-	export let qrDataUrl = '';
-	export let terminalStatuses: Set<PaymentIntentStatus>;
-	export let onLoadProviders: () => void = () => {};
-	export let onApplyRoutePreset: (preset: RoutePreset) => void = () => {};
-	export let onManageConnections: () => void = () => {};
-	export let onCreateIntent: () => void = () => {};
-	export let onSaveQrImage: () => void = () => {};
-	export let onSharePaymentTarget: () => void = () => {};
-	export let onOpenSheetUrl: (url: string) => void = () => {};
-	export let onCopyToClipboard: (text: string) => void = () => {};
-	export let onRefreshIntent: (intentId: string, refresh?: boolean) => void = () => {};
-	export let onCancelIntent: () => void = () => {};
-	export let onResetForNewIntent: () => void = () => {};
+	let {
+		isOpen = false,
+		onClose = () => {},
+		overlayZIndex = null,
+		defaultTargetLabel = null,
+		channelId = $bindable(''),
+		loadingProviders = false,
+		providersLoaded = false,
+		providersError = '',
+		accessStatus: accessStatus = null,
+		providers = [],
+		routePresets = [],
+		selectedRoutePreset = null,
+		selectedProvider = null,
+		selectedMethod = null,
+		selectedAccountLink = null,
+		eligibleProviderMethods = [],
+		providerCurrencyOptions = [],
+		providerCountryOptions = [],
+		selectedProviderId = $bindable(''),
+		selectedMethodId = $bindable(''),
+		amountInput = $bindable('100.00'),
+		currency = $bindable(''),
+		countryCode = $bindable(''),
+		showAdvancedRouting = $bindable(false),
+		showCustomCustomerRef = $bindable(false),
+		customerRef = $bindable(''),
+		showOptionalNote = $bindable(false),
+		description = $bindable(''),
+		accountLinksLoading = false,
+		isServerDonationDraft = false,
+		isThaiPromptPayDraft = false,
+		isThaiQrIntent = false,
+		missingRequiredThaiPromptPayReference = false,
+		creatingIntent = false,
+		actionInfo = '',
+		actionError = '',
+		activeIntent: activeIntent = null,
+		activeEvents = [],
+		presentation = {},
+		presentationMode = 'redirect',
+		qrDataUrl = '',
+		terminalStatuses,
+		onLoadProviders,
+		onApplyRoutePreset,
+		onManageConnections,
+		onCreateIntent,
+		onSaveQrImage,
+		onSharePaymentTarget,
+		onOpenSheetUrl,
+		onCopyToClipboard,
+		onRefreshIntent,
+		onResetForNewIntent
+	}: {
+		isOpen?: boolean;
+		onClose?: () => void;
+		overlayZIndex?: number | string | null;
+		defaultTargetLabel?: string | null;
+		channelId?: string;
+		loadingProviders?: boolean;
+		providersLoaded?: boolean;
+		providersError?: string;
+		accessStatus?: PaymentAccessActorStatus | null;
+		providers?: PaymentProviderCapability[];
+		routePresets?: RoutePreset[];
+		selectedRoutePreset?: RoutePreset | null;
+		selectedProvider?: PaymentProviderCapability | null;
+		selectedMethod?: PaymentMethodCapability | null;
+		selectedAccountLink?: PaymentAccountLink | null;
+		eligibleProviderMethods?: PaymentMethodCapability[];
+		providerCurrencyOptions?: string[];
+		providerCountryOptions?: string[];
+		selectedProviderId?: string;
+		selectedMethodId?: string;
+		amountInput?: string;
+		currency?: string;
+		countryCode?: string;
+		showAdvancedRouting?: boolean;
+		showCustomCustomerRef?: boolean;
+		customerRef?: string;
+		showOptionalNote?: boolean;
+		description?: string;
+		accountLinksLoading?: boolean;
+		isServerDonationDraft?: boolean;
+		isThaiPromptPayDraft?: boolean;
+		isThaiQrIntent?: boolean;
+		missingRequiredThaiPromptPayReference?: boolean;
+		creatingIntent?: boolean;
+		actionInfo?: string;
+		actionError?: string;
+		activeIntent?: PaymentIntent | null;
+		activeEvents?: PaymentEvent[];
+		presentation?: Record<string, unknown>;
+		presentationMode?: PaymentCheckoutMode;
+		qrDataUrl?: string;
+		terminalStatuses: Set<PaymentIntentStatus>;
+		onLoadProviders?: () => void;
+		onApplyRoutePreset?: (preset: RoutePreset) => void;
+		onManageConnections?: () => void;
+		onCreateIntent?: () => void;
+		onSaveQrImage?: () => void;
+		onSharePaymentTarget?: () => void;
+		onOpenSheetUrl?: (url: string) => void;
+		onCopyToClipboard?: (text: string) => void;
+		onRefreshIntent?: (intentId: string, refresh?: boolean) => void;
+		onResetForNewIntent?: () => void;
+	} = $props();
 
-	function shouldShowProviderPicker(): boolean {
-		return (routePresets.length === 0 || showAdvancedRouting) && providers.length > 1;
-	}
-
-	function shouldShowMethodPicker(): boolean {
-		return (routePresets.length === 0 || showAdvancedRouting) && eligibleProviderMethods.length > 1;
-	}
-
-	function shouldShowCurrencyPicker(): boolean {
+	const shouldShowProviderPicker = $derived(
+		(routePresets.length === 0 || showAdvancedRouting) && providers.length > 1
+	);
+	const shouldShowMethodPicker = $derived(
+		(routePresets.length === 0 || showAdvancedRouting) && eligibleProviderMethods.length > 1
+	);
+	const shouldShowCurrencyPicker = $derived.by(() => {
 		const manualMode = routePresets.length === 0 || showAdvancedRouting;
 		if (!manualMode) return false;
-		return providerCurrencyOptions.length > 1 || (routePresets.length === 0 && providerCurrencyOptions.length === 0);
-	}
-
-	function shouldShowCountryPicker(): boolean {
+		return (
+			providerCurrencyOptions.length > 1 ||
+			(routePresets.length === 0 && providerCurrencyOptions.length === 0)
+		);
+	});
+	const shouldShowCountryPicker = $derived.by(() => {
 		const manualMode = routePresets.length === 0 || showAdvancedRouting;
 		if (!manualMode) return false;
-		return providerCountryOptions.length > 1 || (routePresets.length === 0 && providerCountryOptions.length === 0);
-	}
-
-	function getSheetTitle(): string {
-		if (isThaiQrIntent) return 'PromptPay QR';
-		if (isBitcoinQrIntent) return 'Bitcoin QR';
-		return 'New Payment Request';
-	}
-
-	function getSheetIntro(): string {
+		return (
+			providerCountryOptions.length > 1 ||
+			(routePresets.length === 0 && providerCountryOptions.length === 0)
+		);
+	});
+	const sheetTitle = $derived(
+		isThaiQrIntent ? 'PromptPay QR' : 'New Payment Request'
+	);
+	const sheetIntro = $derived.by(() => {
 		if (isThaiPromptPayDraft) {
 			return isServerDonationDraft
 				? `Enter the amount. ${brandName} will build a PromptPay donation QR for this server.`
 				: `Enter the amount. ${brandName} will build a PromptPay QR from your saved PromptPay number.`;
 		}
-		if (isBitcoinQrDraft) {
-			return isServerDonationDraft
-				? `Enter the amount. ${brandName} will build a Bitcoin donation QR for this server.`
-				: `Enter the amount. ${brandName} will build a Bitcoin QR from your saved Bitcoin address.`;
-		}
 		if (isThaiQrIntent) return 'Share or save the QR, then wait for confirmation.';
-		if (isBitcoinQrIntent) return 'Share or save the QR, then wait for on-chain confirmation.';
 		return `Create a non-custodial payment request. ${brandName} does not store cards or bank credentials and does not move the money itself.`;
-	}
-
-	function getTargetHeaderLabel(): string {
+	});
+	const targetHeaderLabel = $derived.by(() => {
 		const target = String(defaultTargetLabel || '').trim();
 		if (target) return target;
 		if (channelId.trim()) return channelId.trim();
 		return '';
-	}
-
-	function getCreateButtonLabel(): string {
-		if (creatingIntent) return isThaiPromptPayDraft || isBitcoinQrDraft ? 'Creating QR...' : 'Creating...';
-		return isThaiPromptPayDraft || isBitcoinQrDraft ? 'Create QR' : 'Create payment request';
-	}
-
-	function getDraftMethodBehaviorNote(): string | null {
+	});
+	const createButtonLabel = $derived.by(() => {
+		if (creatingIntent) return isThaiPromptPayDraft ? 'Creating QR...' : 'Creating...';
+		return isThaiPromptPayDraft ? 'Create QR' : 'Create payment request';
+	});
+	const draftMethodBehaviorNote = $derived.by(() => {
 		if (!selectedProvider || !selectedMethod) return null;
-		if (selectedProvider.pluginId === 'th-payments' && selectedMethod.id === 'promptpay_qr') {
+		if (selectedProvider.pluginId === 'promptpay' && selectedMethod.id === 'promptpay_qr') {
 			if (isServerDonationDraft) {
 				return `PromptPay QR creates a donation request using the server donation PromptPay number. ${brandName} does not mark it paid just because the app returned.`;
 			}
 			return `PromptPay QR creates a payment request using your saved PromptPay number or a one-off PromptPay number. ${brandName} does not mark it paid just because the app returned.`;
 		}
-		if (selectedProvider.pluginId === 'th-payments' && selectedMethod.id === 'psp_checkout') {
-			return 'This route can become fully verified when a Thai PSP adapter is configured. Without that adapter, PromptPay QR is the safer fallback.';
-		}
-		if (selectedProvider.pluginId === 'btc-payments' && selectedMethod.id === 'bitcoin_qr') {
-			if (isServerDonationDraft) {
-				return `Bitcoin QR creates a donation request using the server donation Bitcoin address. ${brandName} does not mark it paid just because a wallet opened or returned.`;
-			}
-			return `Bitcoin QR creates a payment request using your saved Bitcoin address or a one-off Bitcoin address. ${brandName} does not mark it paid just because a wallet opened or returned.`;
-		}
-		if (selectedProvider.pluginId === 'btc-payments' && selectedMethod.id === 'lightning_checkout') {
-			if (String(selectedMethod.notes || '').toLowerCase().includes('local test')) {
-				return 'This server is currently using Lightning local test mode. It exercises the request flow without moving money.';
-			}
-			return 'Lightning can become provider-verified when a Bitcoin adapter is configured.';
-		}
-		if (selectedProvider.pluginId === 'western-payments' && String(selectedProvider.notes || '').toLowerCase().includes('local test')) {
-			return 'This server is currently using western local test mode. It exercises the request flow without moving money.';
-		}
 		return null;
-	}
-
-	function getMissingDirectReferenceMessage(): string {
-		if (isThaiPromptPayDraft) {
-			return `Thai PromptPay requests need your own PromptPay number before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off number.`;
+	});
+	const qrExternalConfirmationHint = $derived.by(() => {
+		const pluginId = activeIntent?.pluginId || '';
+		if (pluginId === 'payments-crypto') {
+			return `Scanning this QR opens the payer's crypto wallet. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
 		}
-		if (isBitcoinQrDraft) {
-			return `Bitcoin QR requests need your own Bitcoin address before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off address.`;
+		if (pluginId === 'payments-eu') {
+			return `Scanning this QR opens the payer's EU banking app for a SEPA Instant transfer. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
 		}
-		return 'A saved payment reference is required for this request.';
-	}
-
-	function getQrExternalConfirmationHint(): string {
-		if (activeIntent?.pluginId === 'btc-payments') {
-			return `Scanning or copying this QR opens the wallet flow. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
-		}
-		return `Scanning this QR opens the bank/payment app flow. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
-	}
+		return `Scanning this QR opens the payer's banking app. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
+	});
 </script>
 
-<BaseModal {isOpen} onClose={onClose} width="680px" {overlayZIndex}>
-	<div slot="header" class="sheet-header">
-		<h2>{getSheetTitle()}</h2>
-		{#if getTargetHeaderLabel()}
-			<div class="sheet-target">{getTargetHeaderLabel()}</div>
-		{/if}
-		<p>{getSheetIntro()}</p>
-	</div>
-
+<BaseModal {isOpen} onClose={onClose} width="680px" {overlayZIndex} title={sheetTitle} subtitle={sheetIntro} headerTag={targetHeaderLabel}>
 	<div class="sheet-body">
 		{#if loadingProviders}
 			<p class="hint">Loading payment providers...</p>
@@ -195,8 +203,7 @@
 		{/if}
 		{#if !loadingProviders && providersLoaded && providers.length === 0}
 			<p class="hint">
-				No payment provider plugins are loaded. Enable plugins and install a payment plugin (for example
-				`th-payments`).
+				No payment rails are enabled on this server yet.
 			</p>
 		{/if}
 
@@ -216,27 +223,32 @@
 			{selectedProvider}
 			{selectedMethod}
 			{isThaiPromptPayDraft}
-			shouldShowProviderPicker={shouldShowProviderPicker()}
-			shouldShowMethodPicker={shouldShowMethodPicker()}
-			shouldShowCurrencyPicker={shouldShowCurrencyPicker()}
-			shouldShowCountryPicker={shouldShowCountryPicker()}
-			draftMethodBehaviorNote={getDraftMethodBehaviorNote()}
-			onApplyRoutePreset={onApplyRoutePreset}
+			shouldShowProviderPicker={shouldShowProviderPicker}
+			shouldShowMethodPicker={shouldShowMethodPicker}
+			shouldShowCurrencyPicker={shouldShowCurrencyPicker}
+			shouldShowCountryPicker={shouldShowCountryPicker}
+			{draftMethodBehaviorNote}
+			{onApplyRoutePreset}
 		/>
 
 		<PaymentReferencePanel
 			{selectedAccountLink}
 			{accountLinksLoading}
-			isDirectReferenceDraft={isThaiPromptPayDraft || isBitcoinQrDraft}
+			isDirectReferenceDraft={isThaiPromptPayDraft}
 			{isServerDonationDraft}
 			{isThaiPromptPayDraft}
-			{isBitcoinQrDraft}
 			bind:showCustomCustomerRef
 			bind:customerRef
-			directReferenceTitle={isThaiPromptPayDraft ? 'PromptPay number' : isBitcoinQrDraft ? 'Bitcoin address' : 'Payment reference'}
-			directReferencePlaceholder={isThaiPromptPayDraft ? 'Thai mobile number or PromptPay ID' : isBitcoinQrDraft ? 'bc1... or 1... / 3...' : 'Payment reference'}
-			onManageConnections={onManageConnections}
+			directReferenceTitle={isThaiPromptPayDraft ? 'PromptPay number' : 'Payment reference'}
+			directReferencePlaceholder={isThaiPromptPayDraft ? 'Thai mobile number or PromptPay ID' : 'Payment reference'}
+			{onManageConnections}
 		/>
+
+		{#if isThaiPromptPayDraft && !isServerDonationDraft}
+			<p class="hint privacy-note">
+				Privacy: the payer's banking app will show your PromptPay-registered name when they scan. {brandName} itself never sees the payment.
+			</p>
+		{/if}
 
 		<label class="checkbox-row">
 			<input type="checkbox" bind:checked={showOptionalNote} />
@@ -250,20 +262,20 @@
 			</label>
 		{/if}
 
-		{#if missingRequiredThaiPromptPayReference || missingRequiredBitcoinAddress}
+		{#if missingRequiredThaiPromptPayReference}
 			<p class="hint emphasis">
-				{getMissingDirectReferenceMessage()}
+				Thai PromptPay requests need your own PromptPay number before {brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off number.
 			</p>
 		{/if}
 
 		<div class="actions">
-			<button class="action" on:click={onLoadProviders} disabled={loadingProviders}>Refresh providers</button>
+			<button class="action" onclick={() => onLoadProviders?.()} disabled={loadingProviders}>Refresh providers</button>
 			<button
 				class="action primary"
-				on:click={onCreateIntent}
-				disabled={creatingIntent || providers.length === 0 || Boolean(accessStatus && !accessStatus.canCreate) || missingRequiredThaiPromptPayReference || missingRequiredBitcoinAddress}
+				onclick={() => onCreateIntent?.()}
+				disabled={creatingIntent || providers.length === 0 || Boolean(accessStatus && !accessStatus.canCreate) || missingRequiredThaiPromptPayReference}
 			>
-				{getCreateButtonLabel()}
+				{createButtonLabel}
 			</button>
 		</div>
 
@@ -282,16 +294,15 @@
 				{presentationMode}
 				{qrDataUrl}
 				{isThaiQrIntent}
-				targetHeaderLabel={getTargetHeaderLabel()}
+				targetHeaderLabel={targetHeaderLabel}
 				{terminalStatuses}
-				qrExternalConfirmationHint={getQrExternalConfirmationHint()}
-				onSaveQrImage={onSaveQrImage}
-				onSharePaymentTarget={onSharePaymentTarget}
-				onOpenSheetUrl={onOpenSheetUrl}
-				onCopyToClipboard={onCopyToClipboard}
-				onRefreshIntent={onRefreshIntent}
-				onCancelIntent={onCancelIntent}
-				onResetForNewIntent={onResetForNewIntent}
+				qrExternalConfirmationHint={qrExternalConfirmationHint}
+				onSaveQrImage={() => onSaveQrImage?.()}
+				onSharePaymentTarget={() => onSharePaymentTarget?.()}
+				onOpenSheetUrl={(url) => onOpenSheetUrl?.(url)}
+				onCopyToClipboard={(text) => onCopyToClipboard?.(text)}
+				onRefreshIntent={(intentId, refresh) => onRefreshIntent?.(intentId, refresh)}
+				onResetForNewIntent={() => onResetForNewIntent?.()}
 			/>
 		{/if}
 	</div>

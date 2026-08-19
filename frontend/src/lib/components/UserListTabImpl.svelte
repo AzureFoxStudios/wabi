@@ -177,14 +177,7 @@
 
 	function handleContextRequestPayment(): void {
 		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser, $currentUser) || !contextMenuUser.dbUserId) return;
-		queuePayment('payment_request', contextMenuUser);
-		openDirectConversationWithUser(contextMenuUser);
-		closeContextMenu();
-	}
-
-	function handleContextManualCash(): void {
-		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser, $currentUser) || !contextMenuUser.dbUserId) return;
-		queuePayment('manual_cash', contextMenuUser);
+		queuePayment(contextMenuUser);
 		openDirectConversationWithUser(contextMenuUser);
 		closeContextMenu();
 	}
@@ -245,7 +238,6 @@
 		const handlers: Record<string, () => void> = {
 			message: handleContextMessage,
 			'request-payment': handleContextRequestPayment,
-			'record-cash': handleContextManualCash,
 			voice: handleContextVoiceCall,
 			video: handleContextVideoCall,
 			'nickname-set': promptSetContextLocalNickname,

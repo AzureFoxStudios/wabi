@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
 	import BaseModal from '../components/BaseModal.svelte';
 	import {
 		getPaymentDonationSummary,
@@ -23,49 +22,65 @@
 		metadata: Record<string, unknown>;
 	}
 
-	export let isOpen = false;
-	export let onClose: () => void = () => {};
-	export let onDonate: (payload: DonationPrefillPayload) => void = () => {};
-	export let overlayZIndex: number | string | null = null;
+	let {
+		isOpen = false,
+		onClose = () => {},
+		onDonate,
+		overlayZIndex = null
+	}: {
+		isOpen?: boolean;
+		onClose?: () => void;
+		onDonate?: (payload: DonationPrefillPayload) => void;
+		overlayZIndex?: number | string | null;
+	} = $props();
 
-	let loading = false;
-	let loaded = false;
-	let error = '';
-	let config: PaymentDonationConfig | null = null;
-	let totals: PaymentDonationTotal[] = [];
-	let offlineTotals: PaymentDonationTotal[] = [];
-	let recentDonations: PaymentDonationLedgerEntry[] = [];
-	let recentOfflineDonations: OfflineDonationLedgerEntry[] = [];
-	let providerCatalog: PaymentProviderCapability[] = [];
-	let providerCatalogLoaded = false;
-	let amountInput = '10.00';
-	$: donationRouteReady = Boolean(config?.enabled && config?.providerPluginId && config?.methodId);
-	$: donationRouteProvider =
-		providerCatalog.find((provider) => provider.pluginId === config?.providerPluginId) || null;
-	$: donationRouteMethod =
-		donationRouteProvider?.methods.find((method) => method.id === config?.methodId) || null;
+	let loading = $state(false);
+	let loaded = $state(false);
+	let error = $state('');
+	let config = $state<PaymentDonationConfig | null>(null);
+	let totals = $state<PaymentDonationTotal[]>([]);
+	let offlineTotals = $state<PaymentDonationTotal[]>([]);
+	let recentDonations = $state<PaymentDonationLedgerEntry[]>([]);
+	let recentOfflineDonations = $state<OfflineDonationLedgerEntry[]>([]);
+	let providerCatalog = $state<PaymentProviderCapability[]>([]);
+	let providerCatalogLoaded = $state(false);
+	let amountInput = $state('10.00');
 
-	$: if (isOpen && !loaded) {
-		void loadDonationSummary();
-	}
-
-	$: if (isOpen && !providerCatalogLoaded) {
-		void loadProviderCatalog();
-	}
-
-	$: if (!isOpen) {
-		loaded = false;
-		error = '';
-		providerCatalogLoaded = false;
-	}
+	const donationRouteReady = $derived(
+		Boolean(config?.enabled && config?.providerPluginId && config?.methodId)
+	);
+	const donationRouteProvider = $derived(
+		providerCatalog.find((provider) => provider.pluginId === config?.providerPluginId) || null
+	);
+	const donationRouteMethod = $derived(
+		donationRouteProvider?.methods.find((method) => method.id === config?.methodId) || null
+	);
 
 	const unsubscribeDonationRealtime = subscribePaymentRealtimeEvent('payments:donations-updated', () => {
 		if (!isOpen) return;
 		void loadDonationSummary();
 	});
 
-	onDestroy(() => {
-		unsubscribeDonationRealtime();
+	$effect(() => () => unsubscribeDonationRealtime());
+
+	$effect(() => {
+		if (isOpen && !loaded) {
+			void loadDonationSummary();
+		}
+	});
+
+	$effect(() => {
+		if (isOpen && !providerCatalogLoaded) {
+			void loadProviderCatalog();
+		}
+	});
+
+	$effect(() => {
+		if (!isOpen) {
+			loaded = false;
+			error = '';
+			providerCatalogLoaded = false;
+		}
 	});
 
 	function formatRelativeTime(timestamp: number | null): string {
@@ -109,9 +124,9 @@
 	async function loadProviderCatalog(): Promise<void> {
 		try {
 			providerCatalog = await listPaymentProviders();
-			providerCatalogLoaded = true;
 		} catch {
 			providerCatalog = [];
+		} finally {
 			providerCatalogLoaded = true;
 		}
 	}
@@ -124,7 +139,7 @@
 		if (!config?.enabled || !config.providerPluginId || !config.methodId) {
 			return;
 		}
-		onDonate({
+		onDonate?.({
 			amountInput,
 			providerPluginId: config.providerPluginId,
 			methodId: config.methodId,
@@ -139,12 +154,14 @@
 	}
 </script>
 
-<BaseModal isOpen={isOpen} onClose={onClose} width="720px" {overlayZIndex}>
-	<div slot="header" class="sheet-header">
-		<h2>{config?.headline || 'Support This Server'}</h2>
-		<p>{config?.description || 'Support server hosting and maintenance.'}</p>
-	</div>
-
+<BaseModal
+	{isOpen}
+	onClose={onClose}
+	width="720px"
+	{overlayZIndex}
+	title={config?.headline || 'Support This Server'}
+	subtitle={config?.description || 'Support server hosting and maintenance.'}
+>
 	<div class="sheet-body">
 		{#if loading}
 			<p class="hint">Loading donation options...</p>
@@ -166,7 +183,7 @@
 			<div class="totals-card">
 				<h3>Verified Donations</h3>
 				<ul>
-					{#each totals as total}
+					{#each totals as total (total.currency)}
 						<li>
 							<span>{formatMinorAmount(total.amountMinor, total.currency)}</span>
 							<small>{total.paymentCount} completed donation{total.paymentCount === 1 ? '' : 's'}</small>
@@ -180,7 +197,7 @@
 			<div class="totals-card">
 				<h3>Offline / Manual Donations</h3>
 				<ul>
-					{#each offlineTotals as total}
+					{#each offlineTotals as total (total.currency)}
 						<li>
 							<span>{formatMinorAmount(total.amountMinor, total.currency)}</span>
 							<small>{total.paymentCount} recorded donation{total.paymentCount === 1 ? '' : 's'}</small>
@@ -198,7 +215,7 @@
 			<div class="totals-card">
 				<h3>Recent Donations</h3>
 				<ul>
-					{#each recentDonations as donation}
+					{#each recentDonations as donation (donation.intentId)}
 						<li>
 							<div class="ledger-copy">
 								<strong>{donation.donorLabel}</strong>
@@ -220,7 +237,7 @@
 			<div class="totals-card">
 				<h3>Recent Offline Donations</h3>
 				<ul>
-					{#each recentOfflineDonations as donation}
+					{#each recentOfflineDonations as donation (donation.settlementId)}
 						<li>
 							<div class="ledger-copy">
 								<strong>{donation.donorLabel}</strong>
@@ -244,8 +261,8 @@
 			<div class="donation-card">
 				{#if config.suggestedAmountsMinor.length > 0}
 					<div class="suggestions">
-						{#each config.suggestedAmountsMinor as amountMinor}
-							<button class="chip" on:click={() => chooseSuggestedAmount(amountMinor)}>
+						{#each config.suggestedAmountsMinor as amountMinor (amountMinor)}
+							<button class="chip" onclick={() => chooseSuggestedAmount(amountMinor)}>
 								{formatMinorAmount(amountMinor, config.currency)}
 							</button>
 						{/each}
@@ -254,7 +271,7 @@
 
 				<label>
 					<span>Donation amount</span>
-					<input type="text" bind:value={amountInput} placeholder="10.00" />
+					<input type="text" bind:value={amountInput} placeholder="10.00" inputmode="decimal" />
 				</label>
 
 				<p class="hint">
@@ -267,7 +284,7 @@
 				<div class="actions">
 					<button
 						class="action primary"
-						on:click={handleDonate}
+						onclick={handleDonate}
 						disabled={!donationRouteReady}
 					>
 						Continue to Donate
@@ -279,21 +296,6 @@
 </BaseModal>
 
 <style>
-	.sheet-header {
-		padding: 1.25rem 1.5rem 0.5rem;
-	}
-
-	.sheet-header h2 {
-		margin: 0;
-		font-size: 1.2rem;
-	}
-
-	.sheet-header p {
-		margin: 0.25rem 0 0;
-		color: var(--text-secondary);
-		font-size: 0.9rem;
-	}
-
 	.sheet-body {
 		padding: 0.75rem 1.5rem 1.5rem;
 		display: flex;
@@ -303,10 +305,10 @@
 
 	.totals-card,
 	.donation-card {
-		border: 1px solid rgba(255, 255, 255, 0.13);
-		border-radius: 0.75rem;
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.13));
+		border-radius: var(--radius-lg, 0.75rem);
 		padding: 0.9rem;
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--surface-raised, rgba(255, 255, 255, 0.03));
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
@@ -360,17 +362,47 @@
 
 	.chip,
 	.action {
-		border: 1px solid rgba(255, 255, 255, 0.18);
-		border-radius: 0.55rem;
-		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.18));
+		border-radius: var(--radius-md, 0.55rem);
+		background: var(--surface-button, rgba(255, 255, 255, 0.04));
 		color: var(--text-heading);
 		padding: 0.5rem 0.8rem;
 		cursor: pointer;
+		font-size: 0.86rem;
+		transition: background var(--duration-fast, 150ms) var(--ease-out, ease-out),
+			border-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
+			transform var(--duration-fast, 150ms) var(--ease-out, ease-out);
+	}
+
+	.chip:hover:not(:disabled),
+	.action:hover:not(:disabled) {
+		background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+		border-color: rgba(255, 255, 255, 0.3);
+	}
+
+	.chip:active:not(:disabled),
+	.action:active:not(:disabled) {
+		transform: scale(0.97);
+	}
+
+	.chip:focus-visible,
+	.action:focus-visible {
+		outline: 2px solid rgba(0, 210, 255, 0.55);
+		outline-offset: 2px;
 	}
 
 	.action.primary {
 		background: rgba(0, 210, 255, 0.18);
 		border-color: rgba(0, 210, 255, 0.45);
+	}
+
+	.action.primary:hover:not(:disabled) {
+		background: rgba(0, 210, 255, 0.28);
+	}
+
+	.action:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
 	}
 
 	label {
@@ -382,12 +414,19 @@
 	}
 
 	input {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		border-radius: 0.55rem;
+		background: var(--surface-input, rgba(255, 255, 255, 0.05));
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.12));
+		border-radius: var(--radius-md, 0.55rem);
 		padding: 0.55rem 0.65rem;
 		color: var(--text-heading);
 		font-size: 0.9rem;
+		transition: border-color var(--duration-fast, 150ms) var(--ease-out, ease-out);
+	}
+
+	input:focus-visible {
+		outline: none;
+		border-color: rgba(0, 210, 255, 0.55);
+		box-shadow: 0 0 0 2px rgba(0, 210, 255, 0.18);
 	}
 
 	.actions {
@@ -407,4 +446,4 @@
 		color: var(--color-danger, #ef4444);
 		font-size: 0.84rem;
 	}
- </style>
+</style>

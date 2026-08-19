@@ -48,7 +48,7 @@ export function normalizeProviderOptions(values: string[]): string[] {
 }
 
 export function getPreferredMethodId(provider: PaymentProviderCapability): string {
-	if (provider.pluginId === 'th-payments') {
+	if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
 		const promptPayMethod = provider.methods.find((method) => method.id === 'promptpay_qr');
 		if (promptPayMethod) {
 			return promptPayMethod.id;
@@ -63,11 +63,13 @@ export function getPreferredMethodId(provider: PaymentProviderCapability): strin
 
 export function buildRoutePresets(inputProviders: PaymentProviderCapability[]): RoutePreset[] {
 	const presets: RoutePreset[] = [];
-	const thaiProvider = inputProviders.find((provider) => provider.pluginId === 'th-payments');
-	if (thaiProvider) {
-		const methodId = getPreferredMethodId(thaiProvider);
+	const promptPayProvider = inputProviders.find(
+		(provider) => provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments'
+	);
+	if (promptPayProvider) {
+		const methodId = getPreferredMethodId(promptPayProvider);
 		if (methodId) {
-			presets.push({ key: 'TH', label: 'Thailand', flag: '🇹🇭', providerId: thaiProvider.pluginId, methodId, countryCode: 'TH', currency: 'THB', defaultAmountInput: '100.00' });
+			presets.push({ key: 'TH', label: 'Thailand', flag: '🇹🇭', providerId: promptPayProvider.pluginId, methodId, countryCode: 'TH', currency: 'THB', defaultAmountInput: '100.00' });
 		}
 	}
 
@@ -88,6 +90,38 @@ export function buildRoutePresets(inputProviders: PaymentProviderCapability[]): 
 		if (bitcoinMethod) presets.push({ key: 'BTC', label: 'Bitcoin', flag: '₿', providerId: btcProvider.pluginId, methodId: bitcoinMethod.id, countryCode: '', currency: 'BTC', defaultAmountInput: '0.001' });
 		const lightningMethod = btcProvider.methods.find((method) => method.id === 'lightning_checkout');
 		if (lightningMethod) presets.push({ key: 'LIGHTNING', label: 'Lightning', flag: '⚡', providerId: btcProvider.pluginId, methodId: lightningMethod.id, countryCode: '', currency: 'BTC', defaultAmountInput: '0.0001' });
+	}
+
+	const cryptoProvider = inputProviders.find((provider) => provider.pluginId === 'payments-crypto');
+	if (cryptoProvider) {
+		const cryptoPresets: Array<{ key: string; label: string; flag: string; methodId: string; currency: string; defaultAmountInput: string }> = [
+			{ key: 'USDC', label: 'USDC on Base', flag: '💠', methodId: 'usdc_base', currency: 'USDC', defaultAmountInput: '10.00' },
+			{ key: 'USDT', label: 'USDT on Tron', flag: '₮', methodId: 'usdt_tron', currency: 'USDT', defaultAmountInput: '10.00' },
+			{ key: 'BTC', label: 'Bitcoin', flag: '₿', methodId: 'btc', currency: 'BTC', defaultAmountInput: '0.001' },
+			{ key: 'LIGHTNING', label: 'Lightning', flag: '⚡', methodId: 'lightning', currency: 'BTC', defaultAmountInput: '0.0001' },
+			{ key: 'XMR', label: 'Monero', flag: 'ɱ', methodId: 'monero', currency: 'XMR', defaultAmountInput: '0.01' }
+		];
+		for (const preset of cryptoPresets) {
+			if (cryptoProvider.methods.some((method) => method.id === preset.methodId)) {
+				presets.push({ key: preset.key, label: preset.label, flag: preset.flag, providerId: cryptoProvider.pluginId, methodId: preset.methodId, countryCode: '', currency: preset.currency, defaultAmountInput: preset.defaultAmountInput });
+			}
+		}
+	}
+
+	const euProvider = inputProviders.find((provider) => provider.pluginId === 'payments-eu');
+	if (euProvider) {
+		const epcMethod = euProvider.methods.find((method) => method.id === 'epc_qr');
+		if (epcMethod) {
+			presets.push({ key: 'EU', label: 'Euro Area', flag: '🇪🇺', providerId: euProvider.pluginId, methodId: epcMethod.id, countryCode: 'DE', currency: 'EUR', defaultAmountInput: '10.00' });
+		}
+	}
+
+	const usProvider = inputProviders.find((provider) => provider.pluginId === 'payments-us');
+	if (usProvider) {
+		const cashAppMethod = usProvider.methods.find((method) => method.id === 'cashapp_pointer');
+		if (cashAppMethod) {
+			presets.push({ key: 'US', label: 'United States', flag: '🇺🇸', providerId: usProvider.pluginId, methodId: cashAppMethod.id, countryCode: 'US', currency: 'USD', defaultAmountInput: '10.00' });
+		}
 	}
 
 	return presets;

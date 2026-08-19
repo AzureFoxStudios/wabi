@@ -5,6 +5,11 @@
 	export let width: string = '540px';
 	export let showCloseButton: boolean = true;
 	export let overlayZIndex: number | string | null = null;
+	// Optional plain-text header. When set, it replaces the header slot so
+	// runes-mode callers don't need snippet/slot interop.
+	export let title: string = '';
+	export let subtitle: string = '';
+	export let headerTag: string = '';
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isOpen) {
@@ -31,6 +36,7 @@
 		on:click={handleOverlayClick}
 		role="dialog"
 		aria-modal="true"
+		aria-label={title || undefined}
 		tabindex="-1"
 	>
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -46,7 +52,19 @@
 				</button>
 			{/if}
 
-			<slot name="header" />
+			{#if title}
+				<div class="modal-text-header">
+					<h2>{title}</h2>
+					{#if headerTag}
+						<div class="modal-header-tag">{headerTag}</div>
+					{/if}
+					{#if subtitle}
+						<p>{subtitle}</p>
+					{/if}
+				</div>
+			{:else}
+				<slot name="header" />
+			{/if}
 			<slot />
 			<slot name="footer" />
 		</div>
@@ -152,6 +170,29 @@
 		to {
 			transform: translateX(0);
 		}
+	}
+
+	.modal-text-header {
+		padding: 1.25rem 1.5rem 0.5rem;
+	}
+
+	.modal-text-header h2 {
+		margin: 0;
+		font-size: 1.2rem;
+		color: var(--text-heading);
+	}
+
+	.modal-header-tag {
+		margin-top: 0.35rem;
+		font-size: 0.88rem;
+		font-weight: 600;
+		color: var(--text-heading);
+	}
+
+	.modal-text-header p {
+		margin: 0.25rem 0 0;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
 	}
 
 	@media (max-width: 768px) {

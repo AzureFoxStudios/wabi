@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
 	import PaymentSheetBody from './PaymentSheetBody.svelte';
 	import { brandName } from '$lib/branding';
 	import { getAuthToken } from '$lib/authSession';
@@ -37,7 +36,6 @@
 		writePreferredPaymentRouteKey
 	} from '$lib/payments/paymentSheetRouting';
 	import {
-		cancelPaymentIntent,
 		createPaymentIntent,
 		listPaymentProviders,
 		type PaymentAccountLink,
@@ -49,55 +47,74 @@
 		type PaymentProviderCapability
 	} from '$lib/api';
 
-	export let isOpen = false;
-	export let onClose: () => void = () => {};
-	export let onManageConnections: () => void = () => {};
-	export let defaultChannelId: string | null = null;
-	export let defaultTargetLabel: string | null = null;
-	export let defaultTargetKind: 'channel' | 'dm' | 'group' | 'workspace' | null = null;
-	export let openSeed = 0;
-	export let initialAmountInput: string | null = null;
-	export let initialCurrency: string | null = null;
-	export let initialCountryCode: string | null = null;
-	export let initialDescription: string | null = null;
-	export let initialCustomerRef: string | null = null;
-	export let initialProviderId: string | null = null;
-	export let initialMethodId: string | null = null;
-	export let initialMetadata: Record<string, unknown> | null = null;
-	export let overlayZIndex: number | string | null = null;
+	let {
+		isOpen = false,
+		onClose,
+		onManageConnections,
+		defaultChannelId = null,
+		defaultTargetLabel = null,
+		defaultTargetKind = null,
+		openSeed = 0,
+		initialAmountInput = null,
+		initialCurrency = null,
+		initialCountryCode = null,
+		initialDescription = null,
+		initialCustomerRef = null,
+		initialProviderId = null,
+		initialMethodId = null,
+		initialMetadata = null,
+		overlayZIndex = null
+	}: {
+		isOpen?: boolean;
+		onClose?: () => void;
+		onManageConnections?: () => void;
+		defaultChannelId?: string | null;
+		defaultTargetLabel?: string | null;
+		defaultTargetKind?: 'channel' | 'dm' | 'group' | 'workspace' | null;
+		openSeed?: number;
+		initialAmountInput?: string | null;
+		initialCurrency?: string | null;
+		initialCountryCode?: string | null;
+		initialDescription?: string | null;
+		initialCustomerRef?: string | null;
+		initialProviderId?: string | null;
+		initialMethodId?: string | null;
+		initialMetadata?: Record<string, unknown> | null;
+		overlayZIndex?: number | string | null;
+	} = $props();
 
-	let loadingProviders = false;
-	let providersLoaded = false;
-	let providersError = '';
-	let providers: PaymentProviderCapability[] = [];
-	let selectedProviderId = '';
-	let selectedMethodId = '';
-	let amountInput = '100.00';
-	let currency = '';
-	let countryCode = '';
-	let channelId = '';
-	let description = '';
-	let customerRef = '';
-	let showCustomCustomerRef = false;
-	let showOptionalNote = false;
-	let showAdvancedRouting = false;
-	let requestMetadata: Record<string, unknown> | null = null;
-	let creatingIntent = false;
-	let actionError = '';
-	let actionInfo = '';
-	let activeIntent: PaymentIntent | null = null;
-	let activeEvents: PaymentEvent[] = [];
-	let pollingHandle: number | null = null;
-	let qrDataUrl = '';
-	let accessLoading = false;
-	let accessStatus: PaymentAccessActorStatus | null = null;
-	let paymentAccountLinks: PaymentAccountLink[] = [];
-	let accountLinksLoaded = false;
-	let accountLinksLoading = false;
-	let lastAppliedOpenSeed = -1;
-	let accountPreferredRouteKey = '';
-	let accountRoutePreferenceLoaded = false;
-	let accountRoutePreferenceLoading = false;
+	let loadingProviders = $state(false);
+	let providersLoaded = $state(false);
+	let providersError = $state('');
+	let providers = $state<PaymentProviderCapability[]>([]);
+	let selectedProviderId = $state('');
+	let selectedMethodId = $state('');
+	let amountInput = $state('100.00');
+	let currency = $state('');
+	let countryCode = $state('');
+	let channelId = $state('');
+	let description = $state('');
+	let customerRef = $state('');
+	let showCustomCustomerRef = $state(false);
+	let showOptionalNote = $state(false);
+	let showAdvancedRouting = $state(false);
+	let requestMetadata = $state<Record<string, unknown> | null>(null);
+	let creatingIntent = $state(false);
+	let actionError = $state('');
+	let actionInfo = $state('');
+	let activeIntent = $state<PaymentIntent | null>(null);
+	let activeEvents = $state<PaymentEvent[]>([]);
+	let pollingHandle = $state<number | null>(null);
+	let qrDataUrl = $state('');
+	let accessLoading = $state(false);
+	let accessStatus = $state<PaymentAccessActorStatus | null>(null);
+	let paymentAccountLinks = $state<PaymentAccountLink[]>([]);
+	let accountLinksLoaded = $state(false);
+	let accountLinksLoading = $state(false);
+	let lastAppliedOpenSeed = $state(-1);
+	let accountPreferredRouteKey = $state('');
+	let accountRoutePreferenceLoaded = $state(false);
+	let accountRoutePreferenceLoading = $state(false);
 
 	const terminalStatuses = new Set<PaymentIntentStatus>([
 		'succeeded',
@@ -107,108 +124,66 @@
 		'disputed',
 		'canceled'
 	]);
-	$: if (defaultChannelId && !channelId) {
-		channelId = defaultChannelId;
-	}
 
-	$: routePresets = buildRoutePresets(providers);
-	$: selectedProvider = providers.find((provider) => provider.pluginId === selectedProviderId) || null;
-	$: selectedRoutePreset = routePresets.find((preset) => preset.key === getCurrentRouteKey()) || null;
-	$: providerMethods = selectedProvider?.methods || [];
-	$: providerCountryOptions = normalizeProviderOptions(selectedProvider?.countries || []);
-	$: providerCurrencyOptions = normalizeProviderOptions(selectedProvider?.currencies || []);
-	$: selectedAccountLink = paymentAccountLinks.find((link) => link.pluginId === selectedProviderId) || null;
-	$: isServerDonationDraft = Boolean(requestMetadata && requestMetadata.kind === 'server_donation');
-	$: if (providers.length > 0 && !providers.some((provider) => provider.pluginId === selectedProviderId)) {
-		selectedProviderId = getPreferredProviderId();
-	}
-	$: if (selectedProvider) {
-		countryCode = reconcileProviderOption(countryCode, providerCountryOptions);
-		currency = reconcileProviderOption(currency, providerCurrencyOptions);
-	}
-	$: eligibleProviderMethods = providerMethods.filter((method) =>
-		isMethodEligibleForDraft(method, parseAmountMinor(amountInput), currency, countryCode)
+	const routePresets = $derived(buildRoutePresets(providers));
+	const selectedProvider = $derived(
+		providers.find((provider) => provider.pluginId === selectedProviderId) || null
 	);
-	$: selectedMethod =
+	const selectedRoutePreset = $derived(
+		routePresets.find((preset) => preset.key === getCurrentRouteKey()) || null
+	);
+	const providerMethods = $derived(selectedProvider?.methods || []);
+	const providerCountryOptions = $derived(normalizeProviderOptions(selectedProvider?.countries || []));
+	const providerCurrencyOptions = $derived(normalizeProviderOptions(selectedProvider?.currencies || []));
+	const selectedAccountLink = $derived(
+		paymentAccountLinks.find((link) => link.pluginId === selectedProviderId) || null
+	);
+	const isServerDonationDraft = $derived(
+		Boolean(requestMetadata && requestMetadata.kind === 'server_donation')
+	);
+	const effectiveDraftCurrency = $derived(
+		String(currency || selectedRoutePreset?.currency || selectedProvider?.currencies?.[0] || 'USD')
+			.trim()
+			.toUpperCase()
+	);
+	const eligibleProviderMethods = $derived(
+		providerMethods.filter((method) =>
+			isMethodEligibleForDraft(
+				method,
+				parsePaymentAmountMinor(amountInput, effectiveDraftCurrency),
+				effectiveDraftCurrency,
+				countryCode
+			)
+		)
+	);
+	const selectedMethod = $derived(
 		providerMethods.find((method) => method.id === selectedMethodId) ||
-		eligibleProviderMethods[0] ||
-		providerMethods[0] ||
-		null;
-	$: isThaiPromptPayDraft = selectedProvider?.pluginId === 'th-payments' && selectedMethod?.id === 'promptpay_qr';
-	$: isBitcoinQrDraft = selectedProvider?.pluginId === 'btc-payments' && selectedMethod?.id === 'bitcoin_qr';
-	$: isThaiQrIntent = Boolean(activeIntent && activeIntent.pluginId === 'th-payments' && activeIntent.checkoutMode === 'qr');
-	$: isBitcoinQrIntent = Boolean(activeIntent && activeIntent.pluginId === 'btc-payments' && activeIntent.checkoutMode === 'qr');
-	$: effectiveDraftCustomerRef = (
-		showCustomCustomerRef || !selectedAccountLink ? customerRef : selectedAccountLink?.providerAccountRef || ''
-	).trim();
-	$: missingRequiredThaiPromptPayReference =
-		Boolean(isThaiPromptPayDraft) && !isServerDonationDraft && effectiveDraftCustomerRef.length === 0;
-	$: missingRequiredBitcoinAddress =
-		Boolean(isBitcoinQrDraft) && !isServerDonationDraft && effectiveDraftCustomerRef.length === 0;
-	$: if (eligibleProviderMethods.length > 0 && !eligibleProviderMethods.some((method) => method.id === selectedMethodId)) {
-		selectedMethodId = eligibleProviderMethods[0].id;
-	} else if (eligibleProviderMethods.length === 0 && selectedMethodId) {
-		selectedMethodId = '';
-	}
-
-	$: presentation = ((activeIntent?.presentation || {}) as Record<string, unknown>) || {};
-	$: presentationMode = normalizeCheckoutMode(presentation.mode);
-	$: if (presentationMode === 'qr') {
-		void updateQrDataUrl();
-	} else {
-		qrDataUrl = '';
-	}
-
-	$: if (isOpen && !providersLoaded) {
-		void loadProviders();
-	}
-	$: if (isOpen && openSeed !== lastAppliedOpenSeed) {
-		applyPrefillFromProps();
-		lastAppliedOpenSeed = openSeed;
-	}
-	$: if (isOpen && !accessStatus && !accessLoading) {
-		void refreshAccessStatus();
-	}
-	$: if (isOpen && !accountLinksLoaded && !accountLinksLoading) {
-		void loadPaymentAccountLinks();
-	}
-
-	$: if (!isOpen) {
-		stopPolling();
-		accessStatus = null;
-		accountLinksLoaded = false;
-		accountRoutePreferenceLoaded = false;
-		lastAppliedOpenSeed = -1;
-	}
-
-	onDestroy(() => {
-		stopPolling();
-		unsubscribePaymentIntentRealtime();
-		unsubscribePaymentAccountLinksRealtime();
-		unsubscribePaymentAccessRealtime();
-	});
-
-	const unsubscribePaymentIntentRealtime = subscribePaymentRealtimeEvent('payments:intent-updated', (detail) => {
-		if (!isOpen || !activeIntent || detail.intentId !== activeIntent.intentId) return;
-		void refreshIntent(detail.intentId, false);
-	});
-
-	const unsubscribePaymentAccountLinksRealtime = subscribePaymentRealtimeEvent('payments:account-links-updated', () => {
-		if (!isOpen) return;
-		accountLinksLoaded = false;
-		void loadPaymentAccountLinks();
-	});
-
-	const unsubscribePaymentAccessRealtime = subscribePaymentRealtimeEvent('payments:access-updated', () => {
-		if (!isOpen) return;
-		void refreshAccessStatus();
-	});
-
+			eligibleProviderMethods[0] ||
+			providerMethods[0] ||
+			null
+	);
+	const isThaiPromptPayDraft = $derived(
+		selectedProvider?.pluginId === 'promptpay' && selectedMethod?.id === 'promptpay_qr'
+	);
+	const isThaiQrIntent = $derived(
+		Boolean(activeIntent && activeIntent.pluginId === 'promptpay' && activeIntent.checkoutMode === 'qr')
+	);
+	const effectiveDraftCustomerRef = $derived(
+		(
+			showCustomCustomerRef || !selectedAccountLink
+				? customerRef
+				: selectedAccountLink?.providerAccountRef || ''
+		).trim()
+	);
+	const missingRequiredThaiPromptPayReference = $derived(
+		Boolean(isThaiPromptPayDraft) && !isServerDonationDraft && effectiveDraftCustomerRef.length === 0
+	);
+	const presentation = $derived(((activeIntent?.presentation || {}) as Record<string, unknown>) || {});
+	const presentationMode = $derived(normalizeCheckoutMode(presentation.mode));
 
 	function parseAmountMinor(value: string): number {
-		return parsePaymentAmountMinor(value, getEffectiveDraftCurrency());
+		return parsePaymentAmountMinor(value, effectiveDraftCurrency);
 	}
-
 
 	function getCurrentRouteKey(): string {
 		return getCurrentPaymentRouteKey(routePresets, selectedProviderId, selectedMethodId, countryCode, currency);
@@ -249,7 +224,6 @@
 		accountPreferredRouteKey = writePreferredPaymentRouteKey(routeKey);
 	}
 
-
 	function resolvePreferredRoutePreset(nextRoutePresets: RoutePreset[]): RoutePreset | null {
 		return resolvePreferredPaymentRoutePreset({
 			nextRoutePresets,
@@ -287,11 +261,9 @@
 		}
 	}
 
-
 	function getPreferredProviderId(): string {
 		return getPreferredPaymentProviderId(initialProviderId, providers, paymentAccountLinks);
 	}
-
 
 	function resetDraftState(): void {
 		amountInput = '100.00';
@@ -340,12 +312,6 @@
 		window.open(url, '_blank', 'noopener,noreferrer');
 	}
 
-	function getEffectiveDraftCurrency(): string {
-		return String(currency || selectedRoutePreset?.currency || selectedProvider?.currencies?.[0] || 'USD')
-			.trim()
-			.toUpperCase();
-	}
-
 	function applyActionResult(result: PaymentActionResult): void {
 		if (result.actionInfo) actionInfo = result.actionInfo;
 		if (result.actionError) actionError = result.actionError;
@@ -361,10 +327,6 @@
 
 	async function sharePaymentTarget(): Promise<void> {
 		applyActionResult(await sharePaymentTargetAction(getShareablePaymentTarget(presentation), activeIntent));
-	}
-
-	async function updateQrDataUrl(): Promise<void> {
-		qrDataUrl = await createPaymentQrDataUrl(presentation);
 	}
 
 	async function loadProviders(): Promise<void> {
@@ -480,8 +442,8 @@
 			actionError = 'Select a country first.';
 			return;
 		}
-		if (missingRequiredThaiPromptPayReference || missingRequiredBitcoinAddress) {
-			actionError = getMissingDirectReferenceMessage();
+		if (missingRequiredThaiPromptPayReference) {
+			actionError = `Thai PromptPay requests need your own PromptPay number before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off number.`;
 			return;
 		}
 
@@ -505,9 +467,7 @@
 			});
 			activeIntent = response.intent;
 			activeEvents = response.events;
-			actionInfo = response.reused
-				? 'Existing payment request returned from idempotency key.'
-				: 'Payment request created.';
+			actionInfo = 'Payment request created.';
 			if (terminalStatuses.has(response.intent.status)) {
 				stopPolling();
 			} else {
@@ -520,49 +480,113 @@
 		}
 	}
 
-	async function handleCancelIntent(): Promise<void> {
-		if (!activeIntent) return;
-		actionError = '';
-		actionInfo = '';
-		const token = getAuthToken();
-		if (!token) {
-			actionError = 'You must be logged in to cancel a payment.';
-			return;
-		}
-
-		try {
-			const canceled = await cancelPaymentIntent(token, activeIntent.intentId, 'Canceled from payment sheet');
-			activeIntent = canceled.intent;
-			activeEvents = canceled.events;
-			actionInfo = 'Payment intent canceled.';
-			if (terminalStatuses.has(canceled.intent.status)) {
-				stopPolling();
-			}
-		} catch (error) {
-			actionError = error instanceof Error ? error.message : 'Failed to cancel payment intent';
-		}
-	}
-
 	function handleClose(): void {
 		stopPolling();
-		onClose();
+		onClose?.();
 	}
 
 	function handleManageConnections(): void {
 		handleClose();
-		onManageConnections();
+		onManageConnections?.();
 	}
 
-	function getMissingDirectReferenceMessage(): string {
-		if (isThaiPromptPayDraft) {
-			return `Thai PromptPay requests need your own PromptPay number before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off number.`;
-		}
-		if (isBitcoinQrDraft) {
-			return `Bitcoin QR requests need your own Bitcoin address before ${brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off address.`;
-		}
-		return 'A saved payment reference is required for this request.';
-	}
+	// Realtime subscriptions (local event bus today; socket push lands with the
+	// WabiDB payment projection — roadmap Phase 1).
+	const unsubscribePaymentIntentRealtime = subscribePaymentRealtimeEvent('payments:intent-updated', (detail) => {
+		if (!isOpen || !activeIntent || detail.intentId !== activeIntent.intentId) return;
+		void refreshIntent(detail.intentId, false);
+	});
+	const unsubscribePaymentAccountLinksRealtime = subscribePaymentRealtimeEvent('payments:account-links-updated', () => {
+		if (!isOpen) return;
+		accountLinksLoaded = false;
+		void loadPaymentAccountLinks();
+	});
+	const unsubscribePaymentAccessRealtime = subscribePaymentRealtimeEvent('payments:access-updated', () => {
+		if (!isOpen) return;
+		void refreshAccessStatus();
+	});
 
+	$effect(() => () => {
+		stopPolling();
+		unsubscribePaymentIntentRealtime();
+		unsubscribePaymentAccountLinksRealtime();
+		unsubscribePaymentAccessRealtime();
+	});
+
+	$effect(() => {
+		if (defaultChannelId && !channelId) {
+			channelId = defaultChannelId;
+		}
+	});
+
+	$effect(() => {
+		if (providers.length > 0 && !providers.some((provider) => provider.pluginId === selectedProviderId)) {
+			selectedProviderId = getPreferredProviderId();
+		}
+	});
+
+	$effect(() => {
+		if (selectedProvider) {
+			countryCode = reconcileProviderOption(countryCode, providerCountryOptions);
+			currency = reconcileProviderOption(currency, providerCurrencyOptions);
+		}
+	});
+
+	$effect(() => {
+		if (
+			eligibleProviderMethods.length > 0 &&
+			!eligibleProviderMethods.some((method) => method.id === selectedMethodId)
+		) {
+			selectedMethodId = eligibleProviderMethods[0].id;
+		} else if (eligibleProviderMethods.length === 0 && selectedMethodId) {
+			selectedMethodId = '';
+		}
+	});
+
+	$effect(() => {
+		if (presentationMode === 'qr') {
+			void createPaymentQrDataUrl(presentation).then((url) => {
+				qrDataUrl = url;
+			});
+		} else {
+			qrDataUrl = '';
+		}
+	});
+
+	$effect(() => {
+		if (isOpen && !providersLoaded) {
+			void loadProviders();
+		}
+	});
+
+	$effect(() => {
+		if (isOpen && openSeed !== lastAppliedOpenSeed) {
+			applyPrefillFromProps();
+			lastAppliedOpenSeed = openSeed;
+		}
+	});
+
+	$effect(() => {
+		if (isOpen && !accessStatus && !accessLoading) {
+			void refreshAccessStatus();
+		}
+	});
+
+	$effect(() => {
+		if (isOpen && !accountLinksLoaded && !accountLinksLoading) {
+			void loadPaymentAccountLinks();
+		}
+	});
+
+	$effect(() => {
+		if (!isOpen) {
+			stopPolling();
+			accessStatus = null;
+			accountLinksLoaded = false;
+			accountRoutePreferenceLoaded = false;
+			lastAppliedOpenSeed = -1;
+		}
+	});
 </script>
 
 <PaymentSheetBody
@@ -597,11 +621,8 @@
 	{accountLinksLoading}
 	{isServerDonationDraft}
 	{isThaiPromptPayDraft}
-	{isBitcoinQrDraft}
 	{isThaiQrIntent}
-	{isBitcoinQrIntent}
 	{missingRequiredThaiPromptPayReference}
-	{missingRequiredBitcoinAddress}
 	{creatingIntent}
 	{actionInfo}
 	{actionError}
@@ -611,15 +632,14 @@
 	{presentationMode}
 	{qrDataUrl}
 	{terminalStatuses}
-	onLoadProviders={loadProviders}
+	onLoadProviders={() => void loadProviders()}
 	onApplyRoutePreset={applyRoutePreset}
 	onManageConnections={handleManageConnections}
-	onCreateIntent={handleCreateIntent}
-	onSaveQrImage={saveQrImage}
-	onSharePaymentTarget={sharePaymentTarget}
+	onCreateIntent={() => void handleCreateIntent()}
+	onSaveQrImage={() => void saveQrImage()}
+	onSharePaymentTarget={() => void sharePaymentTarget()}
 	onOpenSheetUrl={openSheetUrl}
-	onCopyToClipboard={copyToClipboard}
-	onRefreshIntent={refreshIntent}
-	onCancelIntent={handleCancelIntent}
+	onCopyToClipboard={(text) => void copyToClipboard(text)}
+	onRefreshIntent={(intentId, refresh) => void refreshIntent(intentId, refresh)}
 	onResetForNewIntent={resetForNewIntent}
 />

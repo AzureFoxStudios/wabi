@@ -27,10 +27,22 @@ export function getPaymentVerificationMode(
 		return 'provider_verified';
 	}
 	const methodId = getIntentMethodId(intent);
-	if (intent.pluginId === 'th-payments' && (methodId === 'promptpay_qr' || intent.checkoutMode === 'qr')) {
+	if (
+		(intent.pluginId === 'promptpay' || intent.pluginId === 'th-payments') &&
+		(methodId === 'promptpay_qr' || intent.checkoutMode === 'qr')
+	) {
 		return 'external_confirmation';
 	}
 	if (intent.pluginId === 'btc-payments' && methodId === 'bitcoin_qr') {
+		return 'external_confirmation';
+	}
+	// Phases 2-4 rails: crypto wallet QRs, EPC SEPA QRs and US app switches all
+	// settle outside Wabi — pending stays until manual confirmation.
+	if (
+		intent.pluginId === 'payments-crypto' ||
+		intent.pluginId === 'payments-eu' ||
+		intent.pluginId === 'payments-us'
+	) {
 		return 'external_confirmation';
 	}
 	return 'standard';

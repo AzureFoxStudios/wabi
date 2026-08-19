@@ -137,7 +137,6 @@ export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
 	if (!isSelf) {
 		items.push(
 			{ id: 'request-payment', label: 'Request Payment', icon: 'credit-card', disabled: !contextMenuUser?.dbUserId, onSelect: () => {} },
-			{ id: 'record-cash', label: 'Record Cash Trade', icon: 'banknote', disabled: !contextMenuUser?.dbUserId, onSelect: () => {} },
 			{ id: 'voice', label: 'Voice Call', icon: 'phone', onSelect: () => {} },
 			{ id: 'video', label: 'Video Call', icon: 'video', onSelect: () => {} },
 			{
@@ -181,10 +180,10 @@ export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
 	return items;
 }
 
-export function queuePayment(surface: 'payment_request' | 'manual_cash', user: User): void {
+export function queuePayment(user: User): void {
 	if (!user.dbUserId) return;
 	queueConversationPaymentLaunch({
-		surface,
+		surface: 'payment_request',
 		targetUserId: user.id,
 		targetDbUserId: user.dbUserId
 	});

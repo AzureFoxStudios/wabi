@@ -1,0 +1,10 @@
+[package]
+name = "wabi-payments-us"
+version = "0.1.0"
+edition = "2021"
+description = "Wabi payments-us addon: manual US rails — Cash App $cashtag / Venmo @handle / Zelle / ACH pointer validation with doxx-floor disclosure and WABI-XXXX reference codes"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

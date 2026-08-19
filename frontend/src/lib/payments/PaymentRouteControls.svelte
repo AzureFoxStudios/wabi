@@ -5,44 +5,68 @@
 	} from '$lib/api';
 	import type { RoutePreset } from '$lib/payments/paymentSheetHelpers';
 
-	export let routePresets: RoutePreset[] = [];
-	export let selectedRoutePreset: RoutePreset | null = null;
-	export let showAdvancedRouting = false;
-	export let providers: PaymentProviderCapability[] = [];
-	export let selectedProviderId = '';
-	export let eligibleProviderMethods: PaymentMethodCapability[] = [];
-	export let selectedMethodId = '';
-	export let amountInput = '';
-	export let providerCurrencyOptions: string[] = [];
-	export let currency = '';
-	export let providerCountryOptions: string[] = [];
-	export let countryCode = '';
-	export let selectedProvider: PaymentProviderCapability | null = null;
-	export let selectedMethod: PaymentMethodCapability | null = null;
-	export let isThaiPromptPayDraft = false;
-	export let shouldShowProviderPicker = false;
-	export let shouldShowMethodPicker = false;
-	export let shouldShowCurrencyPicker = false;
-	export let shouldShowCountryPicker = false;
-	export let draftMethodBehaviorNote: string | null = null;
-	export let onApplyRoutePreset: (preset: RoutePreset) => void = () => {};
+	let {
+		routePresets = [],
+		selectedRoutePreset = null,
+		showAdvancedRouting = $bindable(false),
+		providers = [],
+		selectedProviderId = $bindable(''),
+		eligibleProviderMethods = [],
+		selectedMethodId = $bindable(''),
+		amountInput = $bindable(''),
+		providerCurrencyOptions = [],
+		currency = $bindable(''),
+		providerCountryOptions = [],
+		countryCode = $bindable(''),
+		selectedProvider = null,
+		selectedMethod = null,
+		isThaiPromptPayDraft = false,
+		shouldShowProviderPicker = false,
+		shouldShowMethodPicker = false,
+		shouldShowCurrencyPicker = false,
+		shouldShowCountryPicker = false,
+		draftMethodBehaviorNote = null,
+		onApplyRoutePreset
+	}: {
+		routePresets?: RoutePreset[];
+		selectedRoutePreset?: RoutePreset | null;
+		showAdvancedRouting?: boolean;
+		providers?: PaymentProviderCapability[];
+		selectedProviderId?: string;
+		eligibleProviderMethods?: PaymentMethodCapability[];
+		selectedMethodId?: string;
+		amountInput?: string;
+		providerCurrencyOptions?: string[];
+		currency?: string;
+		providerCountryOptions?: string[];
+		countryCode?: string;
+		selectedProvider?: PaymentProviderCapability | null;
+		selectedMethod?: PaymentMethodCapability | null;
+		isThaiPromptPayDraft?: boolean;
+		shouldShowProviderPicker?: boolean;
+		shouldShowMethodPicker?: boolean;
+		shouldShowCurrencyPicker?: boolean;
+		shouldShowCountryPicker?: boolean;
+		draftMethodBehaviorNote?: string | null;
+		onApplyRoutePreset?: (preset: RoutePreset) => void;
+	} = $props();
 </script>
 
 {#if routePresets.length > 1}
 	<div class="route-picker">
 		<div class="route-picker-header">
 			<h3>Pay with</h3>
-			<button class="action subtle" type="button" on:click={() => (showAdvancedRouting = !showAdvancedRouting)}>
+			<button class="action subtle" type="button" onclick={() => (showAdvancedRouting = !showAdvancedRouting)}>
 				{showAdvancedRouting ? 'Hide manual routing' : 'Adjust manually'}
 			</button>
 		</div>
 		<div class="route-preset-list">
-			{#each routePresets as preset}
+			{#each routePresets as preset (preset.key)}
 				<button
 					type="button"
 					class="route-preset"
 					class:active={selectedRoutePreset?.key === preset.key}
-					on:click={() => onApplyRoutePreset(preset)}
+					onclick={() => onApplyRoutePreset?.(preset)}
 				>
 					<span class="route-flag">{preset.flag}</span>
 					<span class="route-label">{preset.label}</span>
@@ -57,7 +81,7 @@
 		<label>
 			<span>Provider</span>
 			<select bind:value={selectedProviderId} disabled={providers.length === 0}>
-				{#each providers as provider}
+				{#each providers as provider (provider.pluginId)}
 					<option value={provider.pluginId}>{provider.providerName}</option>
 				{/each}
 			</select>
@@ -68,7 +92,7 @@
 		<label>
 			<span>Method</span>
 			<select bind:value={selectedMethodId} disabled={eligibleProviderMethods.length === 0}>
-				{#each eligibleProviderMethods as method}
+				{#each eligibleProviderMethods as method (method.id)}
 					<option value={method.id}>{method.label}</option>
 				{/each}
 			</select>
@@ -77,7 +101,7 @@
 
 	<label>
 		<span>Amount</span>
-		<input class="amount-input" type="text" bind:value={amountInput} placeholder="100.00" />
+		<input class="amount-input" type="text" bind:value={amountInput} placeholder="100.00" inputmode="decimal" />
 	</label>
 
 	{#if shouldShowCurrencyPicker}
@@ -85,7 +109,7 @@
 			<span>Currency</span>
 			{#if providerCurrencyOptions.length > 0}
 				<select bind:value={currency} disabled={providerCurrencyOptions.length <= 1}>
-					{#each providerCurrencyOptions as providerCurrency}
+					{#each providerCurrencyOptions as providerCurrency (providerCurrency)}
 						<option value={providerCurrency}>{providerCurrency}</option>
 					{/each}
 				</select>
@@ -100,7 +124,7 @@
 			<span>Country</span>
 			{#if providerCountryOptions.length > 0}
 				<select bind:value={countryCode} disabled={providerCountryOptions.length <= 1}>
-					{#each providerCountryOptions as providerCountry}
+					{#each providerCountryOptions as providerCountry (providerCountry)}
 						<option value={providerCountry}>{providerCountry}</option>
 					{/each}
 				</select>

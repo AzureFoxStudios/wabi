@@ -789,6 +789,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::registry::{ProjectionRegistration, TypeRegistry};
     use crate::projections::users::UsersProjection;
     use crate::projections::owner::OwnerProjection;
+    use crate::projections::payments::PaymentsProjection;
     use crate::projections::webhooks::WebhooksProjection;
     use crate::projections::whiteboard_docs::WhiteboardDocsProjection;
     use crate::projections::gallery::{GalleryFeedbackProjection, GalleryWorkProjection};
@@ -973,6 +974,21 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             handler: Arc::new(GalleryFeedbackProjection),
             index_name: "gallery_feedback",
             record_type_name: "wabidb::projections::gallery::GalleryFeedbackRecord",
+        },
+        ProjectionRegistration {
+            event_types: &[
+                "payment_account_link_upserted",
+                "payment_account_link_deleted",
+                "payment_intent_created",
+                "payment_intent_confirmed",
+                "payment_intent_rejected",
+                "payment_policy_upserted",
+                "payment_user_block_upserted",
+                "payment_user_block_deleted",
+            ],
+            handler: Arc::new(PaymentsProjection),
+            index_name: "payment_account_links,payment_intents,payment_policies,payment_user_blocks",
+            record_type_name: "wabidb::projections::payments",
         },
         ProjectionRegistration {
             event_types: &["reaction_removed", "member_joined", "member_left", "channel_renamed"],

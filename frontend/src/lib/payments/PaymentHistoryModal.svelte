@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
 	import BaseModal from '../components/BaseModal.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import { listPaymentHistory, type PaymentIntent } from '$lib/api';
@@ -12,37 +11,42 @@
 		getPaymentVerificationMode
 	} from '$lib/payments/paymentRequestPresentation';
 
-	export let isOpen = false;
-	export let onClose: () => void = () => {};
-	export let onCreatePayment: () => void = () => {};
-	export let overlayZIndex: number | string | null = null;
+	let {
+		isOpen = false,
+		onClose = () => {},
+		onCreatePayment,
+		overlayZIndex = null
+	}: {
+		isOpen?: boolean;
+		onClose?: () => void;
+		onCreatePayment?: () => void;
+		overlayZIndex?: number | string | null;
+	} = $props();
 
-	let loading = false;
-	let loaded = false;
-	let error = '';
-	let intents: PaymentIntent[] = [];
-
-	$: if (isOpen && !loaded) {
-		void loadHistory();
-	}
-
-	$: if (!isOpen) {
-		loaded = false;
-		error = '';
-	}
+	let loading = $state(false);
+	let loaded = $state(false);
+	let error = $state('');
+	let intents = $state<PaymentIntent[]>([]);
 
 	const unsubscribePaymentHistoryRealtime = subscribePaymentRealtimeEvent('payments:intent-updated', () => {
 		if (!isOpen) return;
 		void loadHistory();
 	});
 
-	onDestroy(() => {
-		unsubscribePaymentHistoryRealtime();
+	$effect(() => () => unsubscribePaymentHistoryRealtime());
+
+	$effect(() => {
+		if (isOpen && !loaded) {
+			void loadHistory();
+		}
 	});
 
-	function formatAmount(intent: PaymentIntent): string {
-		return formatMinorAmount(intent.amountMinor, intent.currency);
-	}
+	$effect(() => {
+		if (!isOpen) {
+			loaded = false;
+			error = '';
+		}
+	});
 
 	function formatDate(timestamp: number | null): string {
 		if (!timestamp || !Number.isFinite(timestamp)) return 'n/a';
@@ -99,21 +103,21 @@
 
 	function exportCsv(): void {
 		const headers = [
-		'intentId',
-		'status',
-		'amountMinor',
-		'currency',
-		'providerName',
-		'pluginId',
-		'verificationMode',
-		'countryCode',
-		'channelId',
-		'description',
-		'paymentReference',
-		'createdAt',
-		'completedAt',
-		'refundedAt',
-		'failureMessage'
+			'intentId',
+			'status',
+			'amountMinor',
+			'currency',
+			'providerName',
+			'pluginId',
+			'verificationMode',
+			'countryCode',
+			'channelId',
+			'description',
+			'paymentReference',
+			'createdAt',
+			'completedAt',
+			'refundedAt',
+			'failureMessage'
 		];
 		const rows = intents.map((intent) =>
 			[
@@ -144,24 +148,26 @@
 	}
 </script>
 
-<BaseModal isOpen={isOpen} onClose={onClose} width="820px" {overlayZIndex}>
-	<div slot="header" class="sheet-header">
-		<h2>My Payment Requests</h2>
-		<p>History of payment requests you created from this account, with export for record-keeping.</p>
-	</div>
-
+<BaseModal
+	{isOpen}
+	onClose={onClose}
+	width="820px"
+	{overlayZIndex}
+	title="My Payment Requests"
+	subtitle="History of payment requests you created from this account, with export for record-keeping."
+>
 	<div class="sheet-body">
 		<div class="actions">
-			<button class="action" on:click={loadHistory} disabled={loading}>
+			<button class="action" onclick={() => void loadHistory()} disabled={loading}>
 				{loading ? 'Refreshing...' : 'Refresh'}
 			</button>
-			<button class="action" on:click={exportJson} disabled={intents.length === 0}>
+			<button class="action" onclick={exportJson} disabled={intents.length === 0}>
 				Export JSON
 			</button>
-			<button class="action" on:click={exportCsv} disabled={intents.length === 0}>
+			<button class="action" onclick={exportCsv} disabled={intents.length === 0}>
 				Export CSV
 			</button>
-			<button class="action primary" on:click={onCreatePayment}>
+			<button class="action primary" onclick={() => onCreatePayment?.()}>
 				New Payment Request
 			</button>
 		</div>
@@ -185,9 +191,9 @@
 					<div class="history-card">
 						<div class="history-header">
 							<div>
-								<h3>{formatAmount(intent)}</h3>
+								<h3>{formatMinorAmount(intent.amountMinor, intent.currency)}</h3>
 								<p class="history-meta">
-									{intent.providerName} · {intent.pluginId} · {formatDate(intent.createdAt)}
+									{intent.providerName} · {formatDate(intent.createdAt)}
 								</p>
 							</div>
 							<span class="status-pill status-{intent.status}">{getPaymentIntentStatusLabel(intent)}</span>
@@ -200,10 +206,6 @@
 							<div>
 								<span class="label">Intent</span>
 								<code>{intent.intentId}</code>
-							</div>
-							<div>
-								<span class="label">Channel</span>
-								<span>{intent.channelId || 'Direct / none'}</span>
 							</div>
 							<div>
 								<span class="label">Country</span>
@@ -234,21 +236,6 @@
 </BaseModal>
 
 <style>
-	.sheet-header {
-		padding: 1.25rem 1.5rem 0.5rem;
-	}
-
-	.sheet-header h2 {
-		margin: 0;
-		font-size: 1.2rem;
-	}
-
-	.sheet-header p {
-		margin: 0.25rem 0 0;
-		color: var(--text-secondary);
-		font-size: 0.9rem;
-	}
-
 	.sheet-body {
 		padding: 0.75rem 1.5rem 1.5rem;
 		display: flex;
@@ -263,17 +250,39 @@
 	}
 
 	.action {
-		border: 1px solid rgba(255, 255, 255, 0.18);
-		border-radius: 0.55rem;
-		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.18));
+		border-radius: var(--radius-md, 0.55rem);
+		background: var(--surface-button, rgba(255, 255, 255, 0.04));
 		color: var(--text-heading);
 		padding: 0.5rem 0.8rem;
 		cursor: pointer;
+		font-size: 0.86rem;
+		transition: background var(--duration-fast, 150ms) var(--ease-out, ease-out),
+			border-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
+			transform var(--duration-fast, 150ms) var(--ease-out, ease-out);
+	}
+
+	.action:hover:not(:disabled) {
+		background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+		border-color: rgba(255, 255, 255, 0.3);
+	}
+
+	.action:active:not(:disabled) {
+		transform: scale(0.98);
+	}
+
+	.action:focus-visible {
+		outline: 2px solid rgba(0, 210, 255, 0.55);
+		outline-offset: 2px;
 	}
 
 	.action.primary {
 		background: rgba(0, 210, 255, 0.18);
 		border-color: rgba(0, 210, 255, 0.45);
+	}
+
+	.action.primary:hover:not(:disabled) {
+		background: rgba(0, 210, 255, 0.28);
 	}
 
 	.action:disabled {
@@ -300,13 +309,18 @@
 	}
 
 	.history-card {
-		border: 1px solid rgba(255, 255, 255, 0.13);
-		border-radius: 0.75rem;
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.13));
+		border-radius: var(--radius-lg, 0.75rem);
 		padding: 0.9rem;
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--surface-raised, rgba(255, 255, 255, 0.03));
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
+		transition: border-color var(--duration-fast, 150ms) var(--ease-out, ease-out);
+	}
+
+	.history-card:hover {
+		border-color: rgba(255, 255, 255, 0.22);
 	}
 
 	.history-header {
@@ -359,7 +373,8 @@
 		letter-spacing: 0.04em;
 		padding: 0.22rem 0.46rem;
 		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.2));
+		white-space: nowrap;
 	}
 
 	.status-succeeded {

@@ -1,5 +1,11 @@
+// Minor-unit decimals per rail. Must match the Rust addon crates:
+// payments-crypto chain decimals (USDC/USDT 6, BTC 8, XMR 12); fiat defaults
+// to 2 via Intl below (EUR/USD/THB).
 const SPECIAL_CURRENCY_MINOR_UNITS: Record<string, number> = {
-	BTC: 8
+	BTC: 8,
+	XMR: 12,
+	USDC: 6,
+	USDT: 6
 };
 
 function normalizeCurrencyCode(currency: string | null | undefined): string {

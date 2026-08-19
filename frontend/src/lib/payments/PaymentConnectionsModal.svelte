@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
 	import BaseModal from '../components/BaseModal.svelte';
 	import { brandName } from '$lib/branding';
 	import { getAuthToken } from '$lib/authSession';
@@ -13,41 +12,29 @@
 	} from '$lib/api';
 	import { subscribePaymentRealtimeEvent } from '$lib/payments/paymentRealtime';
 
-	export let isOpen = false;
-	export let onClose: () => void = () => {};
-	export let overlayZIndex: number | string | null = null;
+	let {
+		isOpen = false,
+		onClose = () => {},
+		overlayZIndex = null
+	}: {
+		isOpen?: boolean;
+		onClose?: () => void;
+		overlayZIndex?: number | string | null;
+	} = $props();
 
-	let loadingProviders = false;
-	let loadingLinks = false;
-	let providersLoaded = false;
-	let linksLoaded = false;
-	let providersError = '';
-	let linksError = '';
-	let actionInfo = '';
-	let actionError = '';
-	let savingPluginId = '';
-	let providers: PaymentProviderCapability[] = [];
-	let paymentAccountLinks: PaymentAccountLink[] = [];
-	let editorRefs: Record<string, string> = {};
-	let editorLabels: Record<string, string> = {};
-
-	$: if (isOpen && !providersLoaded) {
-		void loadProviders();
-	}
-
-	$: if (isOpen && !linksLoaded) {
-		void loadAccountLinks();
-	}
-
-	$: if (!isOpen) {
-		providersLoaded = false;
-		linksLoaded = false;
-		providersError = '';
-		linksError = '';
-		actionInfo = '';
-		actionError = '';
-		savingPluginId = '';
-	}
+	let loadingProviders = $state(false);
+	let loadingLinks = $state(false);
+	let providersLoaded = $state(false);
+	let linksLoaded = $state(false);
+	let providersError = $state('');
+	let linksError = $state('');
+	let actionInfo = $state('');
+	let actionError = $state('');
+	let savingPluginId = $state('');
+	let providers = $state<PaymentProviderCapability[]>([]);
+	let paymentAccountLinks = $state<PaymentAccountLink[]>([]);
+	let editorRefs = $state<Record<string, string>>({});
+	let editorLabels = $state<Record<string, string>>({});
 
 	const unsubscribeAccountLinksRealtime = subscribePaymentRealtimeEvent('payments:account-links-updated', () => {
 		if (!isOpen) return;
@@ -55,8 +42,30 @@
 		void loadAccountLinks();
 	});
 
-	onDestroy(() => {
-		unsubscribeAccountLinksRealtime();
+	$effect(() => () => unsubscribeAccountLinksRealtime());
+
+	$effect(() => {
+		if (isOpen && !providersLoaded) {
+			void loadProviders();
+		}
+	});
+
+	$effect(() => {
+		if (isOpen && !linksLoaded) {
+			void loadAccountLinks();
+		}
+	});
+
+	$effect(() => {
+		if (!isOpen) {
+			providersLoaded = false;
+			linksLoaded = false;
+			providersError = '';
+			linksError = '';
+			actionInfo = '';
+			actionError = '';
+			savingPluginId = '';
+		}
 	});
 
 	function getLinkedAccount(pluginId: string): PaymentAccountLink | null {
@@ -64,9 +73,9 @@
 	}
 
 	function ensureEditorsInitialized(): void {
-		let changed = false;
 		const nextRefs = { ...editorRefs };
 		const nextLabels = { ...editorLabels };
+		let changed = false;
 
 		for (const provider of providers) {
 			const existing = getLinkedAccount(provider.pluginId);
@@ -84,20 +93,6 @@
 			editorRefs = nextRefs;
 			editorLabels = nextLabels;
 		}
-	}
-
-	function setEditorRef(pluginId: string, value: string): void {
-		editorRefs = {
-			...editorRefs,
-			[pluginId]: value
-		};
-	}
-
-	function setEditorLabel(pluginId: string, value: string): void {
-		editorLabels = {
-			...editorLabels,
-			[pluginId]: value
-		};
 	}
 
 	function syncEditorsForPlugin(pluginId: string): void {
@@ -123,57 +118,66 @@
 		return provider.methods.map((method) => method.label).join(', ');
 	}
 
-	function isLocalTestProvider(provider: PaymentProviderCapability): boolean {
-		return String(provider.notes || '').toLowerCase().includes('local test');
-	}
-
-	function isThaiPromptPayProvider(provider: PaymentProviderCapability): boolean {
-		return provider.pluginId === 'th-payments';
-	}
-
-	function isBitcoinProvider(provider: PaymentProviderCapability): boolean {
-		return provider.pluginId === 'btc-payments';
-	}
-
 	function getReferenceFieldLabel(provider: PaymentProviderCapability): string {
-		if (isThaiPromptPayProvider(provider)) {
+		if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
 			return 'PromptPay number';
 		}
-		if (isBitcoinProvider(provider)) {
-			return 'Bitcoin address';
+		if (provider.pluginId === 'payments-crypto') {
+			return 'Wallet address';
+		}
+		if (provider.pluginId === 'payments-eu') {
+			return 'Your IBAN';
+		}
+		if (provider.pluginId === 'payments-us') {
+			return 'US payment handle';
 		}
 		return 'Saved payment reference';
 	}
 
 	function getReferencePlaceholder(provider: PaymentProviderCapability): string {
-		if (isThaiPromptPayProvider(provider)) {
+		if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
 			return 'Thai mobile number or PromptPay ID';
 		}
-		if (isBitcoinProvider(provider)) {
-			return 'bc1... or 1... / 3...';
+		if (provider.pluginId === 'payments-crypto') {
+			return '0x… / bc1… / TRX… wallet address';
+		}
+		if (provider.pluginId === 'payments-eu') {
+			return 'DE… IBAN (22 chars, mod-97 valid)';
+		}
+		if (provider.pluginId === 'payments-us') {
+			return '$Cashtag / @Venmo handle / email / routing-account';
 		}
 		return 'PromptPay number / wallet handle / PSP customer id';
 	}
 
 	function getDisplayLabelPlaceholder(provider: PaymentProviderCapability): string {
-		if (isThaiPromptPayProvider(provider)) {
+		if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
 			return 'My PromptPay';
 		}
-		if (isBitcoinProvider(provider)) {
-			return 'Main Bitcoin wallet';
+		if (provider.pluginId === 'payments-crypto') {
+			return 'Main wallet';
+		}
+		if (provider.pluginId === 'payments-eu') {
+			return 'My bank account';
+		}
+		if (provider.pluginId === 'payments-us') {
+			return 'Main US account';
 		}
 		return 'Main wallet / primary bank';
 	}
 
 	function getConnectionHelp(provider: PaymentProviderCapability): string {
-		if (isLocalTestProvider(provider)) {
-			return 'This provider is currently in local test mode. Saving a reference is optional and not required for localhost simulation.';
+		if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
+			return 'For personal Thai QR requests, save your own PromptPay number here. Server donations use the server donation route separately. Stored with your account; also cached on this device.';
 		}
-		if (isThaiPromptPayProvider(provider)) {
-			return 'For personal Thai QR requests, save your own PromptPay number here. Server donations use the server donation route separately.';
+		if (provider.pluginId === 'payments-crypto') {
+			return `For crypto requests, save the wallet address that should receive the coins here. ${brandName} never holds the keys. Stored with your account; also cached on this device.`;
 		}
-		if (isBitcoinProvider(provider)) {
-			return 'For personal Bitcoin QR requests, save your own Bitcoin address here. Server donations use the server donation Bitcoin address separately.';
+		if (provider.pluginId === 'payments-eu') {
+			return `For SEPA Instant requests, save the IBAN that should receive the money here. The QR is built from this IBAN. Stored with your account; also cached on this device.`;
+		}
+		if (provider.pluginId === 'payments-us') {
+			return `For US app requests, save the handle that should receive the money here. Stored with your account; also cached on this device.`;
 		}
 		return `Optional. If you leave the advanced account field blank in a payment request, ${brandName} reuses this saved reference for this provider.`;
 	}
@@ -272,12 +276,14 @@
 	}
 </script>
 
-<BaseModal isOpen={isOpen} onClose={onClose} width="760px" {overlayZIndex}>
-	<div slot="header" class="sheet-header">
-		<h2>Saved Payment References</h2>
-		<p>Providers appear here automatically when the backend has an active payment plugin. Save a non-sensitive payment reference only when you want {brandName} to reuse it for that provider.</p>
-	</div>
-
+<BaseModal
+	{isOpen}
+	onClose={onClose}
+	width="760px"
+	{overlayZIndex}
+	title="Saved Payment References"
+	subtitle={`Save a non-sensitive payment reference (e.g. your PromptPay number) once and ${brandName} reuses it for that rail. References are stored with your account on the server and cached on this device.`}
+>
 	<div class="sheet-body">
 		{#if !getAuthToken()}
 			<p class="error">Sign in with a registered account to manage saved payment references.</p>
@@ -305,8 +311,7 @@
 
 		{#if !loadingProviders && providers.length === 0}
 			<p class="hint">
-				No payment providers are active on this server yet. This panel does not install plugins by itself. Once the
-				server owner enables a payment plugin, its provider will appear here automatically for saved references.
+				No payment rails are active on this server yet. Once the server owner enables a rail, it will appear here automatically for saved references.
 			</p>
 		{/if}
 
@@ -339,7 +344,7 @@
 								value={editorRefs[provider.pluginId] || ''}
 								maxlength="240"
 								placeholder={getReferencePlaceholder(provider)}
-								on:input={(event) => setEditorRef(provider.pluginId, event.currentTarget.value)}
+								oninput={(event) => (editorRefs = { ...editorRefs, [provider.pluginId]: event.currentTarget.value })}
 							/>
 						</label>
 
@@ -350,7 +355,7 @@
 								value={editorLabels[provider.pluginId] || ''}
 								maxlength="160"
 								placeholder={getDisplayLabelPlaceholder(provider)}
-								on:input={(event) => setEditorLabel(provider.pluginId, event.currentTarget.value)}
+								oninput={(event) => (editorLabels = { ...editorLabels, [provider.pluginId]: event.currentTarget.value })}
 							/>
 						</label>
 					</div>
@@ -358,7 +363,7 @@
 					<div class="actions">
 						<button
 							class="action primary"
-							on:click={() => handleSave(provider.pluginId)}
+							onclick={() => void handleSave(provider.pluginId)}
 							disabled={!getAuthToken() || savingPluginId === provider.pluginId}
 						>
 							{savingPluginId === provider.pluginId
@@ -369,7 +374,7 @@
 						</button>
 						<button
 							class="action"
-							on:click={() => handleClear(provider.pluginId)}
+							onclick={() => void handleClear(provider.pluginId)}
 							disabled={!getAuthToken() || !linkedAccount || savingPluginId === provider.pluginId}
 						>
 							Clear reference
@@ -389,21 +394,6 @@
 </BaseModal>
 
 <style>
-	.sheet-header {
-		padding: 1.25rem 1.5rem 0.5rem;
-	}
-
-	.sheet-header h2 {
-		margin: 0;
-		font-size: 1.2rem;
-	}
-
-	.sheet-header p {
-		margin: 0.25rem 0 0;
-		color: var(--text-secondary);
-		font-size: 0.9rem;
-	}
-
 	.sheet-body {
 		padding: 0.75rem 1.5rem 1.5rem;
 		display: flex;
@@ -418,10 +408,10 @@
 	}
 
 	.provider-card {
-		border: 1px solid rgba(255, 255, 255, 0.13);
-		border-radius: 0.75rem;
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.13));
+		border-radius: var(--radius-lg, 0.75rem);
 		padding: 0.9rem;
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--surface-raised, rgba(255, 255, 255, 0.03));
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
@@ -451,7 +441,7 @@
 		letter-spacing: 0.04em;
 		padding: 0.22rem 0.46rem;
 		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.2));
 		color: var(--text-secondary);
 	}
 
@@ -475,12 +465,19 @@
 	}
 
 	input {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		border-radius: 0.55rem;
+		background: var(--surface-input, rgba(255, 255, 255, 0.05));
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.12));
+		border-radius: var(--radius-md, 0.55rem);
 		padding: 0.55rem 0.65rem;
 		color: var(--text-heading);
 		font-size: 0.9rem;
+		transition: border-color var(--duration-fast, 150ms) var(--ease-out, ease-out);
+	}
+
+	input:focus-visible {
+		outline: none;
+		border-color: var(--pay-accent, rgba(0, 210, 255, 0.55));
+		box-shadow: 0 0 0 2px rgba(0, 210, 255, 0.18);
 	}
 
 	.actions {
@@ -490,17 +487,39 @@
 	}
 
 	.action {
-		border: 1px solid rgba(255, 255, 255, 0.18);
-		border-radius: 0.55rem;
-		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid var(--border-default, rgba(255, 255, 255, 0.18));
+		border-radius: var(--radius-md, 0.55rem);
+		background: var(--surface-button, rgba(255, 255, 255, 0.04));
 		color: var(--text-heading);
 		padding: 0.5rem 0.8rem;
 		cursor: pointer;
+		font-size: 0.86rem;
+		transition: background var(--duration-fast, 150ms) var(--ease-out, ease-out),
+			border-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
+			transform var(--duration-fast, 150ms) var(--ease-out, ease-out);
+	}
+
+	.action:hover:not(:disabled) {
+		background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+		border-color: rgba(255, 255, 255, 0.3);
+	}
+
+	.action:active:not(:disabled) {
+		transform: scale(0.98);
+	}
+
+	.action:focus-visible {
+		outline: 2px solid rgba(0, 210, 255, 0.55);
+		outline-offset: 2px;
 	}
 
 	.action.primary {
 		background: rgba(0, 210, 255, 0.18);
 		border-color: rgba(0, 210, 255, 0.45);
+	}
+
+	.action.primary:hover:not(:disabled) {
+		background: rgba(0, 210, 255, 0.28);
 	}
 
 	.action:disabled {

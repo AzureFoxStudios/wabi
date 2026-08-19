@@ -89,6 +89,11 @@ wabi-webhooks = { path = "../../addons/webhooks/backend", optional = true }
 wabi-lore = { path = "../../addons/lore/backend", optional = true }
 age = { version = "0.11.3", default-features = false }
 
+# Payments rails (roadmap Phases 2-4): compile-time-optional addons
+wabi-payments-crypto = { path = "../../addons/payments-crypto/backend", optional = true }
+wabi-payments-eu = { path = "../../addons/payments-eu/backend", optional = true }
+wabi-payments-us = { path = "../../addons/payments-us/backend", optional = true }
+
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
@@ -96,6 +101,7 @@ tower = { version = "0.5", features = ["util"] }
 [features]
 default = []
 addons = ["wabi-webhooks", "wabi-lore"]
+payments-rails = ["wabi-payments-crypto", "wabi-payments-eu", "wabi-payments-us"]
 
 [lib]
 name = "wabi_server"
