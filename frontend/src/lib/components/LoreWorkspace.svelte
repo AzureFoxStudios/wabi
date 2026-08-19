@@ -50,7 +50,7 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 		selectedId = id;
 		persistSelection(id);
 		switchChannel(id);
-		layoutStore.rightPanelView.set('none');
+		layoutStore.closeRightPanel();
 		void loadRepoMeta(id);
 	}
 

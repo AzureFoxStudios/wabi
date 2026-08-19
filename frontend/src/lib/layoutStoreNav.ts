@@ -4,9 +4,9 @@
  */
 
 import { get } from 'svelte/store';
-import { type WorkspacePanelId } from '$lib/docking/layoutSchema';
-import { navDock, channelSidebarWidth, rightPanelWidth, rightPanelView, showMobileChannels, detachedPanelIds, isMobile, activeRightTab } from './layoutStoreStates';
+import { navDock, channelSidebarWidth, showMobileChannels, isMobile, activeRightTab, rightPanelMode } from './layoutStoreStates';
 import { DEFAULT_CONSTANTS } from './layoutStoreStates';
+import { closeRightPanel, peekPanel } from './layoutStoreRightPanel';
 
 export const setNavDock = (side: any) => {
 	navDock.set(side);
@@ -27,10 +27,6 @@ export const expandNav = () => {
 	channelSidebarWidth.update((width) => (width > 0 ? width : DEFAULT_CONSTANTS.NAV_WIDTH));
 };
 
-export const expandRight = () => {
-	rightPanelWidth.update((width: number) => (width > 0 ? width : DEFAULT_CONSTANTS.RIGHT_WIDTH));
-};
-
 export const toggleNavCollapsed = () => {
 	channelSidebarWidth.update((width) => (width > 0 ? 0 : DEFAULT_CONSTANTS.NAV_WIDTH));
 };
@@ -38,42 +34,21 @@ export const toggleNavCollapsed = () => {
 export const toggleMobileChannels = () => {
 	showMobileChannels.update((v) => !v);
 	if (get(showMobileChannels)) {
-		rightPanelView.set('none');
+		closeRightPanel();
 	}
 };
 
 export const toggleMobileUsers = () => {
-	rightPanelView.update((current) => {
-		if (current !== 'none') {
-			return 'none';
-		}
-		showMobileChannels.set(false);
-		return get(activeRightTab);
-	});
+	if (get(rightPanelMode) !== 'none') {
+		closeRightPanel();
+		return;
+	}
+	showMobileChannels.set(false);
+	peekPanel(get(activeRightTab));
 };
 
 export const resetPanelsOnDesktop = () => {
 	if (!get(isMobile)) {
-		rightPanelView.set('none');
+		closeRightPanel();
 	}
 };
-
-export function detachPanel(panelId: WorkspacePanelId): void {
-	detachedPanelIds.update((set) => {
-		const next = new Set(set);
-		next.add(panelId);
-		return next;
-	});
-}
-
-export function dockPanel(panelId: WorkspacePanelId): void {
-	detachedPanelIds.update((set) => {
-		const next = new Set(set);
-		next.delete(panelId);
-		return next;
-	});
-}
-
-export function isPanelDetached(panelId: WorkspacePanelId): boolean {
-	return get(detachedPanelIds).has(panelId);
-}

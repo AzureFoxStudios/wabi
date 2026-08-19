@@ -66,7 +66,7 @@ export function applyWabiNavTarget(target: WabiNavTarget): void {
 	if (!browser) return;
 	if (target.kind === 'channel') {
 		layoutStore.showMobileChannels.set(false);
-		layoutStore.rightPanelView.set('none');
+		layoutStore.closeRightPanel();
 		layoutStore.closeDM();
 		currentChannel.set(target.channelId);
 		void joinChannel(target.channelId);
@@ -79,7 +79,7 @@ export function applyWabiNavTarget(target: WabiNavTarget): void {
 	}
 	if (target.kind === 'dm') {
 		layoutStore.showMobileChannels.set(false);
-		layoutStore.rightPanelView.set('none');
+		layoutStore.closeRightPanel();
 		void joinChannel(target.channelId);
 		layoutStore.openCenterDm(target.channelId, null);
 		window.dispatchEvent(

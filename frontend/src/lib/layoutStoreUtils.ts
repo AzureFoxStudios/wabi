@@ -4,8 +4,8 @@
  */
 
 import { get } from 'svelte/store';
-import { normalizePanelDock, cloneWorkspace, FALLBACK_WORKSPACE_PANEL_ID, getNavTabset, getAuxTabset, buildPhase1Root, isValidWorkspacePanelId, createDefaultWorkspaceLayout, getWorkspace, type WorkspacePanelDockV1, type WorkspacePanelId, type WorkspacePanelStackV1, type WorkspaceLayoutV1 } from '$lib/docking/layoutSchema';
-import { activeWorkspace, navDock, channelSidebarWidth, rightPanelWidth, rightPanelView, rightPanelDock, activeRightTab, layoutState, layoutLoaded, setIsApplyingLayout, DEFAULT_CONSTANTS, isMobile } from './layoutStoreStates';
+import { normalizePanelDock, cloneWorkspace, FALLBACK_WORKSPACE_PANEL_ID, getNavTabset, getAuxTabset, buildPhase1Root, isValidWorkspacePanelId, createDefaultWorkspaceLayout, getWorkspace, type WorkspacePanelDockV1, type WorkspacePanelId, type WorkspaceLayoutV1 } from '$lib/docking/layoutSchema';
+import { activeWorkspace, navDock, channelSidebarWidth, rightPanelWidth, rightPanelMode, pinnedPanelId, activeRightTab, stubStrip, layoutState, layoutLoaded, setIsApplyingLayout, DEFAULT_CONSTANTS, isMobile } from './layoutStoreStates';
 
 export function getDockActivePanelId(dock: WorkspacePanelDockV1): WorkspacePanelId {
 	const expandedStack = dock.stacks.find((stack) => !stack.collapsed && stack.tabs.includes(stack.activePanelId));
@@ -14,63 +14,8 @@ export function getDockActivePanelId(dock: WorkspacePanelDockV1): WorkspacePanel
 	return firstStack?.activePanelId || firstStack?.tabs[0] || FALLBACK_WORKSPACE_PANEL_ID;
 }
 
-export function clonePanelDock(dock: WorkspacePanelDockV1): WorkspacePanelDockV1 {
-	return {
-		...dock,
-		stacks: dock.stacks.map((stack) => ({
-			...stack,
-			tabs: [...stack.tabs]
-		}))
-	};
-}
-
-export function createStack(
-	id: string,
-	tabs: WorkspacePanelId[],
-	activePanelId: WorkspacePanelId,
-	size: number
-): WorkspacePanelStackV1 {
-	return {
-		id,
-		tabs,
-		activePanelId: tabs.includes(activePanelId) ? activePanelId : tabs[0] || FALLBACK_WORKSPACE_PANEL_ID,
-		size,
-		minSize: 22,
-		maxSize: 100,
-		collapsed: false,
-		pinned: true
-	};
-}
-
 export function normalizePanelIdForRuntime(panelId: string): WorkspacePanelId {
 	return isValidWorkspacePanelId(panelId) ? panelId.trim() : FALLBACK_WORKSPACE_PANEL_ID;
-}
-
-export function activatePanelInDock(dock: WorkspacePanelDockV1, panelId: WorkspacePanelId): WorkspacePanelDockV1 {
-	const next = clonePanelDock(dock);
-	let owningStack = next.stacks.find((stack) => stack.tabs.includes(panelId));
-	if (!owningStack) {
-		owningStack = next.stacks[0];
-		if (!owningStack) {
-			next.stacks = [createStack('stack-primary', [panelId], panelId, 100)];
-			owningStack = next.stacks[0];
-		} else {
-			owningStack.tabs = [...owningStack.tabs, panelId];
-		}
-	}
-	owningStack.activePanelId = panelId;
-	owningStack.collapsed = false;
-	return normalizePanelDock({ ...next, updatedAt: Date.now() }, get(activeWorkspace));
-}
-
-export function setPanelDock(nextDock: WorkspacePanelDockV1): void {
-	const normalized = normalizePanelDock(nextDock, get(activeWorkspace));
-	rightPanelDock.set(normalized);
-	const activePanelId = getDockActivePanelId(normalized);
-	activeRightTab.set(activePanelId);
-	if (get(rightPanelView) !== 'none') {
-		rightPanelView.set(activePanelId);
-	}
 }
 
 export function withActiveWorkspace(mutator: (workspace: WorkspaceLayoutV1) => WorkspaceLayoutV1): void {
@@ -100,14 +45,17 @@ export function applyWorkspaceToRuntime(workspace: WorkspaceLayoutV1): void {
 
 	channelSidebarWidth.set(nav.collapsed ? 0 : nav.size);
 	rightPanelWidth.set(aux.size);
-	rightPanelDock.set(dock);
 	activeRightTab.set(activePanelId);
 
 	if (!get(isMobile)) {
 		if (aux.collapsed) {
-			rightPanelView.set('none');
+			rightPanelMode.set('none');
+			pinnedPanelId.set(null);
 		} else {
-			rightPanelView.set(activePanelId);
+			// Boot restore sets mode/pin directly — must NOT mutate the stub strip.
+			rightPanelMode.set('pinned');
+			pinnedPanelId.set(activePanelId);
+			activeRightTab.set(activePanelId);
 		}
 	}
 
@@ -125,7 +73,8 @@ export function syncWorkspaceFromRuntime(): void {
 
 			const runtimeNavWidth = get(channelSidebarWidth);
 			const runtimeAuxWidth = get(rightPanelWidth);
-			const auxOpen = get(rightPanelView) !== 'none';
+			// Only a committed pin survives reload — peek is transient (spec §3).
+			const auxPinned = get(rightPanelMode) === 'pinned';
 
 			const nextNavSize = runtimeNavWidth > 0 ? runtimeNavWidth : navTab.size || DEFAULT_CONSTANTS.NAV_WIDTH;
 			const nextAuxSize = runtimeAuxWidth > 0 ? runtimeAuxWidth : auxTab.size || DEFAULT_CONSTANTS.RIGHT_WIDTH;
@@ -138,11 +87,43 @@ export function syncWorkspaceFromRuntime(): void {
 					nextNavSize,
 					runtimeNavWidth <= 0,
 					nextAuxSize,
-					!auxOpen || runtimeAuxWidth <= 0
+					!auxPinned
 				),
-				panelDock: normalizePanelDock(get(rightPanelDock), workspace.name),
+				panelDock: buildRuntimePanelDock(get(stubStrip), get(pinnedPanelId) ?? get(activeRightTab)),
 				updatedAt: Date.now()
 			};
 		});
 	}
+}
+
+/** Persist a minimal legacy-shaped dock derived from the strip so the one-time
+ *  seed keeps continuity and old schema stays decodable. The active panel is
+ *  the committed pin (not tabs[0]) so a reload restores the panel the user
+ *  actually had pinned. */
+function buildRuntimePanelDock(
+	strip: WorkspacePanelId[],
+	activePanel: WorkspacePanelId
+): WorkspacePanelDockV1 {
+	const tabs = strip.length > 0 ? strip : [FALLBACK_WORKSPACE_PANEL_ID];
+	const activePanelId = tabs.includes(activePanel) ? activePanel : tabs[0];
+	return normalizePanelDock(
+		{
+			orientation: 'vertical',
+			stacks: [
+				{
+					id: 'stack-primary',
+					tabs,
+					activePanelId,
+					size: 100,
+					minSize: 22,
+					maxSize: 100,
+					collapsed: false,
+					pinned: true
+				}
+			],
+			overflowThreshold: 5,
+			updatedAt: Date.now()
+		},
+		get(activeWorkspace)
+	);
 }

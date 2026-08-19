@@ -132,12 +132,13 @@ export async function openPreferredMapSurface(
 	if (options.surface === 'full') {
 		return openFullMapTab(placeId, options);
 	}
-	const rightPanelView = get(layoutStore.rightPanelView);
+	const rightPanelMode = get(layoutStore.rightPanelMode);
+	const rightTab = get(layoutStore.activeRightTab);
 	const selectedDmChannelId = get(layoutStore.selectedDmChannelId);
-	if (rightPanelView === 'map') {
+	if (rightPanelMode !== 'none' && rightTab === 'map') {
 		return openMapPanel(placeId, options);
 	}
-	if (rightPanelView === 'dms' && selectedDmChannelId) {
+	if (rightPanelMode !== 'none' && rightTab === 'dms' && selectedDmChannelId) {
 		return openFullMapTab(placeId, options);
 	}
 	return openMapPanel(placeId, options);
