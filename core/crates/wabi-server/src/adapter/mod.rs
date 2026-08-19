@@ -922,65 +922,31 @@ impl WabiStore for WdbAdapter {
         Ok(out)
     }
 
-    async fn delete_message(&self, message_id: &str, actor_user_id: u64) -> Result<u64> {
+    async fn delete_message(&self, message_id: &str, actor_user_id: u64) -> Result<()> {
         use wabidb::projections::messages::{encode_record, MessageRecord};
         if let Some(mut m) = self.get_message_typed(message_id).await? {
             m.is_deleted = true;
             m.edited_at_micros = Some(now_micros());
             let record = MessageRecord::from(m);
             let payload = encode_record(&record);
-            let commit_seq = self.run(
-                actor_user_id,
-                "delete_message",
-                record.channel_id.clone(),
-                "message_deleted",
-                1,
-                payload,
-                true,
-                None,
-            )
-            .await?;
-            return Ok(commit_seq);
+            let commit_seq = self
+                .run(
+                    actor_user_id,
+                    "delete_message",
+                    record.channel_id.clone(),
+                    "message_deleted",
+                    1,
+                    payload,
+                    true,
+                    None,
+                )
+                .await?;
+            // Retention-reaper groundwork (security WS-8): tombstones are not
+            // wired yet; the trait returns () so the seq is deliberately
+            // dropped here.
+            let _ = commit_seq;
         }
-        Ok(0)
-    }
-
-    /// Discover segment file paths for a channel's stream.
-    /// Returns list of .wseg file paths under the channel's events directory.
-    async fn discover_channel_segments(&self, channel_id: &str) -> Vec<PathBuf> {
-        let data_dir = self.engine.data_dir();
-        let streams_dir = data_dir.join("streams");
-        let mut segments = Vec::new();
-
-        // Walk streams/{kind}/{channel_id}/events/*.wseg
-        let mut kind_reader = match tokio::fs::read_dir(&streams_dir).await {
-            Ok(r) => r,
-            Err(_) => return segments,
-        };
-        while let Ok(Some(kind_entry)) = kind_reader.next_entry().await {
-            let stream_path = kind_entry.path().join(channel_id).join("events");
-            if !stream_path.is_dir() {
-                continue;
-            }
-            let mut seg_reader = match tokio::fs::read_dir(&stream_path).await {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            while let Ok(Some(seg)) = seg_reader.next_entry().await {
-                let path = seg.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("wseg") {
-                    segments.push(path);
-                }
-            }
-        }
-        segments
-    }
-
-    /// Record a tombstone for a soft-deleted message so the retention reaper
-    /// can later compact the segment and crypto-shred the key.
-    async fn record_tombstone(&self, channel_id: &str, message_id: &str, commit_seq: u64) {
-        // Best-effort: tombstone recording is not critical-path.
-        let _ = (channel_id, message_id, commit_seq).clone();
+        Ok(())
     }
 
     async fn edit_message(
@@ -3211,6 +3177,47 @@ impl WabiStore for WdbAdapter {
 }
 
 impl WdbAdapter {
+    /// Discover segment file paths for a channel's stream.
+    /// Returns list of .wseg file paths under the channel's events directory.
+    /// (Security WS-8 groundwork for the retention reaper; inherent method,
+    /// not part of the `WabiStore` trait.)
+    pub async fn discover_channel_segments(&self, channel_id: &str) -> Vec<PathBuf> {
+        let data_dir = self.engine.data_dir();
+        let streams_dir = data_dir.join("streams");
+        let mut segments = Vec::new();
+
+        // Walk streams/{kind}/{channel_id}/events/*.wseg
+        let mut kind_reader = match tokio::fs::read_dir(&streams_dir).await {
+            Ok(r) => r,
+            Err(_) => return segments,
+        };
+        while let Ok(Some(kind_entry)) = kind_reader.next_entry().await {
+            let stream_path = kind_entry.path().join(channel_id).join("events");
+            if !stream_path.is_dir() {
+                continue;
+            }
+            let mut seg_reader = match tokio::fs::read_dir(&stream_path).await {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            while let Ok(Some(seg)) = seg_reader.next_entry().await {
+                let path = seg.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("wseg") {
+                    segments.push(path);
+                }
+            }
+        }
+        segments
+    }
+
+    /// Record a tombstone for a soft-deleted message so the retention reaper
+    /// can later compact the segment and crypto-shred the key.
+    /// (Security WS-8 groundwork; inherent method, not part of the trait.)
+    pub async fn record_tombstone(&self, channel_id: &str, message_id: &str, commit_seq: u64) {
+        // Best-effort: tombstone recording is not critical-path.
+        let _ = (channel_id, message_id, commit_seq).clone();
+    }
+
     /// Dump every message record in the `messages` projection, regardless of
     /// channel id. Used by maintenance diagnostics to detect channel-id
     /// mismatches that hide messages from `list_messages_typed`.
