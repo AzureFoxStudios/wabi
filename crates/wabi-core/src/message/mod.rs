@@ -184,6 +184,11 @@ pub enum ChannelType {
     Gallery,
     Wiki,
     Stage,
+    // Frontend-only kinds promoted into the protocol so ts-rs codegen emits
+    // them (AGENTS.md rule 4 previously required re-appending these by hand
+    // after every regen — they are native now).
+    Category,
+    Lore,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,6 +223,8 @@ impl ChannelType {
             Self::Gallery => "gallery",
             Self::Wiki => "wiki",
             Self::Stage => "stage",
+            Self::Category => "category",
+            Self::Lore => "lore",
         }
     }
 }
@@ -265,6 +272,8 @@ impl FromStr for ChannelType {
             "gallery" => Ok(Self::Gallery),
             "wiki" => Ok(Self::Wiki),
             "stage" => Ok(Self::Stage),
+            "category" => Ok(Self::Category),
+            "lore" => Ok(Self::Lore),
             _ => Err(ChannelTypeParseError),
         }
     }
