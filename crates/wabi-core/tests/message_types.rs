@@ -35,11 +35,21 @@ fn channel_type_strings_match_current_socket_contract() {
     assert_eq!(ChannelType::Gallery.as_str(), "gallery");
     assert_eq!(ChannelType::Wiki.as_str(), "wiki");
     assert_eq!(ChannelType::Stage.as_str(), "stage");
+    assert_eq!(ChannelType::Category.as_str(), "category");
+    assert_eq!(ChannelType::Lore.as_str(), "lore");
     assert_eq!(
         "thread_private".parse::<ChannelType>(),
         Ok(ChannelType::ThreadPrivate)
     );
-    assert!("category".parse::<ChannelType>().is_err());
+    // category/lore were frontend-only union members (manual TS re-append,
+    // AGENTS.md rule 4) until 2026-08-18; they are protocol-native now so
+    // ts-rs codegen emits them and regens stop stripping the TS union.
+    assert_eq!(
+        "category".parse::<ChannelType>(),
+        Ok(ChannelType::Category)
+    );
+    assert_eq!("lore".parse::<ChannelType>(), Ok(ChannelType::Lore));
+    assert!("unknown".parse::<ChannelType>().is_err());
 }
 
 #[test]
