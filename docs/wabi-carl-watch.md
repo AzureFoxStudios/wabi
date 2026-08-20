@@ -46639,3 +46639,14 @@ scanned by any Thai banking app, settled instantly. Equivalent rails, 2026:
 |---|---|---|---|---|---|
 ```
 
+
+---
+
+## 2026-08-18 15:36:37 +07 — Carl posted
+
+### wabidb commits
+
+```
+44e53bc ws-7: Tauri hardening
+```
+
