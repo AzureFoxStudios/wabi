@@ -30,7 +30,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .post(update_settings),
         )
         .route("/profile/{id}", axum::routing::get(get_user_profile))
-        .route("/layout", axum::routing::get(get_layout).put(save_layout))
+        .route("/layout", axum::routing::get(get_layout).put(save_layout).post(save_layout))
         .route("/theme", axum::routing::get(get_theme).post(save_theme))
         .route("/theme/reset", axum::routing::post(reset_theme))
         .route("/profile-media", axum::routing::get(get_profile_media).post(save_profile_media))
@@ -178,16 +178,55 @@ async fn get_user_profile(
 }
 
 // GET /api/user/layout
-// The WDB User domain has no `layout_json` field. Until Carl adds it (or
-// creates a new projections::layouts table), this returns null.
 async fn get_layout(
     auth: AuthUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>> {
-    let _ = state.wdb.get_user(auth.user_id as u64).await?;
-    Ok(Json(
-        serde_json::json!({ "layoutJson": null, "updatedAt": null }),
-    ))
+    let layout = state.wdb.get_user_layout(auth.user_id as u64).await?;
+    match layout {
+        Some(record) => Ok(Json(serde_json::json!({
+            "layoutJson": record.layout_json,
+            "updatedAt": record.updated_at_micros,
+        }))),
+        None => Ok(Json(
+            serde_json::json!({ "layoutJson": null, "updatedAt": null }),
+        )),
+    }
+}
+
+// PUT /api/user/layout
+async fn save_layout(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SaveLayoutRequest>,
+) -> Result<Json<serde_json::Value>> {
+    // Validate JSON before persisting
+    let parsed: serde_json::Value = serde_json::from_str(&body.layout_json)
+        .map_err(|e| AppError::BadRequest(format!("invalid layout JSON: {e}")))?;
+
+    // Only allow known layout keys so users can't stash arbitrary data.
+    // The layoutJson container also holds docking layout (`layout`) and theme (`theme`).
+    let allowed_keys = ["layout", "theme", "railDensity", "railSide"];
+    if let Some(obj) = parsed.as_object() {
+        for key in obj.keys() {
+            if !allowed_keys.contains(&key.as_str()) {
+                return Err(AppError::BadRequest(format!(
+                    "unknown layout key: {key}"
+                )));
+            }
+        }
+    }
+
+    let _ = state
+        .wdb
+        .upsert_user_layout(auth.user_id as u64, &body.layout_json)
+        .await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Debug, Deserialize)]
+struct SaveLayoutRequest {
+    layout_json: String,
 }
 
 const DEFAULT_THEME_JSON: &str = r#"{
@@ -303,26 +342,4 @@ async fn save_profile_media(
     Ok(Json(serde_json::Value::Object(media.clone())))
 }
 
-// PUT /api/user/layout
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SaveLayoutRequest {
-    layout_json: String,
-}
 
-// The WDB User domain has no `layout_json` field. For v1, save is a no-op
-// (acknowledge with ok so the frontend's optimistic update doesn't roll
-// back). When Carl adds a `user_layout_upserted` event + projection handler,
-// this becomes a real write.
-async fn save_layout(
-    auth: AuthUser,
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<SaveLayoutRequest>,
-) -> Result<Json<serde_json::Value>> {
-    let _ = state.wdb.touch_user(auth.user_id as u64).await?;
-    let _ = body.layout_json;
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "note": "layout not yet persisted to wabidb; UI optimistic update preserved"
-    })))
-}

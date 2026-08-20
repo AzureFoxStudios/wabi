@@ -13,6 +13,46 @@
 	box-sizing: border-box;
 }
 
+/* Density states */
+.server-rail.density-icons-only {
+	width: 48px;
+	padding: max(1.25rem, env(safe-area-inset-top)) 0.4rem 1.15rem;
+}
+
+.server-rail.density-icons-only .rail-primary {
+	gap: var(--space-2, 0.5rem);
+}
+
+.server-rail.density-icons-only .rail-home,
+.server-rail.density-icons-only .rail-manage {
+	width: 40px;
+	height: 40px;
+}
+
+.server-rail.density-hidden {
+	width: 0;
+	min-width: 0;
+	padding: 0;
+	overflow: hidden;
+	border: none;
+}
+
+/* Side flip */
+.server-rail.rail-right {
+	border-right: none;
+	border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+}
+
+.server-rail.rail-right .folder-popout {
+	left: auto;
+	right: 100%;
+}
+
+.server-rail.rail-right .mobile-folder-tray {
+	left: auto;
+	right: 100%;
+}
+
 .rail-item,
 .folder-shell {
 	position: relative;

@@ -2,7 +2,12 @@
 	import { createEventDispatcher } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { brandName } from '$lib/branding';
-	import { centerPanelView } from '$lib/layoutStoreStates';
+	import {
+		centerPanelView,
+		railDensity,
+		railSide,
+		railLayoutLoaded
+	} from '$lib/layoutStoreStates';
 	import { followUnreadCountsByServer } from '$lib/followingSnapshots';
 	import {
 		createSavedServerFolder,
@@ -15,6 +20,7 @@
 		type SavedServerRailItem,
 		type SavedServerView
 	} from '$lib/savedServers';
+	import { loadRailLayout, persistRailLayout } from '$lib/railLayout';
 
 	type RailDropPosition = 'before' | 'after' | 'inside';
 
@@ -23,6 +29,15 @@
 	const dispatch = createEventDispatcher<{
 		manage: void;
 	}>();
+
+	// Load persisted rail chrome (density + side) from DB on mount
+	$: if (!$railLayoutLoaded) {
+		void loadRailLayout();
+	}
+	$: if ($railLayoutLoaded) {
+		persistRailLayout();
+	}
+	$: $railDensity, $railSide, $railLayoutLoaded, void persistRailLayout;
 
 	let draggedServerUrl: string | null = null;
 	let draggedItemId: string | null = null;
@@ -205,7 +220,7 @@
 	}
 </script>
 
-<aside class="server-rail" class:mobile aria-label="Saved servers">
+<aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label="Saved servers">
 	<div class="rail-primary" class:mobile>
 		<button
 			type="button"
