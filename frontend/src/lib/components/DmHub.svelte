@@ -17,9 +17,45 @@
   let customAppUrl = '';
   let externalAppTestResult = '';
 
-  $: dmChannels = ($channels || []).filter(
-    (ch: Channel) => ch.type === 'dm' || ch.type === 'group'
-  );
+  function parseMsgSeq(msgId: string): number {
+    const m = /^msg_([0-9a-f]+)/.exec(msgId || "");
+    if (!m) return -1;
+    return parseInt(m[1], 16);
+  }
+
+  /**
+   * DM ordering: pinned → last timestamp desc → last msg seq desc → name.
+   *
+   * Why seq as a tie-break: Wabi message ids are msg_{commit_seq} where
+   * seq is the engine commit counter (monotonic). Two messages landing in
+   * the same millisecond need a deterministic tie-break, and seq gives
+   * that for free — directly analogous to Discord's last_message_id snowflake.
+   */
+  function sortDms(a: Channel, b: Channel): number {
+    // 1. Pinned first
+    const aPinned = ((a as any).pinnedBy?.length ?? 0) > 0 ? 1 : 0;
+    const bPinned = ((b as any).pinnedBy?.length ?? 0) > 0 ? 1 : 0;
+    if (aPinned !== bPinned) return bPinned - aPinned;
+
+    // 2. Last timestamp desc (most recent first)
+    const aMsgs = $channelMessages[a.id] || [];
+    const bMsgs = $channelMessages[b.id] || [];
+    const aLastTs = aMsgs.length ? aMsgs[aMsgs.length - 1].timestamp : 0;
+    const bLastTs = bMsgs.length ? bMsgs[bMsgs.length - 1].timestamp : 0;
+    if (aLastTs !== bLastTs) return bLastTs - aLastTs;
+
+    // 3. Last msg seq desc (monotonic commit counter, tie-break same-ms)
+    const aSeq = aMsgs.length ? parseMsgSeq(aMsgs[aMsgs.length - 1].id) : -1;
+    const bSeq = bMsgs.length ? parseMsgSeq(bMsgs[bMsgs.length - 1].id) : -1;
+    if (aSeq !== bSeq) return bSeq - aSeq;
+
+    // 4. Name alphabetical
+    return conversationLabel(a).localeCompare(conversationLabel(b));
+  }
+
+  $: dmChannels = ($channels || [])
+    .filter((ch: Channel) => ch.type === "dm" || ch.type === "group")
+    .sort(sortDms);
 
   let contextMenuOpen = false;
   let contextMenuPos = { x: 0, y: 0 };

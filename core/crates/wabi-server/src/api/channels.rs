@@ -298,13 +298,33 @@ async fn create_channel(
         req.channel_type
     };
 
+    // Assign position = max(position)+1 within the same scope (parent).
+    // Without this, new channels all land at position 0 and jump to the top.
+    let all_channels = state.wdb.list_channels(None).await.unwrap_or_default();
+    let max_pos = all_channels
+        .iter()
+        .filter(|c| c.is_active && c.parent_id == req.parent_id)
+        .map(|c| c.position)
+        .max()
+        .unwrap_or(-1);
+    let new_position = max_pos + 1;
+    // Persist the computed position so it survives restarts + reorder.
+    let _ = state
+        .wdb
+        .update_channel(
+            &channel_id,
+            &serde_json::json!({ "position": new_position }),
+            auth.user_id as u64,
+        )
+        .await;
+
     // We don't have the typed Channel object back (create returns just the
     // id), so build the response from the request + returned id.
     Ok(Json(ChannelResponse {
         id: channel_id,
         name,
         channel_type: response_type,
-        position: 0,
+        position: new_position,
         parent_id: req
             .parent_id
             .as_ref()
