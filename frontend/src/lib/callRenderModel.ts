@@ -56,6 +56,21 @@ export function buildParticipants(
 	return list.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+export function buildRosterParticipants(
+	rosterMembers: { userId: string; username: string; profilePicture?: string }[],
+	existingCallUserIds: Set<string>
+): ParticipantMedia[] {
+	return rosterMembers
+		.filter((m) => !existingCallUserIds.has(m.userId))
+		.map((m) => ({
+			id: m.userId,
+			label: m.username || 'User',
+			isLocal: false,
+			hasVideo: false,
+			stream: null
+		}));
+}
+
 export function buildShares(
 	remoteShares: ScreenShare[],
 	sharing: boolean,

@@ -66,6 +66,7 @@ pub struct VoiceParticipant {
     /// / TeamSpeak-style) without transmitting. A socket can be `primary` in one
     /// channel and `listening` in several others.
     pub is_listening_only: bool,
+    pub profile_picture: Option<String>,
 }
 
 /// channel_id → Vec<VoiceParticipant>.
@@ -496,6 +497,7 @@ fn voice_participant_to_view(p: &VoiceParticipant) -> Value {
         "isDeafened": p.is_deafened,
         "transmitMode": p.transmit_mode,
         "isListeningOnly": p.is_listening_only,
+        "profile_picture": p.profile_picture,
     })
 }
 
@@ -610,6 +612,7 @@ mod tests {
                 is_deafened: false,
                 transmit_mode: "primary".to_string(),
                 is_listening_only: false,
+                profile_picture: None,
             }],
         );
         assert_eq!(voice.read().await.len(), 2);

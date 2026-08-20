@@ -1221,12 +1221,13 @@ export class SocketManager {
 				.catch((error) => console.warn('[Socket] Failed to remove screen share:', error));
 		});
 
-		sock.on('voice-channel-user-joined', (payload: { channelId?: string; userId?: string; socketId?: string; username?: string }) => {
+		sock.on('voice-channel-user-joined', (payload: { channelId?: string; userId?: string; socketId?: string; username?: string; profilePicture?: string }) => {
 			if (!payload?.channelId || !payload.userId) return;
 			_updateVoiceChannelMember(payload.channelId, payload.userId, {
 				userId: payload.userId,
 				socketId: payload.socketId,
 				username: payload.username || '',
+				profilePicture: payload.profilePicture,
 				isSpeaking: false,
 				isMuted: false,
 				isDeafened: false
