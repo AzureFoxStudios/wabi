@@ -83,6 +83,11 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // URL preview / image proxy (mounted at /url-preview and /image-proxy)
         .route("/url-preview", axum::routing::get(preview::url_preview))
         .route("/image-proxy", axum::routing::get(preview::image_proxy))
+        // Profile media upload (banner, overlay, etc.)
+        .route(
+            "/upload",
+            axum::routing::post(upload::upload_profile_media),
+        )
         // Profile picture upload (multipart POST, returns { profilePictureUrl })
         .route(
             "/upload-profile-picture",

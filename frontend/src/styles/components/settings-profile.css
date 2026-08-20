@@ -2,6 +2,10 @@
    SETTINGS — PROFILE mock card (space-first)
    ========================================================================== */
 
+.hidden-file-input {
+	display: none !important;
+}
+
 .profile-settings-layout {
 	display: grid;
 	grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
