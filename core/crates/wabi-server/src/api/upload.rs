@@ -575,8 +575,8 @@ async fn upload_group_avatar(
 /// shape the admin frontend expects.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SimpleUploadResponse {
-    file_url: String,
+pub struct SimpleUploadResponse {
+    pub file_url: String,
 }
 
 async fn upload_simple(
@@ -659,8 +659,83 @@ async fn upload_simple(
     Ok(Json(SimpleUploadResponse { file_url }))
 }
 
-/// POST /api/upload-profile-picture
-/// Accepts multipart form with a `profilePicture` field.
+/// POST /api/upload
+/// Accepts multipart form with a `file` field. Any authenticated user can upload
+/// (banner, overlay, etc). Returns { fileUrl }.
+pub async fn upload_profile_media(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<SimpleUploadResponse>> {
+    use tokio::io::AsyncWriteExt;
+
+    if auth.is_guest {
+        return Err(anyhow::anyhow!("Guests cannot upload media").into());
+    }
+
+    let mut file_data: Vec<u8> = Vec::new();
+    let mut filename = "media".to_string();
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" {
+            filename = field.file_name().unwrap_or("media").to_string();
+            file_data = field
+                .bytes()
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+                .to_vec();
+        }
+    }
+
+    if file_data.is_empty() {
+        return Err(anyhow::anyhow!("No file data provided").into());
+    }
+
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{}", e))
+        .unwrap_or_else(|| ".png".to_string());
+
+    let uploads_dir = PathBuf::from(&state.config.uploads_dir);
+    tokio::fs::create_dir_all(&uploads_dir).await?;
+
+    let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    let final_path = uploads_dir.join(&final_name);
+
+    let mut file = File::create(&final_path).await?;
+    file.write_all(&file_data).await?;
+    file.flush().await;
+    drop(file);
+
+    let file_url = format!("/uploads/{}", final_name);
+    tracing::info!(
+        "Profile media uploaded by user {}: {} ({} bytes) -> {:?}",
+        auth.user_id,
+        filename,
+        file_data.len(),
+        final_path
+    );
+
+    state
+        .upload_registry
+        .record(
+            &final_name,
+            &filename,
+            None,
+            Some(auth.user_id),
+            UploadKind::Profile,
+            file_data.len() as u64,
+        )
+        .await;
+
+    Ok(Json(SimpleUploadResponse { file_url }))
+}
 /// Saves the file to the uploads directory and returns { profilePictureUrl }.
 /// The caller is responsible for broadcasting the new URL via the socket update-profile event.
 #[derive(Debug, Serialize)]
