@@ -18,7 +18,7 @@ use wabidb::engine::wabi_store::WabiStore;
 /// Payload: `{channel_id}|{user_id}|{path}|{expires}` — user is embedded so
 /// membership can be re-checked at download time, not just at mint time.
 fn lore_signature(secret: &str, channel_id: i64, user_id: i64, path: &str, expires: i64) -> String {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
     let mut mac =
