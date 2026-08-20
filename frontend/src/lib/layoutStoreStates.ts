@@ -24,6 +24,8 @@ const STUB_SIDE_KEY = 'wabi:stub-side';
 
 export type RightPanelMode = 'none' | 'peek' | 'pinned';
 export type StubSide = 'left' | 'right';
+export type RailDensity = 'full' | 'icons-only' | 'hidden';
+export type RailSide = 'left' | 'right';
 
 export const DEFAULT_STUB_STRIP: WorkspacePanelId[] = ['users', 'dms', 'notes'];
 
@@ -136,6 +138,9 @@ export function seedStubStripIfAbsent(stacks: Array<{ tabs: WorkspacePanelId[] }
 
 export const stubStrip = writable<WorkspacePanelId[]>(readStubStrip());
 export const stubSide = writable<StubSide>(readStubSide());
+export const railDensity = writable<RailDensity>('full');
+export const railSide = writable<RailSide>('left');
+export const railLayoutLoaded = writable(false);
 export const focusMode = writable(false);
 
 if (typeof localStorage !== 'undefined') {
