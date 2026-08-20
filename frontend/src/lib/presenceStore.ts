@@ -312,6 +312,7 @@ export function _updateVoiceChannelMember(channelId: string, userId: string, upd
 			isSpeaking: false,
 			isMuted: false,
 			isDeafened: false,
+			profilePicture: existing?.profilePicture ?? updates.profilePicture,
 			...updates,
 		};
 		return {

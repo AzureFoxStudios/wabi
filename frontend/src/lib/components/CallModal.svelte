@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
-	import { socket, getSocket, users, currentUser, currentChannel, channels } from '$lib/socket';
+	import { socket, getSocket, users, currentUser, currentChannel, channels, voiceChannelMembers } from '$lib/socket';
 	import { brandName } from '$lib/branding';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
@@ -59,6 +59,7 @@
 		buildActiveSpeakerLevels,
 		buildParticipants,
 		buildRenderTiles,
+		buildRosterParticipants,
 		buildShares,
 		getInitial,
 		type RenderTile
@@ -133,7 +134,19 @@
 		? ($layoutStore.navDock === 'right' ? $layoutStore.channelSidebarWidth : 0) + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)
 		: 0;
 
-	$: participants = buildParticipants($activeCalls, $isInCall, $localStream, $isVideoOff);
+	$: participants = [...buildParticipants($activeCalls, $isInCall, $localStream, $isVideoOff), ...rosterParticipants];
+	$: rosterParticipants = (() => {
+		const channelId = $activeVoiceChannel?.id;
+		if (!channelId) return [];
+		const members = $voiceChannelMembers[channelId] || [];
+		const selfId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : ($currentUser?.id || '');
+		const existingIds = new Set($activeCalls.map((c) => c.userId));
+		existingIds.add(selfId);
+		return buildRosterParticipants(
+			members.filter((m) => m.userId !== selfId),
+			existingIds
+		);
+	})();
 	$: shares = buildShares($screenShares, $isSharing, $localScreenStream);
 	$: renderTiles = buildRenderTiles(participants, shares);
 	$: tileById = new Map(renderTiles.map((tile) => [tile.id, tile]));

@@ -54,6 +54,15 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
             .unwrap_or_else(|| ("unknown".to_string(), "#98D8C8".to_string()))
     };
 
+    let profile_picture = if user_id_num > 0 {
+        match state.app.wdb.get_user(user_id_num as u64).await {
+            Ok(Some(db_user)) => db_user.profile_picture,
+            _ => None,
+        }
+    } else {
+        None
+    };
+
     let participant = VoiceParticipant {
         socket_id: socket.id.to_string(),
         stable_id: stable_id.clone(),
@@ -62,6 +71,7 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
         is_deafened,
         transmit_mode: "primary".to_string(),
         is_listening_only: false,
+        profile_picture,
     };
 
     let current_members: Vec<Value> = {
@@ -136,6 +146,15 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
             .unwrap_or_else(|| ("unknown".to_string(), "#98D8C8".to_string()))
     };
 
+    let profile_picture = if user_id_num > 0 {
+        match state.app.wdb.get_user(user_id_num as u64).await {
+            Ok(Some(db_user)) => db_user.profile_picture,
+            _ => None,
+        }
+    } else {
+        None
+    };
+
     let current_members: Vec<Value> = {
         let mut voice = state.voice_channels.write().await;
         let members = voice.entry(channel_id.clone()).or_default();
@@ -154,6 +173,7 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
                 is_deafened: false,
                 transmit_mode: "listening".to_string(),
                 is_listening_only: true,
+                profile_picture: profile_picture.clone(),
             });
         }
         members.iter().map(voice_participant_to_view).collect()
