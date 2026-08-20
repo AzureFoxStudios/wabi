@@ -137,14 +137,14 @@
 		try {
 			const fd = new FormData();
 			fd.append('file', file, file.name || 'banner.png');
-			const res = await fetch(`${getServerUrl()}/api/upload`, {
+			const res = await fetch(`${getServerUrl()}/api/upload-profile-media`, {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${getAuthToken()}` },
 				body: fd
 			});
 			const payload = await res.json().catch(() => ({}));
 			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
-			const url = typeof payload?.file_url === 'string' ? payload.file_url : '';
+			const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
 			if (!url) throw new Error('No URL returned');
 			// Patch current user locally so the UI updates immediately; the
 			// socket write below persists it and broadcasts to every client.
@@ -165,14 +165,14 @@
 		try {
 			const fd = new FormData();
 			fd.append('file', file, file.name || 'overlay.png');
-			const res = await fetch(`${getServerUrl()}/api/upload`, {
+			const res = await fetch(`${getServerUrl()}/api/upload-profile-media`, {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${getAuthToken()}` },
 				body: fd
 			});
 			const payload = await res.json().catch(() => ({}));
 			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
-			const url = typeof payload?.file_url === 'string' ? payload.file_url : '';
+			const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
 			if (!url) throw new Error('No URL returned');
 			if ($currentUser) $currentUser = { ...$currentUser, overlayUrl: url };
 			overlayStatus = 'Overlay uploaded.';
