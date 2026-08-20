@@ -7,7 +7,14 @@
 	import UniformFontMode from '../UniformFontMode.svelte';
 	import EffectsTab from '$lib/effects/EffectsTab.svelte';
 	import { layoutStore } from '$lib/layoutStore';
-	import { homeLayout, type HomeLayoutMode } from '$lib/layoutStoreStates';
+	import {
+		homeLayout,
+		type HomeLayoutMode,
+		railDensity,
+		railSide,
+		type RailDensity,
+		type RailSide
+	} from '$lib/layoutStoreStates';
 	import { animationQuality } from '$lib/motion/animationQuality';
 	import { themeStore } from '$lib/theme/themeStore';
 	import { THEMES } from '$lib/theme/themes';
@@ -353,6 +360,27 @@
 			<div class="settings-row-actions">
 				<button type="button" class="action-btn secondary" on:click={exportWorkspaceJson}>Export JSON</button>
 				<button type="button" class="action-btn secondary" on:click={importWorkspaceJsonPrompt}>Import JSON</button>
+			</div>
+		</div>
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Server rail density</span>
+				<span class="setting-description">How compact the far-left server strip is.</span>
+			</div>
+			<div class="segmented">
+				<button type="button" class:active={$railDensity === 'full'} on:click={() => railDensity.set('full')}>Full</button>
+				<button type="button" class:active={$railDensity === 'icons-only'} on:click={() => railDensity.set('icons-only')}>Icons</button>
+				<button type="button" class:active={$railDensity === 'hidden'} on:click={() => railDensity.set('hidden')}>Hidden</button>
+			</div>
+		</div>
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Server rail side</span>
+				<span class="setting-description">Which screen edge the server rail pins to.</span>
+			</div>
+			<div class="segmented">
+				<button type="button" class:active={$railSide === 'left'} on:click={() => railSide.set('left')}>Left</button>
+				<button type="button" class:active={$railSide === 'right'} on:click={() => railSide.set('right')}>Right</button>
 			</div>
 		</div>
 		<div class="setting-item setting-item-stack">
