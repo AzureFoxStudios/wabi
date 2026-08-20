@@ -1481,8 +1481,8 @@ impl WabiStore for WdbAdapter {
             }
             ("channel", "update") => {
                 // Merge a partial channel update into the `channels` index
-                // (used for force_spoiler, name, description). The projection
-                // (`channel_updated`) applies only the provided fields.
+                // (used for force_spoiler, name, description, position, parent_id).
+                // The projection (`channel_updated`) applies only the provided fields.
                 let row = &payload["row"];
                 let channel_id = row.get("channel_id").and_then(|v| v.as_str()).unwrap_or("");
                 let pl = serde_json::json!({
@@ -1490,6 +1490,8 @@ impl WabiStore for WdbAdapter {
                     "name": row.get("name"),
                     "description": row.get("description"),
                     "force_spoiler": row.get("force_spoiler"),
+                    "position": row.get("position"),
+                    "parent_id": row.get("parent_id"),
                 });
                 self.run(
                     0,
