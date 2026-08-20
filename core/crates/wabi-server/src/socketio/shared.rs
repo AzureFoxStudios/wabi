@@ -497,7 +497,7 @@ fn voice_participant_to_view(p: &VoiceParticipant) -> Value {
         "isDeafened": p.is_deafened,
         "transmitMode": p.transmit_mode,
         "isListeningOnly": p.is_listening_only,
-        "profile_picture": p.profile_picture,
+        "profilePicture": p.profile_picture,
     })
 }
 
