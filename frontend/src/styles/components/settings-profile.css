@@ -28,24 +28,78 @@
 }
 
 .profile-preview-banner {
+	display: block;
+	width: 100%;
 	height: 92px;
+	padding: 0;
+	border: 0;
 	background-size: cover;
 	background-position: center;
+	color: inherit;
+	cursor: pointer;
+	position: relative;
+}
+
+.profile-preview-banner::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(180deg, transparent 40%, rgba(0, 0, 0, 0.3));
+	pointer-events: none;
+}
+
+.profile-preview-banner-hint {
+	position: absolute;
+	right: 0.7rem;
+	bottom: 0.55rem;
+	z-index: 1;
+	font-size: 0.68rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	padding: 0.28rem 0.55rem;
+	border-radius: 999px;
+	background: rgba(0, 0, 0, 0.45);
+	color: rgba(255, 255, 255, 0.88);
+	opacity: 0;
+	transition: opacity 0.15s ease;
+}
+
+.profile-preview-banner:hover .profile-preview-banner-hint,
+.profile-preview-banner:focus-visible .profile-preview-banner-hint {
+	opacity: 1;
+}
+
+.profile-preview-banner:disabled {
+	cursor: wait;
 }
 
 .profile-preview-avatar-wrap {
-	padding: 0 1rem;
-	margin-top: -28px;
+	position: relative;
+	width: fit-content;
+	margin: -28px 0 0 1rem;
+	padding: 0;
 }
 
 .profile-preview-avatar {
 	position: relative;
+	display: block;
 	width: 72px;
 	height: 72px;
 	border-radius: 50%;
 	padding: 3px;
+	border: 0;
 	background: var(--surface-base, #1a1a2e);
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--surface-base) 90%, black);
+	cursor: pointer;
+}
+
+.profile-preview-avatar:hover,
+.profile-preview-avatar:focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 3px color-mix(in srgb, var(--surface-base) 90%, black),
+	0 0 0 5px color-mix(in srgb, var(--accent-secondary-color) 30%, transparent);
 }
 
 .profile-preview-avatar img,
@@ -69,6 +123,47 @@
 	border-radius: 50%;
 	background-size: cover;
 	pointer-events: none;
+}
+
+/* Overlay upload control — badge centered on the avatar's right edge. */
+.profile-preview-overlay-btn {
+	position: absolute;
+	right: -8px;
+	top: 50%;
+	transform: translateY(-50%);
+	z-index: 2;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border-radius: 50%;
+	border: 3px solid var(--surface-base, #1a1a2e);
+	background: color-mix(in srgb, var(--surface-sunken) 70%, transparent);
+	background-size: cover;
+	background-position: center;
+	cursor: pointer;
+	display: grid;
+	place-items: center;
+}
+
+.profile-preview-overlay-btn:not(.has-overlay)::after {
+	content: '';
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+}
+
+.profile-preview-overlay-btn:not(.has-overlay):hover {
+	border-color: color-mix(in srgb, var(--accent-secondary-color) 45%, transparent);
+}
+
+.profile-preview-overlay-btn.has-overlay:hover {
+	filter: brightness(1.15);
+}
+
+.profile-preview-overlay-btn:disabled {
+	cursor: wait;
+	opacity: 0.7;
 }
 
 .profile-preview-status {
@@ -135,59 +230,11 @@
 	margin-bottom: 0.85rem;
 }
 
-.profile-mock-banner {
-	display: block;
-	width: 100%;
-	height: 108px;
-	padding: 0;
-	border: 0;
-	background-size: cover;
-	background-position: center;
-	cursor: pointer;
-	position: relative;
-	color: inherit;
-}
-
-.profile-mock-banner.is-empty {
-	/* soft gradient already set inline */
-}
-
-.profile-mock-banner::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	background: linear-gradient(180deg, transparent 35%, rgba(0, 0, 0, 0.35));
-	pointer-events: none;
-}
-
-.profile-mock-banner-hint {
-	position: absolute;
-	right: 0.7rem;
-	bottom: 0.55rem;
-	z-index: 1;
-	font-size: 0.68rem;
-	font-weight: 700;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	padding: 0.28rem 0.55rem;
-	border-radius: 999px;
-	background: rgba(0, 0, 0, 0.45);
-	color: rgba(255, 255, 255, 0.88);
-	opacity: 0;
-	transition: opacity 0.15s ease;
-}
-
-.profile-mock-banner:hover .profile-mock-banner-hint,
-.profile-mock-banner:focus-visible .profile-mock-banner-hint {
-	opacity: 1;
-}
-
 .profile-mock-body {
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr);
 	gap: 0.75rem 0.9rem;
-	padding: 0 0.95rem 0.75rem;
-	margin-top: -36px;
+	padding: 0.95rem 0.95rem 0.75rem;
 	position: relative;
 	z-index: 1;
 }
@@ -242,15 +289,6 @@
 	background: linear-gradient(145deg, var(--avatar-color, var(--accent-secondary-color)), var(--accent-primary-color));
 }
 
-.profile-mock-overlay {
-	position: absolute;
-	inset: 0;
-	border-radius: 50%;
-	background-size: cover;
-	background-position: center;
-	pointer-events: none;
-}
-
 .profile-mock-status {
 	position: absolute;
 	right: 2px;
@@ -265,39 +303,6 @@
 .profile-mock-status.away { background: var(--status-away); }
 .profile-mock-status.busy { background: var(--status-busy); }
 .profile-mock-status.offline { background: var(--status-offline); }
-
-/* Overlay upload sits to the right/below avatar — compact circle, never "NO OVERLAY" blob */
-.profile-mock-overlay-slot {
-	width: 36px;
-	height: 36px;
-	padding: 0;
-	border-radius: 50%;
-	border: 1px dashed color-mix(in srgb, var(--accent-primary-color) 28%, transparent);
-	background: color-mix(in srgb, var(--surface-sunken) 60%, transparent);
-	cursor: pointer;
-	overflow: hidden;
-	display: grid;
-	place-items: center;
-}
-
-.profile-mock-overlay-slot.is-empty:hover {
-	border-style: solid;
-	border-color: color-mix(in srgb, var(--accent-secondary-color) 40%, transparent);
-}
-
-.profile-mock-overlay-empty {
-	width: 14px;
-	height: 14px;
-	border-radius: 50%;
-	background: color-mix(in srgb, var(--text-muted) 35%, transparent);
-}
-
-.profile-mock-overlay-thumb {
-	width: 100%;
-	height: 100%;
-	background-size: cover;
-	background-position: center;
-}
 
 .profile-mock-identity {
 	min-width: 0;

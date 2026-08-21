@@ -6,7 +6,6 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { changePassword, getUserSettings } from '$lib/api';
-	import { fetchWithTimeout } from '$lib/api/utils';
 	import { clearActiveCustomStatusPreset } from '$lib/customStatusPresets';
 	import {
 		defaultLocalWabiAccountStore,
@@ -109,18 +108,13 @@
 		}
 	});
 
-	// ── PR1/PR2/PR3: Banner / overlay upload + visibility ──
+	// ── PR1/PR2/PR3: Banner / overlay upload (proxy-card driven) ──
 	let bannerUploading = $state(false);
 	let bannerStatus = $state('');
 	let overlayUploading = $state(false);
 	let overlayStatus = $state('');
-	let showBannerLocal = $state(false);
-	let showOverlayLocal = $state(false);
 	let disableAllBannersLocal = $state(false);
-	let profileMediaLoaded = $state(false);
 
-	const BANNER_STORE_KEY = 'wabi:profile:bannerUrl';
-	const OVERLAY_STORE_KEY = 'wabi:profile:overlayUrl';
 	const VISIBILITY_KEY = 'wabi:profile:visibility';
 
 	function loadBannerVisibility() {
@@ -128,17 +122,12 @@
 			const raw = localStorage.getItem(VISIBILITY_KEY);
 			if (!raw) return;
 			const v = JSON.parse(raw);
-			if (typeof v.showBanner === 'boolean') showBannerLocal = v.showBanner;
-			if (typeof v.showOverlay === 'boolean') showOverlayLocal = v.showOverlay;
 			if (typeof v.disableAll === 'boolean') disableAllBannersLocal = v.disableAll;
 		} catch { /* ignore */ }
 	}
 
 	$effect(() => {
-		localStorage.setItem(
-			VISIBILITY_KEY,
-			JSON.stringify({ showBanner: showBannerLocal, showOverlay: showOverlayLocal, disableAll: disableAllBannersLocal })
-		);
+		localStorage.setItem(VISIBILITY_KEY, JSON.stringify({ disableAll: disableAllBannersLocal }));
 	});
 
 	async function uploadBanner(file: File) {
@@ -157,13 +146,11 @@
 			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
 			const url = typeof payload?.file_url === 'string' ? payload.file_url : '';
 			if (!url) throw new Error('No URL returned');
-			localStorage.setItem(BANNER_STORE_KEY, url);
-			// Patch current user locally so the UI updates immediately.
+			// Patch current user locally so the UI updates immediately; the
+			// socket write below persists it and broadcasts to every client.
 			if ($currentUser) $currentUser = { ...$currentUser, bannerUrl: url };
 			bannerStatus = 'Banner uploaded.';
-			// Best-effort socket broadcast.
 			updateProfile({ bannerUrl: url });
-			await saveProfileMedia();
 		} catch (e) {
 			bannerStatus = e instanceof Error ? e.message : 'Banner upload failed.';
 		} finally {
@@ -187,11 +174,9 @@
 			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
 			const url = typeof payload?.file_url === 'string' ? payload.file_url : '';
 			if (!url) throw new Error('No URL returned');
-			localStorage.setItem(OVERLAY_STORE_KEY, url);
 			if ($currentUser) $currentUser = { ...$currentUser, overlayUrl: url };
 			overlayStatus = 'Overlay uploaded.';
 			updateProfile({ overlayUrl: url });
-			await saveProfileMedia();
 		} catch (e) {
 			overlayStatus = e instanceof Error ? e.message : 'Overlay upload failed.';
 		} finally {
@@ -201,12 +186,6 @@
 
 	onMount(() => {
 		loadBannerVisibility();
-		try {
-			const b = localStorage.getItem(BANNER_STORE_KEY);
-			if (b && $currentUser && !$currentUser.bannerUrl) $currentUser = { ...$currentUser, bannerUrl: b };
-			const o = localStorage.getItem(OVERLAY_STORE_KEY);
-			if (o && $currentUser && !$currentUser.overlayUrl) $currentUser = { ...$currentUser, overlayUrl: o };
-		} catch { /* ignore */ }
 		const bannerInput = document.getElementById('banner-file-input');
 		bannerInput?.addEventListener('change', (ev) => {
 			const file = (ev.target as HTMLInputElement).files?.[0];
@@ -217,37 +196,7 @@
 			const file = (ev.target as HTMLInputElement).files?.[0];
 			if (file) void uploadOverlay(file);
 		});
-		void loadProfileMedia();
 	});
-
-	async function loadProfileMedia(): Promise<void> {
-		if (profileMediaLoaded || !getAuthToken()) return;
-		try {
-			const response = await fetchWithTimeout(`${getServerUrl()}/api/user/profile-media`, {
-				headers: { Authorization: `Bearer ${getAuthToken()}` }
-			});
-			if (!response.ok) return;
-			const media = await response.json();
-			if ($currentUser) $currentUser = { ...$currentUser, bannerUrl: media.banner_url || undefined, overlayUrl: media.overlay_url || undefined, showBanner: media.show_banner, showOverlay: media.show_overlay };
-			profileMediaLoaded = true;
-		} catch (error) {
-			console.warn('[Settings] Failed to load profile media:', error);
-		}
-	}
-
-	async function saveProfileMedia(): Promise<void> {
-		const token = getAuthToken();
-		if (!token) return;
-		try {
-			await fetchWithTimeout(`${getServerUrl()}/api/user/profile-media`, {
-				method: 'POST',
-				headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-				body: JSON.stringify({ banner_url: $currentUser?.bannerUrl || null, overlay_url: $currentUser?.overlayUrl || null, show_banner: showBannerLocal, show_overlay: showOverlayLocal })
-			});
-		} catch (error) {
-			console.warn('[Settings] Failed to save profile media:', error);
-		}
-	}
 
 	onMount(() => {
 		const token = getAuthToken();
@@ -390,15 +339,28 @@
 	<div class="profile-preview-column">
 		<p class="profile-preview-kicker">How others see you</p>
 		<div class="profile-preview-card" aria-label="Live profile preview">
-			<div
+			<button
+				type="button"
 				class="profile-preview-banner"
-				class:is-empty={!$currentUser?.bannerUrl || !showBannerLocal || disableAllBannersLocal}
-				style={$currentUser?.bannerUrl && showBannerLocal && !disableAllBannersLocal
+				class:is-empty={!$currentUser?.bannerUrl || disableAllBannersLocal}
+				style={$currentUser?.bannerUrl && !disableAllBannersLocal
 					? `background-image: url(${$currentUser.bannerUrl})`
 					: `background: linear-gradient(135deg, ${$currentUser?.color || 'var(--accent-secondary-color)'}, var(--accent-primary-color))`}
-			></div>
+				on:click={() => document.getElementById('banner-file-input')?.click()}
+				disabled={bannerUploading}
+				title={bannerUploading ? 'Uploading banner…' : 'Change banner'}
+				aria-label="Change banner"
+			>
+				<span class="profile-preview-banner-hint">{bannerUploading ? 'Uploading banner…' : 'Change banner'}</span>
+			</button>
 			<div class="profile-preview-avatar-wrap">
-				<div class="profile-preview-avatar">
+<button
+					type="button"
+					class="profile-preview-avatar"
+					on:click={() => dispatch('openAvatarEditor')}
+					title="Change avatar"
+					aria-label="Change avatar"
+				>
 					{#if $currentUser?.profilePicture}
 						<img src={$currentUser.profilePicture} alt="" />
 					{:else}
@@ -406,7 +368,7 @@
 							{previewName.charAt(0).toUpperCase()}
 						</span>
 					{/if}
-					{#if $currentUser?.overlayUrl && showOverlayLocal && !disableAllBannersLocal}
+					{#if $currentUser?.overlayUrl && !disableAllBannersLocal}
 						<span class="profile-preview-overlay" style="background-image: url({$currentUser.overlayUrl})"></span>
 					{/if}
 					<span
@@ -416,7 +378,17 @@
 						class:offline={previewStatus === 'offline'}
 						title={previewStatusLabel}
 					></span>
-				</div>
+				</button>
+				<button
+					type="button"
+					class="profile-preview-overlay-btn"
+					class:has-overlay={!!$currentUser?.overlayUrl}
+					style={$currentUser?.overlayUrl ? `background-image: url({$currentUser.overlayUrl})` : undefined}
+					on:click={() => document.getElementById('overlay-file-input')?.click()}
+					disabled={overlayUploading}
+					title={overlayUploading ? 'Uploading…' : ($currentUser?.overlayUrl ? 'Replace avatar overlay' : 'Upload avatar overlay')}
+					aria-label="Upload avatar overlay"
+				></button>
 			</div>
 			<div class="profile-preview-body">
 				<strong class="profile-preview-name">{previewName}</strong>
@@ -431,21 +403,6 @@
 
 	<div class="profile-editor-column">
 <div class="profile-mock">
-	<button
-		type="button"
-		class="profile-mock-banner"
-		class:is-empty={!$currentUser?.bannerUrl}
-		style={$currentUser?.bannerUrl
-			? `background-image: url(${$currentUser.bannerUrl})`
-			: `background: linear-gradient(135deg, ${$currentUser?.color || 'var(--accent-secondary-color)'}, var(--accent-primary-color))`}
-		on:click={() => document.getElementById('banner-file-input')?.click()}
-		disabled={bannerUploading}
-		title="Change banner"
-		aria-label="Change banner"
-	>
-		<span class="profile-mock-banner-hint">{bannerUploading ? 'Uploading banner…' : 'Change banner'}</span>
-	</button>
-
 	<div class="profile-mock-body">
 		<div class="profile-mock-avatar-stack">
 			<button
@@ -465,9 +422,6 @@
 						{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
 					</span>
 				{/if}
-				{#if $currentUser?.overlayUrl && showOverlayLocal && !disableAllBannersLocal}
-					<span class="profile-mock-overlay" style="background-image: url({$currentUser.overlayUrl})"></span>
-				{/if}
 				<span
 					class="profile-mock-status"
 					class:away={$currentUser?.status === 'away'}
@@ -476,22 +430,6 @@
 				></span>
 			</button>
 			<span class="profile-mock-media-label">Profile picture</span>
-			<button
-				type="button"
-				class="profile-mock-overlay-slot"
-				class:is-empty={!$currentUser?.overlayUrl}
-				on:click={() => document.getElementById('overlay-file-input')?.click()}
-				disabled={overlayUploading}
-				title={overlayUploading ? 'Uploading…' : ($currentUser?.overlayUrl ? 'Replace overlay' : 'Upload overlay PNG')}
-				aria-label="Upload avatar overlay"
-			>
-				{#if $currentUser?.overlayUrl}
-					<span class="profile-mock-overlay-thumb" style="background-image: url({$currentUser.overlayUrl})"></span>
-				{:else}
-					<span class="profile-mock-overlay-empty" aria-hidden="true"></span>
-				{/if}
-			</button>
-			<span class="profile-mock-media-label">Avatar overlay</span>
 		</div>
 
 		<div class="profile-mock-identity">
@@ -552,14 +490,6 @@
 	</div>
 
 	<div class="profile-mock-toggles" role="group" aria-label="Banner and overlay visibility">
-		<label class="mini-toggle" title="Show my banner in popouts">
-			<input type="checkbox" bind:checked={showBannerLocal} />
-			<span>Banner</span>
-		</label>
-		<label class="mini-toggle" title="Show my avatar overlay">
-			<input type="checkbox" bind:checked={showOverlayLocal} />
-			<span>Overlay</span>
-		</label>
 		<label class="mini-toggle" title="Hide everyone’s banners and overlays on this client">
 			<input type="checkbox" bind:checked={disableAllBannersLocal} />
 			<span>Hide all</span>

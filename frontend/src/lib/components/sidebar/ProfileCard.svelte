@@ -57,7 +57,7 @@
 	})();
 	$: activeCustomStatus = getActiveCustomStatusPreset($customStatusPresetsStore);
 	$: cardBannerUrl =
-		$currentUser?.bannerUrl && $currentUser.showBanner !== false && !disableAllBanners
+		$currentUser?.bannerUrl && !disableAllBanners
 			? $currentUser.bannerUrl
 			: '';
 

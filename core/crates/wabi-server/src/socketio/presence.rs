@@ -102,6 +102,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
                     // guest check) — this is what flags them as guests in the
                     // roster and admin registry.
                     !u.password_hash.is_empty(),
+                    None,
                 )
                 .await,
             );
@@ -185,6 +186,31 @@ fn sanitize_avatar_url(input: &str) -> Option<String> {
     None
 }
 
+/// Read the `profile_media` object from a user's layout record. This is where
+/// the avatar banner (`banner_url`) and pfp overlay (`overlay_url`) live —
+/// written by the REST `/api/user/profile-media` endpoint and by the
+/// `update-profile` socket handler.
+async fn profile_media_for(
+    state: &SioState,
+    db_user_id: i64,
+) -> Option<serde_json::Map<String, Value>> {
+    if db_user_id <= 0 {
+        return None;
+    }
+    let stored = state.app.wdb.get_user_layout(db_user_id as u64).await.ok().flatten()?;
+    let root: Value = serde_json::from_str(&stored.layout_json).ok()?;
+    root.get("profile_media").and_then(|v| v.as_object().cloned())
+}
+
+/// Extract `banner_url` / `overlay_url` from a profile_media map.
+fn media_banner_overlay(
+    media: &serde_json::Map<String, Value>,
+) -> (Option<String>, Option<String>) {
+    let banner_url = media.get("banner_url").and_then(|v| v.as_str()).map(String::from);
+    let overlay_url = media.get("overlay_url").and_then(|v| v.as_str()).map(String::from);
+    (banner_url, overlay_url)
+}
+
 /// Build a full `UserView` (with profile fields) for broadcast.
 ///
 /// The profile fields are passed in (not re-read from the store) because
@@ -194,6 +220,10 @@ fn sanitize_avatar_url(input: &str) -> Option<String> {
 /// `profilePicture`) makes clients merge the old value over the optimistic
 /// one — the avatar "doesn't stick". Callers merge the just-applied patch
 /// into the previous profile and pass the merged values here.
+///
+/// The same race applies to `profile_media` (stored in `user_layout`): when
+/// `None`, it is read from the store; callers that just wrote it pass the
+/// merged map instead.
 async fn build_user_view(
     state: &SioState,
     db_user_id: i64,
@@ -204,6 +234,7 @@ async fn build_user_view(
     bio: Option<String>,
     status_message: Option<String>,
     is_registered: bool,
+    profile_media: Option<serde_json::Map<String, Value>>,
 ) -> Value {
     let owner_id = *state.app.owner_user_id.read().await;
     let role = highest_role(if db_user_id > 0 { Some(db_user_id) } else { None }, owner_id);
@@ -214,6 +245,12 @@ async fn build_user_view(
         username.to_string()
     };
 
+    let media = match profile_media {
+        Some(map) => map,
+        None => profile_media_for(state, db_user_id).await.unwrap_or_default(),
+    };
+    let (banner_url, overlay_url) = media_banner_overlay(&media);
+
     json!({
         "id": stable_id,
         "username": username,
@@ -221,6 +258,8 @@ async fn build_user_view(
         "status": "active",
         "handle": null,
         "profilePicture": profile_picture,
+        "bannerUrl": banner_url,
+        "overlayUrl": overlay_url,
         "bio": bio,
         "statusMessage": status_message,
         "dbUserId": if db_user_id > 0 { Some(db_user_id) } else { None },
@@ -339,6 +378,48 @@ async fn on_update_profile(
         updates.color = Some(format!("\0{}", v));
     }
 
+    // Avatar banner + pfp overlay live in `profile_media` inside the user's
+    // layout record. Merge the just-applied patch here (same B6 race guard as
+    // the profile fields below): the merged map is passed straight into the
+    // broadcast view instead of re-reading the store after the write.
+    let mut media_patch: Option<serde_json::Map<String, Value>> = None;
+    if data.get("bannerUrl").is_some() || data.get("overlayUrl").is_some() {
+        let mut media = profile_media_for(&state, db_user_id).await.unwrap_or_default();
+        if let Some(v) = data.get("bannerUrl") {
+            let value = match v.as_str() {
+                Some(s) if !s.trim().is_empty() => match sanitize_avatar_url(s) {
+                    Some(url) => Value::String(url),
+                    None => {
+                        let _ = socket.emit(
+                            "profile-update-failed",
+                            &json!({ "reason": "invalid bannerUrl" }),
+                        );
+                        return;
+                    }
+                },
+                _ => Value::Null,
+            };
+            media.insert("banner_url".into(), value);
+        }
+        if let Some(v) = data.get("overlayUrl") {
+            let value = match v.as_str() {
+                Some(s) if !s.trim().is_empty() => match sanitize_avatar_url(s) {
+                    Some(url) => Value::String(url),
+                    None => {
+                        let _ = socket.emit(
+                            "profile-update-failed",
+                            &json!({ "reason": "invalid overlayUrl" }),
+                        );
+                        return;
+                    }
+                },
+                _ => Value::Null,
+            };
+            media.insert("overlay_url".into(), value);
+        }
+        media_patch = Some(media);
+    }
+
     // Snapshot the pre-update profile BEFORE the write. `update_user` persists
     // through the async projection dispatcher, so a post-write read can race it
     // and broadcast a stale view (e.g. missing a just-uploaded profile picture),
@@ -386,6 +467,32 @@ async fn on_update_profile(
 
     match state.app.wdb.update_user(db_user_id as u64, updates).await {
         Ok(()) => {
+            // Persist the banner/overlay patch into the user's layout record
+            // (keeps the `profile_media` JSON blob next to layout + theme).
+            if let Some(media) = &media_patch {
+                let existing = state
+                    .app
+                    .wdb
+                    .get_user_layout(db_user_id as u64)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|l| serde_json::from_str::<Value>(&l.layout_json).ok())
+                    .unwrap_or_else(|| json!({}));
+                let combined = json!({
+                    "layout": existing.get("layout").cloned().unwrap_or_else(|| existing.clone()),
+                    "theme": existing.get("theme").cloned().unwrap_or_else(|| json!({})),
+                    "profile_media": media,
+                });
+                if let Ok(serialized) = serde_json::to_string(&combined) {
+                    let _ = state
+                        .app
+                        .wdb
+                        .upsert_user_layout(db_user_id as u64, &serialized)
+                        .await;
+                }
+            }
+
             let view = build_user_view(
                 &state,
                 db_user_id,
@@ -399,6 +506,7 @@ async fn on_update_profile(
                     .as_ref()
                     .map(|u| !u.password_hash.is_empty())
                     .unwrap_or(false),
+                media_patch,
             )
             .await;
             let _ = socket.emit("profile-updated", &view);

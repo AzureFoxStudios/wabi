@@ -67,6 +67,15 @@
 		object-fit: cover;
 	}
 
+	.popout-avatar-overlay {
+		position: absolute;
+		inset: 6px;
+		border-radius: 21px;
+		background-size: cover;
+		background-position: center;
+		pointer-events: none;
+	}
+
 	.popout-avatar-placeholder {
 		display: flex;
 		align-items: center;
