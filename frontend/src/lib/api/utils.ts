@@ -30,11 +30,12 @@ export async function fetchWithTimeout(url: string, options: RequestWithTimeout 
 	const requestOptions: RequestInit = { ...rest };
 	delete (requestOptions as RequestWithTimeout).timeoutMs;
 	try {
-		return await fetch(url, {
+		const res = await fetch(url, {
 			...requestOptions,
 			credentials: requestOptions.credentials ?? 'include',
 			signal: controller.signal
 		});
+		return await refreshAndRetry(url, res, options);
 	} catch (error) {
 		if (error instanceof DOMException && error.name === 'AbortError') {
 			throw new Error(`Request timed out after ${timeoutMs}ms`);
@@ -48,6 +49,34 @@ export async function fetchWithTimeout(url: string, options: RequestWithTimeout 
 	} finally {
 		clearTimeout(timeout);
 	}
+}
+
+/**
+ * Silent-refresh retry for expired access tokens, folded into the shared
+ * fetch wrapper so every API module gets it without per-file migration.
+ * Fires only when the original request carried an Authorization header
+ * (i.e. it authenticated and its token has since expired), never on auth
+ * endpoints themselves, and never more than once — on refresh failure the
+ * original 401 is returned for the caller to classify as auth-fatal.
+ */
+async function refreshAndRetry(url: string, res: Response, options: RequestWithTimeout): Promise<Response> {
+	const hadAuthHeader = new Headers(options.headers).has('Authorization');
+	if (!hadAuthHeader || res.status !== 401 || !isJsonContentType(res)) return res;
+
+	try {
+		const path = new URL(url, getApiBase()).pathname;
+		if (path.endsWith('/auth/refresh') || path.endsWith('/auth/login')) return res;
+	} catch {
+		return res; // unparseable URL — don't risk a loop
+	}
+
+	const ok = await tryRefresh();
+	if (!ok) return res;
+
+	const headers = new Headers(options.headers);
+	const token = getAuthToken();
+	if (token) headers.set('Authorization', `Bearer ${token}`);
+	return fetchWithTimeout(url, { ...options, headers });
 }
 
 /** True when Content-Type looks like JSON (incl. +json). */
@@ -96,41 +125,6 @@ export async function parseApiJson(response: Response): Promise<unknown | null> 
 export async function safeJsonParse(response: Response): Promise<unknown> {
 	const parsed = await parseApiJson(response);
 	return parsed ?? {};
-}
-
-/**
- * Fetch wrapper that silently refreshes an expired access token on 401 and
- * retries the original request once. Mirrors fetchWithTimeout's signature so
- * callers can drop it in. On refresh failure (no token, or refresh returned
- * its own 401) the original 401 Response is returned — callers classify it as
- * auth-fatal and route to login.
- */
-export async function fetchWithAuth(
-	url: string,
-	options: RequestWithTimeout = {}
-): Promise<Response> {
-	const res = await fetchWithTimeout(url, options);
-
-	// Only act on clean 401s from JSON API responses, not auth-fatal bodies
-	// the caller needs to inspect (e.g., "token reuse detected").
-	if (res.status !== 401 || !isJsonContentType(res)) return res;
-
-	// Don't try to refresh auth endpoints themselves.
-	try {
-		const path = new URL(url, getApiBase()).pathname;
-		if (path.endsWith('/auth/refresh') || path.endsWith('/auth/login')) return res;
-	} catch {
-		/* ignore parse failure, fall through to refresh attempt */
-	}
-
-	const ok = await tryRefresh();
-	if (!ok) return res;
-
-	// Retry with the freshly minted access token.
-	const headers = new Headers(options.headers);
-	const token = getAuthToken();
-	if (token) headers.set('Authorization', `Bearer ${token}`);
-	return fetchWithTimeout(url, { ...options, headers });
 }
 
 export function isPositiveNumber(value: unknown): boolean {

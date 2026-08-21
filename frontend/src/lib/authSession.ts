@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { normalizeServerUrl, resolveServerUrl } from './serverUrl';
+import { clearRefreshToken } from './api/authRefresh';
 
 const LEGACY_AUTH_TOKEN_KEY = 'authToken';
 const LEGACY_SESSION_ID_KEY = 'sessionId';
@@ -210,6 +211,9 @@ export function clearStoredIdentity(serverUrl?: string | null): void {
 export function clearAuthSession(serverUrl?: string | null): void {
 	clearAuthToken(serverUrl);
 	clearGuestSessionId(serverUrl);
+	// The refresh token is part of the session: logout must kill it too,
+	// or a 30-day refresh token survives in sessionStorage after "logout".
+	clearRefreshToken(serverUrl);
 }
 
 export function copyScopedAuthState(fromServerUrl: string, toServerUrl: string): void {
