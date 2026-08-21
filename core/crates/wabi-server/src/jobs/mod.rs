@@ -33,6 +33,9 @@ pub enum JobStatus {
     Completed,
     Failed,
     Cancelled,
+    /// Exceeded the retry cap — quarantined for admin inspection. Never
+    /// returned by `claim_next`; recoverable only via explicit requeue.
+    DeadLettered,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -217,7 +220,9 @@ impl JobQueue {
         } else {
             job.retry_count += 1;
             if job.retry_count > job.max_retries {
-                job.status = JobStatus::Failed;
+                // Retry cap exceeded — quarantine instead of terminal-fail.
+                // Dead-letter preserves payload + error for admin inspection.
+                job.status = JobStatus::DeadLettered;
             } else {
                 job.status = JobStatus::Pending;
                 job.assigned_node_id = None;
@@ -257,6 +262,28 @@ impl JobQueue {
         Ok(updated)
     }
 
+    /// Admin recovery path: return a dead-lettered job to the claimable pool.
+    /// Resets retry_count so the cap applies fresh. Only DeadLettered jobs are
+    /// eligible — requeueing a running/completed job would corrupt state.
+    pub async fn requeue_job(&self, job_id: &str) -> Result<Job, JobQueueError> {
+        let mut data = self.inner.write().await;
+        let job = data
+            .jobs
+            .iter_mut()
+            .find(|j| j.job_id == job_id)
+            .ok_or(JobQueueError::JobNotFound)?;
+        if job.status != JobStatus::DeadLettered {
+            return Err(JobQueueError::NotClaimable);
+        }
+        job.status = JobStatus::Pending;
+        job.retry_count = 0;
+        job.assigned_node_id = None;
+        job.claimed_at = None;
+        let updated = job.clone();
+        self.persist_locked(&data).await.ok();
+        Ok(updated)
+    }
+
     pub async fn reap_stale_jobs(
         &self,
         node_registry: &NodeRegistry,
@@ -289,11 +316,17 @@ impl JobQueue {
                     continue;
                 }
             }
-            // Requeue
-            job.status = JobStatus::Pending;
+            // Requeue — unless the retry cap is exhausted, in which case the
+            // job dead-letters instead of looping forever (a vanished node +
+            // poison job would otherwise requeue every reap tick forever).
             job.assigned_node_id = None;
             job.claimed_at = None;
             job.retry_count += 1;
+            if job.retry_count > job.max_retries {
+                job.status = JobStatus::DeadLettered;
+            } else {
+                job.status = JobStatus::Pending;
+            }
             requeued.push(job.clone());
         }
         if !requeued.is_empty() {
@@ -620,7 +653,41 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(r2.status, JobStatus::Failed);
+        assert_eq!(r2.status, JobStatus::DeadLettered);
         assert_eq!(r2.retry_count, 2);
+
+        // Dead-lettered job must NOT be claimable.
+        let claim = q
+            .claim_next(
+                &reg,
+                ClaimJobRequest {
+                    node_id: joined.node.node_id.clone(),
+                    node_secret: joined.node_secret.clone(),
+                    capabilities: vec![NodeCapability::ThumbnailWorker],
+                },
+            )
+            .await;
+        assert_eq!(claim.unwrap_err(), JobQueueError::NoMatchingJob);
+
+        // Admin requeue returns it to the claimable pool with a fresh cap.
+        let requeued = q.requeue_job(&job.job_id).await.unwrap();
+        assert_eq!(requeued.status, JobStatus::Pending);
+        assert_eq!(requeued.retry_count, 0);
+        let claimed = q
+            .claim_next(
+                &reg,
+                ClaimJobRequest {
+                    node_id: joined.node.node_id.clone(),
+                    node_secret: joined.node_secret.clone(),
+                    capabilities: vec![NodeCapability::ThumbnailWorker],
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(claimed.job_id, job.job_id);
+
+        // Requeue only applies to dead-lettered jobs.
+        let wrong = q.requeue_job(&job.job_id).await;
+        assert_eq!(wrong.unwrap_err(), JobQueueError::NotClaimable);
     }
 }
