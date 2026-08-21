@@ -31,6 +31,9 @@ pub struct JwtClaims {
     /// Decodes to `false` for ordinary tokens, which never carry this claim.
     #[serde(default)]
     pub stepup: bool,
+    /// Token type: "access" or "refresh". Missing = legacy access token (backward compat).
+    #[serde(default)]
+    pub token_type: String,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +81,7 @@ impl AuthUser {
 #[allow(dead_code)]
 pub struct OptionalAuthUser(pub Option<AuthUser>);
 
-async fn decode_token(token: &str, jwt_secret: &str) -> Result<JwtClaims, AppError> {
+pub async fn decode_token(token: &str, jwt_secret: &str) -> Result<JwtClaims, AppError> {
     let key = DecodingKey::from_secret(jwt_secret.as_bytes());
     let mut validation = Validation::default();
     validation.validate_exp = true;
@@ -193,6 +196,10 @@ where
         // JWTs never hit the token table, then fall back to wblore_ lookup.
         match decode_token(token, &app_state.config.jwt_secret).await {
             Ok(claims) => {
+                // Reject refresh tokens — they must never authenticate API calls.
+                if claims.token_type == "refresh" {
+                    return Err(AppError::Unauthorized("refresh token cannot be used for authentication".into()).into_response());
+                }
                 // Reject revoked tokens (single jti, whole user, or pre-epoch).
                 let sub = claims.sub.parse::<i64>().unwrap_or(-1);
                 if app_state
@@ -254,6 +261,10 @@ where
 
         match decode_token(token, &app_state.config.jwt_secret).await {
             Ok(claims) => {
+                // Reject refresh tokens — they must never authenticate API calls.
+                if claims.token_type == "refresh" {
+                    return Ok(OptionalAuthUser(None));
+                }
                 let sub = claims.sub.parse::<i64>().unwrap_or(-1);
                 // WS-4b: revocation check for optional auth.
                 if app_state.is_token_revoked(&claims.jti, sub, claims.iat).await {
@@ -339,6 +350,7 @@ mod tests {
             iat: 1,
             jti: "test-jti".into(),
             stepup,
+            token_type: "access".into(),
         };
         encode(
             &Header::default(),
