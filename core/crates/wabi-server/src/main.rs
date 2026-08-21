@@ -1042,13 +1042,16 @@ async fn metrics_handler() -> axum::response::Response {
         .into_response()
 }
 
-/// Middleware: count each request. Cheap; atomic increment.
+/// Middleware: count each request and record its latency. Cheap atomic ops.
 async fn metrics_middleware(
     request: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     crate::metrics::MetricsState::record_request();
-    next.run(request).await
+    let start = std::time::Instant::now();
+    let response = next.run(request).await;
+    crate::metrics::MetricsState::record_latency_ms(start.elapsed().as_millis() as u64);
+    response
 }
 
 /// Serve static assets with SPA fallback

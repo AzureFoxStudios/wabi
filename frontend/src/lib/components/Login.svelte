@@ -102,15 +102,15 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		loading = true;
 		try {
 			const result = await register(username, password, cleanHandle);
-			setAuthToken(result.token);
+			setAuthToken(result.accessToken);
 			setRefreshToken(result.refreshToken);
 			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
 			if (wizardMode) {
 				// Owner account created — continue to the join-policy step before entering.
-				pendingOwnerLogin = { username: result.user.username, token: result.token };
+				pendingOwnerLogin = { username: result.user.username, token: result.accessToken };
 				wizardStep = 2;
 			}
-			else { pendingRegisteredLogin = { username: result.user.username, token: result.token }; showHomeExperiencePrompt = true; }
+			else { pendingRegisteredLogin = { username: result.user.username, token: result.accessToken }; showHomeExperiencePrompt = true; }
 		} catch (err) { error = err instanceof Error ? err.message : t('login.errors.registration_failed'); }
 		finally { loading = false; }
 	}
@@ -155,12 +155,12 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		loading = true;
 		try {
 			const result = await login(username, password);
-					setAuthToken(result.token);
+					setAuthToken(result.accessToken);
 					setRefreshToken(result.refreshToken);
-					if (rememberMe) setPersistentAuthToken(result.token);
+					if (rememberMe) setPersistentAuthToken(result.accessToken);
 			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
 			localStorage.setItem('wabi_has_logged_in', 'true');
-			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered', mustChangePassword: result.mustChangePassword === true });
+			dispatch('login', { username: result.user.username, token: result.accessToken, authMethod: 'registered', mustChangePassword: result.mustChangePassword === true });
 		} catch (err) { error = err instanceof Error ? err.message : t('login.errors.login_failed'); }
 		finally { loading = false; }
 	}

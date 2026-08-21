@@ -11,11 +11,18 @@ export interface AuthUserProfile {
 }
 
 export interface AuthResponse {
-	token: string;
-	accessToken?: string;
+	/** Primary field going forward (A1 rotation). Backend serializes it. */
+	accessToken: string;
+	/** Legacy alias of accessToken — still serialized for older clients. */
+	token?: string;
 	refreshToken?: string;
 	mustChangePassword?: boolean;
 	user: AuthUserProfile;
+}
+
+/** Resolve the access token from either wire spelling (migration helper). */
+export function authAccessToken(res: Pick<AuthResponse, 'accessToken' | 'token'>): string {
+	return res.accessToken || res.token || '';
 }
 
 export interface UserSettingsResponse {

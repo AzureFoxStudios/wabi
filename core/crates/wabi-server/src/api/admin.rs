@@ -1221,6 +1221,11 @@ struct RevokeUserInput {
 #[derive(Debug, Deserialize)]
 struct RevokeTokenInput {
     jti: String,
+    /// Optional token expiration (unix seconds). Supplied entries become
+    /// prunable once past; omitted entries are kept indefinitely (same
+    /// semantics as legacy revoked jtis).
+    #[serde(default)]
+    exp: Option<i64>,
 }
 
 /// Force-logout every token for a user. Cannot be used on the server owner.
@@ -1261,7 +1266,9 @@ async fn revoke_token(
     if let Err(resp) = admin_auth(&headers, &state).await {
         return resp;
     }
-    state.revoke_token(input.jti.clone()).await;
+    state
+        .revoke_token_with_exp(input.jti.clone(), input.exp.unwrap_or(i64::MAX))
+        .await;
     Json(json!({ "success": true, "jti": input.jti })).into_response()
 }
 

@@ -321,7 +321,7 @@ async fn handle_logout(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Value>> {
-    state.revoke_token(auth.jti).await;
+    state.revoke_token_with_exp(auth.jti, auth.exp).await;
     Ok(Json(json!({ "success": true })))
 }
 
@@ -373,8 +373,8 @@ async fn handle_refresh(
         }
     }
 
-    // Burn the presented refresh token
-    state.revoke_token(claims.jti).await;
+    // Burn the presented refresh token (with its exp so the entry prunes later)
+    state.revoke_token_with_exp(claims.jti, claims.exp).await;
 
     // Load user profile for response
     let user_row = state
