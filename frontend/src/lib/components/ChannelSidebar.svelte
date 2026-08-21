@@ -267,14 +267,14 @@
 		document.addEventListener('pointerdown', onPtr); document.addEventListener('keydown', onKey);
 		// A6: gate Asset Storage create option on server lore capability.
 		// Negative results are NOT cached (see addonInventory) so a flaky
-		// first probe re-runs; the create form renders the Code chip in a
+		// first probe re-runs; the create form renders the Project chip in a
 		// disabled state instead of hiding it, and never force-resets a
 		// selection.
 		void hasAddonCapability('lore').then((ok) => {
 	loreAvailable = ok;
 		});
-		// Allow the LoreWorkspace "New Code Channel" button to open this form
-		// pre-selected for the lore type. Always open the form; the Code chip
+		// Allow the LoreWorkspace "New Project Channel" button to open this form
+		// pre-selected for the lore type. Always open the form; the Project chip
 		// renders only when the lore capability resolves true (and the type
 		// falls back to text if lore turns out unavailable).
 		const onCreateChannelRequest = (e: Event) => {
@@ -286,8 +286,8 @@
 			createNewFolderName = '';
 			showCreateInput = true;
 			// Same re-probe as toggleCreateInputForType: a flaky mount-time
-			// capability probe must not leave the Code chip disabled when the
-			// form is opened from the LoreWorkspace "New Code Channel" button.
+			// capability probe must not leave the Project chip disabled when the
+			// form is opened from the LoreWorkspace "New Project Channel" button.
 			void refreshLoreCapability();
 			void tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 		};
@@ -787,8 +787,8 @@
 			createFolderChoice = 'none';
 			createNewFolderName = '';
 			showCreateInput = false;
-			// Code channels: land the user inside the new channel so they see
-			// the repo shell (file tree etc.) instead of being left on the hub.
+			// Project channels: land the user inside the new channel so they see
+			// the repo workspace (file tree etc.) instead of being left on the hub.
 			if (createdType === 'lore' && createdId) {
 				// give the optimistic upsert a tick, then switch into it
 				await new Promise((r) => setTimeout(r, 50));
@@ -817,7 +817,7 @@
 		showCreateInput = true;
 		// Re-probe lore capability when the form opens: the mount-time check
 		// may have raced the very first page load and returned false, which
-		// would otherwise leave the Code chip stuck on "Addon unavailable".
+		// would otherwise leave the Project chip stuck on "Addon unavailable".
 		void refreshLoreCapability();
 		tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 	}

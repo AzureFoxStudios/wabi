@@ -58,7 +58,7 @@
 	import ChatHeader from './chat/ChatHeader.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
 	import GalleryChannel from './GalleryChannel.svelte';
-	import LoreChannelCard from './lore/LoreChannelCard.svelte';
+	import LoreChannelShell from './lore/LoreChannelShell.svelte';
 	import ForumChannel from './ForumChannel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 import ReceptionBoard from './ReceptionBoard.svelte';
@@ -110,7 +110,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			case 'model': return '3D Viewport';
 			case 'map': return 'Map';
 			case 'media': return 'Media Albums';
-			case 'lore': return selectedWorkspaceView === 'lore' ? 'Code' : '';
+			case 'lore': return selectedWorkspaceView === 'lore' ? 'Project' : '';
 			case 'files': return 'Files';
 			default: return '';
 		}
@@ -438,14 +438,18 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	{/if}
 
 	{#if currentChannelType === 'lore' && selectedWorkspaceView === 'messages'}
-		<LoreChannelCard channelId={$currentChannel} channelName={channelDisplayName} />
+		<!-- Project channels ARE their view: the repo workspace is the default
+		     surface, not a teaser card pointing at the server-wide hub. -->
+		<div class="lore-channel-surface">
+			<LoreChannelShell />
+		</div>
 	{/if}
 
 	<!-- TEMPORARY: DMs now render in center like channels -->
 	<div
 		class="messages"
 		bind:this={chatContainer}
-		class:surface-hidden={chatSurface !== 'messages'}
+		class:surface-hidden={chatSurface !== 'messages' || (currentChannelType === 'lore' && selectedWorkspaceView === 'messages')}
 		on:scroll={(e) => {
 			// Mobile composer auto-hide on scroll
 			if ($isMobile) {
@@ -461,7 +465,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			}
 		}}
 	>
-		>{#if isLiveChannel}
+		{#if isLiveChannel}
 			<LiveChannelView channel={currentChannelData} />
 		{:else if selectedWorkspaceView === 'planner'}
 			<PlannerWorkspace />

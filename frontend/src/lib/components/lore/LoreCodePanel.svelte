@@ -65,7 +65,7 @@
 {#if channelId}
 	<div class="lore-code-panel">
 		<div class="panel-head">
-			<span class="panel-title">Code</span>
+			<span class="panel-title">Project</span>
 			{#if $loreRepo}
 				<span class="repo-name" title={$loreRepo.repoName}>{$loreRepo.repoName}</span>
 			{/if}
@@ -74,7 +74,7 @@
 		{#if loading}
 			<div class="panel-empty">Loading repo…</div>
 		{:else if !$loreRepo}
-			<div class="panel-empty">Open a Code channel to browse its repo.</div>
+			<div class="panel-empty">Open a Project channel to browse its repo.</div>
 		{:else}
 			<div class="panel-tree">
 				<LoreFileTree

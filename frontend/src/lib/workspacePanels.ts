@@ -189,8 +189,8 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	},
 	{
 		id: 'code',
-		label: 'Code',
-		shortLabel: 'Code',
+		label: 'Project',
+		shortLabel: 'Project',
 		icon: 'box',
 		component: 'code',
 		capabilities: ['repo-browse'],

@@ -84,8 +84,8 @@
 			class:active={activeView === 'lore'}
 			type="button"
 			onclick={() => onSelectView('lore')}
-			title="Open Code (Lore repositories)"
-			aria-label="Open Code (Lore repositories)"
+			title="Open Project (Lore repositories)"
+			aria-label="Open Project (Lore repositories)"
 		>
 			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 				<polyline points="16 18 22 12 16 6"></polyline>
