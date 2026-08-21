@@ -52,12 +52,8 @@ async fn on_voice_segment(socket: SocketRef, data: Value, state: &SioState, io: 
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -97,12 +93,8 @@ async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, 
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
 
     if user_id_num <= 0 {
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Guests cannot react" }));
@@ -162,12 +154,8 @@ async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioStat
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
 
     if user_id_num <= 0 {
         return;

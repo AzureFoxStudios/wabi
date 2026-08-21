@@ -114,6 +114,10 @@ fn doc_version(doc: &Value) -> u64 {
 }
 
 fn authenticated_user_id(socket: &SocketRef, state: &SioState) -> i64 {
+    if let Some(id) = socket.extensions.get::<SioIdentity>() {
+        return id.user_id;
+    }
+    // Fallback for legacy connections without handshake identity.
     let token = socket
         .extensions
         .get::<AuthToken>()

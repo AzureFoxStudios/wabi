@@ -407,13 +407,9 @@ async fn on_delete_message(socket: SocketRef, cmd: Value, state: SioState, io: S
     };
 
     // Auth check — must have a real user account (not guest)
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
-    let username = username_from_token(&token, &state.app.config.jwt_secret).unwrap_or_default();
+    let identity = resolve_sio_identity(&socket);
+    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let username = identity.as_ref().map(|i| i.username.clone()).unwrap_or_default();
     let is_admin = if user_id > 0 {
         state.app.is_admin(user_id).await
     } else {
@@ -514,12 +510,8 @@ async fn on_clear_channel_messages(socket: SocketRef, cmd: Value, state: SioStat
         return;
     }
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
 
     if user_id <= 0 {
         let _ = socket.emit(
@@ -564,12 +556,9 @@ async fn on_typing(socket: SocketRef, data: Value, state: SioState) {
         Some(id) => id.to_string(),
         None => return,
     };
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
+    let username = resolve_sio_identity(&socket)
+        .map(|i| i.username)
         .unwrap_or_default();
-    let username = username_from_token(&token, &state.app.config.jwt_secret).unwrap_or_default();
     let _ = socket
         .broadcast()
         .to(channel_id.clone())

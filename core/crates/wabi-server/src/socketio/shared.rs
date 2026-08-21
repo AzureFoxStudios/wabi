@@ -24,7 +24,82 @@ use crate::state::AppState;
 
 #[derive(Clone)]
 #[allow(dead_code)]
-struct AuthToken(String);
+pub(crate) struct AuthToken(pub String);
+
+/// Handshake-validated identity stored in socket extensions after JWT
+/// validation at connect time. Handlers read this instead of re-decoding
+/// the token on every event.
+#[derive(Clone, Debug)]
+pub(crate) struct SioIdentity {
+    pub user_id: i64,
+    pub username: String,
+    pub is_guest: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Handshake-time token validation + identity helpers
+// ---------------------------------------------------------------------------
+
+/// Synchronous JWT validation for the handshake connect closure.
+/// Returns `Ok(SioIdentity)` if the token has a valid signature and is not
+/// expired; `Err(message)` otherwise. Revocation and ban checks are deferred
+/// to `resolve_identity` (async, per-event).
+pub(crate) fn validate_token_sync(token: &str, secret: &str) -> Result<SioIdentity, &'static str> {
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+
+    if token.is_empty() {
+        return Err("missing token");
+    }
+
+    #[derive(Deserialize)]
+    struct Claims {
+        sub: String,
+        username: String,
+        #[serde(default)]
+        is_guest: bool,
+    }
+
+    let key = DecodingKey::from_secret(secret.as_bytes());
+    let mut v = Validation::default();
+    v.validate_exp = true;
+    v.leeway = 60;
+
+    let data = decode::<Claims>(token, &key, &v).map_err(|e| {
+        if e.kind() == &jsonwebtoken::errors::ErrorKind::ExpiredSignature {
+            "token expired"
+        } else {
+            "invalid token"
+        }
+    })?;
+
+    let user_id = data.claims.sub.parse::<i64>().map_err(|_| "invalid user id")?;
+    if user_id <= 0 {
+        return Err("invalid user id");
+    }
+
+    Ok(SioIdentity {
+        user_id,
+        username: data.claims.username,
+        is_guest: data.claims.is_guest,
+    })
+}
+
+/// Read the handshake-validated `SioIdentity` from socket extensions.
+/// Returns `None` if the socket was not authenticated at handshake time.
+pub(crate) fn resolve_sio_identity(socket: &SocketRef) -> Option<SioIdentity> {
+    socket.extensions.get::<SioIdentity>().map(|x| x.clone())
+}
+
+/// Compute the stable user id string from the handshake-validated identity.
+/// Falls back to the raw socket id for unauthenticated connections (should
+/// not happen after handshake enforcement, but kept for defence-in-depth).
+pub(crate) fn get_stable_id(socket: &SocketRef) -> String {
+    if let Some(id) = socket.extensions.get::<SioIdentity>() {
+        format!("user-{}", id.user_id)
+    } else {
+        socket.id.to_string()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Shared real-time state
@@ -265,35 +340,51 @@ struct SocketTokenClaims {
     iat: i64,
 }
 
-/// Resolve the socket's identity from its bearer token — decode once, check
-/// revocation, check ban. Returns None on any failure; the caller emits an
-/// error event and returns. For revoked tokens this emits `auth-revoked` and
-/// disconnects the socket before returning None.
+/// Resolve the socket's identity from the handshake-validated `SioIdentity`
+/// extension, then check revocation and ban status. Returns `None` on any
+/// failure; the caller emits an error event and returns. For revoked tokens
+/// this emits `auth-revoked` and disconnects the socket before returning
+/// `None`.
+///
+/// Token signature/expiry are already validated at handshake. This only
+/// performs the async checks (revocation + ban) that cannot run in the
+/// connect closure.
 pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<SocketIdentity> {
+    let sio = socket.extensions.get::<SioIdentity>().map(|x| x.clone());
+
+    let (user_id, username, is_guest) = if let Some(ref id) = sio {
+        (id.user_id, id.username.clone(), id.is_guest)
+    } else {
+        // Fallback: no handshake identity (e.g. legacy connection).
+        // Try reading the raw token and decoding.
+        let token = socket
+            .extensions
+            .get::<AuthToken>()
+            .map(|t| t.0.clone())
+            .unwrap_or_default();
+        if token.is_empty() {
+            return None;
+        }
+        let claims = decode_socket_claims(&token, &state.app.config.jwt_secret).await?;
+        let uid = claims.sub.parse::<i64>().unwrap_or(-1);
+        if uid <= 0 {
+            return None;
+        }
+        (uid, claims.username, claims.is_guest)
+    };
+
+    // Revoked tokens get a disconnect, not just a rejected handler.
     let token = socket
         .extensions
         .get::<AuthToken>()
         .map(|t| t.0.clone())
         .unwrap_or_default();
-
-    if token.is_empty() {
-        return None;
-    }
-
-    // Revoked tokens get a disconnect, not just a rejected handler.
     if socket_token_revoked(&state.app, &token).await {
         let _ = socket.emit(
             "auth-revoked",
             &json!({ "reason": "session revoked; please sign in again" }),
         );
         let _ = socket.clone().disconnect();
-        return None;
-    }
-
-    let claims = decode_socket_claims(&token, &state.app.config.jwt_secret).await?;
-
-    let user_id = claims.sub.parse::<i64>().unwrap_or(-1);
-    if user_id <= 0 {
         return None;
     }
 
@@ -305,10 +396,10 @@ pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<So
 
     Some(SocketIdentity {
         user_id,
-        username: claims.username,
-        is_guest: claims.is_guest,
-        jti: claims.jti,
-        iat: claims.iat,
+        username,
+        is_guest,
+        jti: String::new(),
+        iat: 0,
     })
 }
 
@@ -568,6 +659,10 @@ fn new_message_id(channel_id: &str, username: &str) -> String {
 
 #[allow(dead_code)]
 fn get_my_stable_id(socket: &SocketRef, jwt_secret: &str) -> String {
+    if let Some(id) = socket.extensions.get::<SioIdentity>() {
+        return format!("user-{}", id.user_id);
+    }
+    // Fallback for legacy connections without handshake identity.
     let token = socket
         .extensions
         .get::<AuthToken>()

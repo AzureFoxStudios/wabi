@@ -26,6 +26,24 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
         |socket: SocketRef, Data(auth): Data<Value>, State(state): State<SioState>, io: SocketIo| {
             info!("[sio] connected: {}", socket.id);
             let token = auth.get("token").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+            // Handshake-time JWT validation: reject invalid/expired tokens
+            // before any handlers are registered. Valid tokens get a typed
+            // SioIdentity extension so handlers never re-decode the JWT.
+            if !token.is_empty() {
+                match validate_token_sync(&token, &state.app.config.jwt_secret) {
+                    Ok(identity) => {
+                        socket.extensions.insert(identity);
+                    }
+                    Err(reason) => {
+                        warn!("[sio] handshake auth failed for {}: {}", socket.id, reason);
+                        let _ = socket.emit("auth-failed", &json!({ "reason": reason }));
+                        let _ = socket.disconnect();
+                        return;
+                    }
+                }
+            }
+
             socket.extensions.insert(AuthToken(token));
 
             socket.on("join", {

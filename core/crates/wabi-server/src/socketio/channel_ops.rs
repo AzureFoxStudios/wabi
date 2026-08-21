@@ -18,8 +18,8 @@ async fn on_create_thread(socket: SocketRef, data: Value, state: SioState, io: S
         }
     };
 
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if user_id <= 0 {
         let _ = socket.emit("create-thread-error", &json!({"error": "Authentication required"}));
         return;
@@ -52,8 +52,8 @@ async fn on_pin_channel(socket: SocketRef, data: Value, state: SioState, io: Soc
         None => return,
     };
 
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if user_id <= 0 {
         let _ = socket.emit("pin-channel-error", &json!({"error": "Authentication required"}));
         return;
@@ -79,8 +79,8 @@ async fn on_unpin_channel(socket: SocketRef, data: Value, state: SioState, io: S
         None => return,
     };
 
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if user_id <= 0 {
         let _ = socket.emit("unpin-channel-error", &json!({"error": "Authentication required"}));
         return;
@@ -106,8 +106,8 @@ async fn on_reorder_channels(socket: SocketRef, data: Value, state: SioState, io
         None => return,
     };
 
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if caller_id <= 0 {
         let _ = socket.emit("reorder-channels-error", &json!({"error": "Authentication required"}));
         return;
