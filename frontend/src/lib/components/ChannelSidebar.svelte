@@ -115,10 +115,32 @@
 	let isPlanningSectionExpanded = true;
 	let channelSearchQuery = '';
 	let collapsedCategories = new Set<string>();
+	// Folder collapse state persists per-server across reloads and surface
+	// switches. Keyed by server URL under one localStorage entry.
+	const FOLDER_COLLAPSE_KEY = 'wabi-sidebar-folders';
+	try {
+		const rawState = localStorage.getItem(FOLDER_COLLAPSE_KEY);
+		if (rawState) {
+			const parsed = JSON.parse(rawState) as Record<string, unknown>;
+			const ids = parsed[resolveServerUrl().url];
+			if (Array.isArray(ids)) {
+				collapsedCategories = new Set(ids.filter((id): id is string => typeof id === 'string'));
+			}
+		}
+	} catch {}
+	function persistCollapsedCategories() {
+		try {
+			let all: Record<string, unknown> = {};
+			try { all = JSON.parse(localStorage.getItem(FOLDER_COLLAPSE_KEY) || '{}') as Record<string, unknown>; } catch {}
+			all[resolveServerUrl().url] = [...collapsedCategories];
+			localStorage.setItem(FOLDER_COLLAPSE_KEY, JSON.stringify(all));
+		} catch {}
+	}
 	function toggleCategory(id: string) {
 		if (collapsedCategories.has(id)) collapsedCategories.delete(id);
 		else collapsedCategories.add(id);
 		collapsedCategories = collapsedCategories;
+		persistCollapsedCategories();
 	}
 	let voiceDurationMode: 'off' | 'others' | 'all' = 'off';
 	let nowMs = Date.now();

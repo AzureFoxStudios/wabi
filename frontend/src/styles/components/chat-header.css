@@ -136,57 +136,24 @@
 		margin-left: 0.2rem;
 	}
 
-	/* Desktop hover compaction: collapse non-active workspace view buttons until hover */
+	/* Desktop hover compaction: hide non-active workspace view buttons until hover.
+	   Slots stay reserved (opacity-only) so the active pill never slides around
+	   when switching channels or views. */
 	@media (hover: hover) {
-	.workspace-view-actions.compactable {
-		gap: 0;
-		transition: gap var(--duration-normal) ease;
-	}
-
 	.workspace-view-actions.compactable .view-open-btn {
-		width: 0;
-		min-width: 0;
 		opacity: 0;
-		margin: 0;
-		padding: 0;
-		border-width: 0;
-		transform: none;
-		overflow: hidden;
 		pointer-events: none;
-		transition:
-			width var(--duration-normal) ease,
-			opacity var(--duration-normal) ease,
-			transform var(--duration-normal) ease,
-			border-width var(--duration-normal) ease,
-			padding var(--duration-normal) ease,
-			margin var(--duration-normal) ease !important;
+		transition: opacity var(--duration-normal) ease;
 	}
 
-		.workspace-view-actions.compactable .view-open-btn.active {
-			width: 32px;
-			min-width: 32px;
-			opacity: 1;
-			border-width: 1px;
-			transform: translateX(0) scale(1);
-			pointer-events: auto;
-		}
-
-		.workspace-view-actions.compactable:hover,
-		.workspace-view-actions.compactable:focus-within {
-			gap: var(--space-1);
-		}
-
+		.workspace-view-actions.compactable .view-open-btn.active,
 		.workspace-view-actions.compactable:hover .view-open-btn,
 		.workspace-view-actions.compactable:focus-within .view-open-btn {
-			width: 32px;
-			min-width: 32px;
 			opacity: 1;
-			border-width: 1px;
-			transform: translateX(0) scale(1);
 			pointer-events: auto;
 		}
 
 		.workspace-view-actions.compactable .view-open-btn:hover {
-			transform: translateY(-1px) scale(1.04) !important;
+			transform: translateY(-1px) scale(1.04);
 		}
 	}
