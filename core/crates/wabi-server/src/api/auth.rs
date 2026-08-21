@@ -583,10 +583,16 @@ fn generate_access_jwt(state: &AppState, user_id: i64, username: &str, is_guest:
     Ok(token)
 }
 
-/// Generate JWT refresh token for authenticated user (30 day TTL)
+/// Generate JWT refresh token for authenticated user (30 day TTL).
+/// Guests are capped at 24h — a guest identity must not outlive the tab
+/// by 30 days (pre-rotation semantics: guest tokens expired in 24h).
 fn generate_refresh_jwt(state: &AppState, user_id: i64, username: &str, is_guest: bool) -> Result<String> {
     let now = Utc::now();
-    let expiration = now + Duration::days(30);
+    let expiration = if is_guest {
+        now + Duration::hours(24)
+    } else {
+        now + Duration::days(30)
+    };
 
     let claims = JwtClaims {
         sub: user_id.to_string(),

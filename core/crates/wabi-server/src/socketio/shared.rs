@@ -57,6 +57,8 @@ pub(crate) fn validate_token_sync(token: &str, secret: &str) -> Result<SioIdenti
         username: String,
         #[serde(default)]
         is_guest: bool,
+        #[serde(default)]
+        token_type: String,
     }
 
     let key = DecodingKey::from_secret(secret.as_bytes());
@@ -71,6 +73,12 @@ pub(crate) fn validate_token_sync(token: &str, secret: &str) -> Result<SioIdenti
             "invalid token"
         }
     })?;
+
+    // Refresh tokens must never open a socket — they are exchange-only
+    // credentials for POST /api/auth/refresh (mirrors the AuthUser extractor).
+    if data.claims.token_type == "refresh" {
+        return Err("refresh tokens cannot authenticate sockets");
+    }
 
     let user_id = data.claims.sub.parse::<i64>().map_err(|_| "invalid user id")?;
     if user_id <= 0 {
