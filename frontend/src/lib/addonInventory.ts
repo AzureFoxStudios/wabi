@@ -156,8 +156,8 @@ export async function fetchPluginInventory(): Promise<PluginApiRecord[] | null> 
  * Never remote-imports frontend code.
  *
  * Results are cached per addon id so repeat checks resolve instantly
- * (this was a real UX bug: the create-form Code chip and the
- * LoreWorkspace "New Code Channel" button both raced the first fetch
+ * (this was a real UX bug: the create-form Project chip and the
+ * LoreWorkspace "New Project Channel" button both raced the first fetch
  * and silently swallowed clicks when the check was still pending).
  */
 const capabilityCache = new Map<string, Promise<boolean>>();
@@ -191,7 +191,7 @@ export function hasAddonCapability(addonId: string): Promise<boolean> {
 		} finally {
 			// A negative result must NOT be cached forever: the inventory
 			// fetch can race the very first page load (stale shell, flaky
-			// network) and a permanent `false` silently hides the Code chip
+			// network) and a permanent `false` silently hides the Project chip
 			// for the whole session. Only positive results are sticky; a
 			// `false` resolution is evicted so the next call re-probes.
 			if (!result && capabilityCache.get(normalizedId) === promise) {

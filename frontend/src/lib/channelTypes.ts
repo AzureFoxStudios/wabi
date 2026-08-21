@@ -31,7 +31,7 @@ export function getChannelTypeLabel(type: string | null | undefined): string {
 		case 'stage':
 			return 'Stage';
 		case 'lore':
-			return 'Code';
+			return 'Project';
 		case 'planning':
 			return 'Planning';
 		case 'reception':

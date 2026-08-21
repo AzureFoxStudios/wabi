@@ -182,16 +182,16 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 					<path d="M10 9H8"/>
 				</svg>
 				<div>
-					<h2>Code</h2>
+					<h2>Project</h2>
 					<p>Versioned repositories — browse files, history, diffs, and scripts</p>
 				</div>
 			</div>
-			<button class="new-code-btn" onclick={openCreateForm} title="Create a code channel">
+			<button class="new-code-btn" onclick={openCreateForm} title="Create a project channel">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
 					<line x1="12" y1="5" x2="12" y2="19"/>
 					<line x1="5" y1="12" x2="19" y2="12"/>
 				</svg>
-				New Code Channel
+				New Project Channel
 			</button>
 		</header>
 
@@ -202,14 +202,14 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 				<line x1="16" y1="13" x2="8" y2="13"/>
 				<line x1="16" y1="17" x2="8" y2="17"/>
 			</svg>
-			<h3>No code channels yet</h3>
-			<p>Create a Code channel to start a versioned repository — browse files, commit history, and diffs right inside Wabi.</p>
+			<h3>No project channels yet</h3>
+			<p>Create a Project channel to start a versioned repository — browse files, commit history, and diffs right inside Wabi.</p>
 			<button class="new-code-btn" onclick={openCreateForm}>
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
 					<line x1="12" y1="5" x2="12" y2="19"/>
 					<line x1="5" y1="12" x2="19" y2="12"/>
 				</svg>
-				Create your first Code channel
+				Create your first Project channel
 			</button>
 			<p class="lore-empty-hint">Uses Epic Games Lore — a fully open-source version control system. No cloud, no third party.</p>
 		</div>
@@ -253,7 +253,7 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 					<polyline points="6 9 12 15 18 9"/>
 				</svg>
 			</div>
-			<button class="new-code-btn small" onclick={openCreateForm} title="Create a code channel">
+			<button class="new-code-btn small" onclick={openCreateForm} title="Create a project channel">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
 					<line x1="12" y1="5" x2="12" y2="19"/>
 					<line x1="5" y1="12" x2="19" y2="12"/>

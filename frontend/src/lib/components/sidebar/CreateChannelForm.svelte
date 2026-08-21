@@ -45,7 +45,7 @@
 			{ id: 'wiki', label: 'Wiki', hint: 'Pages & revisions', icon: 'book' },
 			{ id: 'planning', label: 'Planner', hint: 'Board & calendar', icon: 'kanban' },
 			{ id: 'category', label: 'Folder', hint: 'Group channels', icon: 'folder' },
-			{ id: 'lore', label: 'Code', hint: 'Versioned code & files', icon: 'box' }
+			{ id: 'lore', label: 'Project', hint: 'Versioned files & repo', icon: 'box' }
 		] as TypeOption[]
 	);
 
@@ -141,7 +141,7 @@
 						aria-selected={newChannelType === opt.id}
 						aria-disabled={chipDisabled}
 						on:click={() => { if (!chipDisabled) onTypeChange(opt.id); }}
-						title={chipDisabled ? 'Code channels unavailable — lore addon not enabled on this server' : opt.hint}
+						title={chipDisabled ? 'Project channels unavailable — lore addon not enabled on this server' : opt.hint}
 					>
 						<span class="create-type-icon" data-icon={opt.icon} aria-hidden="true"></span>
 						<span class="create-type-text">
