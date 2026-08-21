@@ -113,11 +113,9 @@ export function deriveServerView(entry: SavedServerEntry, activeUrl: string | nu
 		metadata?.description ||
 		(useLaunchFallback ? launch?.subheadline || null : null) ||
 		null;
-	const effectiveTagline =
-		metadata?.tagline ||
-		metadata?.description ||
-		(useLaunchFallback ? launch?.subheadline || null : null) ||
-		null;
+	// Tagline must be a distinct field — never fall back to the description,
+	// or every panel renders the same sentence twice.
+	const effectiveTagline = metadata?.tagline || null;
 	return {
 		...entry,
 		hasRegisteredSession,

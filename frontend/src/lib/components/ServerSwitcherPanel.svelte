@@ -674,12 +674,14 @@
 			<div class="switcher-eyebrow">Servers</div>
 			<h2>{showcaseServer?.effectiveName || 'Saved servers'}</h2>
 			<p>{getShowcaseDescription(showcaseServer)}</p>
-			{#if showcaseServer?.effectiveTagline}
-				<p class="switcher-showcase-tagline">{showcaseServer.effectiveTagline}</p>
-			{/if}
 		</div>
 
-		<button type="button" class="switcher-close" aria-label="Close server switcher" on:click={() => dispatch('close')}>x</button>
+		<button type="button" class="switcher-close" aria-label="Close server switcher" on:click={() => dispatch('close')}>
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M18 6L6 18" />
+				<path d="M6 6l12 12" />
+			</svg>
+		</button>
 	</div>
 
 	<div class="switcher-body">

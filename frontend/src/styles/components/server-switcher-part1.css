@@ -112,12 +112,25 @@
 	right: 0.95rem;
 	width: 34px;
 	height: 34px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
 	border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
 	border-radius: var(--radius-md);
 	background: var(--surface-overlay, rgba(3, 7, 18, 0.42));
 	color: var(--text-inverse, var(--text-inverse, #f8fafc));
 	cursor: pointer;
 	z-index: 2;
+}
+
+.switcher-close svg {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
 }
 
 .server-switcher.dock-right .switcher-close {

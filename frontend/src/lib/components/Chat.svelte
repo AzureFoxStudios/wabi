@@ -110,7 +110,6 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			case 'model': return '3D Viewport';
 			case 'map': return 'Map';
 			case 'media': return 'Media Albums';
-			case 'lore': return selectedWorkspaceView === 'lore' ? 'Project' : '';
 			case 'files': return 'Files';
 			default: return '';
 		}
@@ -129,7 +128,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			case 'reader': return `Opened from #${channelDisplayName}`;
 			case 'model': return `Opened from #${channelDisplayName}`;
 			case 'map': return channelDisplayName ? `Opened from #${channelDisplayName}` : 'Map workspace';
-			case 'lore': return 'Versioned repositories for this server';
+			case 'lore': return channelDescription;
 			case 'files': return "Shared files across this server's spaces";
 			default: return channelDescription;
 		}
