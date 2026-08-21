@@ -85,6 +85,17 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	$: chatSurface = $currentChatSurface;
 	const { activeTabId: mobileQueueActiveTabId } = mobileTabQueue;
 	let selectedWorkspaceView: WorkspaceViewKey = 'messages';
+
+	// Project (lore) channels get an explicit Files | Chat toggle. 'files'
+	// is the default landing; Chat restores the normal message stream +
+	// composer so the channel's conversation is reachable without leaving
+	// the channel (and without a reload).
+	let projectChannelMode: 'files' | 'chat' = 'files';
+	$: if (currentChannelType !== 'lore') projectChannelMode = 'files';
+
+	function setProjectChannelMode(mode: 'files' | 'chat'): void {
+		projectChannelMode = mode;
+	}
 	$: selectedWorkspaceView = (() => {
 		if (chatSurface === 'whiteboard') return 'whiteboard' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) return 'reader' as const;
@@ -436,11 +447,39 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		</div>
 	{/if}
 
-	{#if currentChannelType === 'lore' && selectedWorkspaceView === 'messages'}
+	{#if currentChannelType === 'lore' && selectedWorkspaceView === 'messages' && projectChannelMode === 'files'}
 		<!-- Project channels ARE their view: the repo workspace is the default
-		     surface, not a teaser card pointing at the server-wide hub. -->
+		     surface, not a teaser card pointing at the server-wide hub.
+		     Single occupant of the center stage — the messages pane below is
+		     hidden while this renders (no sibling flex split). -->
 		<div class="lore-channel-surface">
 			<LoreChannelShell />
+		</div>
+	{/if}
+
+	<!-- Project channel mode toggle: Files (repo workspace) | Chat (stream) -->
+	{#if currentChannelType === 'lore' && selectedWorkspaceView === 'messages'}
+		<div class="project-mode-toggle" role="tablist" aria-label="Project channel view">
+			<button
+				type="button"
+				class="project-mode-btn"
+				class:active={projectChannelMode === 'files'}
+				role="tab"
+				aria-selected={projectChannelMode === 'files'}
+				on:click={() => setProjectChannelMode('files')}
+			>
+				Files
+			</button>
+			<button
+				type="button"
+				class="project-mode-btn"
+				class:active={projectChannelMode === 'chat'}
+				role="tab"
+				aria-selected={projectChannelMode === 'chat'}
+				on:click={() => setProjectChannelMode('chat')}
+			>
+				Chat
+			</button>
 		</div>
 	{/if}
 
@@ -448,7 +487,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	<div
 		class="messages"
 		bind:this={chatContainer}
-		class:surface-hidden={chatSurface !== 'messages' || (currentChannelType === 'lore' && selectedWorkspaceView === 'messages')}
+		class:surface-hidden={chatSurface !== 'messages' || (currentChannelType === 'lore' && selectedWorkspaceView === 'messages' && projectChannelMode === 'files')}
 		on:scroll={(e) => {
 			// Mobile composer auto-hide on scroll
 			if ($isMobile) {

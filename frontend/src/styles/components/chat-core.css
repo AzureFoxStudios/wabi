@@ -97,6 +97,37 @@
 	}
 
 
+	/* Project channel Files | Chat toggle — sits above the center stage. */
+	.project-mode-toggle {
+		display: inline-flex;
+		gap: 2px;
+		margin: 0.25rem 0.75rem 0;
+		padding: 2px;
+		border-radius: var(--radius-md, 8px);
+		background: color-mix(in srgb, var(--surface-raised, #1c1c24) 72%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, transparent);
+		width: fit-content;
+		position: relative;
+		z-index: calc(var(--z-base, 1) + 1);
+	}
+
+	.project-mode-btn {
+		padding: 3px 12px;
+		border: none;
+		border-radius: calc(var(--radius-md, 8px) - 2px);
+		background: transparent;
+		color: var(--text-muted);
+		font-size: var(--text-sm, 12px);
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.project-mode-btn:hover { color: var(--text-heading); }
+	.project-mode-btn.active {
+		background: color-mix(in srgb, var(--accent-primary) 22%, transparent);
+		color: var(--text-heading);
+	}
+
+
 	.whiteboard-surface .whiteboard-shell {
 		flex: 1;
 		min-height: 0;
