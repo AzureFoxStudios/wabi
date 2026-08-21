@@ -1002,10 +1002,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			class="nav-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
 			style:left={$layoutStore.navDock !== 'right'
-				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'left' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth + 24 : 0)}px`
+				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'left' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth : 0)}px`
 				: null}
 			style:right={$layoutStore.navDock === 'right'
-				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'right' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth + 24 : 0)}px`
+				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'right' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth : 0)}px`
 				: null}
 			on:click={layoutStore.expandNav}
 			on:mousedown|preventDefault={startChannelResizeFromClosed}
@@ -1067,7 +1067,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	{/if}
 
 	<!-- Right Panel — single mode-driven node (peek = fixed overlay, pinned = flex child).
-	       One DOM node for both modes so the panel never remounts on peek↔pin (spec §6). -->
+	       One DOM node for both modes so the panel never remounts on peek↔pin (spec §6).
+	       The stub strip mounts INSIDE the zone so the stubs ride the panel like folder
+	       tabs (peek slide-in carries them with it); a standalone strip serves the
+	       closed (mode = none) cabinet state. -->
 	{#if !$layoutStore.isMobile}
 		{#if $layoutStore.rightPanelMode !== 'none'}
 			<div
@@ -1075,9 +1078,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				class:peek={$layoutStore.rightPanelMode === 'peek'}
 				class:stub-right={$layoutStore.stubSide === 'right'}
 				class:stub-left={$layoutStore.stubSide === 'left'}
-				style:width="{$layoutStore.rightPanelWidth + 24}px"
-				style:flex-basis="{$layoutStore.rightPanelWidth + 24}px"
-				style:max-width="min(744px, calc(55vw + 24px))"
+				style:width="{$layoutStore.rightPanelWidth}px"
+				style:flex-basis="{$layoutStore.rightPanelWidth}px"
+				style:max-width="min(744px, 55vw)"
 				on:mouseenter={cancelPeekDismiss}
 				on:mouseleave={armPeekDismiss}
 			>
@@ -1092,9 +1095,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{/if}
 					<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
 				</div>
+				<RightStubStrip floating />
 			</div>
+		{:else}
+			<RightStubStrip />
 		{/if}
-		<RightStubStrip />
 	{:else}
 		<!-- Mobile Right Panel Overlay -->
 		<div

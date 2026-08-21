@@ -120,16 +120,17 @@
 	border-left: none;
 }
 
-/* Desktop Right Panel zone — inline width = rightPanelWidth + 24px strip gutter.
+/* Desktop Right Panel zone — inline width = rightPanelWidth (flush to the
+   screen edge on the stub side; no gutter lane — the strip overlaps the edge).
    One DOM node serves both modes (spec §6): pinned = flex child, peek = fixed
-   overlay. The panel body occupies the inner rightPanelWidth; the 24px gutter
-   on the strip side is the stub strip's lane (and never blocks clicks). */
+   overlay. The panel spans flush to the screen edge on the stub side; the
+   strip inside the zone overlaps the panel's outer edge (never blocks clicks). */
 .right-panel-zone {
 	flex: 0 0 auto;
 	position: relative;
 	height: 100dvh;
 	min-width: 0;
-	max-width: min(744px, calc(55vw + 24px));
+	max-width: min(744px, 55vw);
 }
 
 .right-panel-body {
@@ -153,16 +154,15 @@
 	min-width: 0;
 }
 
-/* The 24px gutter sits on the strip side: for side-right the body is the
-   inner (left) 24px-short column; for side-left it is mirrored. */
+/* The panel runs flush to the screen edge on the stub side; the floating
+   strip's stubs overlap the panel's outer edge (folder-tab look). The border
+   sits on the inner edge, mirroring for side-left. */
 .right-panel-zone.stub-right .right-panel-body {
-	margin-right: 24px;
 	border-left: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
 	border-right: none;
 }
 
 .right-panel-zone.stub-left .right-panel-body {
-	margin-left: 24px;
 	border-left: none;
 	border-right: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
 }

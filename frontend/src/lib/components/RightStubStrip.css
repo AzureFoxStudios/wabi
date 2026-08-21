@@ -124,6 +124,15 @@
 	pointer-events: none;
 }
 
+/* Floating: the strip is mounted INSIDE the .right-panel-zone, so the stubs
+   ride the panel like folder tabs — the peek slide-in carries them with it,
+   and a pinned panel keeps them attached to its outer edge. The zone is a
+   containing block (fixed + transform while peeking, positioned while
+   pinned), so absolute here tracks it exactly. */
+.stub-strip.floating {
+	position: absolute;
+}
+
 .stub-strip.side-right {
 	right: 0;
 }
@@ -154,11 +163,15 @@
 		border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
-/* Geometry: a 48px stub in the 24px-wide lane sits at the lane's inner edge,
-   so with NO transform exactly 24px protrudes from the viewport edge (the
-   outer half is clipped) — the resting half-visible state. Hover/focus slides
-   the stub fully onscreen TOWARD the content (side-right: -24px, side-left:
-   +24px). These selectors must stay side-scoped: the plain `.stub:hover` form
+/* Geometry — folder-tab model:
+   - Standalone (panel closed, cabinet state): a 48px stub in the 24px-wide
+     lane at the viewport edge with NO transform protrudes exactly 24px (the
+     outer half is clipped off-viewport). Hover/focus slides it fully onscreen
+     TOWARD the content (side-right: -24px, side-left: +24px).
+   - Floating (panel open): the panel runs flush to the screen edge and the
+     stub is glued to the panel's outer edge, fully visible (48px over the
+     panel edge). Hover keeps the position — only the accent changes.
+   These selectors must stay side-scoped: the plain `.stub:hover` form
    (2 classes) loses to the side rules below (3 classes) and the reveal dies.
    Rounded corners face the content; the border on the viewport-edge side is
    dropped so a revealed stub reads as attached to the screen edge. */
@@ -176,20 +189,28 @@
 }
 
 .stub-strip.side-right .stub:hover,
-.stub-strip.side-right .stub:focus-visible,
-.stub-strip.side-right .stub.revealed {
+.stub-strip.side-right .stub:focus-visible {
 	transform: translateX(-24px);
 }
 
 .stub-strip.side-left .stub:hover,
-.stub-strip.side-left .stub:focus-visible,
-.stub-strip.side-left .stub.revealed {
+.stub-strip.side-left .stub:focus-visible {
+	transform: translateX(24px);
+}
+
+/* Floating rest = hover position (fully visible on the panel); the higher
+   specificity of the floating rules holds the position even while the
+   side-scoped hover rules above also match. */
+.stub-strip.floating.side-right .stub {
+	transform: translateX(-24px);
+}
+
+.stub-strip.floating.side-left .stub {
 	transform: translateX(24px);
 }
 
 .stub:hover,
-.stub:focus-visible,
-.stub.revealed {
+.stub:focus-visible {
 	outline: none;
 	border-color: rgba(var(--accent-rgb), 0.4);
 	background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
@@ -270,9 +291,11 @@
 }
 
 /* Context menu (reuses the .panel-context-menu pattern from the old dock).
-   Rendered as a sibling of the strip — keep it on the strip's z-tier so it
-   floats above the peeked panel body. */
+   Mounted INSIDE the strip, so `absolute` anchors to the strip: when
+   floating, the strip sits inside the transformed peek zone, whose persisted
+   transform would otherwise re-anchor viewport-`fixed` children to the zone. */
 .stub-context-menu {
+	position: absolute;
 	z-index: calc(var(--z-popout, 1200) - 1);
 }
 
