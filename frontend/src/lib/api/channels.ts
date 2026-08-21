@@ -28,7 +28,10 @@ export async function createChannelApi(
 			description,
 			force_spoiler: forceSpoiler ?? false,
 			asset_storage: wantsAssetStorage,
-			...(parent ? { parent_id: parent, parentId: parent } : {})
+			// Single key only. Sending BOTH parent_id and parentId made serde
+			// reject the body as a duplicate field → bare 422 from axum
+			// (folder placement never worked since 573ddee).
+			...(parent ? { parent_id: parent } : {})
 		})
 	});
 	if (!res.ok) {
