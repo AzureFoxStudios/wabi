@@ -74,3 +74,44 @@ export function formatRecordingPresenceCopy(
 	}
 	return `${labels[0]}, ${labels[1]}, and ${labels.length - 2} more are recording.`;
 }
+
+export interface MediaDeviceGroups {
+	audioin: MediaDeviceInfo[];
+	audioout: MediaDeviceInfo[];
+	video: MediaDeviceInfo[];
+}
+
+export async function listMediaDevices(): Promise<MediaDeviceGroups> {
+	const fallback: MediaDeviceGroups = { audioin: [], audioout: [], video: [] };
+	if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+		return fallback;
+	}
+	try {
+		const devices = await navigator.mediaDevices.enumerateDevices();
+		const groups: MediaDeviceGroups = { audioin: [], audioout: [], video: [] };
+		for (const device of devices) {
+			if (device.kind === 'audioinput') groups.audioin.push(device);
+			else if (device.kind === 'audiooutput') groups.audioout.push(device);
+			else if (device.kind === 'videoinput') groups.video.push(device);
+		}
+		return groups;
+	} catch {
+		return fallback;
+	}
+}
+
+interface AudioSinkPrototype {
+	setSinkId?: (deviceId: string) => Promise<void>;
+}
+
+export function selectAudioOutput(deviceId: string): Promise<void> {
+	const prototype = HTMLAudioElement.prototype as unknown as AudioSinkPrototype;
+	if (typeof prototype.setSinkId !== 'function') {
+		return Promise.resolve();
+	}
+	try {
+		return prototype.setSinkId(deviceId);
+	} catch {
+		return Promise.resolve();
+	}
+}

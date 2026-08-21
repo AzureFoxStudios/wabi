@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount, tick } from 'svelte';
 	import type { PresenterOverlayTool } from '$lib/calling/presenterOverlay';
 	import { PRESENTER_OVERLAY_COLORS, PRESENTER_OVERLAY_WIDTHS } from '$lib/calling/presenterOverlay';
 
@@ -29,6 +30,62 @@
 	export let onOpenWhiteboard: () => void = () => {};
 	export let onToggleRecording: () => void = () => {};
 	export let onEndCall: () => void = () => {};
+
+	// Device picker
+	export let devices: {
+		audioin: MediaDeviceInfo[];
+		audioout: MediaDeviceInfo[];
+		video: MediaDeviceInfo[];
+	} | null = null;
+	export let selectedAudioInputId: string | null = null;
+	export let selectedAudioOutputId: string | null = null;
+	export let onOpenDevicePicker: () => void = () => {};
+	export let onSelectDevice: (kind: 'audioinput' | 'audiooutput', deviceId: string) => void = () => {};
+
+	let devicePickerOpen = false;
+	let devicePickerEl: HTMLDivElement | null = null;
+
+	async function toggleDevicePicker() {
+		if (devicePickerOpen) {
+			devicePickerOpen = false;
+			return;
+		}
+		onOpenDevicePicker();
+		devicePickerOpen = true;
+		await tick();
+		devicePickerEl?.focus();
+	}
+
+	function closeDevicePicker() {
+		devicePickerOpen = false;
+	}
+
+	function handleDeviceClick(kind: 'audioinput' | 'audiooutput', deviceId: string) {
+		onSelectDevice(kind, deviceId);
+	}
+
+	function handleOutsideClick(event: MouseEvent) {
+		if (!devicePickerEl) return;
+		const target = event.target as Node;
+		if (devicePickerEl.contains(target)) return;
+		const gearBtn = devicePickerEl.previousElementSibling;
+		if (gearBtn && gearBtn.contains(target)) return;
+		closeDevicePicker();
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') closeDevicePicker();
+	}
+
+	onMount(() => {
+		if (typeof window === 'undefined') return;
+		window.addEventListener('click', handleOutsideClick, true);
+		return () => window.removeEventListener('click', handleOutsideClick, true);
+	});
+
+	function deviceLabel(device: MediaDeviceInfo, index: number): string {
+		return device.label || `Device ${index + 1}`;
+	}
 
 	// Presenter overlay events
 	export let onPresenterOverlayToolChange: (tool: PresenterOverlayTool) => void = () => {};
@@ -134,10 +191,72 @@
 			<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="7"></circle></svg>
 		</button>
 
+		<button
+			class="control-btn"
+			class:active={devicePickerOpen}
+			on:click={toggleDevicePicker}
+			title="Audio & video settings"
+			aria-haspopup="dialog"
+			aria-expanded={devicePickerOpen}
+		>
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+		</button>
+
 		<button class="control-btn end" on:click={onEndCall} title="Leave call">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
 		</button>
 	</div>
+
+	{#if devicePickerOpen}
+		<div
+			class="device-picker"
+			role="dialog"
+			aria-label="Audio and video device settings"
+			bind:this={devicePickerEl}
+			on:keydown={handleKeydown}
+			tabindex="-1"
+		>
+			{#if !devices}
+				<p class="device-picker-empty">Loading devices…</p>
+			{:else}
+				<section class="device-group">
+					<h4 class="device-group-title">Microphone</h4>
+					{#if devices.audioin.length === 0}
+						<p class="device-picker-empty">No input devices</p>
+					{:else}
+						{#each devices.audioin as device, index (device.deviceId)}
+							<button
+								class="device-option"
+								class:is-selected={selectedAudioInputId === device.deviceId}
+								on:click={() => handleDeviceClick('audioinput', device.deviceId)}
+							>
+								<span class="device-radio" aria-hidden="true"></span>
+								<span class="device-label">{deviceLabel(device, index)}</span>
+							</button>
+						{/each}
+					{/if}
+				</section>
+
+				<section class="device-group">
+					<h4 class="device-group-title">Output</h4>
+					{#if devices.audioout.length === 0}
+						<p class="device-picker-empty">No output devices</p>
+					{:else}
+						{#each devices.audioout as device, index (device.deviceId)}
+							<button
+								class="device-option"
+								class:is-selected={selectedAudioOutputId === device.deviceId}
+								on:click={() => handleDeviceClick('audiooutput', device.deviceId)}
+							>
+								<span class="device-radio" aria-hidden="true"></span>
+								<span class="device-label">{deviceLabel(device, index)}</span>
+							</button>
+						{/each}
+					{/if}
+				</section>
+			{/if}
+		</div>
+	{/if}
 
 	{#if presenterOverlayVisible && presenterOverlayAvailable}
 		<div class="presenter-overlay-toolbar" role="toolbar" aria-label="Presenter overlay tools">

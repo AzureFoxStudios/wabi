@@ -56,7 +56,10 @@
 		isSameIdList,
 		isSameSpeakerState,
 		sanitizePinnedIds,
-		debugSeatStyle
+		debugSeatStyle,
+		listMediaDevices,
+		selectAudioOutput,
+		type MediaDeviceGroups
 	} from './callModalHelpers';
 	import {
 		buildActiveSpeakerLevels,
@@ -88,7 +91,7 @@
 	import CallRecordingPanel from './CallRecordingPanel.svelte';
 	import IncomingCallModal from './IncomingCallModal.svelte';
 	import OutgoingCallModal from './OutgoingCallModal.svelte';
-	import { onDestroy, afterUpdate } from 'svelte';
+	import { onDestroy, afterUpdate, onMount } from 'svelte';
 
 	type CallViewportMode = 'embedded' | 'focus' | 'docked';
 
@@ -118,6 +121,50 @@
 	let presenterOverlayUndoByTile: Record<string, PresenterOverlayElement[][]> = {};
 	let presenterOverlayRedoByTile: Record<string, PresenterOverlayElement[][]> = {};
 	let showSpatialDebugOverlay = false;
+
+	let mediaDevices: MediaDeviceGroups | null = null;
+	let selectedAudioInputId: string | null = null;
+	let selectedAudioOutputId: string | null = null;
+	let mediaDevicesLoaded = false;
+
+	const STORAGE_AUDIO_INPUT = 'wabi-call-audio-input';
+	const STORAGE_AUDIO_OUTPUT = 'wabi-call-audio-output';
+
+	onMount(() => {
+		try {
+			const storedInput = localStorage.getItem(STORAGE_AUDIO_INPUT);
+			const storedOutput = localStorage.getItem(STORAGE_AUDIO_OUTPUT);
+			if (storedInput) selectedAudioInputId = storedInput;
+			if (storedOutput) selectedAudioOutputId = storedOutput;
+		} catch {
+			/* localStorage may be unavailable */
+		}
+	});
+
+	async function handleOpenDevicePicker() {
+		if (mediaDevicesLoaded) return;
+		mediaDevicesLoaded = true;
+		mediaDevices = await listMediaDevices();
+	}
+
+	async function handleSelectDevice(kind: 'audioinput' | 'audiooutput', deviceId: string) {
+		if (kind === 'audioinput') {
+			selectedAudioInputId = deviceId;
+			try {
+				localStorage.setItem(STORAGE_AUDIO_INPUT, deviceId);
+			} catch {
+				/* ignore */
+			}
+		} else {
+			selectedAudioOutputId = deviceId;
+			try {
+				localStorage.setItem(STORAGE_AUDIO_OUTPUT, deviceId);
+			} catch {
+				/* ignore */
+			}
+			await selectAudioOutput(deviceId);
+		}
+	}
 
 	const PRESENTER_OVERLAY_MAX_HISTORY = 24;
 	const presenterOverlayTools: PresenterOverlayTool[] = ['pen', 'arrow', 'rect', 'ellipse'];
@@ -1040,6 +1087,11 @@
 				onPresenterOverlayUndo={undoPresenterOverlay}
 				onPresenterOverlayRedo={redoPresenterOverlay}
 				onPresenterOverlayClear={clearPresenterOverlay}
+				devices={mediaDevices}
+				selectedAudioInputId={selectedAudioInputId}
+				selectedAudioOutputId={selectedAudioOutputId}
+				onOpenDevicePicker={handleOpenDevicePicker}
+				onSelectDevice={handleSelectDevice}
 			/>
 
 			<div class="call-status-row">

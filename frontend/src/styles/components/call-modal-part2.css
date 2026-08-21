@@ -123,6 +123,7 @@
 		padding-bottom: calc(0.8rem + env(safe-area-inset-bottom, 0px));
 		background: color-mix(in srgb, var(--surface-base, #111827) 90%, black 10%);
 		border-top: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
+		position: relative;
 	}
 
 	.control-actions {
@@ -586,4 +587,90 @@
 	.bubble-tile .tile-status-chips {
 		left: 0.2rem;
 		bottom: 0.2rem;
+	}
+
+	/* device picker */
+	.device-picker {
+		position: absolute;
+		bottom: calc(100% - 0.4rem);
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 40;
+		width: min(280px, calc(100vw - 2rem));
+		max-height: 320px;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		padding: 0.8rem;
+		border-radius: 14px;
+		background: var(--surface-raised, #302b63);
+		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
+		box-shadow: 0 20px 45px rgba(var(--surface-app-rgb, 2, 6, 23), 0.42);
+		backdrop-filter: blur(12px);
+	}
+
+	.device-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.device-group-title {
+		margin: 0 0 0.25rem;
+		font-size: 0.66rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.76);
+	}
+
+	.device-picker-empty {
+		margin: 0;
+		font-size: 0.74rem;
+		color: var(--text-muted, #9999ff);
+	}
+
+	.device-option {
+		display: flex;
+		align-items: center;
+		gap: 0.55rem;
+		width: 100%;
+		padding: 0.5rem 0.6rem;
+		border-radius: 10px;
+		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
+		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.04);
+		color: var(--text-inverse, #fff);
+		font-size: 0.78rem;
+		text-align: left;
+		cursor: pointer;
+		transition: background 120ms ease, border-color 120ms ease;
+	}
+
+	.device-option:hover {
+		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.09);
+	}
+
+	.device-option.is-selected {
+		background: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 28%, transparent);
+		border-color: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 64%, transparent);
+	}
+
+	.device-radio {
+		flex-shrink: 0;
+		width: 14px;
+		height: 14px;
+		border-radius: 999px;
+		border: 2px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.4);
+	}
+
+	.device-option.is-selected .device-radio {
+		border-color: var(--text-inverse, #fff);
+		background: radial-gradient(circle, var(--text-inverse, #fff) 0 36%, transparent 42%);
+	}
+
+	.device-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
