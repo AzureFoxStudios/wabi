@@ -46,6 +46,7 @@ export {
 	closeBreakoutRooms,
 	moveUserToBreakout,
 	moveUserToVoiceChannel,
+	kickVoiceMember,
 	createThread,
 	deleteChannel,
 	pinChannel,

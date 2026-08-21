@@ -490,6 +490,28 @@ async fn on_move_user_to_voice_channel(socket: SocketRef, data: Value, state: Si
         }
     };
 
+    // Permission: dragging yourself is always allowed; moving other members
+    // requires at least the Moderator role (mirrors the frontend's
+    // `canDragVoiceMember` gate — enforced server-side, not just in the UI).
+    let actor_user_id = breakout_actor_user_id(&socket, &state);
+    let actor_stable_id = if actor_user_id > 0 {
+        format!("user-{}", actor_user_id)
+    } else {
+        socket.id.to_string()
+    };
+    if payload.target_user_id != actor_stable_id {
+        let is_moderator = actor_user_id > 0
+            && (state.app.is_admin(actor_user_id as i64).await
+                || state.app.has_role(actor_user_id as i64, "Moderator").await);
+        if !is_moderator {
+            let _ = socket.emit(
+                "move-user-to-voice-channel-error",
+                &json!({ "error": "You need at least the Moderator role to move voice members" }),
+            );
+            return;
+        }
+    }
+
     let (changed, moved) =
         move_voice_participant(&state, &payload.target_user_id, &payload.to_channel_id).await;
 

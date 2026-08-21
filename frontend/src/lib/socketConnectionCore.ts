@@ -947,6 +947,8 @@ export class SocketManager {
 			upsertUser(serverMembers, user);
 			_mergeCurrentUserProfile({
 				profilePicture: user.profilePicture,
+				bannerUrl: user.bannerUrl,
+				overlayUrl: user.overlayUrl,
 				usernameFont: user.usernameFont,
 				bio: user.bio
 			});
@@ -958,6 +960,8 @@ export class SocketManager {
 			upsertUser(serverMembers, user);
 			_mergeCurrentUserProfile({
 				profilePicture: user.profilePicture,
+				bannerUrl: user.bannerUrl,
+				overlayUrl: user.overlayUrl,
 				usernameFont: user.usernameFont,
 				bio: user.bio
 			});
@@ -986,6 +990,13 @@ export class SocketManager {
 			void import('./calling').then(({ handleForcedVoiceMove }) =>
 				handleForcedVoiceMove(sock, payload.fromChannelId!, payload.toChannelId!)
 			).catch((error) => console.warn('[Socket] Failed to handle voice move:', error));
+		});
+
+		sock.on('voice-self-kicked', (payload: { channelId?: string; userId?: string }) => {
+			if (!payload?.channelId) return;
+			void import('./calling').then(({ handleForcedVoiceLeave }) =>
+				handleForcedVoiceLeave(sock, payload.channelId!)
+			).catch((error) => console.warn('[Socket] Failed to handle voice kick:', error));
 		});
 
 		sock.on('breakout-rooms-created', (payload: {
