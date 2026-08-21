@@ -23,6 +23,7 @@ mod lan;
 mod mdns;
 mod media;
 mod mesh;
+mod metrics;
 #[cfg(feature = "wabi-lore")]
 mod lore;
 mod nodes;
@@ -52,9 +53,12 @@ use rust_embed::RustEmbed;
 use wabidb::engine::wabi_store::WabiStore;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -908,8 +912,25 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         // Health checks (no rate limit)
         .route("/health", get(health_check))
-        // API routes (must come before static files)
-        .nest("/api", create_api_router(state.clone()))
+        // Liveness probe — process is up
+        .route("/livez", get(liveness_check))
+        // Readiness probe — engine is answering
+        .route("/readyz", get(readiness_check))
+        // Prometheus metrics (public if WABI_METRICS_PUBLIC=true)
+        .route("/metrics", get(metrics_handler))
+        // API routes — timeout + metrics scoped to /api so uploads and
+        // static SPA fallback are NOT cut by the timeout.
+        .nest(
+            "/api",
+            create_api_router(state.clone())
+                .layer(axum::middleware::from_fn(metrics_middleware))
+                .layer(TimeoutLayer::new(Duration::from_secs(
+                    std::env::var("WABI_HTTP_TIMEOUT_SECS")
+                        .ok()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(30),
+                ))),
+        )
         // WebSocket endpoint (plain WS, kept for future use)
         .nest("/ws", websocket::ws_router(state.clone()))
         // Uploaded media files
@@ -982,6 +1003,52 @@ async fn health_check() -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))
+}
+
+/// Liveness probe — process is up and can respond.
+async fn liveness_check() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "wabi-server",
+    }))
+}
+
+/// Readiness probe — engine is answering. Cheap projection read.
+async fn readiness_check(
+    axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::state::AppState>>,
+) -> axum::response::Response {
+    match state.wdb.list_users().await {
+        Ok(_) => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({ "status": "ok", "engine": "ready" })),
+        )
+            .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "status": "degraded", "engine": "not_ready", "reason": format!("{e}") })),
+        )
+            .into_response(),
+    }
+}
+
+/// Prometheus metrics endpoint. Reads from the global static state.
+async fn metrics_handler() -> axum::response::Response {
+    let body = crate::metrics::render_prometheus();
+    (
+        axum::http::StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        body,
+    )
+        .into_response()
+}
+
+/// Middleware: count each request. Cheap; atomic increment.
+async fn metrics_middleware(
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    crate::metrics::MetricsState::record_request();
+    next.run(request).await
 }
 
 /// Serve static assets with SPA fallback
