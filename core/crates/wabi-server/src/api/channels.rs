@@ -131,9 +131,30 @@ struct CreateChannelRequest {
     asset_storage: bool,
     #[serde(default)]
     force_spoiler: bool,
-    /// Category folder id to nest under (optional). Wire camelCase parentId too.
-    #[serde(default, alias = "parentId")]
+    /// Category folder id to nest under (optional). Clients have shipped
+    /// both wire spellings, and serde's `alias` rejects a body containing
+    /// BOTH as "duplicate field" — which axum surfaces as a bare 422
+    /// before this handler ever runs. Flatten keeps either-or-both valid.
+    #[serde(flatten)]
+    parent: CreateChannelParentCompat,
+}
+
+/// Accepts `parent_id` (snake) and/or `parentId` (camel).
+#[derive(Debug, Default, Deserialize)]
+struct CreateChannelParentCompat {
     parent_id: Option<String>,
+    #[serde(rename = "parentId")]
+    parent_id_camel: Option<String>,
+}
+
+impl CreateChannelRequest {
+    /// Merged parent id: snake_case wins when both spellings are present.
+    fn parent_id(&self) -> Option<&str> {
+        self.parent
+            .parent_id
+            .as_deref()
+            .or(self.parent.parent_id_camel.as_deref())
+    }
 }
 
 fn default_channel_type() -> String {
@@ -236,9 +257,17 @@ async fn create_channel(
     // `description` is in the WDB Channel domain type yet — dropped for v1.
     let _ = req.description;
 
+    // Resolve the effective parent id once (either wire spelling), BEFORE
+    // `req.channel_type` is moved into the response below.
+    let new_parent = req
+        .parent_id()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
     // Optional folder nesting (category parent). Applied after create so the
     // channel exists before parent_id is set on the projection.
-    if let Some(parent) = req.parent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(parent) = new_parent.as_deref() {
         let mut patch = serde_json::Map::new();
         patch.insert("parent_id".to_string(), serde_json::json!(parent));
         if let Err(e) = state
@@ -303,7 +332,7 @@ async fn create_channel(
     let all_channels = state.wdb.list_channels(None).await.unwrap_or_default();
     let max_pos = all_channels
         .iter()
-        .filter(|c| c.is_active && c.parent_id == req.parent_id)
+        .filter(|c| c.is_active && c.parent_id.as_deref() == new_parent.as_deref())
         .map(|c| c.position)
         .max()
         .unwrap_or(-1);
@@ -325,11 +354,7 @@ async fn create_channel(
         name,
         channel_type: response_type,
         position: new_position,
-        parent_id: req
-            .parent_id
-            .as_ref()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()),
+        parent_id: new_parent,
         description: None,
         force_spoiler: req.force_spoiler,
         asset_storage,
@@ -584,6 +609,31 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::RwLock;
+
+    /// Regression: folder placement on channel create used to 422 because the
+    /// frontend sent BOTH `parent_id` and `parentId`, and serde's
+    /// `#[serde(alias)]` rejects that as a duplicate field before the handler
+    /// ran (axum maps Json extractor errors to 422). The flatten-compat struct
+    /// must accept either spelling alone AND both together.
+    #[test]
+    fn create_channel_request_accepts_parent_id_in_any_wire_spelling() {
+        let both = r#"{"name":"general","channel_type":"text","force_spoiler":false,"asset_storage":false,"parent_id":"ch_cat1","parentId":"ch_cat1"}"#;
+        let snake = r#"{"name":"general","channel_type":"text","parent_id":"ch_cat1"}"#;
+        let camel = r#"{"name":"general","channel_type":"text","parentId":"ch_cat1"}"#;
+        let absent = r#"{"name":"general"}"#;
+
+        let both: super::CreateChannelRequest = serde_json::from_str(both).expect("both spellings must parse");
+        assert_eq!(both.parent_id(), Some("ch_cat1"));
+
+        let snake: super::CreateChannelRequest = serde_json::from_str(snake).expect("snake_case must parse");
+        assert_eq!(snake.parent_id(), Some("ch_cat1"));
+
+        let camel: super::CreateChannelRequest = serde_json::from_str(camel).expect("camelCase must parse");
+        assert_eq!(camel.parent_id(), Some("ch_cat1"));
+
+        let absent: super::CreateChannelRequest = serde_json::from_str(absent).expect("absent parent must parse");
+        assert_eq!(absent.parent_id(), None);
+    }
 
     #[tokio::test]
     async fn session_messages_cleared_on_channel_delete() {
