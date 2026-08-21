@@ -42,6 +42,9 @@ pub struct AuthUser {
     pub username: String,
     pub is_guest: bool,
     pub jti: String,
+    /// The token's own `exp` (unix seconds) — carried so logout can store a
+    /// prunable expiry with the revoked jti instead of an immortal entry.
+    pub exp: i64,
     /// True when authenticated with an opaque `Bot <token>` credential.
     pub is_bot: bool,
     /// Present when authenticated with a lore connect token
@@ -61,6 +64,7 @@ impl AuthUser {
             username: claims.username,
             is_guest: claims.is_guest,
             jti: claims.jti,
+            exp: claims.exp,
             is_bot: false,
             lore_scopes: None,
         })
@@ -116,6 +120,7 @@ async fn bot_auth_user(
         username,
         is_guest: false,
         jti: String::new(),
+        exp: i64::MAX,
         is_bot: true,
         lore_scopes: None,
     }))
@@ -148,6 +153,7 @@ async fn lore_token_auth_user(
         username,
         is_guest: false,
         jti: format!("lore-token:{}", &token_hash[..token_hash.len().min(12)]),
+        exp: i64::MAX,
         is_bot: false,
         lore_scopes: Some(record.scopes),
     }))

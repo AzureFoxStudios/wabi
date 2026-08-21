@@ -10,6 +10,7 @@ import { get } from 'svelte/store';
 import { authStore } from './authStore';
 import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { getAuthToken, getGuestSessionId } from './authSession';
+import { tryRefresh } from './api/authRefresh';
 import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
 import { SocketHeartbeat } from './socketConnectionHeartbeat';
 import { SocketReconnectionManager } from './socketConnectionReconnect';
@@ -319,6 +320,13 @@ export class SocketManager {
 					this.reconnect.primeFailoverCandidates(nextUrl);
 				}
 
+				// Token freshness: the captured authToken may predate a silent
+				// refresh (15-minute access tokens). Prefer whatever authSession
+				// holds NOW; fall back to the captured value (also covers guests
+				// whose credentials are sessionId-based).
+				const liveToken = getAuthToken() || undefined;
+				this.authToken = liveToken || this.authToken;
+
 				this.connect(this.username, this.authToken || undefined);
 			}, delay)
 		);
@@ -534,6 +542,29 @@ export class SocketManager {
 					}
 			}
 		});
+
+		// Server-side auth rejections. `auth-failed` arrives at handshake
+		// (invalid/expired/refresh-class token); `auth-revoked` mid-session
+		// (revoked jti / user floor). Both mean the socket token is dead even
+		// if the TCP layer is fine: try one silent refresh (which rotates the
+		// access token), then reconnect with the fresh credential. If refresh
+		// fails there is no valid session left — surface session-expired so
+		// the app routes to login instead of retry-looping.
+		const handleAuthRejection = async (event: string, payload?: { reason?: string } | null) => {
+			console.warn(`[SocketManager] ${event}:`, payload?.reason || 'unknown reason');
+			try { sock.disconnect(); } catch { /* already down */ }
+			const refreshed = await tryRefresh();
+			if (refreshed) {
+				this.authToken = getAuthToken() || this.authToken;
+				if (this.canTransition('reconnecting')) this.scheduleReconnect();
+			} else if (!getAuthToken()) {
+				authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
+			}
+		};
+		void handleAuthRejection; // bound below per-event
+
+		sock.on('auth-failed', (payload?: { reason?: string }) => void handleAuthRejection('auth-failed', payload));
+		sock.on('auth-revoked', (payload?: { reason?: string }) => void handleAuthRejection('auth-revoked', payload));
 
 		if (sock.io?.engine) {
 			sock.io.engine.on('upgrade', (transport) => {

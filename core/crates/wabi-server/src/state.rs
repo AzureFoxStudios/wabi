@@ -140,8 +140,14 @@ pub struct RevocationStore {
     /// Tokens with `iat` earlier than this epoch (unix seconds) are rejected.
     /// Bumping it effectively revokes every outstanding token at once.
     pub epoch: u64,
-    /// Individual revoked token IDs (`jti`).
-    pub jtis: HashSet<String>,
+    /// Individually revoked token IDs (`jti`) → the revoked token's `exp`
+    /// (unix seconds). Entries whose exp has passed can no longer authenticate
+    /// anyone (the JWT validation rejects expired tokens before the
+    /// revocation lookup), so they are pruned on save to bound file growth.
+    /// Legacy format was a bare `HashSet<String>`; deserialized via a
+    /// backward-compat shim in `load_revocations`.
+    #[serde(default)]
+    pub jtis: HashMap<String, u64>,
     /// Entire revoked user IDs (all their tokens rejected).
     pub users: HashSet<i64>,
     /// Per-user "tokens issued before this unix-second are revoked" watermark.
@@ -187,10 +193,21 @@ impl RevocationStore {
             }
         }
         // Explicitly revoked jti.
-        if !jti.is_empty() && self.jtis.contains(jti) {
+        if !jti.is_empty() && self.jtis.contains_key(jti) {
             return true;
         }
         false
+    }
+
+    /// Drop revoked-jti entries whose token has expired. Safe by construction:
+    /// JWT validation rejects expired tokens before the revocation lookup, so
+    /// an expired jti can never be the reason a request is rejected. Called
+    /// from `save_revocations` to bound on-disk growth.
+    pub fn prune_expired_jtis(&mut self, now_unix: u64) {
+        // Grace window of one hour: never race the clock edge between the
+        // token's own exp validation (which has leeway) and this prune.
+        let cutoff = now_unix.saturating_sub(3600);
+        self.jtis.retain(|_, exp| *exp > cutoff);
     }
 }
 
@@ -462,30 +479,69 @@ impl AppState {
         PathBuf::from(data_dir).join("revocations.json")
     }
 
+    /// Parse a revocations JSON string, accepting BOTH the legacy bare-array
+    /// `jtis` format and the current `{jti: exp}` map. Exposed (pub, string-
+    /// taking) so tests can verify the compat shim without touching disk.
+    pub fn load_legacy_revocations_str(s: &str) -> RevocationStore {
+        // New format first.
+        if let Ok(v) = serde_json::from_str::<RevocationStore>(s) {
+            return v;
+        }
+        #[derive(Deserialize)]
+        struct LegacyRevocationStore {
+            #[serde(default)]
+            epoch: u64,
+            #[serde(default)]
+            jtis: Vec<String>,
+            #[serde(default)]
+            users: HashSet<i64>,
+            #[serde(default)]
+            user_iat_revoked: HashMap<i64, u64>,
+            #[serde(default)]
+            user_jti_exemptions: HashMap<i64, HashSet<String>>,
+        }
+        if let Ok(l) = serde_json::from_str::<LegacyRevocationStore>(s) {
+            return RevocationStore {
+                epoch: l.epoch,
+                // Legacy entries carry no expiry: keep them until explicitly
+                // cleared or epoch-revoked. An upgrade must never un-revoke.
+                jtis: l.jtis.into_iter().map(|j| (j, u64::MAX)).collect(),
+                users: l.users,
+                user_iat_revoked: l.user_iat_revoked,
+                user_jti_exemptions: l.user_jti_exemptions,
+            };
+        }
+        RevocationStore::default()
+    }
+
     async fn load_revocations(data_dir: &str) -> RevocationStore {
         let path = Self::revocation_file_path(data_dir);
         if let Ok(s) = std::fs::read_to_string(&path) {
-            if let Ok(v) = serde_json::from_str::<RevocationStore>(&s) {
-                return v;
-            }
+            return Self::load_legacy_revocations_str(&s);
         }
         RevocationStore::default()
     }
 
     async fn save_revocations(&self) {
-        let guard = self.revocations.read().await;
+        let mut guard = self.revocations.write().await;
+        guard.prune_expired_jtis(chrono::Utc::now().timestamp().max(0) as u64);
         if let Ok(s) = serde_json::to_string_pretty(&*guard) {
             let _ = std::fs::write(&self.revocation_file, s);
         }
     }
 
     /// Revoke a single token by its `jti`. No-op for tokens that lack one.
-    pub async fn revoke_token(&self, jti: String) {
+    /// `exp` is the revoked token's own expiration (unix seconds) — used for
+    /// pruning once the entry can no longer matter.
+    pub async fn revoke_token_with_exp(&self, jti: String, exp: i64) {
         if jti.is_empty() {
             return;
         }
         {
-            self.revocations.write().await.jtis.insert(jti);
+            self.revocations.write().await.jtis.insert(
+                jti,
+                exp.max(0) as u64,
+            );
         }
         self.save_revocations().await;
     }
@@ -786,13 +842,23 @@ mod tests {
     fn legacy_revocation_store_json_loads_without_new_fields() {
         // Pre-existing revocations.json files (epoch/jtis/users only) must keep
         // loading and behaving identically after the new fields are added.
+        // Legacy jtis is a bare array; it deserializes via the compat shim in
+        // load_revocations with u64::MAX expiry (never pruned automatically).
         let legacy = r#"{"epoch": 0, "jtis": ["revoked-jti"], "users": [7]}"#;
-        let store: RevocationStore = serde_json::from_str(legacy).unwrap();
+        let store = AppState::load_legacy_revocations_str(legacy);
         assert!(store.is_revoked("revoked-jti", 1, 5));
         assert!(store.is_revoked("anything", 7, 5));
         assert!(!store.is_revoked("ok-jti", 1, 5));
         assert!(store.user_iat_revoked.is_empty());
         assert!(store.user_jti_exemptions.is_empty());
+
+        // New-style jtis map {jti: exp} round-trips and prunes correctly.
+        let mut store = RevocationStore::default();
+        store.jtis.insert("old".into(), 100);
+        store.jtis.insert("live".into(), u64::MAX);
+        store.prune_expired_jtis(1_000_000);
+        assert!(!store.jtis.contains_key("old"));
+        assert!(store.jtis.contains_key("live"));
 
         // New-style store round-trips through serialization without data loss.
         let mut store = RevocationStore::default();
