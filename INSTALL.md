@@ -97,6 +97,25 @@ Default voice does **not** need open UDP or Cloudflare.
 
 ---
 
+## Public instance hardening
+
+Defaults in this repo are tuned for **trusted / LAN self-hosting**. If you expose
+Wabi to the public internet, review these env vars first (all optional, see
+`.env.example`):
+
+| Env var | Default | Public-instance guidance |
+|---|---|---|
+| `WABI_MAX_BODY_SIZE` | 50GB | Lower it. 50GB suits trusted LAN media backups; public instances typically want 200–500MB depending on media features. |
+| `WABI_HTTP_TIMEOUT_SECS` | 30 | API request timeout. Uploads/static are exempt. 30s is fine publicly; raise only if long API operations matter to you. |
+| `WABI_RATE_LIMIT_RPS` / `WABI_RATE_LIMIT_BURST` | see `.env.example` | Keep enabled behind a trusted proxy; set `WABI_TRUSTED_PROXIES` so rate limiting sees real client IPs. |
+| `WABI_METRICS_PUBLIC` | false (admin-gated) | Leave false on public instances — `/metrics` is for your scrape stack, not the open web. |
+
+Also standard: run behind HTTPS (Caddy/cloudflared profile), keep
+`PLUGINS_ENABLED=false` unless you need plugins, and back up `data/`
+(see pitfalls #7).
+
+---
+
 ## Common pitfalls
 
 1. **`STATIC_BUILD=1` is required for the frontend build.** If you run `npm run build` without it, SvelteKit uses `adapter-node` and emits `handler.js`/`server/` — **no `index.html`**. The Rust binary embeds the frontend via `rust_embed` at compile time, so it needs the static `index.html`. `/health` will return 200 but every page route 404. Fix: `cd frontend && STATIC_BUILD=1 npm run build`, then rebuild the binary.

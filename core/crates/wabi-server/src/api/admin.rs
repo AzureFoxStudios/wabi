@@ -20,6 +20,7 @@ use crate::api::payments::{
     extract_user_id, is_admin_user, json_error, PaymentUserBlock,
 };
 use crate::auth_extractor::{verify_stepup_token, AuthUser, STEPUP_HEADER};
+use crate::jobs::JobStatus;
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
@@ -644,8 +645,72 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/users/clear-login-lockout", post(clear_login_lockout))
         .route("/uploads/revoke", post(revoke_upload))
         .route("/uploads", get(list_uploads))
+        .route("/jobs/dead-lettered", get(list_dead_lettered))
+        .route("/jobs/{job_id}/requeue", post(requeue_job))
         .layer(axum::Extension(policy_store))
         .with_state(state)
+}
+
+// ─── Job-queue dead-letter admin (P1/W2) ────────────────────────────────────
+
+/// List quarantined (dead-lettered) jobs for admin inspection.
+async fn list_dead_lettered(
+    headers: axum::http::HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, Response> {
+    if let Err(resp) = admin_auth(&headers, &state).await {
+        return Err(resp);
+    }
+    let jobs = state.job_queue.list_jobs(Some(JobStatus::DeadLettered)).await;
+    let out: Vec<serde_json::Value> = jobs
+        .iter()
+        .map(|j| {
+            serde_json::json!({
+                "jobId": j.job_id,
+                "kind": j.kind,
+                "status": j.status,
+                "retryCount": j.retry_count,
+                "maxRetries": j.max_retries,
+                "assignedNodeId": j.assigned_node_id,
+                "createdAt": j.created_at,
+                "completedAt": j.completed_at,
+                "errorMessage": j.error_message,
+                // Payload included: inspection is the point of the DLQ.
+                "payload": j.payload,
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "jobs": out })))
+}
+
+/// Requeue a dead-lettered job: resets retry_count and returns it to Pending.
+async fn requeue_job(
+    headers: axum::http::HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<String>,
+) -> Result<Response, Response> {
+    if let Err(resp) = admin_auth(&headers, &state).await {
+        return Err(resp);
+    }
+    match state.job_queue.requeue_job(&job_id).await {
+        Ok(job) => Ok(Json(serde_json::json!({
+            "jobId": job.job_id,
+            "status": job.status,
+            "retryCount": job.retry_count,
+        }))
+        .into_response()),
+        Err(crate::jobs::JobQueueError::JobNotFound) => {
+            Err(json_error(StatusCode::NOT_FOUND, "job not found"))
+        }
+        Err(crate::jobs::JobQueueError::NotClaimable) => Err(json_error(
+            StatusCode::CONFLICT,
+            "job is not dead-lettered; requeue only applies to quarantined jobs",
+        )),
+        Err(e) => Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &e.to_string(),
+        )),
+    }
 }
 
 // ─── Public user directory (GET /api/users) ────────────────────────────────

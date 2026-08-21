@@ -108,13 +108,16 @@ fn enabled_addons() -> Vec<AddonCapability> {
     });
 
     // webhooks — optional feature `wabi-webhooks`
+    // DISABLED (P1/W3, 2026-08-21): WebhookService is unwired — no registration
+    // API, zero .trigger() call sites. The capability is latent SSRF surface
+    // with no product value yet; catalog advertises nothing the server does.
     #[cfg(feature = "wabi-webhooks")]
     out.push(AddonCapability {
         id: "webhooks".into(),
         name: "Webhooks".into(),
         version: "0.1.0".into(),
         description: "Webhook service for Wabi - triggers webhooks on events".into(),
-        enabled: true,
+        enabled: false,
         backend_runtime: "rust".into(),
         cargo_feature: Some("wabi-webhooks".into()),
         permissions: vec!["network:outbound".into()],
