@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { visibleKanbanColumns } from '$lib/business';
 	import type { Todo, TodoStatus } from '$lib/business/types';
+	import PlannerAvatar from './PlannerAvatar.svelte';
+	import { parseAssigneeId } from '$lib/business/plannerUsers';
 
 	export let sortedTodosByColumn: Record<TodoStatus, Todo[]>;
 	export let dragOverColumn: TodoStatus | null = null;
@@ -8,7 +10,8 @@
 	export let getPriorityColor: (priority: Todo['priority']) => string;
 	export let formatEstimateHours: (minutes: number | undefined) => string;
 	export let getAssigneeName: (userId: number | undefined) => string;
-	export let getAssigneeColor: (userId: number | undefined) => string = () => '#888';
+	export let getAssigneeColor: (userId: number | undefined) => string = () => '#888888';
+	export let getAssigneeAvatarUrl: (userId: number | undefined) => string | undefined = () => undefined;
 	export let getProjectColor: (projectId: string | undefined) => string;
 	export let getProjectName: (projectId: string | undefined) => string;
 	export let formatDueDate: (timestamp: number | undefined) => string;
@@ -74,9 +77,15 @@
 									<span class="card-estimate">{formatEstimateHours(todo.estimatedMinutes)}</span>
 								{/if}
 								{#if todo.assignedTo}
+									{@const aid = parseAssigneeId(todo.assignedTo)}
 									<span class="assignee-chip-card">
-										<span class="assignee-dot" style="background-color: {getAssigneeColor(parseInt(String(todo.assignedTo), 10))}"></span>
-										<span>{getAssigneeName(parseInt(String(todo.assignedTo), 10))}</span>
+										<PlannerAvatar
+											name={getAssigneeName(aid ?? undefined)}
+											color={getAssigneeColor(aid ?? undefined)}
+											src={getAssigneeAvatarUrl(aid ?? undefined)}
+											size="xs"
+										/>
+										<span>{getAssigneeName(aid ?? undefined)}</span>
 									</span>
 								{/if}
 								{#if todo.projectId}

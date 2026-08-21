@@ -14,6 +14,7 @@
 	import AdminTab from './AdminTab.svelte';
 	import LoreCodePanel from './lore/LoreCodePanel.svelte';
 	import WhiteboardLayerPanel from './WhiteboardLayerPanel.svelte';
+	import TaskPanel from './business/TaskPanel.svelte';
 
 	export let panel: WorkspacePanelManifest;
 
@@ -49,6 +50,10 @@
 	<TransferCenter />
 {:else if panel.component === 'code'}
 	<LoreCodePanel />
+{:else if panel.component === 'planner-tasks'}
+	<!-- Planner Tasks in the right dock: compact TaskPanel, no close button
+	     (the dock owns open/close). Shares the same store as the Planner. -->
+	<TaskPanel compact />
 {:else}
 	<AddonFallbackPanel {panel} />
 {/if}

@@ -616,3 +616,44 @@
 			display: none;
 		}
 	}
+
+	/* ── Compact mode: right workspace dock (~320px) ───────────────────────── */
+	.task-panel-container.compact {
+		height: 100%;
+		padding: 0.6rem;
+		gap: 0.5rem;
+		background: var(--biz-bg-primary, var(--surface-base, #24243e));
+	}
+
+	.task-panel-container.compact .panel-header {
+		min-height: 32px;
+		margin-bottom: 0.25rem;
+	}
+
+	.task-panel-container.compact .panel-header h2 {
+		font-size: 0.95rem;
+	}
+
+	.task-panel-container.compact .filter-tabs {
+		margin-bottom: 0.4rem;
+	}
+
+	.task-panel-container.compact .filter-tab {
+		padding: 0.35rem 0.55rem;
+		font-size: 0.72rem;
+	}
+
+	.task-panel-container.compact .task-item {
+		padding: 0.45rem 0.5rem;
+		gap: 0.45rem;
+	}
+
+	.task-panel-container.compact .task-title {
+		font-size: 0.82rem;
+	}
+
+	.task-panel-container.compact .task-meta {
+		flex-wrap: wrap;
+		row-gap: 0.2rem;
+	}
+

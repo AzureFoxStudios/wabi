@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { selectedDate } from '$lib/business/store';
 	import type { CalendarEvent, Todo } from '$lib/business/types';
+	import PlannerAvatar from './PlannerAvatar.svelte';
+	import {
+		plannerUserById,
+		getPlannerUserName,
+		getPlannerUserColor,
+		getPlannerUserAvatarUrl,
+		parseAssigneeId
+	} from '$lib/business/plannerUsers';
 
 	export let selectedDayEvents: CalendarEvent[] = [];
 	export let modalDayTasks: Todo[] = [];
@@ -11,6 +19,10 @@
 	export let toggleTaskComplete: (todo: Todo) => void;
 	export let closeModal: () => void;
 	export let openAddModal: (date?: Date) => void;
+
+	function taskAssigneeId(todo: Todo): number | undefined {
+		return parseAssigneeId(todo.assignedTo) ?? undefined;
+	}
 </script>
 
 <div
@@ -89,7 +101,20 @@
 									<div class="event-color" style="background-color: {getPriorityColor(task.priority)}"></div>
 									<div class="event-details">
 										<span class="event-title">{task.title}</span>
-										<span class="event-time priority-{task.priority}">{task.priority}</span>
+										<div class="event-meta">
+											<span class="event-time priority-{task.priority}">{task.priority}</span>
+											{#if task.assignedTo && taskAssigneeId(task)}
+												<span class="task-assignee" title={`Assigned to ${getPlannerUserName($plannerUserById, taskAssigneeId(task))}`}>
+													<PlannerAvatar
+														name={getPlannerUserName($plannerUserById, taskAssigneeId(task))}
+														color={getPlannerUserColor($plannerUserById, taskAssigneeId(task))}
+														src={getPlannerUserAvatarUrl($plannerUserById, taskAssigneeId(task))}
+														size="xs"
+													/>
+													<span class="assignee-inline-name">{getPlannerUserName($plannerUserById, taskAssigneeId(task))}</span>
+												</span>
+											{/if}
+										</div>
 									</div>
 									<span class="task-check" title="Mark complete">&#10003;</span>
 								</button>
