@@ -179,6 +179,12 @@ export function moveUserToVoiceChannel(targetUserId: string, toChannelId: string
 	sock.emit('move-user-to-voice-channel', { targetUserId, toChannelId });
 }
 
+export function kickVoiceMember(channelId: string, targetUserId: string): void {
+	const sock = getSocket();
+	if (!sock) return;
+	sock.emit('voice-channel-kick', { channelId, targetUserId });
+}
+
 export function createThread(parentChannelId: string, name: string, options?: {
 	description?: string;
 	isPrivate?: boolean;

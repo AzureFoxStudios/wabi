@@ -362,6 +362,40 @@
 		cursor: grabbing;
 	}
 
+	.voice-member-kick {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		margin-left: 0.1rem;
+		border: none;
+		border-radius: var(--radius-sm, 6px);
+		background: transparent;
+		color: var(--text-muted);
+		cursor: pointer;
+		opacity: 0;
+		flex-shrink: 0;
+		transition: opacity var(--duration-fast, 150ms) ease, background var(--duration-fast, 150ms) ease, color var(--duration-fast, 150ms) ease;
+	}
+
+	.voice-member-kick svg {
+		width: 12px;
+		height: 12px;
+		stroke: currentColor;
+	}
+
+	.voice-member-item:hover .voice-member-kick,
+	.voice-member-kick:focus-visible {
+		opacity: 1;
+	}
+
+	.voice-member-kick:hover {
+		background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.25);
+		color: var(--color-danger, #fda4af);
+	}
+
 	/* Discord-style persistent self voice controls (docked-first voice UX) */
 	.voice-self-controls {
 		display: flex;

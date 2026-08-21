@@ -382,6 +382,121 @@ async fn on_set_voice_transmit_mode(socket: SocketRef, data: Value, state: SioSt
     }
 }
 
+/// Moderator/owner force-removes a member from a voice channel. The kicked
+/// client is told to tear down its media session (`voice-self-kicked`), and
+/// the roster removal is broadcast like a voluntary leave.
+#[allow(dead_code)]
+async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return,
+    };
+    let target_user_id = match data.get("targetUserId").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return,
+    };
+
+    let token = socket
+        .extensions
+        .get::<AuthToken>()
+        .map(|t| t.0.clone())
+        .unwrap_or_default();
+    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    if my_user_id <= 0 {
+        let _ = socket.emit(
+            "voice-channel-kick-error",
+            &json!({ "error": "Guests cannot kick voice members" }),
+        );
+        return;
+    }
+
+    let can_moderate = state.app.is_admin(my_user_id).await
+        || state.app.has_role(my_user_id, "Moderator").await;
+    if !can_moderate {
+        let _ = socket.emit(
+            "voice-channel-kick-error",
+            &json!({ "error": "You need at least the Moderator role to kick voice members" }),
+        );
+        return;
+    }
+
+    // Remove every socket of the target user from the channel roster — primary
+    // and listen-only members alike.
+    let removed: Vec<VoiceParticipant> = {
+        let mut voice = state.voice_channels.write().await;
+        if let Some(members) = voice.get_mut(&channel_id) {
+            let removed: Vec<VoiceParticipant> = members
+                .iter()
+                .filter(|p| p.stable_id == target_user_id)
+                .cloned()
+                .collect();
+            members.retain(|p| p.stable_id != target_user_id);
+            removed
+        } else {
+            Vec::new()
+        }
+    };
+
+    if removed.is_empty() {
+        return;
+    }
+
+    // Tell the kicked client(s) to tear down their media session.
+    for p in &removed {
+        let _ = io
+            .to(p.socket_id.clone())
+            .emit(
+                "voice-self-kicked",
+                &json!({
+                    "channelId": channel_id,
+                    "userId":    target_user_id,
+                }),
+            )
+            .await;
+    }
+
+    // Broadcast the removal like the disconnect cleanup does, then a fresh
+    // roster so every client converges.
+    for p in &removed {
+        let _ = io
+            .emit(
+                "voice-channel-left",
+                &json!({
+                    "channelId": channel_id,
+                    "userId":    target_user_id,
+                }),
+            )
+            .await;
+        let _ = io
+            .emit(
+                "voice-channel-user-left",
+                &json!({
+                    "channelId": channel_id,
+                    "userId":    target_user_id,
+                    "socketId":  p.socket_id,
+                }),
+            )
+            .await;
+    }
+
+    let members: Vec<Value> = {
+        let voice = state.voice_channels.read().await;
+        voice
+            .get(&channel_id)
+            .map(|m| m.iter().map(voice_participant_to_view).collect())
+            .unwrap_or_default()
+    };
+    let _ = io
+        .emit(
+            "voice-channel-state",
+            &json!({
+                "channelId": channel_id,
+                "members":   members,
+            }),
+        )
+        .await;
+}
+
 // ---------------------------------------------------------------------------
 // Call lifecycle handlers
 // ---------------------------------------------------------------------------

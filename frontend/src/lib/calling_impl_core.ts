@@ -1351,6 +1351,32 @@ export async function handleForcedVoiceMove(
 	syncSpatialAudioGraph();
 }
 
+export async function handleForcedVoiceLeave(socket: Socket, channelId: string): Promise<void> {
+	if (!socket || !channelId) return;
+
+	const isPrimary = activeVoiceChannelId === channelId;
+	const isListening = get(listeningVoiceChannels).includes(channelId);
+	// Stale kick for a channel we're not voice-connected to — ignore.
+	if (!isPrimary && !isListening) return;
+
+	await disconnectWabidbChannel(channelId);
+	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
+	if (isPrimary) {
+		activeVoiceChannelId = null;
+		activeVoiceChannel.set(null);
+	}
+	syncSpatialAudioGraph();
+	pushVoiceChannelNotice('You were removed from the voice channel');
+	playCallActionSound('leave');
+
+	// If the kicked channel was the active group call, end the call locally
+	// and tell the server we left it.
+	if (get(activeGroupCall)?.id === channelId) {
+		socket.emit('group-call-leave', { channelId });
+		finalizeLocalCallEndState();
+	}
+}
+
 export async function startCall(
 	socket: Socket,
 	targetUserId: string,
@@ -1890,6 +1916,13 @@ export function endCall(socket: Socket) {
 		}
 	} else if (endingMode === 'group' && endingGroupCall?.id && get(isInCall)) {
 		socket.emit('group-call-leave', { channelId: endingGroupCall.id });
+		// Leaving the group call on a channel must also leave that channel
+		// server-side (primary or listen-only). Otherwise the roster chip stays
+		// stuck for every other client, with no UI affordance left to remove it.
+		if (endingVoiceChannelId === endingGroupCall.id || endingListeningChannels.includes(endingGroupCall.id)) {
+			socket.emit('voice-channel-leave', { channelId: endingGroupCall.id });
+			socket.emit('voice-channel-unsubscribe', { channelId: endingGroupCall.id });
+		}
 	}
 
 	// Only notify the server when a peer-targeted call session exists.

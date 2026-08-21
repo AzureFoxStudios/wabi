@@ -164,6 +164,7 @@ export {
 	closeBreakoutRooms,
 	moveUserToBreakout,
 	moveUserToVoiceChannel,
+	kickVoiceMember,
 	createThread,
 	deleteChannel,
 	deleteChannel as deleteChannelWithOptions,

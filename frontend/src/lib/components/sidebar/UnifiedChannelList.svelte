@@ -36,8 +36,10 @@
 	export let onToggleListenChannel: (channelId: string) => void;
 	export let onOpenVoiceChannelWhiteboard: (channelId: string, event?: Event) => void;
 	export let canDragVoiceMember: (memberUserId: string) => boolean = () => false;
+	export let canKickVoiceMember: (memberUserId: string) => boolean = () => false;
 	export let onVoiceMemberDragStart: (event: DragEvent, channelId: string, memberUserId: string) => void = () => {};
 	export let onVoiceMemberDragEnd: () => void = () => {};
+	export let onKickVoiceMember: (channelId: string, memberUserId: string) => void = () => {};
 	export let onVoiceChannelDragOver: (event: DragEvent, channelId: string) => void = () => {};
 	export let onVoiceChannelDragLeave: (channelId: string) => void = () => {};
 	export let onVoiceChannelDrop: (event: DragEvent, channelId: string) => void = () => {};
@@ -378,6 +380,17 @@
 					{#if showOtherVoiceDuration()}
 						<span class="voice-member-duration">{formatVoiceDuration(getVoicePresenceStart(channel.id, member.userId))}</span>
 					{/if}
+					{#if canKickVoiceMember(member.userId)}
+						<button
+							type="button"
+							class="voice-member-kick"
+							on:click={(e) => { e.stopPropagation(); onKickVoiceMember(channel.id, member.userId); }}
+							title={`Remove ${member.username || member.userId} from voice`}
+							aria-label={`Remove ${member.username || member.userId} from voice`}
+						>
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+						</button>
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -476,6 +489,17 @@
 						{/if}
 						{#if showOtherVoiceDuration()}
 							<span class="voice-member-duration">{formatVoiceDuration(getVoicePresenceStart(breakout.id, member.userId))}</span>
+						{/if}
+						{#if canKickVoiceMember(member.userId)}
+							<button
+								type="button"
+								class="voice-member-kick"
+								on:click={(e) => { e.stopPropagation(); onKickVoiceMember(breakout.id, member.userId); }}
+								title={`Remove ${member.username || member.userId} from voice`}
+								aria-label={`Remove ${member.username || member.userId} from voice`}
+							>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+							</button>
 						{/if}
 					</div>
 				{/each}
