@@ -321,7 +321,7 @@ async fn save_profile_media(
     let media = media
         .as_object()
         .ok_or_else(|| AppError::BadRequest("profile media must be a JSON object".into()))?;
-    let allowed = ["banner_url", "overlay_url", "show_banner", "show_overlay"];
+    let allowed = ["banner_url", "overlay_url"];
     let filtered = media
         .iter()
         .filter(|(key, _)| allowed.contains(&key.as_str()))

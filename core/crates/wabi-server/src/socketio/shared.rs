@@ -472,6 +472,27 @@ async fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>, sta
         (None, None, None, None)
     };
 
+    let (banner_url, overlay_url) = if let Some(db_id) = user.db_user_id {
+        let stored = state
+            .app
+            .wdb
+            .get_user_layout(db_id as u64)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|l| serde_json::from_str::<Value>(&l.layout_json).ok());
+        let media = stored
+            .and_then(|root| root.get("profile_media").cloned())
+            .and_then(|m| m.as_object().cloned())
+            .unwrap_or_default();
+        (
+            media.get("banner_url").and_then(|v| v.as_str()).map(String::from),
+            media.get("overlay_url").and_then(|v| v.as_str()).map(String::from),
+        )
+    } else {
+        (None, None)
+    };
+
     json!({
         "id":          user.stable_id,
         "username":    user.username,
@@ -479,6 +500,8 @@ async fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>, sta
         "status":      "active",
         "handle":      null,
         "profilePicture": profile_picture,
+        "bannerUrl":   banner_url,
+        "overlayUrl":  overlay_url,
         "usernameFont": username_font,
         "bio":         bio,
         "dbUserId":    user.db_user_id,

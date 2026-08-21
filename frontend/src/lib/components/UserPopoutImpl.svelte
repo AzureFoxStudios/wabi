@@ -394,7 +394,7 @@
 		<!-- Banner/Header Area -->
 		<div class="popout-banner" style="--banner-color: {user.color || 'var(--pfp-banner)'}">
 			<div class="banner-gradient"></div>
-			{#if user.bannerUrl && user.showBanner !== false && !disableAllBanners}
+			{#if user.bannerUrl && !disableAllBanners}
 				<img src={user.bannerUrl} alt="Profile banner" class="popout-banner-img" />
 			{/if}
 		</div>
@@ -408,6 +408,9 @@
 					<div class="popout-avatar-placeholder" style="--avatar-color: {user.color}">
 						{popoutDisplayName.charAt(0).toUpperCase()}
 					</div>
+				{/if}
+				{#if user.overlayUrl && !disableAllBanners}
+					<span class="popout-avatar-overlay" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
 				{/if}
 			</div>
 		</div>
