@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { currentChannel, currentUser } from '$lib/socket';
+import { channels } from '$lib/channelStore';
 	import {
 		loreRepo,
 		loreFiles,
@@ -20,6 +21,10 @@
 		getSignedLoreUrl,
 		parseLoreChannelId,
 		uploadLoreFile,
+		createLoreRepo,
+		getLoreRepo,
+		getLoreBranches,
+		listLoreFiles,
 		createLoreSnapshot,
 		createLoreBranch,
 		lockLoreFile,
@@ -152,6 +157,34 @@
 	}>>([]);
 
 	let showConnectModal = $state(false);
+
+	// W7: one-click auto-create for channels that pre-date the addon (no repo yet).
+	// Replaces the scary lore:// modal — an artist just clicks "Set up folder".
+	let autoCreating = $state(false);
+	let autoCreateError = $state<string | null>(null);
+	let autoCreated = $state(false);
+
+	let channelName = $derived(
+		$channels.find((c) => c.id === activeChannel)?.name ?? 'code-repo'
+	);
+
+	async function handleAutoCreateRepo() {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+		autoCreating = true;
+		autoCreateError = null;
+		try {
+			await createLoreRepo(token, channelId, channelName);
+			autoCreated = true;
+			await loadLoreRepo();
+			await loadLoreHistory();
+		} catch (e: any) {
+			autoCreateError = e?.message ?? 'Failed to set up folder';
+		} finally {
+			autoCreating = false;
+		}
+	}
 
 	// Review data (placeholder — real data comes from backend review endpoint)
 	let activeReview = $state<{
@@ -439,7 +472,7 @@
 
 <div class="lore-channel-shell">
 	{#if !repo}
-		<div class="lore-not-connected" onclick={() => canEdit && (showConnectModal = true)}>
+		<div class="lore-not-connected">
 			{#if health === 'error'}
 				<div class="lore-error">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -449,10 +482,10 @@
 					</svg>
 					<span>Lore service unavailable</span>
 				</div>
-			{:else if isLoading}
+			{:else if isLoading || autoCreating}
 				<div class="lore-loading">
 					<span class="spinner"></span>
-					<span>Connecting to Lore...</span>
+					<span>{autoCreating ? 'Setting up your folder…' : 'Connecting to Lore…'}</span>
 				</div>
 			{:else}
 				<div class="lore-prompt">
@@ -460,15 +493,21 @@
 						<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
 						<polyline points="14 2 14 8 20 8"/>
 					</svg>
-					<span>No Lore repository connected to this channel</span>
+					<span>No folder connected to this channel yet</span>
 					{#if canEdit}
-						<button class="btn btn-primary" onclick={(e) => { e.stopPropagation(); showConnectModal = true; }}>
+						<button class="btn btn-primary" onclick={handleAutoCreateRepo} disabled={autoCreating}>
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-								<line x1="12" y1="5" x2="12" y2="19"/>
-								<line x1="5" y1="12" x2="19" y2="12"/>
+								<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+								<line x1="12" y1="11" x2="12" y2="17"/>
+								<line x1="9" y1="14" x2="15" y2="14"/>
 							</svg>
-							Connect Repository
+							Set up folder
 						</button>
+					{:else}
+						<span class="lore-readonly-hint">Only admins can set up a folder for this channel.</span>
+					{/if}
+					{#if autoCreateError}
+						<p class="lore-auto-error" role="alert">{autoCreateError}</p>
 					{/if}
 				</div>
 			{/if}
@@ -911,6 +950,18 @@
 		align-items: center;
 		gap: var(--space-2);
 		color: var(--text-muted);
+	}
+
+	.lore-readonly-hint {
+		font-size: var(--font-size-sm);
+		color: var(--text-muted);
+		opacity: 0.7;
+	}
+
+	.lore-auto-error {
+		color: var(--color-danger, #ef4444);
+		font-size: var(--font-size-sm);
+		margin: 0;
 	}
 
 	.lore-error {
