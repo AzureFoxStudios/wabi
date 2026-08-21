@@ -280,3 +280,23 @@ Audit against §10 found the architecture, state machine, migration, and cleanup
 New regression coverage in `rightPanelStubStrip.test.ts` ("pinned-panel persistence"): sync→apply round-trip preserves the committed pin; a pin removed from the strip falls back to `tabs[0]`; peek reloads as closed. Post-fix verification: `bun test src/lib` 110 pass / 0 fail; `bun run check` 0 errors.
 
 Remaining nits (cosmetic, not applied): the `'rightPanel' + 'View'` computed-key indirection in `layoutSchema.ts` + test; `$lib/detachedPanels` now has zero importers; `toggleMobileUsers` opens a never-auto-dismissed peek on mobile (explicit close only); missing trailing newline in `layoutStoreNav.ts`.
+
+---
+
+## Folder-tab model (user feedback, 2026-08-19)
+
+Visual review: stubs must be **glued to the panel** like tabs on a folder being pulled from a cabinet, not fixed to the screen edge.
+
+- `RightStubStrip` gains a `floating` prop. `MainLayout` now mounts the strip **inside** `.right-panel-zone` when the panel is open (`floating`) and as a standalone fixed strip only when `mode = 'none'` (the closed "cabinet" state). Because the peek zone is a transformed containing block, the floating strip rides the peek slide-in animation with the panel; the pinned zone (`position: relative`) keeps it attached to the panel's outer edge. Peek↔pin still never remounts the panel or the strip (same zone node).
+- Rest geometry now matches spec §2: standalone stubs rest at **24px protrusion** (previously fully hidden), sliding to fully visible on hover/focus. Floating stubs rest fully visible on the panel's outer edge (24px in the gutter lane + 24px over the panel edge) and hold position on hover (higher-specificity floating rules win over the side-scoped hover rules).
+- The floating strip and its context menu needed fixed/absolute re-anchoring: the persisted `translateX(0)` on the peek zone turns `position: fixed` descendants into zone-relative ones, so the context menu is now `position: absolute` anchored to the strip with strip-relative coordinates (`handleStubContextMenu` subtracts the strip rect). The drawer's `right/left: 28px` placement is zone- or viewport-relative in both contexts, so it needed no change.
+- Dropped the now-dead `hoveredId`/`revealed` state from the component; the reveal is pure CSS `:hover/:focus-visible`.
+- Verification: `bun run check` 0 errors / 172 baseline warnings; `bun test src/lib` 110 pass / 0 fail. Real-browser check still pending (§10 item 11).
+
+---
+
+## Flush-to-edge + context-menu fix (user feedback, 2026-08-20)
+
+- **Gutter removed.** The panel body no longer ends 24px short of the screen edge: the zone is now exactly `rightPanelWidth` wide (`width`/`flex-basis` inline styles, `max-width: min(744px, 55vw)`, and the `nav-reopen-rail` pinned offsets in `MainLayout.svelte` all dropped the `+ 24`). The `.right-panel-body` strip-side margins are gone; the border stays on the inner edge (mirrored for `stub-left`). Floating stubs now sit fully on the panel's outer edge (48px over the panel), so the peek/pinned panel reads flush to the screen end — no whitespace.
+- **Context menu re-anchoring bug fixed.** The folder-tab change made the menu `position: absolute` with strip-relative coords, but it remained a *sibling* of the strip — so it anchored to the zone/viewport, not the strip (rendered near the wrong spot standalone; opened into the screen edge floating), and pointer movement onto it armed the 150ms peek dismiss. Fix: the menu now mounts **inside** the strip (its absolute containing block), placed side-aware (`side-right`: `right: 24 - x`, opens leftward; `side-left`: `left: x`), and `handleStubLeave`/`handleStubBlur` skip dismiss-arming while the menu is open.
+- Verification: `bun run check` 0 errors / 173 baseline warnings; `bun test src/lib` 110 pass / 0 fail.

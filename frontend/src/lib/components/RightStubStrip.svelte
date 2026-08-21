@@ -13,7 +13,8 @@
 	import WorkspacePanelIcon from './WorkspacePanelIcon.svelte';
 	import './RightStubStrip.css';
 
-	let hoveredId = $state<string | null>(null);
+	let { floating = false }: { floating?: boolean } = $props();
+	let stripRef = $state<HTMLElement | null>(null);
 	let contextMenu = $state<{ panelId: string; x: number; y: number } | null>(null);
 	let drawerOpen = $state(false);
 	let drawerStyle = $state('');
@@ -83,36 +84,39 @@
 	});
 
 	function handleStubEnter(panelId: string): void {
-		hoveredId = panelId;
 		cancelPeekDismiss();
 		layoutStore.peekPanel(panelId);
 	}
 
 	function handleStubFocus(panelId: string): void {
-		hoveredId = panelId;
 		cancelPeekDismiss();
 		layoutStore.peekPanel(panelId);
 	}
 
 	function handleStubLeave(): void {
-		hoveredId = null;
+		if (contextMenu) return;
 		armPeekDismiss();
 	}
 
 	function handleStubBlur(): void {
-		if (hoveredId !== null) hoveredId = null;
+		if (contextMenu) return;
 		armPeekDismiss();
 	}
 
 	function handleStubClick(panelId: string): void {
-		hoveredId = null;
 		layoutStore.pinPanel(panelId);
 	}
 
 	function handleStubContextMenu(event: MouseEvent, panelId: string): void {
 		event.preventDefault();
 		drawerOpen = false;
-		contextMenu = { panelId, x: event.clientX, y: event.clientY };
+		// Coordinates relative to the strip: the menu is absolute inside the
+		// strip, and the strip may be inside the transformed peek zone (which
+		// would otherwise re-anchor viewport `fixed` children).
+		const stripRect = stripRef?.getBoundingClientRect();
+		const x = stripRect ? event.clientX - stripRect.left + 4 : event.clientX;
+		const y = stripRect ? event.clientY - stripRect.top + 4 : event.clientY;
+		contextMenu = { panelId, x, y };
 	}
 
 	function hideContextMenu(): void {
@@ -187,7 +191,9 @@
 
 {#if !$isMobile && !$focusMode}
 	<div
+		bind:this={stripRef}
 		class="stub-strip"
+		class:floating={floating}
 		class:side-left={$layoutStore.stubSide === 'left'}
 		class:side-right={$layoutStore.stubSide === 'right'}
 		on:mouseenter={cancelPeekDismiss}
@@ -199,7 +205,6 @@
 				class="stub"
 				class:active={isDisplayed(panel.id)}
 				class:pinned={isPinned(panel.id)}
-				class:revealed={hoveredId === panel.id}
 				on:mouseenter={() => handleStubEnter(panel.id)}
 				on:mouseleave={handleStubLeave}
 				on:focus={() => handleStubFocus(panel.id)}
@@ -225,51 +230,53 @@
 			bind:this={addStubRef}
 			on:click={toggleDrawer}
 			on:mouseenter={cancelPeekDismiss}
-			on:mouseleave={armPeekDismiss}
+			on:mouseleave={handleStubLeave}
 			aria-label="Add or manage panels"
 			title="Add panels"
 		>
 			<span class="stub-icon" aria-hidden="true">+</span>
 		</button>
-	</div>
 
-	{#if contextMenu}
-		<div
-			class="panel-context-menu stub-context-menu"
-			style={`left: ${contextMenu.x}px; top: ${contextMenu.y}px;`}
-			bind:this={contextMenuRef}
-			role="menu"
-			aria-label="Strip options"
-			on:contextmenu|preventDefault
-		>
-			<button
-				type="button"
-				class="context-menu-item"
-				role="menuitem"
-				on:click={() => removeStub(contextMenu.panelId)}
+		{#if contextMenu}
+			<div
+				class="panel-context-menu stub-context-menu"
+				style={$layoutStore.stubSide === 'right'
+					? `right: ${Math.max(4, 24 - contextMenu.x)}px; top: ${contextMenu.y}px;`
+					: `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`}
+				bind:this={contextMenuRef}
+				role="menu"
+				aria-label="Strip options"
+				on:contextmenu|preventDefault
 			>
-				Remove from strip
-			</button>
-			<button
-				type="button"
-				class="context-menu-item"
-				role="menuitem"
-				disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) <= 0}
-				on:click={() => moveStub(-1)}
-			>
-				Move up
-			</button>
-			<button
-				type="button"
-				class="context-menu-item"
-				role="menuitem"
-				disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) >= $layoutStore.stubStrip.length - 1}
-				on:click={() => moveStub(1)}
-			>
-				Move down
-			</button>
-		</div>
-	{/if}
+				<button
+					type="button"
+					class="context-menu-item"
+					role="menuitem"
+					on:click={() => removeStub(contextMenu.panelId)}
+				>
+					Remove from strip
+				</button>
+				<button
+					type="button"
+					class="context-menu-item"
+					role="menuitem"
+					disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) <= 0}
+					on:click={() => moveStub(-1)}
+				>
+					Move up
+				</button>
+				<button
+					type="button"
+					class="context-menu-item"
+					role="menuitem"
+					disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) >= $layoutStore.stubStrip.length - 1}
+					on:click={() => moveStub(1)}
+				>
+					Move down
+				</button>
+			</div>
+		{/if}
+	</div>
 
 	{#if drawerOpen}
 		<div
