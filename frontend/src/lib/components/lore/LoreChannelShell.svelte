@@ -25,6 +25,7 @@ import { channels } from '$lib/channelStore';
 		getLoreRepo,
 		getLoreBranches,
 		listLoreFiles,
+		mintLoreConnectToken,
 		createLoreSnapshot,
 		createLoreBranch,
 		lockLoreFile,
@@ -163,6 +164,69 @@ import { channels } from '$lib/channelStore';
 	let autoCreating = $state(false);
 	let autoCreateError = $state<string | null>(null);
 	let autoCreated = $state(false);
+
+	// Setup chooser: the empty state offers server space / local folder /
+	// advanced instead of silently picking one path.
+	let setupMode = $state<'idle' | 'choosing' | 'local'>('idle');
+
+	// Local-folder connect (wabi-sync): server-minted token + copy-paste commands.
+	let connectToken = $state('');
+	let connectTokenScopes = $state<'read' | 'write'>('write');
+	let mintingToken = $state(false);
+	let mintTokenError = $state<string | null>(null);
+	let copiedField = $state('');
+
+	async function mintConnectToken() {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) {
+			mintTokenError = 'Sign in first.';
+			return;
+		}
+		mintingToken = true;
+		mintTokenError = null;
+		try {
+			const result = await mintLoreConnectToken(token, channelId, connectTokenScopes);
+			connectToken = result.token;
+		} catch (e: any) {
+			mintTokenError = e?.message ?? 'Failed to mint token';
+		} finally {
+			mintingToken = false;
+		}
+	}
+
+	async function copySetupText(text: string, field: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch {
+			const ta = document.createElement('textarea');
+			ta.value = text;
+			ta.style.position = 'fixed';
+			ta.style.opacity = '0';
+			document.body.appendChild(ta);
+			ta.select();
+			document.execCommand('copy');
+			ta.remove();
+		}
+		copiedField = field;
+		setTimeout(() => {
+			if (copiedField === field) copiedField = '';
+		}, 1500);
+	}
+
+	let serverBaseUrl = $derived(
+		typeof window !== 'undefined' ? window.location.origin : ''
+	);
+
+	let syncCommands = $derived.by(() => {
+		const id = parseLoreChannelId(activeChannel);
+		const chKey = id != null ? `ch_${id.toString(16)}` : 'ch_…';
+		return [
+			{ label: '1. Log in', cmd: `wabi-sync login ${serverBaseUrl}` },
+			{ label: '2. Link your folder', cmd: `wabi-sync link ${chKey} ~/projects/${channelName}` },
+			{ label: '3. Keep it syncing', cmd: `wabi-sync watch` }
+		];
+	});
 
 	let channelName = $derived(
 		$channels.find((c) => c.id === activeChannel)?.name ?? 'code-repo'
@@ -494,13 +558,71 @@ import { channels } from '$lib/channelStore';
 						<polyline points="14 2 14 8 20 8"/>
 					</svg>
 					<span>No folder connected to this channel yet</span>
-					{#if canEdit}
+
+					{#if canEdit && setupMode === 'idle'}
+						<div class="setup-choices">
+							<button class="setup-choice primary" onclick={handleAutoCreateRepo} disabled={autoCreating}>
+								<strong>Create a project space</strong>
+								<small>Start an empty versioned space on the server. Upload files here or sync a local folder later.</small>
+							</button>
+							<button class="setup-choice" onclick={() => setupMode = 'local'}>
+								<strong>Use a folder on this computer</strong>
+								<small>Keep files on your machine and sync them with wabi-sync.</small>
+							</button>
+							<button class="setup-choice subtle" onclick={() => (showConnectModal = true)}>
+								<strong>Advanced…</strong>
+								<small>Link an existing Lore repo or import from a URL.</small>
+							</button>
+						</div>
+					{:else if canEdit && setupMode === 'local'}
+						<div class="setup-local">
+							<div class="setup-local-head">
+								<span>Connect a local folder with <strong>wabi-sync</strong></span>
+								<button class="setup-back" onclick={() => { setupMode = 'idle'; mintTokenError = null; }}>← Back</button>
+							</div>
+							<div class="setup-token-row">
+								<select
+									class="setup-scope"
+									bind:value={connectTokenScopes}
+									title="Token scope"
+									disabled={Boolean(connectToken)}
+								>
+									<option value="write">read+write</option>
+									<option value="read">read-only</option>
+								</select>
+								{#if connectToken}
+									<input class="setup-token" type="password" value={connectToken} readonly aria-label="Connect token" />
+									<button class="setup-mini-btn" onclick={() => copySetupText(connectToken, 'token')}>
+										{copiedField === 'token' ? 'Copied' : 'Copy token'}
+									</button>
+								{:else}
+									<button class="setup-mini-btn" onclick={mintConnectToken} disabled={mintingToken}>
+										{mintingToken ? 'Minting…' : 'Mint connect token'}
+									</button>
+								{/if}
+							</div>
+							{#if connectToken}
+								<p class="setup-hint">Shown once — the server stores only a hash. Copy it now if you still need it.</p>
+							{/if}
+							{#if mintTokenError}
+								<p class="lore-auto-error" role="alert">{mintTokenError}</p>
+							{/if}
+							<ol class="setup-steps">
+								{#each syncCommands as step}
+									<li>
+										<div class="setup-step-head">
+											<span>{step.label}</span>
+											<button class="setup-mini-btn" onclick={() => copySetupText(step.cmd, step.label)}>
+												{copiedField === step.label ? 'Copied' : 'Copy'}
+											</button>
+										</div>
+										<code class="setup-cmd">{step.cmd}</code>
+									</li>
+								{/each}
+							</ol>
+						</div>
+					{:else if canEdit}
 						<button class="btn btn-primary" onclick={handleAutoCreateRepo} disabled={autoCreating}>
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-								<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-								<line x1="12" y1="11" x2="12" y2="17"/>
-								<line x1="9" y1="14" x2="15" y2="14"/>
-							</svg>
 							Set up folder
 						</button>
 					{:else}
@@ -509,6 +631,13 @@ import { channels } from '$lib/channelStore';
 					{#if autoCreateError}
 						<p class="lore-auto-error" role="alert">{autoCreateError}</p>
 					{/if}
+
+					<!-- Expectation-setting: this is a file browser / versioned store,
+					     not an in-browser IDE. -->
+					<p class="lore-expect-hint">
+						This view is a file browser for versioned files — history and review live here too.
+						Code editing happens in your own editor.
+					</p>
 				</div>
 			{/if}
 		</div>
@@ -962,6 +1091,140 @@ import { channels } from '$lib/channelStore';
 		color: var(--color-danger, #ef4444);
 		font-size: var(--font-size-sm);
 		margin: 0;
+	}
+
+	/* ── Setup chooser (empty state) ─────────────────────────────── */
+
+	.setup-choices {
+		display: grid;
+		gap: var(--space-2);
+		width: min(420px, 90%);
+	}
+
+	.setup-choice {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 3px;
+		padding: var(--space-2) var(--space-3);
+		text-align: left;
+		background: color-mix(in srgb, var(--surface-raised, #1c1c24) 72%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent-primary) 26%, transparent);
+		border-radius: var(--radius-md, 8px);
+		color: var(--text-heading, inherit);
+		cursor: pointer;
+	}
+	.setup-choice:hover { border-color: color-mix(in srgb, var(--accent-primary) 55%, transparent); }
+	.setup-choice strong { font-size: var(--font-size-sm); }
+	.setup-choice small { color: var(--text-muted); font-size: var(--font-size-xs); line-height: 1.35; }
+	.setup-choice.primary {
+		border-color: color-mix(in srgb, var(--accent-primary) 60%, transparent);
+		background: color-mix(in srgb, var(--accent-primary) 14%, var(--surface-raised, #1c1c24));
+	}
+	.setup-choice.subtle { opacity: 0.85; }
+	.setup-choice:disabled { opacity: 0.6; cursor: default; }
+
+	.setup-local {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		width: min(480px, 94%);
+		max-height: 60vh;
+		overflow-y: auto;
+		padding: var(--space-2) var(--space-3);
+		background: color-mix(in srgb, var(--surface-raised, #1c1c24) 72%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
+		border-radius: var(--radius-md, 8px);
+		text-align: left;
+	}
+	.setup-local-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+	.setup-local-head span { font-size: var(--font-size-sm); }
+	.setup-back {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		font-size: var(--font-size-xs);
+		cursor: pointer;
+		padding: 0;
+	}
+	.setup-back:hover { color: var(--text-heading); }
+
+	.setup-token-row { display: flex; align-items: center; gap: var(--space-1); }
+	.setup-scope {
+		flex: 0 0 auto;
+		padding: 4px var(--space-1);
+		border-radius: var(--radius-sm, 6px);
+		border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+		background: var(--surface-base, transparent);
+		color: var(--text-body, inherit);
+		font-size: var(--font-size-xs);
+	}
+	.setup-token {
+		flex: 1;
+		min-width: 0;
+		padding: 4px var(--space-1);
+		border-radius: var(--radius-sm, 6px);
+		border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+		background: var(--surface-base, transparent);
+		color: var(--text-body, inherit);
+		font-family: var(--font-family-mono, monospace);
+		font-size: var(--font-size-xs);
+	}
+	.setup-mini-btn {
+		flex: 0 0 auto;
+		padding: 4px var(--space-2);
+		border-radius: var(--radius-sm, 6px);
+		border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+		background: transparent;
+		color: var(--text-heading, inherit);
+		font-size: var(--font-size-xs);
+		cursor: pointer;
+	}
+	.setup-mini-btn:hover { background: color-mix(in srgb, var(--accent-primary) 16%, transparent); }
+	.setup-mini-btn:disabled { opacity: 0.6; cursor: default; }
+
+	.setup-hint { margin: 0; font-size: var(--font-size-xs); color: var(--text-muted); }
+
+	.setup-steps {
+		margin: 0;
+		padding: 0 0 0 1.1rem;
+		display: grid;
+		gap: var(--space-2);
+		font-size: var(--font-size-xs);
+		color: var(--text-muted);
+	}
+	.setup-step-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+	.setup-cmd {
+		display: block;
+		margin-top: 2px;
+		padding: 4px var(--space-2);
+		background: rgba(0, 0, 0, 0.28);
+		border-radius: var(--radius-sm, 6px);
+		font-family: var(--font-family-mono, monospace);
+		font-size: var(--font-size-xs);
+		color: var(--text-body, inherit);
+		user-select: all;
+		overflow-x: auto;
+		white-space: nowrap;
+	}
+
+	.lore-expect-hint {
+		margin: var(--space-2) 0 0;
+		max-width: min(460px, 92%);
+		font-size: var(--font-size-xs);
+		line-height: 1.45;
+		color: var(--text-muted);
+		opacity: 0.85;
 	}
 
 	.lore-error {
