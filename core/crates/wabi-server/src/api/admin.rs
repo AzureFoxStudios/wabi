@@ -796,7 +796,7 @@ async fn clear_login_lockout(
 
 // ─── Auth helpers ───────────────────────────────────────────────────────────
 
-async fn admin_auth(
+pub(crate) async fn admin_auth(
     headers: &axum::http::HeaderMap,
     state: &Arc<AppState>,
 ) -> Result<i64, Response> {
