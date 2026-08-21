@@ -49,8 +49,12 @@ fn breakout_room_view(room: &BreakoutRoomState) -> Value {
     })
 }
 
-/// Resolve the acting user's DB id from the socket's JWT (0 for guests).
+/// Resolve the acting user's DB id from the handshake-validated identity (0 for guests).
 fn breakout_actor_user_id(socket: &SocketRef, state: &SioState) -> u64 {
+    if let Some(id) = socket.extensions.get::<SioIdentity>() {
+        return id.user_id.max(0) as u64;
+    }
+    // Fallback for legacy connections.
     let token = socket
         .extensions
         .get::<AuthToken>()

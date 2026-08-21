@@ -19,12 +19,8 @@ async fn on_kick_group_member(socket: SocketRef, data: Value, state: SioState, i
     };
 
     // Auth check — must be channel admin or server admin
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if my_user_id <= 0 {
         let _ = socket.emit("kick-error", &json!({ "error": "Guests cannot kick members" }));
         return;
@@ -56,12 +52,8 @@ async fn on_leave_group(socket: SocketRef, data: Value, state: SioState, io: Soc
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     let stable_id = if my_user_id > 0 {
         format!("user-{}", my_user_id)
     } else {
@@ -101,12 +93,8 @@ async fn on_add_group_member(socket: SocketRef, data: Value, state: SioState, io
     };
 
     // Auth check — must be admin
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("add-member-error", &json!({ "error": "Only admins can add members" }));
         return;
@@ -148,12 +136,8 @@ async fn on_update_group_avatar(socket: SocketRef, data: Value, state: SioState,
     let avatar_url = data.get("avatarUrl").and_then(|v| v.as_str()).map(String::from);
 
     // Auth check — must be admin
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("avatar-error", &json!({ "error": "Only admins can update avatars" }));
         return;
@@ -200,13 +184,9 @@ async fn on_edit_message(socket: SocketRef, data: Value, state: SioState, io: So
     };
 
     // Auth check — must have a real user account
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
-    let my_username = username_from_token(&token, &state.app.config.jwt_secret).unwrap_or_default();
+    let sio_identity = resolve_sio_identity(&socket);
+    let my_user_id = sio_identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let my_username = sio_identity.as_ref().map(|i| i.username.clone()).unwrap_or_default();
     let is_admin = if my_user_id > 0 {
         state.app.is_admin(my_user_id).await
     } else {
@@ -327,12 +307,8 @@ async fn on_toggle_pin(socket: SocketRef, data: Value, state: SioState, io: Sock
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     let is_owner = state.app.is_owner(user_id).await;
     let is_admin = state.app.is_admin(user_id).await;
     if user_id <= 0 || !(is_owner || is_admin) {

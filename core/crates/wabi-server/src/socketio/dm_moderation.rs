@@ -14,12 +14,8 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
 
     // Auth check — guests cannot create DMs
     if my_user_id <= 0 {
@@ -137,12 +133,8 @@ async fn on_create_group(socket: SocketRef, data: Value, state: SioState, io: So
         }
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
 
     // Auth check — guests cannot create persistent group DMs.
     if my_user_id <= 0 {
@@ -222,12 +214,8 @@ async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
     }
 
     // Auth check
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if my_user_id <= 0 {
         let _ = socket.emit("dm-error", &json!({ "error": "Guests cannot delete DMs", "channelId": channel_id }));
         return;
@@ -255,12 +243,8 @@ async fn on_ban_user(socket: SocketRef, data: Value, state: SioState, io: Socket
     };
 
     // Auth check — must be admin
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("ban-error", &json!({ "error": "Only admins can ban users" }));
         return;

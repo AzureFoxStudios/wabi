@@ -43,8 +43,8 @@ pub async fn handle_delete_emoji(
         return;
     }
 
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(caller_id).await {
         warn!("[sio] delete-emoji: user {} not authorized", caller_id);
         let _ = socket.emit("delete-emoji-error", &json!({ "error": "Only admins can delete emojis" }));
@@ -79,8 +79,8 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
         return;
     }
 
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(caller_id).await {
         warn!("[sio] assign-role: user {} not authorized", caller_id);
         let _ = socket.emit("assign-role-error", &json!({ "error": "Only admins can assign roles" }));
@@ -137,8 +137,8 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
 }
 
 pub async fn handle_toggle_reception(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_owner(caller_id).await {
         warn!("[sio] toggle-reception: user {} not authorized", caller_id);
         let _ = socket.emit("toggle-reception-error", &json!({ "error": "Only the server owner can manage Reception" }));
@@ -162,8 +162,8 @@ pub async fn handle_remove_role(socket: SocketRef, data: Value, state: &SioState
         return;
     }
 
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(caller_id).await {
         warn!("[sio] remove-role: user {} not authorized", caller_id);
         return;
@@ -194,8 +194,8 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
         None => return,
     };
 
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(caller_id).await {
         warn!("[sio] update-channel-settings: user {} not authorized", caller_id);
         return;
@@ -365,8 +365,8 @@ fn parse_retention_label_to_ms(label: &str) -> Option<u64> {
 
 #[allow(dead_code)]
 pub async fn handle_set_role_display_name(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
-    let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
-    let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(caller_id).await {
         warn!("[sio] set-role-display-name: user {} not authorized", caller_id);
         return;

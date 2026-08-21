@@ -22,12 +22,8 @@ async fn on_voice_mute(socket: SocketRef, data: Value, state: SioState, io: Sock
     };
 
     // Auth check — must be admin
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("voice-mute-error", &json!({ "error": "Only admins can mute users" }));
         return;
@@ -78,12 +74,8 @@ async fn on_voice_unmute(socket: SocketRef, data: Value, state: SioState, io: So
     };
 
     // Auth check — must be admin
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("voice-unmute-error", &json!({ "error": "Only admins can unmute users" }));
         return;
@@ -126,12 +118,8 @@ async fn on_voice_deafen(socket: SocketRef, data: Value, state: SioState, io: So
     };
 
     // Auth check — must be admin
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("voice-deafen-error", &json!({ "error": "Only admins can deafen users" }));
         return;
@@ -184,12 +172,8 @@ async fn on_voice_undeafen(socket: SocketRef, data: Value, state: SioState, io: 
     };
 
     // Auth check — must be admin
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("voice-undeafen-error", &json!({ "error": "Only admins can undeafen users" }));
         return;

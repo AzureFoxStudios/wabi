@@ -20,21 +20,10 @@ fn now_micros() -> i64 {
 
 #[allow(dead_code)]
 async fn on_join(socket: SocketRef, username: String, state: SioState, io: SocketIo) {
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-
-    // Require a valid token — unauthenticated sockets get an error, not
-    // the init payload with the full user directory.
-    if token.is_empty() {
+    // Handshake-validated identity is already in extensions. If missing,
+    // the socket was not authenticated at connect time.
+    let Some(identity) = resolve_sio_identity(&socket) else {
         let _ = socket.emit("auth-required", &json!({ "reason": "authentication required" }));
-        return;
-    }
-
-    let Some(identity) = resolve_identity(&socket, &state).await else {
-        let _ = socket.emit("auth-failed", &json!({ "reason": "invalid token" }));
         return;
     };
 
@@ -279,12 +268,23 @@ async fn on_update_profile(
     state: SioState,
     io: SocketIo,
 ) {
+    let identity = match resolve_sio_identity(&socket) {
+        Some(id) => id,
+        None => {
+            let _ = socket.emit(
+                "profile-update-failed",
+                &json!({ "reason": "authentication required" }),
+            );
+            return;
+        }
+    };
+
+    // Revocation check (async, cannot run at handshake)
     let token = socket
         .extensions
         .get::<AuthToken>()
         .map(|t| t.0.clone())
         .unwrap_or_default();
-
     if socket_token_revoked(&state.app, &token).await {
         let _ = socket.emit(
             "profile-update-failed",
@@ -293,17 +293,8 @@ async fn on_update_profile(
         return;
     }
 
-    let db_user_id = if !token.is_empty() {
-        user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1)
-    } else {
-        -1
-    };
-    let username = if !token.is_empty() {
-        username_from_token(&token, &state.app.config.jwt_secret)
-            .unwrap_or_else(|| "unknown".to_string())
-    } else {
-        "unknown".to_string()
-    };
+    let db_user_id = identity.user_id;
+    let username = identity.username;
 
     if db_user_id <= 0 {
         let _ = socket.emit(

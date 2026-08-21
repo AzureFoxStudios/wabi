@@ -14,12 +14,8 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
 
     // Check if user is muted on this voice channel
     if user_id_num > 0 {
@@ -125,12 +121,8 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
 
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
@@ -199,12 +191,8 @@ async fn on_voice_channel_unsubscribe(socket: SocketRef, data: Value, state: Sio
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     let _stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -257,12 +245,8 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -330,12 +314,8 @@ async fn on_set_voice_transmit_mode(socket: SocketRef, data: Value, state: SioSt
     }
     .to_string();
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let user_id_num = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -396,12 +376,8 @@ async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, 
         None => return,
     };
 
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+    let identity = resolve_sio_identity(&socket);
+    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     if my_user_id <= 0 {
         let _ = socket.emit(
             "voice-channel-kick-error",
