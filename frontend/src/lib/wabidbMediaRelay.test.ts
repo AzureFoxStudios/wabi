@@ -1,5 +1,120 @@
 import { describe, expect, test } from 'bun:test';
 import { wabidbDmSessionKey, wabidbChannelSessionKey, resolveWabidbSessionKey } from './wabidbMediaRelay';
+import {
+	parseWabidbMediaEnvelope,
+	buildAudioEnvelope,
+	splitFrameIntoChunks,
+	WabidbVideoReassembler
+} from './wabidbVideoLane';
+
+describe('wabidb media envelope — audio compatibility', () => {
+	test('legacy audio emit (no kind) is parsed as audio with payload preserved', () => {
+		const legacy = { sessionId: 's1', userId: 'u1', payload: 'Zm9vYmFy' };
+		const env = parseWabidbMediaEnvelope(legacy);
+		expect(env).not.toBeNull();
+		expect(env!.kind).toBe('audio');
+		expect(env!.payload).toBe('Zm9vYmFy');
+		expect(env!.seq).toBe(0);
+	});
+
+	test('new audio envelope round-trips through JSON and keeps kind/seq', () => {
+		const env = buildAudioEnvelope('s1', 'u1', 'Zm9v', 7);
+		const round = parseWabidbMediaEnvelope(JSON.parse(JSON.stringify(env)));
+		expect(round).not.toBeNull();
+		expect(round!.kind).toBe('audio');
+		expect(round!.seq).toBe(7);
+		expect(round!.payload).toBe('Zm9v');
+	});
+
+	test('inbound handler ignores malformed / non-matching envelopes', () => {
+		expect(parseWabidbMediaEnvelope(null)).toBeNull();
+		expect(parseWabidbMediaEnvelope({ foo: 1 })).toBeNull();
+		expect(parseWabidbMediaEnvelope('not-an-object')).toBeNull();
+	});
+});
+
+describe('wabidb media envelope — video routing', () => {
+	test('video kind is recognized and metadata carried', () => {
+		const raw = {
+			sessionId: 's1',
+			userId: 'u2',
+			kind: 'video',
+			seq: 3,
+			payload: 'YWFh',
+			chunkIndex: 0,
+			chunkCount: 2,
+			keyFrame: true,
+			codec: 'vp8',
+			width: 1280,
+			height: 720
+		};
+		const env = parseWabidbMediaEnvelope(raw);
+		expect(env!.kind).toBe('video');
+		expect(env!.seq).toBe(3);
+		expect(env!.chunkCount).toBe(2);
+		expect(env!.keyFrame).toBe(true);
+		expect(env!.codec).toBe('vp8');
+		expect(env!.width).toBe(1280);
+		expect(env!.height).toBe(720);
+	});
+});
+
+describe('wabidb video chunk reassembly', () => {
+	test('single-chunk frame reassembles exactly', () => {
+		const bytes = new Uint8Array([1, 2, 3, 4, 5, 250, 255]);
+		const chunks = splitFrameIntoChunks('s1', 'u1', 1, bytes, {
+			codec: 'vp8',
+			width: 640,
+			height: 360,
+			keyFrame: true
+		});
+		expect(chunks.length).toBe(1);
+		const reasm = new WabidbVideoReassembler();
+		const frame = reasm.push(chunks[0]);
+		expect(frame).not.toBeNull();
+		expect(Array.from(frame!.frame)).toEqual(Array.from(bytes));
+		expect(frame!.codec).toBe('vp8');
+		expect(frame!.keyFrame).toBe(true);
+	});
+
+	test('multi-chunk frame reassembles exactly regardless of arrival order', () => {
+		// >16 KiB raw forces multiple chunks
+		const bytes = new Uint8Array(50000);
+		for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 37) & 0xff;
+		const chunks = splitFrameIntoChunks('s1', 'u1', 9, bytes, {
+			codec: 'vp8',
+			width: 1280,
+			height: 720,
+			keyFrame: false
+		});
+		expect(chunks.length).toBeGreaterThan(1);
+
+		const reasm = new WabidbVideoReassembler();
+		// Deliver in reverse (worst-case) order; only the last completes.
+		let completed: Uint8Array | null = null;
+		for (let i = chunks.length - 1; i >= 0; i--) {
+			const res = reasm.push(chunks[i]);
+			if (res) completed = res.frame;
+		}
+		expect(completed).not.toBeNull();
+		expect(Array.from(completed!)).toEqual(Array.from(bytes));
+	});
+
+	test('different (userId, seq) frames do not cross-contaminate', () => {
+		const a = new Uint8Array([10, 20, 30]);
+		const b = new Uint8Array([99, 88, 77]);
+		const reasm = new WabidbVideoReassembler();
+		reasm.push({
+			sessionId: 's', userId: 'uA', kind: 'video', seq: 1, payload: btoa(String.fromCharCode(...a)), chunkIndex: 0, chunkCount: 1
+		});
+		// different user -> independent buffer
+		const fb = reasm.push({
+			sessionId: 's', userId: 'uB', kind: 'video', seq: 1, payload: btoa(String.fromCharCode(...b)), chunkIndex: 0, chunkCount: 1
+		});
+		expect(Array.from(fb!.frame)).toEqual(Array.from(b));
+	});
+});
+
 describe('wabidbDmSessionKey', () => {
 	test('is deterministic for the same two peers', () => {
 		expect(wabidbDmSessionKey('user-5', 'user-7')).toBe(wabidbDmSessionKey('user-5', 'user-7'));

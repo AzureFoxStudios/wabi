@@ -11,9 +11,12 @@ import {
 	connectionState,
 	callTransportState,
 	localStream,
-	voiceTransmitMode
+	voiceTransmitMode,
+	isSharing,
+	localScreenStream
 } from './callingStateStores';
 import { getAuthToken, getStoredDbUserId } from './authSession';
+import { WabidbVideoLane } from './wabidbVideoLane';
 
 // ============================================================================
 // Private State
@@ -29,15 +32,80 @@ let sessionId: string | null = null;
 let channelId: string | null = null;
 let currentUserId: number | null = null;
 
+// Video lane state — camera + screenshare over the same wabidb-media channel.
+let wabidbVideoLaneInst: WabidbVideoLane | null = null;
+let wabidbActiveSocket: Socket | null = null;
+let wabidbActiveSessionId: string | null = null;
+let wabidbActiveUserId: string | null = null;
+let wabidbTransportActive = false;
+let screenShareSub: (() => void) | null = null;
+
 // ============================================================================
 // Wabidb Call Functions
 // ============================================================================
+
+/**
+ * Start the LOCAL video lane on the wabidb transport. For `screen` we reuse
+ * the screen-share store (set by the existing UI flow); for `camera` we
+ * acquire a dedicated getUserMedia video stream. Returns true if the lane is
+ * live. No-op (false) unless a wabidb call is currently active.
+ */
+export async function wabidbStartVideo(source: 'camera' | 'screen'): Promise<boolean> {
+	if (!wabidbTransportActive || !wabidbVideoLaneInst) return false;
+	let stream: MediaStream | null = null;
+	try {
+		if (source === 'screen') {
+			const existing = get(localScreenStream);
+			if (existing) {
+				stream = existing;
+			} else if (navigator.mediaDevices?.getDisplayMedia) {
+				stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+				localScreenStream.set(stream);
+				isSharing.set(true);
+			}
+		} else if (navigator.mediaDevices?.getUserMedia) {
+			stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360 } });
+		}
+		if (!stream) return false;
+		await wabidbVideoLaneInst.startLocalVideo(source, stream);
+		return true;
+	} catch (e) {
+		console.warn('[Wabidb] start video failed:', e);
+		return false;
+	}
+}
+
+/** Stop the LOCAL video lane (camera + screenshare) but keep the call up. */
+export function wabidbStopVideo(): void {
+	if (wabidbVideoLaneInst) wabidbVideoLaneInst.stopLocalVideo();
+}
+
+/** Tear down the video lane for a specific remote participant's inbound feed. */
+export function wabidbStopRemoteVideo(userId: string): void {
+	if (wabidbVideoLaneInst) wabidbVideoLaneInst.stopRemoteUser(userId);
+}
+
+function teardownWabidbVideoLane(): void {
+	if (screenShareSub) {
+		screenShareSub();
+		screenShareSub = null;
+	}
+	if (wabidbVideoLaneInst) {
+		wabidbVideoLaneInst.stopAll();
+		wabidbVideoLaneInst = null;
+	}
+	wabidbActiveSocket = null;
+	wabidbActiveSessionId = null;
+	wabidbActiveUserId = null;
+	wabidbTransportActive = false;
+}
 
 export async function disconnectWabidbCall(): Promise<void> {
 	for (const relay of wabidbMediaRelays.values()) {
 		try { relay.stop?.(); } catch (_) {}
 	}
 	wabidbMediaRelays.clear();
+	teardownWabidbVideoLane();
 	if (wabidbCallState) {
 		for (const targetSessionId of sessionIds.values()) {
 			try { await wabidbCallState.leaveSession(targetSessionId, currentUserId ?? 0, ''); } catch (_) {}
@@ -68,6 +136,10 @@ export async function disconnectWabidbChannel(targetChannelId: string): Promise<
 		try { await wabidbCallState.leaveSession(targetSessionId, currentUserId ?? 0, ''); } catch (_) {}
 	}
 	sessionIds.delete(targetChannelId);
+	// If that was the last wabidb session, tear down the shared video lane.
+	if (wabidbMediaRelays.size === 0) {
+		teardownWabidbVideoLane();
+	}
 }
 
 /**
@@ -97,6 +169,7 @@ export async function connectWabidbCall(
 		return;
 	}
 
+	let relay: any = null;
 	try {
 		// Use the real authenticated user id instead of a random one so the
 		// wabidb session roster is stable across reconnects.
@@ -168,7 +241,7 @@ export async function connectWabidbCall(
 		// caller and callee rendezvous on the same wabidb session.
 		try {
 			const { WabidbMediaRelay } = await import('./wabidbMediaRelay');
-			const relay = new WabidbMediaRelay({
+			relay = new WabidbMediaRelay({
 				sessionId: newSessionId,
 				userId: String(userId),
 				socket,
@@ -184,6 +257,44 @@ export async function connectWabidbCall(
 			wabidbMediaRelays.set(targetChannelId, relay);
 		} catch (e) {
 			console.warn('[Wabidb] Media relay import failed, continuing without:', e);
+		}
+
+		// Attach the video lane (camera + screenshare) to the relay so inbound
+		// video envelopes are routed to it. The lane owns its own outbound emit
+		// path. On the wabidb transport, starting a screen share now feeds this
+		// lane instead of silently no-op'ing (the old P2P-only path).
+		if (!wabidbVideoLaneInst) {
+			try {
+				const { WabidbVideoLane: Lane } = await import('./wabidbVideoLane');
+				wabidbActiveSocket = socket;
+				wabidbActiveSessionId = newSessionId;
+				wabidbActiveUserId = String(userId);
+				wabidbTransportActive = true;
+				const lane = new Lane({
+					sessionId: newSessionId,
+					userId: String(userId),
+					socket,
+					onError: (err: Error) => console.error('[WabidbVideoLane]', err)
+				});
+				relay?.attachVideoLane(lane);
+				wabidbVideoLaneInst = lane;
+
+				// Auto-start the lane when the user toggles screen share while on
+				// the wabidb transport. Only react to transitions, never double-start.
+				if (screenShareSub) screenShareSub();
+				screenShareSub = localScreenStream.subscribe((screenStream) => {
+					if (!wabidbTransportActive || !wabidbVideoLaneInst) return;
+					if (screenStream && !wabidbVideoLaneInst.isActive) {
+						void wabidbVideoLaneInst.startLocalVideo('screen', screenStream).catch((e) =>
+							console.warn('[Wabidb] auto screen-share video failed:', e)
+						);
+					} else if (!screenStream && wabidbVideoLaneInst.isActive) {
+						wabidbVideoLaneInst.stopLocalVideo();
+					}
+				});
+			} catch (e) {
+				console.warn('[Wabidb] Video lane import failed, continuing without:', e);
+			}
 		}
 
 		socket.emit('join-wabidb-call', { sessionId: newSessionId, channelId: targetChannelId });

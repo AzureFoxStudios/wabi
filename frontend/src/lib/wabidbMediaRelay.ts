@@ -10,6 +10,7 @@
  */
 
 import OpusRecorder from 'opus-recorder';
+import { parseWabidbMediaEnvelope, type WabidbVideoLane } from './wabidbVideoLane';
 
 // Socket.IO via socketioxide `Data<serde_json::Value>` silently DROPS binary
 // attachments (they become `{"_placeholder":true,"num":0}` placeholders and the
@@ -101,6 +102,8 @@ export class WabidbMediaRelay {
   private captureEnabled = true;
   private jitterTargetMs = 80;
   private playbackTimer: number | null = null;
+  private videoLane: WabidbVideoLane | null = null;
+  private audioSeq = 0;
 
   constructor(cfg: WabidbMediaRelayConfig) {
     this.sessionId = resolveWabidbSessionKey(cfg.kind, cfg.sessionId, cfg.userId, cfg.peerStableUserId);
@@ -125,9 +128,17 @@ export class WabidbMediaRelay {
       }
 
       this.onIncomingMediaHandler = (msg: any) => {
-        if (msg.userId !== this.userId && msg.sessionId === this.sessionId) {
-          this.handleIncomingMedia(msg.payload);
+        if (!msg || msg.userId === this.userId || msg.sessionId !== this.sessionId) return;
+        // Video lanes ride on the same channel; route video envelopes to the
+        // attached lane. The server forwards the whole envelope verbatim, and
+        // `kind` defaults to 'audio' for legacy/compatible senders.
+        const env = parseWabidbMediaEnvelope(msg);
+        if (!env) return;
+        if (env.kind === 'video') {
+          this.videoLane?.handleRemoteEnvelope(msg);
+          return;
         }
+        this.handleIncomingMedia(env.payload);
       };
       this.socket.on('wabidb-media', this.onIncomingMediaHandler);
 
@@ -158,6 +169,15 @@ export class WabidbMediaRelay {
     }
   }
 
+  /**
+   * Attach the video lane so inbound `wabidb-media` video envelopes are routed
+   * to it. The lane owns its own socket emit path for outbound frames; the
+   * relay only forwards inbound video to it. A null argument detaches.
+   */
+  attachVideoLane(lane: WabidbVideoLane | null): void {
+    this.videoLane = lane;
+  }
+
   private async startCapture(): Promise<void> {
     if (!this.localStream || this.opusRecorder) return;
     this.opusRecorder = new OpusRecorder({
@@ -173,17 +193,21 @@ export class WabidbMediaRelay {
       encoderPath: new URL('opus-recorder/dist/encoderWorker.min.js', import.meta.url).href,
     });
 
-    this.opusRecorder.ondataavailable = (data: ArrayBuffer) => {
-      if (this.isActive && this.captureEnabled) {
-        // Base64 string payload — raw ArrayBuffer binary is silently dropped
-        // by the server's Data<serde_json::Value> extractor.
-        this.socket.emit('wabidb-media', {
-          sessionId: this.sessionId,
-          userId: this.userId,
-          payload: arrayBufferToBase64(data),
-        });
-      }
-    };
+      this.opusRecorder.ondataavailable = (data: ArrayBuffer) => {
+        if (this.isActive && this.captureEnabled) {
+          // Base64 string payload — raw ArrayBuffer binary is silently dropped
+          // by the server's Data<serde_json::Value> extractor. The `kind`/
+          // `seq` fields keep the envelope forward-compatible with the video
+          // lane on the same channel; legacy receivers ignore them.
+          this.socket.emit('wabidb-media', {
+            sessionId: this.sessionId,
+            userId: this.userId,
+            kind: 'audio',
+            seq: this.audioSeq++,
+            payload: arrayBufferToBase64(data),
+          });
+        }
+      };
 
     await this.opusRecorder.start(this.localStream);
   }
@@ -335,6 +359,10 @@ export class WabidbMediaRelay {
       this.opusDecoder = null;
     }
     this.jitterBuffer = [];
+    if (this.videoLane) {
+      this.videoLane.stopAll();
+      this.videoLane = null;
+    }
     if (this.onIncomingMediaHandler) {
       this.socket.off('wabidb-media', this.onIncomingMediaHandler);
       this.onIncomingMediaHandler = null;
