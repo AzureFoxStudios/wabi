@@ -8,6 +8,8 @@ export interface ParticipantMedia {
 	isLocal: boolean;
 	hasVideo: boolean;
 	stream: MediaStream | null;
+	isMuted?: boolean;
+	isScreenSharing?: boolean;
 }
 
 export interface ShareMedia {
@@ -25,6 +27,8 @@ export interface RenderTile {
 	kind: RenderTileKind;
 	stream: MediaStream | null;
 	isLocal: boolean;
+	isMuted?: boolean;
+	isScreenSharing?: boolean;
 }
 
 export function buildParticipants(
@@ -41,7 +45,9 @@ export function buildParticipants(
 			label: 'You',
 			isLocal: true,
 			hasVideo: hasLocalVideo,
-			stream: myStream
+			stream: myStream,
+			isMuted: false,
+			isScreenSharing: false
 		});
 	}
 	for (const call of calls) {
@@ -50,7 +56,9 @@ export function buildParticipants(
 			label: call.username || 'User',
 			isLocal: false,
 			hasVideo: Boolean(call.isVideoEnabled && call.stream?.getVideoTracks().length),
-			stream: call.stream
+			stream: call.stream,
+			isMuted: !call.isAudioEnabled,
+			isScreenSharing: false
 		});
 	}
 	return list.sort((a, b) => a.id.localeCompare(b.id));
@@ -67,7 +75,9 @@ export function buildRosterParticipants(
 			label: m.username || 'User',
 			isLocal: false,
 			hasVideo: false,
-			stream: null
+			stream: null,
+			isMuted: false,
+			isScreenSharing: false
 		}));
 }
 
@@ -106,6 +116,15 @@ export function buildRenderTiles(participantsList: ParticipantMedia[], shareList
 	const hasVideoTiles = videoParticipants.length > 0;
 	const tiles: RenderTile[] = [];
 
+	const screenSharingIds = new Set(shareList.map((share) => share.participantId));
+	function tileFlags(participantId: string, participant?: ParticipantMedia): { isMuted?: boolean; isScreenSharing?: boolean } {
+		return {
+			isMuted: participant?.isMuted,
+			isScreenSharing: screenSharingIds.has(participantId)
+		};
+	}
+	const participantById = new Map(participantsList.map((participant) => [participant.id, participant]));
+
 	if (hasShares || hasVideoTiles) {
 		for (const share of shareList) {
 			tiles.push({
@@ -114,7 +133,8 @@ export function buildRenderTiles(participantsList: ParticipantMedia[], shareList
 				label: share.label,
 				kind: 'screen',
 				stream: share.stream,
-				isLocal: share.isLocal
+				isLocal: share.isLocal,
+				...tileFlags(share.participantId, participantById.get(share.participantId))
 			});
 		}
 		for (const participant of videoParticipants) {
@@ -124,7 +144,8 @@ export function buildRenderTiles(participantsList: ParticipantMedia[], shareList
 				label: participant.label,
 				kind: 'video',
 				stream: participant.stream,
-				isLocal: participant.isLocal
+				isLocal: participant.isLocal,
+				...tileFlags(participant.id, participant)
 			});
 		}
 		for (const participant of avatarParticipants) {
@@ -134,7 +155,8 @@ export function buildRenderTiles(participantsList: ParticipantMedia[], shareList
 				label: participant.label,
 				kind: 'avatar',
 				stream: participant.stream,
-				isLocal: participant.isLocal
+				isLocal: participant.isLocal,
+				...tileFlags(participant.id, participant)
 			});
 		}
 		return tiles.sort((a, b) => a.id.localeCompare(b.id));
@@ -147,7 +169,8 @@ export function buildRenderTiles(participantsList: ParticipantMedia[], shareList
 			label: participant.label,
 			kind: 'avatar',
 			stream: participant.stream,
-			isLocal: participant.isLocal
+			isLocal: participant.isLocal,
+			...tileFlags(participant.id, participant)
 		});
 	}
 

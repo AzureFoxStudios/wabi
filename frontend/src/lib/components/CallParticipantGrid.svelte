@@ -38,6 +38,8 @@
 				isPinned={pinnedTileIds.includes(tile.id)}
 				isSpeaking={isSpeaking(tile)}
 				isDisconnected={isTileDisconnected(tile)}
+				isMuted={tile.isMuted}
+				isScreenSharing={tile.isScreenSharing}
 				avatarUrl={getParticipantAvatarUrl(tile)}
 				{onPin}
 				{getInitial}
@@ -53,6 +55,8 @@
 				isPinned={pinnedTileIds.includes(tile.id)}
 				isSpeaking={isSpeaking(tile)}
 				isDisconnected={isTileDisconnected(tile)}
+				isMuted={tile.isMuted}
+				isScreenSharing={tile.isScreenSharing}
 				avatarUrl={getParticipantAvatarUrl(tile)}
 				{onPin}
 				{getInitial}
