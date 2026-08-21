@@ -2,7 +2,20 @@
 	import '$lib/components/business/PlannerWorkspace.css';
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
-	import { reloadFromStorage, todos, overdueTodos, todaysTodos, upcomingEvents } from '$lib/business/store';
+	import {
+		reloadFromStorage,
+		todos,
+		overdueTodos,
+		todaysTodos,
+		upcomingEvents
+	} from '$lib/business/store';
+	import {
+		getBusinessDataSnapshot,
+		applyBusinessDataSnapshot
+	} from '$lib/business/snapshot';
+	import { sanitizeBusinessData } from '$lib/business/validation';
+	import { businessSyncAvailable } from '$lib/business/sync';
+	import { showToast } from '$lib/toast';
 
 	import Calendar from '$lib/components/business/Calendar.svelte';
 	import KanbanBoard from '$lib/components/business/KanbanBoard.svelte';
@@ -12,14 +25,24 @@
 
 	type ViewKey = 'calendar' | 'board' | 'journal' | 'projects';
 	type Variant = 'full' | 'compact' | 'detached';
+	type TaskPanelFilter = 'all' | 'today' | 'overdue' | 'upcoming';
+	/** What a stat pill click should do. */
+	type StatAction = TaskPanelFilter | 'calendar';
 
 	export let variant: Variant = 'full';
 
+	const ACTIVE_VIEW_KEY = 'planner.activeView';
+
 	let activeView: ViewKey = 'calendar';
 	let showTaskPanel = false;
+	let taskPanelFilter: TaskPanelFilter = 'all';
+	/** Bump to force the task panel to re-mount with a fresh initial filter. */
+	let taskPanelEpoch = 0;
 	let taskPanelWidth = 340;
 	let newMenuOpen = false;
+	let overflowMenuOpen = false;
 	let addSignal = 0;
+	let importFileInput: HTMLInputElement;
 
 	onMount(() => {
 		reloadFromStorage();
@@ -32,12 +55,22 @@
 		) {
 			activeView = deepLinkView;
 			sessionStorage.removeItem('plannerDeepLinkView');
+		} else if (browser) {
+			// Views are device-local by design — restore the last one used here.
+			const saved = localStorage.getItem(ACTIVE_VIEW_KEY);
+			if (saved === 'calendar' || saved === 'board' || saved === 'journal' || saved === 'projects') {
+				activeView = saved;
+			}
 		}
 		const savedWidth = browser ? Number(localStorage.getItem('plannerTaskPanelWidth')) : 0;
 		if (Number.isFinite(savedWidth) && savedWidth >= 260) {
 			taskPanelWidth = savedWidth;
 		}
 	});
+
+	function persistActiveView(view: ViewKey): void {
+		if (browser) localStorage.setItem(ACTIVE_VIEW_KEY, view);
+	}
 
 	$: todayStart = (() => {
 		const d = new Date();
@@ -73,24 +106,95 @@
 					? 'New journal entry for today'
 					: 'Create project';
 
+	/** Truthful locality line: server sync only when the backend actually has routes. */
+	$: localityLabel =
+		$businessSyncAvailable === true ? 'Synced to server' : 'On this device';
+	$: localityTitle =
+		$businessSyncAvailable === true
+			? 'Planner data syncs to the server for your account'
+			: 'Planner data is stored on this device only. Use Export / Import in the ⋯ menu to move it between devices.';
+
 	function setActiveView(view: ViewKey): void {
 		activeView = view;
 		newMenuOpen = false;
+		persistActiveView(view);
 	}
 
 	function toggleTaskPanel(): void {
 		showTaskPanel = !showTaskPanel;
 	}
 
+	/**
+	 * Stats pills are controls, not decoration: Overdue/Today/Week open the
+	 * Tasks panel pre-filtered; Events jumps to the Calendar.
+	 */
+	function openStat(filter: TaskPanelFilter | 'calendar'): void {
+		if (filter === 'upcoming' || filter === 'calendar') {
+			setActiveView('calendar');
+			return;
+		}
+		taskPanelFilter = filter;
+		taskPanelEpoch += 1;
+		showTaskPanel = true;
+	}
+
 	/** Increments the child-visible signal so the active view opens its "new" modal. */
 	function triggerNew(view: ViewKey): void {
 		activeView = view;
 		newMenuOpen = false;
+		persistActiveView(view);
 		addSignal += 1;
 	}
 
 	function handleNew(): void {
 		triggerNew(activeView);
+	}
+
+	// ── Import / Export (device-to-device bridge while server sync is absent) ──
+	function handleExport(): void {
+		overflowMenuOpen = false;
+		try {
+			const data = {
+				...getBusinessDataSnapshot(),
+				exportedAt: new Date().toISOString(),
+				version: '1.0'
+			};
+			const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `wabi-planner-export-${new Date().toISOString().split('T')[0]}.json`;
+			a.click();
+			URL.revokeObjectURL(url);
+			showToast('Planner data exported', 'info');
+		} catch (e) {
+			console.error('[Planner] Export failed:', e);
+			showToast('Export failed', 'error');
+		}
+	}
+
+	function handleImportFile(event: Event): void {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			try {
+				const data = JSON.parse(e.target?.result as string);
+				applyBusinessDataSnapshot(sanitizeBusinessData(data));
+				showToast('Planner data imported', 'info');
+			} catch (error) {
+				console.error('[Planner] Import failed:', error);
+				showToast('Import failed — check the file format', 'error');
+			}
+		};
+		reader.readAsText(file);
+		input.value = '';
+	}
+
+	function handleImportClick(): void {
+		overflowMenuOpen = false;
+		importFileInput?.click();
 	}
 
 	// Task panel drag-resize (width kept between sessions)
@@ -116,7 +220,10 @@
 
 <svelte:window
 	on:keydown={(e) => {
-		if (e.key === 'Escape' && newMenuOpen) newMenuOpen = false;
+		if (e.key === 'Escape') {
+			if (newMenuOpen) newMenuOpen = false;
+			if (overflowMenuOpen) overflowMenuOpen = false;
+		}
 	}}
 />
 
@@ -129,7 +236,7 @@
 	<header class="planner-header">
 		<div class="planner-title">
 			<span>Planner</span>
-			<span class="planner-locality" title="Planner data is stored on this device only">On this device</span>
+			<span class="planner-locality" class:locality-synced={$businessSyncAvailable === true} title={localityTitle}>{localityLabel}</span>
 		</div>
 
 		<div class="planner-tabs" role="tablist" aria-label="Planner views">
@@ -170,8 +277,8 @@
 		<div class="planner-spacer"></div>
 
 		<div class="planner-actions">
-			{#if newMenuOpen}
-				<button type="button" class="planner-new-backdrop" aria-label="Close new menu" on:click={() => (newMenuOpen = false)}
+			{#if newMenuOpen || overflowMenuOpen}
+				<button type="button" class="planner-new-backdrop" aria-label="Close menus" on:click={() => { newMenuOpen = false; overflowMenuOpen = false; }}
 				></button>
 			{/if}
 			<div class="planner-new-wrap">
@@ -244,6 +351,40 @@
 				{/if}
 			</div>
 
+			<div class="planner-overflow-wrap">
+				<button
+					type="button"
+					class="planner-overflow-btn"
+					on:click={() => (overflowMenuOpen = !overflowMenuOpen)}
+					aria-haspopup="menu"
+					aria-expanded={overflowMenuOpen}
+					aria-label="Planner options"
+					title="Import / Export / sync status"
+				>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+						<circle cx="5" cy="12" r="1.8" />
+						<circle cx="12" cy="12" r="1.8" />
+						<circle cx="19" cy="12" r="1.8" />
+					</svg>
+				</button>
+				{#if overflowMenuOpen}
+					<div class="planner-overflow-menu" role="menu" aria-label="Planner options">
+						<div class="overflow-status" role="note">
+							<span class="status-dot" class:synced={$businessSyncAvailable === true}></span>
+							<span>{$businessSyncAvailable === true ? 'Server sync available' : 'Stored on this device — export to move data'}</span>
+						</div>
+						<button type="button" role="menuitem" on:click={handleExport}>
+							<span class="menu-label">Export JSON</span>
+							<span class="menu-hint">Download all planner data</span>
+						</button>
+						<button type="button" role="menuitem" on:click={handleImportClick}>
+							<span class="menu-label">Import JSON</span>
+							<span class="menu-hint">Replace with an exported file</span>
+						</button>
+					</div>
+				{/if}
+			</div>
+
 			<button
 				type="button"
 				class="planner-tasks-btn"
@@ -268,30 +409,40 @@
 				</svg>
 				<span>Tasks</span>
 			</button>
+
+			<input
+				bind:this={importFileInput}
+				type="file"
+				accept="application/json,.json"
+				style="display: none"
+				aria-hidden="true"
+				tabindex="-1"
+				on:change={handleImportFile}
+			/>
 		</div>
 	</header>
 
 	{#if hasStats}
 		<div class="planner-stats" aria-label="Planner summary">
 			{#if $overdueTodos.length > 0}
-				<span class="planner-stat pill-danger"
-					><span class="stat-label">Overdue</span><strong>{$overdueTodos.length}</strong></span
-				>
+				<button type="button" class="planner-stat pill-danger" on:click={() => openStat('overdue')} title="Show overdue tasks">
+					<span class="stat-label">Overdue</span><strong>{$overdueTodos.length}</strong>
+				</button>
 			{/if}
 			{#if $todaysTodos.length > 0}
-				<span class="planner-stat pill-warning"
-					><span class="stat-label">Today</span><strong>{$todaysTodos.length}</strong></span
-				>
+				<button type="button" class="planner-stat pill-warning" on:click={() => openStat('today')} title="Show today's tasks">
+					<span class="stat-label">Today</span><strong>{$todaysTodos.length}</strong>
+				</button>
 			{/if}
 			{#if weekTasks > 0}
-				<span class="planner-stat"
-					><span class="stat-label">This week</span><strong>{weekTasks}</strong></span
-				>
+				<button type="button" class="planner-stat" on:click={() => openStat('upcoming')} title="Show this week's tasks">
+					<span class="stat-label">This week</span><strong>{weekTasks}</strong>
+				</button>
 			{/if}
 			{#if $upcomingEvents.length > 0}
-				<span class="planner-stat"
-					><span class="stat-label">Events</span><strong>{$upcomingEvents.length}</strong></span
-				>
+				<button type="button" class="planner-stat" on:click={() => openStat('calendar')} title="Go to calendar">
+					<span class="stat-label">Events</span><strong>{$upcomingEvents.length}</strong>
+				</button>
 			{/if}
 		</div>
 	{/if}
@@ -328,7 +479,9 @@
 				title="Resize tasks panel"
 			></div>
 			<aside class="planner-task-panel" style:width="{taskPanelWidth}px" aria-label="Tasks panel">
-				<TaskPanel onClose={() => (showTaskPanel = false)} />
+				{#key taskPanelEpoch}
+					<TaskPanel onClose={() => (showTaskPanel = false)} initialFilter={taskPanelFilter} />
+				{/key}
 			</aside>
 		{/if}
 	</div>

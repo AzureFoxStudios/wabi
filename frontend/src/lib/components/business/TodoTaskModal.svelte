@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { kanbanColumns, projects } from '$lib/business/store';
 	import type { Todo, TodoStatus } from '$lib/business/types';
+	import SignatureRow from './SignatureRow.svelte';
 
 	export let editingTodo: Todo | null = null;
 	export let formTitle = '';
@@ -12,7 +13,8 @@
 	export let formTags = '';
 	export let formHasTimeEstimate = false;
 	export let formEstimatedHours = '1';
-	export let willSign = false;
+	export let draftSignatures: import('$lib/business/types').ItemSignature[] = [];
+	export let legacySignedBy: string | undefined = undefined;
 	export let handleSubmit: () => void;
 	export let closeModal: () => void;
 </script>
@@ -118,11 +120,8 @@
 				<input id="tags" type="text" bind:value={formTags} placeholder="e.g., bug, feature, urgent" />
 			</div>
 
-			<div class="form-group checkbox-group">
-				<label class="checkbox-label">
-					<input type="checkbox" bind:checked={willSign} />
-					<span>Sign this task with my username</span>
-				</label>
+			<div class="form-group">
+				<SignatureRow bind:draftSignatures {legacySignedBy} label="Sign-off" />
 			</div>
 
 			<div class="form-actions">

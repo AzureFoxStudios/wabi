@@ -1,12 +1,16 @@
 <script lang="ts">
-	import type { Sprint } from '$lib/business/types';
+	import type { Sprint, ItemSignature } from '$lib/business/types';
+	import SignatureRow from './SignatureRow.svelte';
 
 	export let editingSprint: Sprint | null = null;
 	export let sprintName = '';
 	export let sprintStartDate = '';
 	export let sprintEndDate = '';
 	export let sprintGoals = '';
-	export let sprintWillSign = false;
+	/** Draft sign-offs (two-way bound with the host form). */
+	export let sprintDraftSignatures: ItemSignature[] = [];
+	/** Legacy read-only signer shown when the sprint predates multi-sign. */
+	export let sprintLegacySignedBy: string | undefined = undefined;
 	export let isReadOnly = false;
 	export let onClose: () => void = () => {};
 	export let onSubmit: () => void = () => {};
@@ -66,11 +70,8 @@
 				<textarea id="sprintGoals" bind:value={sprintGoals} rows="3" placeholder="Complete user auth&#10;Fix critical bugs&#10;Deploy to staging"></textarea>
 			</div>
 
-			<div class="form-group checkbox-group">
-				<label class="checkbox-label">
-					<input type="checkbox" bind:checked={sprintWillSign} />
-					<span>Sign this sprint with my username</span>
-				</label>
+			<div class="form-group">
+				<SignatureRow bind:draftSignatures={sprintDraftSignatures} legacySignedBy={sprintLegacySignedBy} label="Sign-off" />
 			</div>
 
 			<div class="form-actions">

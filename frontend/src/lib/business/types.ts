@@ -5,6 +5,7 @@ import type {
 	DiaryEntry as SharedDiaryEntry,
 	EdgeType as SharedEdgeType,
 	GraphEdge as SharedGraphEdge,
+	ItemSignature as SharedItemSignature,
 	NodeType as SharedNodeType,
 	Project as SharedProject,
 	Resource as SharedResource,
@@ -16,6 +17,7 @@ import type {
 } from '../../../../shared/businessContracts';
 
 export type BusinessVisibility = SharedBusinessVisibility;
+export type ItemSignature = SharedItemSignature;
 export type BusinessDataCollections = SharedBusinessDataCollections;
 export type TodoStatus = SharedTodoStatus;
 export type Todo = SharedTodo;

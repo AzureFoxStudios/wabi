@@ -9,6 +9,7 @@
 		getDiaryEntryForDate
 	} from '$lib/business/store';
 	import type { DiaryEntry } from '$lib/business/types';
+	import SignatureRow from './SignatureRow.svelte';
 
 	// Props
 	export let isReadOnly = false;
@@ -33,7 +34,10 @@
 	let formTags = '';
 	let formIsPrivate = false;
 	let formImages: string[] = [];
-	let willSign = false;
+	/** Draft sign-offs for the entry being edited (multi-sign). */
+	let draftSignatures: DiaryEntry['signatures'] = [];
+	/** Legacy signer name of the loaded entry (read-only display). */
+	let legacySignedBy: string | undefined = undefined;
 	let fileInput: HTMLInputElement;
 
 	// Image upload handling
@@ -118,7 +122,8 @@
 			formTags = entry.tags?.join(', ') || '';
 			formIsPrivate = entry.isPrivate;
 			formImages = entry.images || [];
-			willSign = !!entry.signedBy;
+			draftSignatures = entry.signatures ? [...entry.signatures] : [];
+			legacySignedBy = entry.signatures?.length ? undefined : entry.signedBy;
 		} else {
 			resetForm();
 		}
@@ -130,7 +135,8 @@
 		formTags = '';
 		formIsPrivate = false;
 		formImages = [];
-		willSign = false;
+		draftSignatures = [];
+		legacySignedBy = undefined;
 	}
 
 	function startEditing() {
@@ -149,7 +155,9 @@
 			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
 			isPrivate: formIsPrivate,
 			createdBy: $currentUser?.id || 'unknown',
-			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
+			signatures: draftSignatures.length > 0 ? [...draftSignatures] : undefined,
+			// Legacy single-signer mirror (first signer's name) for older clients.
+			signedBy: draftSignatures.length > 0 ? draftSignatures[0].name : undefined
 		};
 
 		if (currentEntry) {
@@ -407,11 +415,10 @@
 							<span>Private entry</span>
 						</label>
 
-						<!-- Signature checkbox -->
-						<label class="sign-toggle">
-							<input type="checkbox" bind:checked={willSign} />
-							<span>Sign this entry with my username</span>
-						</label>
+						<!-- Sign-off row -->
+						<div class="sign-toggle">
+							<SignatureRow bind:draftSignatures {legacySignedBy} label="Sign-off" />
+						</div>
 					</div>
 
 					<div class="editor-actions">
@@ -480,11 +487,15 @@
 								(edited {new Date(currentEntry.updatedAt).toLocaleDateString()})
 							</span>
 						{/if}
-						{#if currentEntry.signedBy}
-							<span class="signature" title="Signed by {currentEntry.signedBy}">
-								✍️ {currentEntry.signedBy}
-							</span>
-						{/if}
+						{#if (currentEntry.signatures?.length ?? 0) > 0}
+						<span class="signature" title="Signed off by {currentEntry.signatures!.map((s) => s.name).join(', ')}">
+							✍️ {currentEntry.signatures!.map((s) => s.name).join(', ')}
+						</span>
+					{:else if currentEntry.signedBy}
+						<span class="signature" title="Signed by {currentEntry.signedBy}">
+							✍️ {currentEntry.signedBy}
+						</span>
+					{/if}
 					</div>
 				</div>
 			{/if}

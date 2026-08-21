@@ -16,6 +16,7 @@
 	import ProjectModal from './ProjectModal.svelte';
 	import ProjectSidebar from './ProjectSidebar.svelte';
 	import SprintModal from './SprintModal.svelte';
+	import SignatureRow from './SignatureRow.svelte';
 
 	export let isReadOnly = false;
 	export let embedded = false;
@@ -41,13 +42,17 @@
 	let projectStartDate = '';
 	let projectTargetDate = '';
 	let projectParentId = '';
-	let projectWillSign = false;
+	/** Draft sign-offs for the project form (multi-sign). */
+	let projectDraftSignatures: Project['signatures'] = [];
+	let projectLegacySignedBy: string | undefined = undefined;
 
 	let sprintName = '';
 	let sprintStartDate = '';
 	let sprintEndDate = '';
 	let sprintGoals = '';
-	let sprintWillSign = false;
+	/** Draft sign-offs for the sprint form (multi-sign). */
+	let sprintDraftSignatures: Sprint['signatures'] = [];
+	let sprintLegacySignedBy: string | undefined = undefined;
 
 	const colorOptions = [
 		'#5865f2', '#3ba55d', '#faa81a', '#ed4245',
@@ -81,7 +86,8 @@
 			projectStartDate = project.startDate ? new Date(project.startDate).toISOString().split('T')[0] : '';
 			projectTargetDate = project.targetEndDate ? new Date(project.targetEndDate).toISOString().split('T')[0] : '';
 			projectParentId = project.parentId || '';
-			projectWillSign = !!project.signedBy;
+			projectDraftSignatures = project.signatures ? [...project.signatures] : [];
+			projectLegacySignedBy = project.signatures?.length ? undefined : project.signedBy;
 		} else {
 			resetProjectForm();
 			if (parentId) {
@@ -99,7 +105,8 @@
 		projectStartDate = '';
 		projectTargetDate = '';
 		projectParentId = '';
-		projectWillSign = false;
+		projectDraftSignatures = [];
+		projectLegacySignedBy = undefined;
 	}
 
 	function closeProjectModal() {
@@ -119,8 +126,9 @@
 			status: 'active' as const,
 			createdBy: $currentUser?.dbUserId ? String($currentUser.dbUserId) : ($currentUser?.id || 'unknown'),
 			parentId: projectParentId || undefined,
-			signedBy: projectWillSign ? ($currentUser?.username || 'Guest') : undefined,
-			visibility: projectWillSign ? ('public' as const) : ('private' as const)
+			signatures: projectDraftSignatures.length > 0 ? [...projectDraftSignatures] : undefined,
+			// Legacy single-signer mirror (first signer's name) for older clients.
+			signedBy: projectDraftSignatures.length > 0 ? projectDraftSignatures[0].name : undefined
 		};
 
 		if (editingProject) {
@@ -156,14 +164,16 @@
 			sprintStartDate = new Date(sprint.startDate).toISOString().split('T')[0];
 			sprintEndDate = new Date(sprint.endDate).toISOString().split('T')[0];
 			sprintGoals = sprint.goals?.join('\n') || '';
-			sprintWillSign = !!sprint.signedBy;
+			sprintDraftSignatures = sprint.signatures ? [...sprint.signatures] : [];
+			sprintLegacySignedBy = sprint.signatures?.length ? undefined : sprint.signedBy;
 		} else {
 			editingSprint = null;
 			sprintName = '';
 			sprintStartDate = '';
 			sprintEndDate = '';
 			sprintGoals = '';
-			sprintWillSign = false;
+			sprintDraftSignatures = [];
+			sprintLegacySignedBy = undefined;
 		}
 		showSprintModal = true;
 	}
@@ -183,8 +193,9 @@
 			goals: sprintGoals ? sprintGoals.split('\n').filter(g => g.trim()) : undefined,
 			status: editingSprint?.status || 'planned',
 			createdBy: $currentUser?.dbUserId ? String($currentUser.dbUserId) : ($currentUser?.id || 'unknown'),
-			signedBy: sprintWillSign ? ($currentUser?.username || 'Guest') : undefined,
-			visibility: sprintWillSign ? ('public' as const) : ('private' as const)
+			signatures: sprintDraftSignatures.length > 0 ? [...sprintDraftSignatures] : undefined,
+			// Legacy single-signer mirror (first signer's name) for older clients.
+			signedBy: sprintDraftSignatures.length > 0 ? sprintDraftSignatures[0].name : undefined
 		};
 
 		if (editingSprint) {
@@ -243,7 +254,8 @@
 		bind:projectStartDate
 		bind:projectTargetDate
 		bind:projectParentId
-		bind:projectWillSign
+		bind:projectDraftSignatures
+		projectLegacySignedBy={projectLegacySignedBy}
 		{colorOptions}
 		onClose={closeProjectModal}
 		onSubmit={handleProjectSubmit}
@@ -257,7 +269,8 @@
 		bind:sprintStartDate
 		bind:sprintEndDate
 		bind:sprintGoals
-		bind:sprintWillSign
+		bind:sprintDraftSignatures
+		sprintLegacySignedBy={sprintLegacySignedBy}
 		{isReadOnly}
 		onClose={closeSprintModal}
 		onSubmit={handleSprintSubmit}

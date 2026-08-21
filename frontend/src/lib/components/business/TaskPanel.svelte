@@ -46,7 +46,12 @@
 
 	// Filter options
 	type FilterType = 'all' | 'today' | 'overdue' | 'upcoming';
-	let activeFilter: FilterType = 'all';
+	/**
+	 * Initial filter — lets host surfaces (Planner stat pills) open the panel
+	 * pre-focused on Overdue/Today/etc. Only read on mount.
+	 */
+	export let initialFilter: FilterType = 'all';
+	let activeFilter: FilterType = initialFilter;
 
 	onMount(async () => {
 		if (isLocalMockApiMode()) {

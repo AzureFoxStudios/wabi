@@ -46,7 +46,10 @@
 	let formAssigneeId: number | null = null;
 	let formHasTimeEstimate = false;
 	let formEstimatedHours = '1';
-	let willSign = false;
+	/** Draft sign-offs for the open task modal (multi-sign). */
+	let draftSignatures: Todo['signatures'] = [];
+	/** Legacy signer name of the item being edited (read-only display). */
+	let legacySignedBy: string | undefined = undefined;
 	let registeredUsers: RegisteredUser[] = [];
 	let filteredUsers: RegisteredUser[] = [];
 	let userSearchQuery = '';
@@ -259,7 +262,8 @@
 		formAssigneeId = todo.assignedTo ? parseInt(String(todo.assignedTo), 10) : null;
 		formHasTimeEstimate = typeof todo.estimatedMinutes === 'number' && todo.estimatedMinutes > 0;
 		formEstimatedHours = formHasTimeEstimate ? (todo.estimatedMinutes! / 60).toString() : '1';
-		willSign = !!todo.signedBy;
+		draftSignatures = todo.signatures ? [...todo.signatures] : [];
+		legacySignedBy = todo.signatures?.length ? undefined : todo.signedBy;
 		showAddModal = true;
 	}
 
@@ -314,7 +318,8 @@
 		filteredUsers = registeredUsers;
 		formHasTimeEstimate = false;
 		formEstimatedHours = '1';
-		willSign = false;
+		draftSignatures = [];
+		legacySignedBy = undefined;
 	}
 
 	function handleSubmit() {
@@ -338,8 +343,9 @@
 			completedAt,
 			assignedTo: formAssigneeId?.toString(),
 			createdBy: $currentUser?.dbUserId ? String($currentUser.dbUserId) : ($currentUser?.id || 'unknown'),
-			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined,
-			visibility: willSign ? ('public' as const) : ('private' as const)
+			signatures: draftSignatures && draftSignatures.length > 0 ? [...draftSignatures] : undefined,
+			// Legacy single-signer mirror (first signer's name) for older clients.
+			signedBy: draftSignatures && draftSignatures.length > 0 ? draftSignatures[0].name : undefined
 		};
 
 		if (editingTodo) {
@@ -556,7 +562,8 @@
 		bind:formAssigneeId
 		bind:formHasTimeEstimate
 		bind:formEstimatedHours
-		bind:willSign
+		bind:draftSignatures
+		{legacySignedBy}
 		bind:userSearchQuery
 		bind:targetColumn
 		{closeModal}

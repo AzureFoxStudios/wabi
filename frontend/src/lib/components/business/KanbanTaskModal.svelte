@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { kanbanColumns, projects } from '$lib/business';
-	import type { Todo, TodoStatus } from '$lib/business/types';
+	import type { Todo, TodoStatus, ItemSignature } from '$lib/business/types';
+	import SignatureRow from './SignatureRow.svelte';
 
 	interface RegisteredUser {
 		user_id: number;
@@ -22,7 +23,10 @@
 	export let formAssigneeId: number | null = null;
 	export let formHasTimeEstimate = false;
 	export let formEstimatedHours = '1';
-	export let willSign = false;
+	/** Draft sign-offs (two-way bound with the host form). */
+	export let draftSignatures: ItemSignature[] = [];
+	/** Legacy read-only signer shown when the item predates multi-sign. */
+	export let legacySignedBy: string | undefined = undefined;
 	export let userSearchQuery = '';
 	export let targetColumn: TodoStatus = 'todo';
 	export let closeModal: () => void;
@@ -161,11 +165,8 @@
 				</div>
 			{/if}
 
-			<div class="form-group checkbox-group">
-				<label class="checkbox-label">
-					<input type="checkbox" bind:checked={willSign} />
-					<span>Sign this task with my username</span>
-				</label>
+			<div class="form-group">
+				<SignatureRow bind:draftSignatures {legacySignedBy} label="Sign-off" />
 			</div>
 
 			<div class="form-actions">
