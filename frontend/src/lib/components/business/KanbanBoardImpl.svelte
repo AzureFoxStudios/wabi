@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
 	import { currentUser } from '$lib/socket';
-	import { getLocalMockUsers, isLocalMockApiMode } from '$lib/localMockApi';
-	import { getServerUrl } from '$lib/serverUrl';
-	import { getAuthToken } from '$lib/authSession';
+	import {
+		plannerUserById,
+		getPlannerUserName,
+		getPlannerUserColor,
+		getPlannerUserAvatarUrl,
+		parseAssigneeId,
+		ensurePlannerDirectory
+	} from '$lib/business/plannerUsers';
+	import PlannerAvatar from './PlannerAvatar.svelte';
 	import { onMount } from 'svelte';
 	import {
 		todos,
@@ -68,39 +74,14 @@
 		openAddModal('todo');
 	}
 
-	onMount(async () => {
-		if (isLocalMockApiMode()) {
-			registeredUsers = getLocalMockUsers();
-			filteredUsers = registeredUsers;
-			return;
-		}
-
-		try {
-			const authToken = getAuthToken();
-			const response = await fetch(`${getServerUrl()}/api/users`, {
-				headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined
-			});
-			if (response.ok) {
-				const data = await response.json();
-				const rows = Array.isArray(data)
-					? data
-					: Array.isArray(data?.users)
-						? data.users
-						: [];
-				registeredUsers = rows.map((u: any) => ({
-					user_id: u.user_id ?? u.userId ?? u.id ?? 0,
-					username: u.username ?? u.name ?? 'user',
-					profile_picture: u.profile_picture ?? u.profilePicture,
-					color: u.color ?? '#6366f1'
-				}));
-				filteredUsers = registeredUsers;
-			} else {
-				console.error('[KanbanBoard] Failed to fetch users:', response.status);
-			}
-		} catch (error) {
-			console.error('[KanbanBoard] Failed to fetch users:', error);
-		}
+	onMount(() => {
+		// Shared one-shot directory fetch (also used by calendar/TaskPanel).
+		ensurePlannerDirectory();
 	});
+
+	// Mirror the shared directory into the assignee picker's legacy shape.
+	$: registeredUsers = $plannerUserById.size > 0 ? [...$plannerUserById.values()] : registeredUsers;
+	$: if (!userSearchQuery.trim()) filteredUsers = registeredUsers;
 	$: todosByColumn = (() => {
 		return $todos.reduce((acc, todo) => {
 			if (!acc[todo.status]) acc[todo.status] = [];
@@ -122,8 +103,8 @@
 			})
 		])
 	) as Record<TodoStatus, Todo[]>;
-	// O(1) assignee lookup for cards (avoid find() per card)
-	$: userById = new Map(registeredUsers.map((u) => [u.user_id, u]));
+	// O(1) assignee lookup for cards — shared store, no per-mount fetch.
+	$: userById = $plannerUserById;
 	let kanbanBoard: HTMLElement;
 	let isPanning = false;
 	let panStartX = 0;
@@ -303,8 +284,12 @@
 		return userById.get(userId)?.username || '';
 	}
 	function getAssigneeColor(userId: number | undefined): string {
-		if (!userId) return '#888';
-		return userById.get(userId)?.color || '#888';
+		if (!userId) return '#888888';
+		return userById.get(userId)?.color || '#888888';
+	}
+	function getAssigneeAvatarUrl(userId: number | undefined): string | undefined {
+		if (!userId) return undefined;
+		return userById.get(userId)?.profile_picture || undefined;
 	}
 
 	function resetForm() {
@@ -523,6 +508,7 @@
 			{formatEstimateHours}
 			{getAssigneeName}
 			{getAssigneeColor}
+			{getAssigneeAvatarUrl}
 			{getProjectColor}
 			{getProjectName}
 			{formatDueDate}

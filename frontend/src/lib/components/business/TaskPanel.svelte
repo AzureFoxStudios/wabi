@@ -2,11 +2,20 @@
 	import { get } from 'svelte/store';
 	import { currentUser } from '$lib/socket';
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
-	import { getLocalMockUsers, isLocalMockApiMode } from '$lib/localMockApi';
-	import { getServerUrl } from '$lib/serverUrl';
-	import { getAuthToken } from '$lib/authSession';
+	import {
+		plannerUserById,
+		getPlannerUserColor,
+		getPlannerUserAvatarUrl,
+		ensurePlannerDirectory
+	} from '$lib/business/plannerUsers';
+	import PlannerAvatar from './PlannerAvatar.svelte';
 
 	export let onClose: (() => void) | undefined = undefined;
+	/**
+	 * Compact mode — rendered inside the right workspace dock (~320px):
+	 * tighter paddings, hidden close button (the dock owns open/close).
+	 */
+	export let compact = false;
 	import { onMount, tick } from 'svelte';
 
 	interface RegisteredUser {
@@ -54,29 +63,12 @@
 	let activeFilter: FilterType = initialFilter;
 
 	onMount(async () => {
-		if (isLocalMockApiMode()) {
-			registeredUsers = getLocalMockUsers();
-			filteredUsers = registeredUsers;
-			return;
-		}
-
-		try {
-			const authToken = getAuthToken();
-			const response = await fetch(`${getServerUrl()}/api/users`, {
-				headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined
-			});
-			if (response.ok) {
-				const data = await response.json();
-				console.log('[TaskPanel] Fetched users:', data);
-				registeredUsers = Array.isArray(data) ? data : [];
-				filteredUsers = registeredUsers;
-			} else {
-				console.error('[TaskPanel] Failed to fetch users:', response.status);
-			}
-		} catch (error) {
-			console.error('[TaskPanel] Failed to fetch users:', error);
-		}
+		// Shared one-shot user directory (also used by kanban + calendar).
+		ensurePlannerDirectory();
 	});
+
+	// Mirror shared directory into the assignee picker's legacy shape.
+	$: registeredUsers = $plannerUserById.size > 0 ? [...$plannerUserById.values()] : registeredUsers;
 
 	function filterUsers(query: string) {
 		userSearchQuery = query;
@@ -100,6 +92,16 @@
 		if (!userId) return '';
 		const user = registeredUsers.find(u => u.user_id === userId);
 		return user?.username || '';
+	}
+
+	function getAssigneeColor(userId: number | undefined): string {
+		if (!userId) return '#888888';
+		return getPlannerUserColor($plannerUserById, userId);
+	}
+
+	function getAssigneeAvatarUrl(userId: number | undefined): string | undefined {
+		if (!userId) return undefined;
+		return getPlannerUserAvatarUrl($plannerUserById, userId);
 	}
 
 	function openEditMode(todo: Todo) {
@@ -263,7 +265,7 @@
 	}
 </script>
 
-<div class="task-panel-container">
+<div class="task-panel-container" class:compact>
 	<div class="panel-header">
 		<h2>Tasks</h2>
 		<div class="header-buttons">
@@ -273,7 +275,7 @@
 					<line x1="5" y1="12" x2="19" y2="12"/>
 				</svg>
 			</button>
-			{#if onClose}
+			{#if onClose && !compact}
 				<button class="close-panel-btn" on:click={onClose} title="Close task panel">
 					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<line x1="18" y1="6" x2="6" y2="18"/>
@@ -520,11 +522,17 @@
 									<span class="estimate-tag">{formatEstimateHours(todo.estimatedMinutes)}</span>
 								{/if}
 								{#if todo.assignedTo}
-									<span class="assignee-tag">
-										<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === parseInt(String(todo.assignedTo), 10))?.color || '#888'}"></span>
-										<span>{getAssigneeName(parseInt(String(todo.assignedTo), 10))}</span>
-									</span>
-								{/if}
+								{@const aid = parseInt(String(todo.assignedTo), 10)}
+								<span class="assignee-tag">
+									<PlannerAvatar
+										name={getAssigneeName(aid)}
+										color={getAssigneeColor(aid)}
+										src={getAssigneeAvatarUrl(aid)}
+										size="xs"
+									/>
+									<span>{getAssigneeName(aid)}</span>
+								</span>
+							{/if}
 								{#if todo.projectId}
 									<span class="project-tag">{getProjectName(todo.projectId)}</span>
 								{/if}

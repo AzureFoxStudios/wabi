@@ -18,6 +18,7 @@ export type WorkspacePanelIcon =
 	| 'admin'
 	| 'box'
 	| 'activity'
+	| 'tasks'
 	| 'settings'
 	| 'transfers';
 
@@ -34,7 +35,8 @@ export type WorkspacePanelComponentKey =
 	| 'ffxiv-reference'
 	| 'reader'
 	| 'transfers'
-	| 'code';
+	| 'code'
+	| 'planner-tasks';
 
 export type WorkspacePanelDockArea = 'right' | 'bottom' | 'center' | 'floating';
 export type WorkspacePanelMobileMode = 'sheet' | 'fullscreen' | 'hidden';
@@ -198,6 +200,18 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		mobileMode: 'sheet',
 		source: 'core',
 		sortOrder: 56
+	},
+	{
+		id: 'planner-tasks',
+		label: 'Tasks',
+		shortLabel: 'Tasks',
+		icon: 'tasks',
+		component: 'planner-tasks',
+		capabilities: ['planner', 'todo-list'],
+		defaultDock: 'right',
+		mobileMode: 'sheet',
+		source: 'core',
+		sortOrder: 57
 	}
 ];
 
@@ -217,7 +231,8 @@ const KNOWN_COMPONENT_KEYS = new Set<WorkspacePanelComponentKey>([
 	'ffxiv-reference',
 	'reader',
 	'transfers',
-	'code'
+	'code',
+	'planner-tasks'
 ]);
 
 export const workspacePanelRegistry = { subscribe: panelRegistry.subscribe };

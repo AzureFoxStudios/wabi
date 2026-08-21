@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { currentUser } from '$lib/socket';
 	import type { ItemSignature } from '$lib/business/types';
+	import PlannerAvatar from './PlannerAvatar.svelte';
+	import {
+		plannerUserById,
+		getPlannerUserColor,
+		getPlannerUserAvatarUrl,
+		parseAssigneeId
+	} from '$lib/business/plannerUsers';
 
 	/**
 	 * Sign-off row for planner items (tasks, events, projects, sprints, journal).
@@ -34,6 +41,14 @@
 		return m ? s.by === m.by : false;
 	});
 
+	function sigColor(name: string, by: string): string {
+		const id = parseAssigneeId(by);
+		return getPlannerUserColor($plannerUserById, id);
+	}
+	function sigAvatarUrl(name: string, by: string): string | undefined {
+		return getPlannerUserAvatarUrl($plannerUserById, parseAssigneeId(by));
+	}
+
 	function relTime(at: number): string {
 		const diff = Date.now() - at;
 		const mins = Math.floor(diff / 60000);
@@ -63,10 +78,12 @@
 	<div class="sig-chips">
 		{#each legacySignedBy && allSignatures.length === 0 ? [{ by: legacySignedBy, name: legacySignedBy, at: 0 }] : allSignatures as sig (sig.by + ':' + sig.at)}
 			<span class="sig-chip" class:legacy={sig.at === 0} title={sig.at ? `Signed ${new Date(sig.at).toLocaleString()}` : 'Signed (legacy)'}>
-				<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-					<path d="M12 20h9" />
-					<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-				</svg>
+				<PlannerAvatar
+					name={sig.name}
+					color={sigColor(sig.name, sig.by)}
+					src={sigAvatarUrl(sig.name, sig.by)}
+					size="xs"
+				/>
 				<span class="sig-name">{sig.name}</span>
 				{#if sig.at}<span class="sig-time">{relTime(sig.at)}</span>{/if}
 			</span>

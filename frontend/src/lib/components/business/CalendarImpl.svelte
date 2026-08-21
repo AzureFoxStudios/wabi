@@ -13,6 +13,16 @@
 	import type { CalendarEvent, Todo } from '$lib/business/types';
 	import CalendarDayModal from './CalendarDayModal.svelte';
 	import CalendarEventModal from './CalendarEventModal.svelte';
+	import PlannerAvatar from './PlannerAvatar.svelte';
+	import {
+		plannerUserById,
+		getPlannerUserName,
+		getPlannerUserColor,
+		getPlannerUserAvatarUrl,
+		parseAssigneeId,
+		ensurePlannerDirectory
+	} from '$lib/business/plannerUsers';
+	import { onMount } from 'svelte';
 
 	// Props
 	export let isReadOnly = false;
@@ -27,6 +37,21 @@
 	let selectedDayEvents: CalendarEvent[] = [];
 	let showDayModal = false;
 	let lastAddSignal = 0;
+
+	onMount(() => {
+		// Shared one-shot user directory for assignee avatars.
+		ensurePlannerDirectory();
+	});
+
+	function assigneeName(todo: Todo): string {
+		return getPlannerUserName($plannerUserById, parseAssigneeId(todo.assignedTo));
+	}
+	function assigneeColor(todo: Todo): string {
+		return getPlannerUserColor($plannerUserById, parseAssigneeId(todo.assignedTo));
+	}
+	function assigneeAvatarUrl(todo: Todo): string | undefined {
+		return getPlannerUserAvatarUrl($plannerUserById, parseAssigneeId(todo.assignedTo));
+	}
 
 	// Host "New ▾ → event" trigger
 	$: if (addSignal > lastAddSignal) {
@@ -441,6 +466,16 @@
 							>
 								<span class="task-checkbox"></span>
 								<span class="task-title">{task.title}</span>
+								{#if task.assignedTo}
+									<span class="task-pill-assignee" aria-hidden="true">
+										<PlannerAvatar
+											name={assigneeName(task)}
+											color={assigneeColor(task)}
+											src={assigneeAvatarUrl(task)}
+											size="xs"
+										/>
+									</span>
+								{/if}
 							</button>
 						{/each}
 						{#if hiddenCount > 0}
@@ -477,6 +512,16 @@
 								<span class="task-name">{task.title}</span>
 								<span class="task-date">{new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
 							</div>
+							{#if task.assignedTo}
+								<span class="sidebar-task-assignee" title={`Assigned to ${assigneeName(task)}`}>
+									<PlannerAvatar
+										name={assigneeName(task)}
+										color={assigneeColor(task)}
+										src={assigneeAvatarUrl(task)}
+										size="xs"
+									/>
+								</span>
+							{/if}
 							<span class="complete-btn" title="Mark complete">&#10003;</span>
 						</div>
 					{/each}
