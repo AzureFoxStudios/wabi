@@ -1,4 +1,7 @@
+import { browser } from '$app/environment';
 import { getServerUrl } from '../serverUrl';
+import { tryRefresh, setRefreshToken } from './authRefresh';
+import { getAuthToken } from '../authSession';
 
 export const getApiBase = () => getServerUrl();
 export const getApiBaseFor = (baseUrl?: string | null) => {
@@ -93,6 +96,41 @@ export async function parseApiJson(response: Response): Promise<unknown | null> 
 export async function safeJsonParse(response: Response): Promise<unknown> {
 	const parsed = await parseApiJson(response);
 	return parsed ?? {};
+}
+
+/**
+ * Fetch wrapper that silently refreshes an expired access token on 401 and
+ * retries the original request once. Mirrors fetchWithTimeout's signature so
+ * callers can drop it in. On refresh failure (no token, or refresh returned
+ * its own 401) the original 401 Response is returned — callers classify it as
+ * auth-fatal and route to login.
+ */
+export async function fetchWithAuth(
+	url: string,
+	options: RequestWithTimeout = {}
+): Promise<Response> {
+	const res = await fetchWithTimeout(url, options);
+
+	// Only act on clean 401s from JSON API responses, not auth-fatal bodies
+	// the caller needs to inspect (e.g., "token reuse detected").
+	if (res.status !== 401 || !isJsonContentType(res)) return res;
+
+	// Don't try to refresh auth endpoints themselves.
+	try {
+		const path = new URL(url, getApiBase()).pathname;
+		if (path.endsWith('/auth/refresh') || path.endsWith('/auth/login')) return res;
+	} catch {
+		/* ignore parse failure, fall through to refresh attempt */
+	}
+
+	const ok = await tryRefresh();
+	if (!ok) return res;
+
+	// Retry with the freshly minted access token.
+	const headers = new Headers(options.headers);
+	const token = getAuthToken();
+	if (token) headers.set('Authorization', `Bearer ${token}`);
+	return fetchWithTimeout(url, { ...options, headers });
 }
 
 export function isPositiveNumber(value: unknown): boolean {
