@@ -46,7 +46,10 @@
 	let formRecurringFrequency: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'weekly';
 	let formRecurringInterval = 1;
 	let formRecurringEndDate = '';
-	let willSign = false;
+	/** Draft sign-offs for the open event modal (multi-sign). */
+	let draftSignatures: CalendarEvent['signatures'] = [];
+	/** Legacy signer name of the event being edited (read-only display). */
+	let legacySignedBy: string | undefined = undefined;
 
 	const colorOptions = [
 		'#5865f2', // Blue
@@ -254,7 +257,8 @@
 		formRecurringFrequency = event.recurring?.frequency || 'weekly';
 		formRecurringInterval = event.recurring?.interval || 1;
 		formRecurringEndDate = event.recurring?.endDate ? formatDateForInput(new Date(event.recurring.endDate)) : '';
-		willSign = !!event.signedBy;
+		draftSignatures = event.signatures ? [...event.signatures] : [];
+		legacySignedBy = event.signatures?.length ? undefined : event.signedBy;
 		showEventModal = true;
 	}
 
@@ -290,7 +294,8 @@
 		formRecurringFrequency = 'weekly';
 		formRecurringInterval = 1;
 		formRecurringEndDate = '';
-		willSign = false;
+		draftSignatures = [];
+		legacySignedBy = undefined;
 		editingEvent = null;
 	}
 
@@ -311,7 +316,9 @@
 			allDay: formAllDay,
 			color: formColor,
 			createdBy: $currentUser?.id || 'unknown',
-			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
+			signatures: draftSignatures.length > 0 ? [...draftSignatures] : undefined,
+			// Legacy single-signer mirror (first signer's name) for older clients.
+			signedBy: draftSignatures.length > 0 ? draftSignatures[0].name : undefined
 		};
 
 		// Add recurring data if enabled
@@ -534,7 +541,8 @@
 		bind:formRecurringFrequency
 		bind:formRecurringInterval
 		bind:formRecurringEndDate
-		bind:willSign
+		bind:draftSignatures
+		{legacySignedBy}
 		{colorOptions}
 		{handleSubmit}
 		{handleDelete}

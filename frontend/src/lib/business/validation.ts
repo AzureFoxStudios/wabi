@@ -6,6 +6,7 @@ import type {
 	EdgeType,
 	GraphEdge,
 	KanbanColumn,
+	ItemSignature,
 	Project,
 	Resource,
 	Sprint,
@@ -14,7 +15,6 @@ import type {
 	TodoStatus,
 	UserRole
 } from './types';
-
 const TODO_STATUSES = new Set<TodoStatus>([
 	'ideas',
 	'todo',
@@ -119,6 +119,21 @@ function sanitizeTodoVisibility(value: unknown): Todo['visibility'] {
 		: 'public';
 }
 
+/** Sanitize a sign-off list; tolerates legacy shapes (missing/invalid entries dropped). */
+function sanitizeSignatures(value: unknown): ItemSignature[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const items: ItemSignature[] = [];
+	for (const entry of value) {
+		if (!isRecord(entry)) continue;
+		const by = asNonEmptyString(entry.by);
+		const name = asNonEmptyString(entry.name);
+		const at = asFiniteNumber(entry.at);
+		if (!by || !name || at == null) continue;
+		items.push({ by, name, at });
+	}
+	return items.length > 0 ? items : undefined;
+}
+
 function sanitizeProjectVisibility(value: unknown): Project['visibility'] {
 	return typeof value === 'string' && PROJECT_VISIBILITIES.has(value as Project['visibility'])
 		? (value as Project['visibility'])
@@ -162,6 +177,7 @@ function sanitizeTodo(raw: unknown): Todo | null {
 		projectId: asNonEmptyString(raw.projectId),
 		completedAt: asFiniteNumber(raw.completedAt),
 		signedBy: asString(raw.signedBy),
+		signatures: sanitizeSignatures(raw.signatures),
 		visibility: sanitizeTodoVisibility(raw.visibility)
 	};
 }
@@ -200,6 +216,7 @@ function sanitizeCalendarEvent(raw: unknown): CalendarEvent | null {
 		reminders: asNumberArray(raw.reminders),
 		cancelledDates: asNumberArray(raw.cancelledDates),
 		signedBy: asString(raw.signedBy),
+		signatures: sanitizeSignatures(raw.signatures),
 		visibility: sanitizeCalendarVisibility(raw.visibility)
 	};
 }
@@ -227,7 +244,8 @@ function sanitizeDiaryEntry(raw: unknown): DiaryEntry | null {
 		createdAt: asFiniteNumber(raw.createdAt) ?? now,
 		updatedAt: asFiniteNumber(raw.updatedAt) ?? now,
 		isPrivate: asBoolean(raw.isPrivate) ?? false,
-		signedBy: asString(raw.signedBy)
+		signedBy: asString(raw.signedBy),
+		signatures: sanitizeSignatures(raw.signatures)
 	};
 }
 
@@ -252,6 +270,7 @@ function sanitizeProject(raw: unknown): Project | null {
 			: 'planning',
 		parentId: asNonEmptyString(raw.parentId),
 		signedBy: asString(raw.signedBy),
+		signatures: sanitizeSignatures(raw.signatures),
 		visibility: sanitizeProjectVisibility(raw.visibility)
 	};
 }
@@ -277,6 +296,7 @@ function sanitizeSprint(raw: unknown): Sprint | null {
 			? (raw.status as Sprint['status'])
 			: 'planned',
 		signedBy: asString(raw.signedBy),
+		signatures: sanitizeSignatures(raw.signatures),
 		visibility: sanitizeSprintVisibility(raw.visibility)
 	};
 }

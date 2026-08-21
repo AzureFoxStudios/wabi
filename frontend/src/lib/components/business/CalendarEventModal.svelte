@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { CalendarEvent } from '$lib/business/types';
+	import SignatureRow from './SignatureRow.svelte';
 
 	export let editingEvent: CalendarEvent | null = null;
 	export let formTitle = '';
@@ -13,7 +14,10 @@
 	export let formRecurringFrequency: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'weekly';
 	export let formRecurringInterval = 1;
 	export let formRecurringEndDate = '';
-	export let willSign = false;
+	/** Draft sign-offs (two-way bound with the host form). */
+	export let draftSignatures: import('$lib/business/types').ItemSignature[] = [];
+	/** Legacy read-only signer shown when the event predates multi-sign. */
+	export let legacySignedBy: string | undefined = undefined;
 	export let colorOptions: string[] = [];
 	export let handleSubmit: () => void;
 	export let handleDelete: (id: string) => void;
@@ -132,11 +136,8 @@
 				</div>
 			</div>
 
-			<div class="form-group checkbox-group">
-				<label class="checkbox-label">
-					<input type="checkbox" bind:checked={willSign} />
-					<span>Sign this event with my username</span>
-				</label>
+			<div class="form-group">
+				<SignatureRow bind:draftSignatures {legacySignedBy} label="Sign-off" />
 			</div>
 
 			<div class="form-actions">

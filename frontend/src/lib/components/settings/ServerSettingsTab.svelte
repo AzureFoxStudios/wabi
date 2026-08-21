@@ -10,7 +10,8 @@
 		getBusinessSyncMode,
 		setBusinessSyncMode,
 		sync as syncBusinessData,
-		hasPendingRemoteBusinessUpdate
+		hasPendingRemoteBusinessUpdate,
+		businessSyncAvailable
 	} from '$lib/business/sync';
 
 	const dispatch = createEventDispatcher<{

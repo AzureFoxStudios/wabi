@@ -1,4 +1,15 @@
 export type BusinessVisibility = 'public' | 'private';
+/**
+ * A sign-off on a planner item: "I stand behind this item."
+ * `by` is the stable user id when known, `name` is the display name at sign
+ * time, `at` is an epoch-ms timestamp. Legacy single-signer `signedBy` fields
+ * remain written (first signer's name) for backward compatibility.
+ */
+export interface ItemSignature {
+  by: string;
+  name: string;
+  at: number;
+}
 export type TodoStatus = 'ideas' | 'todo' | 'in_progress' | 'done' | 'scrapped' | 'archived';
 export type TodoPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type DiaryMood = 'great' | 'good' | 'neutral' | 'bad' | 'awful';
@@ -40,6 +51,7 @@ export interface Todo {
   projectId?: string;
   completedAt?: number;
   signedBy?: string;
+  signatures?: ItemSignature[];
   visibility?: BusinessVisibility;
 }
 
@@ -62,6 +74,7 @@ export interface CalendarEvent {
   reminders?: Int32Array | number[];
   cancelledDates?: BigInt64Array | number[];
   signedBy?: string;
+  signatures?: ItemSignature[];
   visibility?: BusinessVisibility;
 }
 
@@ -77,6 +90,7 @@ export interface DiaryEntry {
   updatedAt: number;
   isPrivate: boolean;
   signedBy?: string;
+  signatures?: ItemSignature[];
 }
 
 export interface Project {
@@ -91,6 +105,7 @@ export interface Project {
   status: ProjectStatus;
   parentId?: string;
   signedBy?: string;
+  signatures?: ItemSignature[];
   visibility?: BusinessVisibility;
 }
 
@@ -104,6 +119,7 @@ export interface Sprint {
   goals?: string[];
   status: SprintStatus;
   signedBy?: string;
+  signatures?: ItemSignature[];
   visibility?: BusinessVisibility;
 }
 

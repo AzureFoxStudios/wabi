@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { writable } from 'svelte/store';
 import { getSocket } from '$lib/socket';
 import { getServerUrl } from '$lib/serverUrl';
 import { getAuthToken } from '$lib/authSession';
@@ -6,6 +7,56 @@ import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from './snapshot';
 import { sanitizeBusinessData } from './validation';
 
 type BusinessSyncMode = 'manual' | 'auto';
+
+/**
+ * Server sync capability — probed once per session.
+ *
+ * The Rust backend has NEVER shipped /api/business/get|sync (verified across
+ * full git history, 2026-08-21). The engine below is real but its endpoints
+ * are not; probing keeps us honest: when a future backend lands the routes,
+ * the probe flips this store and sync starts working with zero frontend
+ * changes. Until then the UI must say "On this device", not pretend.
+ */
+export const businessSyncAvailable = writable<boolean | null>(null); // null = unprobed
+
+let capabilityProbed = false;
+
+/** Probe GET /api/business/get once; cache the verdict for the session. */
+export async function probeBusinessSyncCapability(): Promise<boolean> {
+	if (!browser || capabilityProbed) {
+		let known: boolean | null = null;
+		businessSyncAvailable.subscribe((v) => (known = v))();
+		return known === true;
+	}
+	capabilityProbed = true;
+	const token = getAuthToken();
+	if (!token) {
+		businessSyncAvailable.set(false);
+		return false;
+	}
+	try {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 4000);
+		let response: Response;
+		try {
+			response = await fetch(`${getServerUrl()}/api/business/get`, {
+				method: 'GET',
+				headers: { Authorization: `Bearer ${token}` },
+				signal: controller.signal
+			});
+		} finally {
+			clearTimeout(timeout);
+		}
+		const available = response.ok;
+		businessSyncAvailable.set(available);
+		logSync(`[BusinessSync] Capability probe: server sync ${available ? 'available' : 'unavailable'} (${response.status})`);
+		return available;
+	} catch {
+		businessSyncAvailable.set(false);
+		logSync('[BusinessSync] Capability probe failed (offline or unreachable)');
+		return false;
+	}
+}
 
 // Sync state
 let isSyncing = false;
@@ -231,6 +282,7 @@ export function initSync() {
 
 	if (!hasAuthToken()) {
 		logSync('[BusinessSync] No auth token, skipping sync init');
+		businessSyncAvailable.set(false);
 		return;
 	}
 
@@ -238,12 +290,20 @@ export function initSync() {
 	window.addEventListener('offline', handleOffline);
 	setupSocketListeners();
 
-	if (isOnline && !isManualSyncMode()) {
-		logSync('[BusinessSync] Online - performing initial sync');
-		sync(true);
-	} else {
-		logSync('[BusinessSync] Manual mode enabled or offline - not auto-syncing on init');
-	}
+	// Probe capability first: if the backend has no business routes (current
+	// reality), stay local-only and never fire doomed sync traffic.
+	void probeBusinessSyncCapability().then((available) => {
+		if (!available) {
+			logSync('[BusinessSync] Server sync unavailable — staying device-local');
+			return;
+		}
+		if (isOnline && !isManualSyncMode()) {
+			logSync('[BusinessSync] Online - performing initial sync');
+			sync(true);
+		} else {
+			logSync('[BusinessSync] Manual mode enabled or offline - not auto-syncing on init');
+		}
+	});
 }
 
 export function cleanupSync() {

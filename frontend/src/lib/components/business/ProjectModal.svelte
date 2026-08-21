@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { projects } from '$lib/business/store';
-	import type { Project } from '$lib/business/types';
+	import type { Project, ItemSignature } from '$lib/business/types';
+	import SignatureRow from './SignatureRow.svelte';
 
 	export let editingProject: Project | null = null;
 	export let projectName = '';
@@ -9,7 +10,10 @@
 	export let projectStartDate = '';
 	export let projectTargetDate = '';
 	export let projectParentId = '';
-	export let projectWillSign = false;
+	/** Draft sign-offs (two-way bound with the host form). */
+	export let projectDraftSignatures: ItemSignature[] = [];
+	/** Legacy read-only signer shown when the project predates multi-sign. */
+	export let projectLegacySignedBy: string | undefined = undefined;
 	export let colorOptions: string[] = [];
 	export let onClose: () => void = () => {};
 	export let onSubmit: () => void = () => {};
@@ -94,11 +98,8 @@
 				</div>
 			</div>
 
-			<div class="form-group checkbox-group">
-				<label class="checkbox-label">
-					<input type="checkbox" bind:checked={projectWillSign} />
-					<span>Sign this project with my username</span>
-				</label>
+			<div class="form-group">
+				<SignatureRow bind:draftSignatures={projectDraftSignatures} legacySignedBy={projectLegacySignedBy} label="Sign-off" />
 			</div>
 
 			<div class="form-actions">

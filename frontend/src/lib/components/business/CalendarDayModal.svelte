@@ -61,7 +61,11 @@
 											{:else}
 												<span class="event-time">{formatTime(event.startDate)}</span>
 											{/if}
-											{#if event.signedBy}
+											{#if (event.signatures?.length ?? 0) > 0}
+												<span class="signature" title="Signed off by {event.signatures!.map((s) => s.name).join(', ')}">
+													✍ {event.signatures!.map((s) => s.name).join(', ')}
+												</span>
+											{:else if event.signedBy}
 												<span class="signature" title="Signed by {event.signedBy}">
 													✍ {event.signedBy}
 												</span>

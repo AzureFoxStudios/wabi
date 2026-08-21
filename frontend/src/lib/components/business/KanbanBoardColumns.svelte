@@ -89,6 +89,20 @@
 										{formatDueDate(todo.dueDate)}
 									</span>
 								{/if}
+								{#if (todo.signatures?.length ?? 0) > 0 || todo.signedBy}
+									<span
+										class="card-signed"
+										title={todo.signatures?.length
+											? `Signed off by ${todo.signatures.map((s) => s.name).join(', ')}`
+											: `Signed by ${todo.signedBy}`}
+									>
+										<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+											<path d="M12 20h9" />
+											<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+										</svg>
+										{todo.signatures?.length ?? 1}
+									</span>
+								{/if}
 							</div>
 						</div>
 					</div>

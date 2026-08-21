@@ -374,6 +374,116 @@
 	font-size: 12px;
 	color: var(--planner-text-secondary);
 	white-space: nowrap;
+	border: 1px solid var(--planner-border);
+	background: color-mix(in srgb, var(--planner-raised) 70%, transparent);
+	font: inherit;
+	cursor: pointer;
+	min-height: 28px;
+	transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+
+.planner-stat:hover {
+	background: var(--planner-hover);
+	border-color: color-mix(in srgb, var(--planner-accent) 45%, var(--planner-border));
+}
+
+.planner-stat:focus-visible {
+	outline: 2px solid var(--planner-accent);
+	outline-offset: 2px;
+}
+
+.planner-stat:active {
+	transform: translateY(1px);
+}
+
+/* ── Header overflow (⋯) menu: Import / Export / sync status ─────────────── */
+.planner-overflow-wrap {
+	position: relative;
+}
+
+.planner-overflow-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	border: 1px solid var(--planner-border);
+	border-radius: var(--planner-radius-sm);
+	background: color-mix(in srgb, var(--planner-raised) 55%, transparent);
+	color: var(--planner-text-secondary);
+	cursor: pointer;
+	transition: background 0.12s, color 0.12s;
+}
+
+.planner-overflow-btn:hover,
+.planner-overflow-btn[aria-expanded='true'] {
+	background: var(--planner-hover);
+	color: var(--planner-text);
+}
+
+.planner-overflow-menu {
+	position: absolute;
+	top: calc(100% + 8px);
+	right: 0;
+	min-width: 264px;
+	z-index: 50;
+	background: color-mix(in srgb, var(--planner-raised) 96%, transparent);
+	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
+	border: 1px solid var(--planner-border);
+	border-radius: var(--planner-radius-lg);
+	box-shadow: var(--shadow-xl);
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	animation: planner-menu-in 0.12s ease-out;
+}
+
+.overflow-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 10px;
+	margin-bottom: 4px;
+	font-size: 12px;
+	color: var(--planner-text-muted);
+	border-bottom: 1px solid color-mix(in srgb, var(--planner-border) 70%, transparent);
+}
+
+.status-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	background: var(--biz-warning, #f59e0b);
+}
+
+.status-dot.synced {
+	background: var(--biz-success, #22c55e);
+}
+
+.planner-overflow-menu button {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	width: 100%;
+	min-height: 38px;
+	padding: 6px 10px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--planner-text);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+	transition: background 0.12s;
+}
+
+.planner-overflow-menu button:hover {
+	background: var(--planner-accent-soft);
 }
 
 .planner-stat strong {

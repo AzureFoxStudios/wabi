@@ -601,6 +601,20 @@
 	font-weight: 500;
 }
 
+/* Sign-off badge on kanban cards (✍ N) */
+.card-signed {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	font-size: 0.7rem;
+	font-weight: 500;
+	padding: 0.1rem 0.45rem;
+	border-radius: 999px;
+	color: var(--biz-accent, #6366f1);
+	background: color-mix(in srgb, var(--biz-accent, #6366f1) 12%, transparent);
+	border: 1px solid color-mix(in srgb, var(--biz-accent, #6366f1) 28%, transparent);
+}
+
 .empty-column {
 	display: flex;
 	flex-direction: column;
