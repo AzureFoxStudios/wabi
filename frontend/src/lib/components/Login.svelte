@@ -4,6 +4,7 @@
 	import { register, login, saveUserSettings, getLaunchPageConfig, getPublicAuthPolicy, getSetupStatus, saveAdminPolicy, type LaunchPageConfig } from '$lib/api';
 	import type { AuthPolicy } from '../../../../shared/adminPolicyContracts';
 	import { clearAuthSession, setAuthToken, setPersistentAuthToken, setStoredDbUserId } from '$lib/authSession';
+import { setRefreshToken } from '$lib/api/authRefresh';
 		import { retryDecryptLoadedDmMessages } from '$lib/socket';
 	import { setStoredHomeExperienceMode, type HomeExperienceMode } from '$lib/homeExperience';
 	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
@@ -102,6 +103,7 @@
 		try {
 			const result = await register(username, password, cleanHandle);
 			setAuthToken(result.token);
+			setRefreshToken(result.refreshToken);
 			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
 			if (wizardMode) {
 				// Owner account created — continue to the join-policy step before entering.
@@ -153,8 +155,9 @@
 		loading = true;
 		try {
 			const result = await login(username, password);
-			setAuthToken(result.token);
-			if (rememberMe) setPersistentAuthToken(result.token);
+					setAuthToken(result.token);
+					setRefreshToken(result.refreshToken);
+					if (rememberMe) setPersistentAuthToken(result.token);
 			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
 			localStorage.setItem('wabi_has_logged_in', 'true');
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered', mustChangePassword: result.mustChangePassword === true });
