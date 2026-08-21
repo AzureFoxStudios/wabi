@@ -36,6 +36,8 @@
 		connectionState,
 		callTransportState,
 		spatialAudioRuntimeStatus,
+		spatialAudioDiagnostics,
+		spatialSeatDebugState,
 		toggleSpatialAudioEnabled,
 		callOfflineNotice
 	} from '$lib/calling';
@@ -53,7 +55,8 @@
 		hashString,
 		isSameIdList,
 		isSameSpeakerState,
-		sanitizePinnedIds
+		sanitizePinnedIds,
+		debugSeatStyle
 	} from './callModalHelpers';
 	import {
 		buildActiveSpeakerLevels,
@@ -114,6 +117,7 @@
 	let presenterOverlayElementsByTile: Record<string, PresenterOverlayElement[]> = {};
 	let presenterOverlayUndoByTile: Record<string, PresenterOverlayElement[][]> = {};
 	let presenterOverlayRedoByTile: Record<string, PresenterOverlayElement[][]> = {};
+	let showSpatialDebugOverlay = false;
 
 	const PRESENTER_OVERLAY_MAX_HISTORY = 24;
 	const presenterOverlayTools: PresenterOverlayTool[] = ['pen', 'arrow', 'rect', 'ellipse'];
@@ -313,6 +317,7 @@
 			presenterOverlayElementsByTile = {};
 			presenterOverlayUndoByTile = {};
 			presenterOverlayRedoByTile = {};
+			showSpatialDebugOverlay = false;
 		}
 		if (!$isInCall && wasInCall) {
 			callViewportMode = 'docked';
@@ -327,8 +332,12 @@
 			presenterOverlayElementsByTile = {};
 			presenterOverlayUndoByTile = {};
 			presenterOverlayRedoByTile = {};
+			showSpatialDebugOverlay = false;
 		}
 		wasInCall = $isInCall;
+	}
+	$: if (!$isInCall && showSpatialDebugOverlay) {
+		showSpatialDebugOverlay = false;
 	}
 
 	// Docked-first (voice UX contract): joining/answering never springs the
@@ -439,6 +448,15 @@
 
 	function handleToggleDeafen() {
 		toggleDeafen();
+	}
+
+	function handleToggleSpatialDebug(): void {
+		showSpatialDebugOverlay = !showSpatialDebugOverlay;
+		// The debug overlay only renders inside the expanded call shell, so
+		// spring the docked bar open if the user enabled it from docked state.
+		if (showSpatialDebugOverlay && callViewportMode === 'docked') {
+			setViewportMode('embedded');
+		}
 	}
 
 	async function handleToggleRecording() {
@@ -867,6 +885,12 @@
 		<div class="docked-actions">
 			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open call view">Open</button>
 			<button class="dock-btn" on:click={() => setViewportMode('focus')} title="Focus call">Focus</button>
+			<button
+				class="dock-btn debug-toggle"
+				class:active={showSpatialDebugOverlay}
+				on:click={handleToggleSpatialDebug}
+				title="Spatial Debug Overlay"
+			>Diag</button>
 			<button class="dock-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>Mute</button>
 			<button class="dock-btn" class:active={$isDeafened} on:click={handleToggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>Deafen</button>
 			<button
@@ -952,6 +976,37 @@
 					onPresenterOverlayActivate={(tileId) => activatePresenterOverlayTile(tileId)}
 					heroIds={layoutResult.heroIds}
 				/>
+				{#if showSpatialDebugOverlay && $isInCall}
+					<div class="spatial-debug-overlay" transition:fade={{ duration: 140 }}>
+						<div class="spatial-debug-header">
+							<strong>Spatial Debug</strong>
+							<span>{$spatialSeatDebugState.entries.length} sources</span>
+						</div>
+						<div class="spatial-debug-map">
+							<div class="spatial-debug-center" aria-hidden="true"></div>
+							{#each $spatialSeatDebugState.entries as seat (seat.sourceId)}
+								<div
+									class="spatial-seat"
+									class:share={seat.sourceType === 'share'}
+									class:speaking={seat.isSpeaking}
+									style={debugSeatStyle(seat.position)}
+									title={`${seat.username} (${seat.sourceType}) seat ${seat.seatIndex + 1}/${seat.slotCount}`}
+								>
+									{seat.username.charAt(0).toUpperCase()}
+								</div>
+							{/each}
+						</div>
+						<div class="spatial-debug-list">
+							{#each $spatialSeatDebugState.entries as seat (seat.sourceId)}
+								<div class="spatial-debug-row">
+									<span class="spatial-debug-type">{seat.sourceType}</span>
+									<span>{seat.username}</span>
+									<span>S{seat.seatIndex + 1}/{seat.slotCount}</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			</div>
 
 			<CallControls
@@ -987,6 +1042,33 @@
 				onPresenterOverlayClear={clearPresenterOverlay}
 			/>
 
+			<div class="call-status-row">
+				<span class="transport-badge" class:degraded={$callTransportState.isFallback}>
+					Transport: {$callTransportState.activeTransport.toUpperCase()}
+					{#if $callTransportState.isFallback}
+						<span class="transport-note">fallback active</span>
+					{/if}
+					{#if $callTransportState.gatewayControlPlaneStatus !== 'idle'}
+						<span class="transport-note">gateway {$callTransportState.gatewayControlPlaneStatus}</span>
+					{/if}
+					{#if $callTransportState.gatewayMediaPlaneStatus !== 'idle'}
+						<span class="transport-note">media {$callTransportState.gatewayMediaPlaneStatus}</span>
+					{/if}
+					{#if $callTransportState.gatewayActiveStreams !== null}
+						<span class="transport-note">streams {$callTransportState.gatewayActiveStreams}</span>
+					{/if}
+				</span>
+				<span class="transport-badge">
+					Spatial: {$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}
+					<span class="transport-note">src {$spatialAudioDiagnostics.totalSources}</span>
+				</span>
+				<button
+					class="dock-btn debug-toggle"
+					class:active={showSpatialDebugOverlay}
+					on:click={handleToggleSpatialDebug}
+					title="Spatial Debug Overlay"
+				>Diag</button>
+			</div>
 			{#if $connectionState && $connectionState !== 'idle'}
 				<div class="connection-status">Connection: {$connectionState}</div>
 			{/if}

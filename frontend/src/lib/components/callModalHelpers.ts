@@ -1,4 +1,5 @@
 import type { ActiveSpeakerState } from '$lib/callLayoutManager';
+import type { SpatialPosition } from '$lib/audio/spatialEngine';
 
 export function sanitizePinnedIds(pinned: string[], tiles: Map<string, unknown>): string[] {
 	const next: string[] = [];
@@ -45,6 +46,16 @@ export function formatRecordingElapsed(elapsedMs: number): string {
 		return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 	}
 	return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+export function clamp(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
+}
+
+export function debugSeatStyle(position: SpatialPosition): string {
+	const left = clamp(50 + (position.x / 4) * 42, 8, 92);
+	const top = clamp(50 + (position.z / 4) * 42, 8, 92);
+	return `left:${left}%; top:${top}%;`;
 }
 
 export function formatRecordingPresenceCopy(
