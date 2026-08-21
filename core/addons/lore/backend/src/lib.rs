@@ -598,6 +598,43 @@ impl LoreService {
         // Ensure parent exists
         tokio::fs::create_dir_all(&working_tree).await?;
 
+        // Self-heal: a previous create may have completed on disk but failed
+        // to register durably (crash, restart mid-flow, WDB write error).
+        // The Lore CLI then refuses every retry with "Repository already
+        // exist in path". If the tree already holds a repo, adopt it.
+        if working_tree.join(".lore").exists() || working_tree.join(".wabi-repo.json").exists() {
+            let mut repo = LoreRepo {
+                id: repo_id,
+                channel_id,
+                lore_server_url: self.config.lore_server_url.clone(),
+                repo_name: repo_name.to_string(),
+                working_tree,
+                created_by,
+                created_at: chrono::Utc::now(),
+                class: RepoClass::Native,
+                auto_branch_on_upload: false,
+                imported_from: None,
+            };
+            // Recover persisted attributes from the sidecar state file, same
+            // as load_existing_repos does for rehydrated repos.
+            let cfg_path = repo_state_path(&repo.working_tree);
+            if let Ok(content) = tokio::fs::read_to_string(&cfg_path).await {
+                if let Ok(cfg) = serde_json::from_str::<RepoStateFile>(&content) {
+                    repo.class = cfg.class;
+                    repo.auto_branch_on_upload = cfg.auto_branch_on_upload;
+                    repo.imported_from = cfg.imported_from;
+                }
+            }
+            info!(
+                channel_id,
+                repo_name,
+                "Adopted existing Lore working tree (previous registration was lost)"
+            );
+            self.repos.write().await.insert(channel_id, repo.clone());
+            self.save_repo_state(&repo).await.ok();
+            return Ok(repo);
+        }
+
         let repo_url = format!("{}/{}", self.config.lore_server_url, repo_name);
 
         // `lore repository create lore://host/name`
