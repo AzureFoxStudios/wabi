@@ -490,12 +490,32 @@ impl AppState {
         self.save_revocations().await;
     }
 
-    /// Revoke every current token for a user (force-logout).
+    /// Revoke every *current* token for a user (force-logout / theft response).
+    /// Uses a per-user iat floor so a subsequent login mints a valid new token.
+    /// Does NOT permanently lock the account (the legacy `users` set did that —
+    /// see the 2026-07-23 login-bounce incident).
     pub async fn revoke_user(&self, user_id: i64) {
         {
-            self.revocations.write().await.users.insert(user_id);
+            let mut g = self.revocations.write().await;
+            let floor = chrono::Utc::now().timestamp().max(1) as u64 + 1;
+            g.user_iat_revoked.insert(user_id, floor);
+            // Drop any legacy permanent-ban entry — the floor replaces it.
+            g.users.remove(&user_id);
         }
         self.save_revocations().await;
+    }
+
+    /// Drop a legacy permanent user ban. Safe no-op if not present.
+    /// Called on successful password login so a stale on-disk `users: [id]`
+    /// entry cannot trap the account in a login→401 bounce loop.
+    pub async fn clear_legacy_user_revocation(&self, user_id: i64) {
+        let removed = {
+            let mut g = self.revocations.write().await;
+            g.users.remove(&user_id)
+        };
+        if removed {
+            self.save_revocations().await;
+        }
     }
 
     /// Revoke every outstanding token for a user EXCEPT the token identified
