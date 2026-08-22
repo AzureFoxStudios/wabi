@@ -17,6 +17,8 @@ const STORAGE_KEY = 'wabi:dock-layout:v1';
 const API_LAYOUT_KEY = 'wabi:dock-layout:remote:v1';
 const API_DEBOUNCE_MS = 2000;
 
+let apiSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** Resolve at call time so remote-server mode tracks getServerUrl(). */
 function layoutApiUrl(): string {
 	return `${getApiBase()}/api/user/layout`;
@@ -58,6 +60,45 @@ async function loadFromServer(token: string): Promise<{ layoutJson: string | nul
 }
 
 /**
+ * The server stores ONE keyed container per user
+ * ({layout, theme, railDensity, railSide}) and rejects unknown top-level
+ * keys — so every writer must GET-merge-PUT instead of blind-replacing,
+ * or modules clobber each other and the whitelist 422s.
+ */
+export async function mergeIntoServerContainer(token: string, slot: string, value: unknown): Promise<boolean> {
+	const headers = {
+		'Content-Type': 'application/json',
+		Authorization: `Bearer ${token}`
+	};
+	let container: Record<string, unknown> = {};
+	try {
+		const res = await fetch(layoutApiUrl(), { headers });
+		if (res.ok) {
+			const body = (await res.json()) as { layoutJson?: string | null };
+			if (body?.layoutJson) {
+				const parsed = JSON.parse(body.layoutJson) as unknown;
+				if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+					container = parsed as Record<string, unknown>;
+				}
+			}
+		}
+	} catch {
+		// start from an empty container; server tolerates partial containers
+	}
+	container[slot] = value;
+	try {
+		const res = await fetch(layoutApiUrl(), {
+			method: 'PUT',
+			headers,
+			body: JSON.stringify({ layoutJson: JSON.stringify(container) })
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Load layout state with server merge.
  * Server wins only if its updatedAt > local's.
  * Never throws — returns null on any error.
@@ -80,7 +121,16 @@ export async function loadLayoutState(): Promise<LayoutStateV1 | null> {
 		// Finding 25: never JSON.parse raw server layout outside a guard —
 		// deserializeLayoutState validates/migrates and falls back to default.
 		try {
-			const parsed = deserializeLayoutState(server.layoutJson);
+			// Server stores the keyed container ({layout, ...}); legacy blobs
+			// may hold the raw docking state — unwrap defensively.
+			let rawLayout = server.layoutJson;
+			try {
+				const container = JSON.parse(server.layoutJson) as Record<string, unknown>;
+				if (container && typeof container === 'object' && !Array.isArray(container) && 'layout' in container) {
+					rawLayout = JSON.stringify(container.layout);
+				}
+			} catch {}
+			const parsed = deserializeLayoutState(rawLayout);
 			const now = server.updatedAt;
 			saveRemoteToStorage(parsed, now);
 			return parsed;
@@ -92,10 +142,6 @@ export async function loadLayoutState(): Promise<LayoutStateV1 | null> {
 
 	return local?.state ?? null;
 }
-
-// ─── Remote save ─────────────────────────────────────────────────────────────
-
-let apiSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Persist layout to server: localStorage instant, API debounced fire-and-forget.
@@ -112,21 +158,11 @@ export function queuePersist(state: LayoutStateV1): void {
 
 	if (apiSaveTimer) clearTimeout(apiSaveTimer);
 	apiSaveTimer = setTimeout(async () => {
-		try {
-			const res = await fetch(layoutApiUrl(), {
-				method: 'PUT',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`
-				},
-				body: JSON.stringify({ layoutJson: JSON.stringify(state) })
-			});
-			// Finding 27: surface failed layout saves (local already persisted)
-			if (!res.ok) {
-				console.warn(`[Docking] Layout save failed: HTTP ${res.status}`);
-			}
-		} catch (err) {
-			console.warn('[Docking] Layout save network error (local still saved):', err);
+		// Serialize through the schema so the stored slot is always migrated/valid.
+		const ok = await mergeIntoServerContainer(token, 'layout', JSON.parse(serializeLayoutState(state)));
+		// Finding 27: surface failed layout saves (local already persisted)
+		if (!ok) {
+			console.warn('[Docking] Layout save failed: HTTP error');
 		}
 	}, API_DEBOUNCE_MS);
 }

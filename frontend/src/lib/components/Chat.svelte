@@ -523,8 +523,10 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 				<PlannerWorkspace />
 		{:else if currentChannelType === 'reception'}
 				<ReceptionBoard />
+		{:else if currentChannelType === 'lore'}
+			<LoreChannelShell />
 		{:else if isRoutedChannelType(currentChannelType)}
-			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType as 'stage'} />
+			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType as 'forum' | 'wiki' | 'stage'} />
 		{:else}
 			<ChatMessagesPane
 				currentChannel={$currentChannel}
