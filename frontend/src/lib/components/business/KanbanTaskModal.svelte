@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { kanbanColumns, projects } from '$lib/business';
-	import type { Todo, TodoStatus, ItemSignature } from '$lib/business/types';
+	import type { Todo, TodoStatus, ItemSignature, LoreCitationRef } from '$lib/business/types';
 	import SignatureRow from './SignatureRow.svelte';
+	import LoreRefChips from './LoreRefChips.svelte';
 
 	interface RegisteredUser {
 		user_id: number;
@@ -27,9 +28,32 @@
 	export let draftSignatures: ItemSignature[] = [];
 	/** Legacy read-only signer shown when the item predates multi-sign. */
 	export let legacySignedBy: string | undefined = undefined;
+	/** Draft lore refs (two-way bound with host form). */
+	export let draftLoreRefs: LoreCitationRef[] = [];
 	export let userSearchQuery = '';
 	export let targetColumn: TodoStatus = 'todo';
 	export let closeModal: () => void;
+
+	/** Parse "ch_abc ^c/path/file.ts:12" style input back into refs. */
+	function handleRefsInput(event: Event): void {
+		const raw = (event.target as HTMLInputElement).value.trim();
+		if (!raw) {
+			draftLoreRefs = [];
+			return;
+		}
+		const parsed: LoreCitationRef[] = [];
+		for (const part of raw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)) {
+			const m = part.match(/^(ch_[0-9a-fA-F]+)\s*\^c\/(.+?)(?::(\d+)(?:-(\d+))?)?$/);
+			if (!m) continue;
+			parsed.push({
+				channelId: m[1],
+				path: m[2],
+				startLine: m[3] ? Number(m[3]) : undefined,
+				endLine: m[4] ? Number(m[4]) : undefined
+			});
+		}
+		draftLoreRefs = parsed;
+	}
 	export let handleSubmit: () => void;
 	export let handleDelete: (todo: Todo) => void;
 	export let filterUsers: (query: string) => void;
@@ -167,6 +191,22 @@
 
 			<div class="form-group">
 				<SignatureRow bind:draftSignatures {legacySignedBy} label="Sign-off" />
+			</div>
+
+			<div class="form-group">
+				<label for="loreRefs">Project file links (optional)</label>
+				<input
+					id="loreRefs"
+					type="text"
+					value={draftLoreRefs.map(r => `${r.channelId}^c/${r.path}${r.startLine ? ':' + r.startLine : ''}`).join(', ')}
+					on:change={handleRefsInput}
+					placeholder="channelId ^c/path/file.ts:12 (paste a code citation)"
+				/>
+				{#if draftLoreRefs.length > 0}
+					<div style="margin-top: 6px;">
+						<LoreRefChips refs={draftLoreRefs} size="sm" />
+					</div>
+				{/if}
 			</div>
 
 			<div class="form-actions">
