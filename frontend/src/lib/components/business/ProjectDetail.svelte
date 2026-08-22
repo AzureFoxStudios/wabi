@@ -11,6 +11,8 @@
 
 	let activeTab: 'burndown' | 'gantt' = 'burndown';
 	let burnRangeSprint: Sprint | null = null;
+	/** Burn range control: auto (sprint/project) or fixed windows. */
+	let burnRange: 'auto' | '30d' | '90d' = 'auto';
 
 	const chartWidth = 600;
 	const chartHeight = 250;
@@ -59,11 +61,17 @@
 		void $sprints;
 		burnRangeSprint = getActiveOrNextSprint(selectedProject.id);
 	}
-	$: burnChartData = generateBurnChartData(
-		selectedProject.id,
-		burnRangeSprint?.startDate || selectedProject.startDate || selectedProject.createdAt,
-		burnRangeSprint?.endDate || selectedProject.targetEndDate || Date.now()
-	);
+	$: burnStart =
+		burnRange === '30d'
+			? Date.now() - 30 * 24 * 60 * 60 * 1000
+			: burnRange === '90d'
+				? Date.now() - 90 * 24 * 60 * 60 * 1000
+				: (burnRangeSprint?.startDate || selectedProject.startDate || selectedProject.createdAt);
+	$: burnEnd =
+		burnRange === '30d' || burnRange === '90d'
+			? Date.now()
+			: (burnRangeSprint?.endDate || selectedProject.targetEndDate || Date.now());
+	$: burnChartData = generateBurnChartData(selectedProject.id, burnStart, Math.max(burnStart + 24 * 60 * 60 * 1000, burnEnd));
 	$: latestBurnPoint = burnChartData.length ? burnChartData[burnChartData.length - 1] : null;
 	$: activeSprint = getActiveOrNextSprint(selectedProject.id);
 	$: hasSprints = getProjectSprints(selectedProject.id).length > 0;
@@ -243,6 +251,16 @@
 	</div>
 
 	{#if activeTab === 'burndown'}
+		<div class="range-picker" role="radiogroup" aria-label="Burn chart range">
+			<button class="range-btn" class:active={burnRange === 'auto'} on:click={() => burnRange = 'auto'} title="Active sprint or project dates">
+				Auto{burnRangeSprint ? ` · ${burnRangeSprint.name}` : ''}
+			</button>
+			<button class="range-btn" class:active={burnRange === '30d'} on:click={() => burnRange = '30d'}>Last 30d</button>
+			<button class="range-btn" class:active={burnRange === '90d'} on:click={() => burnRange = '90d'}>Last 90d</button>
+		</div>
+	{/if}
+
+	{#if activeTab === 'burndown'}
 		<div class="tab-content">
 			{#if burnChartData.length > 1}
 				<div class="chart-container">
@@ -277,8 +295,8 @@
 						<line x1={chartPadding} y1={chartHeight - chartPadding} x2={chartWidth - chartPadding} y2={chartHeight - chartPadding} stroke="var(--text-secondary, #888)" stroke-width="2" />
 					</svg>
 					<div class="chart-legend">
-						<div class="legend-item"><span class="legend-color" style="background: #ef4444"></span><span>Remaining Time</span></div>
-						<div class="legend-item"><span class="legend-color" style="background: #3ba55d"></span><span>Burned Time</span></div>
+						<div class="legend-item"><span class="legend-color" style="background: #ef4444"></span><span>Remaining (h)</span></div>
+						<div class="legend-item"><span class="legend-color" style="background: #3ba55d"></span><span>Completed (h)</span></div>
 						<div class="legend-item"><span class="legend-line"></span><span>Ideal</span></div>
 					</div>
 				</div>

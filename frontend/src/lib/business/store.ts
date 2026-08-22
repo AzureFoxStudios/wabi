@@ -564,7 +564,8 @@ export const overdueTodos = derived(todos, ($todos) => {
 export function generateBurnChartData(
 	projectId: string,
 	startDate: number,
-	endDate: number
+	endDate: number,
+	options?: { scopeIn?: boolean }
 ): BurnChartDataPoint[] {
 	const projectTodos = get(todos).filter(t => t.projectId === projectId);
 	const getEstimatedHours = (todo: Todo): number => {
@@ -575,21 +576,33 @@ export function generateBurnChartData(
 		return 1;
 	};
 
-	const totalPoints = projectTodos.reduce((sum, todo) => sum + getEstimatedHours(todo), 0);
+	// Scope-in (default ON): a task only counts toward total from the day it
+	// was created, so backlog growth mid-range shows as line rises instead of
+	// silently inflating day one. Pass {scopeIn:false} for the legacy flat view.
+	const scopeIn = options?.scopeIn !== false;
 
 	const data: BurnChartDataPoint[] = [];
 	const dayMs = 24 * 60 * 60 * 1000;
+	let runningTotal = 0;
 
 	for (let date = startDate; date <= endDate; date += dayMs) {
+		if (scopeIn) {
+			runningTotal = projectTodos
+				.filter(t => t.createdAt <= date + dayMs - 1)
+				.reduce((sum, todo) => sum + getEstimatedHours(todo), 0);
+		} else {
+			runningTotal = projectTodos.reduce((sum, todo) => sum + getEstimatedHours(todo), 0);
+		}
+
 		const completedByDate = projectTodos
 			.filter(t => t.completedAt && t.completedAt <= date)
 			.reduce((sum, todo) => sum + getEstimatedHours(todo), 0);
 
 		data.push({
 			date,
-			totalPoints: Math.max(0, Number(totalPoints.toFixed(2))),
+			totalPoints: Math.max(0, Number(runningTotal.toFixed(2))),
 			completedPoints: completedByDate,
-			remainingPoints: Math.max(0, Number((totalPoints - completedByDate).toFixed(2)))
+			remainingPoints: Math.max(0, Number((runningTotal - completedByDate).toFixed(2)))
 		});
 	}
 

@@ -146,6 +146,35 @@
 		color: white;
 	}
 
+	.range-picker {
+		display: flex;
+		gap: 0.4rem;
+		margin: -0.5rem 0 1rem;
+	}
+
+	.range-btn {
+		padding: 0.3rem 0.75rem;
+		background: transparent;
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 999px;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.range-btn:hover {
+		border-color: var(--biz-accent, #6366f1);
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.range-btn.active {
+		background: color-mix(in srgb, var(--biz-accent, #6366f1) 18%, transparent);
+		border-color: var(--biz-accent, #6366f1);
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
 	.tab-content {
 		margin-top: 1.5rem;
 	}
