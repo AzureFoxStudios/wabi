@@ -286,6 +286,12 @@
 	}
 	const DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS = 60 * 60 * 1000;
 	let nowMs = Date.now();
+	let lastTickerMs = Date.now();
+	// t_28bc75b1: memo for the render block — the deadline-filtered message
+	// list and the earliest pending expiry, so per-second ticks skip the
+	// filter when nothing has actually expired.
+	let earliestPendingDeadline: number | null = null;
+	let lastFilteredMessages: Message[] | null = null;
 	let deletionCountdownMode: DeletionCountdownMode = 'static';
 
 	function formatDurationCompact(durationMs: number): string {
@@ -318,6 +324,28 @@
 		const channelDurationMs = getChannelDeleteDurationMs($currentChannel);
 		if (!channelDurationMs) return null;
 		return message.timestamp + channelDurationMs;
+	}
+
+	// t_28bc75b1: extracted from the render reactive block. Prefer stable
+	// server id once accepted; optimistic rows keep clientMessageId.
+	// Keep LAST of a key so reconcile wins without dropping distinct messages.
+	function dedupeRenderSlice(slice: Message[]): Message[] {
+		const keyOf = (msg: Message, i: number) => {
+			const id = String(msg?.id ?? '').trim();
+			if (id && !id.startsWith('optimistic:')) return id;
+			return String(msg?.clientMessageId || id || msg?.clientNonce || '').trim() || `__idx_${i}`;
+		};
+		const lastByKey = new Map<string, Message>();
+		for (let i = 0; i < slice.length; i++) lastByKey.set(keyOf(slice[i], i), slice[i]);
+		const seen = new Set<string>();
+		const unique: Message[] = [];
+		for (let i = 0; i < slice.length; i++) {
+			const key = keyOf(slice[i], i);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			unique.push(lastByKey.get(key) || slice[i]);
+		}
+		return unique;
 	}
 
 	function getMessageDeletionLabel(message: Message): string | null {
@@ -1588,9 +1616,29 @@
 		});
 
 		const timer = window.setInterval(() => {
-			if (deletionCountdownMode === 'live') {
-				nowMs = Date.now();
+			if (deletionCountdownMode !== 'live') return;
+			// t_28bc75b1: only bump nowMs when some visible message is actually
+			// inside its countdown window. The old unconditional Date.now() each
+			// second invalidated the visibleMessages reactive block — full
+			// filter -> slice -> dedupe over up to 360 messages per tick — even
+			// when nothing was expiring. Labels outside the window are static
+			// text; they only need a refresh on ingest or mode change.
+			const now = Date.now();
+			for (const message of messages) {
+				const deadline = getMessageDeletionDeadline(message);
+				if (
+					deadline !== null &&
+					deadline > now &&
+					deadline - now <= DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS
+				) {
+					nowMs = now;
+					return;
+				}
 			}
+			// No live countdown in view: keep nowMs stale so the render block
+			// doesn't invalidate, but remember the freshest time for the next
+			// genuine bump.
+			lastTickerMs = now;
 		}, 1000);
 		return () => {
 			clearBurstAnimationReset();
@@ -1714,30 +1762,32 @@
 		const boundedLimit = Math.min(Math.max(messageRenderLimit, MESSAGE_RENDER_BATCH), MESSAGE_RENDER_MAX);
 		messageRenderLimit = boundedLimit;
 		visibleMessageStart = Math.max(0, messages.length - boundedLimit);
-		// Prefer stable server id once accepted; optimistic rows keep clientMessageId.
-		// Keep LAST of a key so reconcile wins without dropping distinct messages.
-		const slice = messages
-			.filter((message) => {
+		// t_28bc75b1: expiry filtering only needs re-evaluation when a message
+		// has actually crossed its deadline — not on every nowMs tick. Track
+		// the earliest pending deadline; if none is due yet, reuse the previous
+		// filtered list and skip straight to slice + dedupe.
+		const expiredSinceLastPass =
+			earliestPendingDeadline !== null && nowMs >= earliestPendingDeadline;
+		if (!expiredSinceLastPass && lastFilteredMessages !== null) {
+			visibleMessages = dedupeRenderSlice(
+				lastFilteredMessages.slice(visibleMessageStart)
+			);
+		} else {
+			const filtered: Message[] = [];
+			let earliest: number | null = null;
+			for (const message of messages) {
 				const deadline = getMessageDeletionDeadline(message);
-				return deadline === null || deadline > nowMs;
-			})
-			.slice(visibleMessageStart);
-		const keyOf = (msg: Message, i: number) => {
-			const id = String(msg?.id ?? '').trim();
-			if (id && !id.startsWith('optimistic:')) return id;
-			return String(msg?.clientMessageId || id || msg?.clientNonce || '').trim() || `__idx_${i}`;
-		};
-		const lastByKey = new Map<string, Message>();
-		for (let i = 0; i < slice.length; i++) lastByKey.set(keyOf(slice[i], i), slice[i]);
-		const seen = new Set<string>();
-		const unique: Message[] = [];
-		for (let i = 0; i < slice.length; i++) {
-			const key = keyOf(slice[i], i);
-			if (seen.has(key)) continue;
-			seen.add(key);
-			unique.push(lastByKey.get(key) || slice[i]);
+				if (deadline === null || deadline > nowMs) {
+					filtered.push(message);
+					if (deadline !== null && (earliest === null || deadline < earliest)) {
+						earliest = deadline;
+					}
+				}
+			}
+			earliestPendingDeadline = earliest;
+			lastFilteredMessages = filtered;
+			visibleMessages = dedupeRenderSlice(filtered.slice(visibleMessageStart));
 		}
-		visibleMessages = unique;
 	}
 
 	async function handleLoadMore() {
