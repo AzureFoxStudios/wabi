@@ -231,22 +231,15 @@ async fn on_call_offer(socket: SocketRef, data: Value, state: SioState, io: Sock
         .map(String::from);
 
     if let Some(ref channel_id) = channel_id_opt {
-        let channels = state.app.wdb.get_channels_raw().await.unwrap_or_default();
-        let channel = channels.iter().find(|c| {
-            c.get("channel_id")
-                .or_else(|| c.get("id"))
-                .and_then(|v| v.as_str())
-                == Some(channel_id.as_str())
-        });
+        // Point lookup (t_6bbbc52a): no full channel-table scan per signal.
+        let ch_type = state
+            .app
+            .wdb
+            .get_channel_kind(channel_id)
+            .await
+            .unwrap_or_default();
 
-        match channel {
-            Some(c) => {
-                let ch_type = c
-                    .get("channel_type")
-                    .or_else(|| c.get("type"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-
+        {
                 if ch_type == "voice" {
                     let voice = state.voice_channels.read().await;
                     let members = voice.get(channel_id);
@@ -276,8 +269,6 @@ async fn on_call_offer(socket: SocketRef, data: Value, state: SioState, io: Sock
                 } else {
                     return;
                 }
-            }
-            None => return,
         }
     }
 

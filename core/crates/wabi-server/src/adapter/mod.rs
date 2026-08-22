@@ -3179,6 +3179,101 @@ impl WabiStore for WdbAdapter {
 }
 
 impl WdbAdapter {
+    /// Point lookup: the wire kind string for one channel ("dm", "voice",
+    /// "text", ...), or None if the channel does not exist.
+    ///
+    /// Replaces the previous pattern of `get_channels_raw()` (full projection
+    /// scan + per-channel HashMap row build) in hot per-message paths — see
+    /// kanban t_6bbbc52a / perf-audit 2026-08-21 finding #10. The kind string
+    /// matches the "type" field emitted by `get_channels_raw`.
+    pub async fn get_channel_kind(&self, channel_id: &str) -> Option<String> {
+        let channel = self.get_channel(channel_id).await.ok().flatten()?;
+        Some(Self::kind_string(&channel).to_string())
+    }
+
+    /// Point lookup: full raw row for ONE channel, same shape as
+    /// `get_channels_raw` entries (minus members, which live in the separate
+    /// channel_members index — use `list_channel_members`).
+    pub async fn get_channel_raw(
+        &self,
+        channel_id: &str,
+    ) -> Result<Option<std::collections::HashMap<String, serde_json::Value>>> {
+        match self.get_channel(channel_id).await? {
+            Some(c) => Ok(Some(Self::channel_row(&c))),
+            None => Ok(None),
+        }
+    }
+
+    /// Build the raw HashMap row for a channel — same fields get_channels_raw
+    /// emits, so the two stay wire-identical.
+    fn channel_row(
+        c: &wabidb::domain::Channel,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        use wabidb::domain::ChannelKind;
+        let mut row = std::collections::HashMap::new();
+        row.insert(
+            "channel_id".into(),
+            serde_json::Value::String(c.channel_id.clone()),
+        );
+        row.insert("id".into(), serde_json::Value::String(c.channel_id.clone()));
+        row.insert("name".into(), serde_json::Value::String(c.name.clone()));
+        row.insert(
+            "created_at".into(),
+            serde_json::json!(c.created_at_micros),
+        );
+        let kind = Self::kind_string(c);
+        row.insert("channel_type".into(), serde_json::json!(kind));
+        row.insert("type".into(), serde_json::json!(kind));
+        if let Some(desc) = &c.description {
+            row.insert("description".into(), serde_json::json!(desc));
+        }
+        // Category/sidebar nesting uses parent_id → wire as parentId.
+        // Do NOT alias into parent_channel_id (that is threads/breakouts on the FE).
+        row.insert("position".into(), serde_json::json!(c.position));
+        if let Some(parent) = &c.parent_id {
+            row.insert("parent_id".into(), serde_json::json!(parent));
+            row.insert("parentId".into(), serde_json::json!(parent));
+        }
+        row.insert(
+            "force_spoiler".into(),
+            serde_json::json!(c.force_spoiler),
+        );
+        row.insert(
+            "asset_storage".into(),
+            serde_json::json!(
+                c.asset_storage || matches!(c.channel_kind, ChannelKind::Lore)
+            ),
+        );
+        row
+    }
+
+    /// The wire kind string for a channel domain object.
+    fn kind_string(c: &wabidb::domain::Channel) -> &'static str {
+        use wabidb::domain::ChannelKind;
+        match c.channel_kind {
+            ChannelKind::Text => {
+                if c.asset_storage {
+                    "lore"
+                } else {
+                    "text"
+                }
+            }
+            ChannelKind::Voice => "voice",
+            ChannelKind::Dm => "dm",
+            ChannelKind::GroupDm => "group",
+            ChannelKind::Announcement => "announcement",
+            ChannelKind::Whiteboard => "whiteboard",
+            ChannelKind::Wiki => "wiki",
+            ChannelKind::Forum => "forum",
+            ChannelKind::Incident => "incident",
+            ChannelKind::Gallery => "gallery",
+            ChannelKind::Category => "category",
+            ChannelKind::Lore => "lore",
+            ChannelKind::Planning => "planning",
+            ChannelKind::Reception => "reception",
+        }
+    }
+
     /// Discover segment file paths for a channel's stream.
     /// Returns list of .wseg file paths under the channel's events directory.
     /// (Security WS-8 groundwork for the retention reaper; inherent method,

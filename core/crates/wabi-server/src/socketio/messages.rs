@@ -35,18 +35,12 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     let username = identity.username;
 
     // Channel access check: DM rooms require can_access_dm, others can_access_channel.
-    let channel_kind: Option<String> = if let Ok(channels) = state.app.wdb.get_channels_raw().await {
-        channels.iter().find_map(|ch| {
-            let id = ch.get("channel_id").or_else(|| ch.get("id")).and_then(|v| v.as_str());
-            if id == Some(channel_id.as_str()) {
-                ch.get("type").or_else(|| ch.get("channel_type")).and_then(|v| v.as_str()).map(|s| s.to_string())
-            } else {
-                None
-            }
-        })
-    } else {
-        None
-    };
+    // Point lookup (t_6bbbc52a): no full channel-table scan per message.
+    let channel_kind: Option<String> = state
+        .app
+        .wdb
+        .get_channel_kind(&channel_id)
+        .await;
     let allowed = match channel_kind.as_deref() {
         Some("dm") => can_access_dm(&state, user_id_num, &channel_id).await,
         _ => can_access_channel(&state, user_id_num, &channel_id).await,
@@ -164,26 +158,15 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
             if delete_after_ms.is_none() && !explicit_forever {
                 delete_after_ms = Some(DEFAULT_CHANNEL_AUTO_DELETE_MS);
             }
-            if let Some(ms) = delete_after_ms {
-                let wdb = state.app.wdb.clone();
-                let session = state.app.session_messages.clone();
-                let msg_id = message_id.clone();
-                let ch_id = channel_id.clone();
-                let io_bg = io.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-                    // session remove
-                    {
-                        let mut guard = session.write().await;
-                        if let Some(msgs) = guard.get_mut(&ch_id) {
-                            msgs.retain(|m| m.get("id").and_then(|v| v.as_str()) != Some(msg_id.as_str()));
-                        }
-                    }
-                    let _ = wdb.delete_message(&msg_id, 0).await;
-                    let payload = json!({"channelId": ch_id, "messageId": msg_id});
-                    let _ = io_bg.to(ch_id).emit("message-deleted", &payload).await;
-                });
-            }
+            // Message expiry is handled by the durable retention reaper in
+            // main.rs (60s sweep): it reconciles the in-memory map TTL
+            // (channel_auto_delete_ms), the WDB retention policy, and the
+            // product default — deleting persisted rows, cleaning the
+            // session buffer, and broadcasting message-deleted. Per-message
+            // tokio::spawn(sleep(ttl)) timers were removed (perf audit
+            // finding #5): they parked a task + cloned handles per message
+            // for up to 24h, died on restart anyway, and duplicated the
+            // reaper.
         }
     }
 
@@ -288,18 +271,8 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
     };
     let user_id = identity.user_id;
 
-    let channel_kind: Option<String> = if let Ok(channels) = state.app.wdb.get_channels_raw().await {
-        channels.iter().find_map(|ch| {
-            let id = ch.get("channel_id").or_else(|| ch.get("id")).and_then(|v| v.as_str());
-            if id == Some(channel_id.as_str()) {
-                ch.get("type").or_else(|| ch.get("channel_type")).and_then(|v| v.as_str()).map(|s| s.to_string())
-            } else {
-                None
-            }
-        })
-    } else {
-        None
-    };
+    // Point lookup (t_6bbbc52a): no full channel-table scan per history load.
+    let channel_kind: Option<String> = state.app.wdb.get_channel_kind(&channel_id).await;
     let allowed = match channel_kind.as_deref() {
         Some("dm") => can_access_dm(&state, user_id, &channel_id).await,
         _ => can_access_channel(&state, user_id, &channel_id).await,

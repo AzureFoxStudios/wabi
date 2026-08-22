@@ -62,19 +62,12 @@ pub fn spawn_message_created_delivery(
         if webhooks.is_empty() {
             return;
         }
-        let client = match reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            // Never follow redirects — the URL was validated at registration;
-            // a redirect at delivery time could bypass that validation.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!("[bot-delivery] failed to build HTTP client: {e}");
-                return;
-            }
-        };
+        // Shared client (t_e42e96c1): one connection pool process-wide instead
+        // of a fresh client build + TLS handshake per delivery. Per-request
+        // timeout is applied on the RequestBuilder in `post_once`; redirect
+        // policy stays none — URLs were validated at registration and a
+        // redirect at delivery time could bypass that validation.
+        let client = webhook_http_client();
         let outcomes = deliver_message_created(&client, &webhooks, &payload).await;
         let delivered = outcomes
             .iter()
@@ -97,6 +90,19 @@ pub fn spawn_message_created_delivery(
             failed
         );
     });
+}
+
+/// Shared reqwest client for webhook deliveries. One connection pool
+/// process-wide (t_e42e96c1): building a Client per delivery paid a fresh
+/// pool + TLS handshake on every message-with-webhooks. No redirect policy —
+/// webhook URLs are validated at registration and a delivery-time redirect
+/// could bypass that validation. Per-request timeout lives on the
+/// RequestBuilder in `post_once`.
+pub fn webhook_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default()
 }
 
 /// Deliver `payload` to every webhook URL, returning one outcome per webhook
