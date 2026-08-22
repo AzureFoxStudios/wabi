@@ -645,18 +645,8 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
     let user_id = identity.user_id;
 
     // DM channel access → can_access_dm; regular channel → can_access_channel.
-    let channel_kind: Option<String> = if let Ok(channels) = state.app.wdb.get_channels_raw().await {
-        channels.iter().find_map(|ch| {
-            let id = ch.get("channel_id").or_else(|| ch.get("id")).and_then(|v| v.as_str());
-            if id == Some(channel_id.as_str()) {
-                ch.get("type").or_else(|| ch.get("channel_type")).and_then(|v| v.as_str()).map(|s| s.to_string())
-            } else {
-                None
-            }
-        })
-    } else {
-        None
-    };
+    // Point lookups (t_6bbbc52a): no full channel-table scans per join.
+    let channel_kind: Option<String> = state.app.wdb.get_channel_kind(&channel_id).await;
 
     let allowed = match channel_kind.as_deref() {
         Some("dm") => can_access_dm(&state, user_id, &channel_id).await,
@@ -670,8 +660,10 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
     }
 
     // Channel min_role gate (case-insensitive). Only enforced if a min_role is set.
-    if let Ok(channels) = state.app.wdb.get_channels_raw().await {
-        if let Some(channel) = channels.iter().find(|ch| ch.get("channel_id").and_then(|v| v.as_str()) == Some(&channel_id)) {
+    // NOTE (t_6bbbc52a audit): no writer currently persists min_role into the
+    // channels projection — the gate is inert today; kept byte-compatible.
+    if let Ok(Some(channel)) = state.app.wdb.get_channel_raw(&channel_id).await {
+        {
             if let Some(min_role_str) = channel.get("min_role").and_then(|v| v.as_str()) {
                 let user_role = state.app.get_user_highest_role(user_id).await;
                 let role_priority = |r: &str| match r.to_lowercase().as_str() {

@@ -143,6 +143,9 @@ pub struct VoiceParticipant {
     pub username: String,
     #[allow(dead_code)]
     pub color: String,
+    /// Client-declared mic state (Discord-style chip). Self-mute is client
+    /// authority; admin `voice-mute` kicks instead of flipping this.
+    pub is_muted: bool,
     pub is_deafened: bool,
     pub transmit_mode: String,
     /// True for participants that only listen to a voice channel (multi-listen
@@ -438,18 +441,16 @@ pub async fn can_access_dm(state: &SioState, user_id: i64, channel_id: &str) -> 
     let my_stable_id = format!("user-{}", user_id);
 
     // Prefer the persisted members list from the channel row.
-    if let Ok(channels) = state.app.wdb.get_channels_raw().await {
-        if let Some(channel) = channels.iter().find(|ch| {
-            ch.get("channel_id")
-                .or_else(|| ch.get("id"))
-                .and_then(|v| v.as_str())
-                == Some(channel_id)
-        }) {
-            if let Some(members) = channel.get("members").and_then(|v| v.as_array()) {
-                return members
-                    .iter()
-                    .any(|m| m.as_str() == Some(my_stable_id.as_str()));
+    // Point lookup (t_6bbbc52a) — but members live in the separate
+    // channel_members index, so query it directly instead of scanning all rows.
+    if let Ok(members) = state.app.wdb.list_channel_members(channel_id).await {
+        if !members.is_empty() {
+            for m in &members {
+                if format!("user-{}", m.user_id) == my_stable_id {
+                    return true;
+                }
             }
+            return false;
         }
     }
 
@@ -616,6 +617,7 @@ fn voice_participant_to_view(p: &VoiceParticipant) -> Value {
         "userId":     p.stable_id,
         "socketId":   p.socket_id,
         "username":   p.username,
+        "isMuted":    p.is_muted,
         "isDeafened": p.is_deafened,
         "transmitMode": p.transmit_mode,
         "isListeningOnly": p.is_listening_only,
@@ -735,6 +737,7 @@ mod tests {
                 stable_id: "user-1".to_string(),
                 username: "alice".to_string(),
                 color: "#fff".to_string(),
+                is_muted: false,
                 is_deafened: false,
                 transmit_mode: "primary".to_string(),
                 is_listening_only: false,

@@ -40,13 +40,14 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
     sorted.sort();
     let channel_id = format!("dm-{}", sorted.join("-"));
 
-    // Check if DM already exists in channel list
-    let existing = state.app.wdb.get_channels_raw().await.unwrap_or_default();
-    if existing.iter().any(|c| {
-        c.get("channel_id")
-            .or_else(|| c.get("id"))
-            .and_then(|v| v.as_str()) == Some(&channel_id)
-    }) {
+    // Check if DM already exists in channel list — point lookup (t_6bbbc52a).
+    if state
+        .app
+        .wdb
+        .get_channel_kind(&channel_id)
+        .await
+        .is_some()
+    {
         let _ = socket.emit("dm-error", &json!({ "error": "DM already exists", "channelId": channel_id }));
         return;
     }

@@ -27,14 +27,13 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
         .and_then(|v| v.as_str())
         .map(String::from)
     {
-        // Group call
-        let channels = state.app.wdb.get_channels_raw().await.unwrap_or_default();
-        let channel_opt = channels.iter().find(|c| {
-            c.get("channel_id")
-                .or_else(|| c.get("id"))
-                .and_then(|v| v.as_str())
-                == Some(channel_id.as_str())
-        });
+        // Group call — point lookups (t_6bbbc52a): row + members index.
+        let channel_opt = state
+            .app
+            .wdb
+            .get_channel_raw(&channel_id)
+            .await
+            .unwrap_or_default();
 
         let (channel_name, channel_members) = match channel_opt {
             Some(c) => {
@@ -43,15 +42,15 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let members: Vec<String> = c
-                    .get("members")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|m| m.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let members: Vec<String> = state
+                    .app
+                    .wdb
+                    .list_channel_members(&channel_id)
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|m| format!("user-{}", m.user_id))
+                    .collect();
                 (name, members)
             }
             None => {
