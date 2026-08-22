@@ -1,16 +1,14 @@
 //! Application state shared across handlers
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
-use serde::{Serialize, Deserialize};
-use sha2::{Sha256, Digest};
 
 use crate::adapter::WdbAdapter;
-use wabidb::engine::wabi_store::WabiStore;
-use wabidb::retention::tombstone::TombstoneTable;
 use crate::api::upload::UploadState;
 use crate::blacklist::BlacklistManager;
 use crate::blobs::BlobRegistry;
@@ -20,6 +18,8 @@ use crate::jobs::JobQueue;
 use crate::nodes::NodeRegistry;
 use crate::replication_transport::ReqwestTransport;
 use crate::upload_registry::UploadRegistry;
+use wabidb::engine::wabi_store::WabiStore;
+use wabidb::retention::tombstone::TombstoneTable;
 
 /// In-memory message cache shared between Socket.IO and HTTP handlers.
 /// channel_id → Vec of message JSON objects (capped at 1000 per channel).
@@ -98,8 +98,19 @@ pub struct AppState {
     /// Steam addon server-side cache (60s TTL per steam id). Opt-in; only
     /// populated when STEAM_API_KEY is configured. See api/steam.rs.
     pub steam_cache: Arc<Mutex<crate::api::steam::SteamCache>>,
+    /// Shared HTTP client for Steam upstream fetches — one connection pool
+    /// instead of a fresh client (TLS handshake) per cache miss.
+    pub steam_http: crate::api::steam::SharedHttpClient,
     /// Guest creation rate limiter (IP → count). WS-5b.
     pub guest_rate_limiter: Arc<RwLock<HashMap<String, u32>>>,
+    /// Parsed profile_media per user (t_55544bc2). The init payload builds a
+    /// UserView for every registered user on every socket connect; each used
+    /// to serde_json-parse that user's whole layout_json. Cache maps
+    /// user_id → (raw layout string, parsed profile_media); invalidated when
+    /// the stored layout string changes.
+    pub profile_media_cache: Arc<
+        RwLock<HashMap<u64, (String, Option<serde_json::Map<String, serde_json::Value>>)>>,
+    >,
 }
 
 /// Channel manager for broadcast channels
@@ -316,7 +327,9 @@ impl AppState {
                 tx
             },
             steam_cache: Arc::new(Mutex::new(Default::default())),
+            steam_http: crate::api::steam::shared_http_client(),
             guest_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
+            profile_media_cache: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -538,10 +551,11 @@ impl AppState {
             return;
         }
         {
-            self.revocations.write().await.jtis.insert(
-                jti,
-                exp.max(0) as u64,
-            );
+            self.revocations
+                .write()
+                .await
+                .jtis
+                .insert(jti, exp.max(0) as u64);
         }
         self.save_revocations().await;
     }
@@ -599,8 +613,7 @@ impl AppState {
     /// Revoke ALL outstanding tokens by advancing the revocation epoch.
     pub async fn revoke_all_tokens(&self) {
         {
-            self.revocations.write().await.epoch =
-                chrono::Utc::now().timestamp().max(1) as u64 + 1;
+            self.revocations.write().await.epoch = chrono::Utc::now().timestamp().max(1) as u64 + 1;
         }
         self.save_revocations().await;
     }
@@ -705,7 +718,6 @@ impl AppState {
             _ => false,
         }
     }
-
 }
 
 #[cfg(test)]
@@ -750,9 +762,7 @@ mod tests {
     #[test]
     fn test_reap_live_channel_no_born_at() {
         let now = 1000_000;
-        let mut msgs = vec![
-            json!({"id": "live_1", "text": "no bornat"}),
-        ];
+        let mut msgs = vec![json!({"id": "live_1", "text": "no bornat"})];
         let expired = reap_live_channel_buffer(&mut msgs, 1, 100, now);
         // bornAt defaults to 0, which means it's expired since now - 0 >= 1
         assert_eq!(expired, vec!["live_1"]);
@@ -866,7 +876,8 @@ mod tests {
         store
             .user_jti_exemptions
             .insert(42, HashSet::from(["cur".to_string()]));
-        let roundtrip: RevocationStore = serde_json::from_str(&serde_json::to_string(&store).unwrap()).unwrap();
+        let roundtrip: RevocationStore =
+            serde_json::from_str(&serde_json::to_string(&store).unwrap()).unwrap();
         assert_eq!(roundtrip.user_iat_revoked, store.user_iat_revoked);
         assert_eq!(roundtrip.user_jti_exemptions, store.user_jti_exemptions);
     }
