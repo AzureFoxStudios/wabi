@@ -42,6 +42,8 @@
 	let projectStartDate = '';
 	let projectTargetDate = '';
 	let projectParentId = '';
+	/** Optional channel link ("pipe to channel"). */
+	let projectChannelId = '';
 	/** Draft sign-offs for the project form (multi-sign). */
 	let projectDraftSignatures: Project['signatures'] = [];
 	let projectLegacySignedBy: string | undefined = undefined;
@@ -86,6 +88,7 @@
 			projectStartDate = project.startDate ? new Date(project.startDate).toISOString().split('T')[0] : '';
 			projectTargetDate = project.targetEndDate ? new Date(project.targetEndDate).toISOString().split('T')[0] : '';
 			projectParentId = project.parentId || '';
+			projectChannelId = project.channelId || '';
 			projectDraftSignatures = project.signatures ? [...project.signatures] : [];
 			projectLegacySignedBy = project.signatures?.length ? undefined : project.signedBy;
 		} else {
@@ -105,6 +108,7 @@
 		projectStartDate = '';
 		projectTargetDate = '';
 		projectParentId = '';
+		projectChannelId = '';
 		projectDraftSignatures = [];
 		projectLegacySignedBy = undefined;
 	}
@@ -126,6 +130,7 @@
 			status: 'active' as const,
 			createdBy: $currentUser?.dbUserId ? String($currentUser.dbUserId) : ($currentUser?.id || 'unknown'),
 			parentId: projectParentId || undefined,
+			channelId: projectChannelId || undefined,
 			signatures: projectDraftSignatures.length > 0 ? [...projectDraftSignatures] : undefined,
 			// Legacy single-signer mirror (first signer's name) for older clients.
 			signedBy: projectDraftSignatures.length > 0 ? projectDraftSignatures[0].name : undefined
@@ -254,6 +259,7 @@
 		bind:projectStartDate
 		bind:projectTargetDate
 		bind:projectParentId
+		bind:projectChannelId
 		bind:projectDraftSignatures
 		projectLegacySignedBy={projectLegacySignedBy}
 		{colorOptions}

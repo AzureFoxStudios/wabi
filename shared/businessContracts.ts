@@ -50,6 +50,8 @@ export interface Todo {
   tags?: string[];
   projectId?: string;
   completedAt?: number;
+  /** Optional lore file references (inert when the lore addon is absent). */
+  loreRefs?: import('./businessContracts').LoreCitationRef[];
   signedBy?: string;
   signatures?: ItemSignature[];
   visibility?: BusinessVisibility;
@@ -104,9 +106,29 @@ export interface Project {
   targetEndDate?: number;
   status: ProjectStatus;
   parentId?: string;
+  /**
+   * Optional channel link — when set, this project is "piped" to that
+   * channel: shared with channel members (once server sync lands) and
+   * surfaced as "this channel's plan". Unset = personal/global.
+   */
+  channelId?: string;
   signedBy?: string;
   signatures?: ItemSignature[];
   visibility?: BusinessVisibility;
+}
+
+/**
+ * A reference from a planner item into a Lore repo file (optionally a line
+ * range). Mirrors the chat citation shape (MessageContent ^c/ refs) so a
+ * citation pasted in chat and one attached to a task are the same object.
+ * Additive + optional: inert when the lore addon is disabled.
+ */
+export interface LoreCitationRef {
+  channelId: string;
+  path: string;
+  startLine?: number;
+  endLine?: number;
+  label?: string;
 }
 
 export interface Sprint {

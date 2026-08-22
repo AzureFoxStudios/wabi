@@ -7,6 +7,7 @@ import type {
 	GraphEdge,
 	KanbanColumn,
 	ItemSignature,
+	LoreCitationRef,
 	Project,
 	Resource,
 	Sprint,
@@ -134,6 +135,29 @@ function sanitizeSignatures(value: unknown): ItemSignature[] | undefined {
 	return items.length > 0 ? items : undefined;
 }
 
+/** Sanitize lore file references; drops malformed entries. */
+function sanitizeLoreRefs(value: unknown): LoreCitationRef[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const items: LoreCitationRef[] = [];
+	for (const entry of value) {
+		if (!isRecord(entry)) continue;
+		const channelId = asNonEmptyString(entry.channelId);
+		let path = asNonEmptyString(entry.path);
+		if (!channelId || !path) continue;
+		path = path.replace(/^\/+/, ''); // normalize leading slashes
+		const startLine = asFiniteNumber(entry.startLine);
+		const endLine = asFiniteNumber(entry.endLine);
+		items.push({
+			channelId,
+			path,
+			startLine: startLine && startLine > 0 ? Math.floor(startLine) : undefined,
+			endLine: endLine && endLine >= (startLine || 0) ? Math.floor(endLine) : undefined,
+			label: asNonEmptyString(entry.label)
+		});
+	}
+	return items.length > 0 ? items : undefined;
+}
+
 function sanitizeProjectVisibility(value: unknown): Project['visibility'] {
 	return typeof value === 'string' && PROJECT_VISIBILITIES.has(value as Project['visibility'])
 		? (value as Project['visibility'])
@@ -176,6 +200,7 @@ function sanitizeTodo(raw: unknown): Todo | null {
 		tags: asStringArray(raw.tags),
 		projectId: asNonEmptyString(raw.projectId),
 		completedAt: asFiniteNumber(raw.completedAt),
+		loreRefs: sanitizeLoreRefs(raw.loreRefs),
 		signedBy: asString(raw.signedBy),
 		signatures: sanitizeSignatures(raw.signatures),
 		visibility: sanitizeTodoVisibility(raw.visibility)
@@ -269,6 +294,7 @@ function sanitizeProject(raw: unknown): Project | null {
 			? (raw.status as Project['status'])
 			: 'planning',
 		parentId: asNonEmptyString(raw.parentId),
+		channelId: asNonEmptyString(raw.channelId),
 		signedBy: asString(raw.signedBy),
 		signatures: sanitizeSignatures(raw.signatures),
 		visibility: sanitizeProjectVisibility(raw.visibility)
