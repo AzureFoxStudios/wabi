@@ -56,6 +56,8 @@
 	let draftSignatures: Todo['signatures'] = [];
 	/** Legacy signer name of the item being edited (read-only display). */
 	let legacySignedBy: string | undefined = undefined;
+	/** Draft lore refs for the open task modal. */
+	let draftLoreRefs: Todo['loreRefs'] = [];
 	let registeredUsers: RegisteredUser[] = [];
 	let filteredUsers: RegisteredUser[] = [];
 	let userSearchQuery = '';
@@ -245,6 +247,7 @@
 		formEstimatedHours = formHasTimeEstimate ? (todo.estimatedMinutes! / 60).toString() : '1';
 		draftSignatures = todo.signatures ? [...todo.signatures] : [];
 		legacySignedBy = todo.signatures?.length ? undefined : todo.signedBy;
+		draftLoreRefs = todo.loreRefs ? [...todo.loreRefs] : [];
 		showAddModal = true;
 	}
 
@@ -305,6 +308,7 @@
 		formEstimatedHours = '1';
 		draftSignatures = [];
 		legacySignedBy = undefined;
+		draftLoreRefs = [];
 	}
 
 	function handleSubmit() {
@@ -329,6 +333,7 @@
 			assignedTo: formAssigneeId?.toString(),
 			createdBy: $currentUser?.dbUserId ? String($currentUser.dbUserId) : ($currentUser?.id || 'unknown'),
 			signatures: draftSignatures && draftSignatures.length > 0 ? [...draftSignatures] : undefined,
+			loreRefs: draftLoreRefs && draftLoreRefs.length > 0 ? [...draftLoreRefs] : undefined,
 			// Legacy single-signer mirror (first signer's name) for older clients.
 			signedBy: draftSignatures && draftSignatures.length > 0 ? draftSignatures[0].name : undefined
 		};
@@ -550,6 +555,7 @@
 		bind:formEstimatedHours
 		bind:draftSignatures
 		{legacySignedBy}
+		bind:draftLoreRefs
 		bind:userSearchQuery
 		bind:targetColumn
 		{closeModal}

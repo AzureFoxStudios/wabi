@@ -3,6 +3,7 @@
 	import type { Todo, TodoStatus } from '$lib/business/types';
 	import PlannerAvatar from './PlannerAvatar.svelte';
 	import { parseAssigneeId } from '$lib/business/plannerUsers';
+	import LoreRefChips from './LoreRefChips.svelte';
 
 	export let sortedTodosByColumn: Record<TodoStatus, Todo[]>;
 	export let dragOverColumn: TodoStatus | null = null;
@@ -72,6 +73,7 @@
 							{#if todo.description}
 								<p class="card-description">{todo.description.slice(0, 80)}{todo.description.length > 80 ? '...' : ''}</p>
 							{/if}
+							<LoreRefChips refs={todo.loreRefs ?? []} />
 							<div class="card-meta">
 								{#if todo.estimatedMinutes}
 									<span class="card-estimate">{formatEstimateHours(todo.estimatedMinutes)}</span>
