@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { projects } from '$lib/business/store';
+	import { pipableChannels } from '$lib/business/plannerScopes';
 	import type { Project, ItemSignature } from '$lib/business/types';
 	import SignatureRow from './SignatureRow.svelte';
 
@@ -10,6 +11,8 @@
 	export let projectStartDate = '';
 	export let projectTargetDate = '';
 	export let projectParentId = '';
+	/** Optional channel link — "pipe" this plan to a channel. */
+	export let projectChannelId = '';
 	/** Draft sign-offs (two-way bound with the host form). */
 	export let projectDraftSignatures: ItemSignature[] = [];
 	/** Legacy read-only signer shown when the project predates multi-sign. */
@@ -67,6 +70,16 @@
 					<option value="">No parent (root project)</option>
 					{#each $projects.filter(p => p.id !== editingProject?.id) as project}
 						<option value={project.id}>{project.name}</option>
+					{/each}
+				</select>
+			</div>
+
+			<div class="form-group">
+				<label for="projectChannel">Pipe to channel (optional)</label>
+				<select id="projectChannel" bind:value={projectChannelId}>
+					<option value="">Personal (this device only)</option>
+					{#each $pipableChannels as channel (channel.id)}
+						<option value={channel.id}>#{channel.name}</option>
 					{/each}
 				</select>
 			</div>

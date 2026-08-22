@@ -6,6 +6,7 @@ import type {
 	EdgeType as SharedEdgeType,
 	GraphEdge as SharedGraphEdge,
 	ItemSignature as SharedItemSignature,
+	LoreCitationRef as SharedLoreCitationRef,
 	NodeType as SharedNodeType,
 	Project as SharedProject,
 	Resource as SharedResource,
@@ -18,6 +19,7 @@ import type {
 
 export type BusinessVisibility = SharedBusinessVisibility;
 export type ItemSignature = SharedItemSignature;
+export type LoreCitationRef = SharedLoreCitationRef;
 export type BusinessDataCollections = SharedBusinessDataCollections;
 export type TodoStatus = SharedTodoStatus;
 export type Todo = SharedTodo;
