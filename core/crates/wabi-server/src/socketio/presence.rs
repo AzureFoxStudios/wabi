@@ -187,8 +187,26 @@ async fn profile_media_for(
         return None;
     }
     let stored = state.app.wdb.get_user_layout(db_user_id as u64).await.ok().flatten()?;
+    // t_55544bc2: cache the parsed profile_media keyed by user_id, validated
+    // against the raw layout string. The init payload builds a UserView per
+    // registered user per connect — without this, every connect re-parses
+    // every user's full layout JSON.
+    {
+        let cache = state.app.profile_media_cache.read().await;
+        if let Some((cached_raw, cached_media)) = cache.get(&(db_user_id as u64)) {
+            if cached_raw == &stored.layout_json {
+                return cached_media.clone();
+            }
+        }
+    }
     let root: Value = serde_json::from_str(&stored.layout_json).ok()?;
-    root.get("profile_media").and_then(|v| v.as_object().cloned())
+    let media = root.get("profile_media").and_then(|v| v.as_object().cloned());
+    let mut cache = state.app.profile_media_cache.write().await;
+    cache.insert(
+        db_user_id as u64,
+        (stored.layout_json.clone(), media.clone()),
+    );
+    media
 }
 
 /// Extract `banner_url` / `overlay_url` from a profile_media map.
