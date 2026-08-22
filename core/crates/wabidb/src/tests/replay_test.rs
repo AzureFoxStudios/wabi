@@ -23,7 +23,8 @@ async fn setup_engine() -> WabiDbEngine {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-        };
+            test_boot_wallclock_override: None,
+    };
     // Leaks the tempdir so it lives for the test. Acceptable for integration tests.
     std::mem::forget(dir);
     WabiDbEngine::open(config).await.unwrap()
@@ -41,9 +42,9 @@ async fn create_call_session_round_trip() {
 
     // Build the create_call_session CommandCommit manually (mirroring
     // commands/call_session_create.rs and adapter/mod.rs).
-    use crate::sequencer::types::{CommandCommit, EventToWrite};
-    use crate::format::record::RecordKind;
     use crate::domain::CallSession;
+    use crate::format::record::RecordKind;
+    use crate::sequencer::types::{CommandCommit, EventToWrite};
     let session = CallSession::new(
         "test-session".to_string(),
         "ch_test".to_string(),
@@ -70,7 +71,10 @@ async fn create_call_session_round_trip() {
         response_tx: tx,
     };
 
-    let outcome = engine.run_command(cmd).await.expect("run_command should succeed");
+    let outcome = engine
+        .run_command(cmd)
+        .await
+        .expect("run_command should succeed");
     let commit_seq = outcome.commit_seq;
     assert!(commit_seq > 0, "commit_seq should be assigned");
 
@@ -109,8 +113,8 @@ async fn end_call_session_updates_projection() {
         .await
         .unwrap();
 
-    use crate::sequencer::types::{CommandCommit, EventToWrite};
     use crate::format::record::RecordKind;
+    use crate::sequencer::types::{CommandCommit, EventToWrite};
 
     // Create first.
     let create_payload = serde_json::json!({
@@ -200,9 +204,9 @@ async fn call_signal_round_trip() {
         .await
         .unwrap();
 
-    use crate::sequencer::types::{CommandCommit, EventToWrite};
-    use crate::format::record::RecordKind;
     use crate::domain::CallSignal;
+    use crate::format::record::RecordKind;
+    use crate::sequencer::types::{CommandCommit, EventToWrite};
 
     let signal = CallSignal {
         signal_id: 1,

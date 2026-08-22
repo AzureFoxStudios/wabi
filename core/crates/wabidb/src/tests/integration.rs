@@ -11,8 +11,8 @@ use crate::format::record::RecordKind;
 use crate::projections::barrier::LinearizabilityBarrier;
 use crate::projections::handler::{DispatchTable, DurableEvent, Projection};
 use crate::sequencer::types::{CommandCommit, EventToWrite};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tempfile::tempdir;
 use tokio::sync::{mpsc, oneshot, Semaphore};
@@ -35,7 +35,8 @@ async fn engine_starts_and_serves_a_command() {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-        };
+            test_boot_wallclock_override: None,
+    };
 
     // Open the engine. This creates the lock file, manifest, and all subsystems.
     let engine = WabiDbEngine::open(config).await.unwrap();
@@ -64,8 +65,13 @@ async fn engine_starts_and_serves_a_command() {
     let sem = Arc::new(Semaphore::new(1));
     let permit = SequencerPermit::acquire(&sem).await.unwrap();
 
-    let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-    registry.lock().await.create_stream("ch_test", [0xABu8; 32]).unwrap();
+    let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+        Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+    registry
+        .lock()
+        .await
+        .create_stream("ch_test", [0xABu8; 32])
+        .unwrap();
 
     let commit_index_dir = dir.path().join("global").join("commit-index");
     let (batcher, batcher_fut) = crate::commit_index::batcher::new_batcher(
@@ -78,8 +84,14 @@ async fn engine_starts_and_serves_a_command() {
     let state = Arc::new(ProjectionState::new());
     let barrier = Arc::new(LinearizabilityBarrier::new(Arc::clone(&state)));
     let table = Arc::new(DispatchTable::new(vec![]).unwrap());
-    let dispatcher_handle =
-        crate::engine::locks::spawn_projection_dispatcher(Arc::clone(&state), table, Some(16), None, None).unwrap();
+    let dispatcher_handle = crate::engine::locks::spawn_projection_dispatcher(
+        Arc::clone(&state),
+        table,
+        Some(16),
+        None,
+        None,
+    )
+    .unwrap();
     let dispatcher_tx = dispatcher_handle.sender;
 
     // Build a command to send through the engine's sequencer channel.
@@ -142,7 +154,8 @@ async fn two_engines_cannot_share_a_data_dir() {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-        };
+            test_boot_wallclock_override: None,
+    };
 
     // First engine opens successfully.
     let engine1 = WabiDbEngine::open(config.clone()).await.unwrap();
@@ -167,7 +180,8 @@ async fn two_engines_cannot_share_a_data_dir() {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-        };
+            test_boot_wallclock_override: None,
+    };
     let _engine2 = WabiDbEngine::open(config2).await.unwrap();
 }
 
@@ -206,8 +220,14 @@ async fn engine_rebuilds_projections_on_startup() {
 
     // Create the projection state and dispatcher.
     let state = Arc::new(ProjectionState::new());
-    let dispatcher_handle =
-        crate::engine::locks::spawn_projection_dispatcher(Arc::clone(&state), table, Some(16), None, None).unwrap();
+    let dispatcher_handle = crate::engine::locks::spawn_projection_dispatcher(
+        Arc::clone(&state),
+        table,
+        Some(16),
+        None,
+        None,
+    )
+    .unwrap();
 
     // Send a dispatch item through the dispatcher.
     dispatcher_handle

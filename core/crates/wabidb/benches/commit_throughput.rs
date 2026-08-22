@@ -32,6 +32,7 @@ fn bench_run_command(c: &mut Criterion, payload_size: usize) {
                 allow_init: true,
                 replication_config: None,
                 sync_transport: None,
+            test_boot_wallclock_override: None,
             };
             let engine = rt.block_on(WabiDbEngine::open(config)).unwrap();
             // Register the stream key so the command reaches the durable

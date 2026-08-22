@@ -89,15 +89,13 @@ mod tests {
 
     #[test]
     fn role_changed_user_is_validated() {
-        let result =
-            revalidate_membership_change(42, "ch_01", ChangeKind::RoleChanged, member);
+        let result = revalidate_membership_change(42, "ch_01", ChangeKind::RoleChanged, member);
         assert!(result.is_ok(), "role-changed user should be authorized");
     }
 
     #[test]
     fn role_changed_user_rejected_if_not_member() {
-        let result =
-            revalidate_membership_change(42, "ch_01", ChangeKind::RoleChanged, non_member);
+        let result = revalidate_membership_change(42, "ch_01", ChangeKind::RoleChanged, non_member);
         match result {
             Err(WabiError::Forbidden { user_id, .. }) => {
                 assert_eq!(user_id, 42);

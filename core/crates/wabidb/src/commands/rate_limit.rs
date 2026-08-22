@@ -37,7 +37,11 @@ impl RateLimiter {
         if bucket.len() >= self.max_ops {
             return Err(WabiError::Validation {
                 command: action.to_string(),
-                reason: format!("rate limit exceeded: max {} ops per {}s", self.max_ops, self.window.as_secs()),
+                reason: format!(
+                    "rate limit exceeded: max {} ops per {}s",
+                    self.max_ops,
+                    self.window.as_secs()
+                ),
             });
         }
 

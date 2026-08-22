@@ -1,8 +1,8 @@
 use crate::crypto::bootstrap::BootstrapSource;
 use crate::engine::{WabiDbConfig, WabiDbEngine};
-use crate::sequencer::types::{CommandCommit, EventToWrite};
-use crate::format::record::RecordKind;
 use crate::error::WabiError;
+use crate::format::record::RecordKind;
+use crate::sequencer::types::{CommandCommit, EventToWrite};
 
 async fn setup_engine() -> (WabiDbEngine, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
@@ -13,7 +13,8 @@ async fn setup_engine() -> (WabiDbEngine, tempfile::TempDir) {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-        };
+            test_boot_wallclock_override: None,
+    };
     let engine = WabiDbEngine::open(config).await.unwrap();
     (engine, dir)
 }
@@ -126,7 +127,6 @@ async fn two_users_send_and_receive() {
     }
 }
 
-
 #[tokio::test]
 async fn dispatch_table_includes_new_projection_handlers() {
     // Verify Task 1 fix: the 4 new projection handlers (users, emotes,
@@ -138,17 +138,44 @@ async fn dispatch_table_includes_new_projection_handlers() {
 
     // The original 5 handlers (messages, reactions, channel_members,
     // dm_messages, dm_message_recipients) are still there.
-    assert!(table.get("message_created").is_some(), "MessagesProjection missing");
-    assert!(table.get("reaction_added").is_some(), "ReactionsProjection missing");
-    assert!(table.get("channel_member_added").is_some(), "ChannelMembersProjection missing");
-    assert!(table.get("dm_message_created").is_some(), "DmMessagesProjection missing");
-    assert!(table.get("dm_message_recipient_added").is_some(), "DmMessageRecipientsProjection missing");
+    assert!(
+        table.get("message_created").is_some(),
+        "MessagesProjection missing"
+    );
+    assert!(
+        table.get("reaction_added").is_some(),
+        "ReactionsProjection missing"
+    );
+    assert!(
+        table.get("channel_member_added").is_some(),
+        "ChannelMembersProjection missing"
+    );
+    assert!(
+        table.get("dm_message_created").is_some(),
+        "DmMessagesProjection missing"
+    );
+    assert!(
+        table.get("dm_message_recipient_added").is_some(),
+        "DmMessageRecipientsProjection missing"
+    );
 
     // The 4 new handlers from Task 1 are now registered.
-    assert!(table.get("user_registered").is_some(), "UsersProjection not wired in");
-    assert!(table.get("emote_upserted").is_some(), "EmotesProjection not wired in");
-    assert!(table.get("webhook_upserted").is_some(), "WebhooksProjection not wired in");
-    assert!(table.get("user_layout_upserted").is_some(), "LayoutsProjection not wired in");
+    assert!(
+        table.get("user_registered").is_some(),
+        "UsersProjection not wired in"
+    );
+    assert!(
+        table.get("emote_upserted").is_some(),
+        "EmotesProjection not wired in"
+    );
+    assert!(
+        table.get("webhook_upserted").is_some(),
+        "WebhooksProjection not wired in"
+    );
+    assert!(
+        table.get("user_layout_upserted").is_some(),
+        "LayoutsProjection not wired in"
+    );
 }
 
 #[tokio::test]
@@ -165,9 +192,15 @@ async fn projection_state_is_empty_for_fresh_engine() {
 
     count = 0;
     state.for_each("channels", |_, _| count += 1);
-    assert_eq!(count, 0, "fresh engine should have 0 channels in projection");
+    assert_eq!(
+        count, 0,
+        "fresh engine should have 0 channels in projection"
+    );
 
     count = 0;
     state.for_each("messages", |_, _| count += 1);
-    assert_eq!(count, 0, "fresh engine should have 0 messages in projection");
+    assert_eq!(
+        count, 0,
+        "fresh engine should have 0 messages in projection"
+    );
 }

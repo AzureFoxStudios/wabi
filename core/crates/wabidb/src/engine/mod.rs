@@ -14,13 +14,13 @@ use crate::commit_index::batcher::{new_batcher, BatcherHandle};
 use crate::commit_index::record::CommitIndexEntry;
 use crate::crypto::bootstrap::{load_bootstrap_key, BootstrapSource};
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
+use crate::engine::locks::DispatchItem;
 use crate::engine::locks::{spawn_projection_dispatcher, ProjectionState, SequencerPermit};
 use crate::error::{ErrorCategory, Result, WabiError};
 use crate::projections::barrier::LinearizabilityBarrier;
 use crate::projections::handler::DispatchTable;
 use crate::replication::{new_noop_transport, SyncTransport};
 use crate::sequencer::run_command::{run_command as submit_command_inner, CommitSequencer};
-use crate::engine::locks::DispatchItem;
 use crate::sequencer::types::{CommandCommit, CommandOutcome};
 use crate::storage::fsync::fsync_dir;
 use crate::subscription::engine::SubscriptionEngine;
@@ -65,6 +65,16 @@ pub struct WabiDbConfig {
     /// (single-node mode). Set to `Some(...)` with an HTTP-based transport
     /// for multi-node sync.
     pub sync_transport: Option<std::sync::Arc<dyn SyncTransport>>,
+
+    /// Test hook: override the "boot wallclock" used by stale-lock detection.
+    /// Lock files with mtime at-or-before this instant are considered left
+    /// behind by a previous process incarnation. `None` (default) captures
+    /// the wallclock on first lock acquisition. Tests set an explicit future
+    /// instant so synthetic locks count as pre-boot regardless of mtime
+    /// granularity. Ignored in release builds? No — kept unconditional: it is
+    /// a pure input to the steal decision and costs nothing.
+    #[doc(hidden)]
+    pub test_boot_wallclock_override: Option<std::time::SystemTime>,
 }
 
 impl WabiDbConfig {
@@ -77,6 +87,7 @@ impl WabiDbConfig {
             allow_init: false,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         }
     }
 
@@ -89,6 +100,7 @@ impl WabiDbConfig {
             allow_init: false,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         }
     }
 
@@ -101,6 +113,7 @@ impl WabiDbConfig {
             allow_init: false,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         }
     }
 }
@@ -181,12 +194,12 @@ impl WabiDbEngine {
         // 1. Validate / create data directory
         if !data_dir.exists() {
             if config.allow_init {
-                tokio::fs::create_dir_all(data_dir).await.map_err(|e| {
-                    WabiError::Corrupt {
+                tokio::fs::create_dir_all(data_dir)
+                    .await
+                    .map_err(|e| WabiError::Corrupt {
                         location: format!("data dir create: {}", data_dir.display()),
                         detail: format!("create_dir_all failed: {e}"),
-                    }
-                })?;
+                    })?;
             } else {
                 return Err(WabiError::Corrupt {
                     location: format!("data dir: {}", data_dir.display()),
@@ -200,7 +213,7 @@ impl WabiDbEngine {
         // a lock held by a LIVE process refuses to start.
         let lock_path = data_dir.join(".lock");
         let pid = std::process::id();
-        acquire_lock_file(&lock_path, pid).await?;
+        acquire_lock_file(&lock_path, pid, config.test_boot_wallclock_override).await?;
         fsync_dir(data_dir).await?;
 
         // 3. Load the bootstrap key
@@ -225,9 +238,13 @@ impl WabiDbEngine {
                     invariant: format!("manifest serialize: {e}"),
                 }
             })?;
-            tokio::fs::write(&manifest_path, &manifest_bytes).await.map_err(WabiError::Io)?;
+            tokio::fs::write(&manifest_path, &manifest_bytes)
+                .await
+                .map_err(WabiError::Io)?;
             {
-                let f = tokio::fs::File::open(&manifest_path).await.map_err(WabiError::Io)?;
+                let f = tokio::fs::File::open(&manifest_path)
+                    .await
+                    .map_err(WabiError::Io)?;
                 f.sync_all().await.map_err(WabiError::Io)?;
             }
             fsync_dir(data_dir).await?;
@@ -241,13 +258,12 @@ impl WabiDbEngine {
         let dispatch_table = type_registry.dispatch_table().clone();
 
         // 7. Load projection state (with optional snapshot)
-        let projection_state = if let Some((state, _watermark)) =
-            ProjectionState::load_snapshot(data_dir)?
-        {
-            Arc::new(state)
-        } else {
-            Arc::new(ProjectionState::new())
-        };
+        let projection_state =
+            if let Some((state, _watermark)) = ProjectionState::load_snapshot(data_dir)? {
+                Arc::new(state)
+            } else {
+                Arc::new(ProjectionState::new())
+            };
         let snapshot_watermark = projection_state.applied_commit_seq();
 
         // 7.1 Create barrier and dispatcher
@@ -276,7 +292,9 @@ impl WabiDbEngine {
 
         // 8. Create commit-index batcher
         let commit_index_dir = data_dir.join("global").join("commit-index");
-        tokio::fs::create_dir_all(&commit_index_dir).await.map_err(WabiError::Io)?;
+        tokio::fs::create_dir_all(&commit_index_dir)
+            .await
+            .map_err(WabiError::Io)?;
         let (batcher, batcher_fut) = new_batcher(commit_index_dir, None, None);
         let replication_batcher = Some(batcher.clone());
         tokio::spawn(batcher_fut);
@@ -354,10 +372,7 @@ impl WabiDbEngine {
                     // ingestion requires a separate fetch call (not yet
                     // implemented in this session). We track the watermark
                     // for future use.
-                    if let Ok(entries) = sync_transport
-                        .pull(&peer_endpoint, last_peer_seq)
-                        .await
-                    {
+                    if let Ok(entries) = sync_transport.pull(&peer_endpoint, last_peer_seq).await {
                         if !entries.is_empty() {
                             last_peer_seq = entries.last().unwrap().commit_seq;
                             tracing::info!(
@@ -369,17 +384,12 @@ impl WabiDbEngine {
                     }
 
                     // Push local entries to the peer (segment shipping).
-                    if let Ok(local) = crate::commit_index::batcher::read_all_entries(
-                        &commit_index_dir,
-                    ) {
+                    if let Ok(local) =
+                        crate::commit_index::batcher::read_all_entries(&commit_index_dir)
+                    {
                         if !local.is_empty() {
-                            tracing::info!(
-                                "replication: pushing {} entries to peer",
-                                local.len()
-                            );
-                            let _ = sync_transport
-                                .push(&peer_endpoint, local)
-                                .await;
+                            tracing::info!("replication: pushing {} entries to peer", local.len());
+                            let _ = sync_transport.push(&peer_endpoint, local).await;
                         }
                     }
                 }
@@ -435,11 +445,7 @@ impl WabiDbEngine {
     ///
     /// In production, `wabi-server` calls this when provisioning a new
     /// channel. Tests call this in setup to enable round-trip verification.
-    pub async fn register_stream_key(
-        &self,
-        stream_id: &str,
-        key_material: [u8; 32],
-    ) -> Result<()> {
+    pub async fn register_stream_key(&self, stream_id: &str, key_material: [u8; 32]) -> Result<()> {
         let mut registry = self.key_registry.lock().await;
         registry.create_stream(stream_id, key_material)
     }
@@ -501,10 +507,14 @@ impl WabiDbEngine {
                 .join(kind_dir)
                 .join(stream_id)
                 .join("events");
-            tokio::fs::create_dir_all(&seg_dir).await.map_err(WabiError::Io)?;
+            tokio::fs::create_dir_all(&seg_dir)
+                .await
+                .map_err(WabiError::Io)?;
 
             let seg_path = seg_dir.join(format!("{segment_id:08}.wseg"));
-            let mut file = tokio::fs::File::create(&seg_path).await.map_err(WabiError::Io)?;
+            let mut file = tokio::fs::File::create(&seg_path)
+                .await
+                .map_err(WabiError::Io)?;
             file.write_all(data).await.map_err(WabiError::Io)?;
             file.sync_all().await.map_err(WabiError::Io)?;
         }
@@ -537,7 +547,11 @@ impl WabiDbEngine {
             stream_id: stream_id.into(),
             payload: payload.to_vec(),
         };
-        let matches = self.subscription_engine.lock().await.deliver(stream_id, &item);
+        let matches = self
+            .subscription_engine
+            .lock()
+            .await
+            .deliver(stream_id, &item);
         for (consumer_id, _item) in matches {
             let delivery = SubscriptionDelivery {
                 consumer_id,
@@ -608,7 +622,9 @@ impl WabiDbEngine {
             bootstrap_key: [0u8; 32],
             dispatch_table: Arc::new(DispatchTable::new(vec![]).unwrap()),
             projection_state: Arc::new(ProjectionState::new()),
-            barrier: Arc::new(LinearizabilityBarrier::new(Arc::new(ProjectionState::new()))),
+            barrier: Arc::new(LinearizabilityBarrier::new(
+                Arc::new(ProjectionState::new()),
+            )),
             sequencer: None,
             _sequencer_handle: None,
             key_registry: Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new())),
@@ -628,6 +644,22 @@ impl WabiDbEngine {
     }
 }
 
+/// Boot wallclock, captured on first use: locks whose mtime predates this
+/// instant were written by a previous process incarnation, never this one.
+static BOOT_WALLCLOCK: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
+
+/// Lock paths currently held by LIVE engines of THIS process. Used to
+/// distinguish "second engine in this process" (genuine AlreadyRunning)
+/// from "same-PID stale lock left by a previous container incarnation"
+/// (steal): inside a Docker PID namespace every run is PID 1, so the
+/// holder PID alone cannot make that call.
+static HELD_LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>> =
+    std::sync::OnceLock::new();
+
+fn held_locks() -> &'static std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>> {
+    HELD_LOCKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
 /// Atomically acquire the engine lock file (O_EXCL semantics).
 ///
 /// - Free path: `create_new` succeeds → we own the lock; write our PID.
@@ -636,10 +668,20 @@ impl WabiDbEngine {
 ///   the lock. This removes the manual "rm the lock files" deploy step for
 ///   the common case; an operator can still delete the file by hand if the
 ///   PID is somehow wrong.
-async fn acquire_lock_file(lock_path: &std::path::Path, pid: u32) -> Result<()> {
+async fn acquire_lock_file(
+    lock_path: &std::path::Path,
+    pid: u32,
+    boot_wallclock_override: Option<std::time::SystemTime>,
+) -> Result<()> {
     use tokio::io::AsyncWriteExt;
 
     for attempt in 0..2 {
+        // Same-process double-open must ALWAYS be refused, even though the
+        // on-disk holder PID equals ours (the mtime/steal arms below cannot
+        // distinguish it from a previous container incarnation).
+        if held_locks().lock().map(|g| g.contains(lock_path)).unwrap_or(false) {
+            return Err(WabiError::AlreadyRunning);
+        }
         match tokio::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -647,12 +689,16 @@ async fn acquire_lock_file(lock_path: &std::path::Path, pid: u32) -> Result<()> 
             .await
         {
             Ok(mut f) => {
-                f.write_all(pid.to_string().as_bytes())
-                    .await
-                    .map_err(|e| {
-                        WabiError::Io(std::io::Error::new(e.kind(), format!("lock file write: {e}")))
-                    })?;
+                f.write_all(pid.to_string().as_bytes()).await.map_err(|e| {
+                    WabiError::Io(std::io::Error::new(
+                        e.kind(),
+                        format!("lock file write: {e}"),
+                    ))
+                })?;
                 f.sync_all().await.map_err(WabiError::Io)?;
+                if let Ok(mut g) = held_locks().lock() {
+                    g.insert(lock_path.to_path_buf());
+                }
                 return Ok(());
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -660,21 +706,58 @@ async fn acquire_lock_file(lock_path: &std::path::Path, pid: u32) -> Result<()> 
                     return Err(WabiError::AlreadyRunning);
                 }
                 // Inspect the holder. A dead PID means a stale lock: steal it.
+                //
+                // Container caveat: inside a Docker PID namespace every run is
+                // PID 1, so a lock left by a PREVIOUS container run carries the
+                // same PID we now have. `process_alive(1)` in our namespace
+                // probes OUR OWN /proc/1 — which always exists while we are
+                // booting, and would exist for any init-style process anyway.
+                // The correct liveness question for pid N in a private
+                // namespace is "is something ELSE with that PID running my
+                // engine?" which we cannot answer from inside. So: when
+                // holder == pid AND the lock file predates our own start
+                // (mtime strictly before this boot attempt), treat it as
+                // stale-from-a-past-life and steal it. A genuine concurrent
+                // sibling still loses only if it wrote its lock before us —
+                // in which case IT is the one that must yield, and our steal
+                // attempt races its create_new exactly once (the retry loop
+                // re-checks). Same-host non-container deployments keep the
+                // strict rule via the mtime guard being satisfied trivially:
+                // a live sibling's lock was written before we booted too, but
+                // its holder != our pid there, so the dead-holder branch
+                // already refused us before reaching this arm.
                 let holder_pid = tokio::fs::read_to_string(lock_path)
                     .await
                     .ok()
                     .and_then(|s| s.trim().parse::<u32>().ok());
-                let steal = match holder_pid {
-                    Some(holder) if holder != pid && !process_alive(holder) => true,
-                    Some(_) => false,
-                    None => true, // unparseable/empty lock file: treat as stale
+                let lock_mtime_before_boot = tokio::fs::metadata(lock_path)
+                    .await
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| {
+                        let boot = boot_wallclock_override
+                            .unwrap_or_else(|| *BOOT_WALLCLOCK.get_or_init(std::time::SystemTime::now));
+                        t <= boot
+                    });
+                let steal = match (holder_pid, lock_mtime_before_boot) {
+                    // Dead holder on the same host: classic stale lock.
+                    (Some(holder), _) if holder != pid && !process_alive(holder) => true,
+                    // Same PID as us + lock written before this boot started:
+                    // previous incarnation of ourselves (container restart,
+                    // kill -9). The file cannot be ours from THIS run — we
+                    // have not created it yet.
+                    (Some(holder), Some(true)) if holder == pid => true,
+                    // Unparseable/empty lock file: nothing defensible holds it.
+                    (None, _) => true,
+                    _ => false,
                 };
                 if !steal {
                     return Err(WabiError::AlreadyRunning);
                 }
                 tracing::warn!(
-                    "engine lock held by dead pid {:?}; removing stale lock",
-                    holder_pid
+                    "engine lock held by dead/stale holder {:?} (mtime_pre_boot={:?}); removing stale lock",
+                    holder_pid,
+                    lock_mtime_before_boot
                 );
                 let _ = tokio::fs::remove_file(lock_path).await;
                 // loop retries the create_new exactly once
@@ -755,6 +838,9 @@ impl Drop for WabiDbEngine {
 
         if let Some(ref lock_path) = self._lock_file_path {
             let _ = std::fs::remove_file(lock_path);
+            if let Ok(mut g) = held_locks().lock() {
+                g.remove(lock_path);
+            }
             if let Some(parent) = lock_path.parent() {
                 // Best-effort directory fsync; errors are non-fatal during cleanup.
                 let _ = std::fs::File::open(parent).and_then(|f| f.sync_all());
@@ -768,16 +854,17 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::album_items::AlbumItemsProjection;
     use crate::projections::albums::AlbumProjection;
     use crate::projections::audit::AuditProjection;
-    use crate::projections::channels::ChannelProjection;
-    use crate::projections::channel_members::ChannelMembersProjection;
-    use crate::projections::dm_identities::DmIdentitiesProjection;
-    use crate::projections::dm_message_recipients::DmMessageRecipientsProjection;
-    use crate::projections::dm_messages::DmMessagesProjection;
     use crate::projections::call_participants::CallParticipantsProjection;
     use crate::projections::call_sessions::CallSessionsProjection;
     use crate::projections::call_signals::CallSignalsProjection;
+    use crate::projections::channel_members::ChannelMembersProjection;
+    use crate::projections::channels::ChannelProjection;
+    use crate::projections::dm_identities::DmIdentitiesProjection;
+    use crate::projections::dm_message_recipients::DmMessageRecipientsProjection;
+    use crate::projections::dm_messages::DmMessagesProjection;
     use crate::projections::emotes::EmotesProjection;
     use crate::projections::forum::ForumProjection;
+    use crate::projections::gallery::{GalleryFeedbackProjection, GalleryWorkProjection};
     use crate::projections::incidents::IncidentProjection;
     use crate::projections::layouts::LayoutsProjection;
     use crate::projections::lore::{
@@ -785,14 +872,13 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     };
     use crate::projections::messages::MessagesProjection;
     use crate::projections::noop::NoopProjection;
+    use crate::projections::owner::OwnerProjection;
+    use crate::projections::payments::PaymentsProjection;
     use crate::projections::reactions::ReactionsProjection;
     use crate::projections::registry::{ProjectionRegistration, TypeRegistry};
     use crate::projections::users::UsersProjection;
-    use crate::projections::owner::OwnerProjection;
-    use crate::projections::payments::PaymentsProjection;
     use crate::projections::webhooks::WebhooksProjection;
     use crate::projections::whiteboard_docs::WhiteboardDocsProjection;
-    use crate::projections::gallery::{GalleryFeedbackProjection, GalleryWorkProjection};
     use crate::projections::wiki::{WikiProjection, WikiRevisionProjection};
     use std::sync::Arc;
 
@@ -912,7 +998,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::wiki::WikiRevisionRecord",
         },
         ProjectionRegistration {
-            event_types: &["forum_thread_created", "forum_post_created", "forum_post_edited", "forum_post_deleted"],
+            event_types: &[
+                "forum_thread_created",
+                "forum_post_created",
+                "forum_post_edited",
+                "forum_post_deleted",
+            ],
             handler: Arc::new(ForumProjection),
             index_name: "forum_posts",
             record_type_name: "wabidb::projections::forum::ForumPostRecord",
@@ -930,7 +1021,11 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::albums::AlbumRecord",
         },
         ProjectionRegistration {
-            event_types: &["album_item_added", "album_item_updated", "album_item_removed"],
+            event_types: &[
+                "album_item_added",
+                "album_item_updated",
+                "album_item_removed",
+            ],
             handler: Arc::new(AlbumItemsProjection),
             index_name: "album_items",
             record_type_name: "wabidb::projections::album_items::AlbumItemRecord",
@@ -987,11 +1082,17 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
                 "payment_user_block_deleted",
             ],
             handler: Arc::new(PaymentsProjection),
-            index_name: "payment_account_links,payment_intents,payment_policies,payment_user_blocks",
+            index_name:
+                "payment_account_links,payment_intents,payment_policies,payment_user_blocks",
             record_type_name: "wabidb::projections::payments",
         },
         ProjectionRegistration {
-            event_types: &["reaction_removed", "member_joined", "member_left", "channel_renamed"],
+            event_types: &[
+                "reaction_removed",
+                "member_joined",
+                "member_left",
+                "channel_renamed",
+            ],
             handler: Arc::new(NoopProjection),
             index_name: "",
             record_type_name: "",
@@ -1015,6 +1116,7 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
         assert_eq!(engine.bootstrap_key(), &[0xABu8; 32]);
@@ -1034,12 +1136,10 @@ mod tests {
             allow_init: false,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let err = WabiDbEngine::open(config).await.unwrap_err();
-        assert!(
-            matches!(err, WabiError::Corrupt { .. }),
-            "got {err:?}"
-        );
+        assert!(matches!(err, WabiError::Corrupt { .. }), "got {err:?}");
     }
 
     #[tokio::test]
@@ -1053,6 +1153,7 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
         assert!(new_dir.exists());
@@ -1069,12 +1170,10 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let err = WabiDbEngine::open(config).await.unwrap_err();
-        assert!(
-            matches!(err, WabiError::KeychainUnavailable),
-            "got {err:?}"
-        );
+        assert!(matches!(err, WabiError::KeychainUnavailable), "got {err:?}");
     }
 
     #[tokio::test]
@@ -1087,6 +1186,7 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
         let lock_path = dir.path().join(".lock");
@@ -1096,7 +1196,10 @@ mod tests {
         assert_eq!(pid, std::process::id());
         // Cleanup (Drop handles it, but verify it doesn't error)
         drop(engine);
-        assert!(!lock_path.exists(), "lock file should be cleaned up on drop");
+        assert!(
+            !lock_path.exists(),
+            "lock file should be cleaned up on drop"
+        );
     }
 
     #[tokio::test]
@@ -1109,6 +1212,7 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let _engine = WabiDbEngine::open(config).await.unwrap();
         let manifest_path = dir.path().join("storage-manifest.json");
@@ -1128,6 +1232,7 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let _engine = WabiDbEngine::open(config.clone()).await.unwrap();
 
@@ -1149,9 +1254,96 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let _engine = WabiDbEngine::open(config).await.unwrap();
         let cidx_dir = dir.path().join("global").join("commit-index");
         assert!(cidx_dir.exists(), "commit index dir should exist");
+    }
+
+    #[tokio::test]
+    async fn stale_same_pid_lock_is_stolen_container_restart() {
+        // Container restart scenario: the previous run (same PID in a fresh
+        // PID namespace — Docker containers always boot at PID 1) crashed
+        // leaving its .lock behind. The new boot must steal it, not refuse.
+        let dir = tempdir().unwrap();
+        let lock_path = dir.path().join(".lock");
+
+        // Simulate the previous incarnation's lock: same PID as ours,
+        // mtime in the past relative to the (overridden) boot wallclock.
+        std::fs::write(&lock_path, std::process::id().to_string()).unwrap();
+
+        let config = WabiDbConfig {
+            data_dir: dir.path().to_path_buf(),
+            bootstrap_source: BootstrapSource::Provided([0u8; 32]),
+            bootstrap_salt: None,
+            allow_init: true,
+            replication_config: None,
+            sync_transport: None,
+            // Boot "before" the lock was written: exactly the container
+            // restart situation, deterministic regardless of mtime precision.
+            test_boot_wallclock_override: Some(std::time::SystemTime::now()),
+        };
+        // Must succeed: the stale same-PID lock is recognized and stolen.
+        let engine = WabiDbEngine::open(config).await.unwrap();
+        assert_eq!(engine.data_dir(), dir.path());
+    }
+
+    #[tokio::test]
+    async fn fresh_live_sibling_lock_is_respected() {
+        // A lock written AFTER our boot wallclock with a live-looking PID is
+        // a genuine concurrent sibling: must still be refused. We simulate by
+        // writing a different PID and then rewinding the file mtime is not
+        // possible portably — instead write a DIFFERENT live PID (our own +1
+        // may not exist; use a PID that exists: our own) but set mtime to now
+        // via a touch after BOOT_WALLCLOCK was captured... simplest portable
+        // proof: holder == pid + mtime >= boot wallclock cannot happen for a
+        // file we did not create this run, so exercise the OTHER arm: a
+        // different, definitely-dead PID must be stolen too (existing rule),
+        // while an ALIVE different PID is refused.
+        //
+        // Find a PID that exists but is not us: read any /proc entry != ours.
+        let other_alive: Option<u32> = {
+            #[cfg(unix)]
+            {
+                std::fs::read_dir("/proc")
+                    .ok()
+                    .and_then(|entries| {
+                        entries
+                            .filter_map(|e| e.ok())
+                            .find_map(|e| {
+                                e.file_name().to_str()?.parse::<u32>().ok().filter(|p| *p != std::process::id())
+                            })
+                    })
+            }
+            #[cfg(not(unix))]
+            {
+                None
+            }
+        };
+        let Some(other) = other_alive else {
+            // No other process to test against (shouldn't happen on Linux);
+            // nothing to assert here.
+            return;
+        };
+
+        let dir = tempdir().unwrap();
+        let lock_path = dir.path().join(".lock");
+        std::fs::write(&lock_path, other.to_string()).unwrap();
+
+        let config = WabiDbConfig {
+            data_dir: dir.path().to_path_buf(),
+            bootstrap_source: BootstrapSource::Provided([0u8; 32]),
+            bootstrap_salt: None,
+            allow_init: true,
+            replication_config: None,
+            sync_transport: None,
+            test_boot_wallclock_override: None,
+        };
+        let err = WabiDbEngine::open(config).await.unwrap_err();
+        assert!(
+            matches!(err, WabiError::AlreadyRunning),
+            "a LIVE different-pid holder must keep its lock; got {err:?}"
+        );
     }
 }

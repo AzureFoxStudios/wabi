@@ -52,7 +52,10 @@ pub fn spawn_message_created_delivery(
         let webhooks = match wdb.get_webhooks(&channel_id).await {
             Ok(hooks) => hooks,
             Err(e) => {
-                tracing::warn!("[bot-delivery] failed to load webhooks for {}: {e}", channel_id);
+                tracing::warn!(
+                    "[bot-delivery] failed to load webhooks for {}: {e}",
+                    channel_id
+                );
                 return;
             }
         };
@@ -356,17 +359,17 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WdbAdapter::open_with_config(config).await.unwrap();
 
         let (url, cfg, handle) = spawn_fake_webhook(vec![200]).await;
-        engine.upsert_webhook("ch_1", "bot-hook", &url).await.unwrap();
+        engine
+            .upsert_webhook("ch_1", "bot-hook", &url)
+            .await
+            .unwrap();
 
-        spawn_message_created_delivery(
-            Arc::new(engine),
-            "ch_1".into(),
-            test_payload(),
-        );
+        spawn_message_created_delivery(Arc::new(engine), "ch_1".into(), test_payload());
 
         wait_for_hits(&cfg, 1).await;
         assert_eq!(hits(&cfg), 1);
