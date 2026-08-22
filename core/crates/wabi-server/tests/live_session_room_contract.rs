@@ -17,6 +17,7 @@ async fn open_test_adapter(data_dir: &Path) -> WdbAdapter {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
+            test_boot_wallclock_override: None,
     };
     WdbAdapter::open_with_config(config).await.unwrap()
 }
@@ -57,15 +58,29 @@ async fn live_message_never_written_to_disk() {
     assert_eq!(
         segments_before, segments_after,
         "Live message must not create any WDB segment files on disk: \
-         before={}, after={}", segments_before, segments_after
+         before={}, after={}",
+        segments_before, segments_after
     );
 
     // Additionally prove no message appears in the WDB store.
-    let msgs = _adapter.list_messages_typed("ch_live_test", 100).await.unwrap();
-    let live_msg_ids: Vec<&str> = msgs.iter().filter_map(|m| {
-        if m.message_id.starts_with("live_") { Some(m.message_id.as_str()) } else { None }
-    }).collect();
-    assert!(live_msg_ids.is_empty(), "No live-prefixed messages should exist in WDB store");
+    let msgs = _adapter
+        .list_messages_typed("ch_live_test", 100)
+        .await
+        .unwrap();
+    let live_msg_ids: Vec<&str> = msgs
+        .iter()
+        .filter_map(|m| {
+            if m.message_id.starts_with("live_") {
+                Some(m.message_id.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(
+        live_msg_ids.is_empty(),
+        "No live-prefixed messages should exist in WDB store"
+    );
 }
 
 /// CONTROL test: prove that the normal (non-live) path via
@@ -90,11 +105,20 @@ async fn control_non_live_message_written_to_disk() {
     assert!(
         segments_after > segments_before,
         "Non-live send_message must create at least one new WDB segment file: \
-         before={}, after={}", segments_before, segments_after
+         before={}, after={}",
+        segments_before,
+        segments_after
     );
 
     // Prove the message is readable from the WDB store.
     let found = adapter.get_message_typed(&message_id).await.unwrap();
-    assert!(found.is_some(), "Control message must be readable from WDB store");
-    assert_eq!(found.unwrap().content, canary, "WDB content must match the sent canary");
+    assert!(
+        found.is_some(),
+        "Control message must be readable from WDB store"
+    );
+    assert_eq!(
+        found.unwrap().content,
+        canary,
+        "WDB content must match the sent canary"
+    );
 }

@@ -11,7 +11,9 @@
 //! Council Review #2: `docs/architecture/wabidb-council-reviews.md`
 
 use crate::commit_index::batcher::{new_batcher, read_all_entries};
-use crate::commit_index::record::{CommitIndexEntry, StreamRef, COMMIT_INDEX_FORMAT_VERSION, COMMIT_INDEX_MAGIC};
+use crate::commit_index::record::{
+    CommitIndexEntry, StreamRef, COMMIT_INDEX_FORMAT_VERSION, COMMIT_INDEX_MAGIC,
+};
 use crate::crypto::aes_gcm_record::{decrypt_record, encrypt_record};
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
 use crate::error::{Result, WabiError};
@@ -80,7 +82,11 @@ async fn write_n(writer: &mut SegmentWriter, n: u64) -> Result<()> {
 }
 
 async fn setup_events_dir(dir: &Path) -> PathBuf {
-    let p = dir.join("streams").join("channel").join("ch_test").join("events");
+    let p = dir
+        .join("streams")
+        .join("channel")
+        .join("ch_test")
+        .join("events");
     tokio::fs::create_dir_all(&p).await.unwrap();
     p
 }
@@ -135,7 +141,10 @@ async fn crash_before_segment_fsync() {
     // Data was written to the page cache and is readable.
     // (In a real power-loss these bytes would be gone, but in a unit test
     // we verify the reader handles un-flushed data gracefully.)
-    assert!(!records.is_empty(), "data written without fsync should be in page cache");
+    assert!(
+        !records.is_empty(),
+        "data written without fsync should be in page cache"
+    );
     for (i, r) in records.iter().enumerate() {
         assert_eq!(r.header.commit_seq, (i + 1) as u64);
     }
@@ -206,11 +215,7 @@ async fn crash_after_commit_index_fsync() {
     writer.close().await.unwrap();
 
     // Create commit index entries and submit to batcher.
-    let (batcher, fut) = new_batcher(
-        cidx_dir.clone(),
-        Some(10),
-        Some(Duration::from_millis(50)),
-    );
+    let (batcher, fut) = new_batcher(cidx_dir.clone(), Some(10), Some(Duration::from_millis(50)));
     tokio::spawn(fut);
 
     for seq in 1..=3u64 {
@@ -339,7 +344,11 @@ async fn crash_during_commit_index_fsync_batch() {
     let seg_path = events_dir.join("00000001.wseg");
     let mut reader = SegmentReader::open(&seg_path).await.unwrap();
     let records = reader.read_records().await.unwrap();
-    assert_eq!(records.len(), 3, "all 3 records intact in segment regardless of index state");
+    assert_eq!(
+        records.len(),
+        3,
+        "all 3 records intact in segment regardless of index state"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -393,10 +402,7 @@ async fn crash_after_key_destruction() {
     // A fresh registry has no keys (the key was never persisted).
     let recovered_registry = StreamKeyRegistry::new();
     let err = recovered_registry.get_active_key("ch_secret", 1);
-    assert!(
-        err.is_err(),
-        "after crash the stream key should not exist"
-    );
+    assert!(err.is_err(), "after crash the stream key should not exist");
 
     // Verify the encrypted record is on disk by reading the raw file bytes.
     // We bypass the SegmentReader because the payload CRC is 0 (by design:
@@ -417,7 +423,8 @@ async fn crash_after_key_destruction() {
 
     // Verify the on-disk ciphertext matches what we wrote.
     assert_eq!(
-        on_disk_payload, ciphertext.as_slice(),
+        on_disk_payload,
+        ciphertext.as_slice(),
         "encrypted payload on disk matches what was written"
     );
 
@@ -519,8 +526,8 @@ async fn crash_with_tombstone_pending() {
         RecordKind::Tombstone,
         4,
         stream_hash(),
-        0,  // zero-length payload
-        0,  // no payload CRC
+        0, // zero-length payload
+        0, // no payload CRC
     );
     writer.append(&tombstone_header, b"").await.unwrap();
     writer.flush().await.unwrap();
@@ -628,11 +635,7 @@ async fn crash_during_subscription_ack() {
     writer.close().await.unwrap();
 
     // Create a commit index file with entries 1-5 (all fully committed).
-    let (batcher, fut) = new_batcher(
-        cidx_dir.clone(),
-        Some(10),
-        Some(Duration::from_millis(50)),
-    );
+    let (batcher, fut) = new_batcher(cidx_dir.clone(), Some(10), Some(Duration::from_millis(50)));
     tokio::spawn(fut);
     for seq in 1..=5u64 {
         batcher.submit(test_entry(seq)).unwrap();

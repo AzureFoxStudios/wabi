@@ -13,6 +13,7 @@ async fn setup_engine() -> (WabiDbEngine, tempfile::TempDir) {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
+            test_boot_wallclock_override: None,
     };
     let engine = WabiDbEngine::open(config).await.unwrap();
     (engine, dir)
@@ -51,7 +52,11 @@ async fn lore_repo_registered_via_command() {
     };
 
     let result = engine.run_command(cmd).await;
-    assert!(result.is_ok(), "lore_repo_registered command failed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "lore_repo_registered command failed: {:?}",
+        result
+    );
 
     let state = engine.projection_state();
     let loaded = LoreRepoProjection::get_repo(&state, 42).unwrap().unwrap();
@@ -97,7 +102,9 @@ async fn lore_commit_via_command() {
     assert!(result.is_ok(), "lore_commit command failed: {:?}", result);
 
     let state = engine.projection_state();
-    let loaded = LoreCommitProjection::get_commit(&state, 99, "abc123").unwrap().unwrap();
+    let loaded = LoreCommitProjection::get_commit(&state, 99, "abc123")
+        .unwrap()
+        .unwrap();
     assert_eq!(loaded.file_path, "textures/wall.png");
     assert_eq!(loaded.message, "Added wall texture");
     assert_eq!(loaded.author_user_id, 42);
@@ -168,7 +175,9 @@ async fn lore_full_flow() {
     let repo = LoreRepoProjection::get_repo(&state, 77).unwrap().unwrap();
     assert_eq!(repo.repo_name, "full-flow-repo");
 
-    let commit = LoreCommitProjection::get_commit(&state, 77, "def789").unwrap().unwrap();
+    let commit = LoreCommitProjection::get_commit(&state, 77, "def789")
+        .unwrap()
+        .unwrap();
     assert_eq!(commit.file_path, "models/character.fbx");
     assert_eq!(commit.message, "Initial character model");
 

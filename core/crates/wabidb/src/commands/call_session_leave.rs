@@ -72,8 +72,8 @@ pub async fn leave_call_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::{WabiDbConfig, WabiDbEngine};
     use crate::crypto::bootstrap::BootstrapSource;
+    use crate::engine::{WabiDbConfig, WabiDbEngine};
     use tempfile::tempdir;
 
     async fn setup_engine() -> WabiDbEngine {
@@ -85,6 +85,7 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
         // Leak the tempdir so it lives for the test (mirrors replay_test.rs).
@@ -96,13 +97,7 @@ mod tests {
     async fn empty_session_id_rejected() {
         let engine = setup_engine().await;
         let sequencer = engine.sequencer().unwrap();
-        let result = leave_call_session(
-            "".into(),
-            1,
-            &engine,
-            sequencer,
-        )
-        .await;
+        let result = leave_call_session("".into(), 1, &engine, sequencer).await;
         assert!(matches!(result, Err(WabiError::Validation { .. })));
     }
 

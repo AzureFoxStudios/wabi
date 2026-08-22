@@ -16,7 +16,13 @@ async fn write_record(
     let mut stream_hash = [0u8; 16];
     stream_hash[0] = 0xAB;
     let crc = payload_crc32c(payload);
-    let header = RecordHeader::new(RecordKind::Event, commit_seq, stream_hash, payload.len() as u32, crc);
+    let header = RecordHeader::new(
+        RecordKind::Event,
+        commit_seq,
+        stream_hash,
+        payload.len() as u32,
+        crc,
+    );
     writer.append(&header, payload).await?;
     Ok((header, payload.to_vec()))
 }
@@ -39,7 +45,9 @@ async fn simulate_power_loss_before_fsync() {
         .await
         .unwrap();
     for i in 1..=3u64 {
-        write_record(&mut writer, i, b"data before fsync").await.unwrap();
+        write_record(&mut writer, i, b"data before fsync")
+            .await
+            .unwrap();
     }
 
     // Simulate a crash by NOT flushing and just dropping the writer.
@@ -76,7 +84,9 @@ async fn simulate_crash_between_segment_write_and_commit_index() {
         .await
         .unwrap();
     for i in 1..=3u64 {
-        write_record(&mut writer, i, b"orphan record").await.unwrap();
+        write_record(&mut writer, i, b"orphan record")
+            .await
+            .unwrap();
     }
 
     // Simulate crash: commit-index append never happened.
@@ -89,15 +99,16 @@ async fn simulate_crash_between_segment_write_and_commit_index() {
     let mut reader = SegmentReader::open(&seg_path).await.unwrap();
     let all_records = reader.read_records().await.unwrap();
 
-    assert_eq!(all_records.len(), 3, "all 3 orphan records are present on disk");
+    assert_eq!(
+        all_records.len(),
+        3,
+        "all 3 orphan records are present on disk"
+    );
 
     // Apply an orphan filter that rejects everything (simulating a commit
     // index that has no entries). The reader should skip all 3.
     let mut reader2 = SegmentReader::open(&seg_path).await.unwrap();
-    let filtered = reader2
-        .read_records_filtered(|_| false)
-        .await
-        .unwrap();
+    let filtered = reader2.read_records_filtered(|_| false).await.unwrap();
     assert!(
         filtered.is_empty(),
         "all records should be skipped when filtered as orphans"
@@ -131,7 +142,9 @@ async fn simulate_power_loss_after_commit_index_fsync() {
         .await
         .unwrap();
     for i in 1..=3u64 {
-        write_record(&mut writer, i, b"durable record").await.unwrap();
+        write_record(&mut writer, i, b"durable record")
+            .await
+            .unwrap();
     }
     writer.flush().await.unwrap();
 
@@ -145,7 +158,11 @@ async fn simulate_power_loss_after_commit_index_fsync() {
     let mut reader = SegmentReader::open(&saved_path).await.unwrap();
     let records = reader.read_records().await.unwrap();
 
-    assert_eq!(records.len(), 3, "all 3 records must be durable after flush");
+    assert_eq!(
+        records.len(),
+        3,
+        "all 3 records must be durable after flush"
+    );
     for (i, record) in records.iter().enumerate() {
         assert_eq!(record.header.commit_seq, i as u64 + 1);
         assert_eq!(record.payload, b"durable record");
@@ -155,7 +172,11 @@ async fn simulate_power_loss_after_commit_index_fsync() {
     let metadata = tokio::fs::metadata(&saved_path).await.unwrap();
     let header = records[0].header.clone();
     let expected_size = header.total_size() as u64 * 3;
-    assert_eq!(metadata.len(), expected_size, "file size must match 3 records");
+    assert_eq!(
+        metadata.len(),
+        expected_size,
+        "file size must match 3 records"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -216,10 +237,7 @@ fn spawn_crash_child(
 /// Uses the deterministic (bootstrap-derived) stream key so every
 /// generation of this test reopens with the SAME key and prior records
 /// stay decryptable across restarts.
-async fn populate_engine(
-    data_dir: &std::path::Path,
-    n: u64,
-) {
+async fn populate_engine(data_dir: &std::path::Path, n: u64) {
     let config = WabiDbConfig {
         data_dir: data_dir.to_path_buf(),
         bootstrap_source: BootstrapSource::Provided([0xABu8; 32]),
@@ -227,11 +245,15 @@ async fn populate_engine(
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-        };
+            test_boot_wallclock_override: None,
+    };
     let engine = WabiDbEngine::open(config).await.unwrap();
     engine.get_or_create_stream_key("ch_crash").await.unwrap();
     for i in 1..=n {
-        let outcome = engine.run_command(make_crash_cmd(i, "ch_crash", 1, b"prior data")).await.unwrap();
+        let outcome = engine
+            .run_command(make_crash_cmd(i, "ch_crash", 1, b"prior data"))
+            .await
+            .unwrap();
         assert_eq!(outcome.commit_seq, i);
     }
     // Let the engine drain before drop/shutdown.
@@ -243,10 +265,7 @@ async fn populate_engine(
 /// high-water mark, so a fresh write must get `commit_seq > prior highest`,
 /// and the commit index must contain strictly increasing, duplicate-free
 /// seqs across all `.widx` files.
-async fn verify_recovery(
-    data_dir: &std::path::Path,
-    expected_prior_count: u64,
-) {
+async fn verify_recovery(data_dir: &std::path::Path, expected_prior_count: u64) {
     // Remove the stale lock file left by the crashed child process.
     let lock_path = data_dir.join(".lock");
     let _ = std::fs::remove_file(&lock_path);
@@ -258,14 +277,17 @@ async fn verify_recovery(
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-        };
+            test_boot_wallclock_override: None,
+    };
     let engine = WabiDbEngine::open(config).await.unwrap();
     engine.get_or_create_stream_key("ch_crash").await.unwrap();
 
     // Verify the projection state has the expected number of prior commits.
     let applied = engine.projection_state().applied_commit_seq();
-    assert!(applied >= expected_prior_count,
-        "expected at least {expected_prior_count} prior commits, got {applied}");
+    assert!(
+        applied >= expected_prior_count,
+        "expected at least {expected_prior_count} prior commits, got {applied}"
+    );
 
     // The recovered commit index must be duplicate-free and ordered.
     let ci_dir = data_dir.join("global").join("commit-index");
@@ -307,8 +329,8 @@ fn run_crash_child() {
         Ok(b) => b,
         Err(_) => return, // not in child mode
     };
-    let data_dir = std::env::var("WABIDB_DATA_DIR")
-        .expect("WABIDB_DATA_DIR must be set for crash child");
+    let data_dir =
+        std::env::var("WABIDB_DATA_DIR").expect("WABIDB_DATA_DIR must be set for crash child");
     let path = std::path::PathBuf::from(&data_dir);
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -320,18 +342,24 @@ fn run_crash_child() {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
         engine.get_or_create_stream_key("ch_crash").await.unwrap();
 
         // Commit 100 prior commands so the state is non-trivial.
         for i in 1..=100u64 {
-            let outcome = engine.run_command(make_crash_cmd(i, "ch_crash", 1, b"prior data")).await.unwrap();
+            let outcome = engine
+                .run_command(make_crash_cmd(i, "ch_crash", 1, b"prior data"))
+                .await
+                .unwrap();
             assert_eq!(outcome.commit_seq, i);
         }
 
         // The crash boundary command — this will hit the crash_point hook.
-        let _ = engine.run_command(make_crash_cmd(101, "ch_crash", 1, b"crash boundary")).await;
+        let _ = engine
+            .run_command(make_crash_cmd(101, "ch_crash", 1, b"crash boundary"))
+            .await;
         // If we get here, the crash didn't fire (shouldn't happen if the
         // boundary is valid and test-harness is enabled).
         panic!("child did not crash at boundary '{boundary}'; crash_point may not be wired");
@@ -467,6 +495,7 @@ async fn restart_never_reuses_commit_seq() {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
         engine.get_or_create_stream_key("ch_crash").await.unwrap();
@@ -507,6 +536,7 @@ async fn restart_never_reuses_commit_seq() {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
         engine.get_or_create_stream_key("ch_crash").await.unwrap();
@@ -514,11 +544,18 @@ async fn restart_never_reuses_commit_seq() {
         let ci_dir = dir.path().join("global").join("commit-index");
         let entries = crate::commit_index::batcher::read_all_entries(&ci_dir).unwrap();
         let seqs: Vec<u64> = entries.iter().map(|e| e.commit_seq).collect();
-        assert_eq!(seqs.len(), 7, "expected 5 + 2 commits in the index, got {seqs:?}");
+        assert_eq!(
+            seqs.len(),
+            7,
+            "expected 5 + 2 commits in the index, got {seqs:?}"
+        );
         let mut sorted = seqs.clone();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(seqs, sorted, "commit index must have no duplicate seqs: {seqs:?}");
+        assert_eq!(
+            seqs, sorted,
+            "commit index must have no duplicate seqs: {seqs:?}"
+        );
 
         let applied = engine.projection_state().applied_commit_seq();
         assert!(

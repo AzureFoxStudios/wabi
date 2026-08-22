@@ -61,7 +61,11 @@ proptest! {
 
 // -- Projection record postcard round-trips --------------------------------
 
-fn projection_round_trip<T: serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + PartialEq>(record: &T) {
+fn projection_round_trip<
+    T: serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + PartialEq,
+>(
+    record: &T,
+) {
     let encoded = postcard::to_allocvec(record).expect("encode");
     let decoded: T = postcard::from_bytes(&encoded).expect("decode");
     assert_eq!(*record, decoded);

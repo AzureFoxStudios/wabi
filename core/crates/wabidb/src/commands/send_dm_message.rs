@@ -3,9 +3,9 @@ use crate::commands::dm_send_auth::check_dm_send_authorized;
 use crate::crypto::dm_envelope::{seal, DmEnvelope};
 use crate::crypto::double_ratchet::{DoubleRatchetSession, HandshakeResult};
 use crate::error::{Result, WabiError};
+use crate::format::record::RecordKind;
 use crate::sequencer::run_command::CommitSequencer;
 use crate::sequencer::types::{CommandCommit, CommandOutcome, EventToWrite};
-use crate::format::record::RecordKind;
 use tokio::sync::oneshot;
 
 pub async fn send_dm_message(
@@ -23,13 +23,18 @@ pub async fn send_dm_message(
         });
     }
 
-    check_dm_send_authorized(sender_user_id, &[sender_user_id, recipient_user_id])
-        .map_err(|_| WabiError::Forbidden {
+    check_dm_send_authorized(sender_user_id, &[sender_user_id, recipient_user_id]).map_err(
+        |_| WabiError::Forbidden {
             user_id: sender_user_id,
             command: "send_dm_message".into(),
-        })?;
+        },
+    )?;
 
-    let dm_id = format!("dm_{}_{}", sender_user_id.min(recipient_user_id), sender_user_id.max(recipient_user_id));
+    let dm_id = format!(
+        "dm_{}_{}",
+        sender_user_id.min(recipient_user_id),
+        sender_user_id.max(recipient_user_id)
+    );
 
     let dm_auth = DmAuth::new(vec![sender_user_id, recipient_user_id]);
     dm_auth.is_authorized(sender_user_id)?;
@@ -93,8 +98,8 @@ pub async fn send_dm_message(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::{WabiDbConfig, WabiDbEngine};
     use crate::crypto::bootstrap::BootstrapSource;
+    use crate::engine::{WabiDbConfig, WabiDbEngine};
     use tempfile::tempdir;
 
     async fn setup_engine() -> WabiDbEngine {
@@ -106,6 +111,7 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         WabiDbEngine::open(config).await.unwrap()
     }
@@ -123,7 +129,10 @@ mod tests {
         )
         .await;
         // UnknownStreamKey is expected: no stream key registered for this DM stream.
-        assert!(result.is_err(), "expected error (no stream key), got Ok: {result:?}");
+        assert!(
+            result.is_err(),
+            "expected error (no stream key), got Ok: {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -155,7 +164,10 @@ mod tests {
         )
         .await;
         // UnknownStreamKey is expected (no stream key registered).
-        assert!(result.is_err(), "expected error (no stream key), got: {result:?}");
+        assert!(
+            result.is_err(),
+            "expected error (no stream key), got: {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -170,12 +182,16 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
+            test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
 
         // Register a stream key so the sequencer doesn't reject with UnknownStreamKey.
         let stream_key = [0x42u8; 32];
-        engine.register_stream_key("dm_1_2", stream_key).await.unwrap();
+        engine
+            .register_stream_key("dm_1_2", stream_key)
+            .await
+            .unwrap();
 
         let known_plaintext = b"BLIND_SERVER_SECRET_42_MARKER";
         let outcome = send_dm_message(
@@ -194,7 +210,11 @@ mod tests {
         // Build the events directory path.
         let data_dir = engine.data_dir().to_path_buf();
         let kind_dir = crate::sequencer::stream_kind_dir_name(2);
-        let events_dir = data_dir.join("streams").join(kind_dir).join("dm_1_2").join("events");
+        let events_dir = data_dir
+            .join("streams")
+            .join(kind_dir)
+            .join("dm_1_2")
+            .join("events");
         let seg_path = events_dir.join("00000001.wseg");
         assert!(seg_path.exists(), "segment file must exist at {seg_path:?}");
 
@@ -202,7 +222,10 @@ mod tests {
         use crate::stream_log::segment_reader::SegmentReader;
         let mut reader = SegmentReader::open(&seg_path).await.unwrap();
         let records = reader.read_records().await.unwrap();
-        assert!(!records.is_empty(), "segment must contain at least one record");
+        assert!(
+            !records.is_empty(),
+            "segment must contain at least one record"
+        );
 
         // Find the record with our commit_seq.
         let record = records
@@ -235,15 +258,24 @@ mod tests {
         );
 
         // The event payload should be valid JSON with ciphertext fields.
-        let event_json: serde_json::Value = serde_json::from_slice(&envelope.payload)
-            .expect("event payload should be valid JSON");
+        let event_json: serde_json::Value =
+            serde_json::from_slice(&envelope.payload).expect("event payload should be valid JSON");
         assert!(
             event_json.get("ciphertext").is_some(),
             "event payload must contain 'ciphertext' field: {event_str}"
         );
-        assert!(event_json.get("dh_public").is_some(), "event payload must contain 'dh_public'");
-        assert!(event_json.get("nonce").is_some(), "event payload must contain 'nonce'");
-        assert!(event_json.get("counter").is_some(), "event payload must contain 'counter'");
+        assert!(
+            event_json.get("dh_public").is_some(),
+            "event payload must contain 'dh_public'"
+        );
+        assert!(
+            event_json.get("nonce").is_some(),
+            "event payload must contain 'nonce'"
+        );
+        assert!(
+            event_json.get("counter").is_some(),
+            "event payload must contain 'counter'"
+        );
     }
 
     #[tokio::test]
@@ -259,6 +291,9 @@ mod tests {
         )
         .await;
         // UnknownStreamKey is expected (no stream key registered).
-        assert!(r1.is_err(), "expected error (no stream key), got Ok: {r1:?}");
+        assert!(
+            r1.is_err(),
+            "expected error (no stream key), got Ok: {r1:?}"
+        );
     }
 }
