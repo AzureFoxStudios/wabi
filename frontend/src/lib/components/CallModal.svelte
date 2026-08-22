@@ -41,6 +41,11 @@
 		toggleSpatialAudioEnabled,
 		callOfflineNotice
 	} from '$lib/calling';
+	import {
+		wabidbRemoteVideoStreams,
+		wabidbLocalPreviewStream,
+		wabidbLocalVideoActive
+	} from '$lib/wabidbVideoLane';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import {
@@ -65,6 +70,7 @@
 		buildActiveSpeakerLevels,
 		buildParticipants,
 		buildRenderTiles,
+		buildWabidbAwareParticipants,
 		buildRosterParticipants,
 		buildShares,
 		getInitial,
@@ -185,7 +191,12 @@
 		? ($layoutStore.navDock === 'right' ? $layoutStore.channelSidebarWidth : 0) + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)
 		: 0;
 
-	$: participants = [...buildParticipants($activeCalls, $isInCall, $localStream, $isVideoOff), ...rosterParticipants];
+	$: participants = buildWabidbAwareParticipants(
+		buildParticipants($activeCalls, $isInCall, $localStream, $isVideoOff),
+		$wabidbRemoteVideoStreams,
+		$wabidbLocalVideoActive ? $wabidbLocalPreviewStream : null,
+		$voiceChannelMembers
+	);
 	$: rosterParticipants = (() => {
 		const channelId = $activeVoiceChannel?.id;
 		if (!channelId) return [];

@@ -65,7 +65,7 @@ export function buildParticipants(
 }
 
 export function buildRosterParticipants(
-	rosterMembers: { userId: string; username: string; profilePicture?: string }[],
+	rosterMembers: { userId: string; username: string; profilePicture?: string; isMuted?: boolean }[],
 	existingCallUserIds: Set<string>
 ): ParticipantMedia[] {
 	return rosterMembers
@@ -76,7 +76,7 @@ export function buildRosterParticipants(
 			isLocal: false,
 			hasVideo: false,
 			stream: null,
-			isMuted: false,
+			isMuted: m.isMuted ?? false,
 			isScreenSharing: false
 		}));
 }
@@ -198,4 +198,49 @@ export function buildActiveSpeakerLevels(
 
 export function getInitial(label: string): string {
 	return label.trim().charAt(0).toUpperCase() || '?';
+}
+
+/**
+ * Overlay wabidb relay video onto the P2P-derived participant list.
+ *
+ * The wabidb video lane decodes remote frames into per-user MediaStreams
+ * (`wabidbRemoteVideoStreams`) and exposes the local preview while the lane
+ * is live. P2P call objects know nothing about those, so without this merge
+ * camera/screenshare on the default transport never renders a tile.
+ *
+ * Also repairs roster mute state: `voice-user-muted`/`voice-self-state` events
+ * maintain `isMuted` on voiceChannelMembers, but the roster path dropped it.
+ */
+export function buildWabidbAwareParticipants(
+	participants: ParticipantMedia[],
+	remoteStreams: Map<string, MediaStream>,
+	localPreview: MediaStream | null,
+	voiceMembersByChannel: Record<string, { userId: string; isMuted?: boolean; username?: string }[]>
+): ParticipantMedia[] {
+	if (remoteStreams.size === 0 && !localPreview) return participants;
+
+	return participants.map((participant) => {
+		// Local tile: adopt the lane preview as our own video.
+		if (participant.isLocal) {
+			if (localPreview && !participant.stream?.getVideoTracks().length) {
+				return { ...participant, hasVideo: true, stream: localPreview };
+			}
+			return participant;
+		}
+
+		// Remote tiles: match by stable id (`user-<dbId>`) or raw id.
+		const remote = remoteStreams.get(participant.id);
+		const memberRow = Object.values(voiceMembersByChannel)
+			.flat()
+			.find((m) => m.userId === participant.id);
+		const next: ParticipantMedia = { ...participant };
+		if (remote && !next.stream?.getVideoTracks().length) {
+			next.hasVideo = true;
+			next.stream = remote;
+		}
+		if (memberRow?.isMuted !== undefined && next.isMuted === undefined) {
+			next.isMuted = memberRow.isMuted;
+		}
+		return next;
+	});
 }

@@ -64,6 +64,7 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
         stable_id: stable_id.clone(),
         username: username.clone(),
         color: color.clone(),
+        is_muted: false,
         is_deafened,
         transmit_mode: "primary".to_string(),
         is_listening_only: false,
@@ -162,6 +163,7 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
                 stable_id: stable_id.clone(),
                 username: username.clone(),
                 color: color.clone(),
+                is_muted: false,
                 is_deafened: false,
                 transmit_mode: "listening".to_string(),
                 is_listening_only: true,
@@ -348,6 +350,63 @@ async fn on_set_voice_transmit_mode(socket: SocketRef, data: Value, state: SioSt
     });
     let _ = socket.emit("voice-transmit-mode-updated", &payload);
     let _ = io.broadcast().emit("voice-transmit-mode-updated", &payload).await;
+
+    for (channel_id, members) in updated_channels {
+        let _ = io
+            .emit(
+                "voice-channel-state",
+                &json!({
+                    "channelId": channel_id,
+                    "members": members,
+                }),
+            )
+            .await;
+    }
+}
+
+/// Client-authority self voice state (self-mute/self-deafen chips). The client
+/// owns its own mic state; this handler mirrors it into every shared roster so
+/// other members' tiles update without a server-side mute model. Mirrors the
+/// transmit-mode handler's shape exactly.
+#[allow(dead_code)]
+async fn on_voice_self_state(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    let muted = data.get("muted").and_then(|v| v.as_bool());
+    let deafened = data.get("deafened").and_then(|v| v.as_bool());
+    if muted.is_none() && deafened.is_none() {
+        return;
+    }
+
+    let identity = resolve_sio_identity(&socket);
+    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let stable_id = if user_id_num > 0 {
+        format!("user-{}", user_id_num)
+    } else {
+        socket.id.to_string()
+    };
+
+    let updated_channels: Vec<(String, Vec<Value>)> = {
+        let mut voice = state.voice_channels.write().await;
+        let mut updated = Vec::new();
+        for (channel_id, members) in voice.iter_mut() {
+            let mut touched = false;
+            for participant in members.iter_mut().filter(|p| p.socket_id == socket.id.to_string()) {
+                if let Some(m) = muted {
+                    participant.is_muted = m;
+                }
+                if let Some(d) = deafened {
+                    participant.is_deafened = d;
+                }
+                touched = true;
+            }
+            if touched {
+                updated.push((
+                    channel_id.clone(),
+                    members.iter().map(voice_participant_to_view).collect(),
+                ));
+            }
+        }
+        updated
+    };
 
     for (channel_id, members) in updated_channels {
         let _ = io

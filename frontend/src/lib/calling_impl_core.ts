@@ -52,6 +52,7 @@ import {
 	stopCallDiagnosticsPolling
 } from './callingDiagnostics';
 import { prefetchTurnCredentials } from './turnConfig';
+import { getSocket } from './socketConnection';
 import { playCallActionSound } from './callSounds';
 import { closeMediaGatewaySession } from './mediaGateway';
 import {
@@ -1958,6 +1959,7 @@ export function toggleMute() {
 	if (nextMuted) {
 		isLocalSpeaking.set(false);
 	}
+	emitVoiceSelfState();
 	void syncLocalAudioState();
 	playCallActionSound(nextMuted ? 'mute' : 'unmute');
 }
@@ -2022,10 +2024,30 @@ export function toggleDeafen(socket?: Socket) {
 	if (socket && activeVoiceChannelId) {
 		socket.emit(newDeafened ? 'voice-deafen' : 'voice-undeafen', { channelId: activeVoiceChannelId });
 	}
+	emitVoiceSelfState();
 	// Note: Actual deafen (muting remote audio) is handled in the UI component
 	// by setting audio elements to muted based on isDeafened store
 	void syncLocalAudioState();
 	syncSpatialAudioGraph();
+}
+
+/**
+ * Client-authority self mute/deafen mirror. Emits `voice-self-state` so the
+ * server roster (every shared channel this socket occupies) reflects our chip
+ * state for other members' tiles. Best-effort: no socket / not connected is a
+ * silent no-op.
+ */
+function emitVoiceSelfState(): void {
+	try {
+		const sock = getSocket?.() ?? null;
+		if (!sock) return;
+		sock.emit('voice-self-state', {
+			muted: get(isMuted),
+			deafened: get(isDeafened)
+		});
+	} catch {
+		/* best-effort only */
+	}
 }
 
 export async function toggleVideo(socket?: Socket) {
@@ -2037,6 +2059,26 @@ export async function toggleVideo(socket?: Socket) {
 	}
 	const stream = get(localStream);
 	if (!stream) {
+		return;
+	}
+
+	// wabidb relay transport: there are no peerConnections to renegotiate —
+	// the camera must ride the wabidb video lane instead. Bridge the toggle
+	// to the lane here so camera works on the DEFAULT transport.
+	const activeTransport = await resolveActiveTransport();
+	if (activeTransport === 'wabidb') {
+		try {
+			const { wabidbStartVideo, wabidbStopVideo } = await import('./callingWabidb');
+			if (get(isVideoOff)) {
+				const started = await wabidbStartVideo('camera');
+				if (started) isVideoOff.set(false);
+			} else {
+				wabidbStopVideo();
+				isVideoOff.set(true);
+			}
+		} catch (err) {
+			console.error('[Calling] wabidb camera toggle failed:', err);
+		}
 		return;
 	}
 

@@ -307,6 +307,9 @@ export const wabidbRemoteVideoStreams = writable<Map<string, MediaStream>>(new M
 /** Whether the LOCAL user currently has an active wabidb video lane. */
 export const wabidbLocalVideoActive = writable<boolean>(false);
 
+/** Local camera/screen preview MediaStream while the lane is live (for own tile). */
+export const wabidbLocalPreviewStream = writable<MediaStream | null>(null);
+
 export function setWabidbRemoteVideoStream(userId: string, stream: MediaStream | null): void {
   wabidbRemoteVideoStreams.update((m) => {
     const next = new Map(m);
@@ -430,6 +433,7 @@ export class WabidbVideoLane {
     this.forceKeyFrame = true;
     this.startCaptureLoop();
     wabidbLocalVideoActive.set(true);
+    wabidbLocalPreviewStream.set(stream);
   }
 
   private startCaptureLoop(): void {
@@ -578,6 +582,7 @@ export class WabidbVideoLane {
     this.canvas = null;
     this.canvasCtx = null;
     wabidbLocalVideoActive.set(false);
+    wabidbLocalPreviewStream.set(null);
   }
 
   // --------------------------------------------------------------------------
