@@ -7,13 +7,16 @@
 
 | Lane | Files | Status |
 |---|---|---|
-| L1 commit path | `wabidb/src/sequencer/*`, `commit_index/batcher.rs`, `adapter/mod.rs` (run/get_or_create_stream_key) | OPEN |
-| L2 idempotency | `wabidb/src/commands/idempotency.rs` + eviction caller site | OPEN |
-| L3 HTTP clients | `bot_delivery.rs`, `anchor.rs`, `mesh.rs` client reuse | OPEN |
-| L4 reaper/timers | `wabi-server/src/main.rs` reaper, `socketio/messages.rs` sleep timers | OPEN |
-| L5 message queries | `wabidb/src/projections/messages.rs`, adapter list/get paths | OPEN |
-| L6 presence/init | `socketio/presence.rs` layout cache | OPEN |
-| L7 frontend stores | `messageStore.ts`, `socketConnectionCore.ts`, MessageList dedupe/render | OPEN |
+| L1 commit path | `wabidb/src/sequencer/*`, `commit_index/batcher.rs`, `adapter/mod.rs` (run/get_or_create_stream_key) | DONE — peer session, group commit wired (card t_871980d6) |
+| L2 idempotency | `wabidb/src/commands/idempotency.rs` + eviction caller site | DONE — this session; bounded table (MAX_RECORDS=100k, evict-before-insert). Committed by peer inside 87b8f7d (t_b0a441b4) |
+| L3 HTTP clients | `bot_delivery.rs`, `anchor.rs`, `mesh.rs` client reuse | DONE — this session for bot_delivery (09e2f95); steam by peer (t_8bef244e); anchor/mesh left as low-frequency |
+| L4 reaper/timers | `wabi-server/src/main.rs` reaper, `socketio/messages.rs` sleep timers | DONE — peer session (t_219b766b) |
+| L5 message queries | `wabidb/src/projections/messages.rs`, adapter list/get paths | OPEN — card t_ee2420fe (fixed-width keys) unassigned |
+| L6 presence/init | `socketio/presence.rs` layout cache | OPEN — card t_55544bc2 unassigned |
+| L7 frontend stores | `messageStore.ts`, `socketConnectionCore.ts`, MessageList dedupe/render | OPEN — cards t_13934652, t_28bc75b1, t_14d68056 |
+
+### This session's commits
+- `09e2f95` perf(server): point lookups + shared webhook client (lanes L3 partial, finding #10)
 
 ## Findings
 
