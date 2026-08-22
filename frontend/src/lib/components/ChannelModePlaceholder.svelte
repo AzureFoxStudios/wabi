@@ -27,7 +27,11 @@
 	and wire object context menus via registerObjectRef (see docs/plans/2026-07-18-chat-object-refs.md).
 	*/
 
-	$: content = labels[mode];
+	$: content = labels[mode] ?? {
+		title: mode.charAt(0).toUpperCase() + mode.slice(1),
+		heading: `${mode} surface is not wired yet`,
+		copy: 'This channel type has no dedicated renderer yet.'
+	};
 	$: channelName = channel?.name || content.title.toLowerCase();
 	$: topic = channel?.topic || channel?.description || '';
 </script>

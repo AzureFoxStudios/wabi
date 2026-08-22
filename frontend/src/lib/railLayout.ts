@@ -1,5 +1,6 @@
 import { get } from 'svelte/store';
 import { railDensity, railSide, railLayoutLoaded, type RailDensity, type RailSide } from './layoutStoreStates';
+import { mergeIntoServerContainer } from './docking/layoutPersistence';
 import { getApiBase } from '$lib/api/utils';
 import { getAuthToken } from '$lib/authSession';
 
@@ -10,6 +11,7 @@ const PERSIST_DEBOUNCE_MS = 500;
  * Rail chrome (density + side) is stored inside the same `/api/user/layout`
  * container as the docking layout and theme (keys: layout, theme, railDensity, railSide).
  * This module only reads/writes the rail keys; it never touches layout/theme.
+ * Writes go through mergeIntoServerContainer so other slots survive.
  */
 
 interface RailLayoutState {
@@ -53,18 +55,8 @@ export function persistRailLayout(): void {
 			railDensity: get(railDensity),
 			railSide: get(railSide)
 		};
-		try {
-			await fetch(`${getApiBase()}/api/user/layout`, {
-				method: 'PUT',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`
-				},
-				body: JSON.stringify({ layoutJson: JSON.stringify(payload) })
-			});
-		} catch {
-			// best effort
-		}
+		await mergeIntoServerContainer(token, 'railDensity', payload.railDensity);
+		await mergeIntoServerContainer(token, 'railSide', payload.railSide);
 	}, PERSIST_DEBOUNCE_MS);
 }
 
