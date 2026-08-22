@@ -326,28 +326,6 @@
 		return message.timestamp + channelDurationMs;
 	}
 
-	// t_28bc75b1: extracted from the render reactive block. Prefer stable
-	// server id once accepted; optimistic rows keep clientMessageId.
-	// Keep LAST of a key so reconcile wins without dropping distinct messages.
-	function dedupeRenderSlice(slice: Message[]): Message[] {
-		const keyOf = (msg: Message, i: number) => {
-			const id = String(msg?.id ?? '').trim();
-			if (id && !id.startsWith('optimistic:')) return id;
-			return String(msg?.clientMessageId || id || msg?.clientNonce || '').trim() || `__idx_${i}`;
-		};
-		const lastByKey = new Map<string, Message>();
-		for (let i = 0; i < slice.length; i++) lastByKey.set(keyOf(slice[i], i), slice[i]);
-		const seen = new Set<string>();
-		const unique: Message[] = [];
-		for (let i = 0; i < slice.length; i++) {
-			const key = keyOf(slice[i], i);
-			if (seen.has(key)) continue;
-			seen.add(key);
-			unique.push(lastByKey.get(key) || slice[i]);
-		}
-		return unique;
-	}
-
 	function getMessageDeletionLabel(message: Message): string | null {
 		if (deletionCountdownMode === 'off') return null;
 		const deadline = getMessageDeletionDeadline(message);
@@ -390,9 +368,14 @@
 	}
 
 	$: {
+		// t_14d68056: messageById is a reply-lookup index only (used by
+		// getReplyToMessage). Rebuild it from the *filtered render list* plus
+		// the tail of `messages` instead of re-scanning the full history on
+		// every mutation. Replies overwhelmingly target recently visible
+		// messages; older targets fall back to a lazy per-id scan.
 		const nextMessageById = new Map<string, Message>();
-		for (const message of messages) {
-			nextMessageById.set(message.id, message);
+		for (const message of visibleMessages) {
+			if (message.id) nextMessageById.set(message.id, message);
 		}
 		messageById = nextMessageById;
 	}
@@ -1494,7 +1477,15 @@
 	}
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;
-		return messageById.get(replyToId);
+		// Fast path: the memoized visible-list index (t_14d68056).
+		const cached = messageById.get(replyToId);
+		if (cached) return cached;
+		// Slow path: reply target older than the render window — bounded scan
+		// from the end (replies usually reference recent messages).
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].id === replyToId) return messages[i];
+		}
+		return undefined;
 	}
 
 	function getFilteredIncomingMessage(message: Message): ChatFilterResult {
@@ -1765,13 +1756,14 @@
 		// t_28bc75b1: expiry filtering only needs re-evaluation when a message
 		// has actually crossed its deadline — not on every nowMs tick. Track
 		// the earliest pending deadline; if none is due yet, reuse the previous
-		// filtered list and skip straight to slice + dedupe.
+		// filtered list and skip straight to slice.
+		// t_14d68056: no render-path dedupe pass — socket ingest
+		// (dedupeMessagesKeepOrder + isSameMessageRow merge) guarantees row
+		// uniqueness; the keyed {#each} below is the final backstop.
 		const expiredSinceLastPass =
 			earliestPendingDeadline !== null && nowMs >= earliestPendingDeadline;
 		if (!expiredSinceLastPass && lastFilteredMessages !== null) {
-			visibleMessages = dedupeRenderSlice(
-				lastFilteredMessages.slice(visibleMessageStart)
-			);
+			visibleMessages = lastFilteredMessages.slice(visibleMessageStart);
 		} else {
 			const filtered: Message[] = [];
 			let earliest: number | null = null;
@@ -1786,7 +1778,7 @@
 			}
 			earliestPendingDeadline = earliest;
 			lastFilteredMessages = filtered;
-			visibleMessages = dedupeRenderSlice(filtered.slice(visibleMessageStart));
+			visibleMessages = filtered.slice(visibleMessageStart);
 		}
 	}
 
