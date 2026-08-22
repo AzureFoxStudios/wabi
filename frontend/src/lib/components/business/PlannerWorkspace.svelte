@@ -21,9 +21,10 @@
 	import KanbanBoard from '$lib/components/business/KanbanBoard.svelte';
 	import DiaryView from '$lib/components/business/DiaryView.svelte';
 	import ProjectsView from '$lib/components/business/ProjectsView.svelte';
+	import InsightsView from '$lib/components/business/InsightsView.svelte';
 	import TaskPanel from '$lib/components/business/TaskPanel.svelte';
 
-	type ViewKey = 'calendar' | 'board' | 'journal' | 'projects';
+	type ViewKey = 'calendar' | 'board' | 'journal' | 'projects' | 'insights';
 	type Variant = 'full' | 'compact' | 'detached';
 	type TaskPanelFilter = 'all' | 'today' | 'overdue' | 'upcoming';
 	/** What a stat pill click should do. */
@@ -51,14 +52,21 @@
 			deepLinkView === 'calendar' ||
 			deepLinkView === 'board' ||
 			deepLinkView === 'journal' ||
-			deepLinkView === 'projects'
+			deepLinkView === 'projects' ||
+			deepLinkView === 'insights'
 		) {
 			activeView = deepLinkView;
 			sessionStorage.removeItem('plannerDeepLinkView');
 		} else if (browser) {
 			// Views are device-local by design — restore the last one used here.
 			const saved = localStorage.getItem(ACTIVE_VIEW_KEY);
-			if (saved === 'calendar' || saved === 'board' || saved === 'journal' || saved === 'projects') {
+			if (
+				saved === 'calendar' ||
+				saved === 'board' ||
+				saved === 'journal' ||
+				saved === 'projects' ||
+				saved === 'insights'
+			) {
 				activeView = saved;
 			}
 		}
@@ -272,6 +280,14 @@
 				aria-selected={activeView === 'projects'}
 				on:click={() => setActiveView('projects')}>Projects</button
 			>
+			<button
+				type="button"
+				class="planner-tab"
+				class:active={activeView === 'insights'}
+				role="tab"
+				aria-selected={activeView === 'insights'}
+				on:click={() => setActiveView('insights')}>Insights</button
+			>
 		</div>
 
 		<div class="planner-spacer"></div>
@@ -464,6 +480,10 @@
 			{:else if activeView === 'projects'}
 				<div class="planner-view active view-projects">
 					<ProjectsView embedded addSignal={addSignal} />
+				</div>
+			{:else if activeView === 'insights'}
+				<div class="planner-view active view-insights">
+					<InsightsView />
 				</div>
 			{/if}
 		</div>
