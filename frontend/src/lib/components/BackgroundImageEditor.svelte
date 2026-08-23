@@ -70,7 +70,7 @@
 			headers['Authorization'] = `Bearer ${authToken}`;
 		}
 
-		const response = await fetch(`${getServerUrl()}/api/upload-background-image`, {
+		const response = await fetch(`${getServerUrl()}/api/upload/background-image`, {
 			method: 'POST',
 			headers,
 			credentials: 'include',

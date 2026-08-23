@@ -9,26 +9,44 @@
 	import BackgroundImageEditor from './BackgroundImageEditor.svelte';
 	import type { CustomTheme, PanelColors, PanelColorOverride } from '$lib/types/theme';
 	import { getAuthToken } from '$lib/authSession';
+	import { ALL_PALETTES, DEFAULT_PALETTE } from '$lib/theme/palettes';
 
-	let customColors: CustomTheme['colors'] = {
-		bgPrimary: '#0f0c29',
-		bgSecondary: '#1a1a2e',
-		bgTertiary: '#24243e',
-		textPrimary: '#e0e0ff',
-		textSecondary: '#b3b3ff',
-		textTertiary: '#9999ff',
-		accent: '#ff00ff',
-		accentHex: '#ff00ff',
-		accentRgb: '255, 0, 255',
-		border: '#302b63',
-		borderRgb: '48, 43, 99'
-	};
+	// Seed colors/gradients from a BasePalette so "Customize" starts from the
+	// currently selected theme instead of hardcoded purple.
+	function paletteToCustomSeed(paletteId: string): {
+		colors: CustomTheme['colors'];
+		gradients: CustomTheme['gradients'];
+	} {
+		const resolved = ALL_PALETTES.find((p) => p.id === paletteId) ?? DEFAULT_PALETTE;
+		return {
+			colors: {
+				bgPrimary: resolved.bgSunken,
+				bgSecondary: resolved.bgBase,
+				bgTertiary: resolved.bgRaised,
+				textPrimary: resolved.textPrimary,
+				textSecondary: resolved.textSecondary,
+				textTertiary: resolved.textMuted,
+				accent: resolved.accent,
+				accentHex: resolved.accent,
+				accentRgb: hexToRgb(resolved.accent),
+				border: resolved.bgRaised
+			},
+			gradients: {
+				primary: resolved.bgPrimary ?? `linear-gradient(to right, ${resolved.bgSunken} 0%, ${resolved.bgBase} 100%)`,
+				accent: `linear-gradient(to right, ${resolved.accent} 0%, ${resolved.accentSecondary} 100%)`,
+				accentHover: `linear-gradient(to right, ${resolved.accentSecondary} 0%, ${resolved.accent} 100%)`
+			}
+		};
+	}
 
-	let customGradients: CustomTheme['gradients'] = {
-		primary: 'linear-gradient(to right, #0f0c29 0%, #302b63 100%)',
-		accent: 'linear-gradient(to right, #ff00ff 0%, #ff69b4 100%)',
-		accentHover: 'linear-gradient(to right, #ff69b4 0%, #ff1493 100%)'
-	};
+	function currentThemeSeed(): { colors: CustomTheme['colors']; gradients: CustomTheme['gradients'] } {
+		const themeId = $themeStore.themeId === 'custom' ? 'dark' : $themeStore.themeId;
+		return paletteToCustomSeed(themeId);
+	}
+
+	let customColors: CustomTheme['colors'] = currentThemeSeed().colors;
+
+	let customGradients: CustomTheme['gradients'] = currentThemeSeed().gradients;
 
 	// Per-panel color overrides (server rail, left sidebar, center, right panel)
 	type PanelKey = 'serverRail' | 'leftSidebar' | 'center' | 'rightPanel';
@@ -77,6 +95,14 @@
 			panelColors = panelColors;
 			panelColorsInitialized = true;
 		}
+	}
+	// Non-custom themes: re-seed the customizer from that theme's palette so
+	// "Customize" starts from where the user is (e.g. Synapse), not hardcoded
+	// purple. Also covers prefs arriving after mount.
+	$: if ($themeStore.themeId !== 'custom') {
+		const seed = paletteToCustomSeed($themeStore.themeId);
+		customColors = seed.colors;
+		customGradients = seed.gradients;
 	}
 
 	function panelBgValue(key: PanelKey): string {
