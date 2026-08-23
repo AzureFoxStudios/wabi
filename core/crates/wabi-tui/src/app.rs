@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::mpsc;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, ChannelKind};
 use crate::config::Config;
 
 const LOG_CAP: usize = 200;
@@ -152,6 +152,7 @@ pub struct Channel {
     pub id: String,
     pub name: String,
     pub channel_type: String,
+    pub kind: ChannelKind,
     pub description: Option<String>,
 }
 
@@ -295,10 +296,26 @@ impl App {
 
     pub fn filtered_channels(&self) -> Vec<&Channel> {
         let q = self.channel_filter.to_lowercase();
-        self.channels
-            .iter()
-            .filter(|c| q.is_empty() || c.name.to_lowercase().contains(&q) || c.channel_type.to_lowercase().contains(&q))
-            .collect()
+        let mut direct: Vec<&Channel> = Vec::new();
+        let mut rest: Vec<&Channel> = Vec::new();
+        for c in &self.channels {
+            if !(q.is_empty()
+                || c.name.to_lowercase().contains(&q)
+                || c.channel_type.to_lowercase().contains(&q))
+            {
+                continue;
+            }
+            if matches!(c.kind, ChannelKind::Dm | ChannelKind::Group) {
+                direct.push(c);
+            } else {
+                rest.push(c);
+            }
+        }
+        // Stable order by name within each section; Direct pinned on top.
+        direct.sort_by(|a, b| a.name.cmp(&b.name));
+        rest.sort_by(|a, b| a.name.cmp(&b.name));
+        direct.extend(rest);
+        direct
     }
 
     pub fn filtered_users(&self) -> Vec<&RegisteredUser> {
