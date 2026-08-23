@@ -3,6 +3,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
 	import { channels, currentChannel, currentUser, users, joinChannel } from '$lib/socket';
+	import RoleBadge from './RoleBadge.svelte';
 	import { getAdminPaymentAccessPolicy, getApiBase, type PaymentAccessPolicy } from '$lib/api';
 
 	type ServerPulse = { onlineUsers: number; totalUsers: number };
@@ -168,6 +169,7 @@
 					<span class="ops-staff" class:ops-staff-owner={staff.highestRole === 'owner'} class:ops-staff-admin={staff.highestRole === 'admin'} class:ops-staff-mod={staff.highestRole === 'mod'}>
 						<span class="ops-staff-dot"></span>
 						<span class="ops-staff-name">{staff.username}</span>
+						<RoleBadge user={staff} size="sm" />
 						<span class="ops-staff-role">{staff.highestRole}</span>
 					</span>
 				{/each}
