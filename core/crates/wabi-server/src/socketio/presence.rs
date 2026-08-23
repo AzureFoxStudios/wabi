@@ -49,6 +49,17 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         .map(|u| u.color)
         .unwrap_or_else(|| "#98D8C8".to_string());
 
+    // Inherit presence from another live socket of the same account
+    // (multi-tab): a second tab shouldn't flip Invisible back to Active.
+    let inherited_presence = {
+        let connected = state.connected_users.read().await;
+        connected
+            .values()
+            .find(|u| u.db_user_id == Some(user_id_num))
+            .map(|u| u.presence)
+            .unwrap_or(UserPresence::Active)
+    };
+
     let connected_user = ConnectedUser {
         stable_id: stable_id.clone(),
         db_user_id: if user_id_num > 0 {
@@ -58,6 +69,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         },
         username: authed_username.clone(),
         color: color.clone(),
+        presence: inherited_presence,
         last_seen_micros: now_micros(),
     };
 
@@ -121,6 +133,23 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
     // the flag lives in-memory (state.breakout_rooms), not on the channel row.
     merge_breakout_flags(&state, &mut channels).await;
 
+    // Voice occupancy rosters, so voice chips survive a page refresh. Mirrors
+    // the shape the FE reads at socketConnectionCore.ts:651 — a channel_id ->
+    // members[] map. Only channels with live participants are included.
+    let voice_state: Value = {
+        let voice = state.voice_channels.read().await;
+        let mut map = serde_json::Map::new();
+        for (channel_id, members) in voice.iter() {
+            if members.is_empty() {
+                continue;
+            }
+            let views: Vec<Value> =
+                members.iter().map(voice_participant_to_view).collect();
+            map.insert(channel_id.clone(), Value::Array(views));
+        }
+        Value::Object(map)
+    };
+
     let init = json!({
         "channels": channels,
         "users": online_users,
@@ -128,7 +157,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         "emotes": [],
         "emojis": [],
         "roleDefinitions": [],
-        "voiceState": {},
+        "voiceState": voice_state,
         "messagePurgeVersion": 0,
         "session": { "sessionId": socket.id.to_string() },
     });
@@ -322,6 +351,17 @@ async fn on_update_profile(
         return;
     }
 
+    // Legacy `updateProfile({ status })` calls used to land here and write
+    // the presence word ("away"/"busy") into the user's status MESSAGE field.
+    // Presence is owned by `set-presence` now — ignore `status` in this
+    // handler entirely so it can never corrupt profile text again.
+    if data.get("status").is_some() && data.get("statusMessage").is_none() {
+        let _ = socket.emit(
+            "presence-ignored",
+            &json!({ "reason": "use set-presence for presence changes" }),
+        );
+    }
+
     let mut updates = wabidb::domain::UserUpdate::default();
 
     if let Some(v) = data.get("profilePicture").and_then(|v| v.as_str()) {
@@ -379,7 +419,11 @@ async fn on_update_profile(
     if let Some(v) = data.get("bio").and_then(|v| v.as_str()) {
         updates.bio = sanitize_profile_text(v, 280);
     }
-    if let Some(v) = data.get("status").and_then(|v| v.as_str()) {
+    // NOTE: `status` is deliberately NOT accepted here. It used to be
+    // written into status_message, corrupting profile text with presence
+    // words. Presence goes through `set-presence`; custom status text
+    // should use `statusMessage`.
+    if let Some(v) = data.get("statusMessage").and_then(|v| v.as_str()) {
         updates.status_message = sanitize_profile_text(v, 120);
     }
     if let Some(v) = data.get("color").and_then(|v| v.as_str()) {
@@ -530,6 +574,54 @@ async fn on_update_profile(
             );
         }
     }
+}
+
+/// Handle `set-presence`: update this socket's self-selected presence
+/// (active/away/busy/invisible) and broadcast the masked view. Invisible is
+/// emitted as "offline" so no observer can distinguish it from a real leave.
+#[allow(dead_code)]
+async fn on_set_presence(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    let Some(identity) = resolve_sio_identity(&socket) else {
+        let _ = socket.emit("presence-rejected", &json!({ "reason": "authentication required" }));
+        return;
+    };
+    let user_id = identity.user_id;
+    if user_id <= 0 {
+        let _ = socket.emit("presence-rejected", &json!({ "reason": "authentication required" }));
+        return;
+    }
+
+    let requested = data.get("presence").and_then(|v| v.as_str());
+    let presence = UserPresence::parse(requested.unwrap_or(""));
+    if requested.is_none() {
+        let _ = socket.emit("presence-rejected", &json!({ "reason": "missing presence value" }));
+        return;
+    }
+
+    let stable_id = format!("user-{}", user_id);
+
+    // Update every live socket of this account (multi-tab consistency).
+    {
+        let mut connected = state.connected_users.write().await;
+        for u in connected.values_mut() {
+            if u.db_user_id == Some(user_id) {
+                u.presence = presence;
+            }
+        }
+    }
+
+    // Masked view: invisible → "offline". Broadcast namespace-wide
+    // (includes the emitter's own sockets).
+    let mut view = json!({
+        "id": stable_id,
+        "username": identity.username,
+        "status": if presence == UserPresence::Invisible { "offline" } else { presence.as_str() },
+        "dbUserId": user_id,
+    });
+    if presence == UserPresence::Invisible {
+        view["statusMessage"] = Value::Null;
+    }
+    let _ = io.emit("presence-changed", &view);
 }
 
 #[allow(dead_code)]
