@@ -60,7 +60,7 @@
   "dependencies": {
     "@giphy/js-fetch-api": "5.8.0",
     "@tauri-apps/api": "2.11.1",
-    "@xyflow/svelte": "1.6.2",
+    "@xyflow/svelte": "1.6.3",
     "dompurify": "3.4.12",
     "katex": "0.18.2",
     "livekit-client": "2.21.0",
