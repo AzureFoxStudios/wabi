@@ -126,6 +126,8 @@ export {
 	pinnedChannels,
 	currentChannel,
 	channelMessages,
+	channelMessagesStore,
+	dropChannelMessagesStore,
 	users,
 	serverMembers,
 	typingUsers,

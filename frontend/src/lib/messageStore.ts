@@ -10,7 +10,7 @@
  * - Optimistic message updates
  */
 
-import { writable, get } from 'svelte/store';
+import { writable, get, type Writable } from 'svelte/store';
 import type { Message } from './socket-types';
 import type { MessageType } from '../../../packages/wabi-protocol/src/generated/MessageType';
 import { getSocket, connected } from './socketConnection';
@@ -21,10 +21,52 @@ import { currentUser } from './presenceStore';
 // STORES
 // ============================================================================
 
+// God-store fix (perf audit finding #2): `channelMessages` remains ONE map so
+// all existing `$channelMessages[id]` subscribers keep working unchanged.
+// Scoped invalidation is provided by `channelMessagesStore(id)` below: a
+// per-channel writable that re-emits ONLY when that channel's array reference
+// changes. Our mutators guarantee untouched channels keep their previous
+// array reference, so a component subscribed to channel A never re-runs its
+// reactive blocks when channel B receives a message. High-traffic message
+// lists are migrated to the scoped store; low-frequency readers stay on the
+// compat map.
 export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
 export const unreadCount = writable(0);
 export const lastReadMessageId = writable<string | null>(null);
 export const channelUnreadCounts = writable<Record<string, number>>({});
+
+const channelSliceStores = new Map<string, Writable<Message[]>>();
+
+/**
+ * Per-channel view of `channelMessages`. Emits only when THIS channel's
+ * array identity changes (which is exactly what our mutators preserve).
+ * Subscribe once per (component, channelId); safe to call every derive pass.
+ */
+export function channelMessagesStore(channelId: string): Writable<Message[]> {
+	if (!channelId) return writable([]);
+	let store = channelSliceStores.get(channelId);
+	if (!store) {
+		store = writable<Message[]>(get(channelMessages)[channelId] || []);
+		channelSliceStores.set(channelId, store);
+		let prev: Message[] = get(store);
+		const unsub = channelMessages.subscribe((map) => {
+			const next = map[channelId];
+			// Reference guard: skip emission when this channel didn't change.
+			// (`next` may be undefined after channel deletion -> emit empty.)
+			if ((next || []) !== prev && !(next === undefined && prev.length === 0)) {
+				prev = next || [];
+				store!.set(prev);
+			}
+		});
+		void unsub;
+	}
+	return store;
+}
+
+/** Drop a channel's scoped store (call when the channel is deleted/left). */
+export function dropChannelMessagesStore(channelId: string): void {
+	channelSliceStores.delete(channelId);
+}
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -100,8 +142,11 @@ export function markChannelAsRead(channelId: string): void {
 	}
 
 	sock.emit('mark-channel-as-read', { channelId });
+	// Read the prior count BEFORE zeroing — decrementing after the reset
+	// always subtracts 0, letting the global unread badge drift upward.
+	const prior = get(channelUnreadCounts)[channelId] || 0;
 	channelUnreadCounts.update((counts) => ({ ...counts, [channelId]: 0 }));
-	unreadCount.update((count) => Math.max(0, count - (get(channelUnreadCounts)[channelId] || 0)));
+	unreadCount.update((count) => Math.max(0, count - prior));
 }
 
 export function retryMessagePersistence(channelId: string, messageId: string): void {
