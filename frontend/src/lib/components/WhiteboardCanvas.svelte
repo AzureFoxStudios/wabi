@@ -12,6 +12,7 @@
 	import { dequeueWhiteboardImport, queueWhiteboardImport, whiteboardPendingImports, type PendingWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import { createWhiteboardImageElement, uploadWhiteboardImage } from '$lib/whiteboard/imageImports';
 	import { resolveWhiteboardLayerId, resolveWritableWhiteboardLayerId } from '$lib/whiteboard/layers';
+import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	import './WhiteboardCanvas.css';
 
 	export let remoteCursors: Array<{ userId: string; username: string; color: string; x: number; y: number }> = [];
@@ -367,7 +368,21 @@
 		}
 		if (e.key === ' ' && !e.repeat) { e.preventDefault(); isSpacePanning = true; return; }
 		if (e.key === 'Delete' || e.key === 'Backspace') { if (readOnly) return; const sel = get(selection); if (sel.size > 0) { e.preventDefault(); boardStore.deleteElements([...sel]); } return; }
-		if (ctrl && e.key.toLowerCase() === 'z') { if (readOnly) return; e.preventDefault(); if (e.shiftKey) boardStore.redo(); else boardStore.undo(); return; }
+		if (ctrl && e.key.toLowerCase() === 'z') {
+			if (readOnly) return;
+			e.preventDefault();
+			// Raster layers have their own pixel-level undo stack; route to it when
+			// the active layer is a Paint layer and it has entries to pop.
+			const bs = get(boardStore);
+			const activeLayer = bs.layers.find((layer) => layer.id === bs.activeLayerId);
+			if (activeLayer?.mode === 'raster' && rasterCanUndo()) {
+				rasterUndo();
+				requestRender();
+				return;
+			}
+			if (e.shiftKey) boardStore.redo(); else boardStore.undo();
+			return;
+		}
 		if (ctrl && e.key.toLowerCase() === 'y') { if (readOnly) return; e.preventDefault(); boardStore.redo(); return; }
 		if (ctrl && e.key.toLowerCase() === 'a') { e.preventDefault(); boardStore.selectAll(); return; }
 		if (ctrl && e.key.toLowerCase() === 'd') { if (readOnly) return; const sel = get(selection); if (sel.size > 0) { e.preventDefault(); boardStore.duplicateElements([...sel]); } return; }

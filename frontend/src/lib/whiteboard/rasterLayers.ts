@@ -18,6 +18,90 @@ interface DirtyRect {
 }
 const rasterDirtyBounds = new Map<string, DirtyRect>();
 
+// ---------------------------------------------------------------------------
+// Raster undo checkpoints
+//
+// A parallel, independent stack (the vector element stack in boardUndo.ts is
+// untouched). One entry per stroke: the pixels that were UNDER the stroke's
+// dirty rect before it was painted. pixels === null means the region was blank
+// before the stroke — undo clears the rect instead of blitting pixels, which
+// keeps fresh-stroke entries from costing 64MB copies.
+// ---------------------------------------------------------------------------
+
+interface RasterUndoEntry {
+	layerId: string;
+	rect: { x: number; y: number; w: number; h: number };
+	pixels: ImageData | null;
+	bytes: number;
+}
+
+const MAX_RASTER_UNDO_ENTRIES = 30;
+const MAX_RASTER_UNDO_BYTES = 8 * 1024 * 1024;
+
+let rasterUndoStack: RasterUndoEntry[] = [];
+let rasterRedoStack: RasterUndoEntry[] = [];
+
+function pushRasterUndoEntry(entry: RasterUndoEntry): void {
+	rasterUndoStack.push(entry);
+	rasterRedoStack = [];
+	while (rasterUndoStack.length > MAX_RASTER_UNDO_ENTRIES) rasterUndoStack.shift();
+	let total = 0;
+	for (const e of rasterUndoStack) total += e.bytes;
+	while (total > MAX_RASTER_UNDO_BYTES && rasterUndoStack.length > 1) {
+		total -= rasterUndoStack[0].bytes;
+		rasterUndoStack.shift();
+	}
+}
+
+export function rasterCanUndo(): boolean {
+	return rasterUndoStack.length > 0;
+}
+
+/**
+ * Snapshot the region about to be painted. Call BEFORE the stroke's first dab.
+ * The current dirty bounds (if any) describe exactly what the stroke will touch;
+ * a fresh layer yields a blank-region entry.
+ */
+export function beginRasterStroke(layerId: string): void {
+	if (!layerBitmaps.has(layerId)) return;
+	const bounds = rasterDirtyBounds.get(layerId);
+	const bitmap = getLayerBitmap(layerId);
+	const ctx = bitmap.getContext('2d')!;
+	let entry: RasterUndoEntry;
+	if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) {
+		entry = { layerId, rect: { x: 0, y: 0, w: 0, h: 0 }, pixels: null, bytes: 0 };
+	} else {
+		const x = Math.max(0, Math.floor(bounds.minX));
+		const y = Math.max(0, Math.floor(bounds.minY));
+		const w = Math.min(RASTER_WIDTH, Math.ceil(bounds.maxX)) - x;
+		const h = Math.min(RASTER_HEIGHT, Math.ceil(bounds.maxY)) - y;
+		const pixels = ctx.getImageData(x, y, w, h);
+		entry = { layerId, rect: { x, y, w, h }, pixels, bytes: pixels.data.byteLength };
+	}
+	pushRasterUndoEntry(entry);
+}
+
+export function rasterUndo(): void {
+	const entry = rasterUndoStack.pop();
+	if (!entry) return;
+	rasterRedoStack.push(entry);
+	const bitmap = layerBitmaps.get(entry.layerId);
+	if (!bitmap) return;
+	const ctx = bitmap.getContext('2d')!;
+	if (entry.pixels) {
+		ctx.putImageData(entry.pixels, entry.rect.x, entry.rect.y);
+	} else if (entry.rect.w > 0 && entry.rect.h > 0) {
+		ctx.clearRect(entry.rect.x, entry.rect.y, entry.rect.w, entry.rect.h);
+	} else {
+		ctx.clearRect(0, 0, RASTER_WIDTH, RASTER_HEIGHT);
+	}
+	// Re-dirty the restored region so the next commit re-uploads corrected pixels,
+	// and advance the revision silently (no vector-stack push, no patch emission).
+	const r = entry.pixels ? entry.rect : { x: 0, y: 0, w: RASTER_WIDTH, h: RASTER_HEIGHT };
+	expandDirtyBounds(entry.layerId, r.x + r.w / 2, r.y + r.h / 2, Math.max(r.w, r.h) / 2);
+	boardStore.updateLayerSilent(entry.layerId, { mode: 'raster', revision: (get(boardStore).layers.find((l) => l.id === entry.layerId)?.revision || 0) + 1 });
+}
+
 function expandDirtyBounds(layerId: string, x: number, y: number, reach: number): void {
 	const rect = rasterDirtyBounds.get(layerId);
 	if (rect) {
