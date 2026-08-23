@@ -21,6 +21,7 @@
 		getLocalWabiProfileImportPreview
 	} from '$lib/localWabiProfileImport';
 	import UsernameFontCustomizer from '../UsernameFontCustomizer.svelte';
+	import RoleBadge from '../RoleBadge.svelte';
 
 	const dispatch = createEventDispatcher<{
 		openAvatarEditor: void;
@@ -506,6 +507,21 @@
 		</div>
 	</div>
 </div>
+
+{#if $currentUser?.badges?.length}
+	<div class="settings-section">
+		<h3>Badges</h3>
+		<div class="settings-group-card tight">
+			<div class="setting-item-full">
+				<div class="setting-info">
+					<span class="setting-label">Assigned by server admins</span>
+					<span class="setting-description">Shown next to your name across the app.</span>
+				</div>
+				<RoleBadge user={$currentUser} size="md" maxBadges={8} />
+			</div>
+		</div>
+	</div>
+{/if}
 
 <div class="settings-section">
 	<div class="icon-action-row">
