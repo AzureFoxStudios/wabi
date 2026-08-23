@@ -246,6 +246,11 @@ export async function connectWabidbCall(
 				userId: String(userId),
 				socket,
 				onError: (err: Error) => console.error('[WabidbMediaRelay]', err),
+				onRemoteAudioActivity: (fromUserId: string) => {
+					void import('./callingAudioMonitors').then(({ notifyRelayAudioActivity }) =>
+						notifyRelayAudioActivity(fromUserId)
+					);
+				},
 				...(isDirectCall
 					? { kind: 'dm' as const, peerStableUserId: peerUserId }
 					: {}),

@@ -56,6 +56,36 @@ export function stopAllRemoteSpeakingMonitors(): void {
 	}
 }
 
+/**
+ * Relay audio-activity pulse: mark a remote user as speaking for a short
+ * decay window. The wabidb relay calls this on every inbound audio packet —
+ * it has no MediaStream to analyse, so activity = speaking.
+ */
+let relaySpeakingDecay: Map<string, number> | null = null;
+let relayDecayTimer: number | null = null;
+
+export function notifyRelayAudioActivity(userId: string): void {
+	if (!relaySpeakingDecay) relaySpeakingDecay = new Map();
+	relaySpeakingDecay.set(userId, Date.now() + 700);
+	setRemoteSpeakingState(userId, true);
+	if (relayDecayTimer == null) {
+		relayDecayTimer = window.setInterval(() => {
+			const now = Date.now();
+			const map = relaySpeakingDecay!;
+			for (const [uid, until] of Array.from(map.entries())) {
+				if (now > until) {
+					map.delete(uid);
+					setRemoteSpeakingState(uid, false);
+				}
+			}
+			if (map.size === 0 && relayDecayTimer != null) {
+				clearInterval(relayDecayTimer);
+				relayDecayTimer = null;
+			}
+		}, 300);
+	}
+}
+
 export function startRemoteSpeakingMonitor(userId: string, stream: MediaStream): void {
 	stopRemoteSpeakingMonitor(userId);
 
