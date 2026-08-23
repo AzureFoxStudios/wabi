@@ -41,8 +41,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::sync::RwLock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
@@ -191,7 +191,9 @@ impl ProjectionState {
         }
         // Slow path (rare): index does not exist yet → create under write lock.
         let mut indexes = self.indexes.write().unwrap();
-        let map = indexes.entry(index.to_string()).or_insert_with(SkipMap::new);
+        let map = indexes
+            .entry(index.to_string())
+            .or_insert_with(SkipMap::new);
         f(map)
     }
 
@@ -229,6 +231,52 @@ impl ProjectionState {
                 let v = entry.value();
                 f(k, v);
                 current = entry.next();
+            }
+        }
+    }
+
+    /// Reverse-iterate entries whose key starts with `prefix` (highest key
+    /// first), calling `f` for each until `f` returns `false` or the prefix
+    /// range is exhausted. Enables O(visited) tail queries — e.g. "last N
+    /// messages in a channel" visits N records instead of decoding the whole
+    /// channel (t_ee2420fe). Requires keys whose lexicographic order matches
+    /// the semantic order (fixed-width encodings).
+    pub fn prefix_scan_reverse<F>(&self, index: &str, prefix: &[u8], mut f: F)
+    where
+        // Return false from `f` to stop early.
+        F: FnMut(&[u8], &[u8]) -> bool,
+    {
+        let indexes = self.indexes.read().unwrap();
+        if let Some(map) = indexes.get(index) {
+            // Start at the last entry strictly below prefix-with-last-byte-
+            // incremented (the exclusive upper bound of the prefix range).
+            let mut upper = prefix.to_vec();
+            let carry = match upper.last_mut() {
+                Some(last) => {
+                    let (next, overflow) = last.overflowing_add(1);
+                    *last = next;
+                    overflow
+                }
+                None => true,
+            };
+            let mut current = if carry || upper.is_empty() {
+                // 0xff suffix overflowed or empty prefix: unbounded above,
+                // start from the map's maximum.
+                map.iter().next_back()
+            } else {
+                let upper_ref: &Vec<u8> = &upper;
+                map.upper_bound(Bound::Excluded(upper_ref))
+            };
+            while let Some(entry) = current {
+                let k = entry.key();
+                if !k.starts_with(prefix) {
+                    break;
+                }
+                let v = entry.value();
+                if !f(k, v) {
+                    break;
+                }
+                current = entry.prev();
             }
         }
     }
@@ -369,17 +417,23 @@ impl ProjectionState {
     pub fn save_snapshot(&self, data_dir: &Path) -> Result<()> {
         let path = Self::snapshot_path(data_dir);
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| WabiError::Io(std::io::Error::new(
-                e.kind(),
-                format!("create projections dir: {e}"),
-            )))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                WabiError::Io(std::io::Error::new(
+                    e.kind(),
+                    format!("create projections dir: {e}"),
+                ))
+            })?;
         }
 
-        let indexes = self.indexes.read().map_err(|e| WabiError::InternalInvariantViolated {
-            invariant: format!("projection state lock poisoned: {e}"),
-        })?;
+        let indexes = self
+            .indexes
+            .read()
+            .map_err(|e| WabiError::InternalInvariantViolated {
+                invariant: format!("projection state lock poisoned: {e}"),
+            })?;
 
-        let mut snapshot_indexes: Vec<(String, Vec<SnapshotEntry>)> = Vec::with_capacity(indexes.len());
+        let mut snapshot_indexes: Vec<(String, Vec<SnapshotEntry>)> =
+            Vec::with_capacity(indexes.len());
         for (name, map) in indexes.iter() {
             let mut entries: Vec<SnapshotEntry> = Vec::new();
             for entry in map.iter() {
@@ -398,14 +452,17 @@ impl ProjectionState {
             indexes: snapshot_indexes,
         };
 
-        let json = serde_json::to_string(&data).map_err(|e| WabiError::InternalInvariantViolated {
-            invariant: format!("snapshot serialize: {e}"),
-        })?;
+        let json =
+            serde_json::to_string(&data).map_err(|e| WabiError::InternalInvariantViolated {
+                invariant: format!("snapshot serialize: {e}"),
+            })?;
 
-        std::fs::write(&path, &json).map_err(|e| WabiError::Io(std::io::Error::new(
-            e.kind(),
-            format!("snapshot write: {e}"),
-        )))?;
+        std::fs::write(&path, &json).map_err(|e| {
+            WabiError::Io(std::io::Error::new(
+                e.kind(),
+                format!("snapshot write: {e}"),
+            ))
+        })?;
 
         Ok(())
     }
@@ -420,10 +477,9 @@ impl ProjectionState {
             return Ok(None);
         }
 
-        let json = std::fs::read_to_string(&path).map_err(|e| WabiError::Io(std::io::Error::new(
-            e.kind(),
-            format!("snapshot read: {e}"),
-        )))?;
+        let json = std::fs::read_to_string(&path).map_err(|e| {
+            WabiError::Io(std::io::Error::new(e.kind(), format!("snapshot read: {e}")))
+        })?;
 
         let data: SnapshotData = serde_json::from_str(&json).map_err(|e| WabiError::Corrupt {
             location: "projection snapshot".into(),
@@ -433,7 +489,12 @@ impl ProjectionState {
         let state = ProjectionState::new();
         for (name, entries) in &data.indexes {
             for entry in entries {
-                state.insert(name, entry.key.0.clone(), entry.value.0.clone(), data.watermark);
+                state.insert(
+                    name,
+                    entry.key.0.clone(),
+                    entry.value.0.clone(),
+                    data.watermark,
+                );
             }
         }
         state.set_applied_commit_seq(data.watermark);
@@ -628,7 +689,8 @@ mod tests {
         state.insert("test", b"del1".to_vec(), b"dead".to_vec(), 2);
         state.insert("test", b"del2".to_vec(), b"gone".to_vec(), 3);
 
-        let removed = state.compact_index("test", |_key, value| value == b"dead" || value == b"gone");
+        let removed =
+            state.compact_index("test", |_key, value| value == b"dead" || value == b"gone");
         assert_eq!(removed, 2);
 
         assert!(state.get("test", b"keep").is_some());
@@ -659,7 +721,8 @@ mod tests {
     async fn dispatcher_processes_items_in_order() {
         let state = Arc::new(ProjectionState::new());
         let table = Arc::new(DispatchTable::new(vec![]).unwrap());
-        let handle = spawn_projection_dispatcher(Arc::clone(&state), table, Some(16), None, None).unwrap();
+        let handle =
+            spawn_projection_dispatcher(Arc::clone(&state), table, Some(16), None, None).unwrap();
 
         for i in 1..=5 {
             handle
@@ -698,7 +761,8 @@ mod tests {
         // show readers blocking behind the writer.
         let state = Arc::new(ProjectionState::new());
         let table = Arc::new(DispatchTable::new(vec![]).unwrap());
-        let handle = spawn_projection_dispatcher(Arc::clone(&state), table, Some(256), None, None).unwrap();
+        let handle =
+            spawn_projection_dispatcher(Arc::clone(&state), table, Some(256), None, None).unwrap();
 
         // Pre-populate so readers have something to find.
         for i in 0..100 {
@@ -753,7 +817,9 @@ mod tests {
 
     #[tokio::test]
     async fn projection_messages_routes_to_handler() {
-        use crate::projections::messages::{encode_key, encode_record, MessageRecord, MessagesProjection};
+        use crate::projections::messages::{
+            encode_key, encode_record, MessageRecord, MessagesProjection,
+        };
         use std::sync::Arc;
 
         let state = Arc::new(ProjectionState::new());
@@ -805,7 +871,10 @@ mod tests {
 
         // The message should NOT be in the generic "events" index.
         let events_entry = state.get("events", b"message_created");
-        assert!(events_entry.is_none(), "message should NOT be in 'events' index");
+        assert!(
+            events_entry.is_none(),
+            "message should NOT be in 'events' index"
+        );
     }
 
     #[tokio::test]
@@ -820,7 +889,10 @@ mod tests {
 
         // Give the waiter a moment to start and block.
         sleep(Duration::from_millis(50)).await;
-        assert!(!waiter.is_finished(), "waiter should be blocked on the held permit");
+        assert!(
+            !waiter.is_finished(),
+            "waiter should be blocked on the held permit"
+        );
 
         // Drop p1; waiter should now acquire.
         drop(p1);
