@@ -10,7 +10,9 @@
 		policy,
 		selection,
 		elements,
-		boardState
+		boardState,
+		activeLayerId,
+		layers
 	} from '$lib/whiteboard/boardStore';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
 	import { onMathPlacement, buildMathElement, type MathPlacement } from '$lib/whiteboard/tools';
@@ -63,6 +65,13 @@
 		if (p?.writeAccess === 'desktop') return { label: 'Desktop-edit', icon: 'desktop' };
 		return null;
 	})();
+
+	$: activeLayer = $layers.find((l) => l.id === $activeLayerId) || null;
+	$: layerModeBadge = activeLayer
+		? activeLayer.mode === 'raster'
+			? { label: 'Paint', mode: 'raster' as const }
+			: { label: 'Vector', mode: 'vector' as const }
+		: null;
 
 	function isToolDisabled(id: string): boolean {
 		return readOnly && drawingTools.has(id);
@@ -243,6 +252,12 @@
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h12M4 10h12M4 14h12"/></svg>
 	</button>
 	<div class="wb-toolbar">
+	{#if activeLayer && layerModeBadge}
+		<div class="wb-layer-mode-chip" class:raster={layerModeBadge.mode === 'raster'} title="Active layer: {activeLayer.name} ({layerModeBadge.label})">
+			<span class="wb-layer-mode-name">{activeLayer.name}</span>
+			<span class="wb-layer-mode-badge">{layerModeBadge.label}</span>
+		</div>
+	{/if}
 	<div class="wb-toolbar-section tools">
 		<span class="wb-toolbar-group-label">Tools</span>
 		{#each tools as tool}
@@ -1030,6 +1045,46 @@
 	.wb-policy-badge-icon svg {
 		width: 12px;
 		height: 12px;
+	}
+
+	.wb-layer-mode-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin-right: 2px;
+		padding: 3px 8px;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--accent-primary, #6366f1) 34%, transparent);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent);
+		color: var(--accent-primary, #6366f1);
+		font-size: 0.7rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+		user-select: none;
+	}
+
+	.wb-layer-mode-chip.raster {
+		border-color: color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
+		background: color-mix(in srgb, var(--color-info, #7dd3fc) 14%, transparent);
+		color: var(--color-info, #7dd3fc);
+	}
+
+	.wb-layer-mode-name {
+		max-width: 10ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-weight: 600;
+		opacity: 0.92;
+	}
+
+	.wb-layer-mode-badge {
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 1px 6px;
+		border-radius: 999px;
+		background: color-mix(in srgb, currentColor 18%, transparent);
 	}
 
 	@media (prefers-reduced-motion: reduce) {
