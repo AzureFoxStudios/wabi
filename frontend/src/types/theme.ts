@@ -77,5 +77,25 @@ export interface ThemePreferences {
 	uniform_font_size?: string;
 	uniform_font_weight?: string;
 	uniform_font_style?: string;
+	/**
+	 * Per-user ambient-effect override (effect id, colors, intensity/size/speed,
+	 * plus effect-specific state like the Joker title/blind/shop toggle).
+	 * Persisted server-side under the `theme_ambient` key.
+	 */
+	theme_ambient?: ThemeAmbientOverride | null;
 	updated_at?: number;
+}
+
+/** User's saved background-effect tweaks (from EffectsTab). */
+export interface ThemeAmbientOverride {
+	effect: string;
+	color?: string;
+	color2?: string;
+	color3?: string;
+	intensity: number;
+	size: number;
+	speed: number;
+	globalOverride?: boolean;
+	/** Effect-specific state, e.g. `{ state: 'title' | 'blind' | 'shop' }` for Joker. */
+	state?: Record<string, unknown>;
 }

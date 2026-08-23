@@ -12,14 +12,22 @@ interface SynapseLine {
 	to: number;
 }
 
+interface SynapsePacket {
+	from: number;
+	to: number;
+	t: number; // 0..1 progress along the link
+	speed: number;
+}
+
 export class SynapseEffect implements AmbientEffect {
 	id = 'synapse';
 	name = 'Synapse';
-	description = 'A grid of pulsing nodes connected by signal lines.';
+	description = 'A grid of pulsing nodes with signal packets firing between hot links.';
 
 	private ctx: CanvasRenderingContext2D | null = null;
 	private nodes: SynapseNode[] = [];
 	private lines: SynapseLine[] = [];
+	private packets: SynapsePacket[] = [];
 	private cols = 6;
 	private rows = 4;
 
@@ -44,6 +52,7 @@ export class SynapseEffect implements AmbientEffect {
 
 		this.nodes = [];
 		this.lines = [];
+		this.packets = [];
 
 		for (let row = 0; row < this.rows; row++) {
 			for (let col = 0; col < this.cols; col++) {
@@ -94,6 +103,31 @@ export class SynapseEffect implements AmbientEffect {
 			ctx.moveTo(from.x, from.y);
 			ctx.lineTo(to.x, to.y);
 			ctx.stroke();
+
+			// signature: a signal packet travels along the strongest links.
+			// When both endpoints pulse hot together, a bright dot slides
+			// from→to — reads as a thought firing across the network.
+			if (fromPulse > 0.85 && toPulse > 0.85 && Math.random() < 0.04) {
+				this.packets.push({ from: line.from, to: line.to, t: 0, speed: 0.9 + Math.random() * 0.7 });
+			}
+		}
+
+		// Advance + draw travelling packets (capped so the field never floods)
+		if (this.packets.length > 24) this.packets.splice(0, this.packets.length - 24);
+		const nodePos = (i: number): SynapseNode => this.nodes[i];
+		for (let p = this.packets.length - 1; p >= 0; p--) {
+			const pkt = this.packets[p];
+			pkt.t += pkt.speed * config.speed * 0.02;
+			if (pkt.t >= 1) { this.packets.splice(p, 1); continue; }
+			const a = nodePos(pkt.from);
+			const b = nodePos(pkt.to);
+			const x = a.x + (b.x - a.x) * pkt.t;
+			const y = a.y + (b.y - a.y) * pkt.t;
+			ctx.globalAlpha = alpha * Math.sin(pkt.t * Math.PI); // fade in/out at ends
+			ctx.fillStyle = '#ffffff';
+			ctx.beginPath();
+			ctx.arc(x, y, 2.2 * config.size, 0, Math.PI * 2);
+			ctx.fill();
 		}
 
 		// Draw nodes
@@ -132,5 +166,6 @@ export class SynapseEffect implements AmbientEffect {
 		this.ctx = null;
 		this.nodes = [];
 		this.lines = [];
+		this.packets = [];
 	}
 }

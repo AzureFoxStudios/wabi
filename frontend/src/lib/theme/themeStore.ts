@@ -5,7 +5,7 @@
 
 import { writable, derived } from 'svelte/store';
 import { DEFAULT_THEME, getThemeById, type Theme } from './themes';
-import type { CustomTheme } from '../../types/theme';
+import type { CustomTheme, ThemeAmbientOverride } from '../../types/theme';
 
 interface ThemeState {
 	themeId: string;
@@ -17,6 +17,8 @@ interface ThemeState {
 	uniformFontSize: string;
 	uniformFontWeight: string;
 	uniformFontStyle: string;
+	/** Per-user saved ambient-effect override (EffectsTab), round-trips with theme prefs. */
+	themeAmbient: ThemeAmbientOverride | null;
 }
 
 // Initial state
@@ -29,7 +31,8 @@ const initialState: ThemeState = {
 	uniformFontFamily: 'inherit',
 	uniformFontSize: 'inherit',
 	uniformFontWeight: '600',
-	uniformFontStyle: 'normal'
+	uniformFontStyle: 'normal',
+	themeAmbient: null
 };
 
 // Create the store
@@ -75,7 +78,7 @@ function createThemeStore() {
 		},
 
 		// Load from saved preferences
-		load: (prefs: { theme_id: string; custom_theme?: CustomTheme | null; uniform_font_enabled?: number | boolean; uniform_font_family?: string; uniform_font_size?: string; uniform_font_weight?: string; uniform_font_style?: string }) => {
+		load: (prefs: { theme_id: string; custom_theme?: CustomTheme | null; uniform_font_enabled?: number | boolean; uniform_font_family?: string; uniform_font_size?: string; uniform_font_weight?: string; uniform_font_style?: string; theme_ambient?: ThemeAmbientOverride | null }) => {
 			update((state) => ({
 				...state,
 				themeId: prefs.theme_id || 'dark',
@@ -85,9 +88,15 @@ function createThemeStore() {
 				uniformFontSize: prefs.uniform_font_size || 'inherit',
 				uniformFontWeight: prefs.uniform_font_weight || '600',
 				uniformFontStyle: prefs.uniform_font_style || 'normal',
+				themeAmbient: prefs.theme_ambient || null,
 				isLoading: false,
 				error: null
 			}));
+		},
+
+		// Set the saved ambient-effect override (EffectsTab save path)
+		setThemeAmbient: (ambient: ThemeAmbientOverride | null) => {
+			update((state) => ({ ...state, themeAmbient: ambient }));
 		},
 
 		// Set uniform font enabled state
