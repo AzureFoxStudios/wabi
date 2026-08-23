@@ -77,10 +77,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let user_bit = if let Some(ref u) = app.user {
-        let role = u
-            .highest_role
-            .as_deref()
-            .unwrap_or("member");
+        let role = u.highest_role.as_deref().unwrap_or("member");
         format!("● {} ({})", u.username, role)
     } else {
         "○ guest".into()
@@ -168,9 +165,7 @@ fn render_channels(frame: &mut Frame, app: &App, area: Rect) {
             let label = if section == 0 { "Direct" } else { "Channels" };
             items.push(ListItem::new(Line::from(Span::styled(
                 label,
-                Style::default()
-                    .fg(C_MUTED)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
             ))));
             last_section = Some(section);
         }
@@ -179,18 +174,25 @@ fn render_channels(frame: &mut Frame, app: &App, area: Rect) {
             active_display = Some(items.len());
         }
         let style = if active {
-            Style::default()
-                .fg(C_ACCENT2)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(C_ACCENT2).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(C_TEXT)
         };
         let mark = if active { "▶ " } else { "  " };
-        items.push(ListItem::new(Line::from(vec![
+        let mut spans = vec![
             Span::styled(mark, style),
             Span::styled(ch.kind.badge(), Style::default().fg(C_MUTED)),
             Span::styled(ch.name.clone(), style),
-        ])));
+        ];
+        if let Some(n) = app.unread.get(&ch.id) {
+            if *n > 0 {
+                spans.push(Span::styled(
+                    format!(" ({n})"),
+                    Style::default().fg(C_WARN).add_modifier(Modifier::BOLD),
+                ));
+            }
+        }
+        items.push(ListItem::new(Line::from(spans)));
     }
     let active_display = active_display.unwrap_or(0);
     let start = if active_display < visible {
@@ -296,12 +298,10 @@ fn render_chat_side(frame: &mut Frame, app: &App, area: Rect) {
         .as_ref()
         .and_then(|id| app.channels.iter().find(|c| &c.id == id));
 
-    let mut lines = vec![
-        Line::from(Span::styled(
-            "CHANNEL",
-            Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
-        )),
-    ];
+    let mut lines = vec![Line::from(Span::styled(
+        "CHANNEL",
+        Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD),
+    ))];
     if let Some(c) = ch {
         lines.push(Line::from(format!("#{}", c.name)));
         lines.push(Line::from(Span::styled(
@@ -317,13 +317,8 @@ fn render_chat_side(frame: &mut Frame, app: &App, area: Rect) {
             }
         }
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "id",
-            Style::default().fg(C_MUTED),
-        )));
-        lines.push(Line::from(
-            c.id.chars().take(18).collect::<String>(),
-        ));
+        lines.push(Line::from(Span::styled("id", Style::default().fg(C_MUTED))));
+        lines.push(Line::from(c.id.chars().take(18).collect::<String>()));
     } else {
         lines.push(Line::from("none selected"));
     }
@@ -499,12 +494,18 @@ fn render_server(frame: &mut Frame, app: &App, area: Rect) {
     ))];
     if let Some(s) = &app.stats {
         stats_lines.extend([
-            Line::from(format!("users      {}  (online {})", s.total_users, s.online_users)),
+            Line::from(format!(
+                "users      {}  (online {})",
+                s.total_users, s.online_users
+            )),
             Line::from(format!("channels   {}", s.total_channels)),
             Line::from(format!("messages   {}", s.total_messages)),
             Line::from(format!("roles      {}", s.total_roles)),
             Line::from(format!("emojis     {}", s.total_emojis)),
-            Line::from(format!("banned     {}  muted {}", s.banned_users, s.muted_users)),
+            Line::from(format!(
+                "banned     {}  muted {}",
+                s.banned_users, s.muted_users
+            )),
             Line::from(format!("reports    {}", s.open_reports)),
         ]);
     } else {
@@ -582,22 +583,43 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
                 .title(" Command ")
                 .style(Style::default().bg(C_PANEL)),
         ),
-        AppMode::Normal => Paragraph::new(Line::from(vec![
-            Span::styled(
+        AppMode::Normal => {
+            // Typing indicator (3s TTL) prepended to the hints line.
+            let typing_fresh = app.typing_at_ms > 0 && now_ms() - app.typing_at_ms < 3_000;
+            let mut spans = vec![Span::styled(
                 if app.user.is_some() { "● " } else { "○ " },
                 Style::default().fg(if app.user.is_some() { C_OK } else { C_MUTED }),
-            ),
-            Span::styled(
+            )];
+            if typing_fresh {
+                let who = app.typing_user.as_deref().unwrap_or("someone");
+                spans.push(Span::styled(
+                    format!("{who} is typing…  "),
+                    Style::default().fg(C_WARN).add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.push(Span::styled(
+                if app.live.is_connected() {
+                    "[LIVE] "
+                } else {
+                    "[POLL] "
+                },
+                Style::default().fg(if app.live.is_connected() {
+                    C_OK
+                } else {
+                    C_MUTED
+                }),
+            ));
+            spans.push(Span::styled(
                 "Tab screens  :cmd  i type  l login  r refresh  ? help  q quit",
                 Style::default().fg(C_MUTED),
-            ),
-        ]))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Rgb(70, 70, 110)))
-                .style(Style::default().bg(C_PANEL)),
-        ),
+            ));
+            Paragraph::new(Line::from(spans)).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Rgb(70, 70, 110)))
+                    .style(Style::default().bg(C_PANEL)),
+            )
+        }
         _ => Paragraph::new("Esc cancel").block(
             Block::default()
                 .borders(Borders::ALL)
@@ -633,7 +655,11 @@ fn render_prompt(frame: &mut Frame, app: &App) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints([Constraint::Length(1), Constraint::Length(3), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(1),
+        ])
         .split(area);
     frame.render_widget(
         Block::default()
@@ -856,4 +882,11 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }

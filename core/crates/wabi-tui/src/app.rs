@@ -34,6 +34,16 @@ pub enum BgMsg {
     ActionOk(String),
     Error(String),
     Info(String),
+    LiveConnected,
+    LiveDisconnected(String),
+    LiveMessage {
+        channel_id: String,
+        message: Message,
+    },
+    LiveTyping {
+        channel_id: String,
+        username: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -137,6 +147,14 @@ pub struct App {
     last_poll_ms: u64,
     /// UI needs a redraw (keys, bg results, timers).
     pub dirty: bool,
+    /// Socket.IO live feed handle + health.
+    pub live: crate::live::LiveClient,
+    /// Unread counters per channel id, cleared on selection.
+    pub unread: HashMap<String, u32>,
+    /// Typing indicator state (fresh < TYPING_TTL_MS).
+    pub typing_channel: Option<String>,
+    pub typing_user: Option<String>,
+    pub typing_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,6 +275,11 @@ impl App {
             bg_rx,
             last_poll_ms: 0,
             dirty: true,
+            live: crate::live::LiveClient::new(),
+            unread: HashMap::new(),
+            typing_channel: None,
+            typing_user: None,
+            typing_at_ms: 0,
         };
 
         if app.mode != AppMode::ServerSetup {
@@ -421,7 +444,14 @@ impl App {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         let poll_every = self.config.poll_ms();
-        if now_ms.saturating_sub(self.last_poll_ms) >= poll_every {
+        let live_ok = self.live.is_connected()
+            && now_ms.saturating_sub(
+                self.live
+                    .health
+                    .last_event_ms
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ) < 30_000;
+        if !live_ok && now_ms.saturating_sub(self.last_poll_ms) >= poll_every {
             if self.screen == Screen::Chat {
                 if let Some(ref ch_id) = self.active_channel {
                     if self.config.token.is_some() {
@@ -449,6 +479,13 @@ impl App {
                             self.active_channel = Some(id.clone());
                             self.spawn_load_messages(&id);
                         }
+                    }
+                    // First live connect once we have a room to join.
+                    if self.config.token.is_some()
+                        && !self.live.is_connected()
+                        && self.active_channel.is_some()
+                    {
+                        self.spawn_live_connect();
                     }
                 }
                 BgMsg::Messages(ch_id, msgs) => {
@@ -502,6 +539,7 @@ impl App {
                     self.spawn_load_channels();
                     self.spawn_load_users();
                     self.spawn_admin_stats();
+                    self.spawn_live_connect();
                 }
                 BgMsg::LoginErr {
                     request_id,
@@ -525,7 +563,75 @@ impl App {
                 BgMsg::Info(m) => {
                     self.log(m);
                 }
+                BgMsg::LiveConnected => {
+                    self.status = format!("LIVE · {}", self.config.server_url);
+                    self.log("live feed connected");
+                    if let Some(ref ch) = self.active_channel {
+                        self.live.join_channel(ch);
+                    }
+                }
+                BgMsg::LiveDisconnected(reason) => {
+                    // Poll loop re-engages automatically via live_ok guard.
+                    self.status = "POLL · live offline".into();
+                    self.log(format!("live disconnected: {reason}"));
+                }
+                BgMsg::LiveMessage {
+                    channel_id,
+                    message,
+                } => {
+                    let is_active = self.active_channel.as_deref() == Some(channel_id.as_str());
+                    let already = self
+                        .messages
+                        .entry(channel_id.clone())
+                        .or_default()
+                        .iter()
+                        .any(|m| m.id == message.id);
+                    if !already {
+                        if is_active {
+                            self.messages.get_mut(&channel_id).unwrap().push(message);
+                        } else {
+                            *self.unread.entry(channel_id.clone()).or_insert(0) += 1;
+                            // Keep the buffer warm so switching shows it.
+                            self.messages.entry(channel_id).or_default().push(message);
+                        }
+                    }
+                }
+                BgMsg::LiveTyping {
+                    channel_id,
+                    username,
+                } => {
+                    self.typing_channel = Some(channel_id);
+                    self.typing_user = Some(username);
+                    self.typing_at_ms = now_ms;
+                }
             }
+        }
+    }
+
+    /// Spawn the socket.io connect task after a successful login (or with a
+    /// remembered token at startup).
+    pub fn spawn_live_connect(&self) {
+        let Some(token) = self.config.token.clone() else {
+            return;
+        };
+        let Some(username) = self.config.username.clone() else {
+            return;
+        };
+        let channel = self.active_channel.clone().unwrap_or_default();
+        if channel.is_empty() {
+            return; // retried when channels load / LiveConnected fires join
+        }
+        if let Err(e) = self.live.connect(
+            &self.config.server_url,
+            &token,
+            &username,
+            &channel,
+            self.bg_tx.clone(),
+        ) {
+            // `&self` (called from poll_bg's borrow) — surface via bg queue.
+            let _ = self
+                .bg_tx
+                .try_send(BgMsg::Error(format!("live connect: {e}")));
         }
     }
 
@@ -740,7 +846,11 @@ impl App {
     }
 
     fn nav_channels(&mut self, delta: i32) {
-        let list: Vec<String> = self.filtered_channels().into_iter().map(|c| c.id.clone()).collect();
+        let list: Vec<String> = self
+            .filtered_channels()
+            .into_iter()
+            .map(|c| c.id.clone())
+            .collect();
         if list.is_empty() {
             return;
         }
@@ -752,7 +862,9 @@ impl App {
         let next = (idx + delta).clamp(0, list.len() as i32 - 1) as usize;
         let id = list[next].clone();
         self.active_channel = Some(id.clone());
+        self.unread.remove(&id);
         self.msg_scroll = 0;
+        self.live.join_channel(&id);
         self.spawn_load_messages(&id);
     }
 
@@ -786,7 +898,11 @@ impl App {
                     self.set_error("Admin/owner only".into());
                     return Ok(true);
                 }
-                if let Some(u) = self.filtered_users().get(self.selected_user).map(|u| (*u).clone()) {
+                if let Some(u) = self
+                    .filtered_users()
+                    .get(self.selected_user)
+                    .map(|u| (*u).clone())
+                {
                     let id = u.user_id;
                     let name = u.username.clone();
                     let api = self.api.clone();
@@ -875,7 +991,8 @@ impl App {
                                     let _ = tx.send(BgMsg::SendOk(ch_id)).await;
                                 }
                                 Err(e) => {
-                                    let _ = tx.send(BgMsg::Error(format!("Send failed: {e}"))).await;
+                                    let _ =
+                                        tx.send(BgMsg::Error(format!("Send failed: {e}"))).await;
                                 }
                             }
                         });
@@ -1053,7 +1170,11 @@ impl App {
                         self.set_error("Password must be ≥ 6 chars".into());
                         return Ok(true);
                     }
-                    if let Some(u) = self.filtered_users().get(self.selected_user).map(|u| (*u).clone()) {
+                    if let Some(u) = self
+                        .filtered_users()
+                        .get(self.selected_user)
+                        .map(|u| (*u).clone())
+                    {
                         let id = u.user_id;
                         let name = u.username.clone();
                         let api = self.api.clone();

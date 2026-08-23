@@ -3,6 +3,7 @@
 mod api;
 mod app;
 mod config;
+mod live;
 mod ui;
 
 use anyhow::Result;
