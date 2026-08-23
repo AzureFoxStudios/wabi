@@ -13,7 +13,7 @@ import {
 	type BBox
 } from './coords';
 import { resolveWritableWhiteboardLayerId } from './layers';
-import { commitRasterLayer, paintRasterDab, paintRasterSegment } from './rasterLayers';
+import { beginRasterStroke, commitRasterLayer, paintRasterDab, paintRasterSegment, rasterCanUndo, rasterUndo } from './rasterLayers';
 import { measureMathElement, preloadMathElement } from './mathRender';
 
 // ---------------------------------------------------------------------------
@@ -203,6 +203,7 @@ function createRasterBrushTool(): ToolHandler {
 			const eraser = false;
 			let lastX = e.boardX;
 			let lastY = e.boardY;
+			beginRasterStroke(layer.id);
 			paintRasterDab(layer.id, lastX, lastY, size, color, opacity, hardness, e.pressure, eraser);
 			return {
 				onPointerMove(ev) {
@@ -809,6 +810,7 @@ function createRasterEraserTool(): ToolHandler {
 			const opacity = state.style.opacity ?? 1;
 			let lastX = e.boardX;
 			let lastY = e.boardY;
+			beginRasterStroke(layer.id);
 			paintRasterDab(layer.id, lastX, lastY, size, '#000', opacity, hardness, e.pressure, true);
 			return {
 				onPointerMove(ev) {
