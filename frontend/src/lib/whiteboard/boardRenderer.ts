@@ -748,33 +748,31 @@ export function renderGrid(ctx: CanvasRenderingContext2D, viewport: WhiteboardVi
 
 	ctx.save();
 	ctx.lineWidth = 1;
-	ctx.strokeStyle = 'rgba(30, 41, 59, 0.10)';
+	// Two Path2D batches (minor + major) instead of hundreds of individual
+	// beginPath/stroke calls — same geometry, two strokes total.
+	const minor = new Path2D();
 	for (let x = startX; x < w; x += effectiveGrid) {
-		ctx.beginPath();
-		ctx.moveTo(Math.round(x) + 0.5, 0);
-		ctx.lineTo(Math.round(x) + 0.5, h);
-		ctx.stroke();
+		minor.moveTo(Math.round(x) + 0.5, 0);
+		minor.lineTo(Math.round(x) + 0.5, h);
 	}
 	for (let y = startY; y < h; y += effectiveGrid) {
-		ctx.beginPath();
-		ctx.moveTo(0, Math.round(y) + 0.5);
-		ctx.lineTo(w, Math.round(y) + 0.5);
-		ctx.stroke();
+		minor.moveTo(0, Math.round(y) + 0.5);
+		minor.lineTo(w, Math.round(y) + 0.5);
 	}
+	ctx.strokeStyle = 'rgba(30, 41, 59, 0.10)';
+	ctx.stroke(minor);
 
-	ctx.strokeStyle = 'rgba(30, 41, 59, 0.22)';
+	const major = new Path2D();
 	for (let x = majorOffsetX; x < w; x += majorEvery) {
-		ctx.beginPath();
-		ctx.moveTo(Math.round(x) + 0.5, 0);
-		ctx.lineTo(Math.round(x) + 0.5, h);
-		ctx.stroke();
+		major.moveTo(Math.round(x) + 0.5, 0);
+		major.lineTo(Math.round(x) + 0.5, h);
 	}
 	for (let y = majorOffsetY; y < h; y += majorEvery) {
-		ctx.beginPath();
-		ctx.moveTo(0, Math.round(y) + 0.5);
-		ctx.lineTo(w, Math.round(y) + 0.5);
-		ctx.stroke();
+		major.moveTo(0, Math.round(y) + 0.5);
+		major.lineTo(w, Math.round(y) + 0.5);
 	}
+	ctx.strokeStyle = 'rgba(30, 41, 59, 0.22)';
+	ctx.stroke(major);
 
 	if (effectiveGrid >= 10) {
 		ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
