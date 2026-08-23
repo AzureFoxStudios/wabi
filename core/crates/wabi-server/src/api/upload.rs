@@ -67,6 +67,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/resumable/chunk", put(upload_chunk))
         .route("/resumable/complete", post(complete_upload))
         .route("/group-avatar", post(upload_group_avatar))
+        .route("/background-image", post(upload_background_image))
         .route("/", post(upload_simple))
         .with_state(state)
 }
@@ -564,6 +565,112 @@ async fn upload_group_avatar(
     }
 
     Ok(Json(GroupAvatarResponse { url: avatar_url }))
+}
+
+/// POST /api/upload/background-image
+///
+/// Authenticated multipart upload of a custom chat background image for the
+/// user's custom theme. Accepts a single multipart `backgroundImage` field
+/// (matching BackgroundImageEditor.svelte), validates image type + size,
+/// stores it under the uploads directory with a UUID name, and returns
+/// `{ success: true, backgroundImageUrl }`. The URL itself is persisted by the
+/// frontend inside its custom-theme preferences — no DB write here.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackgroundImageResponse {
+    success: bool,
+    background_image_url: String,
+}
+
+async fn upload_background_image(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<BackgroundImageResponse>> {
+    use tokio::io::AsyncWriteExt;
+
+    if auth.is_guest {
+        return Err(anyhow::anyhow!("Guests cannot upload background images").into());
+    }
+
+    const MAX_BACKGROUND_BYTES: usize = 10 * 1024 * 1024; // 10MB, mirrors client limit
+    const ALLOWED_EXTS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
+
+    let mut file_data: Vec<u8> = Vec::new();
+    let mut filename = String::new();
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "backgroundImage" || name == "file" {
+            filename = field.file_name().unwrap_or("background").to_string();
+            file_data = field
+                .bytes()
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+                .to_vec();
+        }
+    }
+
+    if file_data.is_empty() {
+        return Err(anyhow::anyhow!("No background image data provided").into());
+    }
+
+    if file_data.len() > MAX_BACKGROUND_BYTES {
+        return Err(anyhow::anyhow!("Background image exceeds 10MB limit").into());
+    }
+
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !ALLOWED_EXTS.contains(&ext.as_str()) {
+        return Err(anyhow::anyhow!(
+            "Invalid file type. Only PNG, JPG, GIF, and WEBP are allowed"
+        )
+        .into());
+    }
+
+    let uploads_dir = PathBuf::from(&state.config.uploads_dir);
+    tokio::fs::create_dir_all(&uploads_dir).await?;
+
+    let final_name = format!("{}.{ext}", Uuid::new_v4());
+    let final_path = uploads_dir.join(&final_name);
+
+    let mut file = File::create(&final_path).await?;
+    file.write_all(&file_data).await?;
+    file.flush().await?;
+    drop(file);
+
+    let background_image_url = format!("/uploads/{}", final_name);
+    tracing::info!(
+        "Background image uploaded by user {}: {} ({} bytes) -> {:?}",
+        auth.user_id,
+        filename,
+        file_data.len(),
+        final_path
+    );
+
+    state
+        .upload_registry
+        .record(
+            &final_name,
+            &filename,
+            None,
+            Some(auth.user_id),
+            UploadKind::Other,
+            file_data.len() as u64,
+        )
+        .await;
+
+    Ok(Json(BackgroundImageResponse {
+        success: true,
+        background_image_url,
+    }))
 }
 
 /// POST /api/upload (mounted at "/" inside the `/upload` router)
