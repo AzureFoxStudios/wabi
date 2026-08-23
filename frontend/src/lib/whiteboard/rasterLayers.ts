@@ -63,6 +63,22 @@ export function rasterCanUndo(): boolean {
 }
 
 /**
+ * Current accumulated dirty bounds for a layer's ACTIVE stroke (board space),
+ * or null when nothing has been painted this stroke. The renderer uses this
+ * to clip recomposites to just the region the in-flight stroke touched.
+ */
+export function getRasterStrokeDirtyBounds(layerId: string): {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+} | null {
+	const b = rasterDirtyBounds.get(layerId);
+	if (!b || b.maxX <= b.minX || b.maxY <= b.minY) return null;
+	return { ...b };
+}
+
+/**
  * Snapshot the region about to be painted. Call BEFORE the stroke's first dab.
  * The current dirty bounds (if any) describe exactly what the stroke will touch;
  * a fresh layer yields a blank-region entry.

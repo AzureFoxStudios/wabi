@@ -65,6 +65,18 @@ fn board_to_channel_id(board_id: &str) -> String {
     board_id.strip_prefix("channel:").unwrap_or(board_id).to_string()
 }
 
+/// Whiteboard access check. Routes DM channels to `can_access_dm` like
+/// messages.rs/presence.rs do — `can_access_channel` alone only tests
+/// regular channel membership lists, so DM/group boards falsely rejected
+/// legitimate participants with "No channel membership".
+async fn can_access_board_channel(state: &SioState, user_id: i64, channel_id: &str) -> bool {
+    let channel_kind = state.app.wdb.get_channel_kind(channel_id).await;
+    match channel_kind.as_deref() {
+        Some("dm") => can_access_dm(state, user_id, channel_id).await,
+        _ => can_access_channel(state, user_id, channel_id).await,
+    }
+}
+
 /// Default document for a board that has never been saved.
 fn default_document(board_id: &str) -> Value {
     json!({
@@ -149,7 +161,7 @@ async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
         return;
     }
 
-    if !can_access_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
+    if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
         whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
         return;
     }
@@ -242,7 +254,7 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
         whiteboard_error(&socket, "UNAUTHORIZED", "Authentication required");
         return;
     }
-    if !can_access_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
+    if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
         whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
         return;
     }
@@ -315,7 +327,7 @@ async fn on_whiteboard_patch(socket: SocketRef, data: Value, state: SioState, io
         whiteboard_error(&socket, "UNAUTHORIZED", "Authentication required");
         return;
     }
-    if !can_access_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
+    if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
         whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
         return;
     }
