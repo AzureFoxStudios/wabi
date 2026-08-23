@@ -43,11 +43,16 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
     };
 
     let (username, color) = {
-        let connected = state.connected_users.read().await;
-        connected
-            .get(&socket.id.to_string())
-            .map(|u| (u.username.clone(), u.color.clone()))
-            .unwrap_or_else(|| ("unknown".to_string(), "#98D8C8".to_string()))
+    let connected = state.connected_users.read().await;
+    match connected.get(&socket.id.to_string()) {
+    Some(u) => (u.username.clone(), u.color.clone()),
+    // Presence map miss (join race): fall back to the handshake JWT
+    // identity rather than broadcasting "unknown".
+    None => match resolve_sio_identity(&socket) {
+    Some(identity) => (identity.username.clone(), "#98D8C8".to_string()),
+    None => ("unknown".to_string(), "#98D8C8".to_string()),
+    },
+    }
     };
 
     let profile_picture = if user_id_num > 0 {
@@ -132,11 +137,16 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
     };
 
     let (username, color) = {
-        let connected = state.connected_users.read().await;
-        connected
-            .get(&socket.id.to_string())
-            .map(|u| (u.username.clone(), u.color.clone()))
-            .unwrap_or_else(|| ("unknown".to_string(), "#98D8C8".to_string()))
+    let connected = state.connected_users.read().await;
+    match connected.get(&socket.id.to_string()) {
+    Some(u) => (u.username.clone(), u.color.clone()),
+    // Presence map miss (join race): fall back to the handshake JWT
+    // identity rather than broadcasting "unknown".
+    None => match resolve_sio_identity(&socket) {
+    Some(identity) => (identity.username.clone(), "#98D8C8".to_string()),
+    None => ("unknown".to_string(), "#98D8C8".to_string()),
+    },
+    }
     };
 
     let profile_picture = if user_id_num > 0 {
