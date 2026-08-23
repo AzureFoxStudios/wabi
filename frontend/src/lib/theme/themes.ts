@@ -28,6 +28,8 @@ export const matrixTheme = allThemes.find(t => t.id === 'matrix')!;
 export const warpTheme = allThemes.find(t => t.id === 'warp')!;
 export const stormTheme = allThemes.find(t => t.id === 'storm')!;
 export const synapseTheme = allThemes.find(t => t.id === 'synapse')!;
+export const longcatTheme = allThemes.find(t => t.id === 'longcat')!;
+export const diamondsTheme = allThemes.find(t => t.id === 'diamonds')!;
 
 // Registry for lookup
 export const THEMES: Record<string, Theme> = Object.fromEntries(
