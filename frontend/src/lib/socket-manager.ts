@@ -63,6 +63,8 @@ export {
 
 export {
 	channelMessages,
+	channelMessagesStore,
+	dropChannelMessagesStore,
 	unreadCount,
 	lastReadMessageId,
 	channelUnreadCounts,

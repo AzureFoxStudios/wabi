@@ -2,7 +2,7 @@
 	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
 	import { get } from 'svelte/store';
 	import {
-		channelMessages,
+		channelMessagesStore,
 		channels,
 		currentChannel,
 		typingUsers,
@@ -109,7 +109,11 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		return 'messages' as const;
 	})();
 
-	$: messages = $channelMessages[$currentChannel] || [];
+	// Scoped per-channel store: re-emits only when THIS channel's array
+	// changes (god-store fix) — other channels' traffic no longer recomputes
+	// the message list / pinned filter chain below.
+	$: messagesForChannel = channelMessagesStore($currentChannel);
+	$: messages = $messagesForChannel || [];
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
 	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 	$: channelDisplayName = currentChannelData?.name || $currentChannel;
