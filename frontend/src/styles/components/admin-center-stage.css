@@ -35,7 +35,7 @@
   font-size: 13px;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: all 0.15s;
   width: 100%;
 }
@@ -59,7 +59,7 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--accent-info-soft);
   color: var(--text-info, #64b5f6);
   border: 1px solid color-mix(in srgb, var(--color-info) 30%, transparent);
@@ -98,7 +98,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: none;
   border: none;
   color: var(--text-secondary, #999);
@@ -200,7 +200,7 @@
   font-size: 9px;
   font-family: var(--font-mono);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--surface-hover, #222);
   color: var(--text-disabled, #666);
   text-transform: uppercase;
@@ -280,7 +280,7 @@
 
 .admin-skel-card {
   height: 120px !important;
-  border-radius: 16px !important;
+  border-radius: var(--radius-xl) !important;
 }
 
 .admin-skel-row {
@@ -291,19 +291,19 @@
 
 .admin-skel-large {
   height: 300px !important;
-  border-radius: 16px !important;
+  border-radius: var(--radius-xl) !important;
 }
 
 .admin-skel-medium {
   height: 300px !important;
-  border-radius: 16px !important;
+  border-radius: var(--radius-xl) !important;
 }
 
 /* ─── Card ───────────────────────────────────────────────────────── */
 .admin-card {
   background: var(--surface-raised, #1a1a2e);
   border: 1px solid var(--border-subtle, #222);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 20px;
   transition: all 0.2s;
   position: relative;
@@ -524,7 +524,7 @@
   align-items: center;
   gap: 10px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: rgba(0, 0, 0, 0.3);
   transition: background 0.15s;
   animation: wabi-admin-slide-in 0.3s ease forwards;
@@ -591,13 +591,13 @@
   flex: 1;
   height: 8px;
   background: var(--surface-sunken, #1a1a1a);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   overflow: hidden;
 }
 
 .admin-role-bar-fill {
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   transition: width 0.7s;
 }
 
@@ -626,7 +626,7 @@
   align-items: center;
   gap: 10px;
   padding: 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: rgba(0, 0, 0, 0.3);
   transition: background 0.15s;
 }
@@ -700,7 +700,7 @@
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid;
   display: inline-flex;
   align-items: center;
@@ -743,7 +743,7 @@
   background: linear-gradient(90deg, var(--surface-raised, #1a1a2e) 25%, var(--surface-hover, #2a2a2a) 50%, var(--surface-raised, #1a1a2e) 75%);
   background-size: 200% 100%;
   animation: adminShimmer 1.5s infinite;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 /* ─── Placeholder sections ───────────────────────────────────────── */
@@ -756,7 +756,7 @@
   font-size: 14px;
   font-family: var(--font-mono);
   border: 1px dashed var(--border-subtle, #333);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
 }
 
 .admin-empty-state {
@@ -819,7 +819,7 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--surface-hover, #222);
   border: 1px solid var(--border-subtle, #333);
   color: var(--text-secondary, #999);
@@ -919,7 +919,7 @@
   align-items: center;
   gap: 0.7rem;
   padding: 0.7rem 0.9rem;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--surface-raised, #1a1a2e);
   border: 1px dashed var(--border-strong);
   color: var(--text-heading, #e8e8e8);
@@ -957,7 +957,7 @@
   overflow: hidden;
   background: var(--surface-base, #111);
   border: 1px solid var(--border-subtle, #222);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .frontend-metadata-dropzone-icon .frontend-metadata-dropzone-preview {
