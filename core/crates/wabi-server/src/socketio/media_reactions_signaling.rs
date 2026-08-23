@@ -46,39 +46,6 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, _state: SioState, io: S
 }
 
 #[allow(dead_code)]
-async fn on_voice_segment(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
-    let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => return,
-    };
-
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    let stable_id = if user_id_num > 0 {
-        format!("user-{}", user_id_num)
-    } else {
-        socket.id.to_string()
-    };
-
-    // Build a relay payload with sender identity
-    let relay = serde_json::json!({
-        "channelId": channel_id,
-        "fromUserId": stable_id,
-        "audioBase64": data.get("audioBase64"),
-        "durationMs": data.get("durationMs"),
-        "mimeType": data.get("mimeType"),
-        "sentAt": data.get("sentAt"),
-    });
-
-    // Fan out to all subscribers in the channel except sender
-    let _ = io
-        .to(channel_id)
-        .except(socket.id.clone())
-        .emit("voice-segment", &relay)
-        .await;
-}
-
-#[allow(dead_code)]
 async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let message_id = match data.get("messageId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
