@@ -98,9 +98,9 @@
 			<div class="layer-panel-title">Layers</div>
 			<div class="layer-panel-subtitle">{stackLayers.length} · front on top</div>
 		</div>
-		<div class="layer-add-actions">
-			<button type="button" class="layer-add-btn" on:click={() => createLayer('vector')}>+ Vector</button>
-			<button type="button" class="layer-add-btn raster" on:click={() => createLayer('raster')}>+ Paint</button>
+		<div class="layer-add-actions" role="group" aria-label="Add layer">
+			<button type="button" class="layer-add-seg" on:click={() => createLayer('vector')}>+ Vector</button>
+			<button type="button" class="layer-add-seg raster" on:click={() => createLayer('raster')}>+ Paint</button>
 		</div>
 	</header>
 
@@ -212,10 +212,48 @@
 
 	.layer-add-actions {
 		display: inline-flex;
-		gap: 0.3rem;
+		border-radius: 8px;
+		overflow: hidden;
+		border: 1px solid color-mix(in srgb, var(--text-heading, #fff) 14%, transparent);
 	}
 
-	.layer-add-btn,
+	.layer-add-seg {
+		border: 0;
+		border-radius: 0;
+		background: color-mix(in srgb, var(--surface-raised, #302b63) 70%, transparent);
+		color: inherit;
+		font-size: 0.7rem;
+		padding: 0.28rem 0.5rem;
+		cursor: pointer;
+		transition: box-shadow 0.12s, color 0.12s, background 0.12s;
+	}
+
+	.layer-add-seg + .layer-add-seg {
+		border-left: 1px solid color-mix(in srgb, var(--text-heading, #fff) 14%, transparent);
+	}
+
+	.layer-add-seg:hover {
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary, #6366f1) 60%, transparent);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent);
+		color: var(--accent-primary, #6366f1);
+	}
+
+	.layer-add-seg.raster {
+		color: var(--color-info, #7dd3fc);
+	}
+
+	.layer-add-seg.raster:hover {
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-info, #7dd3fc) 60%, transparent);
+		background: color-mix(in srgb, var(--color-info, #7dd3fc) 14%, transparent);
+		color: var(--color-info, #7dd3fc);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.layer-add-seg {
+			transition: none;
+		}
+	}
+
 	.inspector-actions button {
 		border: 1px solid color-mix(in srgb, var(--text-heading, #fff) 14%, transparent);
 		border-radius: 8px;
@@ -224,11 +262,6 @@
 		font-size: 0.7rem;
 		padding: 0.28rem 0.5rem;
 		cursor: pointer;
-	}
-
-	.layer-add-btn.raster {
-		border-color: color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
-		color: var(--color-info, #7dd3fc);
 	}
 
 	.layer-list {
@@ -352,6 +385,59 @@
 	.inspector-row select {
 		flex: 1;
 		min-width: 0;
+	}
+
+	.inspector-row input[type='range'] {
+		-webkit-appearance: none;
+		appearance: none;
+		height: 4px;
+		border: 0;
+		padding: 0;
+		border-radius: var(--radius-sm, 4px);
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 22%, transparent);
+		outline: none;
+		cursor: pointer;
+	}
+
+	.inspector-row input[type='range']::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: var(--accent-primary, #6366f1);
+		cursor: pointer;
+		transition: transform 0.12s;
+	}
+
+	.inspector-row input[type='range']::-webkit-slider-thumb:hover {
+		transform: scale(1.25);
+	}
+
+	.inspector-row input[type='range']::-moz-range-thumb {
+		width: 10px;
+		height: 10px;
+		border: none;
+		border-radius: 50%;
+		background: var(--accent-primary, #6366f1);
+		cursor: pointer;
+		transition: transform 0.12s;
+	}
+
+	.inspector-row input[type='range']::-moz-range-thumb:hover {
+		transform: scale(1.25);
+	}
+
+	.inspector-row input[type='range']:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.inspector-row input[type='range']::-webkit-slider-thumb,
+		.inspector-row input[type='range']::-moz-range-thumb {
+			transition: none;
+		}
 	}
 
 	.tabular {
