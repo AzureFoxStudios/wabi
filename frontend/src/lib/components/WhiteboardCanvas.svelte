@@ -51,10 +51,14 @@
 	let textEditPlacement: TextPlacement | null = null;
 	let resizeObserver: ResizeObserver;
 	let renderScheduled = false;
+	let baseDirty = false;
+	let overlayDirty = false;
 	let lastPointerX = 0;
 	let lastPointerY = 0;
 	let renderSamples = 0;
 	let renderTotalMs = 0;
+	let overlaySamples = 0;
+	let overlayTotalMs = 0;
 
 	function updateSize() {
 		if (!containerEl) return;
@@ -72,18 +76,35 @@
 		requestRender();
 	}
 	function requestRender() {
+		baseDirty = true;
+		overlayDirty = true;
+		scheduleRender();
+	}
+	function requestOverlayRender() {
+		overlayDirty = true;
+		scheduleRender();
+	}
+	function scheduleRender() {
 		if (renderScheduled) return;
 		renderScheduled = true;
 		animFrameId = requestAnimationFrame(render);
 	}
 	function render() {
-		const renderStartedAt = typeof performance !== 'undefined' ? performance.now() : 0;
 		renderScheduled = false;
 		if (!baseCanvas || !interactionCanvas) return;
+		if (baseDirty) {
+			renderBase();
+			baseDirty = false;
+		}
+		if (overlayDirty) {
+			renderOverlay();
+			overlayDirty = false;
+		}
+	}
+	function renderBase() {
+		const baseStartedAt = typeof performance !== 'undefined' ? performance.now() : 0;
 		const vp = get(viewport);
 		const els = get(elements);
-		const sel = get(selection);
-		const currentTool = get(activeTool);
 		const baseCtx = baseCanvas.getContext('2d')!;
 		baseCtx.save();
 		baseCtx.scale(dpr, dpr);
@@ -101,6 +122,19 @@
 			renderElements(baseCtx, els, vp, currentLayers);
 		}
 		baseCtx.restore();
+		if (baseStartedAt > 0 && typeof window !== 'undefined' && window.localStorage.getItem('wabi.whiteboard.perf') === '1') {
+			renderSamples += 1;
+			renderTotalMs += performance.now() - baseStartedAt;
+			if (renderSamples % 60 === 0) {
+				console.debug('[WhiteboardPerf] render', { samples: renderSamples, avgMs: renderTotalMs / renderSamples, elements: els.length, layers: currentLayers.length });
+			}
+		}
+	}
+	function renderOverlay() {
+		const overlayStartedAt = typeof performance !== 'undefined' ? performance.now() : 0;
+		const vp = get(viewport);
+		const els = get(elements);
+		const sel = get(selection);
 		const intCtx = interactionCanvas.getContext('2d')!;
 		intCtx.save();
 		intCtx.scale(dpr, dpr);
@@ -132,11 +166,11 @@
 			renderRemoteCursors(intCtx, displayed, vp);
 		}
 		intCtx.restore();
-		if (renderStartedAt > 0 && typeof window !== 'undefined' && window.localStorage.getItem('wabi.whiteboard.perf') === '1') {
-			renderSamples += 1;
-			renderTotalMs += performance.now() - renderStartedAt;
-			if (renderSamples % 60 === 0) {
-				console.debug('[WhiteboardPerf] render', { samples: renderSamples, avgMs: renderTotalMs / renderSamples, elements: els.length, layers: currentLayers.length });
+		if (overlayStartedAt > 0 && typeof window !== 'undefined' && window.localStorage.getItem('wabi.whiteboard.perf') === '1') {
+			overlaySamples += 1;
+			overlayTotalMs += performance.now() - overlayStartedAt;
+			if (overlaySamples % 60 === 0) {
+				console.debug('[WhiteboardPerf] overlay', { samples: overlaySamples, avgMs: overlayTotalMs / overlaySamples, elements: els.length });
 			}
 		}
 	}
@@ -201,7 +235,7 @@
 			cursor.y += dy * 0.28;
 			moving = true;
 		}
-		requestRender();
+		requestOverlayRender();
 		if (moving) {
 			cursorAnimId = requestAnimationFrame(stepCursors);
 		}
