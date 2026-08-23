@@ -97,11 +97,6 @@ export const callTransportState = writable<{
 	reason: string | null;
 	gatewayHealthy: boolean;
 	checkedAt: number | null;
-	gatewaySessionId: string | null;
-	gatewayControlPlaneStatus: 'idle' | 'ready' | 'degraded' | 'lost';
-	gatewayMediaPlaneStatus: 'idle' | 'pending' | 'ready' | 'degraded' | 'lost';
-	gatewayActiveStreams: number | null;
-	gatewayLastSeenAt: number | null;
 }>({
 	mode: 'auto',
 	activeTransport: 'p2p',
@@ -109,11 +104,6 @@ export const callTransportState = writable<{
 	reason: null,
 	gatewayHealthy: false,
 	checkedAt: null,
-	gatewaySessionId: null,
-	gatewayControlPlaneStatus: 'idle',
-	gatewayMediaPlaneStatus: 'idle',
-	gatewayActiveStreams: null,
-	gatewayLastSeenAt: null
 });
 
 // ============================================================================

@@ -4,6 +4,7 @@ import { generateElementId } from './elementTypes';
 import { boardStore, type BoardStyle, type ToolType } from './boardStore';
 import {
 	pickElement,
+	hitTestElement,
 	hitTestHandle,
 	getSelectionHandles,
 	getSelectionBBox,
@@ -905,17 +906,13 @@ export function createEraserTool(): ToolHandler {
 					const eraserY = ev.boardY;
 					const toDelete: string[] = [];
 
+					// hitTestElement covers every element type: stroke points,
+					// line/arrow segments, and bbox shapes (rect/ellipse/text/
+					// image/math). Touching a shape deletes the whole element.
 					for (const el of state.elements) {
 						if (el.locked) continue;
-						if (el.type !== 'stroke') continue;
-						const pts = (el as StrokeElement).points;
-						for (const p of pts) {
-							const dx = p.x - eraserX;
-							const dy = p.y - eraserY;
-							if (dx * dx + dy * dy <= ERASER_RADIUS * ERASER_RADIUS) {
-								toDelete.push(el.id);
-								break;
-							}
+						if (hitTestElement(el, eraserX, eraserY, ERASER_RADIUS)) {
+							toDelete.push(el.id);
 						}
 					}
 

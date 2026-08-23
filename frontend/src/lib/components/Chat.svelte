@@ -34,6 +34,7 @@
 	import { isMobile } from '$lib/layoutStoreStates';
 	import { callMode, isInCall, outgoingCall } from '$lib/callingStateStores';
 	import { startCall } from '$lib/calling';
+	import VideoBackground from './VideoBackground.svelte';
 	import { _, currentLocale } from '$lib/i18n';
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { animationPassStore } from '$lib/animationPass';
@@ -404,6 +405,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	on:dragover={handleDragOver}
 	on:drop={handleDrop}
 >
+	<VideoBackground />
 	{#if isDragging}
 		<div class="drag-overlay overlay">
 			<div class="drag-overlay-content">
