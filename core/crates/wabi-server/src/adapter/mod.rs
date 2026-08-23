@@ -771,6 +771,14 @@ impl WabiStore for WdbAdapter {
         ))
     }
 
+    async fn list_user_badges(
+        &self,
+        user_id: u64,
+    ) -> Result<Vec<wabidb::projections::badges::UserBadgeRecord>> {
+        let state = self.engine.projection_state();
+        wabidb::projections::badges::BadgesProjection::list_user_badges(state, user_id)
+    }
+
     // ============================================================
     // Soft-delete + edit (overwrite with updated record)
     // ============================================================
@@ -1455,6 +1463,44 @@ impl WabiStore for WdbAdapter {
                     "ingest_rbac_remove_role",
                     format!("rbac:{}", workspace_id),
                     "role_removed",
+                    6,
+                    Self::payload_json(&pl)?,
+                    false,
+                    None,
+                ).await?;
+            }
+            ("badges", "assign_badge") => {
+                let user_id = payload.get("userId").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
+                let badge_id = payload.get("badgeId").and_then(|v| v.as_str()).unwrap_or("");
+                let assigned_by = payload.get("assignedBy").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
+                let pl = serde_json::json!({
+                    "user_id": user_id,
+                    "badge_id": badge_id,
+                    "assigned_by": assigned_by,
+                });
+                self.run(
+                    assigned_by,
+                    "ingest_badges_assign_badge",
+                    format!("badges:user-{}", user_id),
+                    "badge_assigned",
+                    6,
+                    Self::payload_json(&pl)?,
+                    false,
+                    None,
+                ).await?;
+            }
+            ("badges", "remove_badge") => {
+                let user_id = payload.get("userId").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
+                let badge_id = payload.get("badgeId").and_then(|v| v.as_str()).unwrap_or("");
+                let pl = serde_json::json!({
+                    "user_id": user_id,
+                    "badge_id": badge_id,
+                });
+                self.run(
+                    0,
+                    "ingest_badges_remove_badge",
+                    format!("badges:user-{}", user_id),
+                    "badge_removed",
                     6,
                     Self::payload_json(&pl)?,
                     false,

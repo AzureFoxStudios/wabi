@@ -3,6 +3,7 @@
 pub mod album_items;
 pub mod albums;
 pub mod audit;
+pub mod badges;
 pub mod barrier;
 pub mod call_participants;
 pub mod call_signals;

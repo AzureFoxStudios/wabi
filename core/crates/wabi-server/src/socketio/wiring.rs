@@ -451,6 +451,30 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            socket.on("get-badge-catalog", {
+                let s = state.clone();
+                move |socket: SocketRef| {
+                    let s = s.clone();
+                    async move { handle_get_badge_catalog(socket, &s).await }
+                }
+            });
+
+            socket.on("assign-badge", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { handle_assign_badge(socket, data, &s, &io).await }
+                }
+            });
+
+            socket.on("remove-badge", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { handle_remove_badge(socket, data, &s, &io).await }
+                }
+            });
+
             socket.on("update-channel-settings", {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {

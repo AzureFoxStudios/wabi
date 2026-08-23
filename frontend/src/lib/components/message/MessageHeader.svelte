@@ -2,6 +2,7 @@
 	import { _ } from '$lib/i18n';
 	import type { Message, User } from '$lib/socket';
 	import SteamStatusBadge from '$lib/components/SteamStatusBadge.svelte';
+	import RoleBadge from '$lib/components/RoleBadge.svelte';
 
 	export let author: User | undefined;
 	export let displayUsername: string;
@@ -47,6 +48,7 @@
 			{#if author?.isBot || message.isBot}
 				<span class="bot-inline-badge" title="Bot account">BOT</span>
 			{/if}
+			<RoleBadge user={author} size="sm" mode="custom" />
 			<SteamStatusBadge user={author} />
 			<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
 				{formatTime(message.timestamp)}

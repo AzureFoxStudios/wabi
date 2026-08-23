@@ -257,6 +257,7 @@ async fn build_user_view(
         None => profile_media_for(state, db_user_id).await.unwrap_or_default(),
     };
     let (banner_url, overlay_url) = media_banner_overlay(&media);
+    let badges = badges_json_for(state, db_user_id).await;
 
     json!({
         "id": stable_id,
@@ -272,6 +273,7 @@ async fn build_user_view(
         "dbUserId": if db_user_id > 0 { Some(db_user_id) } else { None },
         "roles": [role],
         "highestRole": role,
+        "badges": badges,
         "usernameFont": username_font.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
         "isRegistered": is_registered,
     })

@@ -33,6 +33,20 @@ const CACHE_TTL: Duration = Duration::from_secs(60);
 /// HTTP client timeout for the upstream Steam API call.
 const STEAM_FETCH_TIMEOUT: Duration = Duration::from_secs(8);
 
+/// Shared HTTP client handle for the Steam integration. One client is built
+/// at startup (connection pooling) instead of one per fetch.
+pub type SharedHttpClient = Arc<reqwest::Client>;
+
+/// Build the process-wide shared Steam HTTP client.
+pub fn shared_http_client() -> SharedHttpClient {
+    Arc::new(
+        reqwest::Client::builder()
+            .timeout(STEAM_FETCH_TIMEOUT)
+            .build()
+            .expect("failed to build shared Steam HTTP client"),
+    )
+}
+
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/status", axum::routing::get(handle_status))
@@ -194,12 +208,8 @@ async fn fetch_status(
         }
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(STEAM_FETCH_TIMEOUT)
-        .build()
-        .map_err(|e| AppError::Internal(format!("failed to build Steam client: {e}")))?;
-
-    let response = client
+    let response = state
+        .steam_http
         .get(STEAM_API_URL)
         .query(&[("key", key.as_str()), ("steamids", steam_id)])
         .send()

@@ -21,6 +21,7 @@
 	import { _ } from '$lib/i18n';
 	import { brandName } from '$lib/branding';
 	import UserPopoutActions from './UserPopoutActions.svelte';
+	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import {
 		MAX_USER_NOTE_LENGTH,
@@ -421,7 +422,7 @@
 				<h3 class="display-name">{popoutDisplayName}</h3>
 				<span class="username-handle">@{user.handle || user.username}</span>
 			</div>
-			{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled || ($displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName))}
+			{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled || ($displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)) || (user.badges?.length ?? 0) > 0}
 				<div class="popout-role-tags">
 					{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled}
 						<span class={`popout-role-badge tone-${roleToneClass(popoutTopRoleName)}`}>
@@ -431,6 +432,7 @@
 					{#if $displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)}
 						<span class="popout-staff-tag">Staff</span>
 					{/if}
+					<RoleBadge {user} size="md" mode="custom" />
 				</div>
 			{/if}
 

@@ -108,6 +108,8 @@ import {
 	_setCurrentUser,
 	_setServerMembers,
 	_setRoleDefinitions,
+	_setBadgeCatalog,
+	_setUserBadges,
 	_setVoiceChannelMembers,
 	_updateVoiceChannelMember,
 	_removeVoiceChannelMember,
@@ -497,6 +499,9 @@ export class SocketManager {
 
 			// Fetch server-side custom emotes (merged into the picker store).
 			sock.emit('get-emojis');
+			// Fetch the assignable badge catalog (falls back to the client
+			// mirror until this arrives).
+			sock.emit('get-badge-catalog');
 		});
 
 		sock.on('connect_error', (error) => {
@@ -1289,6 +1294,19 @@ export class SocketManager {
 		sock.on('role-definitions-updated', (payload: { roles?: any[] }) => {
 			_setRoleDefinitions(Array.isArray(payload?.roles) ? payload.roles : []);
 		});
+
+		sock.on('badge-catalog', (payload: { catalog?: unknown } | unknown[]) => {
+			const list = Array.isArray(payload) ? payload : (payload as any)?.catalog;
+			if (Array.isArray(list)) _setBadgeCatalog(list as any);
+		});
+
+		sock.on(
+			'user-badges-updated',
+			(payload: { dbUserId?: number; badges?: any[] } & { userId?: string }) => {
+				if (!payload || typeof payload.dbUserId !== 'number') return;
+				_setUserBadges(payload.dbUserId, Array.isArray(payload.badges) ? payload.badges : []);
+			}
+		);
 
 		sock.on('emoji-reaction-added', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;

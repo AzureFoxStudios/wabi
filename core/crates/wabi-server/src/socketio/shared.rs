@@ -593,6 +593,8 @@ async fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>, sta
         (None, None)
     };
 
+    let badges = badges_json_for(state, user.db_user_id.unwrap_or(0)).await;
+
     json!({
         "id":          user.stable_id,
         "username":    user.username,
@@ -607,6 +609,7 @@ async fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>, sta
         "dbUserId":    user.db_user_id,
         "roles":       [role],
         "highestRole": role,
+        "badges":      badges,
         "isRegistered": is_registered,
     })
 }

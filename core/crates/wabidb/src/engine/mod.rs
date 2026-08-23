@@ -854,6 +854,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::album_items::AlbumItemsProjection;
     use crate::projections::albums::AlbumProjection;
     use crate::projections::audit::AuditProjection;
+    use crate::projections::badges::BadgesProjection;
     use crate::projections::call_participants::CallParticipantsProjection;
     use crate::projections::call_sessions::CallSessionsProjection;
     use crate::projections::call_signals::CallSignalsProjection;
@@ -1085,6 +1086,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             index_name:
                 "payment_account_links,payment_intents,payment_policies,payment_user_blocks",
             record_type_name: "wabidb::projections::payments",
+        },
+        ProjectionRegistration {
+            event_types: &["badge_assigned", "badge_removed"],
+            handler: Arc::new(BadgesProjection),
+            index_name: "user_badges",
+            record_type_name: "wabidb::projections::badges::UserBadgeRecord",
         },
         ProjectionRegistration {
             event_types: &[

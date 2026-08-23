@@ -170,6 +170,13 @@
 		gap: 1px;
 	}
 
+	.user-name-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		min-width: 0;
+	}
+
 	.user-display-name {
 		font-size: 0.875rem;
 		font-weight: 600;

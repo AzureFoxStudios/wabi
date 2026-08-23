@@ -208,6 +208,9 @@ export {
 	// Role operations
 	assignRole,
 	removeUserRole,
+	assignBadge,
+	removeBadge,
+	badgeCatalog,
 	banUser,
 
 	// Emote operations
@@ -230,7 +233,7 @@ export {
 export const syncProgress = writable<{ current: string; loaded: number; total: number } | null>(null);
 
 // Re-export types from socket-types
-export type { FileAttachment, Message, Emoji, User, Channel, MessageEntity, VoiceChannelSettings } from './socket-types';
+export type { FileAttachment, Message, Emoji, User, UserBadge, Channel, MessageEntity, VoiceChannelSettings } from './socket-types';
 
 // Re-export user lookup store
 export { userLookup, getUserByUsername, getUserByIdentityId, getUserByMessageAuthor, getUserByMentionValue, getDMOtherUser, resolvePayTargetUser, getCurrentReactionIdentityIds, getReactionTooltip, isOwnMessage } from './userLookupStore';
