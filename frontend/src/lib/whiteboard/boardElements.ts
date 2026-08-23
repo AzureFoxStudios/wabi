@@ -76,6 +76,46 @@ export function updateElement(
 	return next;
 }
 
+export interface BatchEntry {
+	id: string;
+	partial: Partial<BoardElement>;
+}
+
+export function updateElementsBatch(
+	state: BoardState,
+	entries: BatchEntry[],
+	options: UpdateElementOptions = {},
+	patchListener: PatchListener | null = null
+): BoardState {
+	if (entries.length === 0) return state;
+	const { recordHistory = true, emitPatch = true } = options;
+
+	const byId = new Map<string, Partial<BoardElement>>();
+	for (const entry of entries) byId.set(entry.id, entry.partial);
+
+	// Skip the clone entirely if no targeted element exists in this state.
+	const exists = state.elements.some((e) => byId.has(e.id));
+	if (!exists) return state;
+
+	const next: BoardState = {
+		...state,
+		elements: [...state.elements],
+		undoStack: recordHistory ? pushUndo(state.elements, state.layers, state.activeLayerId, state.undoStack) : state.undoStack,
+		redoStack: recordHistory ? [] : state.redoStack,
+		isDirty: true
+	};
+
+	for (let i = 0; i < next.elements.length; i++) {
+		const el = next.elements[i];
+		const partial = byId.get(el.id);
+		if (!partial) continue;
+		const layerId = partial.layerId ? resolveWhiteboardLayerId(next.layers, partial.layerId) : el.layerId;
+		next.elements[i] = { ...el, ...partial, layerId, updatedAt: Date.now() } as BoardElement;
+		if (emitPatch && patchListener) patchListener('update', { id: el.id, changes: partial });
+	}
+	return next;
+}
+
 export function deleteElements(
 	state: BoardState,
 	ids: string[],
