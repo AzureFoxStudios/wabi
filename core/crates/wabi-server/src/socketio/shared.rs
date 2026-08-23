@@ -18,6 +18,31 @@ use tracing::{info, warn};
 
 use crate::state::AppState;
 
+/// Global handle to the socket.io presence map. Populated once at server
+/// startup by `create_socket_layer`; read by non-socket handlers such as the
+/// admin dashboard stats ("online now"). Same OnceLock pattern as
+/// `whiteboard_versions` in whiteboard_ops.rs.
+static CONNECTED_USERS: std::sync::OnceLock<ConnectedUsers> = std::sync::OnceLock::new();
+
+/// Publish the live presence map (called from `create_socket_layer`).
+pub fn publish_connected_users(map: ConnectedUsers) {
+    let _ = CONNECTED_USERS.set(map);
+}
+
+/// Read access to the live presence map, if the socket layer is up.
+pub fn shared_connected_users() -> ConnectedUsers {
+    CONNECTED_USERS
+        .get()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(RwLock::new(HashMap::new())))
+}
+
+/// Count of currently-connected socket.io clients (unique sockets, not
+/// unique users — a user with two tabs counts twice).
+pub async fn connected_user_count() -> u64 {
+    shared_connected_users().read().await.len() as u64
+}
+
 // ---------------------------------------------------------------------------
 // Per-socket auth token stored in socket extensions
 // ---------------------------------------------------------------------------

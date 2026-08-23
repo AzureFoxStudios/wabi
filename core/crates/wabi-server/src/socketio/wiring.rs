@@ -1,9 +1,13 @@
 #[allow(dead_code)]
 pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
     let app_for_broadcast = app.clone();
+    let connected_users: ConnectedUsers = Arc::new(RwLock::new(HashMap::new()));
+    // Publish the presence map so non-socket handlers (admin stats
+    // "online now") can read it. Same OnceLock pattern as whiteboard_versions.
+    publish_connected_users(connected_users.clone());
     let state = SioState {
         app,
-        connected_users: Arc::new(RwLock::new(HashMap::new())),
+        connected_users,
         voice_channels: Arc::new(RwLock::new(HashMap::new())),
         group_call_sessions: Arc::new(RwLock::new(HashMap::new())),
         breakout_rooms: Arc::new(RwLock::new(HashMap::new())),
