@@ -44,6 +44,8 @@ export interface WabidbMediaRelayConfig {
   userId: string;
   socket: any; // Socket.IO client
   onError?: (err: Error) => void;
+  /** Fired when inbound audio arrives from a user (speaking-ring feed). */
+  onRemoteAudioActivity?: (fromUserId: string) => void;
   kind?: WabidbMediaRelayKind;
   peerStableUserId?: string;
   capture?: boolean;
@@ -83,6 +85,7 @@ function normalizeStableUserId(id: string): string {
 interface JitterEntry {
   data: Uint8Array;
   timestamp: number;
+  fromUserId?: string;
 }
 
 export class WabidbMediaRelay {
@@ -90,6 +93,7 @@ export class WabidbMediaRelay {
   private userId: string;
   private socket: any;
   private onError?: (err: Error) => void;
+  private onRemoteAudioActivity?: (fromUserId: string) => void;
   private localStream: MediaStream | null = null;
   private opusRecorder: OpusRecorder | null = null;
   private audioContext: AudioContext | null = null;
@@ -110,6 +114,7 @@ export class WabidbMediaRelay {
     this.userId = cfg.userId;
     this.socket = cfg.socket;
     this.onError = cfg.onError;
+    this.onRemoteAudioActivity = cfg.onRemoteAudioActivity;
     this.captureEnabled = cfg.capture !== false;
   }
 
@@ -138,7 +143,7 @@ export class WabidbMediaRelay {
           this.videoLane?.handleRemoteEnvelope(msg);
           return;
         }
-        this.handleIncomingMedia(env.payload);
+        this.handleIncomingMedia(env.userId, env.payload);
       };
       this.socket.on('wabidb-media', this.onIncomingMediaHandler);
 
@@ -212,15 +217,18 @@ export class WabidbMediaRelay {
     await this.opusRecorder.start(this.localStream);
   }
 
-  private handleIncomingMedia(opusPayload: string): void {
+  private handleIncomingMedia(fromUserId: string, opusPayload: string): void {
     // Decode base64 → Uint8Array. The decoder worker needs a typed array
     // (`new DataView(pages.buffer)`), not a raw ArrayBuffer.
     const bytes = base64ToUint8Array(opusPayload);
-    this.jitterBuffer.push({ data: bytes, timestamp: Date.now() });
+    this.jitterBuffer.push({ data: bytes, timestamp: Date.now(), fromUserId });
 
     if (this.jitterBuffer.length > 50) {
       this.jitterBuffer.splice(0, this.jitterBuffer.length - 50);
     }
+    // Speaking-ring feed: notify the host app which user this audio belongs
+    // to. The relay owns playback but not UI state; the callback bridges it.
+    this.onRemoteAudioActivity?.(fromUserId);
   }
 
   private startPlaybackLoop(): void {
