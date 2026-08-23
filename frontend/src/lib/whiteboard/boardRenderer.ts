@@ -142,53 +142,100 @@ export function renderElements(
 interface LayerOffscreen {
 	canvas: HTMLCanvasElement;
 	ctx: CanvasRenderingContext2D;
-	width: number;
-	height: number;
+	// Backing pixel dimensions of the bitmap.
+	pxW: number;
+	pxH: number;
 	dpr: number;
+	// Board-space rectangle this bitmap covers (top-left origin + size, board units).
+	originX: number;
+	originY: number;
+	contentW: number;
+	contentH: number;
+	blendMode: string;
 	contentKey: string;
+	// Monotonic clock for LRU eviction.
+	lastUsed: number;
 }
 
-// Cached per-layer offscreen canvases, keyed by layer id. Recreated only when
-// a layer id is new or the canvas dimensions change; callers trigger full
-// re-renders on element/layer changes (existing render loop).
+// Cached per-layer offscreen canvases, keyed by layer id. Each bitmap holds a
+// layer's vector content rasterized in BOARD space (independent of the current
+// viewport), so pan/zoom only re-blits the cached bitmap instead of
+// re-rasterizing. The cache key is content identity only (see contentKey
+// construction in renderLayersWithBlend), never the viewport.
 const layerCanvasCache = new Map<string, LayerOffscreen>();
 
-function getLayerCanvas(layerId: string, width: number, height: number, dpr: number): LayerOffscreen {
+// Extra board-space padding around a layer's content bbox so strokes / soft
+// edges / shadows are never clipped by the bitmap boundary.
+const LAYER_MARGIN = 256;
+
+// Cap on simultaneously cached layer bitmaps; least-recently-used are evicted.
+const MAX_CACHED_LAYER_BITMAPS = 8;
+
+let layerCacheClock = 0;
+
+function getLayerCanvas(
+	layerId: string,
+	pxW: number,
+	pxH: number,
+	dpr: number,
+	originX: number,
+	originY: number,
+	contentW: number,
+	contentH: number,
+	blendMode: string
+): LayerOffscreen {
 	const cached = layerCanvasCache.get(layerId);
-	if (cached && cached.width === width && cached.height === height && cached.dpr === dpr) {
+	if (
+		cached &&
+		cached.pxW === pxW &&
+		cached.pxH === pxH &&
+		cached.dpr === dpr &&
+		cached.originX === originX &&
+		cached.originY === originY &&
+		cached.contentW === contentW &&
+		cached.contentH === contentH &&
+		cached.blendMode === blendMode
+	) {
 		return cached;
 	}
 	const canvas = document.createElement('canvas');
-	canvas.width = Math.max(1, Math.round(width * dpr));
-	canvas.height = Math.max(1, Math.round(height * dpr));
-	const entry: LayerOffscreen = { canvas, ctx: canvas.getContext('2d')!, width, height, dpr, contentKey: '' };
+	canvas.width = Math.max(1, Math.round(pxW));
+	canvas.height = Math.max(1, Math.round(pxH));
+	const entry: LayerOffscreen = {
+		canvas,
+		ctx: canvas.getContext('2d')!,
+		pxW,
+		pxH,
+		dpr,
+		originX,
+		originY,
+		contentW,
+		contentH,
+		blendMode,
+		contentKey: '',
+		lastUsed: ++layerCacheClock
+	};
 	layerCanvasCache.set(layerId, entry);
+	enforceLayerCacheCap();
 	return entry;
 }
 
+function enforceLayerCacheCap(): void {
+	if (layerCanvasCache.size <= MAX_CACHED_LAYER_BITMAPS) return;
+	const entries = [...layerCanvasCache.entries()].sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+	const toEvict = layerCanvasCache.size - MAX_CACHED_LAYER_BITMAPS;
+	for (let i = 0; i < toEvict && i < entries.length; i++) {
+		layerCanvasCache.delete(entries[i][0]);
+	}
+}
+
 /**
- * Draw a flat list of elements (no layer filtering) into a transformed context.
- * Elements are sorted by zIndex within the group; each element's own opacity is
- * applied via globalAlpha. Used by renderLayersWithBlend to rasterize a single
- * layer onto its offscreen canvas.
- *
- * `dpr` must match the caller's expectation:
- *  - offscreen layer canvases are sized at CSS size × dpr backing pixels, so
- *    they render with `scale(dpr)` FIRST (matching the main canvas, which the
- *    render loop pre-scales by dpr) to rasterize at device resolution.
- *  - the main context is already dpr-scaled by the caller, so direct draws onto
- *    it (orphaned elements) pass dpr = 1.
+ * Draw a flat, zIndex-sorted list of elements into the current context using
+ * the element renderers. Each element's own opacity is applied via globalAlpha.
+ * Shared by both the viewport-based orphan path and the board-space layer
+ * rasterizer, so cached bitmaps are pixel-identical to a direct draw.
  */
-function drawElementsToCtx(
-	ctx: CanvasRenderingContext2D,
-	els: BoardElement[],
-	viewport: WhiteboardViewport,
-	dpr = 1
-): void {
-	ctx.save();
-	ctx.scale(dpr, dpr);
-	ctx.scale(viewport.zoom, viewport.zoom);
-	ctx.translate(-viewport.x, -viewport.y);
+function drawSortedElements(ctx: CanvasRenderingContext2D, els: BoardElement[]): void {
 	const sorted = [...els].sort((a, b) => a.zIndex - b.zIndex);
 	for (const el of sorted) {
 		ctx.globalAlpha = Math.max(0, Math.min(1, el.opacity ?? 1));
@@ -219,16 +266,117 @@ function drawElementsToCtx(
 		}
 	}
 	ctx.globalAlpha = 1;
+}
+
+/**
+ * Draw a flat list of elements (no layer filtering) into a viewport-transformed
+ * context. Used for orphaned elements (those whose layerId no longer resolves),
+ * drawn directly onto the already-dpr-scaled main context, so dpr = 1 here.
+ */
+function drawElementsToCtx(
+	ctx: CanvasRenderingContext2D,
+	els: BoardElement[],
+	viewport: WhiteboardViewport,
+	dpr = 1
+): void {
+	ctx.save();
+	ctx.scale(dpr, dpr);
+	ctx.scale(viewport.zoom, viewport.zoom);
+	ctx.translate(-viewport.x, -viewport.y);
+	drawSortedElements(ctx, els);
+	ctx.restore();
+}
+
+/**
+ * Compute the board-space bounding box of a single element. Strokes use their
+ * point cloud; all other element types use their x/y/width/height rect (which
+ * may have negative extents, e.g. ellipses). A small pad guards stroke width
+ * and soft-edge shadow bleed; the layer-level LAYER_MARGIN provides the bulk of
+ * the safety margin.
+ */
+function getElementBBox(el: BoardElement): { minX: number; minY: number; maxX: number; maxY: number } {
+	if (el.type === 'stroke') {
+		const pts = (el as StrokeElement).points;
+		if (pts.length === 0) {
+			return { minX: el.x, minY: el.y, maxX: el.x + (el.width || 0), maxY: el.y + (el.height || 0) };
+		}
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (const p of pts) {
+			if (p.x < minX) minX = p.x;
+			if (p.y < minY) minY = p.y;
+			if (p.x > maxX) maxX = p.x;
+			if (p.y > maxY) maxY = p.y;
+		}
+		const size = el.strokeWidth || 1;
+		const hardness = typeof el.hardness === 'number' ? Math.max(0, Math.min(1, el.hardness)) : 1;
+		const soft = hardness < 0.999 ? (1 - hardness) * size * 2 : 0;
+		const pad = size / 2 + soft;
+		return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+	}
+	const x = el.x;
+	const y = el.y;
+	const w = el.width || 0;
+	const h = el.height || 0;
+	const minX = Math.min(x, x + w);
+	const maxX = Math.max(x, x + w);
+	const minY = Math.min(y, y + h);
+	const maxY = Math.max(y, y + h);
+	const pad = (el.type === 'line' || el.type === 'arrow') ? (el.strokeWidth || 1) / 2 : 0;
+	return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+}
+
+function computeLayerBBox(els: BoardElement[]): { minX: number; minY: number; maxX: number; maxY: number } {
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	for (const el of els) {
+		const b = getElementBBox(el);
+		if (b.minX < minX) minX = b.minX;
+		if (b.minY < minY) minY = b.minY;
+		if (b.maxX > maxX) maxX = b.maxX;
+		if (b.maxY > maxY) maxY = b.maxY;
+	}
+	if (!Number.isFinite(minX)) {
+		return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+	}
+	return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Rasterize a layer's elements into BOARD space: scale by dpr, then translate so
+ * the layer's bitmap origin (originX/originY, already including LAYER_MARGIN)
+ * maps to bitmap pixel (0,0). The viewport is intentionally NOT applied — pan/zoom
+ * are handled at composite time by transforming the cached bitmap.
+ */
+function rasterizeLayerToCanvas(
+	ctx: CanvasRenderingContext2D,
+	els: BoardElement[],
+	originX: number,
+	originY: number,
+	dpr: number
+): void {
+	ctx.save();
+	ctx.scale(dpr, dpr);
+	ctx.translate(-originX, -originY);
+	drawSortedElements(ctx, els);
 	ctx.restore();
 }
 
 /**
  * Bottom-to-top layer compositing with per-layer opacity + blend mode.
  *
- * Each visible layer is rasterized to its cached offscreen canvas (dpr-scaled),
- * then composited onto the main context with globalAlpha = layer.opacity and
- * globalCompositeOperation = layer.blendMode. The grid is intentionally NOT part
- * of any layer — render it on the main canvas before calling this.
+ * Each visible vector layer is rasterized into a BOARD-space offscreen bitmap
+ * (sized to the layer's content bbox + LAYER_MARGIN, dpr-scaled) the first time
+ * its content identity changes, then cached. At composite time the cached bitmap
+ * is transformed by the current viewport and blitted — so pan/zoom only re-blits,
+ * it never re-rasterizes. Layer opacity is applied via globalAlpha at composite
+ * time (never baked into the cache key), so the opacity slider recomposites
+ * without re-rasterizing. The grid is intentionally NOT part of any layer —
+ * render it on the main canvas before calling this.
  */
 export function renderLayersWithBlend(
 	ctx: CanvasRenderingContext2D,
@@ -258,7 +406,7 @@ export function renderLayersWithBlend(
 
 	// Elements whose layerId no longer resolves to a layer render at the bottom
 	// (source-over), mirroring renderElements' layer-order 0 default. Drawn onto
-	// the already-dpr-scaled main context, so no extra dpr scale here.
+	// the already-dpr-scaled main context, so dpr = 1 here.
 	if (orphaned.length > 0) {
 		drawElementsToCtx(ctx, orphaned, viewport, 1);
 	}
@@ -267,6 +415,7 @@ export function renderLayersWithBlend(
 		if (layer.visible === false) continue;
 		const els = byLayer.get(layer.id);
 		if (layer.mode === 'raster') {
+			// Raster-layer path is unchanged: drawn directly to the main context.
 			ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity ?? 1));
 			ctx.globalCompositeOperation = (WHITEBOARD_BLEND_MODES.includes(layer.blendMode as (typeof WHITEBOARD_BLEND_MODES)[number])
 				? layer.blendMode
@@ -274,31 +423,65 @@ export function renderLayersWithBlend(
 			renderRasterLayer(ctx, layer.id, viewport);
 			ctx.globalAlpha = 1;
 			ctx.globalCompositeOperation = 'source-over';
+			continue;
 		}
+		// Empty vector layers allocate no offscreen bitmap.
 		if (!els || els.length === 0) continue;
 
-		const off = getLayerCanvas(layer.id, canvasW, canvasH, dpr);
-		const contentKey = `${viewport.x}:${viewport.y}:${viewport.zoom}|${els.map((el) => `${el.id}:${el.updatedAt}:${el.zIndex}:${el.opacity}:${el.locked}`).join('|')}`;
-		if (off.contentKey !== contentKey) {
-			off.ctx.clearRect(0, 0, off.canvas.width, off.canvas.height);
-			drawElementsToCtx(off.ctx, els, viewport, dpr);
-			off.contentKey = contentKey;
-		}
-
-		ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity ?? 1));
-		ctx.globalCompositeOperation = (WHITEBOARD_BLEND_MODES.includes(
+		const blendMode = WHITEBOARD_BLEND_MODES.includes(
 			layer.blendMode as (typeof WHITEBOARD_BLEND_MODES)[number]
 		)
 			? layer.blendMode
-			: 'source-over') as GlobalCompositeOperation;
-		ctx.drawImage(off.canvas, 0, 0, canvasW, canvasH);
-		ctx.globalAlpha = 1;
-		ctx.globalCompositeOperation = 'source-over';
+			: 'source-over';
+
+		// Content-identity cache key — viewport is deliberately absent so pan/zoom
+		// reuse the cached bitmap. Layer opacity is also absent (applied at
+		// composite), so the opacity slider recomposites without re-rasterizing.
+		const contentKey = `${blendMode}:${dpr}|${els
+			.map((el) => `${el.id}:${el.updatedAt}:${el.zIndex}:${el.opacity}:${el.locked}`)
+			.join('|')}`;
+
+		const box = computeLayerBBox(els);
+		const originX = box.minX - LAYER_MARGIN;
+		const originY = box.minY - LAYER_MARGIN;
+		const contentW = box.maxX - box.minX + LAYER_MARGIN * 2;
+		const contentH = box.maxY - box.minY + LAYER_MARGIN * 2;
+		const pxW = Math.max(1, Math.ceil(contentW * dpr));
+		const pxH = Math.max(1, Math.ceil(contentH * dpr));
+
+		const off = getLayerCanvas(layer.id, pxW, pxH, dpr, originX, originY, contentW, contentH, blendMode);
+		if (off.contentKey !== contentKey) {
+			off.ctx.clearRect(0, 0, off.canvas.width, off.canvas.height);
+			rasterizeLayerToCanvas(off.ctx, els, originX, originY, dpr);
+			off.contentKey = contentKey;
+		}
+		off.lastUsed = ++layerCacheClock;
+
+		// Composite: the main context is already dpr-scaled by the caller. Apply
+		// the viewport transform, then blit the board-space bitmap at its board
+		// rect. This is mathematically equivalent to drawing the elements with
+		// scale(dpr) · scale(zoom) · translate(-vp) directly — pan/zoom only
+		// change this transform, never the cached pixels.
+		ctx.save();
+		ctx.scale(viewport.zoom, viewport.zoom);
+		ctx.translate(-viewport.x, -viewport.y);
+		ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity ?? 1));
+		ctx.globalCompositeOperation = blendMode as GlobalCompositeOperation;
+		ctx.drawImage(off.canvas, originX, originY, contentW, contentH);
+		ctx.restore();
 	}
 
-	// Drop cached offscreens for layers that no longer exist.
-	for (const id of layerCanvasCache.keys()) {
-		if (!layerIds.has(id)) layerCanvasCache.delete(id);
+	// Drop cached offscreens for layers that no longer exist, AND for layers whose
+	// element set became empty this frame (they allocate no bitmap while empty).
+	for (const id of [...layerCanvasCache.keys()]) {
+		if (!layerIds.has(id)) {
+			layerCanvasCache.delete(id);
+			continue;
+		}
+		const bucket = byLayer.get(id);
+		if (!bucket || bucket.length === 0) {
+			layerCanvasCache.delete(id);
+		}
 	}
 }
 
