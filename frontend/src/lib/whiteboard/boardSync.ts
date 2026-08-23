@@ -318,6 +318,22 @@ export function createSyncSession(
 		typeof localUser?.dbUserId === 'number' ? `user-${localUser.dbUserId}` : (localUser?.id || '');
 	let hasHydratedFromSnapshot = false;
 
+	// Guests carry no JWT identity — the server rejects whiteboard:join with
+	// UNAUTHORIZED ("Authentication required") even though local drawing works
+	// fine. Skip the socket session entirely so no red error toasts surface;
+	// the board stays fully functional as a local-only scratchpad. Raster
+	// commits still upload through their own guest-session REST path.
+	if (typeof localUser?.dbUserId !== 'number') {
+		boardSyncReady.set(true);
+		handlers.onReady?.();
+		return {
+			destroy() {
+				boardSyncReady.set(false);
+				boardSyncError.set(null);
+			}
+		};
+	}
+
 	// Subscribe to remote events
 	const unsubEvents = subscribeWhiteboardEvents({
 		onJoined: (payload) => {

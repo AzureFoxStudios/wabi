@@ -17,19 +17,21 @@
 	let effectSize = 1;
 	let effectSpeed = 1;
 	let applyGlobally = false;
+	/** Effect-specific saved state (e.g. Joker title/blind/shop). */
+	let jokerState: 'title' | 'blind' | 'shop' = 'title';
 	let saving = false;
 
 	$: effects = effectsRegistry.list();
 	$: isJoker = selectedEffect === 'joker';
-	let balatroState: 'title' | 'blind' | 'shop' = 'title';
+	// Speeds are RELATIVE to authentic in-game pace (1 = how the game reads).
 	const BALATRO_PRESETS: Record<string, { speed: number; intensity: number; size: number; label: string }> = {
-		title: { speed: 0.55, intensity: 0.7, size: 1, label: 'Title' },
-		blind: { speed: 0.9, intensity: 1, size: 1.1, label: 'Blind' },
-		shop: { speed: 0.45, intensity: 0.45, size: 0.9, label: 'Shop' },
+		title: { speed: 1.15, intensity: 0.7, size: 1, label: 'Title' },
+		blind: { speed: 1.6, intensity: 1, size: 1.1, label: 'Blind' },
+		shop: { speed: 0.8, intensity: 0.45, size: 0.9, label: 'Shop' },
 	};
 
-	function applyBalatroState(next: 'title' | 'blind' | 'shop') {
-		balatroState = next;
+	function applyJokerState(next: 'title' | 'blind' | 'shop') {
+		jokerState = next;
 		const preset = BALATRO_PRESETS[next];
 		effectSpeed = preset.speed;
 		effectIntensity = preset.intensity;
@@ -38,7 +40,7 @@
 	}
 
 	$: if (!isJoker) {
-		balatroState = 'title';
+		jokerState = 'title';
 	}
 
 	function loadFromCurrentTheme() {
@@ -56,6 +58,23 @@
 		} else {
 			selectedEffect = 'none';
 			effectIntensity = 0;
+		}
+
+		// Restore the user's saved effect override (if any) — this is what makes
+		// tweaks and the Joker title/blind/shop state survive reloads.
+		const saved = $themeStore.themeAmbient;
+		if (saved && (saved.globalOverride || saved.effect === (theme?.ambient?.effect ?? selectedEffect))) {
+			selectedEffect = saved.effect || selectedEffect;
+			if (saved.color) effectColor = saved.color;
+			if (saved.color2) effectColor2 = saved.color2;
+			if (saved.color3) effectColor3 = saved.color3;
+			effectIntensity = saved.intensity ?? effectIntensity;
+			effectSize = saved.size ?? effectSize;
+			effectSpeed = saved.speed ?? effectSpeed;
+			if (saved.state && typeof saved.state.joker === 'string') {
+				jokerState = saved.state.joker as 'title' | 'blind' | 'shop';
+			}
+			applyEffect();
 		}
 	}
 
@@ -79,24 +98,33 @@
 	async function save() {
 		saving = true;
 		try {
+			// Persist under `theme_ambient` — the backend whitelists this key and
+			// it round-trips through themeStore so the state restores on reload.
+			const ambient = {
+				effect: selectedEffect,
+				color: effectColor,
+				color2: effectColor2,
+				color3: effectColor3,
+				intensity: effectIntensity,
+				size: effectSize,
+				speed: effectSpeed,
+				globalOverride: applyGlobally,
+				state: isJoker ? { joker: jokerState } : undefined,
+			};
+			themeStore.setThemeAmbient(ambient);
 			const prefs: Record<string, unknown> = {
 				theme_id: $themeStore.themeId,
-				ambient: {
-					effect: selectedEffect,
-					color: effectColor,
-					color2: effectColor2,
-					color3: effectColor3,
-					intensity: effectIntensity,
-					size: effectSize,
-					speed: effectSpeed,
-					globalOverride: applyGlobally,
-				},
+				theme_ambient: ambient,
 			};
 			if (getAuthToken()) {
 				await saveThemePreferences(prefs);
 			} else {
 				saveThemeToLocalStorage($themeStore.themeId, prefs);
 			}
+			showToast('Effect settings saved', 'info');
+		} catch (err) {
+			console.error('[EffectsTab] Save failed:', err);
+			showToast('Failed to save effect settings', 'error');
 		} finally {
 			saving = false;
 		}
@@ -180,9 +208,9 @@
 				<span class="setting-description">Title screen, blind select, or shop</span>
 			</div>
 			<div class="segmented-control">
-				<button type="button" class="segment" class:active={balatroState === 'title'} on:click={() => applyBalatroState('title')}>Title</button>
-				<button type="button" class="segment" class:active={balatroState === 'blind'} on:click={() => applyBalatroState('blind')}>Blind</button>
-				<button type="button" class="segment" class:active={balatroState === 'shop'} on:click={() => applyBalatroState('shop')}>Shop</button>
+				<button type="button" class="segment" class:active={jokerState === 'title'} on:click={() => applyJokerState('title')}>Title</button>
+				<button type="button" class="segment" class:active={jokerState === 'blind'} on:click={() => applyJokerState('blind')}>Blind</button>
+				<button type="button" class="segment" class:active={jokerState === 'shop'} on:click={() => applyJokerState('shop')}>Shop</button>
 			</div>
 		</div>
 	{/if}

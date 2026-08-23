@@ -100,6 +100,7 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 		uniform_font_size: data.uniform_font_size,
 		uniform_font_weight: data.uniform_font_weight,
 		uniform_font_style: data.uniform_font_style,
+		theme_ambient: data.theme_ambient ?? null,
 		updated_at: data.updated_at
 	};
 }
@@ -202,6 +203,7 @@ function defaultThemePreferences(): ThemePreferences {
 		uniform_font_size: null,
 		uniform_font_weight: null,
 		uniform_font_style: null,
+		theme_ambient: null,
 		updated_at: undefined
 	};
 }

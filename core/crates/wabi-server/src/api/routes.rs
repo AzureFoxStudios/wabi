@@ -93,6 +93,11 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/upload-profile-picture",
             axum::routing::post(upload::upload_profile_picture),
         )
+        // Animated background upload (images + video loops; returns { backgroundImageUrl })
+        .route(
+            "/upload-background-image",
+            axum::routing::post(upload::upload_background_image),
+        )
         // LAN acceleration routes (signed local route tokens)
         .nest("/lan", lan::routes(state.clone()))
         // Media/TURN routes

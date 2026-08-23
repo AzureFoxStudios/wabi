@@ -9,6 +9,7 @@
 	import type { BoardElement, TextElement } from '$lib/whiteboard/elementTypes';
 	import { getToolHandler, onTextPlacement, type ToolPointerEvent, type ToolInteraction, type TextPlacement } from '$lib/whiteboard/tools';
 	import { broadcastCursor } from '$lib/whiteboard/boardSync';
+	import { getRasterStrokeDirtyBounds } from '$lib/whiteboard/rasterLayers';
 	import { dequeueWhiteboardImport, queueWhiteboardImport, whiteboardPendingImports, type PendingWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import { createWhiteboardImageElement, uploadWhiteboardImage } from '$lib/whiteboard/imageImports';
 	import { resolveWhiteboardLayerId, resolveWritableWhiteboardLayerId } from '$lib/whiteboard/layers';
@@ -54,6 +55,14 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	let renderScheduled = false;
 	let baseDirty = false;
 	let overlayDirty = false;
+	// While a RASTER stroke is active its dabs land in the layer bitmap, so the
+	// base canvas must keep updating — but only inside the stroke's dirty rect
+	// (clipped). Vector-tool previews never touch the base until pointer-up.
+	let rasterStrokeActive = false;
+	// Hi-dpi cap: backing-store pixels scale quadratically with devicePixelRatio,
+	// which made drawing lag on high-res monitors (4x fill at dpr 2 vs a 1x
+	// laptop). 1.5 keeps lines crisp while quartering worst-case fill cost.
+	const MAX_CANVAS_DPR = 1.5;
 	let lastPointerX = 0;
 	let lastPointerY = 0;
 	let renderSamples = 0;
@@ -66,7 +75,7 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 		const rect = containerEl.getBoundingClientRect();
 		canvasWidth = rect.width;
 		canvasHeight = rect.height;
-		dpr = window.devicePixelRatio || 1;
+		dpr = Math.min(window.devicePixelRatio || 1, MAX_CANVAS_DPR);
 		for (const c of [baseCanvas, interactionCanvas]) {
 			if (!c) continue;
 			c.width = canvasWidth * dpr;
@@ -109,6 +118,33 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 		const baseCtx = baseCanvas.getContext('2d')!;
 		baseCtx.save();
 		baseCtx.scale(dpr, dpr);
+		// Active raster stroke: clip the whole recomposite (clear + layers) to
+		// the stroke's dirty rect so untouched board regions keep last frame's
+		// pixels. This is the Krita-style tile/dirty-rect compositing win.
+		let strokeClip: { x: number; y: number; w: number; h: number } | null = null;
+		if (rasterStrokeActive && currentInteraction) {
+			const bs = get(boardStore);
+			const bounds = getRasterStrokeDirtyBounds(bs.activeLayerId);
+			if (bounds) {
+				const STROKE_PAD = 64;
+				const sx0 = (bounds.minX - STROKE_PAD - vp.x) * vp.zoom;
+				const sy0 = (bounds.minY - STROKE_PAD - vp.y) * vp.zoom;
+				const sx1 = (bounds.maxX + STROKE_PAD - vp.x) * vp.zoom;
+				const sy1 = (bounds.maxY + STROKE_PAD - vp.y) * vp.zoom;
+				strokeClip = {
+					x: Math.max(0, Math.floor(sx0)),
+					y: Math.max(0, Math.floor(sy0)),
+					w: Math.min(canvasWidth, Math.ceil(sx1)) - Math.max(0, Math.floor(sx0)),
+					h: Math.min(canvasHeight, Math.ceil(sy1)) - Math.max(0, Math.floor(sy0))
+				};
+				if (strokeClip.w <= 0 || strokeClip.h <= 0) strokeClip = null;
+			}
+		}
+		if (strokeClip) {
+			baseCtx.beginPath();
+			baseCtx.rect(strokeClip.x, strokeClip.y, strokeClip.w, strokeClip.h);
+			baseCtx.clip();
+		}
 		baseCtx.clearRect(0, 0, canvasWidth, canvasHeight);
 		// Canvas background color
 		if ($boardStore.canvasBgColor) {
@@ -269,19 +305,46 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 		if (readOnly && drawingTools.has(toolType)) return;
 		const handler = getToolHandler(toolType);
 		currentInteraction = handler.onPointerDown(makeToolEvent(e));
+		// Pen/eraser only mutate the base canvas mid-stroke on RASTER layers
+		// (same condition createPenTool/createEraserTool use to pick their
+		// raster variants). Vector-mode strokes preview on the overlay and
+		// commit once on pointer-up.
+		const bs = get(boardStore);
+		const activeLayer = bs.layers.find((layer) => layer.id === bs.activeLayerId);
+		rasterStrokeActive =
+			activeLayer?.mode === 'raster' && (toolType === 'pen' || toolType === 'eraser');
 		if (currentInteraction) interactionCanvas.setPointerCapture(e.pointerId);
 		requestRender();
 	}
 	function handlePointerMove(e: PointerEvent) {
 		lastPointerX = e.clientX;
 		lastPointerY = e.clientY;
-		if (currentInteraction) { currentInteraction.onPointerMove(makeToolEvent(e)); requestRender(); }
+		if (currentInteraction) {
+			// Coalesced events: browsers sample pointers faster than frames
+			// (~125-1000Hz vs 60fps). Feed every raw sample to the tool so
+			// strokes stay smooth, then repaint ONCE this frame.
+			const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
+			if (events.length > 0) {
+				for (const ce of events) currentInteraction.onPointerMove(makeToolEvent(ce));
+			} else {
+				currentInteraction.onPointerMove(makeToolEvent(e));
+			}
+			if (rasterStrokeActive) {
+				requestRender();
+			} else {
+				// Vector previews draw on the interaction canvas only — the
+				// base board hasn't changed until pointer-up. Skip the
+				// expensive full-board recomposite per mouse tick.
+				requestOverlayRender();
+			}
+		}
 		if (boardId) { const te = makeToolEvent(e); broadcastCursor(boardId, { x: te.boardX, y: te.boardY, username, color: userColor }); }
 	}
 	function handlePointerUp(e: PointerEvent) {
 		if (currentInteraction) {
 			currentInteraction.onPointerUp(makeToolEvent(e));
 			currentInteraction = null;
+			rasterStrokeActive = false;
 			if (interactionCanvas.hasPointerCapture(e.pointerId)) interactionCanvas.releasePointerCapture(e.pointerId);
 			requestRender();
 		}
@@ -289,6 +352,7 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	function handlePointerCancel(e: PointerEvent) {
 		if (!currentInteraction) return;
 		currentInteraction = null;
+		rasterStrokeActive = false;
 		if (interactionCanvas.hasPointerCapture(e.pointerId)) interactionCanvas.releasePointerCapture(e.pointerId);
 		requestRender();
 	}

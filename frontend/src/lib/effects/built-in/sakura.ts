@@ -13,9 +13,9 @@ interface Petal {
 }
 
 /**
- * Sakura — ported from Odysseus' `petals` pattern.
- * Soft flower petals drifting down with a swaying wobble, dissolving near
- * the bottom of the screen.
+ * Sakura — inspired by Odysseus' `petals` pattern, then given its own
+ * signature: petals now flutter (asymmetric rotation wobble), scale-breathe,
+ * and dissolve into a soft fade near the bottom instead of hard-respawning.
  */
 export class SakuraEffect implements AmbientEffect {
 	id = 'sakura';
@@ -80,9 +80,16 @@ export class SakuraEffect implements AmbientEffect {
 			p.x += Math.sin(p.drift) * p.wobble;
 			if (p.y > this.H + 15) Object.assign(p, this.make());
 
+			// signature: flutter + breathe. Rotation wobbles around the base spin
+			// and the petal gently scales in/out — reads as tumbling in a breeze
+			// rather than sliding on rails.
+			const flutter = Math.sin(p.drift * 2.3);
+			const breathe = 1 + flutter * 0.18;
+
 			ctx.save();
 			ctx.translate(p.x, p.y);
-			ctx.rotate(p.rot);
+			ctx.rotate(p.rot + flutter * 0.35);
+			ctx.scale(breathe, breathe);
 			ctx.fillStyle = color;
 			// Two overlapping ellipses form a petal shape.
 			ctx.globalAlpha = 0.2;
