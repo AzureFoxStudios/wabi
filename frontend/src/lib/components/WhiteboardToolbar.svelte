@@ -576,7 +576,7 @@
 <style>
 	.wb-toolbar-rail {
 		position: absolute;
-		top: 4.1rem;
+		top: var(--wb-chrome-top, 4.1rem);
 		left: 0.7rem;
 		z-index: 20;
 		display: flex;

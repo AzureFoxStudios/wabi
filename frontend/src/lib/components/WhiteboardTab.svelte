@@ -432,6 +432,15 @@
 
 <style>
 	.whiteboard-shell {
+		/* Single source of truth for the whiteboard chrome vertical rhythm.
+		   Every absolute offset below (topbar, banner, toolbar, layer panel)
+		   is derived from these so they never overlap. */
+		--wb-chrome-gap: 0.8rem;
+		--wb-chrome-top: 4.1rem; /* topbar height + gap; consumed by .wb-toolbar-rail */
+		--wb-topbar-top: var(--wb-chrome-gap); /* 0.8rem */
+		--wb-toolbar-top: 4.25rem;
+		--wb-banner-top: 8.2rem;
+		--wb-panel-top: 4.25rem;
 		position: relative;
 		display: flex;
 		flex-direction: column;
@@ -442,7 +451,7 @@
 
 	.whiteboard-topbar {
 		position: absolute;
-		top: 0.8rem;
+		top: var(--wb-topbar-top);
 		left: 0.9rem;
 		right: 0.9rem;
 		z-index: 18;
@@ -574,7 +583,7 @@
 
 	.whiteboard-banner {
 		position: absolute;
-		top: 8.2rem;
+		top: var(--wb-banner-top);
 		left: 0.9rem;
 		right: 0.9rem;
 		/* Above .wb-toolbar (z-index 20) so errors are never hidden behind it. */
@@ -716,12 +725,12 @@
 	}
 
 	.whiteboard-stage :global(.wb-toolbar) {
-		top: 4.25rem;
+		top: var(--wb-toolbar-top);
 	}
 
 	.whiteboard-layer-panel-wrap {
 		position: absolute;
-		top: 4.25rem;
+		top: var(--wb-panel-top);
 		right: 0.9rem;
 		z-index: 25;
 		width: min(380px, calc(100% - 1.8rem));
@@ -766,8 +775,14 @@
 	}
 
 	@media (max-width: 720px) {
+		.whiteboard-shell {
+			--wb-topbar-top: 0.6rem;
+			--wb-banner-top: 5rem;
+			--wb-toolbar-top: 10.5rem;
+			--wb-panel-top: 16rem;
+		}
+
 		.whiteboard-topbar {
-			top: 0.6rem;
 			left: 0.6rem;
 			right: 0.6rem;
 			flex-wrap: wrap;
@@ -777,11 +792,9 @@
 		.whiteboard-banner {
 			left: 0.6rem;
 			right: 0.6rem;
-			top: 5rem;
 		}
 
 		.whiteboard-stage :global(.wb-toolbar) {
-			top: 10.5rem;
 			left: 0.6rem;
 			right: 0.6rem;
 			transform: none;
@@ -795,7 +808,6 @@
 		.whiteboard-layer-panel-wrap {
 			left: 0.6rem;
 			right: 0.6rem;
-			top: 16rem;
 			width: auto;
 		}
 	}
