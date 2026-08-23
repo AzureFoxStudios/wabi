@@ -23,13 +23,7 @@ export {
 	handleScreenShareIceCandidate
 } from './callingScreenShare';
 import { initScreenShareDeps } from './callingScreenShare';
-import {
-	initStorefwdDeps,
-	startStorefwdRecording,
-	stopStorefwdRecording
-} from './callingStorefwd';
-import {
-	clearActiveAudioCaptureSession,
+import { clearActiveAudioCaptureSession,
 	createAudioCaptureSession,
 	disposeAudioCaptureSession,
 	getActiveAudioCaptureSession,
@@ -54,12 +48,6 @@ import {
 import { prefetchTurnCredentials } from './turnConfig';
 import { getSocket } from './socketConnection';
 import { playCallActionSound } from './callSounds';
-import { closeMediaGatewaySession } from './mediaGateway';
-import {
-	stopMediaGatewaySessionRenewal,
-	getActiveMediaGatewaySessionId,
-	setActiveMediaGatewaySessionId
-} from './callingMediaGateway';
 import { resolveActiveTransport } from './callingTransport';
 import {
 	getStoredCallMuteBehavior,
@@ -616,14 +604,6 @@ function finalizeLocalCallEndState(): void {
 		fallbackReason: null
 	}));
 
-	const __mgwSessionId = getActiveMediaGatewaySessionId();
-	if (__mgwSessionId) {
-		void closeMediaGatewaySession(__mgwSessionId).catch((error) => {
-			console.warn('[MediaGateway] Failed to close session on call teardown:', error);
-		});
-		stopMediaGatewaySessionRenewal();
-		setActiveMediaGatewaySessionId(null);
-	}
 	void disconnectLivekitSfu();
 	void disconnectWabidbCall();
 }
@@ -1151,14 +1131,8 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			incomingCall.set(null);
 		}
 		pushVoiceChannelNotice(`Joined voice: ${channelId}`);
-		initStorefwdDeps(socket);
 		if (activeTransport === 'sfu') {
 			await connectLivekitSfu(channelId, `${brandName} User`);
-		}
-		if (activeTransport === 'storefwd') {
-			// Storefwd is passive — no connection setup, just subscribe
-			// PTT is handled by UI button calling start/stopStorefwdRecording
-			pushVoiceChannelNotice('Joined voice (storefwd mode)');
 		}
 		if (activeTransport === 'wabidb') {
 			// Default transport: wabidb/socket.io opus relay. Guarded so a
@@ -1192,14 +1166,6 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			activeVoiceChannel.set(null);
 		}
 		void disconnectLivekitSfu();
-		const __mgwSessionId = getActiveMediaGatewaySessionId();
-		if (__mgwSessionId) {
-			void closeMediaGatewaySession(__mgwSessionId).catch((closeError) => {
-				console.warn('[MediaGateway] Failed closing session after join failure:', closeError);
-			});
-			stopMediaGatewaySessionRenewal();
-			setActiveMediaGatewaySessionId(null);
-		}
 		handleMediaError(error as DOMException, 'starting');
 		if (!get(activeCallSessionId)) {
 			isInCall.set(false);
@@ -1291,14 +1257,6 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		fallbackReason: null
 	}));
 
-	const __mgwSessionId2 = getActiveMediaGatewaySessionId();
-	if (__mgwSessionId2) {
-		void closeMediaGatewaySession(__mgwSessionId2).catch((error) => {
-			console.warn('[MediaGateway] Failed to close session on leave:', error);
-		});
-		stopMediaGatewaySessionRenewal();
-		setActiveMediaGatewaySessionId(null);
-	}
 	void disconnectLivekitSfu();
 	void disconnectWabidbCall();
 }
@@ -2345,14 +2303,6 @@ export function cleanupAllConnections() {
 		effectiveMode: 'off',
 		fallbackReason: null
 	}));
-	const __mgwSessionId3 = getActiveMediaGatewaySessionId();
-	if (__mgwSessionId3) {
-		void closeMediaGatewaySession(__mgwSessionId3).catch((error) => {
-			console.warn('[MediaGateway] Failed to close session on cleanupAllConnections:', error);
-		});
-		stopMediaGatewaySessionRenewal();
-		setActiveMediaGatewaySessionId(null);
-	}
 	void disconnectLivekitSfu();
 }
 

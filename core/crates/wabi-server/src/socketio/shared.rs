@@ -121,6 +121,9 @@ pub struct ConnectedUser {
     pub db_user_id: Option<i64>,
     pub username: String,
     pub color: String,
+    /// Self-selected presence (multi-tab inherited on join, owned by
+    /// `set-presence`). Invisible is broadcast as "offline".
+    pub presence: UserPresence,
     /// Unix microseconds of the last activity (connect, message, or
     /// periodic heartbeat). The periodic sweep uses this to remove
     /// entries that are stale (e.g. on_disconnect never fired because
@@ -128,6 +131,39 @@ pub struct ConnectedUser {
     ///
     /// WABI_AUDIT_REPORT.md finding #3.
     pub last_seen_micros: i64,
+}
+
+/// Self-selected user presence. Lives here because ConnectedUser carries it
+/// across sockets; `set-presence` owns mutations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum UserPresence {
+    Active,
+    Away,
+    Busy,
+    Invisible,
+}
+
+impl UserPresence {
+    #[allow(dead_code)]
+    pub fn parse(raw: &str) -> UserPresence {
+        match raw {
+            "away" => UserPresence::Away,
+            "busy" => UserPresence::Busy,
+            "invisible" | "offline" => UserPresence::Invisible,
+            _ => UserPresence::Active,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UserPresence::Active => "active",
+            UserPresence::Away => "away",
+            UserPresence::Busy => "busy",
+            UserPresence::Invisible => "invisible",
+        }
+    }
 }
 
 /// socket_id → ConnectedUser for all live sockets.
@@ -720,6 +756,7 @@ mod tests {
             db_user_id: None,
             username: stable_id.to_string(),
             color: "#fff".to_string(),
+            presence: UserPresence::Active,
             last_seen_micros,
         }
     }
