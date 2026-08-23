@@ -621,18 +621,18 @@ impl App {
         if channel.is_empty() {
             return; // retried when channels load / LiveConnected fires join
         }
-        if let Err(e) = self.live.connect(
-            &self.config.server_url,
-            &token,
-            &username,
-            &channel,
-            self.bg_tx.clone(),
-        ) {
-            // `&self` (called from poll_bg's borrow) — surface via bg queue.
-            let _ = self
-                .bg_tx
-                .try_send(BgMsg::Error(format!("live connect: {e}")));
-        }
+        // rust_engineio's secure transport builds its own tokio runtime and
+        // block_on's inside — calling connect() on a tokio worker thread
+        // panics with "Cannot start a runtime from within a runtime".
+        // Run it on a plain OS thread instead; results arrive via bg_tx.
+        let live = self.live.clone();
+        let server = self.config.server_url.clone();
+        let bg_tx = self.bg_tx.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = live.connect(&server, &token, &username, &channel, bg_tx) {
+                tracing::warn!("live connect failed: {e}");
+            }
+        });
     }
 
     pub fn set_error(&mut self, error: String) {
