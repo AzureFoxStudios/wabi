@@ -165,6 +165,15 @@ pub trait WabiStore: Send + Sync {
     /// `rbac_roles` projection maintained by `AuditProjection`.
     async fn get_user_role(&self, workspace_id: &str, user_id: u64) -> Result<Option<String>>;
 
+    /// List all badges currently assigned to a user. Backed by the
+    /// `user_badges` projection maintained by `BadgesProjection`.
+    async fn list_user_badges(
+        &self,
+        _user_id: u64,
+    ) -> Result<Vec<crate::projections::badges::UserBadgeRecord>> {
+        Ok(Vec::new())
+    }
+
     // --- new methods ---
 
     /// Soft-delete a channel.

@@ -7,6 +7,7 @@ include!("socketio/voice_channels.rs");
 include!("socketio/direct_calls.rs");
 include!("socketio/group_calls.rs");
 include!("socketio/dm_moderation.rs");
+include!("socketio/badges_ops.rs");
 include!("socketio/voice_moderation.rs");
 include!("socketio/group_members_messages.rs");
 include!("socketio/media_reactions_signaling.rs");

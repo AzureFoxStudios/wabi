@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 import { get } from 'svelte/store';
-	import { channels, currentUser, assignRole, removeUserRole, type User, updateChannelSettings, sendMessage, channelMessages, connected } from '$lib/socket';
+	import { channels, currentUser, assignRole, removeUserRole, badgeCatalog, assignBadge as emitAssignBadge, removeBadge as emitRemoveBadge, type User, updateChannelSettings, sendMessage, channelMessages, connected } from '$lib/socket';
 	import { users, serverMembers } from '$lib/socket';
 	import { getSocket } from '$lib/socket';
 	import { getWabiDB } from '$lib/wabidb';
@@ -289,6 +289,16 @@ import { get } from 'svelte/store';
 		if (nextRole === 'admin' || nextRole === 'mod') {
 			assignRole(user.dbUserId, nextRole);
 		}
+	}
+
+	function handleAssignBadge(user: User, badgeId: string) {
+		if (!canManageTargetUser(user) || !user.dbUserId) return;
+		emitAssignBadge(user.dbUserId, badgeId);
+	}
+
+	function handleRemoveBadge(user: User, badgeId: string) {
+		if (!canManageTargetUser(user) || !user.dbUserId) return;
+		emitRemoveBadge(user.dbUserId, badgeId);
 	}
 
 	function refreshRoleDrafts() {
@@ -775,6 +785,9 @@ import { get } from 'svelte/store';
 			{manageableUserRoleOptions}
 			{isUserPaymentBlocked}
 			{paymentBlockBusyUserId}
+				badgeCatalog={$badgeCatalog}
+			onAssignBadge={handleAssignBadge}
+			onRemoveBadge={handleRemoveBadge}
 			onSearchInput={(v) => searchQuery = v}
 			onMessage={handleMessage}
 			onUserRoleChange={setUserRoleLevel}
@@ -792,6 +805,9 @@ import { get } from 'svelte/store';
 		{manageableUserRoleOptions}
 		{isUserPaymentBlocked}
 		{paymentBlockBusyUserId}
+		badgeCatalog={$badgeCatalog}
+		onAssignBadge={handleAssignBadge}
+		onRemoveBadge={handleRemoveBadge}
 		onSearchInput={(v) => searchQuery = v}
 		onMessage={handleMessage}
 		onUserRoleChange={setUserRoleLevel}

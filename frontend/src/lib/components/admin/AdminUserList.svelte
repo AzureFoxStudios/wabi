@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
-	import type { User } from '$lib/socket';
+	import type { User, UserBadge } from '$lib/socket';
+	import RoleBadge from '$lib/components/RoleBadge.svelte';
 
 	type ManagedUserRole = 'member' | 'mod' | 'admin';
 
@@ -17,6 +18,14 @@
 	export let onMessage: (user: User) => void;
 	export let onUserRoleChange: (user: User, role: ManagedUserRole) => void;
 	export let onTogglePaymentBlock: (user: User) => void;
+	// Badge management (optional — surfaces only when wired by the parent).
+	export let badgeCatalog: UserBadge[] = [];
+	export let onAssignBadge: ((user: User, badgeId: string) => void) | null = null;
+	export let onRemoveBadge: ((user: User, badgeId: string) => void) | null = null;
+
+	const heldBadges = (user: User): UserBadge[] => user.badges ?? [];
+	const unheldBadges = (user: User): UserBadge[] =>
+		badgeCatalog.filter((b) => !heldBadges(user).some((h) => h.id === b.id));
 </script>
 
 <div class="admin-section">
@@ -35,7 +44,7 @@
 			<div class="admin-user-item">
 				<div class="admin-user-meta">
 					<span class="admin-user-name">{user.username}</span>
-					<span class="admin-role-badge">{getRoleLabel(user.highestRole || 'member')}</span>
+					<RoleBadge {user} size="md" />
 					{#if !user.dbUserId || user.isRegistered === false}
 						<span class="admin-guest-badge">{getRoleLabel('guest')}</span>
 					{/if}
@@ -63,6 +72,39 @@
 								{/each}
 							</select>
 						</label>
+						{#if badgeCatalog.length > 0 && onAssignBadge && onRemoveBadge}
+							<div class="admin-badge-control">
+								{#each heldBadges(user) as badge (badge.id)}
+									<button
+										class="admin-badge-chip"
+										title={`Remove ${badge.label}`}
+										disabled={!canManageTargetUser(user)}
+										on:click={() => onRemoveBadge(user, badge.id)}
+									>
+										<span class="admin-badge-chip-icon">{badge.icon}</span>
+										{badge.label}
+										<span class="admin-badge-chip-x">×</span>
+									</button>
+								{/each}
+								{#if unheldBadges(user).length > 0}
+									<select
+										class="admin-select admin-badge-select"
+										disabled={!canManageTargetUser(user)}
+										value=""
+										on:change={(event) => {
+													const value = (event.currentTarget as HTMLSelectElement).value;
+													if (value) onAssignBadge(user, value);
+													(event.currentTarget as HTMLSelectElement).value = '';
+												}}
+									>
+										<option value="">+ Badge…</option>
+										{#each unheldBadges(user) as badge (badge.id)}
+											<option value={badge.id}>{badge.icon} {badge.label}</option>
+										{/each}
+									</select>
+								{/if}
+							</div>
+						{/if}
 						<button
 							class="admin-btn warning admin-pay-toggle"
 							disabled={!canManageTargetUser(user) || !user.dbUserId || paymentBlockBusyUserId === user.dbUserId}

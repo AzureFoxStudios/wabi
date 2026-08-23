@@ -116,6 +116,15 @@ export interface User {
   isBot?: boolean;
   /// False for guest accounts (no password) — set on roster views.
   isRegistered?: boolean;
+  /** Assignable badges (server `user_badges` projection), joined with catalog metadata. */
+  badges?: UserBadge[];
+}
+
+/** One assignable badge as delivered on `user-badges-updated` / user views. */
+export interface UserBadge {
+  id: string;
+  icon: string;
+  label: string;
 }
 
 export type VoiceChannelSettings = ProtocolVoiceChannelSettings;

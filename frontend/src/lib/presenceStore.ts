@@ -14,8 +14,9 @@ import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { getSocket, connected } from './socketConnection';
 import { getWabiDB } from '$lib/wabidb';
-import type { User } from './socket-types';
+import type { User, UserBadge } from './socket-types';
 import type { WhiteboardPresenceUser } from './whiteboard/boardTypes';
+import { FALLBACK_BADGE_CATALOG } from './badges';
 
 // ============================================================================
 // TYPES
@@ -56,6 +57,8 @@ export const currentUser = writable<User | null>(null);
 export const activeVoiceChannel = writable<string | null>(null);
 export const voiceChannelMembers = writable<Record<string, VoiceChannelParticipant[]>>({});
 export const roleDefinitions = writable<RoleDefinition[]>([]);
+/** Assignable badge catalog (server BADGE_CATALOG via `badge-catalog`). */
+export const badgeCatalog = writable<UserBadge[]>(FALLBACK_BADGE_CATALOG);
 
 // Per-channel whiteboard presence: maps a channel id to the users currently
 // on that channel's board. Populated by WhiteboardTab from its sync session so
@@ -153,6 +156,24 @@ export async function removeUserRole(userId: string | number, roleId: string): P
 		return;
 	}
 	sock.emit('remove-role', { targetUserId, roleName: roleId });
+}
+
+/** Assign an assignable badge (server BADGE_CATALOG id). Admin-gated server-side. */
+export async function assignBadge(userId: string | number, badgeId: string): Promise<void> {
+	const sock = getSocket();
+	if (!sock) return;
+	const targetUserId = toNumericUserId(userId);
+	if (!targetUserId || !badgeId) return;
+	sock.emit('assign-badge', { targetUserId, badgeId });
+}
+
+/** Remove a previously assigned badge. Admin-gated server-side. */
+export async function removeBadge(userId: string | number, badgeId: string): Promise<void> {
+	const sock = getSocket();
+	if (!sock) return;
+	const targetUserId = toNumericUserId(userId);
+	if (!targetUserId || !badgeId) return;
+	sock.emit('remove-badge', { targetUserId, badgeId });
 }
 
 // ============================================================================
@@ -331,3 +352,32 @@ export function _removeVoiceChannelMember(channelId: string, userId: string): vo
 		};
 	});
 }
+
+// ============================================================================
+// BADGES (assignable, server `user_badges` projection)
+// ============================================================================
+
+export function _setBadgeCatalog(catalog: UserBadge[] | undefined | null): void {
+	if (Array.isArray(catalog) && catalog.length > 0) badgeCatalog.set(catalog);
+}
+
+function patchUserBadges(list: User[], dbUserId: number, badges: UserBadge[]): User[] {
+	let touched = false;
+	const next = list.map((candidate) => {
+		if (candidate.dbUserId !== dbUserId) return candidate;
+		touched = true;
+		return { ...candidate, badges };
+	});
+	return touched ? next : list;
+}
+
+/** Fan-out from the server's `user-badges-updated`: patch every store that
+ *  may hold the user so all name surfaces re-render immediately. */
+export function _setUserBadges(dbUserId: number, badges: UserBadge[]): void {
+	users.update((list) => patchUserBadges(list, dbUserId, badges));
+	serverMembers.update((list) => patchUserBadges(list, dbUserId, badges));
+	currentUser.update((current) =>
+		current && current.dbUserId === dbUserId ? { ...current, badges } : current
+	);
+}
+

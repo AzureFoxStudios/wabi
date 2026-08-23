@@ -125,6 +125,14 @@
 .payment-role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem; }
 .payment-role-toggle { border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.35rem 0.45rem; background: var(--surface-raised); }
 .admin-user-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; min-width: 0; }
+/* Badge assignment controls */
+.admin-badge-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+.admin-badge-select { min-width: 96px; }
+.admin-badge-chip { display: inline-flex; align-items: center; gap: 0.25rem; height: 24px; padding: 0 0.45rem; border: 1px solid color-mix(in srgb, var(--accent-primary-color) 42%, transparent); border-radius: var(--radius-full); background: color-mix(in srgb, var(--accent-primary-color) 14%, var(--surface-base)); color: var(--text-heading); font-size: 0.72rem; cursor: pointer; transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out); }
+.admin-badge-chip:hover:not(:disabled) { border-color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 16%, var(--surface-base)); }
+.admin-badge-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+.admin-badge-chip-icon { line-height: 1; font-size: 0.8em; }
+.admin-badge-chip-x { color: var(--text-muted); font-size: 0.85rem; line-height: 1; }
 .admin-user-name { font-size: 0.84rem; font-weight: 600; color: var(--text-heading); }
 .admin-role-badge, .admin-guest-badge { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.12rem 0.35rem; border-radius: 999px; border: 1px solid var(--border-subtle); color: var(--text-secondary); }
 .admin-guest-badge { background: var(--accent-warning-soft, rgba(var(--color-warning-rgb, 255, 193, 7), 0.12)); border-color: rgba(var(--color-warning-rgb, 255, 193, 7), 0.35); }

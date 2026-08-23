@@ -2,6 +2,7 @@
 	import type { ForumPost } from '$lib/forumStore';
 	import { findAuthor, formatForumTime, categorizeThread, tagClass } from '$lib/forumStore';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
+	import RoleBadge from './RoleBadge.svelte';
 	import { slugify } from '$lib/objectRefRegistry';
 
 	export let thread: ForumPost;
@@ -48,6 +49,7 @@
 					{author.username.charAt(0).toUpperCase()}
 				</div>
 				<span>{author.username}</span>
+				<RoleBadge user={author} size="sm" />
 			{:else}
 				<div class="forum-post-row-avatar" style="background: var(--accent-primary);">?</div>
 				<span>User #{thread.author_user_id}</span>

@@ -5,6 +5,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import type { User } from '$lib/socket';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
@@ -306,8 +307,11 @@
 						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'} style="--status-color: {getStatusColor(user.status)}"></span>
 					</div>
 					<div class="user-info">
-						<span class="user-display-name" style="color: {getDisplayColor(user)}">
-							{getDisplayName(user)}
+						<span class="user-name-row">
+							<span class="user-display-name" style="color: {getDisplayColor(user)}">
+								{getDisplayName(user)}
+							</span>
+							<RoleBadge {user} size="sm" />
 						</span>
 						{#if user.handle}
 							<span class="user-handle">@{user.handle}</span>
@@ -342,8 +346,11 @@
 							<span class="presence-dot" style="--status-color: {getStatusColor('offline')}"></span>
 						</div>
 						<div class="user-info">
-							<span class="user-display-name" style="color: {getDisplayColor(user)}">
-								{getDisplayName(user)}
+							<span class="user-name-row">
+								<span class="user-display-name" style="color: {getDisplayColor(user)}">
+									{getDisplayName(user)}
+								</span>
+								<RoleBadge {user} size="sm" />
 							</span>
 							{#if user.handle}
 								<span class="user-handle">@{user.handle}</span>
