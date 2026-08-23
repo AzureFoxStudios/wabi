@@ -245,13 +245,7 @@ impl ApiClient {
             .ok_or_else(|| anyhow::anyhow!("No token in response"))?;
         let (user_id, uname, role) = data
             .user
-            .map(|u| {
-                (
-                    u.id,
-                    u.username,
-                    u.highest_role.or(u.highest_role_camel),
-                )
-            })
+            .map(|u| (u.id, u.username, u.highest_role.or(u.highest_role_camel)))
             .unwrap_or((0, username.to_string(), None));
         Ok(LoginResult {
             token,
