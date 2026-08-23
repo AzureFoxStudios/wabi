@@ -131,6 +131,7 @@ async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, 
         .emit(
             "emoji-reaction-added",
             &json!({
+                "channelId": channel_id,
                 "messageId": message_id,
                 "userId": user_id_num,
                 "emojiId": emoji_id,
@@ -190,6 +191,7 @@ async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioStat
         .emit(
             "emoji-reaction-removed",
             &json!({
+                "channelId": channel_id,
                 "messageId": message_id,
                 "userId": user_id_num,
                 "emojiId": emoji_id,

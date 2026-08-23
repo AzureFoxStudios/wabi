@@ -580,20 +580,20 @@ impl WabiStore for WdbAdapter {
         limit: u64,
     ) -> Result<Vec<Message>> {
         use wabidb::projections::messages::MessagesProjection;
-        use wabidb::projections::query::MessagesFilter;
+        // t_ee2420fe: bounded tail query — visits ~O(limit) index records
+        // instead of decode-all + double sort. Timestamp re-sort kept: UUID-
+        // generation ids carry no ordering, and the tail query may include a
+        // mixed-generation boundary.
         let state = self.engine.projection_state();
-        let mut out: Vec<Message> = MessagesProjection
-            .query(
-                &state,
-                &MessagesFilter {
-                    channel_id: Some(channel_id.to_string()),
-                    limit: Some(limit as usize),
-                    ..Default::default()
-                },
-            )?
-            .into_iter()
-            .map(Message::from)
-            .collect();
+        let mut out: Vec<Message> = MessagesProjection::list_messages_tail(
+            &state,
+            channel_id,
+            limit as usize,
+            false,
+        )?
+        .into_iter()
+        .map(Message::from)
+        .collect();
         out.sort_by(|a, b| a.created_at_micros.cmp(&b.created_at_micros));
         Ok(out)
     }
