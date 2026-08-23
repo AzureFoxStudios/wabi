@@ -6,6 +6,53 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{Channel, Message, RegisteredUser, ServerStats};
 
+/// Parsed channel type from the server. `Other` is reserved for any
+/// future/unknown kind; the parser always yields a known variant so this
+/// is only reachable via direct construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum ChannelKind {
+    Text,
+    Dm,
+    Group,
+    Voice,
+    Lore,
+    Whiteboard,
+    Announcement,
+    Other,
+}
+
+impl ChannelKind {
+    /// Parse from the server's `channel_type` string. Empty or unknown
+    /// values fall back to `Text`.
+    pub fn from_type(s: &str) -> Self {
+        match s {
+            "text" => ChannelKind::Text,
+            "dm" => ChannelKind::Dm,
+            "group" => ChannelKind::Group,
+            "voice" => ChannelKind::Voice,
+            "lore" => ChannelKind::Lore,
+            "whiteboard" => ChannelKind::Whiteboard,
+            "announcement" => ChannelKind::Announcement,
+            _ => ChannelKind::Text,
+        }
+    }
+
+    /// Short, subtle badge rendered before the channel name in the list.
+    pub fn badge(&self) -> &'static str {
+        match self {
+            ChannelKind::Text => "#",
+            ChannelKind::Dm => "@",
+            ChannelKind::Group => "G:",
+            ChannelKind::Voice => "mic:",
+            ChannelKind::Lore => "book:",
+            ChannelKind::Whiteboard => "wb:",
+            ChannelKind::Announcement => "ann:",
+            ChannelKind::Other => "#",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ApiClient {
     base_url: String,
@@ -224,15 +271,20 @@ impl ApiClient {
         Ok(data
             .channels
             .into_iter()
-            .map(|c| Channel {
-                id: c.id,
-                name: c.name,
-                channel_type: if c.channel_type.is_empty() {
+            .map(|c| {
+                let channel_type = if c.channel_type.is_empty() {
                     c.type_alt.unwrap_or_else(|| "text".into())
                 } else {
                     c.channel_type
-                },
-                description: c.description,
+                };
+                let kind = ChannelKind::from_type(&channel_type);
+                Channel {
+                    id: c.id,
+                    name: c.name,
+                    channel_type,
+                    kind,
+                    description: c.description,
+                }
             })
             .collect())
     }
