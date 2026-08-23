@@ -40,6 +40,8 @@ export interface WhiteboardLayer {
 	assetUrl?: string;
 	pixelWidth?: number;
 	pixelHeight?: number;
+	assetOffsetX?: number;
+	assetOffsetY?: number;
 	revision?: number;
 }
 
