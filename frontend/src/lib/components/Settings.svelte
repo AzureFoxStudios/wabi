@@ -20,6 +20,7 @@
 	import NotificationsSettingsTab from './settings/NotificationsSettingsTab.svelte';
 	import ProfileSettingsTab from './settings/ProfileSettingsTab.svelte';
 	import ServerSettingsTab from './settings/ServerSettingsTab.svelte';
+	import SettingsTabIcon from './settings/SettingsTabIcon.svelte';
 	import PaymentConnectionsModal from '$lib/payments/PaymentConnectionsModal.svelte';
 	import PaymentHistoryModal from '$lib/payments/PaymentHistoryModal.svelte';
 	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
@@ -329,12 +330,18 @@
 								aria-pressed={activeSettingsTab === tab.id}
 								on:click={() => (activeSettingsTab = tab.id)}
 							>
+								<span class="settings-tab-icon" aria-hidden="true">
+									<SettingsTabIcon id={tab.id} />
+								</span>
 								{$t(tab.labelKey)}
 							</button>
 						{/if}
 					{/each}
 					<div class="settings-tabs-spacer"></div>
 					<button type="button" class="settings-tab logout-tab" on:click={handleLogout}>
+						<span class="settings-tab-icon" aria-hidden="true">
+							<SettingsTabIcon id="logout" />
+						</span>
 						{$t('settings.tabs.logout')}
 					</button>
 				</div>
