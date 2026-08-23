@@ -8,6 +8,15 @@
 		onSelectView: (view: string) => void;
 		showReturnToMessages?: boolean;
 	} = $props();
+
+	// Mouse clicks leave the clicked button focused, which keeps the bar in
+	// :focus-within and pins every pill open (the compaction never re-engages).
+	// Blur on selection so the pills collapse again; keyboard Tab navigation
+	// still reveals them via :focus-within as intended.
+	function handleSelect(view: string, event: Event): void {
+		(event.currentTarget as HTMLElement | null)?.blur();
+		onSelectView(view);
+	}
 </script>
 
 <div class="workspace-view-bar">
@@ -15,7 +24,7 @@
 		<button
 			class="surface-return-btn btn-secondary"
 			type="button"
-			onclick={() => onSelectView('messages')}
+			onclick={(e) => handleSelect('messages', e)}
 			title="Return to messages"
 			aria-label="Return to messages"
 		>
@@ -27,7 +36,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'messages'}
 			type="button"
-			onclick={() => onSelectView('messages')}
+			onclick={(e) => handleSelect('messages', e)}
 			title="Show messages"
 			aria-label="Show messages"
 		>
@@ -39,7 +48,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'whiteboard'}
 			type="button"
-			onclick={() => onSelectView('whiteboard')}
+			onclick={(e) => handleSelect('whiteboard', e)}
 			title="Show whiteboard"
 			aria-label="Show whiteboard"
 		>
@@ -54,7 +63,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'planner'}
 			type="button"
-			onclick={() => onSelectView('planner')}
+			onclick={(e) => handleSelect('planner', e)}
 			title="Open Planner"
 			aria-label="Open Planner"
 		>
@@ -68,7 +77,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'notes'}
 			type="button"
-			onclick={() => onSelectView('notes')}
+			onclick={(e) => handleSelect('notes', e)}
 			title="Open Notes"
 			aria-label="Open Notes"
 		>
@@ -83,7 +92,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'lore'}
 			type="button"
-			onclick={() => onSelectView('lore')}
+			onclick={(e) => handleSelect('lore', e)}
 			title="Open Project (Lore repositories)"
 			aria-label="Open Project (Lore repositories)"
 		>
@@ -96,7 +105,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'files'}
 			type="button"
-			onclick={() => onSelectView('files')}
+			onclick={(e) => handleSelect('files', e)}
 			title="Open Files workspace"
 			aria-label="Open Files workspace"
 		>
@@ -108,7 +117,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'media'}
 			type="button"
-			onclick={() => onSelectView('media')}
+			onclick={(e) => handleSelect('media', e)}
 			title="Open media albums view"
 			aria-label="Open media albums view"
 		>
@@ -122,7 +131,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'reader'}
 			type="button"
-			onclick={() => onSelectView('reader')}
+			onclick={(e) => handleSelect('reader', e)}
 			title="Open reader view"
 			aria-label="Open reader view"
 		>
@@ -135,7 +144,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'model'}
 			type="button"
-			onclick={() => onSelectView('model')}
+			onclick={(e) => handleSelect('model', e)}
 			title="Open 3D view"
 			aria-label="Open 3D view"
 		>
@@ -149,7 +158,7 @@
 			class="view-open-btn"
 			class:active={activeView === 'map'}
 			type="button"
-			onclick={() => onSelectView('map')}
+			onclick={(e) => handleSelect('map', e)}
 			title="Open map view"
 			aria-label="Open map view"
 		>
