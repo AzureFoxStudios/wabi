@@ -4,8 +4,13 @@ import { uploadWhiteboardImage } from './imageImports';
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
 
-const RASTER_WIDTH = 4096;
-const RASTER_HEIGHT = 4096;
+// Bitmap ceiling for a raster (Paint) layer, in device px.
+// Dropped from 4096 to 2048: 4x less RAM per layer (2048*2048*4 = 16MB vs
+// 4096*4096*4 = 64MB), still sharp for brush work at typical zooms. Painting
+// clamps to these bounds (see paintRasterDab), so any dab whose center falls
+// outside [0, RASTER_WIDTH] x [0, RASTER_HEIGHT] is skipped before drawImage.
+const RASTER_WIDTH = 2048;
+const RASTER_HEIGHT = 2048;
 const stampCache = new Map<string, HTMLCanvasElement>();
 const layerBitmaps = new Map<string, HTMLCanvasElement>();
 const hydratingLayers = new Map<string, Promise<void>>();
@@ -166,6 +171,8 @@ export function paintRasterDab(
 	const ctx = bitmap.getContext('2d')!;
 	const effectiveSize = Math.max(1, size * (0.4 + 0.6 * Math.max(0, Math.min(1, pressure))));
 	const reach = effectiveSize / 2;
+	// Cheap guard: skip dabs whose center falls outside the bitmap bounds.
+	if (x < 0 || y < 0 || x > RASTER_WIDTH || y > RASTER_HEIGHT) return;
 	expandDirtyBounds(layerId, x, y, reach);
 	const stamp = getStamp(effectiveSize, hardness, color);
 	ctx.save();
