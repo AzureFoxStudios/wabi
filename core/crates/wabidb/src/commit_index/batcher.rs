@@ -34,6 +34,34 @@ const ENTRIES_PER_FILE: u32 = 10_000;
 const FILE_HEADER_LEN: usize = 16;
 const FILE_TRAILER_LEN: usize = 32;
 
+// Test-only instrumentation for group-commit occupancy assertions.
+// Keyed by the batcher's directory so concurrent tests (each with its own
+// tempdir) never observe each other's flushes.
+#[cfg(test)]
+pub(crate) mod flush_stats {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock};
+
+    type Stats = HashMap<PathBuf, (usize /* flushes */, usize /* last_batch */)>;
+
+    fn table() -> &'static Mutex<Stats> {
+        static TABLE: OnceLock<Mutex<Stats>> = OnceLock::new();
+        TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    pub fn record(dir_path: &Path, batch_len: usize) {
+        let mut t = table().lock().unwrap();
+        let e = t.entry(dir_path.to_path_buf()).or_insert((0, 0));
+        e.0 += 1;
+        e.1 = batch_len;
+    }
+
+    pub fn get(dir_path: &Path) -> (usize, usize) {
+        *table().lock().unwrap().get(dir_path).unwrap_or(&(0, 0))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // BatcherHandle — public API for submitting entries
 // ---------------------------------------------------------------------------
@@ -336,6 +364,10 @@ async fn flush_batch(
         return Ok((seq, false));
     }
 
+    // Test-only instrumentation: count non-empty flushes so tests can assert
+    // group-commit occupancy (N concurrent commands => < N flushes).
+    #[cfg(test)]
+    flush_stats::record(dir_path, buffer.len());
     let entries = std::mem::take(buffer);
 
     // Open file on first flush.
@@ -364,13 +396,10 @@ async fn flush_batch(
     let should_rotate = fs.entry_count >= ENTRIES_PER_FILE;
 
     // fsync.
-    fs.handle
-        .sync_all()
-        .await
-        .map_err(|e| WabiError::Corrupt {
-            location: "commit index batcher".into(),
-            detail: format!("fsync failed: {e}"),
-        })?;
+    fs.handle.sync_all().await.map_err(|e| WabiError::Corrupt {
+        location: "commit index batcher".into(),
+        detail: format!("fsync failed: {e}"),
+    })?;
 
     if should_rotate {
         let old = file.take().unwrap();
@@ -634,7 +663,11 @@ mod tests {
         join.await.unwrap().unwrap();
 
         let entries = read_all_entries(&dir.path().to_path_buf()).unwrap();
-        assert_eq!(entries.len(), 7, "expected 7 entries after graceful shutdown");
+        assert_eq!(
+            entries.len(),
+            7,
+            "expected 7 entries after graceful shutdown"
+        );
     }
 
     // -----------------------------------------------------------------------
