@@ -1101,9 +1101,13 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	}
 
 	if (activeVoiceChannelId === channelId) {
+		// Reconnect recovery: the server's new socket has no voice presence
+		// after a transport drop, so re-emit the primary join (not just the
+		// subscribe) to restore presence + relay. Idempotent server-side.
 		listeningVoiceChannels.update((channels) => (
 			channels.includes(channelId) ? channels : [...channels, channelId]
 		));
+		socket.emit('voice-channel-join', { channelId });
 		socket.emit('voice-channel-subscribe', { channelId });
 		return get(localStream);
 	}

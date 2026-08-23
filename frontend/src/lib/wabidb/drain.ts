@@ -12,6 +12,10 @@ const DRAIN_DISPATCH: Record<string, string> = {
 	'remove-reaction': 'remove-emoji-reaction',
 	'voice-channel-subscribe': 'voice-channel-subscribe',
 	'voice-channel-leave': 'voice-channel-leave',
+	// Primary join must replay too: after a reconnect the server's new socket
+	// has no voice presence, so without this the client thinks it's connected
+	// while the server disagrees ("sometimes joins" bug).
+	'voice-channel-join': 'voice-channel-join',
 	'set-voice-transmit-mode': 'set-voice-transmit-mode',
 	'assign-role': 'assign-role',
 	'remove-role': 'remove-role',
