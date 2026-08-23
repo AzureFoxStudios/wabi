@@ -29,10 +29,10 @@ use crate::commit_index::record::{CommitIndexEntry, StreamRef};
 use crate::crypto::aes_gcm_record::{encrypt_record, TAG_LEN};
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
 use crate::engine::locks::{DispatchItem, SequencerPermit};
-pub use crate::sequencer::types::ReplayEnvelope;
 use crate::error::{Result, WabiError};
 use crate::format::record::RecordHeader;
 use crate::projections::barrier::LinearizabilityBarrier;
+pub use crate::sequencer::types::ReplayEnvelope;
 use crate::stream_log::segment_writer::SegmentWriter;
 
 pub use types::*;
@@ -91,7 +91,11 @@ fn name_hash(name: &str) -> [u8; 16] {
 }
 
 /// Full BLAKE3 of `(user_id || device_id || client_request_id)` for idempotency.
-fn idempotency_key_hash(caller_user_id: u64, caller_device_id: &str, client_request_id: &str) -> [u8; 32] {
+fn idempotency_key_hash(
+    caller_user_id: u64,
+    caller_device_id: &str,
+    client_request_id: &str,
+) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&caller_user_id.to_le_bytes());
     hasher.update(caller_device_id.as_bytes());
@@ -107,15 +111,15 @@ fn idempotency_key_hash(caller_user_id: u64, caller_device_id: &str, client_requ
 ///
 /// A path like `.../00000001.wseg` yields `1`.
 fn segment_id_from_path(path: &Path) -> Result<u64> {
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| WabiError::InternalInvariantViolated {
+    let stem = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
+        WabiError::InternalInvariantViolated {
             invariant: format!("segment path has no valid stem: {}", path.display()),
-        })?;
-    stem.parse::<u64>().map_err(|_| WabiError::InternalInvariantViolated {
-        invariant: format!("segment stem is not a number: {stem}"),
-    })
+        }
+    })?;
+    stem.parse::<u64>()
+        .map_err(|_| WabiError::InternalInvariantViolated {
+            invariant: format!("segment stem is not a number: {stem}"),
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -155,17 +159,28 @@ struct WriterEntry {
 ///    is fsynced (WAL ordering).
 /// 4. Build a [`CommitIndexEntry`] and submit to the [`BatcherHandle`].
 /// 5. Wait for the batcher to fsync the entry (durability-await, §2.3).
+///    This is a **group commit**: the loop drains every already-queued
+///    command into a window (up to [`GROUP_COMMIT_WINDOW`]), submits all of
+///    their index entries, and issues ONE durability-await per window — so
+///    N concurrent commands collapse to ≤1 fsync per window instead of N.
 /// 6. Advance the [`LinearizabilityBarrier`] so readers see the new data.
 /// 7. Send a [`DispatchItem`] to the projection dispatcher. If the
 ///    dispatcher's channel is full and the command is non-essential, reject
 ///    with `EngineBusy` instead of blocking.
 /// 8. Send the result back via `response_tx`.
 ///
+/// # Ordering / durability contract
+///
+/// Commands are finalized strictly in commit_seq order after the window's
+/// fsync completes, and no `response_tx` is resolved before the fsync that
+/// covers that command's index entry (ack-after-durable). Per-event failures
+/// (unknown stream key, dispatcher busy) still burn their commit_seq and are
+/// reported through the command's `response_tx`; the loop continues.
+///
 /// # Errors
 ///
 /// The function returns an error only if the batcher future exits or the
-/// command channel closes unexpectedly. Per-event failures are reported
-/// through the command's `response_tx` and the loop continues.
+/// command channel closes unexpectedly.
 pub async fn run(
     _permit: SequencerPermit,
     key_registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>>,
@@ -179,33 +194,78 @@ pub async fn run(
     let mut writers: HashMap<String, WriterEntry> = HashMap::new();
     let mut next_commit_seq: u64 = initial_commit_seq.saturating_add(1).max(1);
 
-    while let Some(command) = command_rx.recv().await {
-        let commit_seq = next_commit_seq;
-        next_commit_seq = commit_seq.checked_add(1).ok_or_else(|| {
-            crate::error::WabiError::InternalInvariantViolated {
-                invariant: "commit_seq overflow: 2^64 events committed".into(),
+    while let Some(first) = command_rx.recv().await {
+        // ---- Group-commit window: drain everything already queued --------
+        // `recv` waited for work; `try_recv` only takes what is ready NOW,
+        // so an idle system keeps windows small (latency stays low) while a
+        // burst collapses into one fsync.
+        let mut window = Vec::with_capacity(GROUP_COMMIT_WINDOW);
+        window.push(first);
+        while window.len() < GROUP_COMMIT_WINDOW {
+            match command_rx.try_recv() {
+                Ok(command) => window.push(command),
+                Err(_) => break,
             }
-        })?;
+        }
 
-        let timestamp_micros = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_micros() as i64;
+        // ---- Stage A: prepare + submit index entries (in seq order) ------
+        let mut prepared: Vec<PreparedCommand> = Vec::with_capacity(window.len());
+        for command in window {
+            let commit_seq = next_commit_seq;
+            next_commit_seq = commit_seq.checked_add(1).ok_or_else(|| {
+                crate::error::WabiError::InternalInvariantViolated {
+                    invariant: "commit_seq overflow: 2^64 events committed".into(),
+                }
+            })?;
 
-        let result = process_command(
-            &key_registry,
-            &mut writers,
-            &batcher,
-            &dispatcher_tx,
-            &barrier,
-            &data_dir,
-            &command,
-            commit_seq,
-            timestamp_micros,
-        )
-        .await;
+            let timestamp_micros = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as i64;
 
-        let _ = command.response_tx.send(result);
+            match prepare_command(
+                &key_registry,
+                &mut writers,
+                &batcher,
+                &data_dir,
+                &command,
+                commit_seq,
+                timestamp_micros,
+            )
+            .await
+            {
+                Ok(()) => prepared.push(PreparedCommand {
+                    commit_seq,
+                    timestamp_micros,
+                    command,
+                }),
+                // Failure burns the seq and reports to the caller; the
+                // sequencer keeps running (unchanged behavior).
+                Err(e) => {
+                    let _ = command.response_tx.send(Err(e));
+                }
+            }
+        }
+
+        // ---- ONE durability-await per window (group commit) --------------
+        // The batcher's fsync is prefix-durable: when it returns, EVERY
+        // entry submitted so far — including this whole window — is stable.
+        if !prepared.is_empty() {
+            batcher.flush_now().await?;
+        }
+
+        // ---- Stage B: finalize in commit order ----------------------------
+        for prepared in prepared {
+            let result = finalize_command(
+                &barrier,
+                &dispatcher_tx,
+                &prepared.command,
+                prepared.commit_seq,
+                prepared.timestamp_micros,
+            )
+            .await;
+            let _ = prepared.command.response_tx.send(result);
+        }
     }
 
     // Graceful shutdown: close all open writers.
@@ -217,20 +277,32 @@ pub async fn run(
 }
 
 // ---------------------------------------------------------------------------
-// Process one command
+// Process one command — split into prepare (pre-fsync) and finalize (post-fsync)
+// so group commit can submit many entries before the single durability-await.
 // ---------------------------------------------------------------------------
 
-async fn process_command(
+/// Max commands per group-commit window. A burst larger than this still
+/// collapses to ceil(N / WINDOW) fsyncs instead of N.
+const GROUP_COMMIT_WINDOW: usize = 32;
+
+/// A command whose index entry has been submitted to the batcher but whose
+/// durability-await has not yet completed. Finalization (barrier advance,
+/// projection dispatch, ack) happens after the window's shared flush.
+struct PreparedCommand {
+    commit_seq: u64,
+    timestamp_micros: i64,
+    command: CommandCommit,
+}
+
+async fn prepare_command(
     key_registry: &Arc<tokio::sync::Mutex<StreamKeyRegistry>>,
     writers: &mut HashMap<String, WriterEntry>,
     batcher: &BatcherHandle,
-    dispatcher_tx: &mpsc::Sender<DispatchItem>,
-    barrier: &LinearizabilityBarrier,
     data_dir: &Path,
     command: &CommandCommit,
     commit_seq: u64,
     timestamp_micros: i64,
-) -> Result<CommandOutcome> {
+) -> Result<()> {
     // --- 1. Encrypt and write each event to its stream segment ------------
     let mut event_refs: Vec<StreamRef> = Vec::with_capacity(command.events.len());
     let mut payload_hashes: Vec<[u8; 32]> = Vec::with_capacity(command.events.len());
@@ -244,7 +316,9 @@ async fn process_command(
         // Get the encryption key for this stream at this commit_seq.
         let key = {
             let registry = key_registry.lock().await;
-            registry.get_active_key(&event.stream_id, commit_seq)?.clone()
+            registry
+                .get_active_key(&event.stream_id, commit_seq)?
+                .clone()
         };
 
         // Build the replay envelope: event_type + stream_id + payload.
@@ -259,17 +333,17 @@ async fn process_command(
         })?;
 
         // Payload length = envelope + GCM tag.
-        let payload_len = envelope
-            .len()
-            .checked_add(TAG_LEN)
-            .ok_or_else(|| WabiError::Validation {
-                command: command.command_name.clone(),
-                reason: "payload overflow with GCM tag".into(),
-            })? as u32;
+        let payload_len =
+            envelope
+                .len()
+                .checked_add(TAG_LEN)
+                .ok_or_else(|| WabiError::Validation {
+                    command: command.command_name.clone(),
+                    reason: "payload overflow with GCM tag".into(),
+                })? as u32;
 
         // Build the record header (payload_crc32c = 0; GCM tag is the integrity check).
-        let header =
-            RecordHeader::new(event.record_kind, commit_seq, stream_hash, payload_len, 0);
+        let header = RecordHeader::new(event.record_kind, commit_seq, stream_hash, payload_len, 0);
         let header_bytes = header.encode();
 
         // Encrypt: returns ciphertext || gcm_tag.
@@ -328,9 +402,10 @@ async fn process_command(
     crash_point("crash_before_index_fsync");
     let caller_device_id_hash = device_id_hash(&command.caller_device_id);
     let command_name_hash = name_hash(&command.command_name);
-    let idempotency_hash = command.idempotency_key.as_ref().map(|key| {
-        idempotency_key_hash(command.caller_user_id, &command.caller_device_id, key)
-    });
+    let idempotency_hash = command
+        .idempotency_key
+        .as_ref()
+        .map(|key| idempotency_key_hash(command.caller_user_id, &command.caller_device_id, key));
 
     let entry = CommitIndexEntry {
         commit_seq,
@@ -346,9 +421,22 @@ async fn process_command(
 
     batcher.submit(entry)?;
 
-    // Durability-await: wait for the batcher to fsync this entry.
-    batcher.flush_now().await?;
+    // Durability-await happens ONCE PER WINDOW in `run()` — see group commit.
+    // Boundary 3 fires after the shared fsync, inside finalize_command.
 
+    Ok(())
+}
+
+/// Post-fsync finalization for one prepared command: advance the
+/// linearizability barrier, dispatch to projections, and produce the ack.
+/// Runs strictly in commit_seq order after the window's fsync completes.
+async fn finalize_command(
+    barrier: &LinearizabilityBarrier,
+    dispatcher_tx: &mpsc::Sender<DispatchItem>,
+    command: &CommandCommit,
+    commit_seq: u64,
+    timestamp_micros: i64,
+) -> Result<CommandOutcome> {
     // --- 3. Advance the linearizability barrier ---------------------------
     // Boundary 3: crash after the commit index is fsynced but before the
     // projection is updated (tests durability-await correctness).
@@ -412,10 +500,7 @@ async fn get_or_create_writer<'a>(
 ) -> Result<&'a mut WriterEntry> {
     if !writers.contains_key(stream_id) {
         let writer = SegmentWriter::open(events_dir, stream_id.to_string()).await?;
-        writers.insert(
-            stream_id.to_string(),
-            WriterEntry { writer },
-        );
+        writers.insert(stream_id.to_string(), WriterEntry { writer });
     }
     // SAFETY: we just ensured the entry exists.
     Ok(writers.get_mut(stream_id).unwrap())
@@ -511,9 +596,7 @@ mod tests {
 
         // Create batcher.
         let commit_index_dir = data_dir.join("global").join("commit-index");
-        tokio::fs::create_dir_all(&commit_index_dir)
-            .await
-            .unwrap();
+        tokio::fs::create_dir_all(&commit_index_dir).await.unwrap();
         let (batcher, batcher_fut) = crate::commit_index::batcher::new_batcher(
             commit_index_dir,
             Some(10),
@@ -565,18 +648,17 @@ mod tests {
     #[tokio::test]
     async fn happy_path() {
         let dir = tempfile::tempdir().unwrap();
-        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-        registry.lock().await
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
             .create_stream("ch_test", [0xABu8; 32])
             .unwrap();
 
         let (cmd, rx) = make_cmd(1, true, "ch_test", 1, b"hello");
-        let result = run_sequencer_with_commands(
-            dir.path().to_path_buf(),
-            registry,
-            vec![cmd],
-        )
-        .await;
+        let result =
+            run_sequencer_with_commands(dir.path().to_path_buf(), registry, vec![cmd]).await;
 
         assert!(result.is_ok(), "sequencer exited with error: {result:?}");
 
@@ -592,8 +674,11 @@ mod tests {
     #[tokio::test]
     async fn atomic_commit_happy_path() {
         let dir = tempfile::tempdir().unwrap();
-        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-        registry.lock().await
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
             .create_stream("ch_100", [0xABu8; 32])
             .unwrap();
 
@@ -606,12 +691,7 @@ mod tests {
             rxs.push(rx);
         }
 
-        let result = run_sequencer_with_commands(
-            dir.path().to_path_buf(),
-            registry,
-            cmds,
-        )
-        .await;
+        let result = run_sequencer_with_commands(dir.path().to_path_buf(), registry, cmds).await;
         assert!(result.is_ok(), "sequencer exited with error: {result:?}");
 
         for (i, rx) in rxs.into_iter().enumerate() {
@@ -632,8 +712,11 @@ mod tests {
     #[tokio::test]
     async fn burned_seq_on_failure() {
         let dir = tempfile::tempdir().unwrap();
-        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-        registry.lock().await
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
             .create_stream("ch_ok", [0xABu8; 32])
             .unwrap();
         // Don't create "ch_bad" so the first command fails with UnknownStreamKey.
@@ -672,8 +755,11 @@ mod tests {
     #[tokio::test]
     async fn initial_commit_seq_seeds_counter() {
         let dir = tempfile::tempdir().unwrap();
-        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-        registry.lock().await
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
             .create_stream("ch_seed", [0xABu8; 32])
             .unwrap();
 
@@ -724,7 +810,93 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // 4. orphan_records_tolerated
+    // 5. group commit: concurrent commands share fsyncs
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn group_commit_shares_fsyncs_under_concurrency() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
+            .create_stream("ch_gc", [0xABu8; 32])
+            .unwrap();
+
+        let sem = Arc::new(Semaphore::new(1));
+        let permit = SequencerPermit::acquire(&sem).await.unwrap();
+
+        let commit_index_dir = dir.path().join("global").join("commit-index");
+        tokio::fs::create_dir_all(&commit_index_dir).await.unwrap();
+        // Small max_age so a straggler window can't stall on the deadline.
+        let (batcher, batcher_fut) = crate::commit_index::batcher::new_batcher(
+            commit_index_dir.clone(),
+            Some(10),
+            Some(Duration::from_millis(25)),
+        );
+        tokio::spawn(batcher_fut);
+
+        let (dispatcher_tx, _dispatcher_rx) = mpsc::channel::<DispatchItem>(1024);
+        let state = Arc::new(ProjectionState::new());
+        let barrier = Arc::new(LinearizabilityBarrier::new(state));
+
+        let n = 24u64;
+        let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(256);
+
+        let handle = tokio::spawn(async move {
+            run(
+                permit,
+                registry,
+                batcher,
+                dispatcher_tx,
+                barrier,
+                cmd_rx,
+                dir.path().to_path_buf(),
+                0,
+            )
+            .await
+        });
+
+        // N independent producers fire concurrently, like real chat traffic.
+        let mut rxs = Vec::new();
+        let mut senders = Vec::new();
+        for i in 0..n {
+            let (cmd, rx) = make_cmd(i + 1, true, "ch_gc", 1, b"burst");
+            rxs.push(rx);
+            let tx = cmd_tx.clone();
+            senders.push(tokio::spawn(async move {
+                tx.send(cmd).await.unwrap();
+            }));
+        }
+        drop(cmd_tx);
+        for s in senders {
+            s.await.unwrap();
+        }
+
+        for (i, rx) in rxs.into_iter().enumerate() {
+            let outcome = rx.await.unwrap().unwrap();
+            assert_eq!(outcome.commit_seq, (i + 1) as u64, "seq order must hold");
+        }
+        handle.await.unwrap().unwrap();
+
+        // Occupancy proof: with the old submit+flush_now-per-command loop,
+        // 24 concurrent commands produced 24 non-empty flushes. Group commit
+        // must collapse them into strictly fewer.
+        let (flushes, last_batch) =
+            crate::commit_index::batcher::flush_stats::get(&commit_index_dir);
+        assert!(
+            flushes < n as usize,
+            "group commit failed: {n} commands caused {flushes} flushes (expected < {n})"
+        );
+        assert!(
+            last_batch > 1 || flushes == 1 && last_batch >= 1,
+            "expected at least one multi-entry batch; last_batch={last_batch}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. dispatcher backpressure
     // -----------------------------------------------------------------------
 
     #[tokio::test]
@@ -739,10 +911,9 @@ mod tests {
             .join("ch_orphan")
             .join("events");
         tokio::fs::create_dir_all(&orphan_dir).await.unwrap();
-        let mut orphan_writer =
-            SegmentWriter::open(&orphan_dir, "ch_orphan".into())
-                .await
-                .unwrap();
+        let mut orphan_writer = SegmentWriter::open(&orphan_dir, "ch_orphan".into())
+            .await
+            .unwrap();
         let orphan_header = RecordHeader::new(
             RecordKind::Event,
             999, // commit_seq not in any commit index
@@ -750,25 +921,21 @@ mod tests {
             4,
             0,
         );
-        orphan_writer
-            .append(&orphan_header, b"orph")
-            .await
-            .unwrap();
+        orphan_writer.append(&orphan_header, b"orph").await.unwrap();
         orphan_writer.close().await.unwrap();
 
         // Now run the sequencer with a legitimate stream.
-        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-        registry.lock().await
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
             .create_stream("ch_ok", [0xABu8; 32])
             .unwrap();
 
         let (cmd, rx) = make_cmd(1, true, "ch_ok", 1, b"real");
-        let result = run_sequencer_with_commands(
-            dir.path().to_path_buf(),
-            registry,
-            vec![cmd],
-        )
-        .await;
+        let result =
+            run_sequencer_with_commands(dir.path().to_path_buf(), registry, vec![cmd]).await;
         assert!(result.is_ok(), "sequencer exited with error: {result:?}");
 
         let outcome = rx.await.unwrap().unwrap();
@@ -782,8 +949,11 @@ mod tests {
     #[tokio::test]
     async fn dispatcher_backpressure() {
         let dir = tempfile::tempdir().unwrap();
-        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-        registry.lock().await
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
             .create_stream("ch_bp", [0xABu8; 32])
             .unwrap();
 
@@ -805,9 +975,7 @@ mod tests {
         let permit = SequencerPermit::acquire(&sem).await.unwrap();
 
         let commit_index_dir = dir.path().join("global").join("commit-index");
-        tokio::fs::create_dir_all(&commit_index_dir)
-            .await
-            .unwrap();
+        tokio::fs::create_dir_all(&commit_index_dir).await.unwrap();
         let (batcher, batcher_fut) = crate::commit_index::batcher::new_batcher(
             commit_index_dir,
             Some(10),
@@ -850,8 +1018,11 @@ mod tests {
     #[tokio::test]
     async fn essential_command_under_backpressure() {
         let dir = tempfile::tempdir().unwrap();
-        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-        registry.lock().await
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
             .create_stream("ch_ess", [0xABu8; 32])
             .unwrap();
 
@@ -864,9 +1035,7 @@ mod tests {
         let permit = SequencerPermit::acquire(&sem).await.unwrap();
 
         let commit_index_dir = dir.path().join("global").join("commit-index");
-        tokio::fs::create_dir_all(&commit_index_dir)
-            .await
-            .unwrap();
+        tokio::fs::create_dir_all(&commit_index_dir).await.unwrap();
         let (batcher, batcher_fut) = crate::commit_index::batcher::new_batcher(
             commit_index_dir,
             Some(10),
@@ -910,8 +1079,11 @@ mod tests {
     #[tokio::test]
     async fn durability_await() {
         let dir = tempfile::tempdir().unwrap();
-        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
-        registry.lock().await
+        let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
+            Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
             .create_stream("ch_durable", [0xABu8; 32])
             .unwrap();
 
@@ -919,9 +1091,7 @@ mod tests {
         let permit = SequencerPermit::acquire(&sem).await.unwrap();
 
         let commit_index_dir = dir.path().join("global").join("commit-index");
-        tokio::fs::create_dir_all(&commit_index_dir)
-            .await
-            .unwrap();
+        tokio::fs::create_dir_all(&commit_index_dir).await.unwrap();
         let (batcher, batcher_fut) = crate::commit_index::batcher::new_batcher(
             commit_index_dir.clone(),
             Some(10),
@@ -956,8 +1126,7 @@ mod tests {
         assert_eq!(outcome.commit_seq, 1);
 
         // Verify the batcher actually wrote a file.
-        let entries =
-            crate::commit_index::batcher::read_all_entries(&commit_index_dir).unwrap();
+        let entries = crate::commit_index::batcher::read_all_entries(&commit_index_dir).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].commit_seq, 1);
     }
