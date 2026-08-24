@@ -12,6 +12,7 @@ import type {
   StateCallParticipantRow,
   StateCallSignalRow,
 } from './wabidbCallTypes';
+import { getAuthToken } from './authSession';
 
 export interface WabiDbCallConfig {
   serverUrl: string; // e.g. "https://wabi.example.com" (no trailing slash)
@@ -230,7 +231,12 @@ export class WabiDbCallState {
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = { 'content-type': 'application/json' };
-    if (this.cfg.token) h['authorization'] = `Bearer ${this.cfg.token}`;
+    // Prefer the LIVE auth token on every request. The cfg.token captured at
+    // construction goes stale after the 15-minute access-token rotation and
+    // every session call then 401s until a page reload.
+    const live = getAuthToken();
+    const token = live || this.cfg.token;
+    if (token) h['authorization'] = `Bearer ${token}`;
     return h;
   }
 
