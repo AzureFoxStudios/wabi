@@ -31,16 +31,64 @@
 
 	let showVoiceDebugDetails = false;
 
+	// ============================================================================
+	// SVELTE 5 REACTIVITY CONTRACT (do not regress)
+	// ============================================================================
+	// Template expressions that call script functions compile to
+	// `$.untrack(() => fn(args))` in Svelte 5 legacy mode: args stay tracked but
+	// store/prop reads INSIDE the body register no dependency. The old
+	// `getCurrentVoiceChannelName()` helper made this card's header show a STALE
+	// channel name when switching primary / joining multiple channels (proven via
+	// compiler probe 2026-08-24). All reactivity flows through top-level `$:`
+	// derivations below; the template only references the derived values.
+
 	$: activeListenChips = voiceChannels.filter(ch =>
 		$listeningVoiceChannels.includes(ch.id) || ch.id === runtimeActiveVoiceChannelId
 	);
 	$: isBroadcasting = $voiceTransmitMode === 'all-listening' && activeListenChips.length > 1 && !$callMuted;
 
-	function getCurrentVoiceChannelName(): string {
-		if (!runtimeActiveVoiceChannelId) return '';
-		const match = voiceChannels.find((channel) => channel.id === runtimeActiveVoiceChannelId);
-		return match?.name || runtimeActiveVoiceChannelId;
+	function resolveChannelName(channelId: string | null): string {
+		if (!channelId) return '';
+		const match = voiceChannels.find((channel) => channel.id === channelId);
+		return match?.name || channelId;
 	}
+
+	// Primary channel first, then every additional listened channel, deduped.
+	$: connectedChannelEntries = (() => {
+		const entries: Array<{ id: string; name: string; isPrimary: boolean }> = [];
+		const seen = new Set<string>();
+		if (runtimeActiveVoiceChannelId) {
+			entries.push({ id: runtimeActiveVoiceChannelId, name: resolveChannelName(runtimeActiveVoiceChannelId), isPrimary: true });
+			seen.add(runtimeActiveVoiceChannelId);
+		}
+		for (const id of $listeningVoiceChannels) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			entries.push({ id, name: resolveChannelName(id), isPrimary: false });
+		}
+		return entries;
+	})();
+
+	// Chip visual state derived up here so the template each-body never reads a
+	// store inside an untracked attribute expression (stale tooltips bug).
+	$: listenChipStates = (() => {
+		const map = new Map<string, { active: boolean; locked: boolean; title: string }>();
+		for (const channel of activeListenChips) {
+			const isPrimary = channel.id === runtimeActiveVoiceChannelId;
+			const isListening = $listeningVoiceChannels.includes(channel.id);
+			map.set(channel.id, {
+				active: isPrimary || isListening,
+				locked: isPrimary,
+				title: isPrimary ? 'Primary voice channel' : isListening ? 'Stop listening' : 'Start listening'
+			});
+		}
+		return map;
+	})();
+
+	$: currentVoiceChannelName =
+		runtimeActiveVoiceChannelId
+			? resolveChannelName(runtimeActiveVoiceChannelId)
+			: '';
 
 	async function handleToggleVideo() {
 		await toggleVideo(getSocket() || undefined);
@@ -73,7 +121,10 @@
 				<span class="voice-online-dot"></span>
 				<div>
 					<strong>Voice Connected</strong>
-					<small>{getCurrentVoiceChannelName()} / {$callConnectionState}</small>
+					<small>{currentVoiceChannelName} / {$callConnectionState}</small>
+					{#if connectedChannelEntries.length > 1}
+						<small class="voice-listen-summary">Listening: {connectedChannelEntries.filter(e => !e.isPrimary).map(e => e.name).join(', ')}</small>
+					{/if}
 					{#if isBroadcasting}
 						<small class="voice-broadcast-badge">Broadcasting to {activeListenChips.length} channels</small>
 					{/if}
@@ -121,13 +172,14 @@
 			<div class="voice-listen-title">Listen In</div>
 			<div class="voice-listen-list">
 				{#each activeListenChips as voiceChannel (voiceChannel.id)}
+					{@const chip = listenChipStates.get(voiceChannel.id)}
 					<button
 						type="button"
 						class="voice-listen-chip"
-						class:active={$listeningVoiceChannels.includes(voiceChannel.id) || voiceChannel.id === runtimeActiveVoiceChannelId}
-						class:locked={voiceChannel.id === runtimeActiveVoiceChannelId}
+						class:active={chip?.active}
+						class:locked={chip?.locked}
 						on:click={() => onToggleListenChannel(voiceChannel.id)}
-						title={voiceChannel.id === runtimeActiveVoiceChannelId ? 'Primary voice channel' : $listeningVoiceChannels.includes(voiceChannel.id) ? 'Stop listening' : 'Start listening'}
+						title={chip?.title ?? ''}
 					>
 						{voiceChannel.name}
 					</button>
@@ -163,5 +215,14 @@
 		font-size: 0.7rem;
 		font-weight: 600;
 		letter-spacing: 0.02em;
+	}
+
+	.voice-listen-summary {
+		display: block;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		opacity: 0.75;
 	}
 </style>
