@@ -321,7 +321,13 @@ async fn create_repo(
         return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
     }
     let repo_name = payload["repoName"].as_str().unwrap_or("default");
-    let auto_branch = payload["autoBranchOnUpload"].as_bool().unwrap_or(false);
+    // Accept both casings — the frontend sends snake_case, which used to be
+    // silently dropped here so the review-workflow toggle never applied on
+    // repo creation (audit P0).
+    let auto_branch = payload["autoBranchOnUpload"]
+        .as_bool()
+        .or_else(|| payload["auto_branch_on_upload"].as_bool())
+        .unwrap_or(false);
 
     let lore = lore_service(&state).await?;
     let repo = lore
@@ -390,10 +396,20 @@ async fn get_repo(
     }
 }
 
+/// DELETE /repos/{channel_id}?mode=detach|delete
+/// - `delete` (default): remove the working tree AND every byte — permanent.
+/// - `detach`: unlink the channel binding only; files/history stay on disk
+///   under the lore data dir so the space can be re-linked later.
+#[derive(Deserialize)]
+struct DeleteRepoQuery {
+    mode: Option<String>,
+}
+
 async fn delete_repo(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(channel_id): Path<i64>,
+    Query(query): Query<DeleteRepoQuery>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     // L8: repo management = Owner/Admin/Developer
@@ -401,6 +417,16 @@ async fn delete_repo(
         return Err(AppError::Forbidden("Lore repo operations require Owner/Admin/Developer role".into()));
     }
     let lore = lore_service(&state).await?;
+
+    if query.mode.as_deref() == Some("detach") {
+        // Drop the channel binding only. The orphaned tree remains on disk;
+        // create_repo adopts an existing working tree, so re-linking the
+        // same channel picks it back up with history intact.
+        state.wdb.lore_delete_repo(channel_id, auth.user_id).await?;
+        info!(channel_id, "Lore repo detached via API (working tree kept)");
+        return Ok(Json(serde_json::json!({ "status": "ok", "mode": "detached" })));
+    }
+
     lore.delete_repo(channel_id).await?;
 
     state
@@ -409,7 +435,7 @@ async fn delete_repo(
         .await?;
 
     info!(channel_id, "Lore repo deleted via API");
-    Ok(Json(serde_json::json!({ "status": "ok" })))
+    Ok(Json(serde_json::json!({ "status": "ok", "mode": "deleted" })))
 }
 
 /// PATCH /repos/{channel_id} — update per-repo settings.
@@ -1365,6 +1391,37 @@ async fn repo_history(
     Path(channel_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+
+    // Native repos: serve from the WDB commit log, which carries numeric
+    // author ids and epoch timestamps — the wire contract the frontend
+    // expects. The lore CLI's prose history format has neither (it used to
+    // serialize as authorId: null / timestamp: "" and broke every consumer).
+    if !repo_read_only(&lore, channel_id).await {
+        let records = state
+            .wdb
+            .list_lore_commits(channel_id)
+            .await
+            .unwrap_or_default();
+        // Dedupe by commit hash: one lore commit can carry several file-path
+        // records; a revision list should show each commit once.
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut entries: Vec<serde_json::Value> = records
+            .into_iter()
+            .filter(|r| seen.insert(r.commit_hash.clone()))
+            .map(|r| {
+                serde_json::json!({
+                    "hash": r.commit_hash,
+                    "message": r.message,
+                    "authorUserId": r.author_user_id,
+                    "timestamp": r.timestamp_micros / 1000,
+                })
+            })
+            .collect();
+        entries.reverse(); // newest first
+        return Ok(Json(serde_json::json!(entries)));
+    }
+
     let lore = lore_service(&state).await?;
     let history = lore.file_history(channel_id, "").await?;
     Ok(Json(serde_json::json!(history)))
