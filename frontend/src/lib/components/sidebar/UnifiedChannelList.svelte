@@ -33,6 +33,10 @@
 	export let onToggleChannelFollow: (channelId: string, event?: Event) => void;
 	export let onOpenChannelSettings: (channel: Channel) => void;
 	export let onShowPinnedMessages: (channelId: string) => void;
+	/** Zen-style hover peek: parent owns glimpse state; we report dwell + anchor rect. */
+	export let glimpseChannelId: string | null = null;
+	export let onChannelGlimpseHover: (channelId: string, anchorRect: DOMRect) => void = () => {};
+	export let onChannelGlimpseCancel: () => void = () => {};
 	export let onToggleListenChannel: (channelId: string) => void;
 	export let onOpenVoiceChannelWhiteboard: (channelId: string, event?: Event) => void;
 	export let canDragVoiceMember: (memberUserId: string) => boolean = () => false;
