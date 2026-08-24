@@ -155,6 +155,16 @@ export function syncWabidbCapture(shouldCapture: (channelId: string) => boolean)
 	}
 }
 
+/**
+ * True when at least one wabidb media relay is currently attached — i.e. the
+ * active call is riding the wabidb transport. Used by toggleVideo to route
+ * camera to the video lane; unlike resolveActiveTransport(), this reflects
+ * RUNTIME state (DM calls resolve 'p2p' by plan but connect via wabidb).
+ */
+export function wabidbTransportLive(): boolean {
+	return wabidbMediaRelays.size > 0;
+}
+
 const defaultWabidbServer = import.meta.env.VITE_WABI_SERVER_URL ?? '';
 
 export async function connectWabidbCall(

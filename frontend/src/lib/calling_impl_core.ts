@@ -2033,12 +2033,13 @@ export async function toggleVideo(socket?: Socket) {
 	}
 
 	// wabidb relay transport: there are no peerConnections to renegotiate —
-	// the camera must ride the wabidb video lane instead. Bridge the toggle
-	// to the lane here so camera works on the DEFAULT transport.
-	const activeTransport = await resolveActiveTransport();
-	if (activeTransport === 'wabidb') {
-		try {
-			const { wabidbStartVideo, wabidbStopVideo } = await import('./callingWabidb');
+	// the camera must ride the wabidb video lane instead. Check RUNTIME state
+	// (a live relay) rather than resolveActiveTransport(), which returns 'p2p'
+	// for DM calls even when they connect via wabidb — that gating made the
+	// camera dead on every direct call.
+	try {
+		const { wabidbStartVideo, wabidbStopVideo, wabidbTransportLive } = await import('./callingWabidb');
+		if (wabidbTransportLive()) {
 			if (get(isVideoOff)) {
 				const started = await wabidbStartVideo('camera');
 				if (started) isVideoOff.set(false);
@@ -2046,10 +2047,10 @@ export async function toggleVideo(socket?: Socket) {
 				wabidbStopVideo();
 				isVideoOff.set(true);
 			}
-		} catch (err) {
-			console.error('[Calling] wabidb camera toggle failed:', err);
+			return;
 		}
-		return;
+	} catch (err) {
+		console.error('[Calling] wabidb camera toggle failed:', err);
 	}
 
 	const existingTrack = stream.getVideoTracks()[0];
