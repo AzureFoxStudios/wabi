@@ -200,30 +200,36 @@
 			const hasSession = Boolean(savedToken || savedGuestSessionId);
 			const hasLoggedInBefore = localStorage.getItem('wabi_has_logged_in') === 'true';
 
-			// Server is the source of truth for first-user / no-owner state.
-			// After a DB reset (or fresh server), we must not let stale client
-			// localStorage flags (hasLoggedInBefore, old tokens, savedServers, etc.)
-			// keep us in auto-connect or reconnect mode. We want the registration
-			// wizard to appear naturally.
-			let setupRequired = false;
-			try {
-				const status = await getSetupStatus();
-				setupRequired = !!status?.setupRequired;
-			} catch {
-				// Can't reach the server yet; fall back to client hints.
-			}
-
-			if (setupRequired) {
-				// Fresh server — force first-user setup flow.
-				// This is the important part: server wins over localStorage.
+			// Server is the source of truth for first-user / no-owner state, but we
+			// no longer BLOCK first paint on that roundtrip — awaiting it delayed
+			// every boot (login page included) by a full API RTT behind the boot
+			// shell. Decide locally from client hints now, then let the server
+			// correct us when its response lands: a fresh/DB-reset server still
+			// forces the registration wizard over any stale localStorage.
+			const enterSetupWizard = () => {
 				const bootTitle = document.getElementById('wabi-boot-title');
 				if (bootTitle) bootTitle.textContent = 'Setting up Wabi';
 				localStorage.removeItem('wabi_has_logged_in');
+				disconnect();
 				loggedIn = false;
 				syncFollowNotificationPoller(false);
 				clearStoredIdentity();
 				clearAuthSession();
-			} else if (savedUsername && hasSession) {
+			};
+
+			void getSetupStatus()
+				.then((status) => {
+					if (disposed) return;
+					if (status?.setupRequired) {
+						// This is the important part: server wins over localStorage.
+						enterSetupWizard();
+					}
+				})
+				.catch(() => {
+					// Can't reach the server yet; client hints stand.
+				});
+
+			if (savedUsername && hasSession) {
 				seedBackendFailoverCache();
 				startupMark('page:socket:init:start');
 				initSocket(savedUsername, savedToken || undefined);

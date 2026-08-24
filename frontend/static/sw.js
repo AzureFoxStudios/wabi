@@ -18,7 +18,7 @@ const SHELL_PRECACHE_URLS = [
   '/offline.html',
   '/manifest.webmanifest',
   '/favicon.png',
-  '/wabi-logo.png',
+  '/wabi-logo-boot.webp',
 ];
 
 // ---------------------------------------------------------------------------

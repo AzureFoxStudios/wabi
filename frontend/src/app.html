@@ -459,7 +459,7 @@
 					if (center) center.dataset.bootState = 'reconnect';
 				};
 
-				const DEFAULT_WABI_LOGO = '%sveltekit.assets%/wabi-logo.png';
+				const DEFAULT_WABI_LOGO = '%sveltekit.assets%/wabi-logo-boot.webp';
 
 				/**
 				 * Apply brand once and lock. Later calls that try to flip
@@ -498,7 +498,7 @@
 						}
 					}
 
-					const defaultWabiLogo = /(?:^|\/)(?:wabi-logo(?:-small)?\.webp|icon\.png)(?:\?|$)/i.test(snap.logoUrl || '');
+					const defaultWabiLogo = /(?:^|\/)(?:wabi-logo(?:-small|-boot)?\.webp|icon\.png)(?:\?|$)/i.test(snap.logoUrl || '');
 					const customHost =
 						!snap.neutral &&
 						((snap.brandName && snap.brandName !== 'Wabi') || (snap.logoUrl && !defaultWabiLogo));

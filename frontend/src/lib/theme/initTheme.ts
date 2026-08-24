@@ -18,11 +18,35 @@ import { startupMark, startupMeasure } from '$lib/startupProfiler';
  */
 export async function initializeTheme(isRegistered: boolean = false): Promise<void> {
 	startupMark('theme:initialize:start');
+	// Shared applier so we can paint twice (snapshot first, server reconcile second)
+	// without duplicating the block.
+	const applyCurrentTheme = () => {
+		const theme = get(currentTheme);
+		const state = get(themeStore);
+		const bgImage = state.customTheme?.backgroundImage;
+		applyTheme(theme, bgImage, {
+			enabled: state.uniformFontEnabled,
+			family: state.uniformFontFamily,
+			size: state.uniformFontSize,
+			weight: state.uniformFontWeight,
+			style: state.uniformFontStyle
+		});
+		applyPanelColors(state.customTheme?.panelColors);
+	};
+
 	try {
 		themeStore.setLoading(true);
 
 		if (isRegistered) {
-			// Try to load from server for registered users
+			// Stale-while-revalidate: paint the last-known theme from localStorage
+			// IMMEDIATELY so returning users never stare at an unthemed page while
+			// the server roundtrip completes, then reconcile with the server
+			// (server remains source of truth and overwrites on arrival).
+			const snapshot = loadThemeFromLocalStorage();
+			if (snapshot) {
+				themeStore.load(snapshot);
+				applyCurrentTheme();
+			}
 			try {
 				console.log('[Theme] Attempting to load preferences from server (registered user)...');
 				startupMark('theme:fetch:start');
@@ -30,6 +54,8 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 				startupMark('theme:fetch:end');
 				startupMeasure('theme:fetch', 'theme:fetch:start', 'theme:fetch:end');
 				themeStore.load(prefs);
+				// Refresh the local snapshot so the NEXT boot paints instantly.
+				saveThemeToLocalStorage(prefs.theme_id, prefs.custom_theme ?? undefined);
 				console.log('[Theme] ✅ Successfully loaded preferences from server:', {
 					theme_id: prefs.theme_id,
 					uniform_font_enabled: prefs.uniform_font_enabled
@@ -38,14 +64,15 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 				startupMark('theme:fetch:end');
 				startupMeasure('theme:fetch', 'theme:fetch:start', 'theme:fetch:end');
 				console.warn('[Theme] ❌ Failed to load from server:', error instanceof Error ? error.message : error);
-				console.log('[Theme] Falling back to localStorage...');
-				// Fallback to localStorage
-				const localPrefs = loadThemeFromLocalStorage();
-				if (localPrefs) {
-					themeStore.load(localPrefs);
-					console.log('[Theme] ✅ Loaded from localStorage fallback:', localPrefs);
-				} else {
-					console.log('[Theme] No localStorage preferences found, using defaults');
+				if (!snapshot) {
+					console.log('[Theme] Falling back to localStorage...');
+					const localPrefs = loadThemeFromLocalStorage();
+					if (localPrefs) {
+						themeStore.load(localPrefs);
+						console.log('[Theme] ✅ Loaded from localStorage fallback:', localPrefs);
+					} else {
+						console.log('[Theme] No localStorage preferences found, using defaults');
+					}
 				}
 			}
 		} else {
