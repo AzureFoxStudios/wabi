@@ -19,6 +19,9 @@ pub struct Config {
     /// Overridable via `WABI_TUI_POLL_SECS`.
     #[serde(default = "default_poll_secs")]
     pub poll_secs: f32,
+    /// Color theme. One of: indigo (default), ember, forest, mono, slate.
+    #[serde(default)]
+    pub theme: String,
 }
 
 fn default_fps() -> f32 {
@@ -37,6 +40,7 @@ impl Default for Config {
             token: None,
             fps: default_fps(),
             poll_secs: default_poll_secs(),
+            theme: String::new(),
         }
     }
 }
@@ -77,7 +81,7 @@ impl Config {
         Ok(())
     }
 
-    /// Env wins over file: `WABI_TUI_FPS`, `WABI_TUI_POLL_SECS`.
+    /// Env wins over file: `WABI_TUI_FPS`, `WABI_TUI_POLL_SECS`, `WABI_TUI_THEME`.
     pub fn apply_env_overrides(&mut self) {
         if let Ok(v) = std::env::var("WABI_TUI_FPS") {
             if let Ok(n) = v.parse::<f32>() {
@@ -88,6 +92,11 @@ impl Config {
             if let Ok(n) = v.parse::<f32>() {
                 self.poll_secs = n;
             }
+        }
+        // Theme: config value is exported to the env before ui.rs's OnceLock
+        // first reads it (App::new runs before the first render).
+        if !self.theme.is_empty() && std::env::var("WABI_TUI_THEME").is_err() {
+            std::env::set_var("WABI_TUI_THEME", &self.theme);
         }
     }
 

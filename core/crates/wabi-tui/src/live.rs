@@ -126,6 +126,24 @@ impl LiveClient {
                     }
                 }
             })
+            .on("auth-failed", {
+                let tx = tx.clone();
+                let health = health.clone();
+                move |payload: Payload, _client: rust_socketio::RawClient| {
+                    let reason = payload_value(&payload)
+                        .and_then(|v| {
+                            v.get("reason")
+                                .and_then(|x| x.as_str())
+                                .map(String::from)
+                        })
+                        .unwrap_or_else(|| "unknown".into());
+                    tracing::warn!("live auth failed: {reason}");
+                    // Server already disconnected us; stop the flap.
+                    if tx.blocking_send(BgMsg::LiveAuthFailed(reason)).is_err() {
+                        tracing::warn!("bg channel closed; live event dropped");
+                    }
+                }
+            })
             .on(Event::Close, {
                 let tx = tx.clone();
                 let health = health.clone();
