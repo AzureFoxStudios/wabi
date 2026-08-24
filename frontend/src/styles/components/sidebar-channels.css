@@ -389,18 +389,30 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	.root-drop-gap {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 22px;
-		margin: 0.15rem 0.6rem;
-		border: 1px dashed color-mix(in srgb, var(--accent-primary, #6366f1) 68%, transparent);
-		border-radius: var(--radius-md, 8px);
-		background: color-mix(in srgb, var(--accent-primary, #6366f1) 10%, transparent);
-		color: var(--text-secondary, #a1a1aa);
-		font-size: var(--font-size-xs, 0.72rem);
-		font-weight: 700;
+	/* Tail drop target after the last channel row. Exists ONLY mid-drag
+	   (markup is conditional); renders as a slim insertion line, not a box. */
+	.list-tail-drop {
+		position: relative;
+		height: 18px;
+		margin: 0.1rem 0.6rem;
+	}
+
+	.list-tail-drop-line {
+		display: none;
+	}
+
+	.list-tail-drop:hover .list-tail-drop-line {
+		display: block;
+		position: absolute;
+		top: 8px;
+		left: 0;
+		right: 0;
+		height: 2px;
+		border-radius: var(--radius-full, 9999px);
+		background: var(--color-info, #7dd3fc);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface-sunken, #0f0c29) 70%, transparent),
+			0 0 8px color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
+		pointer-events: none;
 	}
 
 
@@ -1055,11 +1067,13 @@
 		width: 14px;
 		font-size: 10px;
 		letter-spacing: -2px;
-		opacity: 0.35;
+		opacity: 0;
 		flex-shrink: 0;
 		user-select: none;
+		transition: opacity var(--duration-instant, 100ms) ease;
 	}
-	.category-row:hover .category-drag-grip {
+	.category-row:hover .category-drag-grip,
+	.category-row.is-dragging .category-drag-grip {
 		opacity: 0.7;
 	}
 

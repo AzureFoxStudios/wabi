@@ -33,17 +33,19 @@ const CACHE_TTL: Duration = Duration::from_secs(60);
 /// HTTP client timeout for the upstream Steam API call.
 const STEAM_FETCH_TIMEOUT: Duration = Duration::from_secs(8);
 
-/// Shared HTTP client handle for the Steam integration. One client is built
-/// at startup (connection pooling) instead of one per fetch.
+/// Shared reqwest client for upstream Steam fetches. Built once at AppState
+/// construction; the per-request timeout is applied on each RequestBuilder so
+/// cache misses reuse one connection pool instead of paying a fresh client
+/// build + TLS handshake every time.
 pub type SharedHttpClient = Arc<reqwest::Client>;
 
-/// Build the process-wide shared Steam HTTP client.
+/// Build the shared Steam fetch client.
 pub fn shared_http_client() -> SharedHttpClient {
     Arc::new(
         reqwest::Client::builder()
             .timeout(STEAM_FETCH_TIMEOUT)
             .build()
-            .expect("failed to build shared Steam HTTP client"),
+            .unwrap_or_default(),
     )
 }
 
@@ -208,9 +210,11 @@ async fn fetch_status(
         }
     }
 
-    let response = state
-        .steam_http
+    let client = &state.steam_http;
+
+    let response = client
         .get(STEAM_API_URL)
+        .timeout(STEAM_FETCH_TIMEOUT)
         .query(&[("key", key.as_str()), ("steamids", steam_id)])
         .send()
         .await?;
@@ -228,10 +232,7 @@ async fn fetch_status(
     // The Web API exposes rich presence via the in-game `gameextrainfo` and,
     // when available, a top-level `richpresence` field on the player row.
     if with_rich_presence {
-        status.rich_presence = status
-            .rich_presence
-            .take()
-            .filter(|s| !s.trim().is_empty());
+        status.rich_presence = status.rich_presence.take().filter(|s| !s.trim().is_empty());
     } else {
         status.rich_presence = None;
     }

@@ -13,7 +13,7 @@ import {
 	type BBox
 } from './coords';
 import { resolveWritableWhiteboardLayerId } from './layers';
-import { commitRasterLayer, paintRasterDab, paintRasterSegment } from './rasterLayers';
+import { beginRasterStroke, commitRasterLayer, paintRasterDab, paintRasterSegment, rasterCanUndo, rasterUndo } from './rasterLayers';
 import { measureMathElement, preloadMathElement } from './mathRender';
 
 // ---------------------------------------------------------------------------
@@ -203,6 +203,7 @@ function createRasterBrushTool(): ToolHandler {
 			const eraser = false;
 			let lastX = e.boardX;
 			let lastY = e.boardY;
+			beginRasterStroke(layer.id);
 			paintRasterDab(layer.id, lastX, lastY, size, color, opacity, hardness, e.pressure, eraser);
 			return {
 				onPointerMove(ev) {
@@ -522,39 +523,63 @@ export function createSelectTool(): ToolHandler {
 }
 
 function createMoveInteraction(startEvent: ToolPointerEvent): ToolInteraction {
-	let lastBX = startEvent.boardX;
-	let lastBY = startEvent.boardY;
 	let didStartMove = false;
+	let baseline: Map<string, { type: string; x: number; y: number; points: Point[] | null }> | null = null;
+	let pending: Array<{ id: string; partial: Partial<BoardElement> }> = [];
+	let rafId: number | null = null;
+
+	function flush() {
+		rafId = null;
+		if (pending.length === 0) return;
+		boardStore.updateElementsBatch(pending, { recordHistory: false });
+		pending = [];
+	}
+	function schedule() {
+		if (rafId == null) rafId = requestAnimationFrame(flush);
+	}
 
 	return {
 		onPointerMove(e) {
-			const dx = e.boardX - lastBX;
-			const dy = e.boardY - lastBY;
-			if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return;
 			if (!didStartMove) {
 				boardStore.pushHistoryCheckpoint();
 				didStartMove = true;
-			}
-			lastBX = e.boardX;
-			lastBY = e.boardY;
-
-			const state = get(boardStore);
-			for (const id of state.selection) {
-				const el = state.elements.find((e) => e.id === id);
-				if (!el) continue;
-				if (el.type === 'stroke') {
-					const pts = (el as any).points.map((p: Point) => ({ ...p, x: p.x + dx, y: p.y + dy }));
-					boardStore.updateElement(
-						id,
-						{ x: el.x + dx, y: el.y + dy, points: pts } as any,
-						{ recordHistory: false }
-					);
-				} else {
-					boardStore.updateElement(id, { x: el.x + dx, y: el.y + dy }, { recordHistory: false });
+				const state = get(boardStore);
+				baseline = new Map();
+				for (const id of state.selection) {
+					const el = state.elements.find((x) => x.id === id);
+					if (!el) continue;
+					baseline.set(id, {
+						type: el.type,
+						x: el.x,
+						y: el.y,
+						points: el.type === 'stroke' ? el.points.map((p) => ({ ...p })) : null
+					});
 				}
 			}
+			if (!baseline) return;
+
+			const totalDx = e.boardX - startEvent.boardX;
+			const totalDy = e.boardY - startEvent.boardY;
+			if (Math.abs(totalDx) < 0.001 && Math.abs(totalDy) < 0.001) return;
+
+			pending = [];
+			for (const [id, base] of baseline) {
+				if (base.type === 'stroke' && base.points) {
+					const pts = base.points.map((p) => ({ ...p, x: p.x + totalDx, y: p.y + totalDy }));
+					pending.push({ id, partial: { x: base.x + totalDx, y: base.y + totalDy, points: pts } as Partial<BoardElement> });
+				} else {
+					pending.push({ id, partial: { x: base.x + totalDx, y: base.y + totalDy } });
+				}
+			}
+			schedule();
 		},
-		onPointerUp() {},
+		onPointerUp() {
+			if (rafId != null) {
+				cancelAnimationFrame(rafId);
+				rafId = null;
+			}
+			flush();
+		},
 		getPreview() { return null; },
 		getSelectionRect() { return null; }
 	};
@@ -589,6 +614,19 @@ function createResizeInteraction(
 		relW: el.width / (origW || 1),
 		relH: el.height / (origH || 1)
 	}));
+
+	let pending: Array<{ id: string; partial: Partial<BoardElement> }> = [];
+	let rafId: number | null = null;
+
+	function flush() {
+		rafId = null;
+		if (pending.length === 0) return;
+		boardStore.updateElementsBatch(pending, { recordHistory: false });
+		pending = [];
+	}
+	function schedule() {
+		if (rafId == null) rafId = requestAnimationFrame(flush);
+	}
 
 	return {
 		onPointerMove(e) {
@@ -628,6 +666,7 @@ function createResizeInteraction(
 			if (newH < 8) { if (handle.includes('n')) newY = origY + origH - 8; newH = 8; }
 
 			// Apply scaled positions to all selected elements
+			pending = [];
 			for (const orig of origPositions) {
 				const nextX = newX + orig.relX * newW;
 				const nextY = newY + orig.relY * newH;
@@ -636,9 +675,9 @@ function createResizeInteraction(
 				if (orig.type === 'stroke' && orig.originalPoints) {
 					const scaleX = origW === 0 ? 1 : newW / origW;
 					const scaleY = origH === 0 ? 1 : newH / origH;
-					boardStore.updateElement(
-						orig.id,
-						{
+					pending.push({
+						id: orig.id,
+						partial: {
 							x: nextX,
 							y: nextY,
 							width: nextWidth,
@@ -648,24 +687,29 @@ function createResizeInteraction(
 								x: newX + (point.x - origX) * scaleX,
 								y: newY + (point.y - origY) * scaleY
 							}))
-						} as Partial<BoardElement>,
-						{ recordHistory: false }
-					);
+						} as Partial<BoardElement>
+					});
 					continue;
 				}
-				boardStore.updateElement(
-					orig.id,
-					{
+				pending.push({
+					id: orig.id,
+					partial: {
 						x: nextX,
 						y: nextY,
 						width: nextWidth,
 						height: nextHeight
-					},
-					{ recordHistory: false }
-				);
+					}
+				});
 			}
+			schedule();
 		},
-		onPointerUp() {},
+		onPointerUp() {
+			if (rafId != null) {
+				cancelAnimationFrame(rafId);
+				rafId = null;
+			}
+			flush();
+		},
 		getPreview() { return null; },
 		getSelectionRect() { return null; }
 	};
@@ -686,6 +730,18 @@ function createRotateInteraction(
 	const vp = state.viewport;
 	const startAngle = Math.atan2(startScreenY - vp.y - origCY * vp.zoom, startScreenX - vp.x - origCX * vp.zoom);
 	let didStartRotate = false;
+	let pending: Array<{ id: string; partial: Partial<BoardElement> }> = [];
+	let rafId: number | null = null;
+
+	function flush() {
+		rafId = null;
+		if (pending.length === 0) return;
+		boardStore.updateElementsBatch(pending, { recordHistory: false });
+		pending = [];
+	}
+	function schedule() {
+		if (rafId == null) rafId = requestAnimationFrame(flush);
+	}
 
 	return {
 		onPointerMove(e) {
@@ -705,6 +761,7 @@ function createRotateInteraction(
 			}
 			const cos = Math.cos(deltaAngle);
 			const sin = Math.sin(deltaAngle);
+			pending = [];
 			for (const el of selectedEls) {
 				const relX = el.x - origCX;
 				const relY = el.y - origCY;
@@ -716,13 +773,19 @@ function createRotateInteraction(
 						x: origCX + (p.x - origCX) * cos - (p.y - origCY) * sin,
 						y: origCY + (p.x - origCX) * sin + (p.y - origCY) * cos
 					}));
-					boardStore.updateElement(el.id, { x: newX, y: newY, points: pts, rotation: (el.rotation || 0) + deltaAngle }, { recordHistory: false });
+					pending.push({ id: el.id, partial: { x: newX, y: newY, points: pts, rotation: (el.rotation || 0) + deltaAngle } as Partial<BoardElement> });
 				} else {
-					boardStore.updateElement(el.id, { x: newX, y: newY, rotation: (el.rotation || 0) + deltaAngle }, { recordHistory: false });
+					pending.push({ id: el.id, partial: { x: newX, y: newY, rotation: (el.rotation || 0) + deltaAngle } });
 				}
 			}
+			schedule();
 		},
 		onPointerUp() {
+			if (rafId != null) {
+				cancelAnimationFrame(rafId);
+				rafId = null;
+			}
+			flush();
 			if (didStartRotate) boardStore.pushHistoryCheckpoint();
 		},
 		getPreview() { return null; },
@@ -809,6 +872,7 @@ function createRasterEraserTool(): ToolHandler {
 			const opacity = state.style.opacity ?? 1;
 			let lastX = e.boardX;
 			let lastY = e.boardY;
+			beginRasterStroke(layer.id);
 			paintRasterDab(layer.id, lastX, lastY, size, '#000', opacity, hardness, e.pressure, true);
 			return {
 				onPointerMove(ev) {

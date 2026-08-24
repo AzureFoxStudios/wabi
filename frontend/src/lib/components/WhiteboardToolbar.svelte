@@ -10,7 +10,9 @@
 		policy,
 		selection,
 		elements,
-		boardState
+		boardState,
+		activeLayerId,
+		layers
 	} from '$lib/whiteboard/boardStore';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
 	import { onMathPlacement, buildMathElement, type MathPlacement } from '$lib/whiteboard/tools';
@@ -28,15 +30,6 @@
 		{ id: 'text', label: 'Text', shortcut: 'T', icon: 'text' },
 		{ id: 'math', label: 'Math', shortcut: '', icon: 'math' },
 		{ id: 'pan', label: 'Pan', shortcut: 'Space', icon: 'pan' }
-	];
-
-	const alignTools = [
-		{ id: 'align-left', label: 'Align left', icon: 'align-left' },
-		{ id: 'align-center', label: 'Align center', icon: 'align-center' },
-		{ id: 'align-right', label: 'Align right', icon: 'align-right' },
-		{ id: 'align-top', label: 'Align top', icon: 'align-top' },
-		{ id: 'align-middle', label: 'Align middle', icon: 'align-middle' },
-		{ id: 'align-bottom', label: 'Align bottom', icon: 'align-bottom' }
 	];
 
 	const strokeWidths = [1, 2, 4, 8];
@@ -63,6 +56,13 @@
 		if (p?.writeAccess === 'desktop') return { label: 'Desktop-edit', icon: 'desktop' };
 		return null;
 	})();
+
+	$: activeLayer = $layers.find((l) => l.id === $activeLayerId) || null;
+	$: layerModeBadge = activeLayer
+		? activeLayer.mode === 'raster'
+			? { label: 'Paint', mode: 'raster' as const }
+			: { label: 'Vector', mode: 'vector' as const }
+		: null;
 
 	function isToolDisabled(id: string): boolean {
 		return readOnly && drawingTools.has(id);
@@ -243,6 +243,12 @@
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h12M4 10h12M4 14h12"/></svg>
 	</button>
 	<div class="wb-toolbar">
+	{#if activeLayer && layerModeBadge}
+		<div class="wb-layer-mode-chip" class:raster={layerModeBadge.mode === 'raster'} title="Active layer: {activeLayer.name} ({layerModeBadge.label})">
+			<span class="wb-layer-mode-name">{activeLayer.name}</span>
+			<span class="wb-layer-mode-badge">{layerModeBadge.label}</span>
+		</div>
+	{/if}
 	<div class="wb-toolbar-section tools">
 		<span class="wb-toolbar-group-label">Tools</span>
 		{#each tools as tool}
@@ -277,7 +283,6 @@
 						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="m3 13 8.6-8.6a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L8 18H5a2 2 0 0 1-2-2v-3Z"/><path d="m8 18 5-5"/><path d="M6 15h.01" stroke-linecap="round"/></svg>
 					{/if}
 				</span>
-				<span class="wb-tool-shortcut">{tool.shortcut}</span>
 			</button>
 		{/each}
 	</div>
@@ -571,7 +576,7 @@
 <style>
 	.wb-toolbar-rail {
 		position: absolute;
-		top: 4.1rem;
+		top: var(--wb-chrome-top, 4.1rem);
 		left: 0.7rem;
 		z-index: 20;
 		display: flex;
@@ -639,12 +644,6 @@
 		padding: 0;
 	}
 
-	.wb-color-quick-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-	}
-
 	.wb-color-quick {
 		display: inline-flex;
 		align-items: center;
@@ -665,18 +664,6 @@
 		cursor: pointer;
 	}
 
-	.wb-toolbar-section.actions,
-	.wb-toolbar-section.exports {
-		flex-direction: row;
-		align-items: center;
-		flex-wrap: wrap;
-	}
-
-	.wb-toolbar-section.actions .wb-toolbar-group-label,
-	.wb-toolbar-section.exports .wb-toolbar-group-label {
-		width: 100%;
-	}
-
 	.wb-toolbar-divider {
 		width: 1px;
 		align-self: stretch;
@@ -689,8 +676,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 30px;
-		height: 30px;
+		width: 32px;
+		height: 32px;
 		padding: 0;
 		border: 1px solid transparent;
 		border-radius: 8px;
@@ -756,16 +743,6 @@
 		height: 16px;
 	}
 
-	.wb-tool-shortcut {
-		position: absolute;
-		bottom: 1px;
-		right: 2px;
-		font-size: 7px;
-		opacity: 0.45;
-		font-family: monospace;
-		pointer-events: none;
-	}
-
 	.wb-export-label {
 		font-size: 9px;
 		font-weight: 700;
@@ -801,23 +778,6 @@
 		box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary, #6366f1) 48%, transparent);
 	}
 
-	/* Color picker + fill color fields */
-	.wb-color-picker {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-
-	.wb-color-field {
-		display: flex;
-		align-items: center;
-		gap: 3px;
-		background: color-mix(in srgb, var(--surface-sunken, #0f0c29) 55%, transparent);
-		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 18%, transparent);
-		border-radius: 8px;
-		padding: 2px 6px 2px 2px;
-	}
-
 	.wb-color-native {
 		width: 22px;
 		height: 22px;
@@ -837,66 +797,21 @@
 		border-radius: 4px;
 	}
 
-	.wb-color-text {
-		width: 58px;
-		padding: 2px 4px;
-		border: none;
-		border-radius: 4px;
-		background: color-mix(in srgb, var(--surface-base, #24243e) 80%, transparent);
-		color: var(--text-heading, #e0e0ff);
-		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		text-align: center;
-		vertical-align: middle;
-	}
-
-	.wb-color-text:focus {
-		outline: none;
-		background: color-mix(in srgb, var(--accent-primary, #6366f1) 20%, transparent);
-		box-shadow: 0 0 0 1px var(--accent-primary, #6366f1);
-	}
-
-	.wb-color-text:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-
-	.wb-color-label {
-		font-size: 8px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--text-muted, #9999ff);
-		margin-right: 2px;
-		white-space: nowrap;
-	}
-
-	.wb-fill-label {
-		color: var(--text-secondary, #b3b3ff);
-	}
-
 	.wb-swatch-row {
 		display: flex;
 		gap: 3px;
 		margin-left: 4px;
 	}
 
-	.wb-swatch-row .wb-color-swatch {
-		width: 16px;
-		height: 16px;
-	}
-
 	.wb-width-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 28px;
-		height: 28px;
+		width: 32px;
+		height: 32px;
 		padding: 0;
 		border: none;
-		border-radius: 6px;
+		border-radius: 8px;
 		background: transparent;
 		cursor: pointer;
 		transition: background 0.12s;
@@ -1030,6 +945,46 @@
 	.wb-policy-badge-icon svg {
 		width: 12px;
 		height: 12px;
+	}
+
+	.wb-layer-mode-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin-right: 2px;
+		padding: 3px 8px;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--accent-primary, #6366f1) 34%, transparent);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent);
+		color: var(--accent-primary, #6366f1);
+		font-size: 0.7rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+		user-select: none;
+	}
+
+	.wb-layer-mode-chip.raster {
+		border-color: color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
+		background: color-mix(in srgb, var(--color-info, #7dd3fc) 14%, transparent);
+		color: var(--color-info, #7dd3fc);
+	}
+
+	.wb-layer-mode-name {
+		max-width: 10ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-weight: 600;
+		opacity: 0.92;
+	}
+
+	.wb-layer-mode-badge {
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 1px 6px;
+		border-radius: 999px;
+		background: color-mix(in srgb, currentColor 18%, transparent);
 	}
 
 	@media (prefers-reduced-motion: reduce) {

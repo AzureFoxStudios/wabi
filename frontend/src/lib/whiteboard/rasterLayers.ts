@@ -4,11 +4,120 @@ import { uploadWhiteboardImage } from './imageImports';
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
 
-const RASTER_WIDTH = 4096;
-const RASTER_HEIGHT = 4096;
+// Bitmap ceiling for a raster (Paint) layer, in device px.
+// Dropped from 4096 to 2048: 4x less RAM per layer (2048*2048*4 = 16MB vs
+// 4096*4096*4 = 64MB), still sharp for brush work at typical zooms. Painting
+// clamps to these bounds (see paintRasterDab), so any dab whose center falls
+// outside [0, RASTER_WIDTH] x [0, RASTER_HEIGHT] is skipped before drawImage.
+const RASTER_WIDTH = 2048;
+const RASTER_HEIGHT = 2048;
 const stampCache = new Map<string, HTMLCanvasElement>();
 const layerBitmaps = new Map<string, HTMLCanvasElement>();
 const hydratingLayers = new Map<string, Promise<void>>();
+
+interface DirtyRect {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+const rasterDirtyBounds = new Map<string, DirtyRect>();
+
+// ---------------------------------------------------------------------------
+// Raster undo checkpoints
+//
+// A parallel, independent stack (the vector element stack in boardUndo.ts is
+// untouched). One entry per stroke: the pixels that were UNDER the stroke's
+// dirty rect before it was painted. pixels === null means the region was blank
+// before the stroke — undo clears the rect instead of blitting pixels, which
+// keeps fresh-stroke entries from costing 64MB copies.
+// ---------------------------------------------------------------------------
+
+interface RasterUndoEntry {
+	layerId: string;
+	rect: { x: number; y: number; w: number; h: number };
+	pixels: ImageData | null;
+	bytes: number;
+}
+
+const MAX_RASTER_UNDO_ENTRIES = 30;
+const MAX_RASTER_UNDO_BYTES = 8 * 1024 * 1024;
+
+let rasterUndoStack: RasterUndoEntry[] = [];
+let rasterRedoStack: RasterUndoEntry[] = [];
+
+function pushRasterUndoEntry(entry: RasterUndoEntry): void {
+	rasterUndoStack.push(entry);
+	rasterRedoStack = [];
+	while (rasterUndoStack.length > MAX_RASTER_UNDO_ENTRIES) rasterUndoStack.shift();
+	let total = 0;
+	for (const e of rasterUndoStack) total += e.bytes;
+	while (total > MAX_RASTER_UNDO_BYTES && rasterUndoStack.length > 1) {
+		total -= rasterUndoStack[0].bytes;
+		rasterUndoStack.shift();
+	}
+}
+
+export function rasterCanUndo(): boolean {
+	return rasterUndoStack.length > 0;
+}
+
+/**
+ * Snapshot the region about to be painted. Call BEFORE the stroke's first dab.
+ * The current dirty bounds (if any) describe exactly what the stroke will touch;
+ * a fresh layer yields a blank-region entry.
+ */
+export function beginRasterStroke(layerId: string): void {
+	if (!layerBitmaps.has(layerId)) return;
+	const bounds = rasterDirtyBounds.get(layerId);
+	const bitmap = getLayerBitmap(layerId);
+	const ctx = bitmap.getContext('2d')!;
+	let entry: RasterUndoEntry;
+	if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) {
+		entry = { layerId, rect: { x: 0, y: 0, w: 0, h: 0 }, pixels: null, bytes: 0 };
+	} else {
+		const x = Math.max(0, Math.floor(bounds.minX));
+		const y = Math.max(0, Math.floor(bounds.minY));
+		const w = Math.min(RASTER_WIDTH, Math.ceil(bounds.maxX)) - x;
+		const h = Math.min(RASTER_HEIGHT, Math.ceil(bounds.maxY)) - y;
+		const pixels = ctx.getImageData(x, y, w, h);
+		entry = { layerId, rect: { x, y, w, h }, pixels, bytes: pixels.data.byteLength };
+	}
+	pushRasterUndoEntry(entry);
+}
+
+export function rasterUndo(): void {
+	const entry = rasterUndoStack.pop();
+	if (!entry) return;
+	rasterRedoStack.push(entry);
+	const bitmap = layerBitmaps.get(entry.layerId);
+	if (!bitmap) return;
+	const ctx = bitmap.getContext('2d')!;
+	if (entry.pixels) {
+		ctx.putImageData(entry.pixels, entry.rect.x, entry.rect.y);
+	} else if (entry.rect.w > 0 && entry.rect.h > 0) {
+		ctx.clearRect(entry.rect.x, entry.rect.y, entry.rect.w, entry.rect.h);
+	} else {
+		ctx.clearRect(0, 0, RASTER_WIDTH, RASTER_HEIGHT);
+	}
+	// Re-dirty the restored region so the next commit re-uploads corrected pixels,
+	// and advance the revision silently (no vector-stack push, no patch emission).
+	const r = entry.pixels ? entry.rect : { x: 0, y: 0, w: RASTER_WIDTH, h: RASTER_HEIGHT };
+	expandDirtyBounds(entry.layerId, r.x + r.w / 2, r.y + r.h / 2, Math.max(r.w, r.h) / 2);
+	boardStore.updateLayerSilent(entry.layerId, { mode: 'raster', revision: (get(boardStore).layers.find((l) => l.id === entry.layerId)?.revision || 0) + 1 });
+}
+
+function expandDirtyBounds(layerId: string, x: number, y: number, reach: number): void {
+	const rect = rasterDirtyBounds.get(layerId);
+	if (rect) {
+		if (x - reach < rect.minX) rect.minX = x - reach;
+		if (y - reach < rect.minY) rect.minY = y - reach;
+		if (x + reach > rect.maxX) rect.maxX = x + reach;
+		if (y + reach > rect.maxY) rect.maxY = y + reach;
+	} else {
+		rasterDirtyBounds.set(layerId, { minX: x - reach, minY: y - reach, maxX: x + reach, maxY: y + reach });
+	}
+}
 
 function getLayerBitmap(layerId: string): HTMLCanvasElement {
 	let bitmap = layerBitmaps.get(layerId);
@@ -61,6 +170,10 @@ export function paintRasterDab(
 	const bitmap = getLayerBitmap(layerId);
 	const ctx = bitmap.getContext('2d')!;
 	const effectiveSize = Math.max(1, size * (0.4 + 0.6 * Math.max(0, Math.min(1, pressure))));
+	const reach = effectiveSize / 2;
+	// Cheap guard: skip dabs whose center falls outside the bitmap bounds.
+	if (x < 0 || y < 0 || x > RASTER_WIDTH || y > RASTER_HEIGHT) return;
+	expandDirtyBounds(layerId, x, y, reach);
 	const stamp = getStamp(effectiveSize, hardness, color);
 	ctx.save();
 	ctx.globalCompositeOperation = eraser ? 'destination-out' : 'source-over';
@@ -126,7 +239,21 @@ export function hydrateRasterLayer(layerId: string, assetUrl: string): Promise<v
 				image.onload = () => resolve();
 				image.onerror = () => reject(new Error('Raster layer image decode failed'));
 			});
-			getLayerBitmap(layerId).getContext('2d')!.drawImage(image, 0, 0, RASTER_WIDTH, RASTER_HEIGHT);
+			const ctx = getLayerBitmap(layerId).getContext('2d')!;
+			const layer = get(boardStore).layers.find((candidate) => candidate.id === layerId);
+			const offsetX = layer?.assetOffsetX;
+			const offsetY = layer?.assetOffsetY;
+			const pixelWidth = layer?.pixelWidth;
+			const pixelHeight = layer?.pixelHeight;
+			const useOffset =
+				typeof offsetX === 'number' &&
+				typeof offsetY === 'number' &&
+				((pixelWidth ?? RASTER_WIDTH) < RASTER_WIDTH || (pixelHeight ?? RASTER_HEIGHT) < RASTER_HEIGHT);
+			if (useOffset) {
+				ctx.drawImage(image, offsetX, offsetY);
+			} else {
+				ctx.drawImage(image, 0, 0, RASTER_WIDTH, RASTER_HEIGHT);
+			}
 		} finally {
 			URL.revokeObjectURL(objectUrl);
 		}
@@ -138,7 +265,35 @@ export function hydrateRasterLayer(layerId: string, assetUrl: string): Promise<v
 export async function commitRasterLayer(boardId: string, layerId: string): Promise<void> {
 	const bitmap = layerBitmaps.get(layerId);
 	if (!bitmap || !boardId) return;
-	const blob = await new Promise<Blob | null>((resolve) => bitmap.toBlob(resolve, 'image/png'));
+
+	let sx = 0;
+	let sy = 0;
+	let sw = RASTER_WIDTH;
+	let sh = RASTER_HEIGHT;
+	let offsetX = 0;
+	let offsetY = 0;
+
+	const bounds = rasterDirtyBounds.get(layerId) || null;
+	if (bounds) {
+		const minX = Math.max(0, Math.floor(bounds.minX));
+		const minY = Math.max(0, Math.floor(bounds.minY));
+		const maxX = Math.min(RASTER_WIDTH, Math.ceil(bounds.maxX));
+		const maxY = Math.min(RASTER_HEIGHT, Math.ceil(bounds.maxY));
+		sw = Math.max(1, maxX - minX);
+		sh = Math.max(1, maxY - minY);
+		sx = minX;
+		sy = minY;
+		offsetX = minX;
+		offsetY = minY;
+	}
+
+	const cropped = document.createElement('canvas');
+	cropped.width = sw;
+	cropped.height = sh;
+	const cctx = cropped.getContext('2d')!;
+	cctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+
+	const blob = await new Promise<Blob | null>((resolve) => cropped.toBlob(resolve, 'image/png'));
 	if (!blob) return;
 	const upload = await uploadWhiteboardImage(boardId, new File([blob], `${layerId}.png`, { type: 'image/png' }));
 	const state = get(boardStore);
@@ -148,10 +303,13 @@ export async function commitRasterLayer(boardId: string, layerId: string): Promi
 		mode: 'raster',
 		assetId: upload.fileId,
 		assetUrl: upload.fileUrl,
-		pixelWidth: RASTER_WIDTH,
-		pixelHeight: RASTER_HEIGHT,
+		pixelWidth: sw,
+		pixelHeight: sh,
+		assetOffsetX: offsetX,
+		assetOffsetY: offsetY,
 		revision: (layer.revision || 0) + 1
 	});
+	rasterDirtyBounds.delete(layerId);
 }
 
 export function clearRasterLayerCache(layerId?: string): void {

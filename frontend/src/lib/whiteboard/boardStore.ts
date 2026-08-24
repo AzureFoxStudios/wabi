@@ -230,6 +230,12 @@ function updateElement(id: string, partial: Partial<BoardElement>, options: elem
 	bumpVersion();
 }
 
+function updateElementsBatch(entries: Array<{ id: string; partial: Partial<BoardElement> }>, options: elemOps.UpdateElementOptions = {}): void {
+	if (entries.length === 0) return;
+	activeStore().update((s) => fromState(s, elemOps.updateElementsBatch(toState(s), entries, options, notifyPatch)));
+	bumpVersion();
+}
+
 function deleteElements(ids: string[]): void {
 	activeStore().update((s) => fromState(s, elemOps.deleteElements(toState(s), ids, notifyPatch)));
 	bumpVersion();
@@ -480,6 +486,7 @@ export const boardStore = {
 	pushHistoryCheckpoint,
 	addElement,
 	updateElement,
+	updateElementsBatch,
 	deleteElements,
 	reorderElement,
 	duplicateElements,

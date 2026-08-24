@@ -50,6 +50,12 @@
 	export let onChannelDragLeave: (channelId: string) => void = () => {};
 	export let onChannelDrop: (e: DragEvent, channelId: string) => void = () => {};
 	export let onChannelDragEnd: () => void = () => {};
+	// Zen hover-peek (glimpse) contract — ChannelSidebar passes these for
+	// parity with TextChannelList. Accepted-but-inert here until the glimpse
+	// popout is ported to this list renderer.
+	export let glimpseChannelId: string | null = null;
+	export let onChannelGlimpseHover: (channelId: string | null, anchorRect?: DOMRect) => void = () => {};
+	export let onChannelGlimpseCancel: () => void = () => {};
 
 	let reducedMotion = false;
 	onMount(() => {

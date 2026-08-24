@@ -410,6 +410,18 @@
 		z-index: var(--z-popout, 1200);
 	}
 
+	/* Zen peek variant: rendered at sidebar root with JS-computed viewport
+	   coords (openChannelGlimpse). position:fixed escapes the channel-list
+	   scroll clip; scroll closes the peek so it can't detach from its row. */
+	.channel-glimpse-popout.channel-glimpse-fixed {
+		position: fixed;
+		top: auto;
+		left: auto;
+		z-index: calc(var(--z-popout, 1200) + 50);
+		max-height: min(420px, 60vh);
+		overflow-y: auto;
+	}
+
 
 	.channel-glimpse-header,
 	.channel-glimpse-meta,
