@@ -59,8 +59,13 @@ function loreConnectError(message: string, status: number): Error {
 export interface LoreFileInfo {
 	path: string;
 	size: number;
-	modifiedAt: number;
-	lockedBy: number | null;
+	/** Legacy fields — the addon actually serves status/etag today. */
+	modifiedAt?: number;
+	lockedBy?: number | null;
+	/** Working-tree status reported by `lore status --scan`. */
+	status?: string;
+	/** Content etag (SHA-256 or sampled) for optimistic concurrency. */
+	etag?: string | null;
 }
 
 export interface LoreRevision {
@@ -160,8 +165,17 @@ export async function linkLoreRepo(
 	return normalizeLoreRepo(await res.json());
 }
 
-export async function deleteLoreRepo(token: string, channelId: number): Promise<void> {
-	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}`), {
+/**
+ * Remove a space binding. `mode='detach'` unlinks the channel but keeps the
+ * working tree + history on the server (re-linkable); `mode='delete'` wipes
+ * every byte permanently.
+ */
+export async function deleteLoreRepo(
+	token: string,
+	channelId: number,
+	mode: 'detach' | 'delete' = 'delete'
+): Promise<void> {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}?mode=${mode}`), {
 		method: 'DELETE',
 		headers: { Authorization: `Bearer ${token}` }
 	});

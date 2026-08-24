@@ -122,6 +122,10 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 		} catch { dataError = 'This artwork could not be compared yet.'; }
 	}
 
+	function formatRevTs(ts: number): string {
+		return Number.isFinite(ts) && ts > 0 ? new Date(ts).toLocaleString() : '\u2014';
+	}
+
 	function repoLabel(repo: LoreRepo | null): string {
 		if (repoLoading) return 'Loading…';
 		if (repo?.repoName) return repo.repoName;
@@ -329,7 +333,7 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 				</svg>
 				<h3>Commit History</h3>
 				{#if dataError}<p class="repo-error">{dataError}</p>{/if}
-				{#if dataLoading}<p>Loading history…</p>{:else if repoHistory.length === 0}<p>No revisions yet.</p>{:else}<ul>{#each repoHistory.slice(0, 20) as revision}<li><strong>{revision.hash.slice(0, 8)}</strong><span>{revision.message}</span><small>{new Date(revision.timestamp * 1000).toLocaleString()}</small></li>{/each}</ul>{/if}
+				{#if dataLoading}<p>Loading history…</p>{:else if repoHistory.length === 0}<p>No revisions yet.</p>{:else}<ul>{#each repoHistory.slice(0, 20) as revision}<li><strong>{revision.hash.slice(0, 8)}</strong><span>{revision.message}</span><small>{formatRevTs(revision.timestamp)}</small></li>{/each}</ul>{/if}
 				{#each repoFiles.filter((file) => loreArtifactKind(file.path) === 'image').slice(0, 12) as file}
 					<button type="button" class="compare-art" onclick={() => void prepareImageCompare(file.path)}>Compare artwork · {file.path}</button>
 				{/each}

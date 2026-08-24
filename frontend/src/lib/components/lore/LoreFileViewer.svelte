@@ -3,6 +3,7 @@
 	import {
 		LoreConflictError,
 		downloadLoreFileText,
+		getSignedLoreUrl,
 		saveLoreFileContent
 	} from '$lib/api/lore';
 	import { EditorState, type Extension } from '@codemirror/state';
@@ -26,6 +27,8 @@
 		fileInfo: LoreFileInfo | null;
 		loading: boolean;
 		onClose: () => void;
+		/** Signed URL for image previews (caller skips text-loading media). */
+		mediaUrl?: string | null;
 		/** Enable the in-browser editor (role-gated by the caller). */
 		canEdit?: boolean;
 		/** Required for editing: auth token + channel the repo lives in. */
@@ -38,6 +41,7 @@
 	let {
 		filePath,
 		fileContent,
+		mediaUrl = null,
 		fileInfo,
 		loading,
 		onClose,
@@ -60,6 +64,19 @@
 
 	let host: HTMLDivElement | undefined = $state();
 	let view = $state<EditorView | null>(null);
+
+	async function downloadFile() {
+		if (!token || channelId === undefined) return;
+		try {
+			const url = await getSignedLoreUrl(token, channelId, filePath);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = filePath.split('/').pop() || 'file';
+			a.click();
+		} catch {
+			// Best effort — the viewer still works without downloads.
+		}
+	}
 
 	function copyContent() {
 		if (fileContent) {
@@ -309,6 +326,9 @@
 				</button>
 				<button class="action-btn" onclick={exitEditMode} title="Stop editing">👁</button>
 			{/if}
+			{#if token && channelId !== undefined}
+				<button class="action-btn" onclick={() => void downloadFile()} title="Download this file">&#x2B07;</button>
+			{/if}
 			{#if !isBinary(fileContent) && fileContent}
 				<button class="action-btn" onclick={copyContent} aria-label="Copy file content">
 					{copied ? '✓' : '📋'}
@@ -342,6 +362,8 @@
 
 	{#if loading}
 		<div class="viewer-loading">Loading...</div>
+	{:else if mediaUrl}
+		<div class="viewer-image"><img src={mediaUrl} alt={filePath} loading="lazy" /></div>
 	{:else if isBinary(fileContent)}
 		<div class="viewer-binary">
 			<span class="binary-icon">📦</span>
@@ -523,6 +545,23 @@
 	.binary-info {
 		font-size: var(--font-size-sm);
 		color: var(--text-muted);
+	}
+
+	.viewer-image {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: auto;
+		padding: var(--space-2);
+	}
+
+	.viewer-image img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: var(--radius-sm);
 	}
 
 	.viewer-large {
