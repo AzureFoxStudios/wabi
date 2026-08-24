@@ -726,16 +726,37 @@ async fn main() -> anyhow::Result<()> {
                 };
                 let now_micros = chrono::Utc::now().timestamp_micros();
                 for channel in channels {
-                    let retention = match state.wdb.get_channel_retention(&channel.channel_id).await {
-                        Ok(Some(policy)) if policy.days > 0 => policy.days as i64 * 86_400_000_000,
-                        Ok(Some(_)) => continue,
-                        Ok(None) => 86_400_000_000,
-                        Err(error) => {
-                            tracing::warn!(channel = %channel.channel_id, "[retention-reaper] policy lookup failed: {error}");
-                            continue;
-                        }
+                    // Effective TTL = min(in-memory map TTL, WDB policy, product
+                    // default). The in-memory channel_auto_delete_ms map carries
+                    // sub-day presets (5s..24h) that per-message timers used to
+                    // enforce; the sweep must honor them too or short-TTL
+                    // channels would silently become 24h. (perf audit #5)
+                    let map_ttl_ms = state
+                        .channel_auto_delete_ms
+                        .read()
+                        .await
+                        .get(&channel.channel_id)
+                        .copied()
+                        .filter(|ms| *ms > 0);
+                    let db_ttl_ms: Option<i64> =
+                        match state.wdb.get_channel_retention(&channel.channel_id).await {
+                            Ok(Some(policy)) if policy.days > 0 => {
+                                Some(policy.days as i64 * 86_400_000_000)
+                            }
+                            Ok(Some(_)) => None, // days == 0: explicit keep-forever
+                            Ok(None) => Some(86_400_000_000),
+                            Err(error) => {
+                                tracing::warn!(channel = %channel.channel_id, "[retention-reaper] policy lookup failed: {error}");
+                                continue;
+                            }
+                        };
+                    let effective_ms = match (map_ttl_ms, db_ttl_ms) {
+                        (None, None) => continue,
+                        (Some(a), None) => a as i64 * 1_000_000,
+                        (None, Some(b)) => b,
+                        (Some(a), Some(b)) => (a as i64 * 1_000_000).min(b),
                     };
-                    let cutoff = now_micros.saturating_sub(retention);
+                    let cutoff = now_micros.saturating_sub(effective_ms);
                     let messages = match state.wdb.list_messages_typed(&channel.channel_id, 1000).await {
                         Ok(messages) => messages,
                         Err(error) => {

@@ -164,6 +164,8 @@ export function normalizeWhiteboardLayer(
 		assetUrl: typeof candidate.assetUrl === 'string' ? candidate.assetUrl : undefined,
 		pixelWidth: Number.isFinite(candidate.pixelWidth as number) ? Number(candidate.pixelWidth) : undefined,
 		pixelHeight: Number.isFinite(candidate.pixelHeight as number) ? Number(candidate.pixelHeight) : undefined,
+		assetOffsetX: Number.isFinite(candidate.assetOffsetX as number) ? Number(candidate.assetOffsetX) : undefined,
+		assetOffsetY: Number.isFinite(candidate.assetOffsetY as number) ? Number(candidate.assetOffsetY) : undefined,
 		revision: Number.isFinite(candidate.revision as number) ? Number(candidate.revision) : 0
 	};
 }

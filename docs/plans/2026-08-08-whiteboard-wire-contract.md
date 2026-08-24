@@ -43,6 +43,14 @@ Base (all types): `id, type, x, y, width, height, rotation, zIndex, layerId, opa
 - `blendMode` default `"source-over"`; curated set: `source-over, multiply, screen, overlay, darken, lighten, soft-light, hard-light, difference, exclusion`
 - Unknown blendMode on load → normalize to `"source-over"`.
 
+### Raster (mode) fields — added 2026-08-23
+
+`mode ("vector"|"raster", default "vector"), assetId?, assetUrl?, pixelWidth?, pixelHeight?, revision (default 0), assetOffsetX?, assetOffsetY?`
+
+- `assetOffsetX/assetOffsetY` are BOARD-space coordinates of the committed crop's top-left corner. Present only on layers committed after the dirty-rect feature; absent (undefined) on legacy layers whose asset covers the full bitmap at (0,0).
+- Bitmap ceiling is 2048×2048 device px per raster layer (`RASTER_WIDTH/HEIGHT` in `rasterLayers.ts`). Commits upload only the dirty-region crop; hydration draws the crop back at its offset when offsets + sub-bitmap dimensions are present, else full-bitmap legacy path.
+- `revision` increments per commit and per raster undo; clients re-fetch the asset when revision advances beyond their cached copy.
+
 ## Socket.IO events
 
 ### Client → Server

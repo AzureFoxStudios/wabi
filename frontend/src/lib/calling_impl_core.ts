@@ -1109,6 +1109,14 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		));
 		socket.emit('voice-channel-join', { channelId });
 		socket.emit('voice-channel-subscribe', { channelId });
+		// Heal the media layer: teardown paths can remove the wabidb relay
+		// while these stores still say "connected" — silent one-way/no audio.
+		// connectWabidbCall is a no-op when the relay is healthy, rebuilds it
+		// (with capture ON — this is the primary channel) when missing.
+		void connectWabidbCall(socket, channelId, `${brandName} User`).catch((err) => {
+			console.warn('[Calling] relay heal failed:', err);
+		});
+		syncWabidbCapture((cid) => shouldSendAudioToChannel(cid));
 		return get(localStream);
 	}
 

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
+	import { fly } from 'svelte/transition';
+	import { get } from 'svelte/store';
 	import { brandName } from '$lib/branding';
 	import {
 		channels,
@@ -11,6 +13,8 @@
 		markChannelAsRead,
 		updateChannelSettings,
 		channelUnreadCounts,
+		channelMessages,
+		joinChannel,
 		activeVoiceChannel as socketActiveVoiceChannel,
 		currentUser,
 		voiceChannelMembers,
@@ -43,14 +47,8 @@
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
 	import UserPopout from './UserPopout.svelte';
 	import ChannelSettingsModal from './sidebar/ChannelSettingsModal.svelte';
-	import TextChannelList from './sidebar/TextChannelList.svelte';
-	import VoiceChannelList from './sidebar/VoiceChannelList.svelte';
-	import GalleryChannelList from './sidebar/GalleryChannelList.svelte';
-	import ForumChannelList from './sidebar/ForumChannelList.svelte';
-	import WikiChannelList from './sidebar/WikiChannelList.svelte';
-	import LoreChannelList from './sidebar/LoreChannelList.svelte';
 	import UnifiedChannelList from './sidebar/UnifiedChannelList.svelte';
-	import { buildMixedRoot, filterMixedRoot, sortChannelsByPosition } from './sidebar/channelSidebarHelpers';
+	import { buildMixedRoot, filterMixedRoot, formatGlimpseTime, summarizeGlimpseMessage } from './sidebar/channelSidebarHelpers';
 	import VoiceUserCard from './sidebar/VoiceUserCard.svelte';
 	import ProfileCard from './sidebar/ProfileCard.svelte';
 	import CreateChannelForm from './sidebar/CreateChannelForm.svelte';
@@ -105,14 +103,24 @@
 	let showChannelSettingsModal = false;
 	let selectedChannelForSettings: Channel | null = null;
 	let glimpseChannelId: string | null = null;
+	/** Fixed-position peek box coords (viewport space) — survives sidebar scroll. */
+	let glimpsePosition = { x: 0, y: 0 };
 	let glimpsePopover: HTMLElement | null = null;
+
+	function openChannelGlimpse(channelId: string, anchorRect: DOMRect) {
+		glimpseChannelId = channelId;
+		const width = Math.min(320, Math.round(window.innerWidth * 0.56));
+		const x = Math.min(anchorRect.right + 12, window.innerWidth - width - 12);
+		const y = Math.max(8, Math.min(anchorRect.top - 6, window.innerHeight - 260));
+		glimpsePosition = { x, y };
+		// Hydrate: joining the socket room makes the server push the latest
+		// message window into channelMessages (presence.rs on_join_channel),
+		// so the peek shows real content even if the channel was never opened.
+		if (!(get(channelMessages)[channelId]?.length)) joinChannel(channelId);
+	}
+	function closeChannelGlimpse() { glimpseChannelId = null; }
+	function handleChannelGlimpseHover(channelId: string, anchorRect: DOMRect) { openChannelGlimpse(channelId, anchorRect); }
 	let isTextSectionExpanded = true;
-	let isVoiceSectionExpanded = true;
-	let isGallerySectionExpanded = true;
-	let isForumSectionExpanded = true;
-	let isWikiSectionExpanded = true;
-	let isLoreSectionExpanded = true;
-	let isPlanningSectionExpanded = true;
 	let channelSearchQuery = '';
 	let collapsedCategories = new Set<string>();
 	// Folder collapse state persists per-server across reloads and surface
@@ -182,68 +190,29 @@
 	function isChannelLocallyMuted(id: string) { return isServerChannelMuted(id); }
 	function shouldHideChannelFromList(ch: Channel) { return $displayEnhancementSettingsStore.hideMutedCategoriesEnabled && $currentChannel !== ch.id && isChannelLocallyMuted(ch.id); }
 
-		function sortByPosition(channels: Channel[]): Channel[] {
-		return sortChannelsByPosition(channels);
-	}
-
 	/**
-	 * Categories are first-class channels (type === 'category'). Every such
-	 * channel renders as a folder header (even when empty, so users can drag
-	 * channels in). A channel belongs to a category when its `parentId` points
-	 * at a category channel; everything else is uncategorized / free-floating.
+	 * Categories are first-class channels (type === 'category'). The unified
+	 * mixed-root list (buildMixedRoot in channelSidebarHelpers) handles all
+	 * folder grouping; nothing here needs the old per-type category maps.
 	 */
-	function groupByCategory(channels: Channel[], all: Channel[]): { categories: { id: string; name: string; channel: Channel; channels: Channel[] }[]; uncategorized: Channel[] } {
-		const categoryChannels = all
-			.filter((c) => (c.type as string | undefined) === 'category')
-			.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
-		const seenCat = new Set<string>();
-		const uniqueCats = categoryChannels.filter((c) => {
-			const id = String(c.id || '').trim();
-			if (!id || seenCat.has(id)) return false;
-			seenCat.add(id);
-			return true;
-		});
-		const categoryIds = new Set(uniqueCats.map((c) => c.id));
-		const categories = uniqueCats.map((cat) => ({
-			id: cat.id,
-			name: cat.name,
-			channel: cat,
-			channels: sortByPosition(channels.filter((ch) => ch.parentId === cat.id))
-		}));
-		const uncategorized = channels.filter((ch) => !ch.parentId || !categoryIds.has(ch.parentId));
-		return { categories, uncategorized: sortByPosition(uncategorized) };
-	}
-
-	/** B6: non-text sections only surface categories that actually hold channels here. */
-	function nonEmptyCategories(categories: { id: string; name: string; channel: Channel; channels: Channel[] }[]) {
-		return categories.filter((c) => c.channels.length > 0);
-	}
 
 	$: textChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return (!t || t === 'public' || t === 'text' || t === 'live') && t !== 'lore'; }).filter(ch => !shouldHideChannelFromList(ch));
-	$: textChannelsByPos = sortByPosition([...textChannelsAll]);
-	$: textCategoryMap = groupByCategory(textChannelsAll, $channels);
 	$: groupChannels = $channels.filter(ch => ch.type === 'group').filter(ch => !shouldHideChannelFromList(ch));
 	$: allCategories = $channels.filter(ch => (ch.type as string | undefined) === 'category').sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 	$: threadChannels = $channels.filter(ch => ch.type === 'thread_public' || ch.type === 'thread_private').sort((a, b) => (b.threadLastActivityAt || b.createdAt || 0) - (a.threadLastActivityAt || a.createdAt || 0));
 	$: threadChannelsByParent = threadChannels.reduce((acc: Record<string, Channel[]>, t) => { const p = t.parentChannelId; if (!p) return acc; (acc[p] ||= []).push(t); return acc; }, {});
 	$: allVoiceChannelsAll = $channels.filter(ch => ch.type === 'voice').filter(ch => !shouldHideChannelFromList(ch));
-	$: voiceCategoryMap = groupByCategory(allVoiceChannelsAll, $channels);
 	$: breakoutChannelsByParent = allVoiceChannelsAll.filter(ch => ch.isBreakout && ch.parentChannelId).reduce((acc: Record<string, Channel[]>, ch) => { const p = ch.parentChannelId!; (acc[p] ||= []).push(ch); return acc; }, {});
 	$: Object.values(breakoutChannelsByParent).forEach(r => r.sort((a, b) => (a.breakoutIndex || 0) - (b.breakoutIndex || 0)));
 	$: voiceChannels = allVoiceChannelsAll.filter(ch => !ch.isBreakout);
 	$: galleryChannelsAll = $channels.filter(ch => ch.type === 'gallery').filter(ch => !shouldHideChannelFromList(ch));
-	$: galleryCategoryMap = groupByCategory(galleryChannelsAll, $channels);
 	// C3: forum/wiki own sections — never mix into text list
 	$: forumChannelsAll = $channels.filter(ch => ch.type === 'forum').filter(ch => !shouldHideChannelFromList(ch));
-	$: forumCategoryMap = groupByCategory(forumChannelsAll, $channels);
 	$: wikiChannelsAll = $channels.filter(ch => ch.type === 'wiki').filter(ch => !shouldHideChannelFromList(ch));
-	$: wikiCategoryMap = groupByCategory(wikiChannelsAll, $channels);
 	// L2: Asset Storage (lore) — never mix into text list
 	$: loreChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return t === 'lore' || (ch as any).asset_storage === true; }).filter(ch => !shouldHideChannelFromList(ch));
-	$: loreCategoryMap = groupByCategory(loreChannelsAll, $channels);
 	// BZ3: Planning channels render the Planner workspace (center stage).
 	$: planningChannelsAll = $channels.filter(ch => (ch.type as string | undefined) === 'planning').filter(ch => !shouldHideChannelFromList(ch));
-	$: planningCategoryMap = groupByCategory(planningChannelsAll, $channels);
 	// Unified sidebar: ONE pool of every sidebar channel (all types), grouped by
 	// category folders that may hold ANY mix of types. Folders are first-class
 	// category channels; a channel belongs to a folder when its parentId points at it.
@@ -286,7 +255,9 @@
 		voiceDurationTicker = setInterval(() => { nowMs = Date.now(); }, 1000);
 		const onPtr = (e: PointerEvent) => { if (!glimpseChannelId) return; const t = e.target as HTMLElement | null; if (!t || glimpsePopover?.contains(t) || t.closest('.channel-btn')) return; glimpseChannelId = null; };
 		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && glimpseChannelId) glimpseChannelId = null; };
-		document.addEventListener('pointerdown', onPtr); document.addEventListener('keydown', onKey);
+		// Peek is position:fixed — any scroll detaches it from its anchor row.
+		const onScroll = () => { if (glimpseChannelId) glimpseChannelId = null; };
+		document.addEventListener('pointerdown', onPtr); document.addEventListener('keydown', onKey); document.addEventListener('scroll', onScroll, true);
 		// A6: gate Asset Storage create option on server lore capability.
 		// Negative results are NOT cached (see addonInventory) so a flaky
 		// first probe re-runs; the create form renders the Project chip in a
@@ -314,7 +285,7 @@
 			void tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 		};
 		window.addEventListener('wabi:create-channel', onCreateChannelRequest);
-		return () => { document.removeEventListener('pointerdown', onPtr); document.removeEventListener('keydown', onKey); window.removeEventListener('wabi:create-channel', onCreateChannelRequest); };
+		return () => { document.removeEventListener('pointerdown', onPtr); document.removeEventListener('keydown', onKey); document.removeEventListener('scroll', onScroll, true); window.removeEventListener('wabi:create-channel', onCreateChannelRequest); };
 	});
 	onDestroy(() => { if (voiceDurationTicker) { clearInterval(voiceDurationTicker); voiceDurationTicker = null; } });
 
@@ -331,14 +302,26 @@
 		if ($selectedDmChannelId) layoutStore.closeDM();
 		dispatch('close');
 	}
+	$: glimpseChannel = glimpseChannelId ? ($channels.find((c) => c.id === glimpseChannelId) || null) : null;
+	$: glimpseChannelMessages = glimpseChannelId
+		? (get(channelMessages)[glimpseChannelId] || []).slice(-4).reverse()
+		: [];
+
 	function clearAllUnreadNotifications() { for (const id of Object.keys($channelUnreadCounts)) markChannelAsRead(id); markMessagesAsRead(); }
 	function openFollowingView() { activeView = 'following'; glimpseChannelId = null; dispatch('close'); }
 	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('close'); }
 	function openVoiceChannelWhiteboard(id: string, e?: Event) { e?.stopPropagation(); activeView = 'chat'; currentChannel.set(id); setWhiteboardSurface(id, 'whiteboard'); dispatch('close'); }
 	function toggleChannelFollowState(id: string, e?: Event) { e?.stopPropagation(); const f = toggleChannelFollow(id); if (!f && glimpseChannelId === id) glimpseChannelId = null; }
 	function cycleFollowAlert(id: string, e?: Event) { e?.stopPropagation(); if (!followedChannelIds.has(id)) toggleChannelFollow(id); cycleChannelFollowAlertLevel(id); }
+	// Zen peek: Alt-click (incl. middle-click+Alt from the list) keeps a manual
+	// toggle for keyboard/pointer users; plain click navigates and kills the peek.
 	function toggleChannelGlimpse(id: string) { glimpseChannelId = glimpseChannelId === id ? null : id; }
-	function handleChannelButtonClick(id: string, e: MouseEvent) { if (e.altKey) { e.preventDefault(); e.stopPropagation(); toggleChannelGlimpse(id); return; } (e.currentTarget as HTMLElement | null)?.blur?.(); handleChannelClick(id); }
+	function handleChannelButtonClick(id: string, e: MouseEvent) {
+		if (e.altKey) { e.preventDefault(); e.stopPropagation(); toggleChannelGlimpse(id); return; }
+		glimpseChannelId = null;
+		(e.currentTarget as HTMLElement | null)?.blur?.();
+		handleChannelClick(id);
+	}
 	function handleCreateThread(ch: Channel) { const n = window.prompt(`Create a thread in #${ch.name}`, `${ch.name} thread`)?.trim(); if (n) createThread(ch.id, n); }
 	function getVoiceMembers(id: string) { return $voiceChannelMembers[id] || []; }
 	function isConnectedToVoice(id: string) { return connectedVoiceChannelIds.has(id); }
@@ -370,19 +353,32 @@
 	function handleVoiceChannelDragLeave(chId: string) { if (voiceDropTargetChannelId === chId) voiceDropTargetChannelId = null; }
 	function handleVoiceChannelDrop(e: DragEvent, chId: string) { if (!draggedVoiceMember || draggedVoiceMember.channelId === chId) return; e.preventDefault(); e.stopPropagation(); moveUserToVoiceChannel(draggedVoiceMember.userId, chId); draggedVoiceMember = null; voiceDropTargetChannelId = null; }
 	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') { voiceDurationMode = mode; try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {} }
-	function toggleSection(s: 'text' | 'voice' | 'gallery' | 'forum' | 'wiki' | 'lore' | 'planning') {
-		if (s === 'text') isTextSectionExpanded = !isTextSectionExpanded;
-		else if (s === 'gallery') isGallerySectionExpanded = !isGallerySectionExpanded;
-		else if (s === 'forum') isForumSectionExpanded = !isForumSectionExpanded;
-		else if (s === 'wiki') isWikiSectionExpanded = !isWikiSectionExpanded;
-		else if (s === 'lore') isLoreSectionExpanded = !isLoreSectionExpanded;
-		else if (s === 'planning') isPlanningSectionExpanded = !isPlanningSectionExpanded;
-		else isVoiceSectionExpanded = !isVoiceSectionExpanded;
-	}
 
 	let draggedChannelId: string | null = null;
 	let dropTargetChannelId: string | null = null;
 	let dropPosition: 'before' | 'after' | null = null;
+	// Discord-style: hovering a COLLAPSED folder mid-drag expands it after a
+	// short dwell, so you can see inside and drop into it.
+	const CATEGORY_AUTO_EXPAND_MS = 400;
+	let autoExpandTimer: ReturnType<typeof setTimeout> | null = null;
+	let autoExpandCategoryId: string | null = null;
+
+	function clearAutoExpand() {
+		if (autoExpandTimer) { clearTimeout(autoExpandTimer); autoExpandTimer = null; }
+		autoExpandCategoryId = null;
+	}
+
+	function scheduleAutoExpand(catId: string) {
+		if (autoExpandCategoryId === catId && autoExpandTimer) return;
+		clearAutoExpand();
+		if (!collapsedCategories.has(catId)) return;
+		autoExpandCategoryId = catId;
+		autoExpandTimer = setTimeout(() => {
+			autoExpandTimer = null;
+			autoExpandCategoryId = null;
+			toggleCategory(catId);
+		}, CATEGORY_AUTO_EXPAND_MS);
+	}
 	let dropTargetCategoryId: string | null = null;
 	/** When dragging a category folder itself (reorder folders, not nest channels). */
 	let draggedCategoryId: string | null = null;
@@ -600,6 +596,7 @@
 		dropTargetCategoryId = null;
 		draggedCategoryId = null;
 		dropCategoryPosition = null;
+		clearAutoExpand();
 	}
 
 	/** Move a (non-category) channel so it becomes a child of the given category. */
@@ -649,19 +646,6 @@
 		const insertAt = Math.max(0, Math.min(nextRoot.length, requestedIndex ?? nextRoot.length));
 		nextRoot.splice(insertAt, 0, { ...dragged, parentId: undefined });
 		emitRootOrders(nextRoot, extra);
-	}
-
-	function handleRootDrop(e: DragEvent) {
-		e.preventDefault();
-		e.stopPropagation();
-		if (draggedChannelId) moveChannelToRoot(draggedChannelId, 0);
-		if (draggedCategoryId) {
-			const next = rootItems().filter((channel) => channel.id !== draggedCategoryId);
-			const folder = $channels.find((channel) => channel.id === draggedCategoryId);
-			if (folder) next.splice(0, 0, folder);
-			emitRootOrders(next);
-		}
-		handleChannelDragEnd();
 	}
 
 	/** Reorder a channel into the root sequence immediately before or after a folder. */
@@ -720,6 +704,7 @@
 		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		const edge = Math.max(10, rect.height * 0.28);
 		dropCategoryPosition = e.clientY < rect.top + edge ? 'before' : e.clientY > rect.bottom - edge ? 'after' : null;
+		scheduleAutoExpand(catId);
 	}
 
 	function handleCategoryDragLeave(catId: string) {
@@ -727,6 +712,7 @@
 			dropTargetCategoryId = null;
 			dropCategoryPosition = null;
 		}
+		clearAutoExpand();
 	}
 
 	function handleCategoryDrop(e: DragEvent, catId: string) {
@@ -748,6 +734,7 @@
 		dropTargetCategoryId = null;
 		draggedCategoryId = null;
 		dropCategoryPosition = null;
+		clearAutoExpand();
 	}
 
 	function categoryDropTargetClass(catId: string): string {
@@ -927,6 +914,9 @@
 					}
 				);
 			}
+			if (ch.parentId) {
+				items.push({ id: 'move-to-root', label: 'Move to top level', onSelect: () => moveChannelToRoot(ch.id) });
+			}
 		}
 		if (sup) items.unshift(
 	{ id: 'follow-feed', label: 'Open Follow Feed', leading: '≈', hint: $currentServerFollowedChannels.length > 0 ? `${$currentServerFollowedChannels.length} followed` : undefined, disabled: $currentServerFollowedChannels.length === 0, onSelect: openFollowingView },
@@ -1062,7 +1052,7 @@
 		<div
 			class="section-heading-row"
 		>
-	<button class="section-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => toggleSection('text')}>
+	<button class="section-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => (isTextSectionExpanded = !isTextSectionExpanded)}>
 		<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
 		<span class="section-toggle-label">Channels</span><span class="section-count">{unifiedChannelCount}</span>
 	</button>
@@ -1070,16 +1060,6 @@
 		<button class="section-add-btn section-category-btn" class:active={showCreateInput && newChannelType === 'category'} on:click={openCreateFormForCategory} title="Create category" aria-label="Create category"><span class="plus-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg></span></button>{/if}
 		</div>
 		{#if isTextSectionExpanded}
-		{#if draggedChannelId || draggedCategoryId}
-			<div
-				class="root-drop-gap"
-				role="listitem"
-				on:dragover|stopPropagation={(e) => { e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = 'move'); }}
-				on:drop|stopPropagation={handleRootDrop}
-			>
-				<span>Drop at top</span>
-			</div>
-		{/if}
 	{#each mixedRootItems as item (item.id)}
 		{#if item.kind === 'folder'}
 		<div
@@ -1114,20 +1094,70 @@
 				on:dragleave|stopPropagation={() => handleCategoryDragLeave(item.id)}
 				on:drop|stopPropagation={(e) => handleCategoryDrop(e, item.id)}
 			>
-				<UnifiedChannelList channels={item.children} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+				<UnifiedChannelList channels={item.children} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} glimpseChannelId={glimpseChannelId} onChannelGlimpseHover={handleChannelGlimpseHover} onChannelGlimpseCancel={closeChannelGlimpse} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 			</div>
 		{/if}
 		{:else}
-		<UnifiedChannelList channels={[item.channel]} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
+		<UnifiedChannelList channels={[item.channel]} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {dropTargetClass} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} glimpseChannelId={glimpseChannelId} onChannelGlimpseHover={handleChannelGlimpseHover} onChannelGlimpseCancel={closeChannelGlimpse} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragOver={handleChannelDragOver} onChannelDragLeave={handleChannelDragLeave} onChannelDrop={handleChannelDrop} onChannelDragEnd={handleChannelDragEnd} />
 		{/if}
 	{/each}
 	{/if}
+
+		{#if draggedChannelId}
+			<div
+				class="list-tail-drop"
+				role="listitem"
+				on:dragover|stopPropagation={(e) => { e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = 'move'); }}
+				on:drop|stopPropagation={(e) => { e.preventDefault(); if (draggedChannelId) moveChannelToRoot(draggedChannelId); handleChannelDragEnd(); }}
+			>
+				<span class="list-tail-drop-line"></span>
+			</div>
+		{/if}
 
 		</div>
 
 	<ContextMenu open={showContextMenu && !!contextMenuChannel} x={contextMenuPosition.x} y={contextMenuPosition.y} items={channelMenuItems} ariaLabel="Channel actions" headerLabel={contextMenuChannel ? `#${contextMenuChannel.name}` : null} on:close={closeContextMenu} />
 	<VoiceUserCard {runtimeActiveVoiceChannelId} {voiceChannels} {voiceDurationMode} onToggleListenChannel={handleToggleListenChannel} onTransmitModeChange={handleTransmitModeChange} onSetVoiceDurationMode={setVoiceDurationMode} onLeaveVoice={handleLeaveVoice} />
 	<ProfileCard {sidebarWidth} on:openProfilePopout={openOwnProfilePopout} on:openSettings={() => dispatch('openSettings')} />
+
+	{#if glimpseChannelId && glimpseChannel}
+		<div
+			class="channel-glimpse-popout channel-glimpse-fixed"
+			bind:this={glimpsePopover}
+			style="left:{glimpsePosition.x}px; top:{glimpsePosition.y}px;"
+			transition:fly={{ x: 8, duration: 140 }}
+		>
+			<div class="channel-glimpse-header">
+				<div>
+					<strong>#{glimpseChannel.name}</strong>
+					<small>{glimpseChannelMessages.length > 0 ? `${glimpseChannelMessages.length} recent` : 'Loading…'}</small>
+				</div>
+				<button
+					type="button"
+					class="channel-glimpse-follow-btn"
+					on:click|stopPropagation={(event) => toggleChannelFollowState(glimpseChannel.id, event)}
+					title={followedChannelIds.has(glimpseChannel.id) ? 'Unfollow channel' : 'Follow channel'}
+				>
+					{followedChannelIds.has(glimpseChannel.id) ? 'Following' : 'Follow'}
+				</button>
+			</div>
+			{#if glimpseChannelMessages.length > 0}
+				<div class="channel-glimpse-messages">
+					{#each glimpseChannelMessages as message, messageIndex (message.id || message.clientMessageId || `glimpse-${messageIndex}`)}
+						<div class="channel-glimpse-message">
+							<div class="channel-glimpse-meta">
+								<strong>{message.user}</strong>
+								<span>{formatGlimpseTime(message.timestamp)}</span>
+							</div>
+							<p>{summarizeGlimpseMessage(message)}</p>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<p class="channel-glimpse-empty">Loading recent messages…</p>
+			{/if}
+		</div>
+	{/if}
 </div>
 
 {#if deleteChannelError}<div class="channel-delete-error" role="alert">{deleteChannelError}</div>{/if}

@@ -113,6 +113,40 @@ pub(crate) fn get_stable_id(socket: &SocketRef) -> String {
 // Shared real-time state
 // ---------------------------------------------------------------------------
 
+/// User presence states. `Invisible` renders as `"offline"` to other users
+/// (masked view) while the socket stays connected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum UserPresence {
+    Active,
+    Away,
+    Busy,
+    Invisible,
+}
+
+impl UserPresence {
+    /// Parse a client-supplied presence string; unknown values fall back to
+    /// `Active` rather than rejecting the session.
+    pub fn parse(value: &str) -> Self {
+        match value.to_lowercase().as_str() {
+            "away" | "idle" => Self::Away,
+            "busy" | "dnd" => Self::Busy,
+            "invisible" | "offline" => Self::Invisible,
+            _ => Self::Active,
+        }
+    }
+
+    /// Canonical wire string for `status` fields.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Away => "away",
+            Self::Busy => "busy",
+            Self::Invisible => "invisible",
+        }
+    }
+}
+
 /// Info about a connected socket's user identity.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
@@ -121,6 +155,9 @@ pub struct ConnectedUser {
     pub db_user_id: Option<i64>,
     pub username: String,
     pub color: String,
+    /// Presence of this socket's account; multi-tab sockets inherit the
+    /// first tab's value so a second tab can't flip Invisible back to Active.
+    pub presence: UserPresence,
     /// Unix microseconds of the last activity (connect, message, or
     /// periodic heartbeat). The periodic sweep uses this to remove
     /// entries that are stale (e.g. on_disconnect never fired because
@@ -723,6 +760,7 @@ mod tests {
             db_user_id: None,
             username: stable_id.to_string(),
             color: "#fff".to_string(),
+            presence: UserPresence::Active,
             last_seen_micros,
         }
     }
