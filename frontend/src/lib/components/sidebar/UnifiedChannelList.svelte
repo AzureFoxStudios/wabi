@@ -54,12 +54,6 @@
 	export let onChannelDragLeave: (channelId: string) => void = () => {};
 	export let onChannelDrop: (e: DragEvent, channelId: string) => void = () => {};
 	export let onChannelDragEnd: () => void = () => {};
-	// Zen hover-peek (glimpse) contract — ChannelSidebar passes these for
-	// parity with TextChannelList. Accepted-but-inert here until the glimpse
-	// popout is ported to this list renderer.
-	export let glimpseChannelId: string | null = null;
-	export let onChannelGlimpseHover: (channelId: string | null, anchorRect?: DOMRect) => void = () => {};
-	export let onChannelGlimpseCancel: () => void = () => {};
 
 	let reducedMotion = false;
 	onMount(() => {
@@ -118,6 +112,38 @@
 
 	function isConnectedToVoice(channelId: string): boolean {
 		return connectedVoiceChannelIds.has(channelId);
+	}
+
+	// ---- Zen-style hover peek (glimpse) --------------------------------
+	// Dwell ~0.5s on a channel row → parent opens the peek popout anchored
+	// to this row. Leaving / pressing Escape cancels. Clicking the row is
+	// the natural navigation; there is deliberately no confirm button.
+	const GLIMPSE_DWELL_MS = 500;
+
+	let glimpseHoverTimer: ReturnType<typeof setTimeout> | null = null;
+	let glimpseHoverChannelId: string | null = null;
+
+	function cancelGlimpseDwell() {
+		if (glimpseHoverTimer) { clearTimeout(glimpseHoverTimer); glimpseHoverTimer = null; }
+		glimpseHoverChannelId = null;
+	}
+
+	function handleGlimpseEnter(channelId: string, event: MouseEvent) {
+		if (!onChannelGlimpseHover) return;
+		const target = event.currentTarget as HTMLElement | null;
+		if (!target) return;
+		if (glimpseHoverChannelId === channelId) return;
+		cancelGlimpseDwell();
+		glimpseHoverChannelId = channelId;
+		const rect = target.getBoundingClientRect();
+		glimpseHoverTimer = setTimeout(() => {
+			onChannelGlimpseHover(channelId, rect);
+			glimpseHoverTimer = null;
+		}, GLIMPSE_DWELL_MS);
+	}
+
+	function handleGlimpseLeave(channelId: string) {
+		if (glimpseHoverChannelId === channelId) cancelGlimpseDwell();
 	}
 
 	function isPrimaryVoiceChannel(channelId: string): boolean {
@@ -237,6 +263,8 @@
 				class="channel-btn"
 				data-abbrev={channel.name.charAt(0).toUpperCase()}
 				on:click={(event) => (isVoice ? onVoiceChannelClick(channel.id, event) : onChannelButtonClick(channel.id, event))}
+				on:mouseenter={(event) => handleGlimpseEnter(channel.id, event)}
+				on:mouseleave={() => handleGlimpseLeave(channel.id)}
 			on:auxclick={(event) => {
 				if (!isVoice && event.button === 1 && event.altKey) {
 					event.preventDefault();
