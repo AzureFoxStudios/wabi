@@ -428,6 +428,51 @@ import { channels } from '$lib/channelStore';
 		input.value = '';
 	}
 
+	let uploadingFolder = $state(false);
+	let uploadProgress = $state('');
+
+	/**
+	 * Folder upload: a directory picker (webkitdirectory) hands us every
+	 * file under the chosen root with its webkitRelativePath. Each file is
+	 * pushed to `uploads/<relative path>` preserving the tree, then the
+	 * repo view reloads once. Failures are collected and reported at the
+	 * end instead of aborting the whole batch.
+	 */
+	async function handleFolderUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const files = Array.from(input?.files ?? []);
+		if (files.length === 0) return;
+
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+
+		uploadingFolder = true;
+		const failed: string[] = [];
+		try {
+			for (let i = 0; i < files.length; i++) {
+				const file = files[i] as File & { webkitRelativePath?: string };
+				// Strip the chosen root directory name — its CONTENTS land in
+				// uploads/, mirroring how git tracks from inside the repo.
+				const rel = (file.webkitRelativePath || file.name).split('/').slice(1).join('/') || file.name;
+				uploadProgress = `${i + 1}/${files.length}`;
+				try {
+					await uploadLoreFile(token, channelId, `uploads/${rel}`, file, `Upload ${rel}`);
+				} catch {
+					failed.push(rel);
+				}
+			}
+			await loadLoreRepo();
+		} finally {
+			uploadingFolder = false;
+			uploadProgress = '';
+			input.value = '';
+		}
+		if (failed.length > 0) {
+			console.error(`Folder upload: ${failed.length} file(s) failed:`, failed.join(', '));
+		}
+	}
+
 	async function handleTemplateSelect(template: any) {
 		showTemplates = false;
 		selectedPath = template.file_path;
@@ -678,6 +723,24 @@ import { channels } from '$lib/channelStore';
 					</svg>
 					Upload
 					<input type="file" style="display:none" onchange={handleUpload} />
+				</label>
+			{/if}
+
+			{#if canEdit}
+				<label class="btn btn-sm" class:busy={uploadingFolder} title="Upload a folder — the whole tree lands in uploads/ with structure preserved">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+						<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+						<polyline points="8 13 12 17 16 13" transform="rotate(180 12 15) translate(0 -4)"/>
+						<line x1="12" y1="11" x2="12" y2="21" transform="rotate(180 12 16) translate(0 -6)"/>
+					</svg>
+					{uploadingFolder ? `Uploading ${uploadProgress}…` : 'Upload folder'}
+					<input
+						type="file"
+						style="display:none"
+						webkitdirectory
+						multiple
+						onchange={handleFolderUpload}
+					/>
 				</label>
 			{/if}
 
