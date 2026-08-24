@@ -22,8 +22,10 @@ import { channels } from '$lib/channelStore';
 		parseLoreChannelId,
 		uploadLoreFile,
 		createLoreRepo,
+		deleteLoreRepo,
 		getLoreRepo,
 		getLoreBranches,
+		getLoreFileHistory,
 		listLoreFiles,
 		mintLoreConnectToken,
 		createLoreSnapshot,
@@ -44,28 +46,21 @@ import { channels } from '$lib/channelStore';
 	import LoreHistoryPanel from './LoreHistoryPanel.svelte';
 	import LoreDiffViewer from './LoreDiffViewer.svelte';
 	import LoreBranchPicker from './LoreBranchPicker.svelte';
-	import LoreBlameView from './LoreBlameView.svelte';
 	import LoreLockBadge from './LoreLockBadge.svelte';
 	import LoreConnectModal from './LoreConnectModal.svelte';
+	import LoreEditorBridge from './LoreEditorBridge.svelte';
+	import LoreScriptRunner from './LoreScriptRunner.svelte';
+	import LoreMirrorPanel from './LoreMirrorPanel.svelte';
 
-	// Timeline / governance
+	// Timeline
 	import LoreActivityFeed from './LoreActivityFeed.svelte';
 	import LorePushCalendar from './LorePushCalendar.svelte';
-	import LoreAuditViewer from './LoreAuditViewer.svelte';
-
-	// Review
-	import LoreReviewPanel from './LoreReviewPanel.svelte';
 
 	// Templates
 	import LoreTemplatePicker from './LoreTemplatePicker.svelte';
 
-	// Citations
-	import LoreCitationPreview from './LoreCitationPreview.svelte';
-	import LoreCitationChip from './LoreCitationChip.svelte';
-	import LoreCitationRegistry from './LoreCitationRegistry.svelte';
 
-	type Tab = 'files' | 'history' | 'diff' | 'review' | 'timeline' | 'governance';
-	type FileView = 'view' | 'blame';
+	type Tab = 'files' | 'history' | 'diff' | 'review' | 'timeline' | 'automation';
 
 	let activeChannel = $derived($currentChannel);
 	let repo = $derived($loreRepo);
@@ -83,7 +78,6 @@ import { channels } from '$lib/channelStore';
 	let canAssetWrite = $derived(canEdit || loreRole === 'artist');
 
 	let activeTab = $state<Tab>('files');
-	let fileView = $state<FileView>('view');
 	let selectedPath = $state<string | null>(null);
 	let fileContent = $state<string | null>(null);
 	let selectedFileInfo = $state<LoreFileInfo | null>(null);
@@ -93,17 +87,90 @@ import { channels } from '$lib/channelStore';
 	// Template picker
 	let showTemplates = $state(false);
 
-	// Citation state
-	let activeCitation = $state<{
-		file_path: string;
-		start_line: number;
-		end_line: number;
-		mode: 'Pinned' | 'Tracking';
-		branch?: string;
-		revision?: string;
-	} | null>(null);
-	let citationContent = $state<string>('');
-	let citationLanguage = $state<string>('');
+	// Editor bridge (P4): ephemeral code-server session for this repo
+	let showEditor = $state(false);
+
+	// Signed preview URL for the selected image file
+	let mediaPreviewUrl = $state<string | null>(null);
+
+	const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif'];
+	function isImagePath(path: string): boolean {
+		const ext = path.split('.').pop()?.toLowerCase() ?? '';
+		return IMAGE_EXTS.includes(ext);
+	}
+
+	// Danger-zone modal state (repo detach / delete)
+	let dangerAction = $state<'detach' | 'delete' | null>(null);
+	let dangerConfirmText = $state('');
+	let dangerBusy = $state(false);
+	let dangerError = $state<string | null>(null);
+
+	function openDanger(action: 'detach' | 'delete') {
+		dangerAction = action;
+		dangerConfirmText = '';
+		dangerError = null;
+	}
+
+	async function executeDanger() {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId || !dangerAction) return;
+		if (dangerAction === 'delete' && dangerConfirmText !== repo?.repoName) return;
+		dangerBusy = true;
+		dangerError = null;
+		try {
+			await deleteLoreRepo(token, channelId, dangerAction);
+			dangerAction = null;
+			selectedPath = null;
+			fileContent = null;
+			mediaPreviewUrl = null;
+			activeTab = 'files';
+			await loadLoreRepo();
+			await loadLoreHistory();
+		} catch (e: any) {
+			dangerError = e?.message ?? 'Failed to update repository';
+		} finally {
+			dangerBusy = false;
+		}
+	}
+
+	// File deletion with typed confirmation (replaces bare confirm())
+	let deleteTarget = $state<{ path: string; size: number } | null>(null);
+	let deleteConfirmText = $state('');
+	let deleteBusy = $state(false);
+	let deleteError = $state<string | null>(null);
+
+	function requestDelete(path: string) {
+		deleteTarget = { path, size: files.find((f) => f.path === path)?.size ?? 0 };
+		deleteConfirmText = '';
+		deleteError = null;
+	}
+
+	async function executeDelete() {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId || !deleteTarget) return;
+		const fileName = deleteTarget.path.split('/').pop() ?? deleteTarget.path;
+		if (deleteConfirmText !== fileName) return;
+		deleteBusy = true;
+		deleteError = null;
+		try {
+			const targetPath = deleteTarget.path;
+			await deleteLoreFile(token, channelId, targetPath, `Delete ${targetPath}`);
+			deleteTarget = null;
+			if (selectedPath === targetPath) {
+				selectedPath = null;
+				fileContent = null;
+				mediaPreviewUrl = null;
+			}
+			await loadLoreRepo();
+			await loadLoreHistory();
+		} catch (e: any) {
+			deleteError = e?.message ?? 'Delete failed';
+		} finally {
+			deleteBusy = false;
+		}
+	}
 
 	// Activity / audit (derived from revisions for now)
 	let activityItems = $derived(revisions.map(r => ({
@@ -146,16 +213,6 @@ import { channels } from '$lib/channelStore';
 			clearTimeout(liveRefreshTimer);
 		};
 	});
-
-	// Audit events (placeholder — real data comes from backend audit log endpoint)
-	let auditEvents = $state<Array<{
-		id: string;
-		type: string;
-		author_id: string;
-		description: string;
-		timestamp: number;
-		details: Record<string, any>;
-	}>>([]);
 
 	let showConnectModal = $state(false);
 
@@ -250,33 +307,6 @@ import { channels } from '$lib/channelStore';
 		}
 	}
 
-	// Review data (placeholder — real data comes from backend review endpoint)
-	let activeReview = $state<{
-		id: string;
-		title: string;
-		source_branch: string;
-		target_branch: string;
-		status: 'Open' | 'Approved' | 'ChangesRequested' | 'Merged' | 'Closed';
-		author_id: string;
-		commit_count: number;
-		file_change_count: number;
-		insertions: number;
-		deletions: number;
-	} | null>(null);
-
-	// Citation registry (placeholder)
-	let citations = $state<Array<{
-		id: string;
-		file_path: string;
-		start_line: number;
-		end_line: number;
-		mode: 'Pinned' | 'Tracking';
-		branch?: string;
-		revision?: string;
-		label?: string;
-		drift?: 'Current' | 'Drifted' | 'Missing';
-	}>>([]);
-
 	// Built-in templates (matching LoreTemplatePicker interface)
 	let templates = $state([
 		{ id: 'rust-module', name: 'Rust Module', file_path: 'src/module.rs', language: 'rust', category: 'code' },
@@ -291,7 +321,7 @@ import { channels } from '$lib/channelStore';
 		selectedPath = path;
 		selectedFileInfo = files.find(f => f.path === path) || null;
 		fileContent = null;
-		fileView = 'view';
+		mediaPreviewUrl = null;
 		activeTab = 'files';
 
 		const token = getAuthToken();
@@ -299,13 +329,17 @@ import { channels } from '$lib/channelStore';
 		if (!token || !channelId) return;
 
 		try {
-			const url = await getSignedLoreUrl(token, channelId, path);
-			const res = await fetch(url);
-			if (res.ok) {
-				fileContent = await res.text();
+			mediaPreviewUrl = isImagePath(path) ? await getSignedLoreUrl(token, channelId, path) : null;
+			if (!mediaPreviewUrl) {
+				const url = await getSignedLoreUrl(token, channelId, path);
+				const res = await fetch(url);
+				if (res.ok) {
+					fileContent = await res.text();
+				}
 			}
 		} catch {
 			fileContent = null;
+			mediaPreviewUrl = null;
 		}
 	}
 
@@ -331,19 +365,85 @@ import { channels } from '$lib/channelStore';
 	}
 
 	function contextMenuDelete() {
-		if (contextMenu) void handleDelete(contextMenu.path);
+		const path = contextMenu?.path;
 		closeContextMenu();
+		if (path && canAssetWrite) requestDelete(path);
 	}
 
-	function contextMenuCompare() {
-		const path = contextMenu?.path ?? selectedPath;
-		if (path) {
-			// Preview the file, then open the diff tab against it.
-			selectedPath = path;
-			selectedFileInfo = files.find(f => f.path === path) || null;
-			void handleCompare('HEAD', 'working');
-		}
+	function contextMenuDownload() {
+		const path = contextMenu?.path;
 		closeContextMenu();
+		if (path) void downloadToDisk(path);
+	}
+
+	function contextMenuCopyPath() {
+		const path = contextMenu?.path;
+		closeContextMenu();
+		if (path) void navigator.clipboard.writeText(path);
+	}
+
+	/** Download any repo file to disk via a signed URL. */
+	async function downloadToDisk(path: string) {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+		try {
+			const url = await getSignedLoreUrl(token, channelId, path);
+			const res = await fetch(url);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const blob = await res.blob();
+			const objectUrl = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = objectUrl;
+			a.download = path.split('/').pop() || 'file';
+			a.click();
+			URL.revokeObjectURL(objectUrl);
+		} catch (e) {
+			console.error('Download failed:', e);
+		}
+	}
+
+	/**
+	 * Diff the selected file against its previous Wabi-recorded revision.
+	 * The old entry point diffed HEAD vs a phantom 'working' rev that never
+	 * existed — uploads auto-commit, so that diff was always empty.
+	 */
+	async function compareWithPrevious(path: string) {
+		selectedPath = path;
+		selectedFileInfo = files.find(f => f.path === path) || null;
+		fileContent = null;
+		mediaPreviewUrl = null;
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (!token || !channelId) return;
+		try {
+			const history = await getLoreFileHistory(token, channelId, path);
+			if (history.length >= 2) {
+				await loadLoreFileDiff(path, history[1].hash, history[0].hash);
+			} else if (history.length === 1) {
+				await loadLoreFileDiff(path, history[0].hash, history[0].hash);
+			} else {
+				loreFileDiff.set(null);
+				activeTab = 'diff';
+			}
+		} catch (e) {
+			console.error('Compare failed:', e);
+		}
+	}
+
+	function contextMenuDiffPrevious() {
+		const path = contextMenu?.path;
+		closeContextMenu();
+		if (path) void compareWithPrevious(path);
+	}
+
+	function contextMenuEditor() {
+		const path = contextMenu?.path;
+		closeContextMenu();
+		if (path && canEdit) {
+			void handleOpen(path);
+			showEditor = true;
+		}
 	}
 
 	async function handleCreateBranch(name: string, from: string) {
@@ -358,9 +458,14 @@ import { channels } from '$lib/channelStore';
 		}
 	}
 
-	async function handleSwitchBranch(name: string) {
+/** Branch listing works; switching does not change what list_files serves
+	 * yet, so the UI must not pretend otherwise. */
+	const BRANCH_SWITCH_ENABLED = false;
+
+	function handleSwitchBranch(name: string) {
+		if (!BRANCH_SWITCH_ENABLED) return;
 		currentBranch = name;
-		await loadLoreRepo();
+		void loadLoreRepo();
 	}
 
 	// Uploads routed into a review queue (auto_branch_on_upload) surface as
@@ -421,8 +526,10 @@ import { channels } from '$lib/channelStore';
 			const repoPath = `uploads/${file.name}`;
 			await uploadLoreFile(token, channelId, repoPath, file, `Upload ${file.name}`);
 			await loadLoreRepo();
-		} catch (e) {
+		} catch (e: any) {
 			console.error('Upload failed:', e);
+			uploadFailures = [`${file.name}: ${e?.message ?? 'failed'}`];
+			setTimeout(() => { uploadFailures = []; }, 8000);
 		}
 
 		input.value = '';
@@ -430,6 +537,8 @@ import { channels } from '$lib/channelStore';
 
 	let uploadingFolder = $state(false);
 	let uploadProgress = $state('');
+	let uploadFailures = $state<string[]>([]);
+	let cancelRequested = $state(false);
 
 	/**
 	 * Folder upload: a directory picker (webkitdirectory) hands us every
@@ -448,9 +557,11 @@ import { channels } from '$lib/channelStore';
 		if (!token || !channelId) return;
 
 		uploadingFolder = true;
+		cancelRequested = false;
 		const failed: string[] = [];
 		try {
 			for (let i = 0; i < files.length; i++) {
+				if (cancelRequested) break;
 				const file = files[i] as File & { webkitRelativePath?: string };
 				// Strip the chosen root directory name — its CONTENTS land in
 				// uploads/, mirroring how git tracks from inside the repo.
@@ -467,10 +578,19 @@ import { channels } from '$lib/channelStore';
 			uploadingFolder = false;
 			uploadProgress = '';
 			input.value = '';
+			if (cancelRequested && failed.length > 0) {
+				failed.unshift('(cancelled)');
+			}
+			const snapshotFailed = [...failed];
+			uploadFailures = snapshotFailed;
+			if (snapshotFailed.length > 0) {
+				setTimeout(() => { if (uploadFailures === snapshotFailed) uploadFailures = []; }, 8000);
+			}
 		}
-		if (failed.length > 0) {
-			console.error(`Folder upload: ${failed.length} file(s) failed:`, failed.join(', '));
-		}
+	}
+
+	function cancelFolderUpload() {
+		cancelRequested = true;
 	}
 
 	async function handleTemplateSelect(template: any) {
@@ -493,6 +613,7 @@ import { channels } from '$lib/channelStore';
 			// Refresh the file view with the created content.
 			selectedFileInfo = $loreFiles.find(f => f.path === template.file_path) || null;
 			fileContent = content;
+			mediaPreviewUrl = null;
 		} catch (e) {
 			console.error('Template create failed:', e);
 		}
@@ -542,18 +663,9 @@ import { channels } from '$lib/channelStore';
 		}
 	}
 
-	async function handleDelete(path: string) {
-		if (!confirm(`Delete ${path}?`)) return;
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
-		try {
-			await deleteLoreFile(token, channelId, path, `Delete ${path}`);
-			selectedPath = null;
-			await loadLoreRepo();
-		} catch (e) {
-			console.error('Delete failed:', e);
-		}
+/** Entry point kept for the viewer header — opens the typed-confirm dialog. */
+	function handleDelete(path: string) {
+		requestDelete(path);
 	}
 
 	// Map LoreRevision to the shape HistoryPanel expects
@@ -702,6 +814,7 @@ import { channels } from '$lib/channelStore';
 				currentBranch={currentBranch}
 				onCreate={handleCreateBranch}
 				onSwitch={handleSwitchBranch}
+				switchDisabled={!BRANCH_SWITCH_ENABLED}
 			/>
 
 			{#if canEdit}
@@ -744,11 +857,42 @@ import { channels } from '$lib/channelStore';
 				</label>
 			{/if}
 
+			{#if canEdit}
+				<button class="btn btn-sm" title="Open this repo in a code-server editor session" onclick={() => showEditor = true}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+						<polyline points="16 18 22 12 16 6"/>
+						<polyline points="8 6 2 12 8 18"/>
+					</svg>
+					Editor
+				</button>
+			{/if}
+
 			<span class="lore-health" class:healthy={health === 'ok'} class:error={health === 'error'}>
 				<span class="health-dot"></span>
 				{health || '...'}
 			</span>
+
+			{#if canEdit}
+				<button class="action-btn danger-btn" title="Detach or delete this repository" onclick={() => openDanger('detach')} aria-label="Repository danger zone">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+						<circle cx="12" cy="12" r="3"/>
+						<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68 1.65 1.65 0 0 0 10 3.17V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+					</svg>
+				</button>
+			{/if}
 		</div>
+
+		<!-- Upload failure / cancel summary -->
+		{#if uploadingFolder || uploadFailures.length > 0}
+			<div class="upload-banner" class:busy={uploadingFolder} role="status">
+				<span>
+					{#if uploadingFolder}Uploading {uploadProgress}…{:else}{uploadFailures.length} upload problem{uploadFailures.length !== 1 ? 's' : ''}: {uploadFailures.join(', ')}{/if}
+				</span>
+				{#if uploadingFolder}
+					<button class="mini-cancel" onclick={cancelFolderUpload}>Cancel</button>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Pending review queue (uploads routed to a review line) -->
 		{#if showPendingReview}
@@ -846,12 +990,12 @@ import { channels } from '$lib/channelStore';
 				</svg>
 				Timeline
 			</button>
-			<button class="tab {activeTab === 'governance' ? 'active' : ''}" onclick={() => activeTab = 'governance'}>
+			<button class="tab {activeTab === 'automation' ? 'active' : ''}" onclick={() => activeTab = 'automation'}>
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
 					<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
 					<path d="M7 11V7a5 5 0 0 1 10 0v4"/>
 				</svg>
-				Governance
+				Automation
 			</button>
 		</div>
 
@@ -885,17 +1029,12 @@ import { channels } from '$lib/channelStore';
 										onClick={() => selectedFileInfo?.lockedBy ? handleUnlock(selectedPath!) : handleLock(selectedPath!)}
 									/>
 								{/if}
-								<button
-									class="action-btn {fileView === 'blame' ? 'active' : ''}"
-									onclick={() => fileView = fileView === 'blame' ? 'view' : 'blame'}
-									title="Toggle blame view"
-								>
-									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-										<circle cx="12" cy="12" r="3"/>
-									</svg>
-								</button>
-								<button class="action-btn" onclick={() => { selectedPath = null; fileContent = null; }} title="Close">
+								{#if canAssetWrite && selectedPath}
+									<button class="action-btn danger-btn" onclick={() => requestDelete(selectedPath!)} title="Delete this file (requires confirmation)" aria-label="Delete file">
+										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+									</button>
+								{/if}
+								<button class="action-btn" onclick={() => { selectedPath = null; fileContent = null; mediaPreviewUrl = null; }} title="Close">
 									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
 										<line x1="18" y1="6" x2="6" y2="18"/>
 										<line x1="6" y1="6" x2="18" y2="18"/>
@@ -903,19 +1042,15 @@ import { channels } from '$lib/channelStore';
 								</button>
 							</div>
 						</div>
-						{#if fileView === 'blame'}
-							<LoreBlameView
-								filePath={selectedPath}
-								blameData={[]}
-								loading={false}
-							/>
+												{#if mediaPreviewUrl}
+							<div class="viewer-image-frame"><img src={mediaPreviewUrl} alt={selectedPath ?? ''} loading="lazy" /></div>
 						{:else}
 							<LoreFileViewer
 								filePath={selectedPath}
 								{fileContent}
 								fileInfo={selectedFileInfo}
 								loading={isLoading}
-								onClose={() => { selectedPath = null; fileContent = null; }}
+								onClose={() => { selectedPath = null; fileContent = null; mediaPreviewUrl = null; }}
 								canEdit={canAssetWrite}
 								token={getAuthToken() ?? undefined}
 								channelId={parseLoreChannelId(activeChannel) ?? undefined}
@@ -966,7 +1101,7 @@ import { channels } from '$lib/channelStore';
 								<line x1="12" y1="20" x2="12" y2="4"/>
 								<line x1="6" y1="20" x2="6" y2="14"/>
 							</svg>
-							<span>Select two revisions in History to compare</span>
+							<span>Select a file, then compare it from History or right-click → Diff vs previous</span>
 						</div>
 					{/if}
 				</div>
@@ -1007,14 +1142,6 @@ import { channels } from '$lib/channelStore';
 								</div>
 							{/each}
 						</div>
-					{:else if activeReview}
-						<LoreReviewPanel
-							review={activeReview}
-							onApprove={() => {}}
-							onRequestChanges={() => {}}
-							onMerge={() => {}}
-							onClose={() => activeReview = null}
-						/>
 					{:else}
 						<div class="review-placeholder">
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
@@ -1031,53 +1158,22 @@ import { channels } from '$lib/channelStore';
 				<div class="panel-full timeline-layout">
 					<LoreActivityFeed activity={activityItems} />
 				</div>
-			{:else if activeTab === 'governance'}
-				<div class="panel-full">
-					<LoreAuditViewer
-						events={auditEvents}
-						onFreezeUser={() => {}}
-						onPauseEgress={() => {}}
-					/>
+			{:else if activeTab === 'automation'}
+				<div class="automation-layout">
+					<section class="automation-card">
+						<h3>Scripts</h3>
+						<p class="automation-hint">Run repo scripts (py/sh/js) with timeouts and concurrency limits.</p>
+						<LoreScriptRunner channelId={activeChannel} />
+					</section>
+					<section class="automation-card">
+						<h3>Mirror</h3>
+						<p class="automation-hint">Publish this space to GitHub, GitLab, or S3.</p>
+						<LoreMirrorPanel channelId={activeChannel} />
+					</section>
 				</div>
 			{/if}
 		</div>
 
-		<!-- Citation registry (bottom bar, shown when citations exist) -->
-		{#if citations.length > 0}
-			<div class="citation-bar">
-				<LoreCitationRegistry
-					{citations}
-					onCitationClick={(id: string) => {
-						const c = citations.find(ci => ci.id === id);
-						if (c) activeCitation = {
-							file_path: c.file_path,
-							start_line: c.start_line,
-							end_line: c.end_line,
-							mode: c.mode,
-							branch: c.branch,
-							revision: c.revision,
-						};
-					}}
-					onPin={() => {}}
-					onUpdate={() => {}}
-				/>
-			</div>
-		{/if}
-
-		<!-- Citation preview (shown when a citation is active) -->
-		{#if activeCitation}
-			<div class="citation-preview-overlay" onclick={() => activeCitation = null}>
-				<div class="citation-preview-panel" onclick={(e) => e.stopPropagation()}>
-					<LoreCitationPreview
-						citation={activeCitation}
-						content={citationContent}
-						language={citationLanguage}
-						drift="Current"
-						onOpen={() => {}}
-					/>
-				</div>
-			</div>
-		{/if}
 	{/if}
 
 	<!-- File context menu (right-click a tree node) -->
@@ -1088,22 +1184,43 @@ import { channels } from '$lib/channelStore';
 			role="menu"
 			style="left: {Math.min(contextMenu.x, window.innerWidth - 200)}px; top: {Math.min(contextMenu.y, window.innerHeight - 200)}px;"
 		>
-			<div class="ctx-item" role="menuitem" onclick={contextMenuLock} title="Lock this file for editing">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-				Lock
-			</div>
-			<div class="ctx-item" role="menuitem" onclick={contextMenuUnlock} title="Release the lock on this file">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
-				Unlock
-			</div>
-			<div class="ctx-item" role="menuitem" onclick={contextMenuCompare} title="Compare this file against the latest revision">
+			{#if canAssetWrite && !(files.find((f) => f.path === contextMenu.path)?.lockedBy)}
+				<div class="ctx-item" role="menuitem" onclick={contextMenuLock} title="Lock this file for editing">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+					Lock
+				</div>
+			{/if}
+			{#if files.find((f) => f.path === contextMenu.path)?.lockedBy}
+				<div class="ctx-item" role="menuitem" onclick={contextMenuUnlock} title="Release the lock on this file">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+					Unlock
+				</div>
+			{/if}
+			<div class="ctx-item" role="menuitem" onclick={contextMenuDiffPrevious} title="Diff this file against its previous version">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></svg>
-				Compare
+				Diff vs previous
 			</div>
-			<div class="ctx-item ctx-danger" role="menuitem" onclick={contextMenuDelete} title="Delete this file from the repo">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-				Delete
+			{#if canEdit}
+				<div class="ctx-item" role="menuitem" onclick={contextMenuEditor} title="Open this repo in a code-server editor session">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+					Open in editor
+				</div>
+			{/if}
+			<div class="ctx-item" role="menuitem" onclick={contextMenuDownload} title="Download this file">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+				Download
 			</div>
+			<div class="ctx-item" role="menuitem" onclick={contextMenuCopyPath} title="Copy the repo path">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+				Copy path
+			</div>
+			{#if canAssetWrite}
+				<div class="ctx-sep" role="separator"></div>
+				<div class="ctx-item ctx-danger" role="menuitem" onclick={contextMenuDelete} title="Delete this file (requires typed confirmation)">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+					Delete…
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -1118,6 +1235,108 @@ import { channels } from '$lib/channelStore';
 			}}
 			onClose={() => showConnectModal = false}
 		/>
+	{/if}
+
+	<!-- File deletion: typed confirmation (this is a real deletion) -->
+	{#if deleteTarget}
+		<div class="modal-backdrop" role="presentation" onclick={() => (deleteTarget = null)}>
+			<div class="danger-modal" role="dialog" aria-modal="true" aria-labelledby="del-title" onclick={(e) => e.stopPropagation()}>
+				<h3 id="del-title">Delete file</h3>
+				<p class="danger-copy">
+					<strong>{deleteTarget.path}</strong> ({deleteTarget.size} bytes) will be removed from the
+					repository as a committed deletion. This is a proper delete — the file leaves the working tree.
+				</p>
+				<p class="danger-copy">Type <strong>{deleteTarget.path.split('/').pop()}</strong> to confirm:</p>
+				<input
+					class="danger-input"
+					bind:value={deleteConfirmText}
+					onkeydown={(e) => e.key === 'Enter' && deleteConfirmText === (deleteTarget?.path.split('/').pop() ?? '') && executeDelete()}
+					aria-label="Type the file name to confirm deletion"
+				/>
+				{#if deleteError}<p class="danger-error" role="alert">{deleteError}</p>{/if}
+				<div class="danger-actions">
+					<button class="btn btn-sm" onclick={() => (deleteTarget = null)}>Cancel</button>
+					<button
+						class="btn btn-sm danger-go"
+						disabled={deleteBusy || deleteConfirmText !== (deleteTarget.path.split('/').pop() ?? '')}
+						onclick={() => void executeDelete()}
+					>
+						{deleteBusy ? 'Deleting…' : 'Delete file'}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Repo danger zone: detach vs delete -->
+	{#if dangerAction === 'detach'}
+		<div class="modal-backdrop" role="presentation" onclick={() => (dangerAction = null)}>
+			<div class="danger-modal" role="dialog" aria-modal="true" aria-labelledby="dz-title" onclick={(e) => e.stopPropagation()}>
+				<h3 id="dz-title">Detach this space?</h3>
+				<p class="danger-copy">
+					The channel loses its connection to <strong>{repo?.repoName}</strong>, but every file and
+					the full history stay safely on the server. Reconnect this channel at any time and
+					everything comes back.
+				</p>
+				<div class="danger-actions">
+					<button class="btn btn-sm" onclick={() => (dangerAction = null)}>Cancel</button>
+					<button class="btn btn-sm" disabled={dangerBusy} onclick={() => openDanger('delete')}>I want to delete instead…</button>
+					<button class="btn btn-sm warn-go" disabled={dangerBusy} onclick={() => void executeDanger()}>
+						{dangerBusy ? 'Detaching…' : 'Detach — keep all data'}
+					</button>
+				</div>
+			</div>
+		</div>
+	{:else if dangerAction === 'delete' && dangerConfirmText === ''}
+		<div class="modal-backdrop" role="presentation" onclick={() => openDanger('detach')}>
+			<div class="danger-modal" role="dialog" aria-modal="true" aria-labelledby="dz2-title" onclick={(e) => e.stopPropagation()}>
+				<h3 id="dz2-title">Delete this entire space?</h3>
+				<p class="danger-copy">
+					<strong>{repo?.repoName}</strong> — {files.length} file{files.length === 1 ? '' : 's'} and every saved
+					revision will be permanently erased from the server. No undo. No trash.
+				</p>
+				<p class="danger-copy small">Keeping the data? Detach unlinks the channel without touching a single byte.</p>
+				<div class="danger-actions">
+					<button class="btn btn-sm" onclick={() => openDanger('detach')}>← Back to detach</button>
+					<button class="btn btn-sm" onclick={() => (dangerAction = null)}>Cancel</button>
+					<button class="btn btn-sm danger-go" onclick={() => { dangerConfirmText = ' '; }}>Continue to final delete…</button>
+				</div>
+			</div>
+		</div>
+	{:else if dangerAction === 'delete'}
+		<div class="modal-backdrop" role="presentation" onclick={() => openDanger('detach')}>
+			<div class="danger-modal" role="dialog" aria-modal="true" aria-labelledby="dz3-title" onclick={(e) => e.stopPropagation()}>
+				<h3 id="dz3-title">Final check — this cannot be undone</h3>
+				<p class="danger-copy">Type <strong>{repo?.repoName}</strong> to permanently erase every file and revision.</p>
+				<input
+					class="danger-input"
+					bind:value={dangerConfirmText}
+					onkeydown={(e) => e.key === 'Enter' && dangerConfirmText === repo?.repoName && executeDanger()}
+					aria-label="Type the repository name to confirm permanent deletion"
+				/>
+				{#if dangerError}<p class="danger-error" role="alert">{dangerError}</p>{/if}
+				<div class="danger-actions">
+					<button class="btn btn-sm" onclick={() => openDanger('detach')}>← Back</button>
+					<button class="btn btn-sm" onclick={() => (dangerAction = null)}>Cancel</button>
+					<button class="btn btn-sm danger-go" disabled={dangerBusy || dangerConfirmText !== repo?.repoName} onclick={() => void executeDanger()}>
+						{dangerBusy ? 'Deleting…' : 'Erase everything permanently'}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Editor bridge overlay -->
+	{#if showEditor}
+		<div class="editor-overlay">
+			<div class="editor-panel">
+				<div class="editor-head">
+					<span>Code editor — {repo?.repoName}</span>
+					<button class="action-btn" onclick={() => (showEditor = false)} aria-label="Close editor panel">✕</button>
+				</div>
+				<LoreEditorBridge channelId={activeChannel} onClose={() => (showEditor = false)} />
+			</div>
+		</div>
 	{/if}
 </div>
 
@@ -1886,4 +2105,203 @@ import { channels } from '$lib/channelStore';
 		background: rgba(239, 68, 68, 0.12);
 		color: #ff6b6b;
 		}
-		</style>
+		
+	/* ── P0/P1/P2 polish additions ─────────────────────────────── */
+
+	.danger-btn {
+		color: var(--color-danger, #ef4444);
+	}
+
+	.danger-btn:hover {
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 12%, transparent);
+	}
+
+	.upload-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: var(--space-1) var(--space-2);
+		font-size: var(--font-size-xs);
+		background: color-mix(in srgb, var(--accent-primary) 12%, var(--surface-raised));
+		border-bottom: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
+		color: var(--text-secondary);
+		overflow: hidden;
+	}
+
+	.upload-banner span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mini-cancel {
+		flex-shrink: 0;
+		padding: 2px var(--space-2);
+		border-radius: var(--radius-sm);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
+		background: transparent;
+		color: var(--text-heading);
+		cursor: pointer;
+		font-size: var(--font-size-xs);
+	}
+
+	.ctx-sep {
+		height: 1px;
+		margin: var(--space-1) 0;
+		background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+	}
+
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.55);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: calc(var(--z-modal, 1000) + 10);
+		backdrop-filter: blur(2px);
+	}
+
+	.danger-modal {
+		width: min(480px, 92vw);
+		padding: var(--space-4);
+		background: var(--surface-base);
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 35%, transparent);
+		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+	}
+
+	.danger-modal h3 {
+		margin: 0 0 var(--space-2);
+		color: var(--text-heading);
+	}
+
+	.danger-copy {
+		margin: 0 0 var(--space-2);
+		font-size: var(--font-size-sm);
+		line-height: 1.5;
+		color: var(--text-secondary);
+		overflow-wrap: anywhere;
+	}
+
+	.danger-copy.small {
+		font-size: var(--font-size-xs);
+		color: var(--text-muted);
+	}
+
+	.danger-input {
+		width: 100%;
+		padding: 6px var(--space-2);
+		border-radius: var(--radius-sm);
+		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 45%, transparent);
+		background: var(--surface-sunken);
+		color: var(--text-heading);
+		font-family: var(--font-family-mono, monospace);
+		font-size: var(--font-size-sm);
+		margin-bottom: var(--space-2);
+	}
+
+	.danger-error {
+		margin: 0 0 var(--space-2);
+		color: var(--color-danger, #ef4444);
+		font-size: var(--font-size-xs);
+	}
+
+	.danger-actions {
+		display: flex;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+
+	.danger-go {
+		background: var(--color-danger, #ef4444);
+		border-color: transparent;
+		color: #fff;
+		font-weight: 600;
+	}
+
+	.warn-go {
+		border-color: color-mix(in srgb, var(--accent-primary) 60%, transparent);
+		color: var(--accent-primary);
+		font-weight: 600;
+	}
+
+	.viewer-image-frame {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: auto;
+		padding: var(--space-2);
+	}
+
+	.viewer-image-frame img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: var(--radius-sm);
+	}
+
+	.automation-layout {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		padding: var(--space-3);
+		overflow-y: auto;
+		height: 100%;
+	}
+
+	.automation-card {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-3);
+		background: color-mix(in srgb, var(--surface-raised, #1c1c24) 72%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
+		border-radius: var(--radius-md, 8px);
+	}
+
+	.automation-card h3 {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--text-heading);
+	}
+
+	.automation-hint {
+		margin: 0;
+		font-size: var(--font-size-xs);
+		color: var(--text-muted);
+	}
+
+	.editor-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: calc(var(--z-modal, 1000) + 5);
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.editor-panel {
+		width: min(560px, 94vw);
+		max-height: 86vh;
+		overflow-y: auto;
+		background: var(--surface-base);
+		border-radius: var(--radius-lg);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
+		padding: var(--space-3);
+	}
+
+	.editor-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: var(--space-2);
+		font-size: var(--font-size-sm);
+		color: var(--text-heading);
+	}
+</style>

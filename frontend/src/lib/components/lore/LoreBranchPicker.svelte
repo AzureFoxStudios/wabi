@@ -4,11 +4,13 @@
 		currentBranch: string;
 		onCreate: (name: string, from: string) => void;
 		onSwitch: (name: string) => void;
+		/** True when switching is not wired yet — items render inert with an honest note. */
+		switchDisabled?: boolean;
 	}
 
 	// Branch deletion is not supported by the lore backend yet — the
 	// affordance is removed rather than left as a dead button.
-	let { branches, currentBranch, onCreate, onSwitch }: Props = $props();
+	let { branches, currentBranch, onCreate, onSwitch, switchDisabled = false }: Props = $props();
 
 	let showMenu = $state(false);
 	let showCreate = $state(false);
@@ -74,6 +76,9 @@
 				<button class="btn-new" onclick={() => { showCreate = true; }}>
 					+ New branch
 				</button>
+				{#if switchDisabled}
+				<p class="switch-note">Viewing <strong>{currentBranch}</strong> — switching arrives with branch-scoped listings.</p>
+			{:else}
 				{#each branches as branch}
 					<button
 						class="branch-item {branch.name === currentBranch ? 'active' : ''}"
@@ -85,6 +90,7 @@
 						<span class="item-time" title={branch.lastCommit}>{timeAgo(branch.lastCommitAt)}</span>
 					</button>
 				{/each}
+			{/if}
 			{/if}
 		</div>
 	{/if}
@@ -139,6 +145,13 @@
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 		z-index: var(--z-dropdown, 200);
 		padding: var(--space-1);
+	}
+
+	.switch-note {
+		padding: var(--space-2);
+		font-size: var(--font-size-xs);
+		color: var(--text-muted);
+		line-height: 1.45;
 	}
 
 	.branch-item {
