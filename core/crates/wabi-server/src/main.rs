@@ -59,6 +59,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::timeout::TimeoutLayer;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -120,9 +121,14 @@ async fn serve_upload(
                 headers.insert(k, v);
             }
             // WS-6a: cache control + referrer policy for uploaded files.
+            // Upload filenames are content-UUIDs (never overwritten), so they are
+            // safe to cache far longer than a session — 1h max-age made every
+            // avatar/background re-download after an hour (visible boot lag).
+            // The SW media cache still enforces logout-time purge + revocation
+            // returns 410 before this header matters.
             headers.insert(
                 axum::http::header::CACHE_CONTROL,
-                "private, max-age=3600".parse().unwrap(),
+                "private, max-age=31536000, immutable".parse().unwrap(),
             );
             headers.insert(
                 axum::http::header::REFERRER_POLICY,
@@ -965,6 +971,9 @@ async fn main() -> anyhow::Result<()> {
         ))
         .layer(sio_layer)
         .layer(cors)
+        // Compress JS/CSS/JSON/SVG responses (br preferred, gzip fallback).
+        // The SPA bundle ships multi-MB chunks; this cuts them ~4-5x on the wire.
+        .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(DefaultBodyLimit::max(max_body_bytes))
         .with_state(state);

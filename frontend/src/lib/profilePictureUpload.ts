@@ -1,5 +1,6 @@
 import { getAuthToken } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
+import { downscaleImageFile } from '$lib/imageResize';
 
 const PROFILE_PICTURE_FETCH_TIMEOUT_MS = 10000;
 const PROFILE_PICTURE_UPLOAD_TIMEOUT_MS = 10000;
@@ -125,9 +126,19 @@ export async function uploadProfilePictureFile(file: File): Promise<string> {
 		throw new Error('You must be signed in to update your profile picture.');
 	}
 
+	// Downscale before upload — the server stores files verbatim, so an
+	// original-resolution photo would be re-downloaded by every client that
+	// renders this avatar. 256px covers the largest avatar render (76px @2x+).
+	let toUpload = file;
+	try {
+		toUpload = await downscaleImageFile(file, { maxEdge: 256 });
+	} catch {
+		/* best-effort */
+	}
+
 	const serverUrl = getServerUrl();
 	const formData = new FormData();
-	formData.append('profilePicture', file, file.name || 'profile-picture.png');
+	formData.append('profilePicture', toUpload, toUpload.name || file.name || 'profile-picture.png');
 
 	const controller = new AbortController();
 	const timeoutId = window.setTimeout(() => controller.abort(), PROFILE_PICTURE_UPLOAD_TIMEOUT_MS);

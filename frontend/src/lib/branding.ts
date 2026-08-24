@@ -27,7 +27,7 @@ export const brandConfig: BrandConfig = {
 	domain: 'wabi.chat',
 	logoUrl: '/wabi-logo.webp',
 	logoSmallUrl: '/wabi-logo-small.webp',
-	bootLogoUrl: '/wabi-logo.png',
+	bootLogoUrl: '/wabi-logo-boot.webp',
 	faviconUrl: '/favicon.png',
 	headline: '',
 	subheadline: '',

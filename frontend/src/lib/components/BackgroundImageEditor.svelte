@@ -71,8 +71,22 @@
 		uploadError = '';
 
 		try {
+			// Downscale large images client-side before upload (server stores
+			// files verbatim; a 4000px photo as background means multi-MB
+			// re-downloads on every boot for every client). Videos and GIFs
+			// pass through untouched.
+			let uploadFile = file;
+			if (!isVideo) {
+				try {
+					const { downscaleImageFile } = await import('$lib/imageResize');
+					uploadFile = await downscaleImageFile(file, { maxEdge: 1920 });
+				} catch {
+					/* best-effort */
+				}
+			}
+
 			const formData = new FormData();
-			formData.append('backgroundImage', file);
+			formData.append('backgroundImage', uploadFile);
 
 		const authToken = getAuthToken();
 		const headers: HeadersInit = {};
