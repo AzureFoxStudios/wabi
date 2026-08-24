@@ -404,15 +404,22 @@
 	.list-tail-drop:hover .list-tail-drop-line {
 		display: block;
 		position: absolute;
-		top: 8px;
+		top: 5px;
 		left: 0;
 		right: 0;
-		height: 2px;
-		border-radius: var(--radius-full, 9999px);
-		background: var(--color-info, #7dd3fc);
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface-sunken, #0f0c29) 70%, transparent),
-			0 0 8px color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
+		height: 8px;
+		background-image:
+			radial-gradient(circle 4px at 4px 4px, var(--color-info, #7dd3fc) 97%, transparent 100%),
+			linear-gradient(
+				to bottom,
+				transparent 3px,
+				var(--color-info, #7dd3fc) 3px,
+				var(--color-info, #7dd3fc) 5px,
+				transparent 5px
+			);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
 		pointer-events: none;
+		z-index: 5;
 	}
 
 
@@ -565,28 +572,42 @@
 		opacity: 0.4;
 	}
 
-	/* R5: drop line above/below target (server-rail pattern) */
+	/* Drop placement indicator — Atlassian pragmatic-dnd style: 2px accent line
+	   with an 8px terminal dot on the left. Rendered INSIDE the row bounds and
+	   lifted via z-index so later sibling rows can't paint over it (the old
+	   top:-1px/bottom:-1px + z-index:0 version was invisible — occluded). */
+	.channel-item.drop-before,
+	.channel-item.drop-after {
+		z-index: 5;
+	}
+
 	.channel-item.drop-before::before,
 	.channel-item.drop-after::after {
 		content: '';
 		position: absolute;
-		left: 0.5rem;
-		right: 0.5rem;
-		height: 2px;
-		border-radius: var(--radius-full, 9999px);
-		background: var(--color-info, #7dd3fc);
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface-sunken, #0f0c29) 70%, transparent),
-			0 0 8px color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
+		left: 0;
+		right: 0.25rem;
+		height: 8px;
+		background-image:
+			radial-gradient(circle 4px at 4px 4px, var(--color-info, #7dd3fc) 97%, transparent 100%),
+			linear-gradient(
+				to bottom,
+				transparent 3px,
+				var(--color-info, #7dd3fc) 3px,
+				var(--color-info, #7dd3fc) 5px,
+				transparent 5px
+			);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--color-info, #7dd3fc) 45%, transparent);
 		pointer-events: none;
-		z-index: var(--z-base, 0);
+		z-index: 5;
 	}
 
 	.channel-item.drop-before::before {
-		top: -1px;
+		top: -4px;
 	}
 
 	.channel-item.drop-after::after {
-		bottom: -1px;
+		bottom: -4px;
 	}
 
 
@@ -1034,20 +1055,34 @@
 		background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
 	}
 
+	/* Folder reorder indicator — same line+terminal-dot language as channels. */
+	.category-row.drop-before,
+	.category-row.drop-after {
+		z-index: 5;
+	}
+
 	.category-row.drop-before::before,
 	.category-row.drop-after::after {
 		content: '';
 		position: absolute;
-		left: 8px;
+		left: 0;
 		right: 8px;
-		height: 2px;
-		background: var(--accent-primary);
-		border-radius: 1px;
+		height: 8px;
+		background-image:
+			radial-gradient(circle 4px at 4px 4px, var(--accent-primary) 97%, transparent 100%),
+			linear-gradient(
+				to bottom,
+				transparent 3px,
+				var(--accent-primary) 3px,
+				var(--accent-primary) 5px,
+				transparent 5px
+			);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--accent-primary) 45%, transparent);
 		pointer-events: none;
-		z-index: 2;
+		z-index: 5;
 	}
-	.category-row.drop-before::before { top: 0; }
-	.category-row.drop-after::after { bottom: 0; }
+	.category-row.drop-before::before { top: -4px; }
+	.category-row.drop-after::after { bottom: -4px; }
 
 	.category-row.is-dragging {
 		opacity: 0.45;
@@ -1077,7 +1112,11 @@
 		opacity: 0.7;
 	}
 
+	/* "Drop INTO folder" signal — background tint (Atlassian two-signal rule:
+	   line = land before/after, background = go inside). Distinct from the
+	   reorder line so the outcome is never ambiguous. */
 	.category-channels.drop-target {
+		background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 		outline: 1px dashed color-mix(in srgb, var(--accent-primary) 70%, transparent);
 		outline-offset: -2px;
 		border-radius: var(--radius-md, 8px);
