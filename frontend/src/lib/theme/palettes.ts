@@ -256,7 +256,7 @@ export const jokerPalette: BasePalette = {
 		color3: '#162325',
 		intensity: 1,
 		size: 1,
-		speed: 0.55,
+		speed: 1, // 1 = authentic in-game pace (calibrated in balatro.ts)
 		frostOpacity: 0.82,
 		frostBlur: 10,
 	},
@@ -320,6 +320,7 @@ export const matrixPalette: BasePalette = {
 	ambient: {
 		effect: 'matrix',
 		color: '#00ff41',
+		color2: '#c8ffcf',
 		intensity: 1,
 		size: 1,
 		speed: 1,
@@ -462,6 +463,40 @@ export const longcatPalette: BasePalette = {
 	},
 };
 
+export const diamondsPalette: BasePalette = {
+	id: 'diamonds',
+	name: 'Diamonds',
+	description: 'Ice-blue jewels on deep velvet — facets pulse and shimmer as a glint sweeps the case.',
+	bgBase: '#0a1424',
+	bgRaised: '#12203a',
+	bgSunken: '#060d1a',
+	bgPrimary: 'linear-gradient(160deg, #060d1a 0%, #0e1c33 55%, #142644 100%)',
+	textPrimary: '#e3f2ff',
+	textSecondary: '#a8cdf0',
+	textMuted: '#6d94bd',
+	accent: '#7dd8ff',
+	accentSecondary: '#bfeaff',
+	statusOnline: '#5be0a0',
+	statusAway: '#f6c453',
+	statusBusy: '#ff6b8a',
+	statusOffline: '#4a6180',
+	success: '#5be0a0',
+	info: '#7dd8ff',
+	warning: '#f6c453',
+	danger: '#ff6b8a',
+	ambient: {
+		effect: 'shimmer',
+		color: '#7dd8ff',
+		color2: '#bfeaff',
+		color3: '#0a1424',
+		intensity: 0.75,
+		size: 1,
+		speed: 1,
+		frostOpacity: 0.84,
+		frostBlur: 10,
+	},
+};
+
 // ===== ALL PALETTES =====
 export const ALL_PALETTES: BasePalette[] = [
 	darkPalette,
@@ -479,6 +514,7 @@ export const ALL_PALETTES: BasePalette[] = [
 	stormPalette,
 	synapsePalette,
 	longcatPalette,
+	diamondsPalette,
 ];
 
 export const DEFAULT_PALETTE = darkPalette;

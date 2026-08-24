@@ -15,6 +15,7 @@
 	import { WarpEffect } from './built-in/warp';
 	import { MatrixRainEffect } from './built-in/matrix';
 	import { LongcatEffect } from './built-in/longcat';
+	import { ShimmerEffect } from './built-in/shimmer';
 	import type { EffectConfig } from './types';
 
 	if (browser) {
@@ -31,6 +32,7 @@
 		effectsRegistry.register(new WarpEffect());
 		effectsRegistry.register(new MatrixRainEffect());
 		effectsRegistry.register(new LongcatEffect());
+		effectsRegistry.register(new ShimmerEffect());
 	}
 
 	let canvas: HTMLCanvasElement;

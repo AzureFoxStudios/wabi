@@ -7,15 +7,20 @@
 //! - Inbound `"message"`: `{"channelId": str, "message": {...view}}`.
 //! - Inbound `"typing"`: `{"channelId": str, "usernames": [..]}`.
 //!
-//! rust-socketio 0.6 callbacks run on the client's own threads and receive a
-//! `RawClient` handle for emits; they must not touch app state. Everything
-//! funnels through `tx.blocking_send(BgMsg::…)` so the main loop stays the
-//! single mutator (same pattern as the REST spawn helpers).
+//! Threading model (load-bearing): rust_engineio's sync transports call
+//! `tokio::runtime::block_on` internally, which PANICS if invoked from a
+//! thread already inside a tokio runtime — and under `#[tokio::main]` the
+//! main thread IS a runtime worker. Therefore the `Client` is confined to
+//! its own OS thread(s): connects happen on a dedicated thread, and all
+//! outbound emits go through a command queue drained by an emitter thread.
+//! Inbound events are forwarded to the app via `bg_tx.blocking_send`, and
+//! the main loop stays the single mutator of app state.
 
 use anyhow::{anyhow, Result};
 use rust_socketio::client::Client;
 use rust_socketio::{ClientBuilder, Event, Payload};
 use serde_json::{json, Value};
+use std::sync::mpsc::{channel, Sender};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
@@ -23,6 +28,12 @@ use std::sync::{
 use tokio::sync::mpsc;
 
 use crate::app::{BgMsg, Message};
+
+/// Outbound commands sent to the emitter thread (which owns the Client).
+enum LiveCmd {
+    JoinChannel(String),
+    Typing(String),
+}
 
 /// Shared connection health, readable cheaply from the render loop.
 #[derive(Debug, Default)]
@@ -47,7 +58,7 @@ impl LiveHealth {
 /// Handle to a live socket. Cloneable; connect before first use.
 #[derive(Clone)]
 pub struct LiveClient {
-    client: Arc<Mutex<Option<Client>>>,
+    cmd_tx: Arc<Mutex<Option<Sender<LiveCmd>>>>,
     pub health: Arc<LiveHealth>,
 }
 
@@ -59,16 +70,24 @@ impl std::fmt::Debug for LiveClient {
     }
 }
 
+impl Default for LiveClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LiveClient {
     pub fn new() -> Self {
         Self {
-            client: Arc::new(Mutex::new(None)),
+            cmd_tx: Arc::new(Mutex::new(None)),
             health: Arc::new(LiveHealth::default()),
         }
     }
 
-    /// Connect to `<server>/socket.io/` with JWT auth. On success the socket
-    /// joins the presence room (`join`) and one channel room.
+    /// Connect to `<server>/socket.io/` with JWT auth. MUST be called from a
+    /// plain OS thread (never inside the tokio runtime) — see module docs.
+    /// On success the socket joins the presence room (`join`) and one channel
+    /// room, and an emitter thread takes ownership of outbound commands.
     pub fn connect(
         &self,
         base_url: &str,
@@ -80,16 +99,18 @@ impl LiveClient {
         let url = format!("{}/socket.io/", base_url.trim_end_matches('/'));
         let username = username.to_string();
         let join_channel = channel_id.to_string();
+        let health = self.health.clone();
 
         let builder = ClientBuilder::new(url)
             .namespace("/")
             .auth(json!({ "token": token }))
             .on(Event::Connect, {
                 let tx = tx.clone();
-                let health = self.health.clone();
+                let health = health.clone();
                 move |_payload: Payload, client: rust_socketio::RawClient| {
                     health.set_connected(true);
                     health.mark_event(now_ms());
+                    // Safe here: callbacks run on the client's own thread.
                     // Presence join, then the requested channel room.
                     // join-channel takes a bare string payload.
                     if let Err(e) = client.emit("join", username.as_str()) {
@@ -107,7 +128,7 @@ impl LiveClient {
             })
             .on(Event::Close, {
                 let tx = tx.clone();
-                let health = self.health.clone();
+                let health = health.clone();
                 move |payload: Payload, _client: rust_socketio::RawClient| {
                     health.set_connected(false);
                     let reason = payload_value(&payload)
@@ -123,7 +144,7 @@ impl LiveClient {
             })
             .on("message", {
                 let tx = tx.clone();
-                let health = self.health.clone();
+                let health = health.clone();
                 move |payload: Payload, _client: rust_socketio::RawClient| {
                     if let Some(v) = payload_value(&payload) {
                         if let Some((ch, msg)) = parse_inbound_message(&v) {
@@ -143,7 +164,7 @@ impl LiveClient {
             })
             .on("typing", {
                 let tx = tx.clone();
-                let health = self.health.clone();
+                let health = health.clone();
                 move |payload: Payload, _client: rust_socketio::RawClient| {
                     if let Some(v) = payload_value(&payload) {
                         let ch = v.get("channelId").and_then(|x| x.as_str()).unwrap_or("");
@@ -158,7 +179,9 @@ impl LiveClient {
                                         })
                                         .is_err()
                                     {
-                                        tracing::warn!("bg channel closed; live event dropped");
+                                        tracing::warn!(
+                                            "bg channel closed; live event dropped"
+                                        );
                                     }
                                 }
                             }
@@ -168,7 +191,23 @@ impl LiveClient {
             });
 
         let client = builder.connect().map_err(|e| anyhow!("socket.io: {e}"))?;
-        *self.client.lock().expect("live lock") = Some(client);
+
+        // Emitter thread owns the Client; app-side sends queue up as commands.
+        let (cmd_tx, cmd_rx) = channel::<LiveCmd>();
+        std::thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                let res = match cmd {
+                    LiveCmd::JoinChannel(id) => client.emit("join-channel", id.as_str()),
+                    LiveCmd::Typing(id) => {
+                        client.emit("typing", json!({ "channelId": id }))
+                    }
+                };
+                if let Err(e) = res {
+                    tracing::warn!("live emit failed: {e}");
+                }
+            }
+        });
+        *self.cmd_tx.lock().expect("live lock") = Some(cmd_tx);
         Ok(())
     }
 
@@ -176,22 +215,23 @@ impl LiveClient {
         self.health.is_connected()
     }
 
-    /// Join a channel room after switching channels (no-op when offline).
+    /// Queue a channel-room join (no-op when offline; never blocks).
     pub fn join_channel(&self, channel_id: &str) {
-        if let Some(client) = self.client.lock().expect("live lock").as_ref() {
-            if let Err(e) = client.emit("join-channel", channel_id) {
-                tracing::warn!("live join-channel({channel_id}) failed: {e}");
-            }
+        if !self.is_connected() {
+            return;
+        }
+        if let Some(tx) = self.cmd_tx.lock().expect("live lock").as_ref() {
+            let _ = tx.send(LiveCmd::JoinChannel(channel_id.to_string()));
         }
     }
 
-    /// Announce typing in a channel (throttled by the caller).
+    /// Announce typing in a channel (throttled by the caller; never blocks).
     pub fn send_typing(&self, channel_id: &str) {
-        if let Some(client) = self.client.lock().expect("live lock").as_ref() {
-            let payload = json!({ "channelId": channel_id });
-            if let Err(e) = client.emit("typing", payload) {
-                tracing::warn!("live typing failed: {e}");
-            }
+        if !self.is_connected() {
+            return;
+        }
+        if let Some(tx) = self.cmd_tx.lock().expect("live lock").as_ref() {
+            let _ = tx.send(LiveCmd::Typing(channel_id.to_string()));
         }
     }
 }

@@ -78,6 +78,10 @@ pub struct AppState {
     pub media_registry: crate::media::MediaRoomRegistry,
     /// Current Socket.IO handle for HTTP handlers that need to broadcast.
     pub sio: RwLock<Option<socketioxide::SocketIo>>,
+    /// Shared socket.io presence map (socket_id → ConnectedUser). Populated
+    /// by `create_socket_layer` at startup; lets HTTP handlers (admin
+    /// metrics) read online-socket counts without going through SioState.
+    pub connected_users: crate::socketio::ConnectedUsers,
     /// Blacklist manager for bans
     pub blacklist: RwLock<Option<Arc<BlacklistManager>>>,
     /// Mesh service for multi-node coordination
@@ -315,6 +319,7 @@ impl AppState {
             upload_registry,
             media_registry,
             sio: RwLock::new(None),
+            connected_users: Arc::new(RwLock::new(HashMap::new())),
             blacklist: RwLock::new(None),
             mesh_service: RwLock::new(None),
             #[cfg(feature = "wabi-lore")]

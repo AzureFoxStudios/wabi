@@ -18,6 +18,31 @@ use tracing::{info, warn};
 
 use crate::state::AppState;
 
+/// Global handle to the socket.io presence map. Populated once at server
+/// startup by `create_socket_layer`; read by non-socket handlers such as the
+/// admin dashboard stats ("online now"). Same OnceLock pattern as
+/// `whiteboard_versions` in whiteboard_ops.rs.
+static CONNECTED_USERS: std::sync::OnceLock<ConnectedUsers> = std::sync::OnceLock::new();
+
+/// Publish the live presence map (called from `create_socket_layer`).
+pub fn publish_connected_users(map: ConnectedUsers) {
+    let _ = CONNECTED_USERS.set(map);
+}
+
+/// Read access to the live presence map, if the socket layer is up.
+pub fn shared_connected_users() -> ConnectedUsers {
+    CONNECTED_USERS
+        .get()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(RwLock::new(HashMap::new())))
+}
+
+/// Count of currently-connected socket.io clients (unique sockets, not
+/// unique users — a user with two tabs counts twice).
+pub async fn connected_user_count() -> u64 {
+    shared_connected_users().read().await.len() as u64
+}
+
 // ---------------------------------------------------------------------------
 // Per-socket auth token stored in socket extensions
 // ---------------------------------------------------------------------------
@@ -113,8 +138,28 @@ pub(crate) fn get_stable_id(socket: &SocketRef) -> String {
 // Shared real-time state
 // ---------------------------------------------------------------------------
 
-/// User presence states. `Invisible` renders as `"offline"` to other users
-/// (masked view) while the socket stays connected.
+/// Info about a connected socket's user identity.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct ConnectedUser {
+    pub stable_id: String,
+    pub db_user_id: Option<i64>,
+    pub username: String,
+    pub color: String,
+    /// Self-selected presence (multi-tab inherited on join, owned by
+    /// `set-presence`). Invisible is broadcast as "offline".
+    pub presence: UserPresence,
+    /// Unix microseconds of the last activity (connect, message, or
+    /// periodic heartbeat). The periodic sweep uses this to remove
+    /// entries that are stale (e.g. on_disconnect never fired because
+    /// the socket was lost without a clean close).
+    ///
+    /// WABI_AUDIT_REPORT.md finding #3.
+    pub last_seen_micros: i64,
+}
+
+/// Self-selected user presence. Lives here because ConnectedUser carries it
+/// across sockets; `set-presence` owns mutations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum UserPresence {
@@ -125,46 +170,25 @@ pub enum UserPresence {
 }
 
 impl UserPresence {
-    /// Parse a client-supplied presence string; unknown values fall back to
-    /// `Active` rather than rejecting the session.
-    pub fn parse(value: &str) -> Self {
-        match value.to_lowercase().as_str() {
-            "away" | "idle" => Self::Away,
-            "busy" | "dnd" => Self::Busy,
-            "invisible" | "offline" => Self::Invisible,
-            _ => Self::Active,
+    #[allow(dead_code)]
+    pub fn parse(raw: &str) -> UserPresence {
+        match raw {
+            "away" => UserPresence::Away,
+            "busy" => UserPresence::Busy,
+            "invisible" | "offline" => UserPresence::Invisible,
+            _ => UserPresence::Active,
         }
     }
 
-    /// Canonical wire string for `status` fields.
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Active => "active",
-            Self::Away => "away",
-            Self::Busy => "busy",
-            Self::Invisible => "invisible",
+            UserPresence::Active => "active",
+            UserPresence::Away => "away",
+            UserPresence::Busy => "busy",
+            UserPresence::Invisible => "invisible",
         }
     }
-}
-
-/// Info about a connected socket's user identity.
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct ConnectedUser {
-    pub stable_id: String,
-    pub db_user_id: Option<i64>,
-    pub username: String,
-    pub color: String,
-    /// Presence of this socket's account; multi-tab sockets inherit the
-    /// first tab's value so a second tab can't flip Invisible back to Active.
-    pub presence: UserPresence,
-    /// Unix microseconds of the last activity (connect, message, or
-    /// periodic heartbeat). The periodic sweep uses this to remove
-    /// entries that are stale (e.g. on_disconnect never fired because
-    /// the socket was lost without a clean close).
-    ///
-    /// WABI_AUDIT_REPORT.md finding #3.
-    pub last_seen_micros: i64,
 }
 
 /// socket_id → ConnectedUser for all live sockets.

@@ -4,10 +4,6 @@ import {
 	syncMediaRuntimeFromServer,
 	type EffectiveCallTransport
 } from './mediaRuntime';
-import {
-	getActiveMediaGatewaySessionId,
-	stopMediaGatewaySessionRenewal
-} from './callingMediaGateway';
 
 // ============================================================================
 // Transport Resolution
@@ -17,7 +13,6 @@ export async function resolveActiveTransport(channelId?: string): Promise<Effect
 	const plan = await resolveCallTransportPlan();
 	const runtime = await syncMediaRuntimeFromServer().catch(() => null);
 	const sfuProvider = runtime?.media?.sfu?.provider === 'livekit' ? 'livekit' : plan.sfuProvider;
-	const turnConfigured = Boolean(runtime?.media?.turn?.configured);
 	const livekitReady = Boolean(
 		sfuProvider === 'livekit' &&
 		runtime?.media?.livekit?.configured &&
@@ -29,123 +24,68 @@ export async function resolveActiveTransport(channelId?: string): Promise<Effect
 		isFallback: plan.fallbackApplied,
 		reason: plan.reason,
 		gatewayHealthy: plan.gatewayHealthy,
-		checkedAt: plan.checkedAt,
-		gatewaySessionId: getActiveMediaGatewaySessionId(),
-		gatewayControlPlaneStatus: 'idle',
-		gatewayMediaPlaneStatus: getActiveMediaGatewaySessionId() ? 'pending' : 'idle',
-		gatewayActiveStreams: null,
-		gatewayLastSeenAt: null
+		checkedAt: plan.checkedAt
 	});
 
 	if (!channelId) {
-		stopMediaGatewaySessionRenewal();
 		callTransportState.set({
 			mode: plan.mode,
 			activeTransport: 'p2p',
-			isFallback: plan.effective === 'sfu',
-			reason: turnConfigured ? 'direct_call_p2p' : 'direct_call_turn_unconfigured',
+			isFallback: false,
+			reason: 'direct_call_p2p',
 			gatewayHealthy: plan.gatewayHealthy,
-			checkedAt: Date.now(),
-			gatewaySessionId: null,
-			gatewayControlPlaneStatus: 'idle',
-			gatewayMediaPlaneStatus: 'idle',
-			gatewayActiveStreams: null,
-			gatewayLastSeenAt: null
+			checkedAt: Date.now()
 		});
 		return 'p2p';
 	}
 
 	if (plan.effective === 'sfu' && sfuProvider !== 'livekit') {
-		stopMediaGatewaySessionRenewal();
 		callTransportState.set({
 			mode: plan.mode,
 			activeTransport: 'p2p',
 			isFallback: true,
 			reason: 'sfu_plugin_disabled',
 			gatewayHealthy: false,
-			checkedAt: Date.now(),
-			gatewaySessionId: null,
-			gatewayControlPlaneStatus: 'idle',
-			gatewayMediaPlaneStatus: 'idle',
-			gatewayActiveStreams: null,
-			gatewayLastSeenAt: null
+			checkedAt: Date.now()
 		});
 		return 'p2p';
 	}
 
 	if (plan.effective === 'sfu' && livekitReady && channelId) {
-		stopMediaGatewaySessionRenewal();
 		callTransportState.set({
 			mode: plan.mode,
 			activeTransport: 'sfu',
 			isFallback: false,
 			reason: 'sfu_livekit_ready',
 			gatewayHealthy: plan.gatewayHealthy,
-			checkedAt: Date.now(),
-			gatewaySessionId: null,
-			gatewayControlPlaneStatus: 'idle',
-			gatewayMediaPlaneStatus: 'pending',
-			gatewayActiveStreams: null,
-			gatewayLastSeenAt: null
+			checkedAt: Date.now()
 		});
 		return 'sfu';
 	}
 
 	if (plan.effective === 'sfu') {
-		stopMediaGatewaySessionRenewal();
 		callTransportState.set({
 			mode: plan.mode,
 			activeTransport: 'p2p',
 			isFallback: true,
 			reason: plan.reason || 'livekit_unavailable',
 			gatewayHealthy: plan.gatewayHealthy,
-			checkedAt: Date.now(),
-			gatewaySessionId: null,
-			gatewayControlPlaneStatus: 'idle',
-			gatewayMediaPlaneStatus: 'idle',
-			gatewayActiveStreams: null,
-			gatewayLastSeenAt: null
+			checkedAt: Date.now()
 		});
 		return 'p2p';
 	}
 
 	if (plan.effective === 'wabidb') {
-		stopMediaGatewaySessionRenewal();
 		callTransportState.set({
 			mode: plan.mode,
 			activeTransport: 'wabidb',
 			isFallback: false,
 			reason: 'wabidb_default',
 			gatewayHealthy: plan.gatewayHealthy,
-			checkedAt: Date.now(),
-			gatewaySessionId: null,
-			gatewayControlPlaneStatus: 'idle',
-			gatewayMediaPlaneStatus: 'idle',
-			gatewayActiveStreams: null,
-			gatewayLastSeenAt: null
+			checkedAt: Date.now()
 		});
 		return 'wabidb';
 	}
 
-	if (plan.effective === 'storefwd') {
-		stopMediaGatewaySessionRenewal();
-		callTransportState.set({
-			mode: plan.mode,
-			activeTransport: 'storefwd',
-			isFallback: false,
-			reason: 'storefwd_requested',
-			gatewayHealthy: false,
-			checkedAt: Date.now(),
-			gatewaySessionId: null,
-			gatewayControlPlaneStatus: 'idle',
-			gatewayMediaPlaneStatus: 'idle',
-			gatewayActiveStreams: null,
-			gatewayLastSeenAt: null
-		});
-		return 'storefwd';
-	}
-
-	stopMediaGatewaySessionRenewal();
-	return 'p2p';
+	return 'wabidb';
 }
-
