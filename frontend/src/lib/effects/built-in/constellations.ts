@@ -11,7 +11,7 @@ interface Star {
 export class ConstellationsEffect implements AmbientEffect {
 	id = 'constellations';
 	name = 'Constellations';
-	description = 'A drifting star field with connecting lines between nearby stars.';
+	description = 'A drifting star field with shimmering constellation links between nearby stars.';
 
 	private ctx: CanvasRenderingContext2D | null = null;
 	private stars: Star[] = [];
@@ -75,7 +75,13 @@ export class ConstellationsEffect implements AmbientEffect {
 				const dy = a.y - b.y;
 				const dist = Math.sqrt(dx * dx + dy * dy);
 				if (dist < connectionDist) {
-					ctx.globalAlpha = (1 - dist / connectionDist) * lineAlpha;
+					// signature: links shimmer — each line's opacity breathes with
+					// a per-link phase so the constellation flickers like it's
+					// alive instead of holding a static web.
+					const linkPhase = Math.sin(time * 0.7 + (i * 13 + j * 7) * 0.37);
+					const linkAlpha = (1 - dist / connectionDist) * lineAlpha * (0.55 + 0.45 * linkPhase);
+					if (linkAlpha <= 0.01) continue;
+					ctx.globalAlpha = linkAlpha;
 					ctx.beginPath();
 					ctx.moveTo(a.x, a.y);
 					ctx.lineTo(b.x, b.y);

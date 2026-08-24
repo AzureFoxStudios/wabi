@@ -271,10 +271,12 @@
 
 	.call-shell.mode-embedded {
 		position: absolute;
-		/* Center-stage only: leave the channel sidebar and right panel
-		   visible/usable. --hatch-left/right are set inline from the
-		   layout store (same insets the focus hatch uses). */
-		inset: 0 var(--hatch-right) 0 var(--hatch-left);
+		/* Center stage only: the shell lives INSIDE .chat-stack, which is
+		   already bounded by the sidebars/right panel. Fill it exactly —
+		   do NOT re-apply the viewport-level hatch insets here (that
+		   double-subtracted panel widths and shrank the call to a sliver).
+		   Re-applied 2026-08-23 after a peer checkout reverted it. */
+		inset: 0;
 	}
 
 	.call-shell.mode-focus {

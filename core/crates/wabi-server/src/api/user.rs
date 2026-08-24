@@ -262,6 +262,7 @@ async fn save_theme(
     let allowed = [
         "theme_id", "custom_theme", "uniform_font_enabled", "uniform_font_family",
         "uniform_font_size", "uniform_font_weight", "uniform_font_style",
+        "theme_ambient",
     ];
     let filtered = object
         .iter()

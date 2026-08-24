@@ -478,6 +478,10 @@ pub struct EffectiveTuning {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardStatsResponse {
     pub overview: StatsOverview,
+    /// Extended counters (registered/bot/active users, 24h-seen,
+    /// channels-by-kind). Additive; older clients ignore it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Value>,
     #[serde(rename = "roleDistribution")]
     pub role_distribution: Vec<RoleDistEntry>,
     #[serde(rename = "statusDistribution")]
@@ -1178,32 +1182,80 @@ async fn get_dashboard_stats(
     if let Err(resp) = admin_auth(&headers, &state).await {
         return resp;
     }
+
+    // ── Users: real counts from the user projection ──
+    let users = state.wdb.list_users().await.unwrap_or_default();
+    let total_users = users.len() as u64;
+    let registered_users = users.iter().filter(|u| u.is_registered).count() as u64;
+    let bot_users = users.iter().filter(|u| u.is_bot).count() as u64;
+    let active_users = users.iter().filter(|u| u.is_active).count() as u64;
+    // "Online now" = sockets currently in the socket.io presence map.
+    let online_users = crate::socketio::connected_user_count().await;
+    // Recently seen (24h) from last_seen_micros.
+    let now_micros = chrono::Utc::now().timestamp_micros();
+    let day_us: i64 = 86_400_000_000;
+    let seen_24h = users
+        .iter()
+        .filter(|u| u.last_seen_micros > 0 && now_micros - u.last_seen_micros < day_us)
+        .count() as u64;
+
+    // Role distribution via the existing role resolver.
+    let mut role_counts: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
+    for u in &users {
+        let role = state.get_user_highest_role(u.user_id as i64).await;
+        *role_counts.entry(role).or_insert(0) += 1;
+    }
+    let mut role_distribution: Vec<RoleDistEntry> = role_counts
+        .into_iter()
+        .map(|(role, count)| RoleDistEntry { role, count })
+        .collect();
+    role_distribution.sort_by(|a, b| b.count.cmp(&a.count));
+
+    // ── Channels: counts by kind from the channel projection ──
+    let channels = state.wdb.list_channels(None).await.unwrap_or_default();
+    let total_channels = channels.len() as u64;
+    let mut kind_counts: serde_json::Map<String, Value> = serde_json::Map::new();
+    for c in &channels {
+        let kind = format!("{:?}", c.channel_kind).to_lowercase();
+        *kind_counts
+            .entry(kind)
+            .or_insert(Value::from(0u64)) = Value::from(
+            kind_counts.get(&format!("{:?}", c.channel_kind).to_lowercase())
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                + 1,
+        );
+    }
+
+    // Messages: an engine-level COUNT does not exist yet; a full scan per
+    // dashboard poll would be too expensive. Report the channel count under
+    // its honest label and leave total_messages at 0 until the engine grows
+    // a cheap counter.
+    let total_messages: u64 = 0;
+
     let stats = DashboardStatsResponse {
         overview: StatsOverview {
-            total_users: 0,
-            online_users: 0,
-            banned_users: 0,
-            muted_users: 0,
-            total_channels: 0,
-            total_roles: 0,
-            total_emojis: 0,
-            total_messages: 0,
-            total_audit_entries: 0,
-            open_reports: 0,
+            total_users,
+            online_users,
+            banned_users: total_users.saturating_sub(active_users),
+            muted_users: 0, // no mute projection query yet — reported honestly as 0
+            total_channels,
+            total_roles: role_distribution.len() as u64,
+            total_emojis: 0, // emoji projection not wired to a count yet
+            total_messages,
+            total_audit_entries: 0, // audit projection has no count API yet
+            open_reports: 0,        // reports projection not queried yet
         },
-        role_distribution: vec![
-            RoleDistEntry { role: "owner".into(), count: 0 },
-            RoleDistEntry { role: "admin".into(), count: 0 },
-            RoleDistEntry { role: "mod".into(), count: 0 },
-            RoleDistEntry { role: "member".into(), count: 0 },
-            RoleDistEntry { role: "guest".into(), count: 0 },
-        ],
-        status_distribution: vec![
-            StatusDistEntry { status: "online".into(), count: 0 },
-            StatusDistEntry { status: "idle".into(), count: 0 },
-            StatusDistEntry { status: "dnd".into(), count: 0 },
-            StatusDistEntry { status: "offline".into(), count: 0 },
-        ],
+        extra: Some(json!({
+            "registeredUsers": registered_users,
+            "botUsers": bot_users,
+            "activeUsers": active_users,
+            "usersSeenLast24h": seen_24h,
+            "channelsByKind": kind_counts,
+        })),
+        role_distribution,
+        status_distribution: vec![StatusDistEntry { status: "online".into(), count: online_users }],
         recent_audit: Vec::new(),
         top_users: Vec::new(),
     };

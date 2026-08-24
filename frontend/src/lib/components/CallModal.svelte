@@ -1111,15 +1111,6 @@
 					{#if $callTransportState.isFallback}
 						<span class="transport-note">fallback active</span>
 					{/if}
-					{#if $callTransportState.gatewayControlPlaneStatus !== 'idle'}
-						<span class="transport-note">gateway {$callTransportState.gatewayControlPlaneStatus}</span>
-					{/if}
-					{#if $callTransportState.gatewayMediaPlaneStatus !== 'idle'}
-						<span class="transport-note">media {$callTransportState.gatewayMediaPlaneStatus}</span>
-					{/if}
-					{#if $callTransportState.gatewayActiveStreams !== null}
-						<span class="transport-note">streams {$callTransportState.gatewayActiveStreams}</span>
-					{/if}
 				</span>
 				<span class="transport-badge">
 					Spatial: {$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}

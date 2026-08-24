@@ -659,6 +659,139 @@ async fn upload_simple(
     Ok(Json(SimpleUploadResponse { file_url }))
 }
 
+/// POST /api/upload-background-image
+///
+/// Authenticated multipart upload for the user's animated chat background
+/// (PNG/JPG/GIF/animated-WEBP images, plus MP4/WebM video loops). The frontend
+/// BackgroundImageEditor has called this endpoint since the background-image
+/// feature shipped, but no handler existed server-side — uploads 404'd.
+///
+/// Returns `{ backgroundImageUrl }` on success.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundImageResponse {
+    pub background_image_url: String,
+}
+
+/// Size cap for background media (25MB — video loops).
+const BACKGROUND_MAX_BYTES: usize = 25 * 1024 * 1024;
+
+pub async fn upload_background_image(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<BackgroundImageResponse>> {
+    use tokio::io::AsyncWriteExt;
+
+    if auth.is_guest {
+        return Err(anyhow::anyhow!("Guests cannot upload backgrounds").into());
+    }
+
+    let mut file_data: Vec<u8> = Vec::new();
+    let mut filename = "background.png".to_string();
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "backgroundImage" {
+            filename = field.file_name().unwrap_or("background").to_string();
+            file_data = field
+                .bytes()
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+                .to_vec();
+        }
+    }
+
+    if file_data.is_empty() {
+        return Err(anyhow::anyhow!("No file data provided").into());
+    }
+
+    if file_data.len() > BACKGROUND_MAX_BYTES {
+        return Err(anyhow::anyhow!("File is too large. Maximum size is 25MB.").into());
+    }
+
+    // Sniff the actual content instead of trusting the client MIME string:
+    // magic-byte check keeps a mislabeled script from landing as a "video".
+    let mime = sniff_background_mime(&file_data).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unsupported file type. Only PNG, JPG, GIF, WEBP, MP4, or WEBM are allowed."
+        )
+    })?;
+
+    // Extension derived from the SNIFFED type — never from the client filename.
+    let ext = extension_for_mime(mime, ".png");
+
+    let uploads_dir = PathBuf::from(&state.config.uploads_dir);
+    tokio::fs::create_dir_all(&uploads_dir).await?;
+
+    let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    let final_path = uploads_dir.join(&final_name);
+
+    let mut file = File::create(&final_path).await?;
+    file.write_all(&file_data).await?;
+    file.flush().await?;
+    drop(file);
+
+    let file_url = format!("/uploads/{}", final_name);
+    tracing::info!(
+        "Background image uploaded by user {}: {} ({} bytes, sniffed {}) -> {:?}",
+        auth.user_id,
+        filename,
+        file_data.len(),
+        mime,
+        final_path
+    );
+
+    state
+        .upload_registry
+        .record(
+            &final_name,
+            &filename,
+            None,
+            Some(auth.user_id),
+            UploadKind::Other,
+            file_data.len() as u64,
+        )
+        .await;
+
+    Ok(Json(BackgroundImageResponse {
+        background_image_url: file_url,
+    }))
+}
+
+/// Magic-byte sniffing for allowed background media types.
+fn sniff_background_mime(data: &[u8]) -> Option<&'static str> {
+    if data.len() < 12 {
+        return None;
+    }
+    if data.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("image/png");
+    }
+    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg");
+    }
+    if data.starts_with(b"GIF8") {
+        return Some("image/gif");
+    }
+    // WEBP: RIFF....WEBP
+    if data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    // MP4: bytes 4-7 == "ftyp"
+    if &data[4..8] == b"ftyp" {
+        return Some("video/mp4");
+    }
+    // WEBM/MKV: EBML header 0x1A45DFA3
+    if data.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        return Some("video/webm");
+    }
+    None
+}
+
 /// POST /api/upload
 /// Accepts multipart form with a `file` field. Any authenticated user can upload
 /// (banner, overlay, etc). Returns { fileUrl }.

@@ -43,13 +43,19 @@
 
 	/** Show a transient error banner that auto-clears after a few seconds
 	 *  (socket whiteboard:error events can otherwise linger behind the
-	 *  toolbar and read as a stuck red bar). */
+	 *  toolbar and read as a stuck red bar). Identical messages inside the
+	 *  display window are swallowed — one failure surfaces once, not per
+	 *  rejoin/patch attempt. */
+	let lastErrorMessage = '';
 	function showTransientError(message: string): void {
+		if (message === lastErrorMessage && errorMessage !== '') return;
+		lastErrorMessage = message;
 		errorMessage = message;
 		if (errorTimer) clearTimeout(errorTimer);
 		errorTimer = setTimeout(() => {
 			errorMessage = '';
 			errorTimer = null;
+			lastErrorMessage = '';
 		}, 6000);
 	}
 	let syncSession: SyncSession | null = null;

@@ -17,6 +17,15 @@ import { createCpuCanvas, type CpuCanvas } from './cpu';
  * survives the resolution drop).
  */
 
+/**
+ * Game-pace calibration: the shader constants above were tuned hot — at
+ * speed=1 the swirl ran roughly 5x faster than the actual game reads.
+ * All speed inputs (slider, presets, palette) are relative multipliers of
+ * real in-game pace; GAME_PACE converts them to shader units.
+ * speed=1 → authentic in-game feel, 0.5 → half game pace, 2 → double.
+ */
+const GAME_PACE = 0.2;
+
 const FRAG_SRC = `
 precision highp float;
 
@@ -167,7 +176,7 @@ export class JokerEffect implements AmbientEffect {
 		color3: '#162325',
 		intensity: 1,
 		size: 1,
-		speed: 1,
+		speed: 1, // 1 = authentic in-game pace (GAME_PACE applied internally)
 	};
 
 	init(canvas: HTMLCanvasElement, _config: EffectConfig): void {
@@ -190,7 +199,7 @@ export class JokerEffect implements AmbientEffect {
 	}
 
 	render(deltaTime: number, config: EffectConfig): void {
-		this.time += deltaTime / 1000;
+		this.time += (deltaTime / 1000) * GAME_PACE;
 		const size = config.size ?? 1;
 		const speed = config.speed ?? 1;
 		const intensity = config.intensity ?? 1;
