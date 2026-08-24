@@ -75,6 +75,17 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            // Self-selected presence (active/away/busy/invisible). Invisible
+            // broadcasts masked as "offline". Clients re-assert their stored
+            // choice after every (re)connect via this same event.
+            socket.on("set-presence", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_set_presence(socket, data, s, io).await }
+                }
+            });
+
             socket.on("rejoin", |socket: SocketRef, Data(_session_id): Data<String>| async move {
                 let _ = socket.emit("rejoin-failed", &json!({ "reason": "sessions not persisted" }));
             });

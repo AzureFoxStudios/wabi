@@ -581,7 +581,6 @@ async fn on_update_profile(
 /// Handle `set-presence`: update this socket's self-selected presence
 /// (active/away/busy/invisible) and broadcast the masked view. Invisible is
 /// emitted as "offline" so no observer can distinguish it from a real leave.
-#[allow(dead_code)]
 async fn on_set_presence(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let Some(identity) = resolve_sio_identity(&socket) else {
         let _ = socket.emit("presence-rejected", &json!({ "reason": "authentication required" }));

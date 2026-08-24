@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
-	import { currentUser, updateProfile, roleDefinitions, getSocket } from '$lib/socket';
+	import { currentUser, roleDefinitions, getSocket } from '$lib/socket';
 	import { isMuted as callMuted, isDeafened as callDeafened, toggleMute, toggleDeafen, isInCall, endCall } from '$lib/calling';
 	import { clearActiveCustomStatusPreset, customStatusPresetsStore, getActiveCustomStatusPreset } from '$lib/customStatusPresets';
+	import { selectPresence, getStoredPresence, maskedStatus, type PresenceState } from '$lib/presenceControl';
 	import { FALLBACK_ROLE_LABELS } from './channelSidebarHelpers';
 
 	export let sidebarWidth: number;
@@ -15,6 +16,11 @@
 
 	const BANNER_VISIBILITY_KEY = 'wabi:profile:visibility';
 
+	// Self-selected presence (not the broadcast status): invisible is kept
+	// locally so the picker can re-highlight it even though everyone else
+	// (including our own roster row) sees "offline".
+	let selectedPresence: PresenceState = getStoredPresence();
+
 	onMount(() => {
 		try {
 			const raw = localStorage.getItem(BANNER_VISIBILITY_KEY);
@@ -25,6 +31,17 @@
 			// ignore malformed local state
 		}
 	});
+
+	function onDocClick(event: MouseEvent): void {
+		if (!showStatusPopup) return;
+		const card = document.querySelector('.profile-card');
+		if (card && !card.contains(event.target as Node)) showStatusPopup = false;
+	}
+
+	$: cardBannerUrl =
+		$currentUser?.bannerUrl && !disableAllBanners
+			? $currentUser.bannerUrl
+			: '';
 
 	$: currentUserRoleLabel = (() => {
 		if (!$currentUser) return '';
@@ -47,67 +64,38 @@
 	})();
 	$: avatarInitial = (displayUsername.charAt(0) || 'G').toUpperCase();
 
-	// PR4: richer status/activity line — status label + active custom status preset.
-	$: activityLabel = (() => {
-		const status = $currentUser?.status;
-		if (status === 'away') return 'Away';
-		if (status === 'busy') return 'Busy';
-		if (status === 'offline') return 'Offline';
-		return 'Active';
-	})();
+	// The dot mirrors the MASKED view (invisible → offline/grey), matching
+	// what everyone else sees. The label line only carries the custom status.
+	$: visibleStatus = selectedPresence === 'active' && !$currentUser?.status
+		? 'active'
+		: maskedStatus(selectedPresence);
+
 	$: activeCustomStatus = getActiveCustomStatusPreset($customStatusPresetsStore);
-	$: cardBannerUrl =
-		$currentUser?.bannerUrl && !disableAllBanners
-			? $currentUser.bannerUrl
-			: '';
 
 	function openProfilePopout(event: Event): void {
 		dispatch('openProfilePopout', event);
 	}
 
-	function toggleStatus() {
+	function toggleStatusPopup(): void {
 		showStatusPopup = !showStatusPopup;
 	}
 
-	function changeStatus(newStatus: 'active' | 'away' | 'busy') {
+	const PRESENCE_OPTIONS: Array<{ value: PresenceState; label: string; colorVar: string }> = [
+		{ value: 'active', label: 'Online', colorVar: 'var(--status-online)' },
+		{ value: 'away', label: 'Away', colorVar: 'var(--status-away)' },
+		{ value: 'busy', label: 'Do Not Disturb', colorVar: 'var(--status-busy)' },
+		{ value: 'invisible', label: 'Invisible', colorVar: 'var(--status-offline)' }
+	];
+
+	function changePresence(presence: PresenceState): void {
+		selectedPresence = presence;
 		clearActiveCustomStatusPreset();
-		updateProfile({ status: newStatus });
+		selectPresence(presence);
 		showStatusPopup = false;
 	}
-
-	// -- Removed from the bottom-left profile card (relocated elsewhere later).
-	//    The code is kept so the functionality can be re-homed, not lost.
-	// function copyUserId(): void {
-	// 	const id = $currentUser?.id;
-	// 	if (!id || !navigator.clipboard) return;
-	// 	navigator.clipboard.writeText(id).catch(() => {});
-	// }
-	//
-	// function copyMention(): void {
-	// 	const handle = ($currentUser?.handle || '').trim();
-	// 	const mention = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
-	// 	if (!mention || !navigator.clipboard) return;
-	// 	navigator.clipboard.writeText(mention).catch(() => {});
-	// }
-	//
-	// function shareProfile(): void {
-	// 	const handle = ($currentUser?.handle || '').trim();
-	// 	const identity = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : displayUsername;
-	// 	const text = `${identity} on ${brandName}`;
-	// 	const url = `${resolveServerUrl().url}/@${handle || displayUsername}`;
-	// 	if (navigator.share) {
-	// 		navigator.share({ title: identity, text, url }).catch(() => {
-	// 			navigator.clipboard.writeText(url).catch(() => {});
-	// 		});
-	// 	} else if (navigator.clipboard) {
-	// 		navigator.clipboard.writeText(url).then(() => {
-	// 			// Brief visual feedback
-	// 			shareCopied = true;
-	// 			setTimeout(() => shareCopied = false, 2000);
-	// 		}).catch(() => {});
-	// 	}
-	// }
 </script>
+
+<svelte:document on:click={onDocClick} />
 
 {#if $currentUser}
 	<div class="profile-card">
@@ -123,49 +111,56 @@
 						{avatarInitial}
 					</div>
 				{/if}
-				<div class="status-indicator" class:online={$currentUser.status === 'active'} class:away={$currentUser.status === 'away'} class:busy={$currentUser.status === 'busy'}></div>
-			</button>
-			<div class="user-details">
-				<div
-					class="username"
+				<span
+					class="status-indicator presence-toggle"
+					class:online={visibleStatus === 'active'}
+					class:away={visibleStatus === 'away'}
+					class:busy={visibleStatus === 'busy'}
+					class:offline={visibleStatus === 'offline'}
 					role="button"
 					tabindex="0"
-					on:click={toggleStatus}
+					on:click|stopPropagation={toggleStatusPopup}
 					on:keydown={(event) => {
 						if (event.key === 'Enter' || event.key === ' ') {
 							event.preventDefault();
-							toggleStatus();
+							event.stopPropagation();
+							toggleStatusPopup();
 						}
 					}}
-				>
+					title="Set presence"
+					aria-label={`Presence: ${PRESENCE_OPTIONS.find((o) => o.value === selectedPresence)?.label ?? visibleStatus}. Change presence.`}
+					aria-expanded={showStatusPopup}
+					aria-haspopup="menu"
+				></span>
+			</button>
+			<div class="user-details">
+				<div class="username">
 					<span class="username-text">{displayUsername}</span>
 					<span class="self-role-badge">{currentUserRoleLabel}</span>
 				</div>
 				<div class="user-tag">@{displayHandle}</div>
-				<div class="activity-line">
-					<span class="activity-dot" class:away={$currentUser.status === 'away'} class:busy={$currentUser.status === 'busy'} class:offline={$currentUser.status === 'offline'}></span>
-					<span class="activity-label">{activityLabel}</span>
-					{#if activeCustomStatus?.label}
+				{#if activeCustomStatus?.label}
+					<div class="activity-line">
 						<span class="activity-status">{activeCustomStatus.label}</span>
-					{/if}
-				</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 
 		{#if showStatusPopup}
-			<div class="status-popup">
-				<button class="status-option active" on:click={() => changeStatus('active')}>
-					<span class="status-dot" style="background-color: var(--status-online)"></span>
-					Active
-				</button>
-				<button class="status-option away" on:click={() => changeStatus('away')}>
-					<span class="status-dot" style="background-color: var(--status-away)"></span>
-					Away
-				</button>
-				<button class="status-option busy" on:click={() => changeStatus('busy')}>
-					<span class="status-dot" style="background-color: var(--status-busy)"></span>
-					Busy
-				</button>
+			<div class="status-popup" role="menu" aria-label="Select presence">
+				{#each PRESENCE_OPTIONS as option (option.value)}
+					<button
+						class="status-option"
+						class:selected={selectedPresence === option.value}
+						on:click={() => changePresence(option.value)}
+						role="menuitem"
+					>
+						<span class="status-dot" style="background-color: {option.colorVar}"></span>
+						{option.label}
+						{#if selectedPresence === option.value}<span class="status-check">✓</span>{/if}
+					</button>
+				{/each}
 			</div>
 		{/if}
 		<div class="profile-controls">
@@ -203,7 +198,7 @@
 					on:click={() => dispatch('openSettings')}
 					title="User Settings"
 				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
 				</button>
 				{#if $isInCall}
 					<button

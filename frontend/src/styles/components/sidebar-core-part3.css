@@ -138,6 +138,46 @@
 	}
 
 
+	/* Presence picker trigger on the BL profile avatar. Sized to the same
+	   visual scale as the popup's .status-dot family (14px incl. border on a
+	   36px avatar) instead of the old tiny 10px pin. The ::after extends the
+	   click target without changing the visual size. */
+	.status-indicator.presence-toggle {
+		width: 14px;
+		height: 14px;
+		right: -2px;
+		bottom: -2px;
+		cursor: pointer;
+	}
+
+	.status-indicator.presence-toggle::after {
+		content: '';
+		position: absolute;
+		inset: -5px;
+		border-radius: 50%;
+	}
+
+	.status-indicator.presence-toggle:hover {
+		transform: scale(1.15);
+	}
+
+	.status-indicator.presence-toggle:focus-visible {
+		outline: 2px solid var(--accent-primary, #6366f1);
+		outline-offset: 2px;
+	}
+
+	.status-option.selected {
+		background: var(--surface-hover);
+		font-weight: 600;
+	}
+
+	.status-option .status-check {
+		margin-left: auto;
+		color: var(--accent-primary, #6366f1);
+		font-size: var(--text-base);
+	}
+
+
 	.username {
 		font-size: var(--text-base);
 		font-weight: 600;
