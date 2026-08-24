@@ -36,6 +36,7 @@ pub enum BgMsg {
     Info(String),
     LiveConnected,
     LiveDisconnected(String),
+    LiveAuthFailed(String),
     LiveMessage {
         channel_id: String,
         message: Message,
@@ -204,6 +205,13 @@ pub struct ServerStats {
     pub total_emojis: u64,
     pub total_messages: u64,
     pub open_reports: u64,
+    /// Extended counters from the server's `extra` object.
+    /// (registered/bot/active users, 24h-seen, channels-by-kind)
+    pub registered_users: Option<u64>,
+    pub bot_users: Option<u64>,
+    pub active_users: Option<u64>,
+    pub users_seen_24h: Option<u64>,
+    pub channels_by_kind: Vec<(String, u64)>,
 }
 
 impl App {
@@ -322,6 +330,10 @@ impl App {
         let mut direct: Vec<&Channel> = Vec::new();
         let mut rest: Vec<&Channel> = Vec::new();
         for c in &self.channels {
+            // Category rows are containers, never selectable surfaces.
+            if matches!(c.kind, ChannelKind::Category) {
+                continue;
+            }
             if !(q.is_empty()
                 || c.name.to_lowercase().contains(&q)
                 || c.channel_type.to_lowercase().contains(&q))
@@ -574,6 +586,18 @@ impl App {
                     // Poll loop re-engages automatically via live_ok guard.
                     self.status = "POLL · live offline".into();
                     self.log(format!("live disconnected: {reason}"));
+                }
+                BgMsg::LiveAuthFailed(reason) => {
+                    // Server rejected the JWT at handshake. Drop the dead
+                    // token and require a fresh login instead of flapping.
+                    self.log(format!("live auth failed: {reason} — re-login required"));
+                    self.config.token = None;
+                    let _ = self.config.save();
+                    self.api.clear_token();
+                    self.user = None;
+                    self.mode = AppMode::Login;
+                    self.login_field = 0;
+                    self.status = "Session expired — press Enter to log in".into();
                 }
                 BgMsg::LiveMessage {
                     channel_id,

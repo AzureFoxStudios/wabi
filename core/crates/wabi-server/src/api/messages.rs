@@ -101,15 +101,19 @@ struct MessageResponse {
 
 /// Convert a WDB typed `Message` to the JSON `MessageResponse` shape.
 /// WDB stores `created_at_micros` / `edited_at_micros`; the frontend wants
-/// milliseconds. `author_device_id` is the best we have for a "display name"
-/// — the WDB `Message` doesn't carry a username; for v1 the frontend can
-/// do a second lookup via `wdb.get_user(author_user_id)` to enrich it.
-fn message_to_response(m: wabidb::domain::Message) -> MessageResponse {
+/// milliseconds. `username` is resolved by the caller (get_messages enriches
+/// author ids via wdb.get_user); falls back to `author_device_id` when the
+/// caller has no better name.
+fn message_to_response(m: wabidb::domain::Message, username: String) -> MessageResponse {
     MessageResponse {
         id: m.message_id,
         channel_id: m.channel_id,
         user_id: m.author_user_id.to_string(),
-        username: m.author_device_id,
+        username: if username.is_empty() {
+            m.author_device_id
+        } else {
+            username
+        },
         content: m.content,
         message_type: m.message_type,
         created_at: m.created_at_micros / 1000,
@@ -136,9 +140,28 @@ async fn get_messages(
         .list_messages_typed(&channel_id, limit)
         .await?;
 
+    // Resolve author ids → usernames once per response. The WDB `Message`
+    // carries only `author_user_id`; without this enrichment clients see a
+    // bare numeric id where a display name belongs.
+    let mut name_by_id: std::collections::HashMap<u64, String> =
+        std::collections::HashMap::new();
+    let distinct_ids: Vec<u64> = {
+        let mut seen: std::collections::HashSet<u64> =
+            wdb_messages.iter().map(|m| m.author_user_id).collect();
+        seen.into_iter().collect()
+    };
+    for id in distinct_ids {
+        if let Ok(Some(u)) = state.wdb.get_user(id).await {
+            name_by_id.insert(id, u.username);
+        }
+    }
+
     let messages: Vec<MessageResponse> = wdb_messages
         .into_iter()
-        .map(message_to_response)
+        .map(|m| {
+            let username = name_by_id.get(&m.author_user_id).cloned().unwrap_or_default();
+            message_to_response(m, username)
+        })
         .collect();
 
     let has_more = messages.len() as u64 >= limit;

@@ -19,6 +19,14 @@ pub enum ChannelKind {
     Lore,
     Whiteboard,
     Announcement,
+    Planning,
+    Wiki,
+    Forum,
+    Gallery,
+    Incident,
+    Reception,
+    /// Category containers are hidden from the list, not selectable.
+    Category,
     Other,
 }
 
@@ -34,7 +42,14 @@ impl ChannelKind {
             "lore" => ChannelKind::Lore,
             "whiteboard" => ChannelKind::Whiteboard,
             "announcement" => ChannelKind::Announcement,
-            _ => ChannelKind::Text,
+            "planning" => ChannelKind::Planning,
+            "wiki" => ChannelKind::Wiki,
+            "forum" => ChannelKind::Forum,
+            "gallery" => ChannelKind::Gallery,
+            "incident" => ChannelKind::Incident,
+            "reception" => ChannelKind::Reception,
+            "category" => ChannelKind::Category,
+            _ => ChannelKind::Other,
         }
     }
 
@@ -48,8 +63,28 @@ impl ChannelKind {
             ChannelKind::Lore => "book:",
             ChannelKind::Whiteboard => "wb:",
             ChannelKind::Announcement => "ann:",
+            ChannelKind::Planning => "plan:",
+            ChannelKind::Wiki => "wiki:",
+            ChannelKind::Forum => "forum:",
+            ChannelKind::Gallery => "gal:",
+            ChannelKind::Incident => "inc:",
+            ChannelKind::Reception => "desk:",
+            // Categories are containers, not surfaces; hidden from the list.
+            ChannelKind::Category => "",
             ChannelKind::Other => "#",
         }
+    }
+
+    /// Surfaces the TUI can actually render as a message stream today.
+    pub fn is_text_like(&self) -> bool {
+        matches!(
+            self,
+            ChannelKind::Text
+                | ChannelKind::Dm
+                | ChannelKind::Group
+                | ChannelKind::Announcement
+                | ChannelKind::Other
+        )
     }
 }
 
@@ -145,6 +180,8 @@ struct RegisteredUserRow {
 #[derive(Deserialize)]
 struct DashboardStatsResponse {
     overview: StatsOverview,
+    #[serde(default)]
+    extra: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -373,6 +410,22 @@ impl ApiClient {
             anyhow::bail!("Admin stats failed: {t}");
         }
         let data: DashboardStatsResponse = resp.json().await.context("parse admin stats")?;
+        // Extended counters live in the server's `extra` object; tolerate
+        // older servers that omit it.
+        let extra: &serde_json::Value = &data.extra;
+        let channels_by_kind = extra
+            .get("channelsByKind")
+            .and_then(|v| v.as_object())
+            .map(|m| {
+                let mut pairs: Vec<(String, u64)> = m
+                    .iter()
+                    .filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n)))
+                    .collect();
+                pairs.sort_by(|a, b| b.1.cmp(&a.1));
+                pairs
+            })
+            .unwrap_or_default();
+        let u64_at = |key: &str| extra.get(key).and_then(|v| v.as_u64());
         Ok(ServerStats {
             total_users: data.overview.total_users,
             online_users: data.overview.online_users,
@@ -383,6 +436,11 @@ impl ApiClient {
             total_emojis: data.overview.total_emojis,
             total_messages: data.overview.total_messages,
             open_reports: data.overview.open_reports,
+            registered_users: u64_at("registeredUsers"),
+            bot_users: u64_at("botUsers"),
+            active_users: u64_at("activeUsers"),
+            users_seen_24h: u64_at("usersSeenLast24h"),
+            channels_by_kind,
         })
     }
 
