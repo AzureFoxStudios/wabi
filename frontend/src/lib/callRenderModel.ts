@@ -201,6 +201,15 @@ export function getInitial(label: string): string {
 }
 
 /**
+ * Normalize a relay/lane user key to the stable id form the UI tiles use
+ * (`user-<dbId>`). The lane stores streams under the raw envelope userId
+ * (e.g. "2"), but buildWabidbAwareParticipants looks up `user-2`.
+ */
+function toStableUserKey(userId: string): string {
+	return /^\d+$/.test(userId) ? `user-${userId}` : userId;
+}
+
+/**
  * Overlay wabidb relay video onto the P2P-derived participant list.
  *
  * The wabidb video lane decodes remote frames into per-user MediaStreams
@@ -228,8 +237,9 @@ export function buildWabidbAwareParticipants(
 			return participant;
 		}
 
-		// Remote tiles: match by stable id (`user-<dbId>`) or raw id.
-		const remote = remoteStreams.get(participant.id);
+		// Remote tiles: match by stable id (`user-<dbId>`) or raw id. The lane
+		// keys streams by raw envelope userId, so try the normalized form too.
+		const remote = remoteStreams.get(participant.id) ?? remoteStreams.get(toStableUserKey(participant.id));
 		const memberRow = Object.values(voiceMembersByChannel)
 			.flat()
 			.find((m) => m.userId === participant.id);
