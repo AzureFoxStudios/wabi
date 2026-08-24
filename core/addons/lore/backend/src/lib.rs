@@ -388,11 +388,30 @@ async fn etag_cached(
 /// Path of a cached file version:
 /// `<lore_data_dir>/<channel_id>.revcache/<revision>/<repo_path>`.
 /// Lives OUTSIDE the working tree so `lore status` never sees it.
-fn rev_cache_path(lore_data_dir: &std::path::Path, channel_id: i64, revision: &str, repo_path: &str) -> PathBuf {
-    lore_data_dir
+fn rev_cache_path(
+    lore_data_dir: &std::path::Path,
+    channel_id: i64,
+    revision: &str,
+    repo_path: &std::path::Path,
+) -> anyhow::Result<PathBuf> {
+    // Both components are user-controlled and get joined under the lore data
+    // dir. A revision must be a single safe segment; the path component is
+    // already sanitized by the caller but we re-check defense-in-depth.
+    if revision.is_empty()
+        || revision.len() > 128
+        || revision.contains('/')
+        || revision.contains('\\')
+        || revision == ".."
+        || revision.contains('\0')
+        || !revision.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    {
+        anyhow::bail!("invalid revision identifier '{revision}'");
+    }
+    let _ = sanitize_repo_path(repo_path.to_string_lossy().as_ref())?;
+    Ok(lore_data_dir
         .join(format!("{}.revcache", channel_id))
         .join(revision)
-        .join(repo_path)
+        .join(repo_path))
 }
 
 /// Best-effort copy of a just-committed file version into the revision
@@ -407,7 +426,13 @@ async fn cache_revision_content(
     if revision.is_empty() {
         return;
     }
-    let dest = rev_cache_path(lore_data_dir, channel_id, revision, repo_path);
+    let dest = match rev_cache_path(lore_data_dir, channel_id, revision, std::path::Path::new(repo_path)) {
+        Ok(dest) => dest,
+        Err(e) => {
+            warn!(error = %e, repo_path, "revcache: invalid path/revision");
+            return;
+        }
+    };
     if let Some(parent) = dest.parent() {
         if let Err(e) = tokio::fs::create_dir_all(parent).await {
             warn!(error = %e, repo_path, "revcache: create dir failed");
@@ -1053,13 +1078,15 @@ impl LoreService {
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+        // P0 hardening: reject traversal/absolute paths before joining.
+        let safe_path = sanitize_repo_path(repo_path)?;
         let base = if repo.read_only() {
             self.ensure_mirror_cache(&repo).await?
         } else {
             self.sync_repo(&repo).await?;
             repo.working_tree.clone()
         };
-        let full = base.join(repo_path);
+        let full = base.join(&safe_path);
         if !tokio::fs::try_exists(&full).await.unwrap_or(false) {
             return Ok(None);
         }
@@ -1080,8 +1107,9 @@ impl LoreService {
         if !repo.read_only() {
             anyhow::bail!("channel {channel_id} is not an external mirror repo");
         }
+        let safe_path = sanitize_repo_path(repo_path)?;
         let cache = self.ensure_mirror_cache(&repo).await?;
-        let full = cache.join(repo_path);
+        let full = cache.join(&safe_path);
         if !full.exists() {
             anyhow::bail!(
                 "file '{}' not found in mirror repo for channel {channel_id}",
@@ -1112,6 +1140,11 @@ impl LoreService {
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
         self.ensure_writable(&repo)?;
+
+        // P0 hardening: reject traversal/absolute/control paths before any
+        // filesystem or lore CLI touch. The string stays borrowed — it was
+        // proven safe above, so joining it below cannot escape the tree.
+        sanitize_repo_path(repo_path)?;
 
         // Reject ignored paths BEFORE touching the working tree or creating a
         // review branch — a late rejection used to leave the uploaded bytes
@@ -1273,12 +1306,19 @@ impl LoreService {
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
 
-        if let Some(rev) = revision.filter(|r| !r.is_empty()) {
+        // P0 hardening: path + revision are user-controlled.
+        let safe_path = sanitize_repo_path(repo_path)?;
+        let safe_rev = match revision.filter(|r| !r.is_empty()) {
+            Some(r) => Some(sanitize_revision_arg(r)?),
+            None => None,
+        };
+
+        if let Some(rev) = safe_rev.as_deref() {
             if repo.read_only() {
                 anyhow::bail!("revision pinning is not supported for read-only mirror repos");
             }
             let cached =
-                rev_cache_path(&self.config.lore_data_dir, channel_id, rev, repo_path);
+                rev_cache_path(&self.config.lore_data_dir, channel_id, rev, &safe_path)?;
             if !cached.exists() {
                 anyhow::bail!(
                     "no cached content for '{repo_path}' at revision '{rev}' \
@@ -1323,15 +1363,17 @@ impl LoreService {
 
         // Mirror repos: read from the lazily fetched git cache.
         if repo.read_only() {
+            let safe_path = sanitize_repo_path(repo_path)?;
             let cache = self.ensure_mirror_cache(&repo).await?;
-            let full = cache.join(repo_path);
+            let full = cache.join(&safe_path);
             let content = tokio::fs::read_to_string(&full).await.map_err(|e| {
                 anyhow::anyhow!("read '{repo_path}' from mirror repo: {e}")
             })?;
             return Ok(content);
         }
 
-        let content = tokio::fs::read_to_string(repo.working_tree.join(repo_path)).await?;
+        let safe_path = sanitize_repo_path(repo_path)?;
+        let content = tokio::fs::read_to_string(repo.working_tree.join(&safe_path)).await?;
         Ok(content)
     }
 
@@ -1433,6 +1475,7 @@ impl LoreService {
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+        sanitize_repo_path(repo_path)?;
 
         // Mirror repos are read-only: the working tree IS the fetched upstream
         // state, so there is never a local-vs-head diff. Report empty rather
@@ -1820,8 +1863,12 @@ impl LoreService {
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
         self.ensure_writable(&repo)?;
 
+        // P0 hardening: reject traversal/absolute paths before any filesystem
+        // or lore CLI touch.
+        let safe_path = sanitize_repo_path(repo_path)?;
+
         // Remove file from working tree
-        let file_path = repo.working_tree.join(repo_path);
+        let file_path = repo.working_tree.join(&safe_path);
         if file_path.exists() {
             tokio::fs::remove_file(&file_path).await?;
         }
@@ -1857,6 +1904,7 @@ impl LoreService {
         channel_id: i64,
         repo_path: &str,
     ) -> anyhow::Result<Vec<LoreRevision>> {
+        sanitize_repo_path(repo_path)?;
         self.file_history(channel_id, repo_path).await
     }
 
@@ -1873,6 +1921,11 @@ impl LoreService {
             .get_repo(channel_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+
+        // P0 hardening: all three arguments reach the lore/git command line.
+        sanitize_repo_path(repo_path)?;
+        sanitize_revision_arg(from)?;
+        sanitize_revision_arg(to)?;
 
         // Mirror repos: both revisions are git objects in the fetch cache, so
         // diff with git directly.
@@ -1973,6 +2026,7 @@ impl LoreService {
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
         self.ensure_writable(&repo)?;
+        sanitize_repo_path(repo_path)?;
 
         let locked_at = chrono::Utc::now().to_rfc3339();
 
@@ -2026,6 +2080,7 @@ impl LoreService {
             .await
             .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
         self.ensure_writable(&repo)?;
+        sanitize_repo_path(repo_path)?;
 
         // Embedded mode has no server — no-op.
         if matches!(self.config.mode, LoreMode::Embedded) {
@@ -2337,6 +2392,68 @@ fn sanitize_username(author_id: i64) -> String {
         .collect()
 }
 
+/// Validate a user-supplied repo-relative path BEFORE joining it into any
+/// working tree. Raw `Path::join` used to let `../` escapes reach the host
+/// filesystem on every upload/download/delete/lock/diff route (audit P0).
+///
+/// Returns the normalized relative path on success.
+pub(crate) fn sanitize_repo_path(repo_path: &str) -> anyhow::Result<std::path::PathBuf> {
+    const MAX_LEN: usize = 1024;
+    if repo_path.is_empty() {
+        anyhow::bail!("path must not be empty");
+    }
+    if repo_path.len() > MAX_LEN {
+        anyhow::bail!("path exceeds {MAX_LEN} characters");
+    }
+    if repo_path.contains('\0') || repo_path.chars().any(|c| c.is_control()) {
+        anyhow::bail!("path contains control characters");
+    }
+    // Backslash is a Windows separator — never meaningful inside a Wabi
+    // repo path, and it would smuggle `..\` traversal through a join.
+    if repo_path.contains('\\') {
+        anyhow::bail!("path must use '/' separators");
+    }
+    let candidate = std::path::Path::new(repo_path);
+    if candidate.is_absolute() {
+        anyhow::bail!("absolute paths are not allowed ('{repo_path}')");
+    }
+    use std::path::Component;
+    for comp in candidate.components() {
+        match comp {
+            Component::ParentDir => {
+                anyhow::bail!("path traversal is not allowed ('{repo_path}')");
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                anyhow::bail!("absolute paths are not allowed ('{repo_path}')");
+            }
+            Component::CurDir => {}
+            Component::Normal(_) => {}
+        }
+    }
+    Ok(candidate.to_path_buf())
+}
+
+/// Validate a revision-ish argument passed to the lore/git CLI (`from`,
+/// `to`, revision pins). These are hashes, branch names, or the literal
+/// `HEAD`/`working` — never paths, so `/` is allowed (review branches look
+/// like `uploads/user-1-1724…`) while whitespace, control characters,
+/// flag-shaped prefixes, and absurd lengths are rejected.
+pub(crate) fn sanitize_revision_arg(arg: &str) -> anyhow::Result<String> {
+    if arg.is_empty() {
+        anyhow::bail!("revision argument must not be empty");
+    }
+    if arg.len() > 256 {
+        anyhow::bail!("revision argument too long");
+    }
+    if arg.starts_with('-') {
+        anyhow::bail!("revision arguments may not start with '-'");
+    }
+    if arg.chars().any(|c| c.is_control() || c == '\0' || c.is_whitespace()) {
+        anyhow::bail!("revision argument contains invalid characters");
+    }
+    Ok(arg.to_string())
+}
+
 /// Parse revision info from `lore commit` output.
 ///
 /// Lore writes prose progress lines ("Fragmenting files…", "Committing…")
@@ -2632,11 +2749,43 @@ Date      : Sat, 8 Aug 2026 03:05:43 +0000
 
         let rev = "abc123";
         cache_revision_content(dir.path(), 225, rev, "src/main.rs", &tree).await;
-        let cached = rev_cache_path(dir.path(), 225, rev, "src/main.rs");
+        let cached = rev_cache_path(dir.path(), 225, rev, "src/main.rs".as_ref()).unwrap();
         let content = tokio::fs::read(&cached).await.unwrap();
         assert_eq!(content, b"fn main() {}");
         // Outside the working tree, so lore status never sees it.
         assert!(cached.starts_with(dir.path().join("225.revcache")));
+    }
+
+    #[test]
+    fn test_sanitize_repo_path_rejects_traversal_and_absolute() {
+        assert!(sanitize_repo_path("../etc/passwd").is_err());
+        assert!(sanitize_repo_path("a/../../b").is_err());
+        assert!(sanitize_repo_path("/etc/passwd").is_err());
+        assert!(sanitize_repo_path("..\\windows\\system32").is_err());
+        assert!(sanitize_repo_path("foo\0bar").is_err());
+        assert!(sanitize_repo_path("").is_err());
+        assert!(sanitize_repo_path("src/main.rs").is_ok());
+        assert!(sanitize_repo_path("./src/main.rs").is_ok());
+        assert!(sanitize_repo_path(".hidden").is_ok());
+    }
+
+    #[test]
+    fn test_sanitize_revision_arg_rules() {
+        assert!(sanitize_revision_arg("abc123").is_ok());
+        assert!(sanitize_revision_arg("HEAD").is_ok());
+        assert!(sanitize_revision_arg("uploads/user-1-1724").is_ok());
+        assert!(sanitize_revision_arg("-oProxyCommand=x").is_err());
+        assert!(sanitize_revision_arg("a b").is_err());
+        assert!(sanitize_revision_arg("").is_err());
+    }
+
+    #[test]
+    fn test_rev_cache_path_rejects_bad_revision_segments() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(rev_cache_path(dir.path(), 1, "../evil", "x.txt".as_ref()).is_err());
+        assert!(rev_cache_path(dir.path(), 1, "a/b", "x.txt".as_ref()).is_err());
+        assert!(rev_cache_path(dir.path(), 1, "..", "x.txt".as_ref()).is_err());
+        assert!(rev_cache_path(dir.path(), 1, "abc123", "x.txt".as_ref()).is_ok());
     }
 
     #[test]
