@@ -103,6 +103,7 @@ function dedupeByIdKey<T extends { id?: string | null }>(items: T[]): T[] {
 import {
 	users,
 	serverMembers,
+	currentUser,
 	voiceChannelMembers,
 	_setUsers,
 	_setCurrentUser,
@@ -116,6 +117,7 @@ import {
 	_mergeCurrentUserProfile
 } from './presenceStore';
 import { _setTypingUsers, _clearTypingUsers } from './typingStore';
+import { restorePresence } from './presenceControl';
 import { incomingCall, outgoingCall } from './callingStateStores';
 
 /**
@@ -620,6 +622,10 @@ export class SocketManager {
 			_setServerMembers(payload?.serverMembers || []);
 			_setRoleDefinitions((payload?.roleDefinitions || []) as any[]);
 
+			// Re-assert the locally stored presence choice (away/busy/invisible
+			// survive reloads and reconnects; active is the server default).
+			restorePresence();
+
 			const allUsers = [
 				...normalizeUserList(payload?.users),
 				...normalizeUserList(payload?.serverMembers)
@@ -988,6 +994,22 @@ export class SocketManager {
 				usernameFont: user.usernameFont,
 				bio: user.bio
 			});
+		});
+
+		// Self-selected presence broadcasts (namespace-wide, already masked:
+		// invisible arrives as "offline"). Match by dbUserId when present —
+		// the sender's socket id differs from roster ids.
+		sock.on('presence-changed', (payload: { id?: string; dbUserId?: number; status?: string }) => {
+			if (!payload?.status) return;
+			const matches = (u: { id: string; dbUserId?: number | null }): boolean =>
+				(payload.dbUserId != null && u.dbUserId === payload.dbUserId) ||
+				(payload.id != null && u.id === payload.id);
+			const applyStatus = (u: User & { dbUserId?: number | null }): User =>
+				matches(u) ? { ...u, status: payload.status as User['status'] } : u;
+			users.update((list) => list.map(applyStatus));
+			serverMembers.update((list) => list.map(applyStatus));
+			const me = get(currentUser);
+			if (me && matches(me)) currentUser.set({ ...me, status: payload.status as User['status'] });
 		});
 
 		sock.on('profile-updated', (user: User) => {
