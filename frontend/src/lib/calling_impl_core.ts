@@ -1133,6 +1133,15 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			incomingCall.set(null);
 		}
 		pushVoiceChannelNotice(`Joined voice: ${channelId}`);
+		// Presence BEFORE transport: the server's wabidb room authorization
+		// (Phase 1 hardening) checks the voice roster, so the join/subscribe
+		// must land before join-wabidb-call or the relay join is denied.
+		if (listenOnly) {
+			socket.emit('voice-channel-subscribe', { channelId });
+		} else {
+			socket.emit('voice-channel-join', { channelId });
+			socket.emit('voice-channel-subscribe', { channelId });
+		}
 		// T2: declarative fallback chain — previously a wabidb failure here was
 		// caught + logged with NO fallback (user silently deaf).
 		const rosterSize = get(voiceChannelMembers)[channelId]?.length ?? 1;
@@ -1154,12 +1163,6 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		});
 		syncSpatialAudioGraph();
 		playCallActionSound('join');
-		if (listenOnly) {
-			socket.emit('voice-channel-subscribe', { channelId });
-		} else {
-			socket.emit('voice-channel-join', { channelId });
-			socket.emit('voice-channel-subscribe', { channelId });
-		}
 		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
@@ -1304,6 +1307,14 @@ export async function handleForcedVoiceMove(
 		channels.includes(toChannelId) ? channels : [...channels, toChannelId]
 	));
 
+	// Presence BEFORE transport (Phase 1 hardening): the server authorizes
+	// wabidb room joins against the voice roster, so the join/subscribe must
+	// land before the relay connects or the room join is denied.
+	if (isPrimary) {
+		socket.emit('voice-channel-join', { channelId: toChannelId });
+	}
+	socket.emit('voice-channel-subscribe', { channelId: toChannelId });
+
 	if (get(sfuMediaActive)) {
 		await disconnectLivekitSfu();
 		if (captureHere) {
@@ -1318,7 +1329,6 @@ export async function handleForcedVoiceMove(
 	}
 
 	if (isPrimary) {
-		socket.emit('voice-channel-join', { channelId: toChannelId });
 		// Server-side join resets the roster transmit mode to "primary";
 		// re-assert an active broadcast routing so the roster stays honest.
 		if (get(voiceTransmitMode) === 'all-listening') {
@@ -1327,7 +1337,6 @@ export async function handleForcedVoiceMove(
 		pushVoiceChannelNotice(`Moved to ${toChannelId}`);
 		playCallActionSound('join');
 	}
-	socket.emit('voice-channel-subscribe', { channelId: toChannelId });
 	syncSpatialAudioGraph();
 }
 
