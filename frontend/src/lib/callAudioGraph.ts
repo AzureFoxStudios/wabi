@@ -16,7 +16,11 @@
  * outside the browser, so unit tests can import this module freely.
  */
 
-import { browser } from '$app/environment';
+// Browser guard without $app/environment — this module is imported (via the
+// relay) from bun:test, which cannot resolve SvelteKit virtual modules.
+const isBrowserAudioAvailable = (): boolean =>
+	typeof window !== 'undefined' &&
+	typeof (window as typeof window & { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext !== 'undefined';
 
 interface SessionChain {
 	input: GainNode;
@@ -36,13 +40,18 @@ export interface CallAudioGraphHandle {
 
 /** Lazily create the shared context + master. Null outside the browser. */
 export function ensureCallAudioGraph(): CallAudioGraphHandle | null {
-	if (!browser) return null;
+	if (!isBrowserAudioAvailable()) return null;
 	if (ctx && master) return { ctx, master };
 	try {
 		ctx =
 			ctx ??
 			new (window.AudioContext ||
-				(window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext!)();
+				(window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext!)({
+				// The wabidb relay's opus decoder emits 48kHz PCM; the old
+				// per-relay contexts were 48k — the shared one must match or
+				// every relay's playback pitch-shifts.
+				sampleRate: 48000
+			});
 		master = master ?? ctx.createGain();
 		master.gain.value = 1;
 		master.connect(ctx.destination);

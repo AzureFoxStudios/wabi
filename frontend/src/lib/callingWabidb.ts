@@ -18,6 +18,19 @@ import {
 import { getAuthToken, getStoredDbUserId } from './authSession';
 import { transportWatchdog } from './callingWatchdog';
 import { getStoredCallTransportMode } from './mediaRuntime';
+import { bindCallSessionAudio } from './callSessionManager';
+import {
+	setSessionVolume as graphSetSessionVolume,
+	detachSession as graphDetachSession
+} from './callAudioGraph';
+
+// Phase 2: session-model state changes drive the shared audio graph —
+// per-call volume/mute reach the live chains, and ending a session disposes
+// its chain even if the relay itself is already gone.
+bindCallSessionAudio({
+	onVolumeChanged: (id, effectiveVolume) => graphSetSessionVolume(id, effectiveVolume),
+	onSessionEnded: (id) => graphDetachSession(id)
+});
 import { WabidbVideoLane } from './wabidbVideoLane';
 
 // ============================================================================
@@ -285,8 +298,14 @@ export async function connectWabidbCall(
 		// caller and callee rendezvous on the same wabidb session.
 		try {
 			const { WabidbMediaRelay } = await import('./wabidbMediaRelay');
+			const { directCallSessionId } = await import('./callSessionTypes');
+			// Phase 2: the relay's audio chain id matches the CallSessionManager
+			// session id (channelId for channels/groups, direct:{peer} for DMs)
+			// so per-call volume addresses the same chain the model tracks.
+			const audioSessionId = peerUserId ? directCallSessionId(peerUserId) : targetChannelId;
 			relay = new WabidbMediaRelay({
 				sessionId: newSessionId,
+				audioSessionId,
 				userId: String(userId),
 				socket,
 				onError: (err: Error) => console.error('[WabidbMediaRelay]', err),

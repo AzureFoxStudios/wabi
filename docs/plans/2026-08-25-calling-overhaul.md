@@ -65,17 +65,22 @@ per-call sounds, keep P0 reactivity tripwires green.
 6. Integration tests per finding; `cargo test -p wabi-server`.
 
 ### Phase 2 — Multi-session CallSessionManager (goal 4)
-**Status 2026-08-25: CORE LANDED** — `callSessionTypes.ts` (types + sessionBadge),
-`callSessionManager.ts` (manager + `callSessions`/`focusedCallSessionId` stores,
-12 contract tests), `callAudioGraph.ts` (shared AudioContext, per-session
-gain→panner→master; relay worklet attach still pending), `callSounds.ts`
-per-call attribution (pitch/pan/volume). Integration: channel join/leave/move
-paths register/unregister sessions optimistically; socket roster events now
-play ATTRIBUTED join/leave sounds for connected channels only (previously
-voice channels played NO remote sounds at all — group path only). Remaining:
-(a) DM/group call registration, (b) route wabidb relay worklets through
-callAudioGraph so per-call volume is audible, (c) Phase 3/4 UI binds to
-`callSessions` via the `calling.ts` barrel exports.
+**Status 2026-08-25: COMPLETE.** `callSessionTypes.ts` (types + sessionBadge +
+`directCallSessionId`), `callSessionManager.ts` (manager + stores, focus
+handoff, audio bindings hook, 12 contract tests), `callAudioGraph.ts` (shared
+48kHz AudioContext, per-session gain→panner→master, browser-guarded without
+$app/environment so bun tests can import it), `callSounds.ts` per-call
+attribution. All call surfaces registered: channel join/leave/move,
+group `enterEstablishedGroupCall`, DM `beginEstablishedDirectCall` +
+`answerCall`; teardown via `teardownCallSessionOnly` (direct/group only,
+surviving channel inherits focus) and `finalizeLocalCallEndState` (all).
+Wabidb relays now create their playback worklet IN the shared context and
+attach to the per-session chain (`audioSessionId` = manager session id:
+channelId for channels/groups, `direct:{peer}` for DMs — matches legacy
+`directCallSessionKey`); relay stop disposes the chain but never closes the
+shared context. Volume/mute changes flow manager → graph via
+`bindCallSessionAudio` (wired in callingWabidb.ts). Socket roster events fire
+attributed join/leave sounds for connected channels only.
 - `CallSession` per connected call: kind channel/direct/group, transport
   instance, direction transmit|listen, focus focused|background|silenced,
   volume 0-100, muted/deafened, participants, streams, spatialSeats, lifecycle

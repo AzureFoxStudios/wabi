@@ -73,3 +73,12 @@ export interface RegisterCallSessionInput {
 	volume?: number;
 	participants?: CallSessionParticipant[];
 }
+
+/**
+ * Manager/graph session id for a direct (DM) call. The wabidb relay's
+ * `audioSessionId` must be the SAME string so the session model and the
+ * audio chain address one call by one id.
+ */
+export function directCallSessionId(peerStableUserId: string): string {
+	return `direct:${peerStableUserId}`;
+}

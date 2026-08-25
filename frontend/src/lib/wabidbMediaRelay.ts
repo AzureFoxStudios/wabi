@@ -11,6 +11,11 @@
 
 import OpusRecorder from 'opus-recorder';
 import { parseWabidbMediaEnvelope, type WabidbVideoLane } from './wabidbVideoLane';
+import { attachSessionSource, detachSession, ensureCallAudioGraph } from './callAudioGraph';
+
+// addModule is per-AudioContext; the shared call graph registers the playback
+// worklet once and every relay reuses it.
+const contextsWithPlaybackModule = new WeakSet<AudioContext>();
 
 // Socket.IO via socketioxide `Data<serde_json::Value>` silently DROPS binary
 // attachments (they become `{"_placeholder":true,"num":0}` placeholders and the
@@ -49,6 +54,13 @@ export interface WabidbMediaRelayConfig {
   kind?: WabidbMediaRelayKind;
   peerStableUserId?: string;
   capture?: boolean;
+  /**
+   * Phase 2: id of this call's chain in the shared audio graph (defaults to
+   * the wabidb session key). Callers pass the CallSessionManager session id
+   * (channelId / direct:{peer}) so per-call volume and the session model
+   * address the SAME chain.
+   */
+  audioSessionId?: string;
 }
 
 export function wabidbDmSessionKey(peerA: string, peerB: string): string {
@@ -90,6 +102,8 @@ interface JitterEntry {
 
 export class WabidbMediaRelay {
   private sessionId: string;
+  /** Chain id in the shared call audio graph (Phase 2 per-call volume). */
+  private audioSessionId: string;
   private userId: string;
   private socket: any;
   private onError?: (err: Error) => void;
@@ -97,6 +111,8 @@ export class WabidbMediaRelay {
   private localStream: MediaStream | null = null;
   private opusRecorder: OpusRecorder | null = null;
   private audioContext: AudioContext | null = null;
+  /** False when the context is the shared call graph's (never close it). */
+  private ownsAudioContext = true;
   private audioWorklet: AudioWorkletNode | null = null;
   private jitterBuffer: JitterEntry[] = [];
   private opusDecoder: Worker | null = null;
@@ -111,6 +127,7 @@ export class WabidbMediaRelay {
 
   constructor(cfg: WabidbMediaRelayConfig) {
     this.sessionId = resolveWabidbSessionKey(cfg.kind, cfg.sessionId, cfg.userId, cfg.peerStableUserId);
+    this.audioSessionId = cfg.audioSessionId ?? this.sessionId;
     this.userId = cfg.userId;
     this.socket = cfg.socket;
     this.onError = cfg.onError;
@@ -123,7 +140,18 @@ export class WabidbMediaRelay {
       this.isActive = true;
       this.localStream = stream;
 
-      this.audioContext = new AudioContext({ sampleRate: 48000 });
+      // Phase 2: prefer the SHARED call audio graph — one AudioContext for
+      // every relay, with per-session gain→panner→master chains (per-call
+      // volume + spatialization). Nodes cannot cross contexts, so the worklet
+      // must live in the shared context. Fallback (non-browser): own context.
+      const sharedGraph = ensureCallAudioGraph();
+      if (sharedGraph) {
+        this.audioContext = sharedGraph.ctx;
+        this.ownsAudioContext = false;
+      } else {
+        this.audioContext = new AudioContext({ sampleRate: 48000 });
+        this.ownsAudioContext = true;
+      }
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
       }
@@ -333,9 +361,19 @@ export class WabidbMediaRelay {
     if (!this.audioWorklet) {
       try {
         const workletUrl = new URL('./audio-worklet-playback.js', import.meta.url);
-        await this.audioContext.audioWorklet.addModule(workletUrl);
+        // addModule is per-context; skip re-registration when the shared
+        // graph context already has the module (multiple relays).
+        if (!contextsWithPlaybackModule.has(this.audioContext)) {
+          await this.audioContext.audioWorklet.addModule(workletUrl);
+          contextsWithPlaybackModule.add(this.audioContext);
+        }
         this.audioWorklet = new AudioWorkletNode(this.audioContext, 'wabidb-audio-playback');
-        this.audioWorklet.connect(this.audioContext.destination);
+        // Phase 2: into the per-session chain (gain→panner→master), NOT the
+        // raw destination — this is what makes per-call volume work.
+        const attached = attachSessionSource(this.audioSessionId, this.audioWorklet);
+        if (!attached) {
+          this.audioWorklet.connect(this.audioContext.destination);
+        }
       } catch (error) {
         console.error('[WabidbMediaRelay] Failed to load AudioWorklet:', error);
         return;
@@ -358,10 +396,13 @@ export class WabidbMediaRelay {
       this.audioWorklet.disconnect();
       this.audioWorklet = null;
     }
-    if (this.audioContext) {
+    // Phase 2: the shared graph context serves every relay — only close one
+    // we own. The session chain itself is disposed via detachSession.
+    if (this.audioContext && this.ownsAudioContext) {
       this.audioContext.close();
-      this.audioContext = null;
     }
+    this.audioContext = null;
+    detachSession(this.audioSessionId);
     if (this.opusDecoder) {
       this.opusDecoder.terminate();
       this.opusDecoder = null;
