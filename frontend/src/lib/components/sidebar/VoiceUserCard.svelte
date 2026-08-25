@@ -20,6 +20,7 @@
 	import { formatDiag } from './channelSidebarHelpers';
 	import { getSocket } from '$lib/socketConnection';
 	import { callRecordingState, startCallRecording, stopCallRecording } from '$lib/callRecording';
+	import { callSessions } from '$lib/callSessionManager';
 
 	export let runtimeActiveVoiceChannelId: string | null;
 	export let voiceChannels: Channel[];
@@ -91,6 +92,18 @@
 			? resolveChannelName(runtimeActiveVoiceChannelId)
 			: '';
 
+	// Phase 5: connecting→connected badge from the session model (inline
+	// store reads in the $: derivation — the card's reactivity contract).
+	$: sessionConnectionLabel = (() => {
+		const sessions = [...$callSessions.values()];
+		const pending = sessions.filter((s) => s.lifecycle === 'joining' || s.lifecycle === 'reconnecting');
+		if (sessions.length > 0 && pending.length === sessions.length) return 'Connecting…';
+		if (pending.length > 0) return `Connecting… (${pending.length}/${sessions.length})`;
+		const failed = sessions.filter((s) => s.lifecycle === 'failed');
+		if (failed.length > 0) return 'Connection trouble';
+		return '';
+	})();
+
 	async function handleToggleVideo() {
 		await toggleVideo(getSocket() || undefined);
 	}
@@ -128,11 +141,14 @@
 			on:click={() => (showVoiceDebugDetails = !showVoiceDebugDetails)}
 			aria-expanded={showVoiceDebugDetails}
 		>
-			<div class="voice-usercard-title">
-				<span class="voice-online-dot"></span>
-				<div>
-					<strong>Voice Connected</strong>
-					<small>{currentVoiceChannelName} / {$callConnectionState}</small>
+				<div class="voice-usercard-title">
+					<span class="voice-online-dot"></span>
+					<div>
+						<strong>Voice Connected</strong>
+						{#if sessionConnectionLabel}
+							<small class="voice-connection-badge">{sessionConnectionLabel}</small>
+						{/if}
+						<small>{currentVoiceChannelName} / {$callConnectionState}</small>
 					{#if connectedChannelEntries.length > 1}
 						<small class="voice-listen-summary">Listening: {connectedChannelEntries.filter(e => !e.isPrimary).map(e => e.name).join(', ')}</small>
 					{/if}

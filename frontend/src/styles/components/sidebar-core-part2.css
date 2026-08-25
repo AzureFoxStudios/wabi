@@ -660,3 +660,10 @@
 		cursor: pointer;
 		flex-shrink: 0;
 	}
+
+/* Phase 5 — connecting→connected badge under the Voice Connected header. */
+.voice-connection-badge {
+	color: #f0c987;
+	font-size: 0.68rem;
+	display: block;
+}
