@@ -23,6 +23,8 @@ export {
 	handleScreenShareIceCandidate
 } from './callingScreenShare';
 import { initScreenShareDeps } from './callingScreenShare';
+import { connectWithFallback, type CallSurface } from './callingFallback';
+import { voiceChannelMembers } from './presenceStore';
 import { clearActiveAudioCaptureSession,
 	createAudioCaptureSession,
 	disposeAudioCaptureSession,
@@ -1131,18 +1133,25 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			incomingCall.set(null);
 		}
 		pushVoiceChannelNotice(`Joined voice: ${channelId}`);
-		if (activeTransport === 'sfu') {
-			await connectLivekitSfu(channelId, `${brandName} User`);
-		}
-		if (activeTransport === 'wabidb') {
-			// Default transport: wabidb/socket.io opus relay. Guarded so a
-			// relay failure doesn't abort the whole channel join.
-			try {
-				await connectWabidbCall(socket, channelId, `${brandName} User`, undefined, undefined, listenOnly);
-			} catch (wabidbErr) {
-				console.error('[Calling] wabiDB voice connection failed:', wabidbErr);
+		// T2: declarative fallback chain — previously a wabidb failure here was
+		// caught + logged with NO fallback (user silently deaf).
+		const rosterSize = get(voiceChannelMembers)[channelId]?.length ?? 1;
+		await connectWithFallback({
+			mode: activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(),
+			surface: 'channel' as CallSurface,
+			expectedParticipants: Math.max(rosterSize, 1),
+			connect: async (transport) => {
+				if (transport === 'sfu') {
+					await connectLivekitSfu(channelId, `${brandName} User`);
+				} else if (transport === 'wabidb') {
+					await connectWabidbCall(socket, channelId, `${brandName} User`, undefined, undefined, listenOnly);
+				} else {
+					// p2p tail for channels: no relay to join; presence rides the
+					// socket room and audio negotiates via existing P2P machinery.
+					console.warn('[Calling] Channel p2p tail reached — mesh audio only');
+				}
 			}
-		}
+		});
 		syncSpatialAudioGraph();
 		playCallActionSound('join');
 		if (listenOnly) {
@@ -1479,21 +1488,24 @@ async function enterEstablishedGroupCall(
 		outgoingCall.set(null);
 	}
 
-	const activeTransport = await resolveActiveTransport(channelId);
-	if (activeTransport === 'sfu') {
-		await connectLivekitSfu(channelId, localDisplayName || `${brandName} User`);
-	} else if (activeTransport === 'wabidb' && options.socket) {
-		try {
-			await connectWabidbCall(options.socket, channelId, localDisplayName || `${brandName} User`);
-		} catch (error) {
-			console.warn('[Calling] wabiDB connection failed, attempting SFU fallback:', error);
-			try {
+	const activeTransport = await resolveActiveTransport(channelId, 'group');
+	// T2: previously this path logged "will use P2P" on total failure WITHOUT
+	// establishing anything. The executor now walks the whole chain and
+	// surfaces callOfflineNotice on exhaustion.
+	await connectWithFallback({
+		mode: activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(),
+		surface: 'group' as CallSurface,
+		expectedParticipants: Math.max(get(groupCallRingingTargets).length + 1, 1),
+		connect: async (transport) => {
+			if (transport === 'sfu') {
 				await connectLivekitSfu(channelId, localDisplayName || `${brandName} User`);
-			} catch (sfuError) {
-				console.error('[Calling] Both wabiDB and SFU failed, will use P2P:', sfuError);
+			} else if (transport === 'wabidb' && options.socket) {
+				await connectWabidbCall(options.socket, channelId, localDisplayName || `${brandName} User`);
+			} else if (transport === 'p2p') {
+				console.warn('[Calling] Group p2p tail reached — mesh audio only');
 			}
 		}
-	}
+	});
 }
 
 function removeGroupCallRingingTarget(stableUserId: string): void {
@@ -1681,24 +1693,34 @@ export async function answerCall(
 			// Start monitoring local audio
 			startAudioMonitoring('local', stream, true);
 
-			// If wabidb relay is the active transport, connect the media relay
-			// for the DM call. The caller (in createCallOffer) will have already
-			// connected with the shared DM session key, so joining here puts
-			// the callee on the same wabidb session.
-			if (activeTransport === 'wabidb') {
-				try {
-					await connectWabidbCall(
-						socket,
-						callerId || 'direct-call',
-						options.localDisplayName?.trim() || `${brandName} User`,
-						undefined,
-						callerId,
-					);
-				} catch (err) {
-					console.warn('[Calling] wabiDB DM relay (callee) failed, falling back to P2P:', err);
-					await disconnectWabidbCall();
+			// T2: DM callee joins via the same fallback chain. The caller (in
+			// createCallOffer) will have already connected with the shared DM
+			// session key when the relay head succeeds.
+			await connectWithFallback({
+				mode: activeTransport === 'wabidb' ? getStoredCallTransportMode() : (activeTransport === 'sfu' ? 'sfu-preferred' : 'p2p-only'),
+				surface: 'direct' as CallSurface,
+				expectedParticipants: 2,
+				connect: async (transport) => {
+					if (transport === 'wabidb') {
+						try {
+							await connectWabidbCall(
+								socket,
+								callerId || 'direct-call',
+								options.localDisplayName?.trim() || `${brandName} User`,
+								undefined,
+								callerId,
+							);
+						} catch (err) {
+							await disconnectWabidbCall();
+							throw err;
+						}
+					}
+					// 'p2p': the answer path below negotiates the P2P mesh natively;
+					// 'sfu': LiveKit DM rooms are not wired — treat as failure and
+					// let the chain continue.
+					if (transport === 'sfu') throw new Error('LiveKit DM path not wired');
 				}
-			}
+			});
 		}
 
 		socket.emit('call-answer', {
