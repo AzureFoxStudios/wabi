@@ -24,6 +24,8 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import VoiceLiveStrip from '$lib/components/VoiceLiveStrip.svelte';
+	import VoiceView from '$lib/components/VoiceView.svelte';
+	import { voiceViewOpen } from '$lib/voiceView';
 	import CallDebugPanel from '$lib/components/CallDebugPanel.svelte';
 	import Settings from '$lib/components/Settings.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
@@ -120,6 +122,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (isMapTabActive) return 'map' as const;
 		if (isPlannerTabActive) return 'planner' as const;
 		if (isNotesTabActive) return 'notes' as const;
+		if ($voiceViewOpen) return 'voice' as const;
 		return 'messages' as const;
 	})();
 
@@ -137,6 +140,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			case 'messages':
 			case 'whiteboard':
 				closeAllAddonTabs();
+				voiceViewOpen.set(false);
+				break;
+			case 'voice':
+				closeAllAddonTabs();
+				voiceViewOpen.set(true);
 				break;
 			case 'reader':
 				mobileTabQueue.openAddonTab(READER_ADDON_ID);
@@ -1119,7 +1127,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<div class="main-content">
 		<div class="chat-stack">
 			<div class="chat-surface">
-				{#if isModelViewportTabActive || isReaderTabActive || isMediaAlbumsTabActive || isMapTabActive || isPlannerTabActive || isNotesTabActive}
+				{#if isModelViewportTabActive || isReaderTabActive || isMediaAlbumsTabActive || isMapTabActive || isPlannerTabActive || isNotesTabActive || $voiceViewOpen}
 					<WorkspaceViewBar activeView={workspaceActiveView} onSelectView={handleWorkspaceViewSelect} />
 				{/if}
 				{#if isModelViewportTabActive}
@@ -1134,6 +1142,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					<PlannerWorkspace variant="full" />
 				{:else if isNotesTabActive}
 					<KeepNotesView />
+				{:else if $voiceViewOpen}
+					<VoiceView />
 				{:else if $layoutStore.centerDmChannelId || activeView === 'dm'}
 					<div class="center-dm-layout">
 						<div class="center-dm-list">

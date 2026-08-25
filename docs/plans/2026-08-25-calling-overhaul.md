@@ -140,6 +140,23 @@ presenter overlay on channel mode, DM-mode CallStage.
 - Wire the in-call spatial quick toggle (dead code today).
 
 ### Phase 4 — Voice view + right-panel controller (goal 5)
+**Status 2026-08-25: LANDED.** Dedicated `voice` workspace view (first pill in
+WorkspaceViewBar, 1 click from any channel): `VoiceView.svelte` renders
+connected-call cards (badge focused/background/silenced, transport, live
+video thumbs incl. screen shares, participant avatar row with +N overflow,
+per-call volume slider, per-call speaker mute, Focus switch, Hang up) plus a
+joinable list of every voice channel with live occupancy, and the global bar
+(Mute All / Deafen All / Camera Off / Leave All). View state =
+`voiceViewOpen` store; addon tabs take precedence and the view returns when
+they close.
+
+Right panel: `calls` workspace panel (`CallsPanel.svelte` — compact per-call
+cards with badge/transport/avatars/controls/volume, right-docked default,
+mobile sheet). Not in DEFAULT_WORKSPACE_PANEL_IDS — add via the panel picker
+(the mockup's "extended controller").
+
+Both surfaces share `callSurfaces.ts` semantics (join/leave/focus/volume/
+speaker-mute/global bars) driving the SAME session model + audio graph.
 - `voice` workspace view → `VoiceView.svelte`: live cards per voice channel,
   focused card with tiles, background/silenced with volume, connect/leave,
   Mute All / Deafen All / Leave All.
