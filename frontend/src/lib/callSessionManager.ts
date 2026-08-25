@@ -21,6 +21,7 @@ import type {
 	CallSessionFocus,
 	CallSessionParticipant,
 	CallSessionTransport,
+	CallSpatialPosition,
 	RegisterCallSessionInput
 } from './callSessionTypes';
 import { sessionBadge } from './callSessionTypes';
@@ -67,6 +68,7 @@ export class CallSessionManager {
 			lifecycle: 'joining',
 			transport: existing?.transport ?? null,
 			participants: input.participants ?? existing?.participants ?? [],
+			spatialSeats: existing?.spatialSeats ?? {},
 			joinedAt: existing?.joinedAt ?? now,
 			lastActivityAt: now
 		};
@@ -175,6 +177,24 @@ export class CallSessionManager {
 
 	setName(id: string, name: string): void {
 		this.update(id, (session) => ({ ...session, name }));
+	}
+
+	/** Phase 3: manual spatial seat for one user (drag on the stage). */
+	setSpatialSeat(id: string, userId: string, position: CallSpatialPosition): void {
+		this.update(id, (session) => ({
+			...session,
+			spatialSeats: { ...session.spatialSeats, [userId]: { ...position } },
+			lastActivityAt: Date.now()
+		}));
+	}
+
+	clearSpatialSeat(id: string, userId: string): void {
+		this.update(id, (session) => {
+			if (!(userId in session.spatialSeats)) return session;
+			const seats = { ...session.spatialSeats };
+			delete seats[userId];
+			return { ...session, spatialSeats: seats, lastActivityAt: Date.now() };
+		});
 	}
 
 	/** Replace the roster snapshot for a session (voice-channel-state). */

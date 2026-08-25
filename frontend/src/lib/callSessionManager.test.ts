@@ -136,4 +136,15 @@ describe('CallSessionManager', () => {
 		expect(callSessionManager.sessionIndex('a')).toBeGreaterThanOrEqual(0);
 		expect(callSessionManager.sessionIndex('zz')).toBe(0);
 	});
+
+	it('spatial seats set, survive re-registration, and clear', () => {
+		callSessionManager.register({ id: 'a', kind: 'channel' });
+		callSessionManager.setSpatialSeat('a', 'user-9', { x: 2, y: 0, z: -3 });
+		expect(callSessionManager.get('a')?.spatialSeats['user-9']).toEqual({ x: 2, y: 0, z: -3 });
+		// Re-register (reconnect heal) must not drop the stage layout.
+		callSessionManager.register({ id: 'a', kind: 'channel' });
+		expect(callSessionManager.get('a')?.spatialSeats['user-9']).toEqual({ x: 2, y: 0, z: -3 });
+		callSessionManager.clearSpatialSeat('a', 'user-9');
+		expect(callSessionManager.get('a')?.spatialSeats['user-9']).toBeUndefined();
+	});
 });

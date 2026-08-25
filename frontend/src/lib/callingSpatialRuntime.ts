@@ -77,3 +77,40 @@ export function assignStableSeatOrder(
 		slotCount: Math.max(ids.length, highestSeat + 1, 1)
 	};
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3 — manual seat persistence (personal, per call, localStorage)
+// ---------------------------------------------------------------------------
+
+import type { CallSpatialPosition } from './callSessionTypes';
+
+function spatialSeatsStorageKey(sessionId: string): string {
+	return `wabi:spatial-seats:${sessionId}`;
+}
+
+export function loadSpatialSeats(sessionId: string): Record<string, CallSpatialPosition> {
+	if (typeof localStorage === 'undefined') return {};
+	try {
+		const raw = localStorage.getItem(spatialSeatsStorageKey(sessionId));
+		if (!raw) return {};
+		const parsed = JSON.parse(raw) as Record<string, CallSpatialPosition>;
+		const seats: Record<string, CallSpatialPosition> = {};
+		for (const [userId, pos] of Object.entries(parsed)) {
+			if (pos && typeof pos.x === 'number' && typeof pos.z === 'number') {
+				seats[userId] = { x: pos.x, y: pos.y ?? 0, z: pos.z };
+			}
+		}
+		return seats;
+	} catch {
+		return {};
+	}
+}
+
+export function saveSpatialSeats(sessionId: string, seats: Record<string, CallSpatialPosition>): void {
+	if (typeof localStorage === 'undefined') return;
+	try {
+		localStorage.setItem(spatialSeatsStorageKey(sessionId), JSON.stringify(seats));
+	} catch {
+		// storage full / private mode — seats just won't persist
+	}
+}

@@ -171,6 +171,10 @@ export async function disconnectWabidbChannel(targetChannelId: string): Promise<
 	if (relay) {
 		try { relay.stop?.(); } catch (_) {}
 		wabidbMediaRelays.delete(targetChannelId);
+		// Phase 3: drop the graph/session-id alias if it points at this relay.
+		for (const [key, candidate] of wabidbMediaRelays.entries()) {
+			if (candidate === relay) wabidbMediaRelays.delete(key);
+		}
 		// Phase 2.5: if the watchdog served this session, it no longer does.
 		if (activeWatchdogSessionId === targetChannelId) {
 			activeWatchdogSessionId = null;
@@ -208,6 +212,25 @@ export function syncWabidbCapture(shouldCapture: (channelId: string) => boolean)
  */
 export function wabidbTransportLive(): boolean {
 	return wabidbMediaRelays.size > 0;
+}
+
+/**
+ * Phase 3: position one remote user of one call in the stereo field. Safe
+ * no-op when the call isn't on the wabidb transport (p2p seats go through
+ * the spatial engine instead).
+ */
+export function setWabidbSpatialPosition(
+	graphSessionId: string,
+	userId: string,
+	position: { x: number; y: number; z: number }
+): void {
+	const relay = wabidbMediaRelays.get(graphSessionId);
+	if (!relay) return;
+	try {
+		relay.setSpatialPosition?.(userId, position);
+	} catch (_) {
+		/* relay mid-teardown */
+	}
 }
 
 // T3: health probe consumed by callingWatchdog via a global hook (avoids a
@@ -349,6 +372,12 @@ export async function connectWabidbCall(
 			});
 			await relay.start(stream);
 			wabidbMediaRelays.set(targetChannelId, relay);
+			// Phase 3: also index by the graph/session id (direct:{peer} for
+			// DMs) so seat/volume lookups address the relay without knowing
+			// the legacy channel-key convention.
+			if (audioSessionId !== targetChannelId) {
+				wabidbMediaRelays.set(audioSessionId, relay);
+			}
 		} catch (e) {
 			console.warn('[Wabidb] Media relay import failed, continuing without:', e);
 		}

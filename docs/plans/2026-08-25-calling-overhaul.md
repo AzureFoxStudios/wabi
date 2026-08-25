@@ -109,6 +109,30 @@ UI never reads stale state:
    render full participant lists immediately.
 
 ### Phase 3 — Focused stage (goal 3)
+**Status 2026-08-25: LANDED.** `CallStage.svelte` (runes) renders for channel
+mode inside CallModal: participant avatar chips (speaking rings, mute icons,
+listen-only style), camera tiles + screen hero filtered to the focused
+session's users (the wabidb video lane store is global — keys
+`userId:camera|screen`), local mirrored preview, empty-state hint. DM calls
+keep the legacy grid this pass. The spatial quick toggle is wired (◎ button
+in both the docked bar and the in-shell toolbar — was dead code).
+
+Spatial seat stage: visible when spatial hearing is on (◎ Seats toggle) —
+draggable avatar chips on a top-down stage (world ±6 x/z → %), listener at
+center. Drag → `applySpatialSeat` = persist (localStorage per call,
+`wabi:spatial-seats:{id}`) + session model + BOTH audio paths live: p2p
+spatial engine (`call:{userId}`) and the wabidb relay's per-user chain.
+Double-click resets to auto-circle. Manual seats survive re-registration.
+
+Relay per-user spatialization: one playback chain per REMOTE user
+(worklet→panner→gain→session input) instead of one mixed worklet — this is
+what makes per-user panning possible for relayed audio. Seats default to
+center until positioned; auto-circle default applies via the stage and p2p
+path. `setWabidbSpatialPosition(graphSessionId, …)` looks relays up by
+graph/session id (relays double-indexed by channel key + graph id).
+
+Deferred to a later pass: pin/hero interactions on CallStage tiles,
+presenter overlay on channel mode, DM-mode CallStage.
 - Runes `CallStage.svelte`: avatar chips, camera tiles, screen hero (reuse
   `callLayoutManager`/`callRenderModel`/`wabidbVideoLane` keys).
 - Spatial stage: drag chips → `spatialSeats` + `spatialEngine.updateSourcePosition`
