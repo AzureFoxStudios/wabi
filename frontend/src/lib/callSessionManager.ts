@@ -96,6 +96,7 @@ export class CallSessionManager {
 		if (!removed) return;
 		next.delete(id);
 		commit(next);
+		audioBindings?.onSessionEnded?.(id);
 		if (removed.focus === 'focused') {
 			// Prefer a connected session over one still joining; break ties by
 			// recency. Same-millisecond joins resolve to insertion order.
@@ -117,8 +118,10 @@ export class CallSessionManager {
 	}
 
 	leaveAll(): void {
+		const ended = [...get(sessionsWritable).keys()];
 		commit(new Map());
 		focusedCallSessionId.set(null);
+		for (const id of ended) audioBindings?.onSessionEnded?.(id);
 	}
 
 	/** Focus exactly one session; every other focused session demotes to
@@ -151,11 +154,19 @@ export class CallSessionManager {
 	/** 0..100. Volume 0 on a background session reads as SILENCED. */
 	setVolume(id: string, volume: number): void {
 		const clamped = Math.max(0, Math.min(100, Math.round(volume)));
-		this.update(id, (session) => ({ ...session, volume: clamped, lastActivityAt: Date.now() }));
+		this.update(id, (session) => {
+			const next = { ...session, volume: clamped, lastActivityAt: Date.now() };
+			emitVolume(next);
+			return next;
+		});
 	}
 
 	setSessionMuted(id: string, muted: boolean): void {
-		this.update(id, (session) => ({ ...session, muted }));
+		this.update(id, (session) => {
+			const next = { ...session, muted };
+			emitVolume(next);
+			return next;
+		});
 	}
 
 	setTransport(id: string, transport: CallSessionTransport): void {
@@ -237,6 +248,27 @@ function focusedHasValue(sessions: Map<string, CallSession>): boolean {
 		if (session.focus === 'focused') return true;
 	}
 	return false;
+}
+
+/**
+ * Audio side-effects for session state changes (per-call volume / chain
+ * disposal). The manager stays dependency-free for tests; the runtime binds
+ * these to the shared audio graph — see callingWabidb.ts.
+ */
+export interface CallSessionAudioBindings {
+	/** Effective 0..100 output volume (0 while the session is muted). */
+	onVolumeChanged?: (id: string, effectiveVolume: number) => void;
+	onSessionEnded?: (id: string) => void;
+}
+
+let audioBindings: CallSessionAudioBindings | null = null;
+
+export function bindCallSessionAudio(bindings: CallSessionAudioBindings): void {
+	audioBindings = bindings;
+}
+
+function emitVolume(session: CallSession): void {
+	audioBindings?.onVolumeChanged?.(session.id, session.muted ? 0 : session.volume);
 }
 
 /** Singleton — the single source of truth for connected calls. */

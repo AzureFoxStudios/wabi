@@ -2,7 +2,7 @@ import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
-import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture } from './callingWabidb';
+import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive } from './callingWabidb';
 import {
 	configureLivekitTokenRefresh
 } from './callingLivekitTokenRefresh';
@@ -623,6 +623,14 @@ function teardownCallSessionOnly(): void {
 	if (!activeVoiceChannelId) {
 		finalizeLocalCallEndState();
 		return;
+	}
+
+	// Phase 2: end only the DM/group sessions — a surviving connected voice
+	// channel auto-inherits focus from the manager's handoff.
+	for (const session of callSessionManager.list()) {
+		if (session.kind === 'direct' || session.kind === 'group') {
+			callSessionManager.unregister(session.id);
+		}
 	}
 
 	const callKeys: string[] = [];
@@ -1525,6 +1533,15 @@ async function enterEstablishedGroupCall(
 		}
 		activeGroupCall.set({ id: channelId, name: channelName });
 		activeCallSessionId.set(groupCallSessionKey(channelId));
+		// Phase 2: group calls are sessions too — a DM/voice-channel backdrop
+		// demotes to background while the group call takes focus.
+		callSessionManager.register({
+			id: channelId,
+			channelId,
+			kind: 'group',
+			name: channelName,
+			direction: 'transmit'
+		});
 		connectionState.set('signaling');
 		isMuted.set(false);
 		isVideoOff.set(!Boolean(stream?.getVideoTracks()[0]));
@@ -1535,7 +1552,7 @@ async function enterEstablishedGroupCall(
 		startPerformanceGuard();
 		syncSpatialAudioGraph();
 		if (options.playJoinSound !== false) {
-			playCallActionSound('join');
+			playCallActionSound('join', sessionSoundOptionsFor(channelId));
 		}
 	}
 
@@ -1561,6 +1578,8 @@ async function enterEstablishedGroupCall(
 			}
 		}
 	});
+	callSessionManager.markConnected(channelId, activeTransport === 'sfu' ? 'sfu' : activeTransport === 'p2p' ? 'p2p' : 'wabidb');
+	callSessionManager.setFocus(channelId);
 }
 
 function removeGroupCallRingingTarget(stableUserId: string): void {
@@ -1685,6 +1704,15 @@ export function beginEstablishedDirectCall(): boolean {
 	}
 	activeGroupCall.set(null);
 	activeCallSessionId.set(directCallSessionKey(pending.targetUserId || ''));
+	// Phase 2: the DM call is a session; any voice-channel backdrop demotes
+	// to background while the direct call takes focus.
+	callSessionManager.register({
+		id: directCallSessionKey(pending.targetUserId || ''),
+		channelId: null,
+		kind: 'direct',
+		name: pending.username || pending.targetUserId || 'Direct call',
+		direction: 'transmit'
+	});
 	connectionState.set('signaling');
 	outgoingCall.set(null);
 	if (stream) {
@@ -1693,7 +1721,9 @@ export function beginEstablishedDirectCall(): boolean {
 	}
 	startPerformanceGuard();
 	syncSpatialAudioGraph();
-	playCallActionSound('join');
+	callSessionManager.markConnected(directCallSessionKey(pending.targetUserId || ''), wabidbTransportLive() ? 'wabidb' : 'p2p');
+	callSessionManager.setFocus(directCallSessionKey(pending.targetUserId || ''));
+	playCallActionSound('join', sessionSoundOptionsFor(directCallSessionKey(pending.targetUserId || '')));
 	return true;
 }
 
@@ -1737,13 +1767,21 @@ export async function answerCall(
 			}
 			activeGroupCall.set(null);
 			activeCallSessionId.set(directCallSessionKey(callerId));
+			// Phase 2: DM answer registers the session and takes focus.
+			callSessionManager.register({
+				id: directCallSessionKey(callerId),
+				channelId: null,
+				kind: 'direct',
+				name: callerId,
+				direction: 'transmit'
+			});
 			connectionState.set('signaling');
 			isMuted.set(false);
 			isVideoOff.set(!isVideoCall);
 			startLocalSpeakingMonitor(stream);
 			startPerformanceGuard();
 			syncSpatialAudioGraph();
-			playCallActionSound('join');
+			playCallActionSound('join', sessionSoundOptionsFor(directCallSessionKey(callerId)));
 
 			// Start monitoring local audio
 			startAudioMonitoring('local', stream, true);
@@ -1776,6 +1814,8 @@ export async function answerCall(
 					if (transport === 'sfu') throw new Error('LiveKit DM path not wired');
 				}
 			});
+			callSessionManager.markConnected(directCallSessionKey(callerId), wabidbTransportLive() ? 'wabidb' : 'p2p');
+			callSessionManager.setFocus(directCallSessionKey(callerId));
 		}
 
 		socket.emit('call-answer', {
@@ -1913,7 +1953,7 @@ export function handleRemoteDirectCallEnded(userId: string): void {
 		return;
 	}
 
-	playCallActionSound('leave');
+	playCallActionSound('leave', sessionSoundOptionsFor(directCallSessionKey(userId)));
 	teardownCallSessionOnly();
 }
 
