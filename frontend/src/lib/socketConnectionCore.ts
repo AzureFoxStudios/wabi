@@ -12,6 +12,7 @@ import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { getAuthToken, getGuestSessionId } from './authSession';
 import { tryRefresh } from './api/authRefresh';
 import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
+import { callSessionManager } from './callSessionManager';
 import { SocketHeartbeat } from './socketConnectionHeartbeat';
 import { SocketReconnectionManager } from './socketConnectionReconnect';
 import { drainOutboundQueue } from '$lib/wabidb/drain';
@@ -1036,8 +1037,25 @@ export class SocketManager {
 		sock.on('voice-channel-state', (payload: { channelId?: string; members?: any[] }) => {
 			console.log('[voice-channel-state] received:', JSON.stringify(payload));
 			if (!payload?.channelId) return;
-			_setVoiceChannelMembers(payload.channelId, Array.isArray(payload.members) ? payload.members : []);
-			console.log('[voice-channel-state] set members for', payload.channelId, 'count:', Array.isArray(payload.members) ? payload.members.length : 0);
+			const members = Array.isArray(payload.members) ? payload.members : [];
+			_setVoiceChannelMembers(payload.channelId, members);
+			// Phase 2.5: full-roster snapshots also populate the call session
+			// model — without this, session participant lists stay empty until
+			// the next incremental join/leave event.
+			if (callSessionManager.get(payload.channelId)) {
+				callSessionManager.setParticipants(
+					payload.channelId,
+					members
+						.filter((m) => m && typeof m.userId === 'string')
+						.map((m) => ({
+							userId: m.userId as string,
+							username: typeof m.username === 'string' ? m.username : '',
+							isMuted: Boolean(m.isMuted),
+							isListenOnly: Boolean(m.isListeningOnly)
+						}))
+				);
+			}
+			console.log('[voice-channel-state] set members for', payload.channelId, 'count:', members.length);
 		});
 
 		// The server moved this socket's voice presence (breakout move, moderator

@@ -18,7 +18,7 @@ import {
 import { getAuthToken, getStoredDbUserId } from './authSession';
 import { transportWatchdog } from './callingWatchdog';
 import { getStoredCallTransportMode } from './mediaRuntime';
-import { bindCallSessionAudio } from './callSessionManager';
+import { bindCallSessionAudio, callSessionManager } from './callSessionManager';
 import {
 	setSessionVolume as graphSetSessionVolume,
 	detachSession as graphDetachSession
@@ -30,6 +30,26 @@ import {
 bindCallSessionAudio({
 	onVolumeChanged: (id, effectiveVolume) => graphSetSessionVolume(id, effectiveVolume),
 	onSessionEnded: (id) => graphDetachSession(id)
+});
+
+// Phase 2.5: the watchdog is a singleton armed for the most recent wabidb
+// connect — remember WHICH session it serves so transport transitions keep
+// the session model honest (reconnecting / fallback transport / heal).
+let activeWatchdogSessionId: string | null = null;
+
+transportWatchdog.onTransition((state, riding) => {
+	if (!activeWatchdogSessionId) return;
+	const id = activeWatchdogSessionId;
+	if (state === 'demoting') {
+		callSessionManager.markReconnecting(id);
+	} else if (state === 'demoted' || state === 'monitoring') {
+		// 'demoted' = alive on a fallback link; 'monitoring' = healed/promoted
+		// back. Either way the session is connected — on `riding`.
+		callSessionManager.markConnected(id, riding);
+	}
+	// 'stopped' is intentionally ignored: it fires both on total transport
+	// loss AND on normal re-arm/teardown — the owning teardown path already
+	// unregisters the session.
 });
 import { WabidbVideoLane } from './wabidbVideoLane';
 
@@ -137,6 +157,7 @@ export async function disconnectWabidbCall(): Promise<void> {
 	sessionId = null;
 	channelId = null;
 	currentUserId = null;
+	activeWatchdogSessionId = null;
 	connectionState.set('idle');
 	callTransportState.update((state) => ({
 		...state,
@@ -150,6 +171,10 @@ export async function disconnectWabidbChannel(targetChannelId: string): Promise<
 	if (relay) {
 		try { relay.stop?.(); } catch (_) {}
 		wabidbMediaRelays.delete(targetChannelId);
+		// Phase 2.5: if the watchdog served this session, it no longer does.
+		if (activeWatchdogSessionId === targetChannelId) {
+			activeWatchdogSessionId = null;
+		}
 	}
 	const targetSessionId = sessionIds.get(targetChannelId);
 	if (targetSessionId && wabidbCallState) {
@@ -303,6 +328,7 @@ export async function connectWabidbCall(
 			// session id (channelId for channels/groups, direct:{peer} for DMs)
 			// so per-call volume addresses the same chain the model tracks.
 			const audioSessionId = peerUserId ? directCallSessionId(peerUserId) : targetChannelId;
+			activeWatchdogSessionId = audioSessionId;
 			relay = new WabidbMediaRelay({
 				sessionId: newSessionId,
 				audioSessionId,

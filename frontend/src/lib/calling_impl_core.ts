@@ -1404,13 +1404,17 @@ export async function handleForcedVoiceLeave(socket: Socket, channelId: string):
 
 	await disconnectWabidbChannel(channelId);
 	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
+	// Phase 2.5: the kick must end the session too, or the session model
+	// keeps claiming a call the server just removed us from.
+	callSessionManager.unregister(channelId);
+	detachSessionAudioChain(channelId);
 	if (isPrimary) {
 		activeVoiceChannelId = null;
 		activeVoiceChannel.set(null);
 	}
 	syncSpatialAudioGraph();
 	pushVoiceChannelNotice('You were removed from the voice channel');
-	playCallActionSound('leave');
+	playCallActionSound('leave', sessionSoundOptionsFor(channelId));
 
 	// If the kicked channel was the active group call, end the call locally
 	// and tell the server we left it.
