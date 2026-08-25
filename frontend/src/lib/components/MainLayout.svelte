@@ -23,6 +23,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
+	import VoiceLiveStrip from '$lib/components/VoiceLiveStrip.svelte';
 	import CallDebugPanel from '$lib/components/CallDebugPanel.svelte';
 	import Settings from '$lib/components/Settings.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
@@ -1162,6 +1163,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					/>
 				{/if}
 			</div>
+			<VoiceLiveStrip />
 			<CallModal />
 		</div>
 	</div>

@@ -80,6 +80,11 @@ export function wabidbStopVideo(): void {
 	if (wabidbVideoLaneInst) wabidbVideoLaneInst.stopLocalVideo();
 }
 
+/** Stop exactly one outbound feed ('camera' | 'screen'); the other keeps running. */
+export function wabidbStopVideoSource(source: 'camera' | 'screen'): void {
+	wabidbVideoLaneInst?.stopLocalVideoSource(source);
+}
+
 /** Tear down the video lane for a specific remote participant's inbound feed. */
 export function wabidbStopRemoteVideo(userId: string): void {
 	if (wabidbVideoLaneInst) wabidbVideoLaneInst.stopRemoteUser(userId);
@@ -299,12 +304,14 @@ export async function connectWabidbCall(
 				if (screenShareSub) screenShareSub();
 				screenShareSub = localScreenStream.subscribe((screenStream) => {
 					if (!wabidbTransportActive || !wabidbVideoLaneInst) return;
-					if (screenStream && !wabidbVideoLaneInst.isActive) {
+					// P1: only touch the SCREEN sender — an active camera lane must
+					// keep running while screenshare starts/stops.
+					if (screenStream && !wabidbVideoLaneInst.activeSources.includes('screen')) {
 						void wabidbVideoLaneInst.startLocalVideo('screen', screenStream).catch((e) =>
 							console.warn('[Wabidb] auto screen-share video failed:', e)
 						);
-					} else if (!screenStream && wabidbVideoLaneInst.isActive) {
-						wabidbVideoLaneInst.stopLocalVideo();
+					} else if (!screenStream && wabidbVideoLaneInst.activeSources.includes('screen')) {
+						wabidbVideoLaneInst.stopLocalVideoSource('screen');
 					}
 				});
 			} catch (e) {

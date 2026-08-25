@@ -43,7 +43,7 @@
 	} from '$lib/calling';
 	import {
 		wabidbRemoteVideoStreams,
-		wabidbLocalPreviewStream,
+		wabidbLocalPreviewStreams,
 		wabidbLocalVideoActive
 	} from '$lib/wabidbVideoLane';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
@@ -71,6 +71,7 @@
 		buildParticipants,
 		buildRenderTiles,
 		buildWabidbAwareParticipants,
+		buildWabidbScreenShares,
 		buildRosterParticipants,
 		buildShares,
 		getInitial,
@@ -194,7 +195,8 @@
 	$: participants = buildWabidbAwareParticipants(
 		buildParticipants($activeCalls, $isInCall, $localStream, $isVideoOff),
 		$wabidbRemoteVideoStreams,
-		$wabidbLocalVideoActive ? $wabidbLocalPreviewStream : null,
+		$wabidbLocalVideoActive ? ($wabidbLocalPreviewStreams.get('camera') ?? null) : null,
+		$wabidbLocalVideoActive ? ($wabidbLocalPreviewStreams.get('screen') ?? null) : null,
 		$voiceChannelMembers
 	);
 	$: rosterParticipants = (() => {
@@ -209,7 +211,21 @@
 			existingIds
 		);
 	})();
-	$: shares = buildShares($screenShares, $isSharing, $localScreenStream);
+	$: shares = (() => {
+		const base = buildShares($screenShares, $isSharing, $localScreenStream);
+		const wabidbShares = buildWabidbScreenShares(
+			$wabidbRemoteVideoStreams,
+			$wabidbLocalVideoActive ? ($wabidbLocalPreviewStreams.get('screen') ?? null) : null
+		);
+		if (wabidbShares.length === 0) return base;
+		// Prefer the wabidb local screen preview over the P2P one when both exist.
+		const merged = [
+			...base.filter((s) => !(s.isLocal && s.id === 'local' && wabidbShares.some((w) => w.isLocal))),
+			...wabidbShares.filter((w) => !w.isLocal)
+		];
+		const seen = new Set<string>();
+		return merged.filter((s) => (seen.has(s.participantId + (s.isLocal ? ':local' : '')) ? false : (seen.add(s.participantId + (s.isLocal ? ':local' : '')), true)));
+	})();
 	$: renderTiles = buildRenderTiles(participants, shares);
 	$: tileById = new Map(renderTiles.map((tile) => [tile.id, tile]));
 	$: captureAvailable = shares.length > 0;

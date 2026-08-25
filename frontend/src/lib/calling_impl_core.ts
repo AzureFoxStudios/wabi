@@ -2038,13 +2038,14 @@ export async function toggleVideo(socket?: Socket) {
 	// for DM calls even when they connect via wabidb — that gating made the
 	// camera dead on every direct call.
 	try {
-		const { wabidbStartVideo, wabidbStopVideo, wabidbTransportLive } = await import('./callingWabidb');
+		const { wabidbStartVideo, wabidbStopVideoSource, wabidbTransportLive } = await import('./callingWabidb');
 		if (wabidbTransportLive()) {
 			if (get(isVideoOff)) {
 				const started = await wabidbStartVideo('camera');
 				if (started) isVideoOff.set(false);
 			} else {
-				wabidbStopVideo();
+				// P1: stop ONLY the camera sender — an active screenshare keeps running.
+				wabidbStopVideoSource('camera');
 				isVideoOff.set(true);
 			}
 			return;

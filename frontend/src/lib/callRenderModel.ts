@@ -223,34 +223,88 @@ function toStableUserKey(userId: string): string {
 export function buildWabidbAwareParticipants(
 	participants: ParticipantMedia[],
 	remoteStreams: Map<string, MediaStream>,
-	localPreview: MediaStream | null,
+	localCameraPreview: MediaStream | null,
+	localScreenPreview: MediaStream | null,
 	voiceMembersByChannel: Record<string, { userId: string; isMuted?: boolean; username?: string }[]>
 ): ParticipantMedia[] {
-	if (remoteStreams.size === 0 && !localPreview) return participants;
+	if (remoteStreams.size === 0 && !localCameraPreview && !localScreenPreview) return participants;
 
-	return participants.map((participant) => {
-		// Local tile: adopt the lane preview as our own video.
+	const out: ParticipantMedia[] = [];
+	for (const participant of participants) {
+		// Local tile: adopt the lane camera preview as our own video.
 		if (participant.isLocal) {
-			if (localPreview && !participant.stream?.getVideoTracks().length) {
-				return { ...participant, hasVideo: true, stream: localPreview };
+			let next: ParticipantMedia = { ...participant };
+			if (localCameraPreview && !next.stream?.getVideoTracks().length) {
+				next.hasVideo = true;
+				next.stream = localCameraPreview;
 			}
-			return participant;
+			if (localScreenPreview) next.isScreenSharing = true;
+			out.push(next);
+			continue;
 		}
 
-		// Remote tiles: match by stable id (`user-<dbId>`) or raw id. The lane
-		// keys streams by raw envelope userId, so try the normalized form too.
-		const remote = remoteStreams.get(participant.id) ?? remoteStreams.get(toStableUserKey(participant.id));
+		// Remote tiles: look the feed up by composite stream key. The lane keys
+		// streams by `stableUserId:source`; try both raw and normalized ids and
+		// fall back to a legacy un-sourced key for pre-P1 senders.
+		const stableId = toStableUserKey(participant.id);
+		const cameraKey = `${stableId}:camera`;
+		const screenKey = `${stableId}:screen`;
+		const legacyKeys = [participant.id, stableId];
+		const cameraStream =
+			remoteStreams.get(cameraKey) ??
+			legacyKeys.map((k) => remoteStreams.get(k)).find((s): s is MediaStream => Boolean(s)) ??
+			null;
+		const screenStream =
+			remoteStreams.get(screenKey) ?? null;
+
 		const memberRow = Object.values(voiceMembersByChannel)
 			.flat()
 			.find((m) => m.userId === participant.id);
-		const next: ParticipantMedia = { ...participant };
-		if (remote && !next.stream?.getVideoTracks().length) {
+
+		let next: ParticipantMedia = { ...participant };
+		if (cameraStream && !next.stream?.getVideoTracks().length) {
 			next.hasVideo = true;
-			next.stream = remote;
+			next.stream = cameraStream;
 		}
+		if (screenStream) next.isScreenSharing = true;
 		if (memberRow?.isMuted !== undefined && next.isMuted === undefined) {
 			next.isMuted = memberRow.isMuted;
 		}
-		return next;
-	});
+		out.push(next);
+	}
+	return out;
+}
+
+/**
+ * Remote wabidb screen shares as ShareMedia tiles. One entry per remote
+ * `user:screen` stream; local sharing still flows through buildShares().
+ */
+export function buildWabidbScreenShares(
+	remoteStreams: Map<string, MediaStream>,
+	localScreenPreview: MediaStream | null,
+	displayNames: Record<string, string> = {}
+): ShareMedia[] {
+	const shares: ShareMedia[] = [];
+	for (const [key, stream] of remoteStreams) {
+		if (!key.endsWith(':screen')) continue;
+		const stableId = key.slice(0, -':screen'.length);
+		const label = displayNames[stableId] ? `${displayNames[stableId]}'s Screen` : 'Shared Screen';
+		shares.push({
+			id: `wabidb:${key}`,
+			participantId: stableId,
+			label,
+			isLocal: false,
+			stream
+		});
+	}
+	if (localScreenPreview) {
+		shares.push({
+			id: 'local',
+			participantId: 'local',
+			label: 'Your Screen',
+			isLocal: true,
+			stream: localScreenPreview
+		});
+	}
+	return shares.sort((a, b) => a.id.localeCompare(b.id));
 }
