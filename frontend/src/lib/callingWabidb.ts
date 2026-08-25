@@ -179,6 +179,25 @@ export function wabidbTransportLive(): boolean {
 
 const defaultWabidbServer = import.meta.env.VITE_WABI_SERVER_URL ?? '';
 
+// Phase 1 hardening: the server denies unauthorized wabidb media room joins
+// (voice roster / group session / dm key check). When one of OUR sessions is
+// denied, hand the loss to the transport watchdog so the fallback chain
+// demotes to the next link (p2p) instead of staying silently deaf.
+function onWabidbCallDenied(payload: { sessionId?: string; reason?: string }): void {
+	const denied = payload?.sessionId;
+	if (!denied) return;
+	let ownsDeniedSession = false;
+	for (const sid of sessionIds.values()) {
+		if (sid === denied) {
+			ownsDeniedSession = true;
+			break;
+		}
+	}
+	if (!ownsDeniedSession) return;
+	console.warn(`[Wabidb] media room join denied (${payload.reason ?? 'unknown'}) — demoting transport`);
+	transportWatchdog.handleDisconnect();
+}
+
 export async function connectWabidbCall(
 	socket: Socket,
 	targetChannelId: string,
@@ -330,6 +349,12 @@ export async function connectWabidbCall(
 		}
 
 		socket.emit('join-wabidb-call', { sessionId: newSessionId, channelId: targetChannelId });
+		// Phase 1 hardening: on denial, onWabidbCallDenied feeds the transport
+		// watchdog so the fallback chain demotes to the next link (p2p)
+		// instead of leaving the user silently deaf. off-then-on keeps the
+		// registration idempotent across repeated connects.
+		socket.off('wabidb-call-denied', onWabidbCallDenied);
+		socket.on('wabidb-call-denied', onWabidbCallDenied);
 		sessionIds.set(targetChannelId, newSessionId);
 
 		connectionState.set('connected');
