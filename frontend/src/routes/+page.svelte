@@ -268,7 +268,7 @@
 					reconnectAttempts++;
 					const token = getAuthToken();
 					if (token) {
-						fetch(`${getApiBase()}/api/auth/validate`, {
+						fetch(`${getApiBase()}/api/user/me`, {
 							headers: { 'Authorization': `Bearer ${token}` },
 							signal: AbortSignal.timeout(5000)
 						}).then((res) => {
