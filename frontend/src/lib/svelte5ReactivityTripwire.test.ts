@@ -39,7 +39,12 @@ const TRACKED_STORES = [
 	'isLocalSpeaking',
 	'isMuted',
 	'isDeafened',
-	'currentUser'
+	'currentUser',
+	// Phase 2-4 surfaces: the session model and video streams must stay
+	// reactive everywhere they render.
+	'callSessions',
+	'focusedCallSessionId',
+	'wabidbRemoteVideoStreams'
 ];
 
 interface UntrackHit {
@@ -175,5 +180,36 @@ describe('svelte5 reactivity contract — calling sidebar', () => {
 `;
 		const hits = findUntrackedStoreReads(shape, { includeInline: true });
 		expect(hits.some((h) => h.store === 'currentUser')).toBe(true);
+	});
+});
+
+describe('svelte5 reactivity contract — Phase 2-4 calling surfaces (runes)', () => {
+	// Runes-mode components compile template expressions into reactive effects
+	// directly — ZERO `$.untrack(` wrappers. Any untrack appearing here means a
+	// store read landed in a non-reactive position (the P0 bug class wearing
+	// runes clothes). Verified by probe: all three compile to 0 untrack calls.
+	const runesDir = join(here, 'components');
+	const runesComponents = [
+		'CallStage.svelte',
+		'VoiceView.svelte',
+		'CallsPanel.svelte',
+		'VideoSink.svelte'
+	];
+
+	for (const name of runesComponents) {
+		test(`${name} compiles with zero untrack windows`, () => {
+			const source = readFileSync(join(runesDir, name), 'utf8');
+			const out = compile(source, { generate: 'client' }).js.code;
+			expect(extractUntrackCalls(out)).toEqual([]);
+		});
+	}
+
+	// The phase-2 surfaces must actually bind the session model — a silent
+	// refactor that swaps callSessions for a stale copy would gut every card.
+	test('VoiceView and CallsPanel bind callSessions', () => {
+		for (const name of ['VoiceView.svelte', 'CallsPanel.svelte']) {
+			const source = readFileSync(join(runesDir, name), 'utf8');
+			expect(source).toContain('$callSessions');
+		}
 	});
 });

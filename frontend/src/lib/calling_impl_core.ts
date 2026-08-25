@@ -24,7 +24,8 @@ export {
 } from './callingScreenShare';
 import { initScreenShareDeps } from './callingScreenShare';
 import { connectWithFallback, type CallSurface } from './callingFallback';
-import { voiceChannelMembers } from './presenceStore';
+import { voiceChannelMembers, _updateVoiceChannelMember, _removeVoiceChannelMember } from './presenceStore';
+import { getStoredDbUserId, getStoredUsername } from './authSession';
 import { clearActiveAudioCaptureSession,
 	createAudioCaptureSession,
 	disposeAudioCaptureSession,
@@ -1173,6 +1174,16 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		listeningVoiceChannels.update((channels) => (
 			channels.includes(channelId) ? channels : [...channels, channelId]
 		));
+		// Phase 5: optimistic self-membership — the chip renders on click,
+		// before the server roster echo (Discord-style fluidity). The echo's
+		// voice-channel-state upsert is idempotent over this entry.
+		const selfDbId = getStoredDbUserId();
+		if (selfDbId) {
+			_updateVoiceChannelMember(channelId, `user-${selfDbId}`, {
+				username: getStoredUsername() ?? `${brandName} User`,
+				isSpeaking: false
+			});
+		}
 		if (!get(incomingCall) && !get(outgoingCall)) {
 			incomingCall.set(null);
 		}
@@ -1239,6 +1250,19 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			activeVoiceChannelId = null;
 			listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
 			activeVoiceChannel.set(null);
+		}
+		// Phase 5: the optimistic self-chip must not survive a failed join —
+		// the server never confirmed membership. Presence emits already went
+		// out (Phase 1 ordering), so mirror them to keep every roster honest.
+		// (listenOnly is try-scoped; recompute from the same outer conditions.)
+		const failedSelfDbId = getStoredDbUserId();
+		if (failedSelfDbId) {
+			_removeVoiceChannelMember(channelId, `user-${failedSelfDbId}`);
+		}
+		const wasListenOnly = alreadyInCall || hasPrimaryVoiceChannel;
+		socket.emit(wasListenOnly ? 'voice-channel-unsubscribe' : 'voice-channel-leave', { channelId });
+		if (!wasListenOnly) {
+			socket.emit('voice-channel-unsubscribe', { channelId });
 		}
 		void disconnectLivekitSfu();
 		handleMediaError(error as DOMException, 'starting');

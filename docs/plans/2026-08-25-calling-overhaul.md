@@ -164,6 +164,34 @@ speaker-mute/global bars) driving the SAME session model + audio graph.
   per-call controls + volume.
 
 ### Phase 5 — Fluidity + ship gates (goal 2)
+**Status 2026-08-25: COMPLETE (code).** Optimistic self-membership: the chip
+renders on click before the server echo; a failed join rolls the chip back
+AND mirrors the already-sent presence emits (leave/unsubscribe) so every
+roster converges. Connecting→connected badge on the sidebar VoiceUserCard
+from the session model (Connecting… / n-of-N / Connection trouble). Tripwire
+suite extended: the four new runes components must compile with ZERO
+`$.untrack(` windows (probe-verified), VoiceView/CallsPanel must bind
+`$callSessions`, and the new stores joined TRACKED_STORES. Gates green:
+`bun run check` 0 errors · `bun test` 168 pass · `cargo test -p wabi-server` ok.
+
+**Live smoke checklist (with Ronin, 2 real browsers — headless can't render):**
+1. Security (P1): uninvited account `join-wabidb-call` for a foreign channel →
+   `wabidb-call-denied` + server DENIED log; spoofed `userId` rewritten;
+   unauth `/api/media/rooms` → 401/403.
+2. Relay audio (P2): voice channel join audible through the SHARED context;
+   second channel listen-only mixes; per-call volume slider in voice view
+   actually changes loudness; DM call still works.
+3. Sessions (P2/2.5): end DM call while in a channel → focus returns to the
+   channel; kick from a channel → card disappears everywhere; kill tab →
+   rosters converge.
+4. Stage (P3): focused channel view shows chips + camera/screen tiles;
+   spatial on → ◎ Seats → drag pans that speaker LIVE (wabidb + p2p);
+   seats persist across reload.
+5. Surfaces (P4): voice pill opens the view from any channel and back;
+   cards show correct badges; Leave All leaves everything; calls panel via
+   panel picker shows the same cards.
+6. Fluidity (P5): join click → own chip appears instantly; Connecting… badge
+   while transport establishes; join/leave bleeps attributed per call.
 - Optimistic self-chip, connecting→connected, occupancy counts, per-call sounds.
 - Full regression suite, `bun run check`, `cargo test`, 2-client live smoke
   (real browser — headless cannot render Wabi). Scoped commits. No push/deploy
