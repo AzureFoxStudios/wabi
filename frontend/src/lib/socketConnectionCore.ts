@@ -1071,6 +1071,11 @@ export class SocketManager {
 		sock.on('voice-channel-joined', (payload: { channelId?: string; user?: any }) => {
 			if (!payload?.channelId || !payload.user?.userId) return;
 			_updateVoiceChannelMember(payload.channelId, payload.user.userId, payload.user);
+			// Phase 2: attributed join sound + session roster update, but only
+			// for channels WE are connected to (silent for everyone else).
+			void import('./calling').then((m) => {
+				m.handleVoiceParticipantJoined(payload.user.userId, payload.user.username, payload.channelId);
+			}).catch(() => undefined);
 		});
 
 		sock.on('voice-channel-error', (payload: { channelId?: string; error?: string }) => {
@@ -1311,6 +1316,10 @@ export class SocketManager {
 		sock.on('voice-channel-user-left', (payload: { channelId?: string; userId?: string }) => {
 			if (!payload?.channelId || !payload.userId) return;
 			_removeVoiceChannelMember(payload.channelId, payload.userId);
+			// Phase 2: attributed leave sound for channels we are connected to.
+			void import('./calling').then((m) => {
+				m.handleVoiceParticipantLeft(payload.userId, payload.channelId);
+			}).catch(() => undefined);
 		});
 
 		sock.on('role-definitions-updated', (payload: { roles?: any[] }) => {

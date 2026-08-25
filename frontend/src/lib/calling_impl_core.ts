@@ -49,7 +49,9 @@ import {
 } from './callingDiagnostics';
 import { prefetchTurnCredentials } from './turnConfig';
 import { getSocket } from './socketConnection';
-import { playCallActionSound } from './callSounds';
+import { playCallActionSound, type CallSoundOptions } from './callSounds';
+import { callSessionManager } from './callSessionManager';
+import { detachSession as detachSessionAudioChain, detachAllSessions as detachAllSessionAudioChains } from './callAudioGraph';
 import { resolveActiveTransport } from './callingTransport';
 import {
 	getStoredCallMuteBehavior,
@@ -542,6 +544,9 @@ function rememberVoiceParticipantLabel(userId: string, username?: string | null)
 
 
 function finalizeLocalCallEndState(): void {
+	// Phase 2: full call teardown ends every session and audio chain.
+	callSessionManager.leaveAll();
+	detachAllSessionAudioChains();
 	const stream = get(localStream);
 	if (stream) {
 		stream.getTracks().forEach(track => track.stop());
@@ -1142,6 +1147,16 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			socket.emit('voice-channel-join', { channelId });
 			socket.emit('voice-channel-subscribe', { channelId });
 		}
+		// Phase 2: the session model is the source of truth for connected
+		// calls — register optimistically (lifecycle 'joining') so the UI can
+		// render the chip before transport setup finishes.
+		callSessionManager.register({
+			id: channelId,
+			channelId,
+			kind: 'channel',
+			name: channelId,
+			direction: listenOnly ? 'listen' : 'transmit'
+		});
 		// T2: declarative fallback chain — previously a wabidb failure here was
 		// caught + logged with NO fallback (user silently deaf).
 		const rosterSize = get(voiceChannelMembers)[channelId]?.length ?? 1;
@@ -1161,12 +1176,21 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 				}
 			}
 		});
+		callSessionManager.markConnected(channelId, activeTransport === 'sfu' ? 'sfu' : activeTransport === 'p2p' ? 'p2p' : 'wabidb');
+		if (!listenOnly) {
+			callSessionManager.setFocus(channelId);
+		}
 		syncSpatialAudioGraph();
-		playCallActionSound('join');
+		playCallActionSound('join', sessionSoundOptionsFor(channelId));
 		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
+		// Phase 2: the optimistic session registration must not outlive a
+		// failed join — drop it (and its audio chain slot).
+		callSessionManager.markFailed(channelId);
+		callSessionManager.unregister(channelId);
+		detachSessionAudioChain(channelId);
 		// Do not leave the sidebar/center-stage state claiming that we are
 		// connected when transport setup failed after the local state was set.
 		// Without this rollback a failed join can leave the channel highlighted,
@@ -1194,16 +1218,23 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		socket.emit('voice-channel-unsubscribe', { channelId });
 		void disconnectWabidbChannel(channelId);
 		listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
+		callSessionManager.unregister(channelId);
+		detachSessionAudioChain(channelId);
 		return;
 	}
 
 	socket.emit('voice-channel-leave', { channelId });
 	socket.emit('voice-channel-unsubscribe', { channelId });
 	void disconnectWabidbChannel(channelId);
+	// Legacy behavior: leaving the primary clears every listening channel —
+	// mirror that in the session model so it never claims a live session the
+	// legacy layer has already torn down.
+	callSessionManager.leaveAll();
+	detachSessionAudioChain(channelId);
 	activeVoiceChannelId = null;
 	listeningVoiceChannels.set([]);
 	pushVoiceChannelNotice(`Left voice: ${channelId}`);
-	playCallActionSound('leave');
+	playCallActionSound('leave', sessionSoundOptionsFor(channelId));
 
 	// Multi-call: leaving the primary voice channel keeps the DM/group call
 	// alive. The shared local stream and transport belong to the call now.
@@ -1293,6 +1324,8 @@ export async function handleForcedVoiceMove(
 	await disconnectWabidbChannel(fromChannelId);
 	socket.emit('voice-channel-unsubscribe', { channelId: fromChannelId });
 	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== fromChannelId));
+	callSessionManager.unregister(fromChannelId);
+	detachSessionAudioChain(fromChannelId);
 
 	// While a DM/group call is active the channel stays a listen-only backdrop
 	// (TeamSpeak style) — mirror joinVoiceChannel's listenOnly rule so a forced
@@ -1306,6 +1339,15 @@ export async function handleForcedVoiceMove(
 	listeningVoiceChannels.update((channels) => (
 		channels.includes(toChannelId) ? channels : [...channels, toChannelId]
 	));
+	// Phase 2: the moved-to channel becomes a session immediately; focus
+	// follows the primary (a forced move while listening stays background).
+	callSessionManager.register({
+		id: toChannelId,
+		channelId: toChannelId,
+		kind: 'channel',
+		name: toChannelId,
+		direction: captureHere ? 'transmit' : 'listen'
+	});
 
 	// Presence BEFORE transport (Phase 1 hardening): the server authorizes
 	// wabidb room joins against the voice roster, so the join/subscribe must
@@ -1319,16 +1361,20 @@ export async function handleForcedVoiceMove(
 		await disconnectLivekitSfu();
 		if (captureHere) {
 			await connectLivekitSfu(toChannelId, `${brandName} User`);
+			callSessionManager.markConnected(toChannelId, 'sfu');
 		}
 	} else {
 		try {
 			await connectWabidbCall(socket, toChannelId, `${brandName} User`, undefined, undefined, !captureHere);
+			callSessionManager.markConnected(toChannelId, 'wabidb');
 		} catch (error) {
 			console.error('[Calling] Failed to re-tune wabidb relay after forced move:', error);
+			callSessionManager.markFailed(toChannelId);
 		}
 	}
 
 	if (isPrimary) {
+		callSessionManager.setFocus(toChannelId);
 		// Server-side join resets the roster transmit mode to "primary";
 		// re-assert an active broadcast routing so the roster stays honest.
 		if (get(voiceTransmitMode) === 'all-listening') {
@@ -1807,17 +1853,48 @@ export function handleGroupCallInviteCleared(data: { channelId: string; stableUs
 	maybeDismissEmptyPendingGroupCall();
 }
 
-export function handleVoiceParticipantJoined(userId: string, username: string): void {
+/**
+ * Phase 2: per-call sound attribution. Each connected call gets a distinct
+ * pitch slot and stereo pan, scaled by that session's own volume — a join in
+ * a silenced call is silent; a join in the focused call is unmistakable.
+ */
+function sessionSoundOptionsFor(channelId?: string): CallSoundOptions | undefined {
+	const sessions = callSessionManager.list();
+	if (sessions.length === 0) return undefined;
+	const session = channelId ? sessions.find((s) => s.id === channelId || s.channelId === channelId) : undefined;
+	const target = session ?? sessions.find((s) => s.focus === 'focused') ?? sessions[0];
+	const index = sessions.indexOf(target);
+	const pan = sessions.length > 1 ? Math.max(-1, Math.min(1, (index / Math.max(1, sessions.length - 1)) * 1.6 - 0.8)) : undefined;
+	return {
+		sessionIndex: index,
+		volumeScale: target.volume / 100,
+		pan
+	};
+}
+
+export function handleVoiceParticipantJoined(userId: string, username: string, channelId?: string): void {
 	rememberVoiceParticipantLabel(userId, username);
-	playCallActionSound('join');
+	const connectedToChannel = !channelId || get(listeningVoiceChannels).includes(channelId);
+	if (connectedToChannel) {
+		playCallActionSound('join', sessionSoundOptionsFor(channelId));
+		if (channelId) {
+			callSessionManager.upsertParticipant(channelId, { userId, username });
+		}
+	}
 	const label = resolveVoiceParticipantLabel(userId);
 	if (label) {
 		pushVoiceChannelNotice(`${label} joined voice`);
 	}
 }
 
-export function handleVoiceParticipantLeft(userId: string): void {
-	playCallActionSound('leave');
+export function handleVoiceParticipantLeft(userId: string, channelId?: string): void {
+	const connectedToChannel = !channelId || get(listeningVoiceChannels).includes(channelId);
+	if (connectedToChannel) {
+		playCallActionSound('leave', sessionSoundOptionsFor(channelId));
+		if (channelId) {
+			callSessionManager.removeParticipant(channelId, userId);
+		}
+	}
 	const label = resolveVoiceParticipantLabel(userId);
 	if (label) {
 		pushVoiceChannelNotice(`${label} left voice`);

@@ -65,6 +65,17 @@ per-call sounds, keep P0 reactivity tripwires green.
 6. Integration tests per finding; `cargo test -p wabi-server`.
 
 ### Phase 2 — Multi-session CallSessionManager (goal 4)
+**Status 2026-08-25: CORE LANDED** — `callSessionTypes.ts` (types + sessionBadge),
+`callSessionManager.ts` (manager + `callSessions`/`focusedCallSessionId` stores,
+12 contract tests), `callAudioGraph.ts` (shared AudioContext, per-session
+gain→panner→master; relay worklet attach still pending), `callSounds.ts`
+per-call attribution (pitch/pan/volume). Integration: channel join/leave/move
+paths register/unregister sessions optimistically; socket roster events now
+play ATTRIBUTED join/leave sounds for connected channels only (previously
+voice channels played NO remote sounds at all — group path only). Remaining:
+(a) DM/group call registration, (b) route wabidb relay worklets through
+callAudioGraph so per-call volume is audible, (c) Phase 3/4 UI binds to
+`callSessions` via the `calling.ts` barrel exports.
 - `CallSession` per connected call: kind channel/direct/group, transport
   instance, direction transmit|listen, focus focused|background|silenced,
   volume 0-100, muted/deafened, participants, streams, spatialSeats, lifecycle

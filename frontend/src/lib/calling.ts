@@ -33,6 +33,33 @@ export type {
 	AudioAnalyzer
 } from './callingTypes';
 
+// Phase 2 — multi-session call model (CallSessionManager + shared audio graph)
+export {
+	callSessions,
+	focusedCallSessionId,
+	callSessionManager
+} from './callSessionManager';
+export type {
+	CallSession,
+	CallSessionKind,
+	CallSessionDirection,
+	CallSessionFocus,
+	CallSessionLifecycle,
+	CallSessionParticipant,
+	CallSessionTransport,
+	CallSessionBadge,
+	RegisterCallSessionInput
+} from './callSessionTypes';
+export { sessionBadge } from './callSessionTypes';
+export {
+	ensureCallAudioGraph,
+	attachSessionSource,
+	setSessionVolume,
+	setSessionPan,
+	detachSession,
+	detachAllSessions
+} from './callAudioGraph';
+
 export {
 	CAMERA_CONSTRAINTS,
 	VIDEO_QUALITY_TIER_PARAMS,
