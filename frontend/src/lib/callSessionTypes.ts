@@ -34,6 +34,13 @@ export interface CallSessionParticipant {
 /** Active transport for this session's media, when connected. */
 export type CallSessionTransport = 'wabidb' | 'p2p' | 'sfu' | null;
 
+/** Position in the spatial hearing stage (same space as the p2p engine). */
+export interface CallSpatialPosition {
+	x: number;
+	y: number;
+	z: number;
+}
+
 export interface CallSession {
 	/** Channel id for channels; deterministic session id for DM/group. */
 	id: string;
@@ -51,6 +58,11 @@ export interface CallSession {
 	lifecycle: CallSessionLifecycle;
 	transport: CallSessionTransport;
 	participants: CallSessionParticipant[];
+	/**
+	 * Personal spatial-hearing seats for this call (userId → position).
+	 * Absent users fall back to the auto-circle layout.
+	 */
+	spatialSeats: Record<string, CallSpatialPosition>;
 	joinedAt: number;
 	lastActivityAt: number;
 }

@@ -113,7 +113,17 @@ export class WabidbMediaRelay {
   private audioContext: AudioContext | null = null;
   /** False when the context is the shared call graph's (never close it). */
   private ownsAudioContext = true;
-  private audioWorklet: AudioWorkletNode | null = null;
+  /**
+   * Phase 3: ONE playback chain per REMOTE USER (worklet→panner→gain) so
+   * each speaker can be spatially positioned independently — the old single
+   * mixed worklet made per-user panning impossible for relayed audio.
+   */
+  private userPlaybackChains = new Map<string, {
+    worklet: AudioWorkletNode;
+    panner: StereoPannerNode;
+    gain: GainNode;
+    position: { x: number; y: number; z: number };
+  }>();
   private jitterBuffer: JitterEntry[] = [];
   private opusDecoder: Worker | null = null;
   private pendingDecodeResolvers: Array<(pcm: Float32Array | null) => void> = [];
@@ -275,21 +285,21 @@ export class WabidbMediaRelay {
       const age = now - entry.timestamp;
       if (age >= this.jitterTargetMs) {
         this.jitterBuffer.shift();
-        void this.decodeAndPlay(entry.data);
+        void this.decodeAndPlay(entry.fromUserId, entry.data);
       } else {
         break;
       }
     }
   }
 
-  private async decodeAndPlay(opusPayload: Uint8Array): Promise<void> {
+  private async decodeAndPlay(fromUserId: string | undefined, opusPayload: Uint8Array): Promise<void> {
     try {
       if (!this.opusDecoder) {
         await this.initializeOpusDecoder();
       }
       const pcmData = await this.decodeOpus(opusPayload);
       if (pcmData) {
-        await this.playbackViaAudioWorklet(pcmData);
+        await this.playbackViaAudioWorklet(fromUserId ?? 'unknown', pcmData);
       }
     } catch (error) {
       console.error('[WabidbMediaRelay] decode/playback error:', error);
@@ -356,9 +366,10 @@ export class WabidbMediaRelay {
     });
   }
 
-  private async playbackViaAudioWorklet(pcmData: Float32Array): Promise<void> {
+  private async playbackViaAudioWorklet(fromUserId: string, pcmData: Float32Array): Promise<void> {
     if (!this.audioContext) return;
-    if (!this.audioWorklet) {
+    let chain = this.userPlaybackChains.get(fromUserId);
+    if (!chain) {
       try {
         const workletUrl = new URL('./audio-worklet-playback.js', import.meta.url);
         // addModule is per-context; skip re-registration when the shared
@@ -367,19 +378,49 @@ export class WabidbMediaRelay {
           await this.audioContext.audioWorklet.addModule(workletUrl);
           contextsWithPlaybackModule.add(this.audioContext);
         }
-        this.audioWorklet = new AudioWorkletNode(this.audioContext, 'wabidb-audio-playback');
-        // Phase 2: into the per-session chain (gain→panner→master), NOT the
-        // raw destination — this is what makes per-call volume work.
-        const attached = attachSessionSource(this.audioSessionId, this.audioWorklet);
+        const worklet = new AudioWorkletNode(this.audioContext, 'wabidb-audio-playback');
+        const panner = this.audioContext.createStereoPanner();
+        const gain = this.audioContext.createGain();
+        worklet.connect(panner);
+        panner.connect(gain);
+        // Phase 2/3: into the per-session chain (gain→panner→master), NOT the
+        // raw destination — per-call volume + per-user spatialization.
+        const attached = attachSessionSource(this.audioSessionId, gain);
         if (!attached) {
-          this.audioWorklet.connect(this.audioContext.destination);
+          gain.connect(this.audioContext.destination);
         }
+        chain = { worklet, panner, gain, position: { x: 0, y: 0, z: 2 } };
+        this.userPlaybackChains.set(fromUserId, chain);
       } catch (error) {
         console.error('[WabidbMediaRelay] Failed to load AudioWorklet:', error);
         return;
       }
     }
-    this.audioWorklet.port.postMessage({ pcm: pcmData });
+    chain.worklet.port.postMessage({ pcm: pcmData });
+  }
+
+  /**
+   * Phase 3: position one remote user in this relay's stereo field
+   * (pan_distance semantics mirroring the spatial engine: pan from x,
+   * distance attenuation from the x/z plane). Values are in the same
+   * coordinate space as SpatialAudioEngine positions.
+   */
+  setSpatialPosition(fromUserId: string, position: { x: number; y: number; z: number }): void {
+    const chain = this.userPlaybackChains.get(fromUserId);
+    if (!chain) return;
+    chain.position = position;
+    const now = this.audioContext?.currentTime ?? 0;
+    try {
+      const pan = Math.max(-1, Math.min(1, position.x / 6));
+      chain.panner.pan.cancelScheduledValues(now);
+      chain.panner.pan.linearRampToValueAtTime(pan, now + 0.08);
+      const distance = Math.sqrt(position.x * position.x + position.z * position.z);
+      const attenuation = Math.max(0.45, Math.min(1, 1 - distance / 24));
+      chain.gain.gain.cancelScheduledValues(now);
+      chain.gain.gain.linearRampToValueAtTime(attenuation, now + 0.08);
+    } catch {
+      // chain already torn down
+    }
   }
 
   stop(): void {
@@ -392,10 +433,17 @@ export class WabidbMediaRelay {
       this.opusRecorder.stop();
       this.opusRecorder = null;
     }
-    if (this.audioWorklet) {
-      this.audioWorklet.disconnect();
-      this.audioWorklet = null;
+    // Phase 3: tear down every per-user playback chain.
+    for (const chain of this.userPlaybackChains.values()) {
+      try {
+        chain.worklet.disconnect();
+        chain.panner.disconnect();
+        chain.gain.disconnect();
+      } catch {
+        /* already detached */
+      }
     }
+    this.userPlaybackChains.clear();
     // Phase 2: the shared graph context serves every relay — only close one
     // we own. The session chain itself is disposed via detachSession.
     if (this.audioContext && this.ownsAudioContext) {

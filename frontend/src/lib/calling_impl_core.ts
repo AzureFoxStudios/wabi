@@ -2,7 +2,7 @@ import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
-import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive } from './callingWabidb';
+import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive, setWabidbSpatialPosition } from './callingWabidb';
 import {
 	configureLivekitTokenRefresh
 } from './callingLivekitTokenRefresh';
@@ -65,6 +65,7 @@ import {
 	assignStableSeatOrder,
 	computeSpatialPosition,
 	resolveSpatialRuntimeMode,
+	saveSpatialSeats,
 	sortByUserId
 } from './callingSpatialRuntime';
 import {
@@ -1040,6 +1041,36 @@ export function toggleSpatialAudioEnabled(): void {
 		spatialFallbackNoticeShown = false;
 	}
 	syncSpatialAudioGraph();
+}
+
+/**
+ * Phase 3: set one user's seat on a call's spatial stage. Drives every audio
+ * path at once — persists the personal layout, records it in the session
+ * model, positions the wabidb relay's per-user chain, and (when the p2p
+ * spatial engine is attached to this peer) updates `call:{userId}`.
+ */
+export function applySpatialSeat(
+	sessionId: string,
+	userId: string,
+	position: { x: number; y: number; z: number }
+): void {
+	callSessionManager.setSpatialSeat(sessionId, userId, position);
+	const session = callSessionManager.get(sessionId);
+	if (session) saveSpatialSeats(sessionId, session.spatialSeats);
+	setWabidbSpatialPosition(sessionId, userId, position);
+	if (spatialAudioEngine) {
+		spatialAudioEngine.updateSourcePosition(`call:${userId}`, position as SpatialPosition);
+	}
+}
+
+export function clearSpatialSeat(sessionId: string, userId: string): void {
+	callSessionManager.clearSpatialSeat(sessionId, userId);
+	const session = callSessionManager.get(sessionId);
+	if (session) saveSpatialSeats(sessionId, session.spatialSeats);
+	// Back to the auto-circle: recompute the stable seat for this user.
+	if (spatialAudioEngine) {
+		syncSpatialAudioGraph();
+	}
 }
 
 // ============================================================================

@@ -94,6 +94,8 @@
 	} from '$lib/calling/presenterOverlay';
 	import PresenterOverlayCanvas from './PresenterOverlayCanvas.svelte';
 	import CallParticipantGrid from './CallParticipantGrid.svelte';
+	import CallStage from './CallStage.svelte';
+	import { callSessions, focusedCallSessionId } from '$lib/callSessionManager';
 	import CallControls from './CallControls.svelte';
 	import CallRecordingPanel from './CallRecordingPanel.svelte';
 	import IncomingCallModal from './IncomingCallModal.svelte';
@@ -960,6 +962,12 @@
 			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open call view">Open</button>
 			<button class="dock-btn" on:click={() => setViewportMode('focus')} title="Focus call">Focus</button>
 			<button
+				class="dock-btn"
+				class:active={spatialAudioActive}
+				on:click={toggleSpatialAudioEnabled}
+				title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
+			>◎</button>
+			<button
 				class="dock-btn debug-toggle"
 				class:active={showSpatialDebugOverlay}
 				on:click={handleToggleSpatialDebug}
@@ -1031,6 +1039,14 @@
 				<CallRecordingPanel recordingState={$callRecordingState} {recordingPresenceCopy} {recordingPillText} />
 			{/if}
 			<div class="call-stage" bind:this={callStageElement}>
+				{#if $callMode === 'channel' && $focusedCallSessionId && $callSessions.get($focusedCallSessionId)}
+					<!-- Phase 3: the focused channel stage — avatar chips, video/screen
+					     tiles, and the draggable spatial seat map. -->
+					<CallStage
+						session={$callSessions.get($focusedCallSessionId)}
+						spatialEnabled={spatialAudioActive}
+					/>
+				{:else}
 				<CallParticipantGrid
 					{orderedTiles}
 					layoutTemplate={layoutResult.template}
@@ -1050,6 +1066,7 @@
 					onPresenterOverlayActivate={(tileId) => activatePresenterOverlayTile(tileId)}
 					heroIds={layoutResult.heroIds}
 				/>
+				{/if}
 				{#if showSpatialDebugOverlay && $isInCall}
 					<div class="spatial-debug-overlay" transition:fade={{ duration: 140 }}>
 						<div class="spatial-debug-header">
@@ -1132,6 +1149,12 @@
 					Spatial: {$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}
 					<span class="transport-note">src {$spatialAudioDiagnostics.totalSources}</span>
 				</span>
+				<button
+					class="dock-btn"
+					class:active={spatialAudioActive}
+					on:click={toggleSpatialAudioEnabled}
+					title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
+				>◎ Spatial</button>
 				<button
 					class="dock-btn debug-toggle"
 					class:active={showSpatialDebugOverlay}

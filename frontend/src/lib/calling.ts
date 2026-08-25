@@ -198,6 +198,12 @@ import {
 	updateCallUsername
 } from './calling_impl';
 
+// Phase 3 — spatial seat stage API
+export {
+	applySpatialSeat,
+	clearSpatialSeat
+} from './calling_impl_core';
+
 export {
 	clearAudioPerformanceFallbackOverride,
 	refreshSpatialAudioRuntime,
