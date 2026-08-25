@@ -146,6 +146,18 @@ describe('svelte5 reactivity contract — calling sidebar', () => {
 		expect(hits.some((h) => h.store === 'helper:getMembers')).toBe(true);
 	});
 
+	test('second-click embed survives: handleVoiceChannelClick calls openChannelCallPanel', () => {
+		// Peer sessions have twice reverted this line, killing the embedded call
+		// view ("can't open the call view anymore"). Guard it as behavior.
+		const source = readFileSync(
+			join(here, 'components/ChannelSidebar.svelte'),
+			'utf8'
+		);
+		const fnMatch = source.match(/async function handleVoiceChannelClick[\s\S]{0,600}/);
+		expect(fnMatch).not.toBeNull();
+		expect(fnMatch![0]).toContain('openChannelCallPanel');
+	});
+
 	// Self-check 2 (inline mode): raw store reads DO appear inside untrack
 	// windows when the compiler emits multi-read effects; includeInline must
 	// surface them.

@@ -178,7 +178,7 @@
 
 	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
-	$: showDockedBar = $isInCall && callViewportMode === 'docked';
+	$: showDockedBar = $isInCall && callViewportMode === 'docked' && $callMode !== 'channel';
 	$: showCallShell = $isInCall && callViewportMode !== 'docked';
 	$: showHatchToggle = $isInCall && callViewportMode !== 'docked';
 	// Resolve the real channel name — joinVoiceChannel stores the raw id in
