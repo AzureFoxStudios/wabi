@@ -56,6 +56,7 @@
 @import './components/map-workspace.css';
 @import './components/call-modal.css';
 @import './components/call-stage.css';
+@import './components/voice-view.css';
 @import './components/projects-view.css';
 @import './components/payment-sheet.css';
 @import './components/kanban-board.css';

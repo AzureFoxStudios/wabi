@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { WorkspacePanelManifest } from '$lib/workspacePanels';
 	import UserListTab from './UserListTab.svelte';
+	import CallsPanel from './CallsPanel.svelte';
 	import MediaAlbumsTab from './MediaAlbumsTab.svelte';
 	import KeepNotesView from './KeepNotesView.svelte';
 	import MapWorkspace from './MapWorkspace.svelte';
@@ -25,6 +26,8 @@
 
 {#if panel.component === 'users'}
 	<UserListTab />
+{:else if panel.component === 'calls'}
+	<CallsPanel />
 {:else if panel.component === 'dms'}
 	<DMTab />
 {:else if panel.component === 'notes'}

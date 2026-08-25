@@ -20,7 +20,8 @@ export type WorkspacePanelIcon =
 	| 'activity'
 	| 'tasks'
 	| 'settings'
-	| 'transfers';
+	| 'transfers'
+	| 'headphones';
 
 export type WorkspacePanelComponentKey =
 	| 'users'
@@ -36,7 +37,8 @@ export type WorkspacePanelComponentKey =
 	| 'reader'
 	| 'transfers'
 	| 'code'
-	| 'planner-tasks';
+	| 'planner-tasks'
+	| 'calls';
 
 export type WorkspacePanelDockArea = 'right' | 'bottom' | 'center' | 'floating';
 export type WorkspacePanelMobileMode = 'sheet' | 'fullscreen' | 'hidden';
@@ -97,6 +99,17 @@ export interface WorkspacePanelPluginRecord {
 }
 
 export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
+	{
+		id: 'calls',
+		label: 'Calls',
+		icon: 'headphones',
+		component: 'calls',
+		capabilities: ['per-call-volume', 'focus-switch', 'hang-up'],
+		defaultDock: 'right',
+		mobileMode: 'sheet',
+		source: 'core',
+		sortOrder: 5
+	},
 	{
 		id: 'users',
 		label: 'People',
