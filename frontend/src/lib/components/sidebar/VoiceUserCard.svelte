@@ -19,6 +19,7 @@
 	} from '$lib/calling';
 	import { formatDiag } from './channelSidebarHelpers';
 	import { getSocket } from '$lib/socketConnection';
+	import { callRecordingState, startCallRecording, stopCallRecording } from '$lib/callRecording';
 
 	export let runtimeActiveVoiceChannelId: string | null;
 	export let voiceChannels: Channel[];
@@ -106,6 +107,16 @@
 				// swallow
 			}
 		}
+	}
+
+	// Ported from the removed channel docked bar so recording capability is
+	// preserved after the bar's removal (calling-audit P2.1).
+	async function handleToggleRecording() {
+		if ($callRecordingState.status === 'recording' || $callRecordingState.status === 'saving') {
+			await stopCallRecording();
+			return;
+		}
+		await startCallRecording();
 	}
 </script>
 
@@ -197,6 +208,15 @@
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
 			</button>
 			{/if}
+			<button
+				class="record-btn"
+				class:active={$callRecordingState.status === 'recording'}
+				on:click={handleToggleRecording}
+				title={$callRecordingState.status === 'recording' ? 'Stop recording' : 'Start recording'}
+				disabled={$callRecordingState.status === 'saving'}
+			>
+				{$callRecordingState.status === 'saving' ? 'Saving' : $callRecordingState.status === 'recording' ? 'REC' : 'Record'}
+			</button>
 			<button class="leave-btn" on:click={onLeaveVoice} title="Leave voice channel">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
 			</button>

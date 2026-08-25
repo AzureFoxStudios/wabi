@@ -19,6 +19,20 @@
 		color: var(--text-danger, #fda4af);
 	}
 
+	/* Record control ported from the removed channel docked bar (P2.1). */
+	.voice-usercard-actions .record-btn {
+		font-size: 0.68rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		padding: 0 8px;
+		height: 26px;
+		border-radius: 6px;
+	}
+
+	.voice-usercard-actions .record-btn.active {
+		color: var(--color-danger, #f87171);
+	}
+
 
 	/* Scope: channel-row pin button. The same class name is used by
    CallParticipantTile for call tile pin, so we must scope to avoid
