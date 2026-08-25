@@ -9,6 +9,30 @@
 		showReturnToMessages?: boolean;
 	} = $props();
 
+	// The pill reveal is JS-driven, not :hover — :hover sticks permanently
+	// when the pointer leaves the OS window while over the bar (alt-tab,
+	// second monitor) or after touch taps on hybrid screens, pinning the bar
+	// extended. chat-header.css reveals pills off the `.extended` class.
+	let extended = $state(false);
+	let actionsEl: HTMLDivElement | undefined = $state();
+
+	function extend(event: PointerEvent): void {
+		if (event.pointerType === 'mouse') extended = true;
+	}
+	function collapse(): void {
+		extended = false;
+	}
+
+	// A press outside the bar collapses it — clears touch-emulated sticky
+	// hover and any reveal left behind by a lost pointer.
+	$effect(() => {
+		const onDocPointerDown = (event: PointerEvent): void => {
+			if (!actionsEl?.contains(event.target as Node)) collapse();
+		};
+		document.addEventListener('pointerdown', onDocPointerDown);
+		return () => document.removeEventListener('pointerdown', onDocPointerDown);
+	});
+
 	// Mouse clicks leave the clicked button focused, which keeps the bar in
 	// :focus-within and pins every pill open (the compaction never re-engages).
 	// Blur on selection so the pills collapse again; keyboard Tab navigation
@@ -18,6 +42,8 @@
 		onSelectView(view);
 	}
 </script>
+
+<svelte:window onblur={collapse} />
 
 <div class="workspace-view-bar">
 	{#if showReturnToMessages && activeView !== 'messages'}
@@ -31,7 +57,17 @@
 			Messages
 		</button>
 	{/if}
-	<div class="workspace-view-actions" class:compactable={true} role="tablist" aria-label="Channel views">
+	<div
+		class="workspace-view-actions"
+		class:compactable={true}
+		class:extended
+		bind:this={actionsEl}
+		role="tablist"
+		aria-label="Channel views"
+		onpointerenter={extend}
+		onpointerleave={collapse}
+		onpointercancel={collapse}
+	>
 		<button
 			class="view-open-btn"
 			class:active={activeView === 'messages'}
