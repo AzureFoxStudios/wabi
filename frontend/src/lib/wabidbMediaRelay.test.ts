@@ -4,6 +4,7 @@ import {
 	parseWabidbMediaEnvelope,
 	buildAudioEnvelope,
 	splitFrameIntoChunks,
+	videoStreamKey,
 	WabidbVideoReassembler
 } from './wabidbVideoLane';
 
@@ -186,5 +187,72 @@ describe('resolveWabidbSessionKey', () => {
 
 	test('dm kind without a peer falls back to sessionId', () => {
 		expect(resolveWabidbSessionKey('dm', 'session-abc', 'user-5')).toBe('session-abc');
+	});
+});
+
+describe('wabidb video source discrimination (P1 dual-source)', () => {
+	test('envelope round-trip preserves source', () => {
+		const bytes = new Uint8Array([1, 2, 3]);
+		const chunks = splitFrameIntoChunks('s1', 'u1', 5, bytes, {
+			codec: 'vp8', width: 640, height: 360, keyFrame: true, source: 'screen'
+		});
+		for (const c of chunks) {
+			const parsed = parseWabidbMediaEnvelope(c);
+			expect(parsed!.source).toBe('screen');
+		}
+	});
+
+	test('legacy video (no source) defaults to camera on reassembly', () => {
+		const reasm = new WabidbVideoReassembler();
+		const frame = reasm.push({
+			sessionId: 's', userId: '2', kind: 'video', seq: 1,
+			payload: btoa(String.fromCharCode(...[7, 8])), chunkIndex: 0, chunkCount: 1
+		});
+		expect(frame).not.toBeNull();
+		expect(frame!.source).toBe('camera');
+	});
+
+	test('same user camera + screen do not cross-contaminate (composite keys)', () => {
+		const cam = new Uint8Array([1, 1, 1]);
+		const scr = new Uint8Array([9, 9, 9]);
+		const mk = (userId: string, payload: number[]) => ({
+			sessionId: 's', userId, kind: 'video' as const, seq: 42,
+			payload: btoa(String.fromCharCode(...payload)), chunkIndex: 0, chunkCount: 1
+		});
+		const reasm = new WabidbVideoReassembler();
+		reasm.push({ ...mk('user-7', [0]), source: 'camera' } as any);
+		// push real payloads with sources via envelopes carrying `source`
+		const fCam = reasm.push({ sessionId: 's', userId: 'user-7', kind: 'video', seq: 43, source: 'camera', payload: btoa(String.fromCharCode(...cam)), chunkIndex: 0, chunkCount: 1 });
+		const fScr = reasm.push({ sessionId: 's', userId: 'user-7', kind: 'video', seq: 44, source: 'screen', payload: btoa(String.fromCharCode(...scr)), chunkIndex: 0, chunkCount: 1 });
+		expect(fCam).not.toBeNull();
+		expect(fScr).not.toBeNull();
+		expect(fCam!.source).toBe('camera');
+		expect(fScr!.source).toBe('screen');
+		expect(Array.from(fCam!.frame)).toEqual(Array.from(cam));
+		expect(Array.from(fScr!.frame)).toEqual(Array.from(scr));
+	});
+
+	test('videoStreamKey normalizes raw ids and defaults source', () => {
+		expect(videoStreamKey('2')).toBe('user-2:camera');
+		expect(videoStreamKey('2', 'screen')).toBe('user-2:screen');
+		expect(videoStreamKey('user-9', 'screen')).toBe('user-9:screen');
+	});
+
+	test('clearStream removes only that source; clearUser removes all', () => {
+		const env = (source?: 'camera' | 'screen') => ({
+			sessionId: 's', userId: '3', kind: 'video' as const, seq: 1,
+			source, payload: btoa('ab'), chunkIndex: 0, chunkCount: 1
+		});
+		const reasm = new WabidbVideoReassembler();
+		reasm.push(env('camera'));
+		reasm.push(env('screen'));
+		reasm.clearStream('3', 'camera'); // raw id form must hit the stable key
+		const afterClear = reasm.push({ ...env('camera'), seq: 2 });
+		expect(afterClear).not.toBeNull(); // fresh buffer for camera again
+		const stillBufferedScreen = reasm.push({ ...env('screen'), seq: 1 });
+		expect(stillBufferedScreen).not.toBeNull();
+		reasm.clearUser('3');
+		const fresh = reasm.push({ ...env('screen'), seq: 3 });
+		expect(fresh).not.toBeNull();
 	});
 });

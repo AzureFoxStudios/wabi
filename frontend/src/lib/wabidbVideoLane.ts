@@ -42,6 +42,9 @@ export interface WabidbMediaEnvelope {
   kind: WabidbMediaKind;
   seq: number;
   payload: string; // base64 — ALWAYS a string, never binary
+  // Which outbound feed produced this video frame. Absent on audio, and
+  // absent on video sent by pre-P1 senders (receiver treats those as camera).
+  source?: WabidbVideoSource;
   // video-only chunking / metadata (absent for audio)
   chunkIndex?: number;
   chunkCount?: number;
@@ -83,6 +86,7 @@ export function parseWabidbMediaEnvelope(raw: any): WabidbMediaEnvelope | null {
     kind,
     seq,
     payload,
+    source: raw.source === 'screen' ? 'screen' : raw.source === 'camera' ? 'camera' : undefined,
     chunkIndex: typeof raw.chunkIndex === 'number' ? raw.chunkIndex : undefined,
     chunkCount: typeof raw.chunkCount === 'number' ? raw.chunkCount : undefined,
     keyFrame: raw.keyFrame === true,
@@ -112,7 +116,7 @@ export function splitFrameIntoChunks(
   userId: string,
   seq: number,
   frameBytes: Uint8Array,
-  meta: { codec: string; width: number; height: number; keyFrame: boolean }
+  meta: { codec: string; width: number; height: number; keyFrame: boolean; source?: WabidbVideoSource }
 ): WabidbMediaEnvelope[] {
   const total = frameBytes.length;
   const chunkCount = Math.max(1, Math.ceil(total / VIDEO_CHUNK_RAW_BYTES));
@@ -127,6 +131,7 @@ export function splitFrameIntoChunks(
       kind: 'video',
       seq,
       payload: bytesToBase64(slice),
+      source: meta.source,
       chunkIndex: i,
       chunkCount,
       keyFrame: meta.keyFrame,
@@ -160,23 +165,56 @@ function base64ToBytes(base64: string): Uint8Array {
 // ============================================================================
 
 /**
- * Collects video chunks keyed by (userId, seq) and returns the full frame
- * bytes once every chunk has arrived (order-independent).
+ * Collects video chunks keyed by (stableUserId, source, seq) and returns the
+ * full frame bytes once every chunk has arrived (order-independent).
  */
-export class WabidbVideoReassembler {
-  // userId -> seq -> ChunkSet
-  private byUser = new Map<string, Map<number, ChunkSet>>();
+export interface ReassembledFrame {
+  frame: Uint8Array;
+  codec: string;
+  width: number;
+  height: number;
+  keyFrame: boolean;
+  source: WabidbVideoSource;
+}
 
-  push(env: WabidbMediaEnvelope): { frame: Uint8Array; codec: string; width: number; height: number; keyFrame: boolean } | null {
+/**
+ * Stable stream key: `toStableUserKey(userId):source`. Absent source (video
+ * from pre-P1 senders) defaults to 'camera' so old senders still render.
+ */
+export function videoStreamKey(rawUserId: string, source?: WabidbVideoSource): string {
+  const stable = /^\d+$/.test(rawUserId) ? `user-${rawId(rawUserId)}` : rawUserId;
+  return `${stable}:${source ?? 'camera'}`;
+}
+
+function rawId(userId: string): string { return userId; }
+
+/** `user-2:screen` -> ['2', 'screen'] (raw form for reassembler.clearStream). */
+export function splitStreamKey(key: string): [string, WabidbVideoSource | undefined] {
+  const idx = key.lastIndexOf(':');
+  const source = key.slice(idx + 1);
+  const stable = key.slice(0, idx);
+  return [stable.replace(/^user-/, ''), source === 'camera' || source === 'screen' ? source : undefined];
+}
+
+function stableUserPrefix(rawUserId: string): string {
+  return /^\d+$/.test(rawUserId) ? `user-${rawUserId}` : rawUserId;
+}
+
+export class WabidbVideoReassembler {
+  // `${stableUserId}:${source}` -> seq -> ChunkSet
+  private byStream = new Map<string, Map<number, ChunkSet>>();
+
+  push(env: WabidbMediaEnvelope): ReassembledFrame | null {
     if (env.kind !== 'video' || !env.payload) return null;
     const chunkCount = env.chunkCount ?? 1;
     const chunkIndex = env.chunkIndex ?? 0;
     const bytes = base64ToBytes(env.payload);
+    const key = videoStreamKey(env.userId, env.source);
 
-    let userMap = this.byUser.get(env.userId);
+    let userMap = this.byStream.get(key);
     if (!userMap) {
       userMap = new Map();
-      this.byUser.set(env.userId, userMap);
+      this.byStream.set(key, userMap);
     }
     let set = userMap.get(env.seq);
     if (!set) {
@@ -204,13 +242,24 @@ export class WabidbVideoReassembler {
         offset += c.length;
       }
       userMap.delete(env.seq);
-      return { frame, codec: set.codec, width: set.width, height: set.height, keyFrame: set.keyFrame };
+      return { frame, codec: set.codec, width: set.width, height: set.height, keyFrame: set.keyFrame, source: env.source ?? 'camera' };
     }
     return null;
   }
 
-  clearUser(userId: string): void {
-    this.byUser.delete(userId);
+  clearStream(rawUserId: string, source?: WabidbVideoSource): void {
+    this.byStream.delete(videoStreamKey(rawUserId, source));
+  }
+
+  /** Legacy name kept for compatibility — clears every source for the user. */
+  clearUser(rawUserId: string): void {
+    for (const key of Array.from(this.byStream.keys())) {
+      if (key.startsWith(`${this.stableOf(rawUserId)}:`)) this.byStream.delete(key);
+    }
+  }
+
+  private stableOf(rawUserId: string): string {
+    return /^\d+$/.test(rawUserId) ? `user-${rawUserId}` : rawUserId;
   }
 }
 
@@ -301,20 +350,27 @@ async function selectVideoConfig(
 // Public store handles (exposed for UI tiles — not wired into components here)
 // ============================================================================
 
-/** Remote per-user video MediaStreams (from canvas.captureStream / generator). */
+/**
+ * Remote video MediaStreams keyed by `videoStreamKey` (`stableUserId:source`,
+ * e.g. "user-2:camera" / "user-3:screen"). Consumers must key through
+ * videoStreamKey()/toStableUserKey() — never raw envelope ids.
+ */
 export const wabidbRemoteVideoStreams = writable<Map<string, MediaStream>>(new Map());
 
-/** Whether the LOCAL user currently has an active wabidb video lane. */
+/** Whether the LOCAL user currently has any active wabidb outbound video. */
 export const wabidbLocalVideoActive = writable<boolean>(false);
 
-/** Local camera/screen preview MediaStream while the lane is live (for own tile). */
-export const wabidbLocalPreviewStream = writable<MediaStream | null>(null);
+/**
+ * Local preview streams keyed by source while the corresponding outbound feed
+ * is live ('camera' and/or 'screen').
+ */
+export const wabidbLocalPreviewStreams = writable<Map<WabidbVideoSource, MediaStream>>(new Map());
 
-export function setWabidbRemoteVideoStream(userId: string, stream: MediaStream | null): void {
+export function setWabidbRemoteVideoStream(streamKey: string, stream: MediaStream | null): void {
   wabidbRemoteVideoStreams.update((m) => {
     const next = new Map(m);
-    if (stream) next.set(userId, stream);
-    else next.delete(userId);
+    if (stream) next.set(streamKey, stream);
+    else next.delete(streamKey);
     return next;
   });
 }
@@ -330,14 +386,15 @@ export interface WabidbVideoLaneConfig {
   onError?: (err: Error) => void;
 }
 
-export class WabidbVideoLane {
-  private sessionId: string;
-  private userId: string;
-  private socket: any;
-  private onError?: (err: Error) => void;
-
-  private source: WabidbVideoSource = 'screen';
-  private ladder: WabidbVideoQualityStep[] = SCREEN_LADDER;
+/**
+ * One independent outbound encoder pipeline for a single source (camera OR
+ * screen). Owns its capture loop, encoder, quality ladder, and bandwidth
+ * guard. Multiple LaneSenders can run concurrently inside one lane.
+ */
+class LaneSender {
+  readonly source: WabidbVideoSource;
+  private lane: WabidbVideoLane;
+  private ladder: WabidbVideoQualityStep[];
   private qualityLevel = 0;
 
   private videoEl: HTMLVideoElement | null = null;
@@ -348,7 +405,6 @@ export class WabidbVideoLane {
   private encoderConfig: any = null;
   private codec = 'vp8';
   private frameSeq = 0;
-  private emitSeq = 0;
   private rafHandle: number | null = null;
   private rvfcHandle: number | null = null;
   private lastKeyFrameAt = 0;
@@ -359,50 +415,22 @@ export class WabidbVideoLane {
   private sentBytesLog: { t: number; n: number }[] = [];
   private overshootSince: number | null = null;
 
-  // receiver side
-  private reassembler = new WabidbVideoReassembler();
-  private decoders = new Map<string, any>();
-  private decoderConfigured = new Map<string, boolean>();
-  private remoteCanvases = new Map<string, HTMLCanvasElement>();
-  private remoteCtx = new Map<string, CanvasRenderingContext2D>();
-  private remoteStreams = new Map<string, MediaStream>();
-  private remoteLastFrameAt = new Map<string, number>();
-
-  constructor(cfg: WabidbVideoLaneConfig) {
-    this.sessionId = cfg.sessionId;
-    this.userId = cfg.userId;
-    this.socket = cfg.socket;
-    this.onError = cfg.onError;
+  constructor(source: WabidbVideoSource, lane: WabidbVideoLane) {
+    this.source = source;
+    this.lane = lane;
+    this.ladder = source === 'camera' ? CAMERA_LADDER : SCREEN_LADDER;
   }
 
   get isActive(): boolean {
     return this.active;
   }
 
-  // --------------------------------------------------------------------------
-  // Sender
-  // --------------------------------------------------------------------------
-
-  async startLocalVideo(source: WabidbVideoSource, stream: MediaStream): Promise<void> {
+  async start(stream: MediaStream): Promise<void> {
     if (this.active) return;
-    if (!hasWebCodecs()) {
-      const err = new Error('WebCodecs not available in this browser — video lane disabled');
-      this.onError?.(err);
-      throw err;
-    }
-    this.source = source;
-    this.ladder = source === 'camera' ? CAMERA_LADDER : SCREEN_LADDER;
-    this.qualityLevel = 0;
-    this.sourceStream = stream;
-    this.active = true;
-
     const step = this.ladder[0];
     const selected = await selectVideoConfig(step.width, step.height, step.fps);
     if (!selected) {
-      const err = new Error('No supported video codec for WebCodecs encoder');
-      this.onError?.(err);
-      this.active = false;
-      throw err;
+      throw new Error('No supported video codec for WebCodecs encoder');
     }
     this.codec = selected.codec;
     this.encoderConfig = selected.config;
@@ -410,7 +438,7 @@ export class WabidbVideoLane {
     const VE = (globalThis as any).VideoEncoder;
     this.encoder = new VE({
       output: (chunk: any) => this.onEncodedChunk(chunk),
-      error: (e: any) => this.onError?.(e instanceof Error ? e : new Error(String(e)))
+      error: (e: any) => this.lane.onError?.(e instanceof Error ? e : new Error(String(e)))
     });
     this.encoder.configure(this.encoderConfig);
 
@@ -428,18 +456,17 @@ export class WabidbVideoLane {
       this.canvasCtx = this.canvas.getContext('2d');
     }
 
+    this.sourceStream = stream;
     this.frameSeq = 0;
     this.lastKeyFrameAt = 0;
     this.forceKeyFrame = true;
+    this.active = true;
     this.startCaptureLoop();
-    wabidbLocalVideoActive.set(true);
-    wabidbLocalPreviewStream.set(stream);
   }
 
   private startCaptureLoop(): void {
     if (!this.videoEl || !this.canvas || !this.canvasCtx) return;
     const step = this.ladder[this.qualityLevel];
-    const frameDurationMs = 1000 / step.fps;
 
     const captureFrame = () => {
       if (!this.active || !this.videoEl || !this.canvas || !this.canvasCtx) return;
@@ -461,7 +488,7 @@ export class WabidbVideoLane {
         this.encoder.encode(vf, { keyFrame: isKeyFrame });
         vf.close();
       } catch (e) {
-        this.onError?.(e instanceof Error ? e : new Error(String(e)));
+        this.lane.onError?.(e instanceof Error ? e : new Error(String(e)));
       }
       this.frameSeq++;
       this.maybeGuardBandwidth();
@@ -473,7 +500,7 @@ export class WabidbVideoLane {
       const tick = () => {
         if (!this.active) return;
         captureFrame();
-        this.rvfcHandle = rvfc.call(this.videoEl, tick);
+        this.rvfcHandle = rvfc.call(this.videoEl!, tick);
       };
       this.rvfcHandle = rvfc.call(this.videoEl, tick);
     } else if (typeof requestAnimationFrame !== 'undefined') {
@@ -495,22 +522,23 @@ export class WabidbVideoLane {
         codec: this.codec,
         width: this.canvas?.width ?? step.width,
         height: this.canvas?.height ?? step.height,
-        keyFrame: chunk.type === 'key'
+        keyFrame: chunk.type === 'key',
+        source: this.source
       };
       const envelopes = splitFrameIntoChunks(
-        this.sessionId,
-        this.userId,
-        this.emitSeq++,
+        this.lane.sessionId,
+        this.lane.userId,
+        this.lane.nextEmitSeq(),
         buffer,
         meta
       );
       for (const env of envelopes) {
-        this.socket.emit('wabidb-media', env);
+        this.lane.socket.emit('wabidb-media', env);
       }
       const bytes = buffer.length + envelopes.length * 120; // payload + envelope overhead
       this.sentBytesLog.push({ t: performance.now(), n: bytes });
     } catch (e) {
-      this.onError?.(e instanceof Error ? e : new Error(String(e)));
+      this.lane.onError?.(e instanceof Error ? e : new Error(String(e)));
     }
   }
 
@@ -549,13 +577,13 @@ export class WabidbVideoLane {
         this.encoder.configure(this.encoderConfig);
         this.forceKeyFrame = true;
       } catch (e) {
-        this.onError?.(e instanceof Error ? e : new Error(String(e)));
+        this.lane.onError?.(e instanceof Error ? e : new Error(String(e)));
       }
     };
     void reselect();
   }
 
-  stopLocalVideo(): void {
+  stop(): void {
     this.active = false;
     if (this.rvfcHandle != null && this.videoEl) {
       try {
@@ -581,8 +609,99 @@ export class WabidbVideoLane {
     }
     this.canvas = null;
     this.canvasCtx = null;
-    wabidbLocalVideoActive.set(false);
-    wabidbLocalPreviewStream.set(null);
+  }
+}
+
+export class WabidbVideoLane {
+  readonly sessionId: string;
+  readonly userId: string;
+  readonly socket: any;
+  readonly onError?: (err: Error) => void;
+
+  // Per-source outbound senders. P1: camera and screen run CONCURRENTLY as
+  // independent encoder pipelines (the pre-P1 lane had a single `active`
+  // flag, so whichever source started second silently lost).
+  private senders = new Map<WabidbVideoSource, LaneSender>();
+  private emitSeq = 0;
+
+  // receiver side
+  private reassembler = new WabidbVideoReassembler();
+  private decoders = new Map<string, any>(); // videoStreamKey -> decoder
+  private decoderConfigured = new Map<string, boolean>();
+  private remoteCanvases = new Map<string, HTMLCanvasElement>(); // streamKey -> canvas
+  private remoteCtx = new Map<string, CanvasRenderingContext2D>();
+  private remoteStreams = new Map<string, MediaStream>(); // streamKey -> MediaStream
+  private remoteLastFrameAt = new Map<string, number>();
+
+  constructor(cfg: WabidbVideoLaneConfig) {
+    this.sessionId = cfg.sessionId;
+    this.userId = cfg.userId;
+    this.socket = cfg.socket;
+    this.onError = cfg.onError;
+  }
+
+  get isActive(): boolean {
+    return this.senders.size > 0;
+  }
+
+  get activeSources(): WabidbVideoSource[] {
+    return Array.from(this.senders.keys());
+  }
+
+  // --------------------------------------------------------------------------
+  // Sender
+  // --------------------------------------------------------------------------
+
+  async startLocalVideo(source: WabidbVideoSource, stream: MediaStream): Promise<void> {
+    if (!hasWebCodecs()) {
+      const err = new Error('WebCodecs not available in this browser — video lane disabled');
+      this.onError?.(err);
+      throw err;
+    }
+    if (this.senders.get(source)?.isActive) return; // already live for this source
+
+    const sender = new LaneSender(source, this);
+    try {
+      await sender.start(stream);
+    } catch (err) {
+      this.onError?.(err instanceof Error ? err : new Error(String(err)));
+      throw err;
+    }
+    this.senders.set(source, sender);
+    wabidbLocalPreviewStreams.update((m) => {
+      const next = new Map(m);
+      next.set(source, stream);
+      return next;
+    });
+    wabidbLocalVideoActive.set(true);
+  }
+
+  /** Stop exactly one outbound feed; the other keeps running. */
+  stopLocalVideoSource(source: WabidbVideoSource): void {
+    const sender = this.senders.get(source);
+    if (!sender) return;
+    sender.stop();
+    this.senders.delete(source);
+    wabidbLocalPreviewStreams.update((m) => {
+      const next = new Map(m);
+      next.delete(source);
+      return next;
+    });
+    if (this.senders.size === 0) {
+      wabidbLocalVideoActive.set(false);
+    }
+  }
+
+  /** Compatibility: stop every outbound feed. */
+  stopLocalVideo(): void {
+    for (const source of Array.from(this.senders.keys())) {
+      this.stopLocalVideoSource(source);
+    }
+  }
+
+  /** Shared monotonic envelope sequence across all outbound sources. */
+  nextEmitSeq(): number {
+    return this.emitSeq++;
   }
 
   // --------------------------------------------------------------------------
@@ -596,29 +715,29 @@ export class WabidbVideoLane {
     if (env.userId === this.userId) return; // never decode our own frames
     const reassembled = this.reassembler.push(env);
     if (reassembled) {
-      void this.decodeRemoteFrame(env.userId, reassembled);
+      void this.decodeRemoteFrame(videoStreamKey(env.userId, reassembled.source), reassembled);
     }
   }
 
   private async decodeRemoteFrame(
-    userId: string,
-    frame: { frame: Uint8Array; codec: string; width: number; height: number; keyFrame: boolean }
+    streamKey: string,
+    frame: ReassembledFrame
   ): Promise<void> {
     if (!hasWebCodecs()) return;
-    let decoder = this.decoders.get(userId);
-    const needConfig = !this.decoderConfigured.get(userId) && frame.codec;
+    let decoder = this.decoders.get(streamKey);
+    const needConfig = !this.decoderConfigured.get(streamKey) && frame.codec;
     if (!decoder) {
       const VD = (globalThis as any).VideoDecoder;
       decoder = new VD({
-        output: (vf: any) => this.onDecodedFrame(userId, vf),
+        output: (vf: any) => this.onDecodedFrame(streamKey, vf),
         error: (e: any) => this.onError?.(e instanceof Error ? e : new Error(String(e)))
       });
-      this.decoders.set(userId, decoder);
+      this.decoders.set(streamKey, decoder);
     }
     if (needConfig) {
       try {
         decoder.configure({ codec: frame.codec, width: frame.width || 640, height: frame.height || 360 });
-        this.decoderConfigured.set(userId, true);
+        this.decoderConfigured.set(streamKey, true);
       } catch (e) {
         this.onError?.(e instanceof Error ? e : new Error(String(e)));
         return;
@@ -627,7 +746,7 @@ export class WabidbVideoLane {
     try {
       const chunk = new (globalThis as any).EncodedVideoChunk({
         type: frame.keyFrame ? 'key' : 'delta',
-        timestamp: (this.remoteLastFrameAt.get(userId) ?? 0),
+        timestamp: (this.remoteLastFrameAt.get(streamKey) ?? 0),
         data: frame.frame
       });
       decoder.decode(chunk);
@@ -636,9 +755,9 @@ export class WabidbVideoLane {
     }
   }
 
-  private onDecodedFrame(userId: string, vf: any): void {
-    let canvas = this.remoteCanvases.get(userId);
-    let ctx = this.remoteCtx.get(userId);
+  private onDecodedFrame(streamKey: string, vf: any): void {
+    let canvas = this.remoteCanvases.get(streamKey);
+    let ctx = this.remoteCtx.get(streamKey);
     if (!canvas && typeof document !== 'undefined') {
       canvas = document.createElement('canvas');
       const w = vf.codedWidth || 640;
@@ -646,9 +765,9 @@ export class WabidbVideoLane {
       canvas.width = w;
       canvas.height = h;
       ctx = canvas.getContext('2d');
-      this.remoteCanvases.set(userId, canvas);
-      this.remoteCtx.set(userId, ctx!);
-      this.exposeRemoteStream(userId, canvas);
+      this.remoteCanvases.set(streamKey, canvas);
+      this.remoteCtx.set(streamKey, ctx!);
+      this.exposeRemoteStream(streamKey, canvas);
     }
     if (canvas && ctx) {
       try {
@@ -656,11 +775,11 @@ export class WabidbVideoLane {
       } catch { /* noop */ }
     }
     try { vf.close(); } catch { /* noop */ }
-    this.remoteLastFrameAt.set(userId, (this.remoteLastFrameAt.get(userId) ?? 0) + 1);
+    this.remoteLastFrameAt.set(streamKey, (this.remoteLastFrameAt.get(streamKey) ?? 0) + 1);
   }
 
-  private exposeRemoteStream(userId: string, canvas: HTMLCanvasElement): void {
-    let stream = this.remoteStreams.get(userId);
+  private exposeRemoteStream(streamKey: string, canvas: HTMLCanvasElement): void {
+    let stream = this.remoteStreams.get(streamKey);
     if (!stream) {
       // Prefer MediaStreamTrackGenerator when available (lighter), else canvas.captureStream.
       const MSG = (globalThis as any).MediaStreamTrackGenerator;
@@ -674,35 +793,47 @@ export class WabidbVideoLane {
         stream = (canvas as any).captureStream(15);
       }
       if (stream) {
-        this.remoteStreams.set(userId, stream);
-        setWabidbRemoteVideoStream(userId, stream);
+        this.remoteStreams.set(streamKey, stream);
+        setWabidbRemoteVideoStream(streamKey, stream);
       }
     }
   }
 
-  stopRemoteUser(userId: string): void {
-    const decoder = this.decoders.get(userId);
+  /** Stop decoding/exposing one remote feed (`stableUserId` + optional source). */
+  stopRemoteUser(rawUserId: string, source?: WabidbVideoSource): void {
+    if (source) {
+      const key = videoStreamKey(rawUserId, source);
+      this.teardownRemoteStream(key);
+      return;
+    }
+    for (const key of Array.from(this.decoders.keys())) {
+      if (key.startsWith(`${stableUserPrefix(rawUserId)}:`)) this.teardownRemoteStream(key);
+    }
+  }
+
+  private teardownRemoteStream(streamKey: string): void {
+    const decoder = this.decoders.get(streamKey);
     if (decoder) {
       try { decoder.close(); } catch { /* noop */ }
-      this.decoders.delete(userId);
+      this.decoders.delete(streamKey);
     }
-    this.decoderConfigured.delete(userId);
-    this.reassembler.clearUser(userId);
-    this.remoteCanvases.delete(userId);
-    this.remoteCtx.delete(userId);
-    this.remoteLastFrameAt.delete(userId);
-    const stream = this.remoteStreams.get(userId);
+    this.decoderConfigured.delete(streamKey);
+    this.reassembler.clearStream(...splitStreamKey(streamKey));
+    this.remoteCanvases.delete(streamKey);
+    this.remoteCtx.delete(streamKey);
+    this.remoteLastFrameAt.delete(streamKey);
+    const stream = this.remoteStreams.get(streamKey);
     if (stream) {
       stream.getTracks().forEach((t) => t.stop());
-      this.remoteStreams.delete(userId);
+      this.remoteStreams.delete(streamKey);
     }
-    setWabidbRemoteVideoStream(userId, null);
+    setWabidbRemoteVideoStream(streamKey, null);
   }
 
   stopAll(): void {
     this.stopLocalVideo();
-    for (const userId of Array.from(this.decoders.keys())) {
-      this.stopRemoteUser(userId);
+    for (const streamKey of Array.from(this.decoders.keys())) {
+      this.teardownRemoteStream(streamKey);
     }
   }
 }
