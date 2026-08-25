@@ -25,6 +25,7 @@ use crate::media::MediaRoomError;
 use crate::nodes::NodeCapability;
 use crate::state::AppState;
 use crate::api::auth::handle_turn_credentials;
+use crate::auth_extractor::AuthUser;
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -105,6 +106,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 
 async fn create_room(
     State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
     Json(req): Json<CreateRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
     // 1. Create the room (or return existing)
@@ -169,6 +171,7 @@ async fn create_room(
 
 async fn get_room(
     State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
     let room = state
@@ -181,6 +184,7 @@ async fn get_room(
 
 async fn find_by_channel(
     State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
     Path(channel_id): Path<String>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
     let room = state
@@ -193,9 +197,14 @@ async fn find_by_channel(
 
 async fn assign_room(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Path(room_id): Path<String>,
     Json(req): Json<AssignRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
+    // Admin-only: node assignment shapes where client media is routed.
+    if !state.is_admin(auth.user_id).await {
+        return Err(MediaApiError::Forbidden);
+    }
     let room = state
         .media_registry
         .assign_room(&room_id, &req.node_id, req.sfu_endpoint)
@@ -206,9 +215,13 @@ async fn assign_room(
 
 async fn mark_active(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Path(room_id): Path<String>,
     Json(req): Json<MarkActiveRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
+    if !state.is_admin(auth.user_id).await {
+        return Err(MediaApiError::Forbidden);
+    }
     let room = state
         .media_registry
         .mark_active(&room_id, &req.node_id, req.sfu_endpoint)
@@ -219,8 +232,13 @@ async fn mark_active(
 
 async fn close_room(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
+    // Admin-only: closing a room tears down routing for a live call.
+    if !state.is_admin(auth.user_id).await {
+        return Err(MediaApiError::Forbidden);
+    }
     let room = state
         .media_registry
         .close_room(&room_id)
@@ -229,13 +247,21 @@ async fn close_room(
     Ok(Json(RoomResponse { room }))
 }
 
-async fn list_rooms(State(state): State<Arc<AppState>>) -> Json<Vec<crate::media::MediaRoom>> {
+async fn list_rooms(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<Vec<crate::media::MediaRoom>>, MediaApiError> {
+    // Admin-only: the registry enumerates every live call's routing.
+    if !state.is_admin(auth.user_id).await {
+        return Err(MediaApiError::Forbidden);
+    }
     let rooms = state.media_registry.list_rooms().await;
-    Json(rooms)
+    Ok(Json(rooms))
 }
 
 async fn get_endpoint(
     State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<EndpointResponse>, MediaApiError> {
     let endpoint = state.media_registry.active_endpoint(&room_id).await;
@@ -436,6 +462,8 @@ fn parse_turn_uri(uri: &str) -> Option<(Option<String>, Option<u16>)> {
 pub enum MediaApiError {
     Registry(MediaRoomError),
     NotFound,
+    /// Admin-gate rejection (SEC-2, 2026-08-25).
+    Forbidden,
 }
 
 impl From<MediaRoomError> for MediaApiError {
@@ -463,6 +491,7 @@ impl IntoResponse for MediaApiError {
                 tracing::error!("media room io error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "registry io error")
             }
+            MediaApiError::Forbidden => (StatusCode::FORBIDDEN, "admin role required"),
         };
         (status, body).into_response()
     }

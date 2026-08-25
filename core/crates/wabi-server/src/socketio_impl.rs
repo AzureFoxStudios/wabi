@@ -1,6 +1,7 @@
 use wabidb::engine::wabi_store::WabiStore;
 
 include!("socketio/shared.rs");
+include!("socketio/call_security.rs");
 include!("socketio/presence.rs");
 include!("socketio/messages.rs");
 include!("socketio/voice_channels.rs");

@@ -630,6 +630,11 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     let socket_id = socket.id.to_string();
     info!("[sio] disconnected: {}", socket_id);
 
+    // Calling security cleanup (2026-08-25 Phase 1): drop the media rate
+    // bucket and every DM call-signaling link this user held.
+    media_rate_forget(&socket_id);
+    dm_link_clear_user(&get_my_stable_id(&socket, &state.app.config.jwt_secret));
+
     let departed = {
         let mut connected = state.connected_users.write().await;
         connected.remove(&socket_id)

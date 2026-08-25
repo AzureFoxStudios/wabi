@@ -373,6 +373,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
             socket.on("call-answer-sdp", {
                 let io = io.clone();
                 let app = state.app.clone();
+                let s = state.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let my_stable = get_my_stable_id(&socket, &app.config.jwt_secret);
                     let target_id = data.get("targetId").and_then(|v| v.as_str()).map(String::from);
@@ -380,6 +381,11 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                     let io = io.clone();
                     async move {
                         if let (Some(target), Some(ans)) = (target_id, answer) {
+                            // SEC-3: answers only flow within a call relationship.
+                            if !signaling_consent(&s, &socket, &target).await {
+                                warn!("[sio] call-answer-sdp consent denied: socket {} ({}) -> {}", socket.id, my_stable, target);
+                                return;
+                            }
                             let _ = io.to(target).emit("call-answer-sdp", &json!({ "answer": ans, "senderId": my_stable })).await;
                         }
                     }
@@ -389,6 +395,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
             socket.on("call-ice-candidate", {
                 let io = io.clone();
                 let app = state.app.clone();
+                let s = state.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let my_stable = get_my_stable_id(&socket, &app.config.jwt_secret);
                     let target_id = data.get("targetId").and_then(|v| v.as_str()).map(String::from);
@@ -396,6 +403,11 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                     let io = io.clone();
                     async move {
                         if let (Some(target), Some(cand)) = (target_id, candidate) {
+                            // SEC-3: ICE candidates only flow within a call relationship.
+                            if !signaling_consent(&s, &socket, &target).await {
+                                warn!("[sio] call-ice-candidate consent denied: socket {} ({}) -> {}", socket.id, my_stable, target);
+                                return;
+                            }
                             let _ = io.to(target).emit("call-ice-candidate", &json!({ "candidate": cand, "senderId": my_stable })).await;
                         }
                     }
@@ -507,10 +519,12 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
             });
 
             socket.on("join-wabidb-call", {
+                let s = state.clone();
                 let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone();
                     let io = io.clone();
-                    async move { on_join_wabidb_call(socket, data, io).await }
+                    async move { on_join_wabidb_call(socket, data, s, io).await }
                 }
             });
 
