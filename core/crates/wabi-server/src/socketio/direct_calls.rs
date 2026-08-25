@@ -218,6 +218,10 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
             return;
         }
 
+        // SEC-3: remember the active DM pair so webrtc/SDP signaling consent
+        // checks can validate this relationship until the call ends.
+        dm_link_remember(&my_stable_id, &target_id);
+
         let _ = io
             .to(target_id)
             .emit(
@@ -326,6 +330,9 @@ async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: Soc
             return;
         }
 
+        // SEC-3: the answer confirms the DM pair — keep the signaling link.
+        dm_link_remember(&my_stable_id, &caller_id);
+
         let _ = io
             .to(caller_id)
             .emit(
@@ -403,6 +410,8 @@ async fn on_call_reject(socket: SocketRef, data: Value, state: SioState, io: Soc
         .map(String::from)
     {
         // DM call reject
+        // SEC-3: the call is over — drop the signaling consent link.
+        dm_link_forget(&my_stable_id, &caller_id);
         let _ = io
             .to(caller_id)
             .emit(
@@ -462,6 +471,8 @@ async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: Soc
         .map(String::from)
     {
         // DM call cancel
+        // SEC-3: the call is over — drop the signaling consent link.
+        dm_link_forget(&my_stable_id, &target_id);
         let _ = io
             .to(target_id)
             .emit(
@@ -488,6 +499,11 @@ async fn on_call_end(socket: SocketRef, data: Value, state: SioState, io: Socket
         .unwrap_or_default();
 
     if !participant_ids.is_empty() {
+        // SEC-3: the call is over — drop DM signaling consent with each
+        // participant so no further offers/answers/ICE flow between them.
+        for participant_id in &participant_ids {
+            dm_link_forget(&my_stable_id, participant_id);
+        }
         for participant_id in participant_ids {
             let _ = io
                 .to(participant_id)
