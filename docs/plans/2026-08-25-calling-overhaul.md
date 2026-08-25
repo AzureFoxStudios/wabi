@@ -93,6 +93,21 @@ attributed join/leave sounds for connected channels only.
 - Old exports shimmed via `calling.ts` during migration.
 - Tests: session state machine, sound attribution, audio graph, tripwires.
 
+### Phase 2.5 — Session-model hardening (2026-08-25, COMPLETE)
+Three lifecycle paths that bypassed the session model, closed so Phase 3/4
+UI never reads stale state:
+1. **Forced kick/leave** (`handleForcedVoiceLeave`, `voice-self-kicked`):
+   unregisters the session + disposes its audio chain, attributed leave sound.
+2. **Watchdog transitions**: one module-level `transportWatchdog.onTransition`
+   subscription in callingWabidb (serving `activeWatchdogSessionId`, the
+   audioSessionId of the most recent wabidb connect, cleared on disconnects):
+   `demoting` → markReconnecting, `demoted`/`monitoring` → markConnected on
+   `riding` (the fallback link or healed primary). `stopped` deliberately
+   ignored (fires on both total loss and normal re-arm).
+3. **Roster snapshots**: `voice-channel-state` full rosters now populate
+   session participants (not just incremental join/left), so fresh clients
+   render full participant lists immediately.
+
 ### Phase 3 — Focused stage (goal 3)
 - Runes `CallStage.svelte`: avatar chips, camera tiles, screen hero (reuse
   `callLayoutManager`/`callRenderModel`/`wabidbVideoLane` keys).
