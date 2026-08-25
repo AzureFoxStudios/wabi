@@ -16,6 +16,8 @@ import {
 	localScreenStream
 } from './callingStateStores';
 import { getAuthToken, getStoredDbUserId } from './authSession';
+import { transportWatchdog } from './callingWatchdog';
+import { getStoredCallTransportMode } from './mediaRuntime';
 import { WabidbVideoLane } from './wabidbVideoLane';
 
 // ============================================================================
@@ -170,6 +172,11 @@ export function wabidbTransportLive(): boolean {
 	return wabidbMediaRelays.size > 0;
 }
 
+// T3: health probe consumed by callingWatchdog via a global hook (avoids a
+// circular import watchdog -> wabidb -> watchdog).
+(globalThis as any).__wabidbProbePrimary = (transport: string) =>
+	transport === 'wabidb' ? Boolean(wabidbCallState?.isConnected) : false;
+
 const defaultWabidbServer = import.meta.env.VITE_WABI_SERVER_URL ?? '';
 
 export async function connectWabidbCall(
@@ -235,6 +242,9 @@ export async function connectWabidbCall(
 
 			wabidbCallState!.onDisconnect(() => {
 				console.log('[Wabidb] Disconnected');
+				// T3: notify the mid-call watchdog; it runs the grace/reconnect
+				// probe and demotes to the next chain link if the relay stays dead.
+				transportWatchdog.handleDisconnect();
 			});
 
 			wabidbCallState!.connect();
@@ -328,6 +338,22 @@ export async function connectWabidbCall(
 			activeTransport: 'wabidb' as const,
 			reason: 'wabidb_connected'
 		}));
+
+		// T3: arm the mid-call watchdog on this transport.
+		transportWatchdog.start({
+			mode: getStoredCallTransportMode(),
+			active: 'wabidb',
+			connect: async (transport) => {
+				if (transport === 'wabidb') {
+					await connectWabidbCall(socket, targetChannelId, localDisplayName, serverUrl, peerUserId, listenOnly);
+					return;
+				}
+				throw new Error(`watchdog cannot re-establish ${transport} from here`);
+			},
+			disconnectCurrent: async () => {
+				try { await disconnectWabidbChannel(targetChannelId); } catch { /* best-effort */ }
+			}
+		});
 
 		console.log(`[Wabidb] Call connected to session ${newSessionId}`);
 	} catch (error) {
