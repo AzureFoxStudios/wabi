@@ -2,7 +2,7 @@ import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
-import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive, setWabidbSpatialPosition } from './callingWabidb';
+import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive, setWabidbSpatialPosition, wabidbStopRemoteVideo } from './callingWabidb';
 import {
 	configureLivekitTokenRefresh
 } from './callingLivekitTokenRefresh';
@@ -2015,6 +2015,11 @@ export function handleVoiceParticipantLeft(userId: string, channelId?: string): 
 		if (channelId) {
 			callSessionManager.removeParticipant(channelId, userId);
 		}
+		// Their relay video/screen envelopes stop with them — tear down the
+		// receiver-side decoders/tiles too (server fires this on leave AND on
+		// socket disconnect). Scoped to channels we actually listen to so a
+		// user leaving one shared channel keeps their tiles in another.
+		wabidbStopRemoteVideo(userId);
 	}
 	const label = resolveVoiceParticipantLabel(userId);
 	if (label) {
@@ -2031,11 +2036,13 @@ export function handleRemoteDirectCallEnded(userId: string): void {
 	if (!isActiveDirectCall) {
 		removeCall(userId);
 		removeScreenShare(userId);
+		wabidbStopRemoteVideo(userId);
 		return;
 	}
 
 	playCallActionSound('leave', sessionSoundOptionsFor(directCallSessionKey(userId)));
 	teardownCallSessionOnly();
+	wabidbStopRemoteVideo(userId);
 }
 
 export async function handleGroupCallParticipantJoined(
