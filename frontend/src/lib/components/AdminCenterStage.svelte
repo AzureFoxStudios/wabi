@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
+  // Phase 4 boot optimization: ships with this (lazy) component instead of MainLayout's eager graph.
+  import '$lib/../styles/components/admin-center-stage.css';
   import { currentUser } from '$lib/socket'
   import { layoutStore } from '$lib/layoutStore'
   import { getAuthToken } from '$lib/authSession'

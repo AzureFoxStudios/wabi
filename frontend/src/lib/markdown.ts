@@ -2,6 +2,10 @@ import { marked } from 'marked';
 import Prism from 'prismjs';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
+// Phase 4 boot optimization: these stylesheets ship with THIS module (off the
+// login boot path) instead of +layout.svelte's eager graph.
+import 'katex/dist/katex.min.css';
+import '$lib/prism-theme.css';
 import { emojis } from './emoji-store';
 import type { MessageEntity } from './socket-types';
 

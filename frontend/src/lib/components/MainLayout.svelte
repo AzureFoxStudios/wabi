@@ -10,11 +10,6 @@
 	import Chat from '$lib/components/Chat.svelte';
 import DmConversationView from '$lib/components/DmConversationView.svelte';
 import DmHub from '$lib/components/DmHub.svelte';
-	import ModelViewportTab from '$lib/components/ModelViewportTab.svelte';
-	import ReaderTab from '$lib/components/ReaderTab.svelte';
-	import MapWorkspace from '$lib/components/MapWorkspace.svelte';
-	import MediaAlbumsTab from '$lib/components/MediaAlbumsTab.svelte';
-	import GalleryChannel from '$lib/components/GalleryChannel.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import FloatingPanelHost from '$lib/components/windowing/FloatingPanelHost.svelte';
 	import ServerRail from '$lib/components/ServerRail.svelte';
@@ -22,21 +17,14 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import FollowingFeed from '$lib/components/FollowingFeed.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
-	import CallModal from '$lib/components/CallModal.svelte';
 	import VoiceLiveStrip from '$lib/components/VoiceLiveStrip.svelte';
-	import VoiceView from '$lib/components/VoiceView.svelte';
 	import { voiceViewOpen } from '$lib/voiceView';
-	import CallDebugPanel from '$lib/components/CallDebugPanel.svelte';
-	import Settings from '$lib/components/Settings.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
-	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
+	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
 import { _ } from '$lib/i18n';
-import AdminCenterStage from '$lib/components/AdminCenterStage.svelte';
-import KeepNotesView from '$lib/components/KeepNotesView.svelte';
-import '$lib/../styles/components/admin-center-stage.css';
 import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
 	import { MAP_ADDON_ID } from '$lib/mapWorkspace';
@@ -46,7 +34,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 	import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
 	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
-	import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import {
 		getServerScopedUserKey,
 		getTrackedPersonKeyForUser,
@@ -60,6 +47,22 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
+
+	// Phase 4 boot optimization: non-first-paint surfaces load on first
+	// activation. Only .svelte components go lazy; utility-module imports
+	// above (stores, constants, openWhiteboardSurface) stay static.
+	let ModelViewportTabCmp: typeof import('./ModelViewportTab.svelte').default | null = null;
+	let ReaderTabCmp: typeof import('./ReaderTab.svelte').default | null = null;
+	let MapWorkspaceCmp: typeof import('./MapWorkspace.svelte').default | null = null;
+	let MediaAlbumsTabCmp: typeof import('./MediaAlbumsTab.svelte').default | null = null;
+	let GalleryChannelCmp: typeof import('./GalleryChannel.svelte').default | null = null;
+	let CallModalCmp: typeof import('./CallModal.svelte').default | null = null;
+	let VoiceViewCmp: typeof import('./VoiceView.svelte').default | null = null;
+	let SettingsCmp: typeof import('./Settings.svelte').default | null = null;
+	let AdminCenterStageCmp: typeof import('./AdminCenterStage.svelte').default | null = null;
+	let KeepNotesViewCmp: typeof import('./KeepNotesView.svelte').default | null = null;
+	let PlannerWorkspaceCmp: typeof import('./business/PlannerWorkspace.svelte').default | null = null;
+	let CallDebugPanelCmp: typeof import('./CallDebugPanel.svelte').default | null = null;
 
 	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
 	export let accountSecurityOpenRequest = 0;
@@ -115,6 +118,24 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: isPlannerTabActive = $activeTabId === PLANNER_TAB_TOKEN;
 	const NOTES_TAB_TOKEN = mobileTabQueue.toAddonTabId(NOTES_ADDON_ID);
 	$: isNotesTabActive = $activeTabId === NOTES_TAB_TOKEN;
+
+	// Lazy loaders — kick off on first activation (assignment to the let is
+	// what makes the template gate re-render).
+	$: if (isModelViewportTabActive && !ModelViewportTabCmp) void import('./ModelViewportTab.svelte').then((m) => (ModelViewportTabCmp = m.default));
+	$: if (isReaderTabActive && !ReaderTabCmp) void import('./ReaderTab.svelte').then((m) => (ReaderTabCmp = m.default));
+	$: if (isMapTabActive && !MapWorkspaceCmp) void import('./MapWorkspace.svelte').then((m) => (MapWorkspaceCmp = m.default));
+	$: if (isMediaAlbumsTabActive && !MediaAlbumsTabCmp) void import('./MediaAlbumsTab.svelte').then((m) => (MediaAlbumsTabCmp = m.default));
+	$: if (isPlannerTabActive && !PlannerWorkspaceCmp) void import('./business/PlannerWorkspace.svelte').then((m) => (PlannerWorkspaceCmp = m.default));
+	$: if (isNotesTabActive && !KeepNotesViewCmp) void import('./KeepNotesView.svelte').then((m) => (KeepNotesViewCmp = m.default));
+	$: if ($voiceViewOpen && !VoiceViewCmp) void import('./VoiceView.svelte').then((m) => (VoiceViewCmp = m.default));
+	$: if ($centerPanelView === 'admin' && !AdminCenterStageCmp) void import('./AdminCenterStage.svelte').then((m) => (AdminCenterStageCmp = m.default));
+	$: if (isGalleryChannel && !GalleryChannelCmp) void import('./GalleryChannel.svelte').then((m) => (GalleryChannelCmp = m.default));
+	$: if (showSettings && !SettingsCmp) void import('./Settings.svelte').then((m) => (SettingsCmp = m.default));
+	$: if (showCallDebugPanel && !CallDebugPanelCmp) void import('./CallDebugPanel.svelte').then((m) => (CallDebugPanelCmp = m.default));
+	// CallModal renders whenever any call surface could be visible.
+	$: callUiActive = Boolean($incomingCall || $outgoingCall || $isInCall || $activeGroupCall || $groupCallRingingTargets?.length || $activeCalls?.length);
+	$: if (callUiActive && !CallModalCmp) void import('./CallModal.svelte').then((m) => (CallModalCmp = m.default));
+
 	$: workspaceActiveView = (() => {
 		if (isModelViewportTabActive) return 'model' as const;
 		if (isReaderTabActive) return 'reader' as const;
@@ -923,7 +944,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 <AuthErrorBanner />
 
 {#if $centerPanelView === 'admin'}
-	<AdminCenterStage />
+	{#if AdminCenterStageCmp}
+		<svelte:component this={AdminCenterStageCmp} />
+	{:else}
+		<div class="lazy-panel-placeholder" aria-busy="true"></div>
+	{/if}
 {:else}
 {#if $layoutStore.isMobile && !$layoutStore.isInCall}
 	{#if !mobileNavVisible}
@@ -1131,19 +1156,47 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					<WorkspaceViewBar activeView={workspaceActiveView} onSelectView={handleWorkspaceViewSelect} />
 				{/if}
 				{#if isModelViewportTabActive}
-					<ModelViewportTab />
+					{#if ModelViewportTabCmp}
+						<svelte:component this={ModelViewportTabCmp} />
+					{:else}
+						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					{/if}
 				{:else if isReaderTabActive}
-					<ReaderTab />
+					{#if ReaderTabCmp}
+						<svelte:component this={ReaderTabCmp} />
+					{:else}
+						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					{/if}
 				{:else if isMediaAlbumsTabActive}
-					<MediaAlbumsTab variant="full" />
+					{#if MediaAlbumsTabCmp}
+						<svelte:component this={MediaAlbumsTabCmp} variant="full" />
+					{:else}
+						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					{/if}
 				{:else if isMapTabActive}
-					<MapWorkspace variant="full" />
+					{#if MapWorkspaceCmp}
+						<svelte:component this={MapWorkspaceCmp} variant="full" />
+					{:else}
+						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					{/if}
 				{:else if isPlannerTabActive}
-					<PlannerWorkspace variant="full" />
+					{#if PlannerWorkspaceCmp}
+						<svelte:component this={PlannerWorkspaceCmp} variant="full" />
+					{:else}
+						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					{/if}
 				{:else if isNotesTabActive}
-					<KeepNotesView />
+					{#if KeepNotesViewCmp}
+						<svelte:component this={KeepNotesViewCmp} />
+					{:else}
+						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					{/if}
 				{:else if $voiceViewOpen}
-					<VoiceView />
+					{#if VoiceViewCmp}
+						<svelte:component this={VoiceViewCmp} />
+					{:else}
+						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					{/if}
 				{:else if $layoutStore.centerDmChannelId || activeView === 'dm'}
 					<div class="center-dm-layout">
 						<div class="center-dm-list">
@@ -1165,7 +1218,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{:else if activeView === 'following'}
 					<FollowingFeed on:openChannel={() => (activeView = 'chat')} />
 				{:else if isGalleryChannel}
-					<GalleryChannel />
+					{#if GalleryChannelCmp}
+						<svelte:component this={GalleryChannelCmp} />
+					{:else}
+						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					{/if}
 				{:else}
 					<Chat
 						on:logout
@@ -1174,7 +1231,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{/if}
 			</div>
 			<VoiceLiveStrip />
-			<CallModal />
+			{#if CallModalCmp}
+				<svelte:component this={CallModalCmp} />
+			{:else if callUiActive}
+				<div class="lazy-panel-placeholder" aria-busy="true"></div>
+			{/if}
 		</div>
 	</div>
 
@@ -1197,7 +1258,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</button>
 		{#if showCallDebugPanel}
 			<div class="call-debug-overlay">
-				<CallDebugPanel open title="Calling Debug" />
+				{#if CallDebugPanelCmp}
+					<svelte:component this={CallDebugPanelCmp} open title="Calling Debug" />
+				{:else}
+					<div class="lazy-panel-placeholder" aria-busy="true"></div>
+				{/if}
 				<button
 					type="button"
 					class="call-debug-close"
@@ -1277,12 +1342,17 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 </div>
 
 {#if showSettings}
-	<Settings
-		bind:isOpen={showSettings}
-		requestedPaymentSurface={requestedSettingsPaymentSurface}
-		requestedPasswordChangeRequest={requestedSettingsPasswordChangeRequest}
-		on:logout
-	/>
+	{#if SettingsCmp}
+		<svelte:component
+			this={SettingsCmp}
+			bind:isOpen={showSettings}
+			requestedPaymentSurface={requestedSettingsPaymentSurface}
+			requestedPasswordChangeRequest={requestedSettingsPasswordChangeRequest}
+			on:logout
+		/>
+	{:else}
+		<div class="lazy-panel-placeholder" aria-busy="true"></div>
+	{/if}
 {/if}
 {/if}
 
@@ -1305,6 +1375,31 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 {/if}
 
 <style>
+	/* Uniform placeholder for lazily-loaded panels (Phase 4 boot optimization). */
+	.lazy-panel-placeholder {
+		height: 100%;
+		min-height: 8rem;
+		border-radius: var(--radius-md, 8px);
+		background: linear-gradient(
+			100deg,
+			rgba(255, 255, 255, 0.04) 40%,
+			rgba(255, 255, 255, 0.09) 50%,
+			rgba(255, 255, 255, 0.04) 60%
+		);
+		background-size: 200% 100%;
+		animation: lazy-shimmer 1.2s ease-in-out infinite;
+	}
+	@keyframes lazy-shimmer {
+		to {
+			background-position: -200% 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.lazy-panel-placeholder {
+			animation: none;
+		}
+	}
+
 	.center-dm-layout {
 		display: grid;
 		grid-template-columns: 300px minmax(0, 1fr);
