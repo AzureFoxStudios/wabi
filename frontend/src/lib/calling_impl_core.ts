@@ -658,6 +658,13 @@ function teardownCallSessionOnly(): void {
 	outgoingCall.set(null);
 	incomingCall.set(null);
 	groupCallRingingTargets.set([]);
+	// Auto-dissolve applies to the call that ended; a surviving voice-channel
+	// session inherits focus from the manager, so re-spawn the panel for it —
+	// unless the user explicitly dismissed the shell during this call.
+	const survivingChannelSession = activeVoiceChannelId
+		? callSessionManager.get(activeVoiceChannelId)
+		: null;
+	const reopenForSurvivor = !callPanelDismissedByUser && Boolean(survivingChannelSession);
 	channelCallPanelOpen.set(false);
 
 	if (peerConnections.size === 0) {
@@ -675,6 +682,9 @@ function teardownCallSessionOnly(): void {
 	isInCall.set(true);
 	isMuted.set(false);
 	isVideoOff.set(true);
+	if (reopenForSurvivor) {
+		channelCallPanelOpen.set(true);
+	}
 	syncSpatialAudioGraph();
 	void syncLocalAudioState();
 }
@@ -1251,6 +1261,9 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		callSessionManager.markConnected(channelId, effectiveTransport);
 		if (!listenOnly) {
 			callSessionManager.setFocus(channelId);
+			// Auto-spawn contract: an active (non listen-only) channel join
+			// opens the embedded call panel unless the user dismissed it.
+			autoOpenChannelCallPanel();
 		}
 		syncSpatialAudioGraph();
 		playCallActionSound('join', sessionSoundOptionsFor(channelId));
@@ -1531,7 +1544,7 @@ export async function startCall(
 		}
 
 		callMode.set('direct');
-		channelCallPanelOpen.set(false);
+		autoOpenChannelCallPanel();
 		// Keep an active primary voice channel as a listen-only backdrop
 		// (TeamSpeak style) instead of tearing it down.
 		if (!activeVoiceChannelId) {
@@ -1605,8 +1618,7 @@ async function enterEstablishedGroupCall(
 	if (!alreadyInSameGroupCall) {
 		isInCall.set(true);
 		callMode.set('group');
-		// Docked-first: never spring the center-stage panel on join (voice UX contract).
-		channelCallPanelOpen.set(false);
+		autoOpenChannelCallPanel();
 		// Keep an active primary voice channel as a listen-only backdrop
 		// (TeamSpeak style) instead of tearing it down.
 		if (!activeVoiceChannelId) {
@@ -1705,7 +1717,7 @@ export async function startGroupCall(
 		}
 
 		callMode.set('group');
-		channelCallPanelOpen.set(false);
+		autoOpenChannelCallPanel();
 		// Keep an active primary voice channel as a listen-only backdrop
 		// (TeamSpeak style) instead of tearing it down.
 		if (!activeVoiceChannelId) {
@@ -1776,8 +1788,7 @@ export function beginEstablishedDirectCall(): boolean {
 	const stream = get(localStream);
 	isInCall.set(true);
 	callMode.set('direct');
-	// Docked-first: never spring the center-stage panel on call start/accept.
-	channelCallPanelOpen.set(false);
+	autoOpenChannelCallPanel();
 	// Keep an active primary voice channel as a listen-only backdrop
 	// (TeamSpeak style) instead of tearing it down.
 	if (!activeVoiceChannelId) {
@@ -1839,8 +1850,7 @@ export async function answerCall(
 			const activeTransport = await resolveActiveTransport();
 			isInCall.set(true);
 			callMode.set('direct');
-			// Docked-first: never spring the center-stage panel on incoming-call accept.
-			channelCallPanelOpen.set(false);
+			autoOpenChannelCallPanel();
 			// Keep an active primary voice channel as a listen-only backdrop
 			// (TeamSpeak style) instead of tearing it down.
 			if (!activeVoiceChannelId) {
@@ -2545,6 +2555,23 @@ export function cleanupAllConnections() {
 }
 
 export function openChannelCallPanel(): void {
+	channelCallPanelOpen.set(true);
+}
+
+// Auto-spawn contract (decision 2026-08-26): joining any call auto-opens the
+// embedded call panel and leaving auto-dissolves it. An explicit user
+// minimize/dismiss keeps it closed for the remainder of THAT call; every new
+// join resets the dismissal. Teardown paths keep using plain set(false) —
+// only user intent goes through dismissChannelCallPanel.
+let callPanelDismissedByUser = false;
+
+export function dismissChannelCallPanel(): void {
+	callPanelDismissedByUser = true;
+	channelCallPanelOpen.set(false);
+}
+
+function autoOpenChannelCallPanel(): void {
+	callPanelDismissedByUser = false;
 	channelCallPanelOpen.set(true);
 }
 
