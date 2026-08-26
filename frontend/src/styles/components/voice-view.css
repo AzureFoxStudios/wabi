@@ -112,10 +112,15 @@
 	border-radius: 12px;
 	border: 1px solid var(--border-subtle, #333);
 	background: color-mix(in srgb, var(--surface-raised, #1c1c22) 88%, transparent);
+	transition: border-color 150ms var(--ease-standard, ease), box-shadow 150ms var(--ease-standard, ease), transform 150ms var(--ease-standard, ease);
 }
 .vv-card.focused {
-	border-color: color-mix(in srgb, #3ecf8e 55%, transparent);
-	box-shadow: 0 0 0 1px color-mix(in srgb, #3ecf8e 20%, transparent);
+	/* Focus reads as emphasis (glow), not a text badge — decision 2026-08-26. */
+	border-color: color-mix(in srgb, #3ecf8e 65%, transparent);
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, #3ecf8e 35%, transparent),
+		0 0 18px color-mix(in srgb, #3ecf8e 22%, transparent);
+	transform: scale(1.01);
 }
 .vv-card.silenced {
 	opacity: 0.82;
@@ -331,6 +336,37 @@
 	font-size: 0.68rem;
 	opacity: 0.65;
 }
+
+/* --- icon sizing (site-standard feather-style inline SVGs) --- */
+.vv-video-label svg {
+	width: 12px;
+	height: 12px;
+	vertical-align: -2px;
+}
+.vv-volume-icon {
+	display: inline-flex;
+	align-items: center;
+	opacity: 0.85;
+}
+.vv-volume-icon svg {
+	width: 14px;
+	height: 14px;
+}
+.vv-buttons button svg {
+	width: 15px;
+	height: 15px;
+	vertical-align: -3px;
+}
+.vv-channel-icon svg {
+	width: 14px;
+	height: 14px;
+	display: block;
+}
+.cpanel-controls button svg {
+	width: 15px;
+	height: 15px;
+	vertical-align: -3px;
+}
 .cpanel-empty {
 	font-size: 0.8rem;
 	opacity: 0.7;
@@ -346,7 +382,11 @@
 	background: color-mix(in srgb, var(--surface-raised, #1c1c22) 80%, transparent);
 }
 .cpanel-card[data-badge='focused'] {
-	border-color: color-mix(in srgb, #3ecf8e 45%, transparent);
+	/* Focus reads as emphasis (glow), not a text badge — decision 2026-08-26. */
+	border-color: color-mix(in srgb, #3ecf8e 65%, transparent);
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, #3ecf8e 30%, transparent),
+		0 0 14px color-mix(in srgb, #3ecf8e 20%, transparent);
 }
 .cpanel-card-head {
 	display: flex;

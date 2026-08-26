@@ -100,7 +100,9 @@
 				<article class="vv-card" class:focused={badge === 'focused'} class:silenced={badge === 'silenced'}>
 					<div class="vv-card-head">
 						<span class="vv-card-name">{displayName(session)}</span>
-						<span class="vv-badge" data-badge={badge}>{badge}</span>
+						{#if badge !== 'focused'}
+							<span class="vv-badge" data-badge={badge}>{badge}</span>
+						{/if}
 						<span class="vv-transport" title={`Transport: ${session.transport ?? session.lifecycle}`}>
 							{session.transport ? session.transport.toUpperCase() : session.lifecycle}
 						</span>
@@ -112,7 +114,14 @@
 								{@const owner = key.replace(/:(camera|screen)$/, '')}
 								<div class="vv-card-video" class:screen={key.endsWith(':screen')}>
 									<VideoSink {stream} />
-									<span class="vv-video-label">{key.endsWith(':screen') ? '📺' : '🎥'} {owner}</span>
+									<span class="vv-video-label">
+										{#if key.endsWith(':screen')}
+											<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+										{:else}
+											<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+										{/if}
+										{owner}
+									</span>
 								</div>
 							{/each}
 						</div>
@@ -134,7 +143,9 @@
 
 					<div class="vv-card-controls">
 						<label class="vv-volume">
-							<span>🔊</span>
+							<span class="vv-volume-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+							</span>
 							<input
 								type="range"
 								min="0"
@@ -147,11 +158,18 @@
 							<span class="vv-volume-value">{session.volume}%</span>
 						</label>
 						<div class="vv-buttons">
-							<button type="button" class:active={session.muted} onclick={() => toggleCallSpeaker(session.id)} title="Mute this call's audio">
-								{session.muted ? '🔇' : '🔈'}
+							<button type="button" class:active={session.muted} onclick={() => toggleCallSpeaker(session.id)} title="Mute this call's audio" aria-label="Mute this call's audio">
+								{#if session.muted}
+									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+								{:else}
+									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+								{/if}
 							</button>
 							{#if badge !== 'focused'}
-								<button type="button" onclick={() => focusCall(session.id)} title="Focus this call">🎯 Focus</button>
+								<button type="button" onclick={() => focusCall(session.id)} title="Focus this call">
+									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+									Focus
+								</button>
 							{/if}
 							<button type="button" class="danger" onclick={() => leaveCall(session)} title="Leave this call">Hang up</button>
 						</div>
@@ -170,7 +188,9 @@
 				{@const connected = $callSessions.has(ch.id)}
 				{@const count = occupancy(ch.id)}
 				<div class="vv-channel" class:connected>
-					<span class="vv-channel-icon">🔊</span>
+					<span class="vv-channel-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+					</span>
 					<span class="vv-channel-name">{ch.name ?? ch.id}</span>
 					{#if count > 0}
 						<span class="vv-channel-occupants">
