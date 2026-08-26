@@ -98,6 +98,10 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, _state: SioState, io: S
     // value is never trusted for stream attribution.
     let mut payload = data.clone();
     payload["userId"] = json!(identity.user_id.to_string());
+    // WO-1c: stamp the sender's socket id so receivers can self-filter by
+    // CONNECTION instead of account — same-account multi-device sessions
+    // would otherwise drop each other's audio/video as "self-echo".
+    payload["senderSocket"] = json!(socket.id.to_string());
 
     // Relay to every authorized participant of this call session (except sender).
     let _ = io

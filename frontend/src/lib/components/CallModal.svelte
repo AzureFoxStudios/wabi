@@ -826,6 +826,53 @@
 		hatchOpen = false;
 	}
 
+	// --- WO-1b/WO-2a: audio + video relay diagnostics (Diag overlay row) ------
+	let relayDiagTimer: ReturnType<typeof setInterval> | null = null;
+	let relayAudioDiag = '';
+	let relayVideoDiag = '';
+
+	function refreshRelayDiagnostics(): void {
+		void import('$lib/callingWabidb').then(
+			({ getWabidbRelayDiagnostics, getWabidbLaneDiagnostics, formatWabidbLaneDiagnostics }) => {
+				const relays = getWabidbRelayDiagnostics();
+				let recv = 0;
+				let dec = 0;
+				let play = 0;
+				let fail = 0;
+			 let sent = 0;
+				let ctx: string | null = null;
+				for (const r of relays) {
+					recv += r.recvEnvelopes ?? 0;
+					sent += r.sentEnvelopes ?? 0;
+					dec += r.decodeOk ?? 0;
+					fail += r.decodeFail ?? 0;
+					play += r.playedChunks ?? 0;
+					ctx = ctx ?? r.audioContextState ?? null;
+				}
+				relayAudioDiag = `Audio: tx=${sent} rx=${recv} dec=${dec} play=${play}${fail ? ` err=${fail}` : ''} (ctx=${ctx ?? 'n/a'})`;
+				relayVideoDiag = formatWabidbLaneDiagnostics(getWabidbLaneDiagnostics());
+			}
+		);
+	}
+
+	function startRelayDiagPolling(): void {
+		if (relayDiagTimer) return;
+		refreshRelayDiagnostics();
+		relayDiagTimer = setInterval(refreshRelayDiagnostics, 1000);
+	}
+
+	function stopRelayDiagPolling(): void {
+		if (relayDiagTimer) {
+			clearInterval(relayDiagTimer);
+			relayDiagTimer = null;
+		}
+		relayAudioDiag = '';
+		relayVideoDiag = '';
+	}
+
+	$: if ($isInCall && showSpatialDebugOverlay) startRelayDiagPolling();
+	$: if (!$isInCall || !showSpatialDebugOverlay) stopRelayDiagPolling();
+
 	function togglePin(tileId: string): void {
 		if (pinnedTileIds.includes(tileId)) {
 			pinnedTileIds = pinnedTileIds.filter((id) => id !== tileId);
@@ -894,6 +941,7 @@
 		stopCallRingtone();
 		callNotification?.close();
 		clearCaptureFeedbackTimer();
+		stopRelayDiagPolling();
 	});
 </script>
 
@@ -1152,6 +1200,12 @@
 					Spatial: {$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}
 					<span class="transport-note">src {$spatialAudioDiagnostics.totalSources}</span>
 				</span>
+				{#if relayAudioDiag}
+					<span class="transport-badge">{relayAudioDiag}</span>
+				{/if}
+				{#if relayVideoDiag}
+					<span class="transport-badge">{relayVideoDiag}</span>
+				{/if}
 			<button
 				class="dock-btn"
 				class:active={spatialAudioActive}

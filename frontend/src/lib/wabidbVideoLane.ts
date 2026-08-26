@@ -415,6 +415,19 @@ class LaneSender {
   private sentBytesLog: { t: number; n: number }[] = [];
   private overshootSince: number | null = null;
 
+  // WO-2 diagnostics
+  private framesEncoded = 0;
+  private firstFrameLogged = false;
+
+  private noteEncodeError(): void {
+    const entry = (this.lane.diag.senders[this.source] ??= {
+      framesEncoded: 0,
+      envelopesSent: 0,
+      encodeErrors: 0
+    });
+    entry.encodeErrors++;
+  }
+
   constructor(source: WabidbVideoSource, lane: WabidbVideoLane) {
     this.source = source;
     this.lane = lane;
@@ -438,7 +451,10 @@ class LaneSender {
     const VE = (globalThis as any).VideoEncoder;
     this.encoder = new VE({
       output: (chunk: any) => this.onEncodedChunk(chunk),
-      error: (e: any) => this.lane.onError?.(e instanceof Error ? e : new Error(String(e)))
+      error: (e: any) => {
+        this.noteEncodeError();
+        this.lane.onError?.(e instanceof Error ? e : new Error(String(e)));
+      }
     });
     this.encoder.configure(this.encoderConfig);
 
@@ -487,7 +503,21 @@ class LaneSender {
         });
         this.encoder.encode(vf, { keyFrame: isKeyFrame });
         vf.close();
+        this.framesEncoded++;
+        const entry = (this.lane.diag.senders[this.source] ??= {
+          framesEncoded: 0,
+          envelopesSent: 0,
+          encodeErrors: 0
+        });
+        entry.framesEncoded++;
+        if (!this.firstFrameLogged) {
+          this.firstFrameLogged = true;
+          console.info(
+            `[WabidbVideoLane] first encoded frame (source=${this.source}, codec=${this.codec}, ${this.canvas.width}x${this.canvas.height})`
+          );
+        }
       } catch (e) {
+        this.noteEncodeError();
         this.lane.onError?.(e instanceof Error ? e : new Error(String(e)));
       }
       this.frameSeq++;
@@ -537,7 +567,14 @@ class LaneSender {
       }
       const bytes = buffer.length + envelopes.length * 120; // payload + envelope overhead
       this.sentBytesLog.push({ t: performance.now(), n: bytes });
+      const entry = (this.lane.diag.senders[this.source] ??= {
+        framesEncoded: 0,
+        envelopesSent: 0,
+        encodeErrors: 0
+      });
+      entry.envelopesSent += envelopes.length;
     } catch (e) {
+      this.noteEncodeError();
       this.lane.onError?.(e instanceof Error ? e : new Error(String(e)));
     }
   }
@@ -612,6 +649,20 @@ class LaneSender {
   }
 }
 
+/** WO-2 smoke-remediation counters — surfaced in CallModal's Diag overlay.
+ *  Formatting lives in callingWabidb (type-only import keeps the lane's
+ *  guarded dynamic import intact). */
+export interface WabidbVideoSourceDiagnostics {
+  framesEncoded: number;
+  envelopesSent: number;
+  encodeErrors: number;
+}
+
+export interface WabidbVideoLaneDiagnostics {
+  senders: Partial<Record<WabidbVideoSource, WabidbVideoSourceDiagnostics>>;
+  receiver: { envelopesReceived: number; framesDecoded: number };
+}
+
 export class WabidbVideoLane {
   readonly sessionId: string;
   readonly userId: string;
@@ -623,6 +674,12 @@ export class WabidbVideoLane {
   // flag, so whichever source started second silently lost).
   private senders = new Map<WabidbVideoSource, LaneSender>();
   private emitSeq = 0;
+
+  /** WO-2 counters (senders keyed by source; receiver totals). */
+  readonly diag: WabidbVideoLaneDiagnostics = {
+    senders: {},
+    receiver: { envelopesReceived: 0, framesDecoded: 0 }
+  };
 
   // receiver side
   private reassembler = new WabidbVideoReassembler();
@@ -712,7 +769,14 @@ export class WabidbVideoLane {
   handleRemoteEnvelope(raw: any): void {
     const env = parseWabidbMediaEnvelope(raw);
     if (!env || env.kind !== 'video') return;
-    if (env.userId === this.userId) return; // never decode our own frames
+    // Socket-scoped self-filter (WO-1c) — the relay's handler already applied
+    // its own check; this mirrors it so same-account two-device video flows
+    // (userId equality is only a fallback for older servers).
+    const isSelf = raw?.senderSocket
+      ? raw.senderSocket === this.socket.id
+      : env.userId === this.userId;
+    if (isSelf) return;
+    this.diag.receiver.envelopesReceived++;
     const reassembled = this.reassembler.push(env);
     if (reassembled) {
       void this.decodeRemoteFrame(videoStreamKey(env.userId, reassembled.source), reassembled);
@@ -756,6 +820,7 @@ export class WabidbVideoLane {
   }
 
   private onDecodedFrame(streamKey: string, vf: any): void {
+    this.diag.receiver.framesDecoded++;
     let canvas = this.remoteCanvases.get(streamKey);
     let ctx = this.remoteCtx.get(streamKey);
     if (!canvas && typeof document !== 'undefined') {

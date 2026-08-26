@@ -836,7 +836,9 @@ function applyLocalTrackPreferences(stream: MediaStream): void {
 	}
 }
 
-function pushVoiceChannelNotice(text: string): void {
+// WO-2b: exported so the wabidb video lane (imported dynamically to avoid a
+// module cycle) can surface encoder/start failures as visible notices.
+export function pushVoiceChannelNotice(text: string): void {
 	voiceChannelNoticeId += 1;
 	const id = voiceChannelNoticeId;
 	voiceChannelNotice.set({ id, text });
