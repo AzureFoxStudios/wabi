@@ -24,6 +24,36 @@ import {
 	setSessionVolume as graphSetSessionVolume,
 	detachSession as graphDetachSession
 } from './callAudioGraph';
+import type { WabidbVideoLaneDiagnostics } from './wabidbVideoLane';
+
+// WO-1/WO-2 smoke remediation: diagnostics for CallModal's Diag overlay.
+// The relay Map is double-indexed (channel key AND graph id) — dedupe by
+// relay object so a single relay isn't counted twice.
+export function getWabidbRelayDiagnostics(): Array<Record<string, any>> {
+	const out: Array<Record<string, any>> = [];
+	const seen = new Set<unknown>();
+	for (const [key, relay] of wabidbMediaRelays.entries()) {
+		if (seen.has(relay)) continue;
+		seen.add(relay);
+		out.push({
+			key,
+			...(typeof relay?.getDiagnostics === 'function' ? relay.getDiagnostics() : {})
+		});
+	}
+	return out;
+}
+
+export function getWabidbLaneDiagnostics(): WabidbVideoLaneDiagnostics | null {
+	return wabidbVideoLaneInst?.diag ?? null;
+}
+
+export function formatWabidbLaneDiagnostics(d: WabidbVideoLaneDiagnostics | null): string {
+	if (!d) return '';
+	const none = { framesEncoded: 0, envelopesSent: 0, encodeErrors: 0 };
+	const cam = d.senders.camera ?? none;
+	const screen = d.senders.screen ?? none;
+	return `Video: cam f=${cam.framesEncoded} env=${cam.envelopesSent} err=${cam.encodeErrors} · screen f=${screen.framesEncoded} env=${screen.envelopesSent} err=${screen.encodeErrors} · rx=${d.receiver.envelopesReceived} dec=${d.receiver.framesDecoded}`;
+}
 
 // Phase 2: session-model state changes drive the shared audio graph —
 // per-call volume/mute reach the live chains, and ending a session disposes
@@ -418,7 +448,14 @@ export async function connectWabidbCall(
 					sessionId: newSessionId,
 					userId: String(userId),
 					socket,
-					onError: (err: Error) => console.error('[WabidbVideoLane]', err)
+					onError: (err: Error) => {
+						console.error('[WabidbVideoLane]', err);
+						// WO-2b: make lane failures VISIBLE to the sharer instead of
+						// console-only. Dynamic import avoids a core ↔ here cycle.
+						void import('./calling_impl_core').then(({ pushVoiceChannelNotice }) =>
+							pushVoiceChannelNotice(`Screen/camera share error: ${err.message}`)
+						).catch(() => undefined);
+					}
 				});
 				relay?.attachVideoLane(lane);
 				wabidbVideoLaneInst = lane;

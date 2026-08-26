@@ -44,6 +44,21 @@ function base64ToUint8Array(base64: string): Uint8Array {
 
 export type WabidbMediaRelayKind = 'channel' | 'dm';
 
+/** WO-1 smoke-remediation counters — surfaced in CallModal's Diag overlay. */
+export interface WabidbMediaRelayDiagnostics {
+  sessionId: string;
+  isActive: boolean;
+  captureEnabled: boolean;
+  audioContextState: string | null;
+  sentEnvelopes: number;
+  recvEnvelopes: number;
+  droppedSelfFilter: number;
+  droppedSessionMismatch: number;
+  decodeOk: number;
+  decodeFail: number;
+  playedChunks: number;
+}
+
 export interface WabidbMediaRelayConfig {
   sessionId: string;
   userId: string;
@@ -140,6 +155,26 @@ export class WabidbMediaRelay {
   private playbackTimer: number | null = null;
   private videoLane: WabidbVideoLane | null = null;
   private audioSeq = 0;
+  private counters = {
+    sentEnvelopes: 0,
+    recvEnvelopes: 0,
+    droppedSelfFilter: 0,
+    droppedSessionMismatch: 0,
+    decodeOk: 0,
+    decodeFail: 0,
+    playedChunks: 0
+  };
+  private firstRecvLogged = false;
+
+  getDiagnostics(): WabidbMediaRelayDiagnostics {
+    return {
+      sessionId: this.sessionId,
+      isActive: this.isActive,
+      captureEnabled: this.captureEnabled,
+      audioContextState: this.audioContext?.state ?? null,
+      ...this.counters
+    };
+  }
 
   constructor(cfg: WabidbMediaRelayConfig) {
     this.sessionId = resolveWabidbSessionKey(cfg.kind, cfg.sessionId, cfg.userId, cfg.peerStableUserId);
@@ -177,7 +212,32 @@ export class WabidbMediaRelay {
       }
 
       this.onIncomingMediaHandler = (msg: any) => {
-        if (!msg || msg.userId === this.userId || msg.sessionId !== this.sessionId) return;
+        if (!msg) return;
+        // Self-filter, socket-scoped (WO-1c): the server relays with
+        // `.except(sender_socket)` AND stamps `senderSocket`, so a socket
+        // never receives its own emissions. Filtering on userId here was
+        // REDUNDANT for that case and WRONG for one account signed in on two
+        // devices (each device dropped the other's audio as "self-echo" —
+        // the 2026-08-26 smoke-test no-audio bug). Keep the userId check
+        // only as a fallback for older servers that don't stamp senderSocket.
+        const isSelf = msg.senderSocket
+          ? msg.senderSocket === this.socket.id
+          : msg.userId === this.userId;
+        if (isSelf) {
+          this.counters.droppedSelfFilter++;
+          return;
+        }
+        if (msg.sessionId !== this.sessionId) {
+          this.counters.droppedSessionMismatch++;
+          return;
+        }
+        this.counters.recvEnvelopes++;
+        if (!this.firstRecvLogged) {
+          this.firstRecvLogged = true;
+          console.info(
+            `[WabidbMediaRelay] first audio/video envelope received (session=${this.sessionId}, from=${msg.userId})`
+          );
+        }
         // Video lanes ride on the same channel; route video envelopes to the
         // attached lane. The server forwards the whole envelope verbatim, and
         // `kind` defaults to 'audio' for legacy/compatible senders.
@@ -255,6 +315,7 @@ export class WabidbMediaRelay {
             seq: this.audioSeq++,
             payload: arrayBufferToBase64(data),
           });
+          this.counters.sentEnvelopes++;
         }
       };
 
@@ -305,9 +366,11 @@ export class WabidbMediaRelay {
       }
       const pcmData = await this.decodeOpus(opusPayload);
       if (pcmData) {
+        this.counters.decodeOk++;
         await this.playbackViaAudioWorklet(fromUserId ?? 'unknown', pcmData);
       }
     } catch (error) {
+      this.counters.decodeFail++;
       console.error('[WabidbMediaRelay] decode/playback error:', error);
     }
   }
@@ -410,6 +473,7 @@ export class WabidbMediaRelay {
       }
     }
     chain.worklet.port.postMessage({ pcm: pcmData });
+    this.counters.playedChunks++;
   }
 
   /** Ramp one chain's pan + distance attenuation to its stored position. */
