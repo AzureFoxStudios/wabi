@@ -2,14 +2,15 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.png" data-wabi-favicon />
 		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 		<meta name="mobile-web-app-capable" content="yes" />
-		<meta name="theme-color" content="#0f0c29" />
+		<meta name="theme-color" content="#0f0c29" data-wabi-theme-color />
 		<meta name="description" content="Ephemeral chat with screen sharing and business features" />
+		<title data-wabi-brand-title>Wabi</title>
 		<script>
 			// Early shell flag so first paint can skip desktop chrome on phones / PWA.
 			(() => {
@@ -319,6 +320,12 @@
 			}
 		</style>
 		<script>
+			// Server-stamped brand (Phase 1 boot optimization): wabi-server
+			// replaces the token below with its identity JSON at request time.
+			// When un-replaced (raw file host / Tauri / dev-vite) it stays null
+			// and the legacy saved-server/fetch logic below takes over.
+			window.__WABI_SERVER_BRAND__ = /*__WABI_SERVER_BRAND__*/null;
+
 			// Apply saved-server brand BEFORE first paint so boot isn't stuck on "Wabi".
 			(() => {
 				try {
@@ -329,48 +336,102 @@
 						"<path d='M24 34a8 8 0 0 1 8-8h32a8 8 0 0 1 8 8v18a8 8 0 0 1-8 8H45l-13 11v-11h-8a8 8 0 0 1-8-8z' fill='%23101012'/>" +
 						'</svg>';
 
-					const raw = localStorage.getItem('wabi.savedServers.v1');
-					if (!raw) return;
-					const parsed = JSON.parse(raw);
-					const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
-					if (!entries.length) return;
+					const injected =
+						window.__WABI_SERVER_BRAND__ && typeof window.__WABI_SERVER_BRAND__ === 'object'
+							? window.__WABI_SERVER_BRAND__
+							: null;
 
-					// Prefer the entry for this origin. Never paint another server's
-					// identity while visiting an unknown host.
-					const currentOrigin = window.location.origin;
-					const entry = entries.find((candidate) => {
-						try { return new URL(candidate?.url || '').origin === currentOrigin; } catch (_) { return false; }
-					}) || null;
-					if (!entry || typeof entry !== 'object') return;
+					// Resolve this origin's saved-server entry (may be null).
+					let entry = null;
+					try {
+						const raw = localStorage.getItem('wabi.savedServers.v1');
+						if (raw) {
+							const parsed = JSON.parse(raw);
+							const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+							const currentOrigin = window.location.origin;
+							entry = entries.find((candidate) => {
+								try { return new URL(candidate?.url || '').origin === currentOrigin; } catch (_) { return false; }
+							}) || null;
+						}
+					} catch (_) { /* corrupt storage */ }
 
-					const neutral = entry.useNeutralBranding === true;
-					const launch = entry.launchPageBranding || null;
-					const meta = entry.frontendMetadata || null;
-
-					const brandName =
-						(launch && typeof launch.brandName === 'string' && launch.brandName.trim()) ||
-						(meta && typeof meta.brandName === 'string' && meta.brandName.trim()) ||
-						(meta && typeof meta.name === 'string' && meta.name.trim()) ||
-						'';
-					const logoUrl =
-						(launch && typeof launch.logoUrl === 'string' && launch.logoUrl.trim()) ||
-						(meta && typeof meta.logoUrl === 'string' && meta.logoUrl.trim()) ||
-						'';
-					const accent =
-						(launch && launch.palette && typeof launch.palette.accent === 'string' && launch.palette.accent) ||
-						(meta && typeof meta.accentColor === 'string' && meta.accentColor) ||
-						'';
-
-					window.__WABI_BOOT_BRAND__ = {
-						neutral,
-						brandName,
-						logoUrl,
-						accent
-					};
-
+					// Neutral is the operator's per-server opt-in and always wins:
+					// it governs HOW identity is rendered locally, not what it is.
+					const neutral = entry?.useNeutralBranding === true;
 					if (neutral) {
 						document.documentElement.setAttribute('data-neutral-branding', '');
 					}
+
+					if (injected) {
+						// Server is the source of truth for its own identity —
+						// zero requests, correct at first paint, no Wabi→custom swap.
+						window.__WABI_BOOT_BRAND__ = {
+							neutral,
+							brandName: typeof injected.brandName === 'string' ? injected.brandName : '',
+							logoUrl: typeof injected.logoUrl === 'string' ? injected.logoUrl : '',
+							accent: typeof injected.accent === 'string' ? injected.accent : '',
+							launchEnabled: injected.launchEnabled === true
+						};
+						return;
+					}
+
+					if (entry && typeof entry === 'object') {
+						const launch = entry.launchPageBranding || null;
+						const meta = entry.frontendMetadata || null;
+
+						const brandName =
+							(launch && typeof launch.brandName === 'string' && launch.brandName.trim()) ||
+							(meta && typeof meta.brandName === 'string' && meta.brandName.trim()) ||
+							(meta && typeof meta.name === 'string' && meta.name.trim()) ||
+							'';
+						const logoUrl =
+							(launch && typeof launch.logoUrl === 'string' && launch.logoUrl.trim()) ||
+							(meta && typeof meta.logoUrl === 'string' && meta.logoUrl.trim()) ||
+							'';
+						const accent =
+							(launch && launch.palette && typeof launch.palette.accent === 'string' && launch.palette.accent) ||
+							(meta && typeof meta.accentColor === 'string' && meta.accentColor) ||
+							'';
+
+						window.__WABI_BOOT_BRAND__ = {
+							neutral,
+							brandName,
+							logoUrl,
+							accent
+						};
+						return;
+					}
+
+					// No injection AND no saved entry → legacy fetch fallback
+					// (raw-file hosts). Unchanged from before.
+					fetch('/api/public/launch-page', { credentials: 'omit' })
+						.then((response) => response.ok ? response.json() : null)
+						.then((launch) => {
+							if (!launch || typeof launch !== 'object') return;
+							const brandName = typeof launch.brandName === 'string' ? launch.brandName.trim() : '';
+							const logoUrl = typeof launch.logoUrl === 'string' ? launch.logoUrl.trim() : '';
+							const accent = typeof launch.palette?.accent === 'string' ? launch.palette.accent : '';
+							if (!brandName && !logoUrl && !accent) return;
+							const snapshot = { brandName, logoUrl, accent, force: true };
+							window.__WABI_BOOT_BRAND__ = snapshot;
+							try {
+								const current = JSON.parse(localStorage.getItem('wabi.savedServers.v1') || '{}');
+								const entries = Array.isArray(current.entries) ? current.entries : [];
+								const index = entries.findIndex((candidate) => {
+									try { return new URL(candidate?.url || '').origin === window.location.origin; } catch (_) { return false; }
+								});
+								if (index >= 0) {
+									entries[index].launchPageBranding = {
+										brandName: launch.brandName || '', logoUrl: launch.logoUrl || '',
+										heroImageUrl: launch.heroImageUrl || null, subheadline: launch.subheadline || '',
+										palette: launch.palette || { accent: accent }, brandProfile: launch.brandProfile || null
+									};
+									localStorage.setItem('wabi.savedServers.v1', JSON.stringify({ ...current, entries }));
+								}
+							} catch (_) { /* cache is best effort */ }
+							if (typeof window.__applyWabiBootBrand === 'function') window.__applyWabiBootBrand(snapshot);
+						})
+						.catch(() => { /* fallback shell remains available */ });
 
 					// Defer DOM writes until shell exists (body not parsed yet if in head —
 					// this script is in head; shell is in body. Use DOMContentLoaded or
@@ -378,37 +439,7 @@
 				} catch (_) {
 					/* ignore corrupt storage */
 				}
-					if (!window.__WABI_BOOT_BRAND__) {
-						fetch('/api/public/launch-page', { credentials: 'omit' })
-							.then((response) => response.ok ? response.json() : null)
-							.then((launch) => {
-								if (!launch || typeof launch !== 'object') return;
-								const brandName = typeof launch.brandName === 'string' ? launch.brandName.trim() : '';
-								const logoUrl = typeof launch.logoUrl === 'string' ? launch.logoUrl.trim() : '';
-								const accent = typeof launch.palette?.accent === 'string' ? launch.palette.accent : '';
-								if (!brandName && !logoUrl && !accent) return;
-								const snapshot = { brandName, logoUrl, accent, force: true };
-								window.__WABI_BOOT_BRAND__ = snapshot;
-								try {
-									const current = JSON.parse(localStorage.getItem('wabi.savedServers.v1') || '{}');
-									const entries = Array.isArray(current.entries) ? current.entries : [];
-									const index = entries.findIndex((candidate) => {
-										try { return new URL(candidate?.url || '').origin === window.location.origin; } catch (_) { return false; }
-									});
-									if (index >= 0) {
-										entries[index].launchPageBranding = {
-											brandName: launch.brandName || '', logoUrl: launch.logoUrl || '',
-											heroImageUrl: launch.heroImageUrl || null, subheadline: launch.subheadline || '',
-											palette: launch.palette || { accent: accent }, brandProfile: launch.brandProfile || null
-										};
-										localStorage.setItem('wabi.savedServers.v1', JSON.stringify({ ...current, entries }));
-									}
-								} catch (_) { /* cache is best effort */ }
-								if (typeof window.__applyWabiBootBrand === 'function') window.__applyWabiBootBrand(snapshot);
-							})
-							.catch(() => { /* fallback shell remains available */ });
-					}
-				})();
+			})();
 		</script>
 		%sveltekit.head%
 	</head>
