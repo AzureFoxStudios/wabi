@@ -18,6 +18,7 @@ import {
 import { getAuthToken, getStoredDbUserId } from './authSession';
 import { transportWatchdog } from './callingWatchdog';
 import { getStoredCallTransportMode } from './mediaRuntime';
+import { getSocket } from './socketConnection';
 import { bindCallSessionAudio, callSessionManager } from './callSessionManager';
 import {
 	setSessionVolume as graphSetSessionVolume,
@@ -212,6 +213,26 @@ export function syncWabidbCapture(shouldCapture: (channelId: string) => boolean)
  */
 export function wabidbTransportLive(): boolean {
 	return wabidbMediaRelays.size > 0;
+}
+
+/**
+ * Phase 1 follow-up (review F6): after a main-socket reconnect the server's
+ * socket.io rooms are GONE — new SocketRef, no memberships — so the hardened
+ * `wabidb-media` relay would deny every envelope even though the relays and
+ * the separate wabiDb call-state connection look healthy. Re-emit
+ * join-wabidb-call for every live session; the server re-authorizes against
+ * the roster, which the drain map restores first (presence before media —
+ * same ordering as the initial join).
+ */
+export function rejoinWabidbCallRooms(): void {
+	const socket = getSocket();
+	if (!socket?.connected) return;
+	for (const [channelId, sessionId] of sessionIds.entries()) {
+		socket.emit('join-wabidb-call', { sessionId, channelId });
+	}
+	if (sessionIds.size > 0) {
+		console.log(`[Wabidb] re-joined ${sessionIds.size} media room(s) after reconnect`);
+	}
 }
 
 /**

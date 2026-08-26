@@ -1064,6 +1064,25 @@ export function applySpatialSeat(
 	}
 }
 
+/**
+ * Phase 3 (review fix): apply a seat to the AUDIO PATHS ONLY — no session
+ * store write, no persistence. Bulk applications (mount, roster changes,
+ * spatial toggle) must use this: writing through applySpatialSeat there
+ * would (a) freeze auto-circle layouts into persisted manual seats, and
+ * (b) re-trigger the applying effect through store → prop → derived
+ * identity chains (an infinite churn loop).
+ */
+export function applySpatialSeatToAudio(
+	sessionId: string,
+	userId: string,
+	position: { x: number; y: number; z: number }
+): void {
+	setWabidbSpatialPosition(sessionId, userId, position);
+	if (spatialAudioEngine) {
+		spatialAudioEngine.updateSourcePosition(`call:${userId}`, position as SpatialPosition);
+	}
+}
+
 export function clearSpatialSeat(sessionId: string, userId: string): void {
 	callSessionManager.clearSpatialSeat(sessionId, userId);
 	const session = callSessionManager.get(sessionId);
@@ -1226,7 +1245,10 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 				}
 			}
 		});
-		callSessionManager.markConnected(channelId, activeTransport === 'sfu' ? 'sfu' : activeTransport === 'p2p' ? 'p2p' : 'wabidb');
+		// Record the transport the chain ACTUALLY landed on (the plan may have
+		// demoted mid-connect; callTransportState holds the runtime truth).
+		const effectiveTransport = get(callTransportState).activeTransport;
+		callSessionManager.markConnected(channelId, effectiveTransport);
 		if (!listenOnly) {
 			callSessionManager.setFocus(channelId);
 		}

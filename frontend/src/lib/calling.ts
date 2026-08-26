@@ -201,6 +201,7 @@ import {
 // Phase 3 — spatial seat stage API
 export {
 	applySpatialSeat,
+	applySpatialSeatToAudio,
 	clearSpatialSeat
 } from './calling_impl_core';
 

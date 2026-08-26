@@ -57,4 +57,14 @@ export async function drainOutboundQueue(): Promise<void> {
 			break;
 		}
 	}
+
+	// Presence replays above restore the server roster; the media rooms ride
+	// a separate emit and must re-authorize AFTER that (review F6 — without
+	// this, relayed audio silently dies until the next manual channel click).
+	try {
+		const { rejoinWabidbCallRooms } = await import('$lib/callingWabidb');
+		rejoinWabidbCallRooms();
+	} catch (error) {
+		console.warn('[drain] wabidb media room rejoin failed:', error);
+	}
 }

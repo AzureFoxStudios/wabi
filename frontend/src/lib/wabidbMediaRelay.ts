@@ -124,6 +124,12 @@ export class WabidbMediaRelay {
     gain: GainNode;
     position: { x: number; y: number; z: number };
   }>();
+  /**
+   * Seats set for users who have not spoken yet (playback chains are lazy —
+   * created on first decoded audio). Applied the moment the chain exists so
+   * a pre-positioned speaker never pops in at dead-center.
+   */
+  private pendingPositions = new Map<string, { x: number; y: number; z: number }>();
   private jitterBuffer: JitterEntry[] = [];
   private opusDecoder: Worker | null = null;
   private pendingDecodeResolvers: Array<(pcm: Float32Array | null) => void> = [];
@@ -391,6 +397,13 @@ export class WabidbMediaRelay {
         }
         chain = { worklet, panner, gain, position: { x: 0, y: 0, z: 2 } };
         this.userPlaybackChains.set(fromUserId, chain);
+        // Seat set before this user first spoke — apply it immediately.
+        const pending = this.pendingPositions.get(fromUserId);
+        if (pending) {
+          this.pendingPositions.delete(fromUserId);
+          chain.position = { ...pending };
+          this.applyChainPosition(chain);
+        }
       } catch (error) {
         console.error('[WabidbMediaRelay] Failed to load AudioWorklet:', error);
         return;
@@ -399,28 +412,43 @@ export class WabidbMediaRelay {
     chain.worklet.port.postMessage({ pcm: pcmData });
   }
 
-  /**
-   * Phase 3: position one remote user in this relay's stereo field
-   * (pan_distance semantics mirroring the spatial engine: pan from x,
-   * distance attenuation from the x/z plane). Values are in the same
-   * coordinate space as SpatialAudioEngine positions.
-   */
-  setSpatialPosition(fromUserId: string, position: { x: number; y: number; z: number }): void {
-    const chain = this.userPlaybackChains.get(fromUserId);
-    if (!chain) return;
-    chain.position = position;
+  /** Ramp one chain's pan + distance attenuation to its stored position. */
+  private applyChainPosition(chain: {
+    panner: StereoPannerNode;
+    gain: GainNode;
+    position: { x: number; y: number; z: number };
+  }): void {
     const now = this.audioContext?.currentTime ?? 0;
     try {
-      const pan = Math.max(-1, Math.min(1, position.x / 6));
+      const pan = Math.max(-1, Math.min(1, chain.position.x / 6));
       chain.panner.pan.cancelScheduledValues(now);
       chain.panner.pan.linearRampToValueAtTime(pan, now + 0.08);
-      const distance = Math.sqrt(position.x * position.x + position.z * position.z);
+      const distance = Math.sqrt(
+        chain.position.x * chain.position.x + chain.position.z * chain.position.z
+      );
       const attenuation = Math.max(0.45, Math.min(1, 1 - distance / 24));
       chain.gain.gain.cancelScheduledValues(now);
       chain.gain.gain.linearRampToValueAtTime(attenuation, now + 0.08);
     } catch {
       // chain already torn down
     }
+  }
+
+  /**
+   * Phase 3: position one remote user in this relay's stereo field
+   * (pan_distance semantics mirroring the spatial engine: pan from x,
+   * distance attenuation from the x/z plane). Values are in the same
+   * coordinate space as SpatialAudioEngine positions. Seats for users who
+   * have not spoken yet are buffered and applied on chain creation.
+   */
+  setSpatialPosition(fromUserId: string, position: { x: number; y: number; z: number }): void {
+    const chain = this.userPlaybackChains.get(fromUserId);
+    if (!chain) {
+      this.pendingPositions.set(fromUserId, { ...position });
+      return;
+    }
+    chain.position = position;
+    this.applyChainPosition(chain);
   }
 
   stop(): void {
@@ -444,6 +472,7 @@ export class WabidbMediaRelay {
       }
     }
     this.userPlaybackChains.clear();
+    this.pendingPositions.clear();
     // Phase 2: the shared graph context serves every relay — only close one
     // we own. The session chain itself is disposed via detachSession.
     if (this.audioContext && this.ownsAudioContext) {

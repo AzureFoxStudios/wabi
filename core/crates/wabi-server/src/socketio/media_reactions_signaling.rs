@@ -410,27 +410,37 @@ async fn screen_share_audience(
 ) -> (String, Vec<(String, String)>) {
     let sender_stable = get_my_stable_id(socket, &state.app.config.jwt_secret);
     let my_socket = socket.id.to_string();
-    let connected = state.connected_users.read().await;
-    let username = connected
-        .get(&my_socket)
-        .map(|u| u.username.clone())
-        .unwrap_or_default();
+    // Snapshot + drop the connected lock BEFORE taking the roster locks —
+    // never hold all three read guards across the consent scan (tokio's
+    // RwLock is write-preferring; a pending writer on any of them would
+    // otherwise park this task while it holds the others).
+    let (username, candidates): (String, Vec<(String, String)>) = {
+        let connected = state.connected_users.read().await;
+        let username = connected
+            .get(&my_socket)
+            .map(|u| u.username.clone())
+            .unwrap_or_default();
+        let candidates = connected
+            .values()
+            .filter(|u| u.stable_id != sender_stable)
+            .map(|u| (u.stable_id.clone(), u.username.clone()))
+            .collect();
+        (username, candidates)
+    };
     let voice = state.voice_channels.read().await;
     let groups = state.group_call_sessions.read().await;
-    let audience: Vec<(String, String)> = connected
-        .values()
-        .filter(|u| u.stable_id != sender_stable)
-        .filter(|u| {
+    let audience: Vec<(String, String)> = candidates
+        .into_iter()
+        .filter(|(stable_id, _)| {
             signaling_consent_allowed(
                 &sender_stable,
                 &my_socket,
-                &u.stable_id,
+                stable_id,
                 &voice,
                 &groups,
                 None,
             )
         })
-        .map(|u| (u.stable_id.clone(), u.username.clone()))
         .collect();
     (username, audience)
 }

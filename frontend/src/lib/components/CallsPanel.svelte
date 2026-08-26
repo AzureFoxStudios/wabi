@@ -7,6 +7,7 @@
 	 */
 	import { callSessions } from '$lib/callSessionManager';
 	import { sessionBadge } from '$lib/callSessionTypes';
+	import { activeCalls } from '$lib/calling';
 	import {
 		leaveCall,
 		focusCall,
@@ -22,6 +23,15 @@
 
 	function initial(username: string): string {
 		return (username || '?').trim().charAt(0).toUpperCase();
+	}
+
+	// DM/group sessions have no channel roster — their participants live in
+	// the p2p call list (review F4).
+	function avatarPeople(session: { kind: string; participants: Array<{ userId: string; username: string }> }): Array<{ userId: string; username: string }> {
+		if (session.kind !== 'channel' && session.participants.length === 0) {
+			return $activeCalls.map((call) => ({ userId: call.userId, username: call.username ?? call.userId }));
+		}
+		return session.participants;
 	}
 </script>
 
@@ -48,11 +58,11 @@
 						{session.transport ? session.transport.toUpperCase() : session.lifecycle}
 					</span>
 					<span class="cpanel-participants">
-						{#each session.participants.slice(0, 5) as p (p.userId)}
+						{#each avatarPeople(session).slice(0, 5) as p (p.userId)}
 							<span class="vv-avatar small" title={p.username || p.userId}>{initial(p.username || p.userId)}</span>
 						{/each}
-						{#if session.participants.length > 5}
-							<span class="vv-avatar small overflow">+{session.participants.length - 5}</span>
+						{#if avatarPeople(session).length > 5}
+							<span class="vv-avatar small overflow">+{avatarPeople(session).length - 5}</span>
 						{/if}
 					</span>
 				</div>

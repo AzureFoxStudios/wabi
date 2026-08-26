@@ -23,7 +23,7 @@
 		cameraOff,
 		leaveAllCalls
 	} from '$lib/callSurfaces';
-	import { isMuted, isDeafened } from '$lib/calling';
+	import { isMuted, isDeafened, activeCalls } from '$lib/calling';
 	import VideoSink from './VideoSink.svelte';
 
 	let sessions = $derived([...$callSessions.values()].sort((a, b) => {
@@ -48,6 +48,11 @@
 			return roster.map((m: any) => ({ userId: m.userId, username: m.username ?? '', picture: m.profilePicture ?? null }));
 		}
 		const session = $callSessions.get(sessionId);
+		if (session && session.kind !== 'channel' && session.participants.length === 0) {
+			// DM/group sessions have no channel roster — fall back to the
+			// live p2p call list (review F4).
+			return $activeCalls.map((call) => ({ userId: call.userId, username: call.username ?? call.userId, picture: null }));
+		}
 		return (session?.participants ?? []).map((p) => ({ userId: p.userId, username: p.username, picture: null }));
 	}
 
