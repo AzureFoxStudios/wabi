@@ -10,7 +10,7 @@ rust-version = "1.88"
 # Content addressing
 blake3 = "1"
 # Authenticated encryption (per-stream records, DM bodies)
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 # Record integrity
 crc32c = "0.6"
 # Async runtime
