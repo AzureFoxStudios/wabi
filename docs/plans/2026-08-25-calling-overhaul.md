@@ -259,3 +259,58 @@ signatures used by callSurfaces.
 - Single shared AudioContext replaces N relay AudioContexts (watch CPU).
 - Golden rule 5 untouched: sessions are socket/in-memory state only, no
   postcard record changes.
+
+## Smoke test 2026-08-26 — findings & remediation
+
+Ronin's field test (computer + mobile, same room, TWO DIFFERENT ACCOUNTS —
+confirmed). Remediated same day; details in
+`docs/plans/2026-08-26-smoke-remediation-handoff.md`:
+
+1. **No audio** (real bug — accounts differ, so not the self-filter theory).
+   Video envelopes flowed, audio didn't. Relay + lane now carry full counters
+   surfaced in the Diag overlay (`Audio: tx= rx= dec= play= err= (ctx=)`) so
+   the next 2-computer test localizes in seconds. Root cause still open
+   pending retest.
+2. **Screen share broken past the picker** (desktop picked a window, nothing
+   rendered; mobile UI too bloated to tell). Lane counters per source +
+   visible failure notices added; likely-suspect list in the handoff §WO-2d.
+3. **Remote video never torn down on leave/DC** (confirmed gap) —
+   `wabidbStopRemoteVideo` now fires from `handleVoiceParticipantLeft`
+   (scoped to channels we listen to) and `handleRemoteDirectCallEnded`.
+4. **Call panel doesn't auto-spawn** — CONTRACT REVERSAL (decision below).
+5. **Cards labeled by channel id** — sessions register `name: channelId`;
+   VoiceView/CallsPanel now resolve via `$channels` at render time.
+6. **FOCUSED badge text removed** — decision below.
+7. **Emoji control icons replaced** with the site's feather-style SVGs.
+
+### Decisions (Ronin, 2026-08-26)
+
+- **Auto-spawn/auto-dissolve panel** (reverses docked-first): joining any
+  call auto-opens the embedded call panel; leaving auto-dissolves it;
+  explicit minimize/dismiss keeps it closed for THAT call only; listen-only
+  channel joins stay docked; a surviving voice-channel session re-spawns the
+  panel after a DM/group call ends unless dismissed. The sidebar second-click
+  embed path is unchanged (tripwire stays green).
+- **Focus = glow, not a label**: badge chips render only for
+  background/silenced; focused cards get border+glow emphasis.
+  `sessionBadge()` model and its tests unchanged.
+- **Self-filter is socket-scoped**: server stamps `senderSocket` on
+  `wabidb-media`; relay AND lane drop by connection id, keeping the userId
+  check only as a legacy-server fallback. Same-account two-device audio and
+  video now flow (retest item 2).
+
+### Scope amendments made during implementation
+
+- WO-4 also flipped the group-call START site (the handoff's line map listed
+  only establish/answer paths) per Ronin's "auto-open like joins".
+- WO-1c extended to the video lane's own receiver filter — without it,
+  two-device video still died at `handleRemoteEnvelope`.
+- WO-7 scope widened to CallStage + CallModal spatial buttons (they carried
+  emoji too); ◎ replaced by a composed surround-sound glyph built from the
+  existing volume-icon arc paths; inline copies only (no shared icon module).
+- WO-3 teardown placed inside the `connectedToChannel` branch so tiles from
+  another shared channel a user remains in survive.
+
+Phase 5 checklist items superseded: the "docked-first" contract line is
+REVERSED (auto-spawn); the FOCUSED badge line is replaced by glow emphasis;
+panel/view controls use site-standard icons.
