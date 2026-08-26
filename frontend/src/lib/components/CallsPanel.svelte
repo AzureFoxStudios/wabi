@@ -7,6 +7,7 @@
 	 */
 	import { callSessions } from '$lib/callSessionManager';
 	import { sessionBadge } from '$lib/callSessionTypes';
+	import { channels } from '$lib/channelStore';
 	import { activeCalls } from '$lib/calling';
 	import {
 		leaveCall,
@@ -23,6 +24,16 @@
 
 	function initial(username: string): string {
 		return (username || '?').trim().charAt(0).toUpperCase();
+	}
+
+	// Sessions register with `name: channelId` as a placeholder — resolve the
+	// real channel name reactively at render time.
+	function displayName(session: { id: string; name?: string | null; channelId?: string | null }): string {
+		return (
+			(session.channelId ? $channels.find((c) => c.id === session.channelId)?.name : undefined) ??
+			session.name ??
+			session.id
+		);
 	}
 
 	// DM/group sessions have no channel roster — their participants live in
@@ -50,7 +61,7 @@
 			{@const badge = sessionBadge(session)}
 			<section class="cpanel-card" data-badge={badge}>
 				<header class="cpanel-card-head">
-					<span class="cpanel-name">{session.name || session.id}</span>
+					<span class="cpanel-name">{displayName(session)}</span>
 					<span class="vv-badge" data-badge={badge}>{badge}</span>
 				</header>
 				<div class="cpanel-meta">
@@ -81,7 +92,7 @@
 							step="5"
 							value={session.volume}
 							oninput={(e) => setCallVolume(session.id, Number((e.currentTarget as HTMLInputElement).value))}
-							aria-label={`Volume for ${session.name || session.id}`}
+							aria-label={`Volume for ${displayName(session)}`}
 						/>
 						<span class="cpanel-volume-value">{session.volume}%</span>
 					</label>
