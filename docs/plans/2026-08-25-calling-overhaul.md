@@ -203,6 +203,54 @@ suite extended: the four new runes components must compile with ZERO
 - wabidb relay calls: media transits the server in the clear over authenticated
   WSS; the server CAN inspect relayed media. Membership is enforced; identities
   are server-attested. E2EE for relayed media is a future opt-in (SFrame-style).
+- **Open item (2026-08-26 review, F7):** `p2p-offer/answer/ice-candidate`
+  (file-transfer signaling) still route SDP to any connected socket with no
+  consent check — the same class as SEC-3. NOT hot-fixed: file transfers
+  legitimately run between DM partners with no active call, so gating on call
+  relationships (voice roster / group session / DM call link) would break them.
+  Proper fix needs its own consent primitive (shared-DM-channel lookup with a
+  cache, or a target-accept prompt). Until then the exposure is bounded: it
+  initiates file-transfer PC offers, not media-call injection, and socket ids
+  are only learnable from voice rosters.
+
+## Review pass (2026-08-26, max-mode audit of P1–P5)
+
+Findings fixed:
+- **F1** CallStage's session-switch `$effect` re-ran on every session-object
+  mutation (roster snapshots, volume ticks) — the seat stage slammed shut
+  mid-drag and seats reloaded. Now guarded on actual id change.
+- **F2** Relay playback chains are lazy (created on first decoded audio), so
+  seats set for silent users were silently dropped. `pendingPositions` buffer
+  applied at chain creation.
+- **F3** Restored localStorage seats and the auto-circle never reached the
+  audio paths on mount — only on the next drag. CallStage now applies all
+  seats (audio-only) on mount, roster change, and spatial toggle.
+- **F9 (found during F3)** bulk seat application wrote through
+  `applySpatialSeat`, which (a) persisted auto-circle layouts as frozen manual
+  seats and (b) re-triggered the applying effect via store→prop→derived
+  identity chains — an infinite churn loop with a localStorage write per cycle.
+  Split: `applySpatialSeatToAudio` (audio paths only) for bulk use; full
+  persist remains on real drags.
+- **F4** DM/group sessions never populate participants (roster events are
+  channel-only) — their cards showed empty avatar rows. Both surfaces fall
+  back to the live p2p `activeCalls` list.
+- **F6** After a main-socket reconnect the server's socket.io rooms are gone —
+  relayed media was denied while the watchdog's probe (separate wabiDb
+  connection) falsely reported healthy. `rejoinWabidbCallRooms()` now re-emits
+  `join-wabidb-call` for every live session at the end of the drain replay
+  (presence first, media rooms second — the Phase-1 ordering).
+- **F8** `screen_share_audience` held three read guards across the consent
+  scan; now snapshots + drops the connected lock first (tokio RwLock is
+  write-preferring — a pending writer on one guard must never park a task
+  holding the others).
+
+Verified safe (no change needed): media rate-limit math vs the video lane's
+real envelope rate (16 KiB chunks under bandwidth ceilings ⇒ ~60 env/s,
+far under the 800/s bucket); `signaling_consent`'s two-guard ordering
+(voice→groups, consistent codebase-wide); runes-mode function-call reads are
+tracked (tripwire: zero untrack windows); DM call consent chain
+(initiate creates the link before any offer flows); control-toggle
+signatures used by callSurfaces.
 
 ## Risks
 

@@ -10,10 +10,9 @@
 	 * Replaces CallParticipantGrid for channel mode only; DM calls keep the
 	 * legacy grid this pass.
 	 */
-	import { onMount } from 'svelte';
 	import { wabidbRemoteVideoStreams, wabidbLocalPreviewStreams } from '$lib/wabidbVideoLane';
 	import { voiceChannelMembers } from '$lib/presenceStore';
-	import { applySpatialSeat, clearSpatialSeat } from '$lib/calling';
+	import { applySpatialSeat, applySpatialSeatToAudio, clearSpatialSeat } from '$lib/calling';
 	import { computeSpatialPosition, loadSpatialSeats, sortByUserId } from '$lib/callingSpatialRuntime';
 	import type { CallSession, CallSpatialPosition } from '$lib/callSessionTypes';
 	import VideoSink from './VideoSink.svelte';
@@ -69,16 +68,45 @@
 	let stageEl: HTMLElement | undefined = $state();
 	let dragUserId: string | null = $state(null);
 
-	onMount(() => {
-		manualSeats = loadSpatialSeats(session.id);
+	// Reload seats ONLY when the focused call actually changes. Guard on the
+	// id: the session prop is a fresh object on every map mutation (roster
+	// snapshots, volume ticks) and an unguarded effect would reload the seats
+	// and slam the stage shut mid-drag.
+	let loadedSeatsForSession = '';
+
+	/**
+	 * Push every participant's seat (manual or auto-circle) into the audio
+	 * paths — relay chains and the p2p engine — AUDIO ONLY (no store write,
+	 * no persistence): bulk writes would freeze auto-circle layouts into
+	 * manual seats and re-trigger this effect in a loop. Manual seats are
+	 * persisted by the drag handler via applySpatialSeat.
+	 */
+	function applyAllSeats(): void {
+		if (!spatialEnabled) return;
+		const ids = orderedIds;
+		for (const userId of ids) {
+			applySpatialSeatToAudio(session.id, userId, seatFor(userId));
+		}
+	}
+
+	$effect(() => {
+		const id = session.id;
+		if (!id || id === loadedSeatsForSession) return;
+		loadedSeatsForSession = id;
+		manualSeats = loadSpatialSeats(id);
+		seatsOpen = false;
+		applyAllSeats();
 	});
 
-	// Reset when switching to a different call.
+	// Keep the audio paths current: apply every seat (manual or auto-circle)
+	// on mount, on roster changes, and on spatial toggles — so a new speaker
+	// never lands at dead-center while spatial hearing is on. Skipped
+	// mid-drag: the drag handler already applies the moving seat, and
+	// re-applying every participant per pointermove would thrash.
 	$effect(() => {
-		if (session.id) {
-			manualSeats = loadSpatialSeats(session.id);
-			seatsOpen = false;
-		}
+		void orderedIds;
+		if (!spatialEnabled || dragUserId) return;
+		applyAllSeats();
 	});
 
 	let orderedIds = $derived(sortByUserId(participants).map((p) => p.userId));
