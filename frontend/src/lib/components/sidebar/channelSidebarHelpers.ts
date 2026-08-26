@@ -154,3 +154,130 @@ export function filterMixedRoot(items: MixedRootItem[], query: string): MixedRoo
 		})
 		.filter((item): item is MixedRootItem => item !== null);
 }
+
+// ============================================================================
+// DRAG TARGETING — pure geometry shared by the sidebar DnD coordinator.
+// Unit-tested in channelSidebarHelpers.test.ts; keep free of DOM/store access.
+// ============================================================================
+
+/** One droppable row snapshot captured by the coordinator during a drag. */
+export interface DragAnchor {
+	kind: 'folder' | 'channel';
+	id: string;
+	/** Category id when this channel row lives inside an expanded folder. */
+	parentFolderId: string | null;
+	top: number;
+	bottom: number;
+}
+
+/**
+ * Where a release would land. Anchors resolve to indices at commit time
+ * against the full channel model (never the search-filtered view).
+ *  - root:         gap in the mixed root sequence (folders + loose channels)
+ *  - folder:       gap among a folder's children (positional insert inside)
+ *  - folder-header: immediately before/after a folder in the root sequence
+ */
+export type DropGap =
+	| { scope: 'root'; anchorId: string | null; pos: 'before' | 'after' }
+	| { scope: 'folder'; categoryId: string; anchorId: string | null; pos: 'before' | 'after' }
+	| { scope: 'folder-header'; categoryId: string; pos: 'before' | 'after' };
+
+/** Targeting result: the gap plus where to draw the insertion line. */
+export interface ResolvedGap {
+	gap: DropGap | null;
+	/** Insertion-line Y in scroll-content coordinates (null hides the line). */
+	lineY: number | null;
+	/** True when the line sits at folder-child depth (deeper indent). */
+	indented: boolean;
+}
+
+/** Folder-header edge band (px): above/below counts as before/after the folder. */
+export const FOLDER_EDGE_BAND_PX = 10;
+
+/**
+ * Resolve which gap the pointer occupies.
+ *
+ * `anchors` MUST be in document order. Dead zones (voice rosters, threads,
+ * padding) resolve to the nearest surrounding row, so the line never lies:
+ * the last thing it pointed at remains true wherever the cursor wanders.
+ * Past the final anchor resolves to the end of the root sequence.
+ *
+ * @param y            pointer viewport Y
+ * @param containerTop viewport Y of the scroll container's top edge
+ * @param scrollTop    current scrollTop of the scroll container
+ * @param contentEndY  viewport Y of the container's last-content edge (tail line)
+ */
+export function resolveDropGap(
+	anchors: DragAnchor[],
+	y: number,
+	draggingFolder: boolean,
+	containerTop: number,
+	scrollTop: number,
+	contentEndY: number
+): ResolvedGap {
+	const toContentY = (viewportY: number): number => viewportY - containerTop + scrollTop;
+
+	let hit: DragAnchor | null = null;
+	for (const anchor of anchors) {
+		if (anchor.bottom > y) {
+			hit = anchor;
+			break;
+		}
+	}
+
+	if (!hit) {
+		return {
+			gap: { scope: 'root', anchorId: null, pos: 'after' },
+			lineY: toContentY(contentEndY),
+			indented: false
+		};
+	}
+
+	if (hit.kind === 'folder') {
+		const band = Math.min(FOLDER_EDGE_BAND_PX, (hit.bottom - hit.top) / 3);
+		const mid = (hit.top + hit.bottom) / 2;
+		if (y < hit.top + band) {
+			return {
+				gap: { scope: 'folder-header', categoryId: hit.id, pos: 'before' },
+				lineY: toContentY(hit.top),
+				indented: false
+			};
+		}
+		if (y > hit.bottom - band) {
+			return {
+				gap: { scope: 'folder-header', categoryId: hit.id, pos: 'after' },
+				lineY: toContentY(hit.bottom),
+				indented: false
+			};
+		}
+		if (draggingFolder) {
+			// Folders never nest: the middle band degrades to the nearest gap.
+			return {
+				gap: {
+					scope: 'folder-header',
+					categoryId: hit.id,
+					pos: y < mid ? 'before' : 'after'
+				},
+				lineY: toContentY(y < mid ? hit.top : hit.bottom),
+				indented: false
+			};
+		}
+		// Channel onto folder header ⇒ become the folder's first child.
+		return {
+			gap: { scope: 'folder', categoryId: hit.id, anchorId: null, pos: 'before' },
+			lineY: toContentY(hit.bottom),
+			indented: true
+		};
+	}
+
+	const pos: 'before' | 'after' = y < (hit.top + hit.bottom) / 2 ? 'before' : 'after';
+	const lineY = toContentY(pos === 'before' ? hit.top : hit.bottom);
+	if (hit.parentFolderId) {
+		return {
+			gap: { scope: 'folder', categoryId: hit.parentFolderId, anchorId: hit.id, pos },
+			lineY,
+			indented: true
+		};
+	}
+	return { gap: { scope: 'root', anchorId: hit.id, pos }, lineY, indented: false };
+}

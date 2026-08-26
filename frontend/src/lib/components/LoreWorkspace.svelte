@@ -320,7 +320,10 @@ import LoreImageCompare from './lore/LoreImageCompare.svelte';
 			</div>
 		{:else if activeTab === "files"}
 			<div class="files-tab">
-				<LoreChannelShell />
+				<!-- Bind the shell to the hub's resolved lore channel: the hub can be
+				     open while a non-lore channel is globally active, and an unbound
+				     shell silently targeted the wrong repo (ghost-channel bug). -->
+				<LoreChannelShell channelKey={selectedId} />
 			</div>
 		{:else if activeTab === "history"}
 			{#if compareImageUrls && compareImagePath}

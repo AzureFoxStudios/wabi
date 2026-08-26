@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { slide, fly } from 'svelte/transition';
+	import { flip } from 'svelte/animate';
 	import { cubicOut } from 'svelte/easing';
 	import { longpress } from '$lib/actions/longpress';
 	import type { Channel } from '$lib/socket';
@@ -25,6 +26,15 @@
 	export let voiceDurationMode: 'off' | 'others' | 'all' = 'off';
 	export let nowMs: number = 0;
 
+	/**
+	 * DnD contract (single-coordinator model): rows only START drags and act
+	 * as geometry anchors (data-drop-anchor). All dragover/drop targeting is
+	 * owned by the .channel-list coordinator in ChannelSidebar.svelte.
+	 */
+	export let reorderEnabled: boolean = false;
+	/** True while the sidebar search filter is active — flips suppressed. */
+	export let suppressFlip: boolean = false;
+
 	export let onChannelClick: (channelId: string) => void;
 	export let onChannelButtonClick: (channelId: string, event: MouseEvent) => void;
 	export let onVoiceChannelClick: (channelId: string, event?: MouseEvent) => void;
@@ -33,10 +43,6 @@
 	export let onToggleChannelFollow: (channelId: string, event?: Event) => void;
 	export let onOpenChannelSettings: (channel: Channel) => void;
 	export let onShowPinnedMessages: (channelId: string) => void;
-	/** Zen-style hover peek: parent owns glimpse state; we report dwell + anchor rect. */
-	export let glimpseChannelId: string | null = null;
-	export let onChannelGlimpseHover: (channelId: string, anchorRect: DOMRect) => void = () => {};
-	export let onChannelGlimpseCancel: () => void = () => {};
 	export let onToggleListenChannel: (channelId: string) => void;
 	export let onOpenVoiceChannelWhiteboard: (channelId: string, event?: Event) => void;
 	export let canDragVoiceMember: (memberUserId: string) => boolean = () => false;
@@ -47,12 +53,8 @@
 	export let onVoiceChannelDragOver: (event: DragEvent, channelId: string) => void = () => {};
 	export let onVoiceChannelDragLeave: (channelId: string) => void = () => {};
 	export let onVoiceChannelDrop: (event: DragEvent, channelId: string) => void = () => {};
-	export let dropTargetClass: (channelId: string) => string = () => '';
 	export let isChannelDragging: (channelId: string) => boolean = () => false;
 	export let onChannelDragStart: (e: DragEvent, channelId: string) => void = () => {};
-	export let onChannelDragOver: (e: DragEvent, channelId: string) => void = () => {};
-	export let onChannelDragLeave: (channelId: string) => void = () => {};
-	export let onChannelDrop: (e: DragEvent, channelId: string) => void = () => {};
 	export let onChannelDragEnd: () => void = () => {};
 
 	let reducedMotion = false;
@@ -64,6 +66,10 @@
 		mq.addEventListener('change', onChange);
 		return () => mq.removeEventListener('change', onChange);
 	});
+
+	/** Settle animation after a commit; instant under reduced motion / search. */
+	$: rowFlipParams =
+		reducedMotion || suppressFlip ? { duration: 0 } : { duration: 220, easing: cubicOut };
 
 	function channelType(ch: Channel): string {
 		return (ch.type as string | undefined) || 'text';
@@ -112,38 +118,6 @@
 
 	function isConnectedToVoice(channelId: string): boolean {
 		return connectedVoiceChannelIds.has(channelId);
-	}
-
-	// ---- Zen-style hover peek (glimpse) --------------------------------
-	// Dwell ~0.5s on a channel row → parent opens the peek popout anchored
-	// to this row. Leaving / pressing Escape cancels. Clicking the row is
-	// the natural navigation; there is deliberately no confirm button.
-	const GLIMPSE_DWELL_MS = 500;
-
-	let glimpseHoverTimer: ReturnType<typeof setTimeout> | null = null;
-	let glimpseHoverChannelId: string | null = null;
-
-	function cancelGlimpseDwell() {
-		if (glimpseHoverTimer) { clearTimeout(glimpseHoverTimer); glimpseHoverTimer = null; }
-		glimpseHoverChannelId = null;
-	}
-
-	function handleGlimpseEnter(channelId: string, event: MouseEvent) {
-		if (!onChannelGlimpseHover) return;
-		const target = event.currentTarget as HTMLElement | null;
-		if (!target) return;
-		if (glimpseHoverChannelId === channelId) return;
-		cancelGlimpseDwell();
-		glimpseHoverChannelId = channelId;
-		const rect = target.getBoundingClientRect();
-		glimpseHoverTimer = setTimeout(() => {
-			onChannelGlimpseHover(channelId, rect);
-			glimpseHoverTimer = null;
-		}, GLIMPSE_DWELL_MS);
-	}
-
-	function handleGlimpseLeave(channelId: string) {
-		if (glimpseHoverChannelId === channelId) cancelGlimpseDwell();
 	}
 
 	function isPrimaryVoiceChannel(channelId: string): boolean {
@@ -236,6 +210,7 @@
 	{@const isVoice = isVoiceLike(channel)}
 	{@const members = isVoice ? getVoiceMembers(channel.id) : []}
 	{@const channelIsConnected = isVoice && isConnectedToVoice(channel.id)}
+	<div class="unified-channel-wrap" animate:flip={rowFlipParams}>
 	<div
 		class="channel-item unified-channel-item"
 		class:voice-channel-item={isVoice}
@@ -245,17 +220,18 @@
 		class:bookmarked={!isVoice && isChannelBookmarked(channel)}
 		class:has-timer={channel.autoDeleteAfter}
 		class:voice-drop-target={isVoice && voiceDropTargetChannelId === channel.id}
-		class:drop-before={dropTargetClass(channel.id) === 'drop-before'}
-		class:drop-after={dropTargetClass(channel.id) === 'drop-after'}
 		class:is-dragging={isChannelDragging(channel.id)}
 		role="group"
-		draggable="true"
+		draggable={reorderEnabled}
+		data-drop-anchor="channel"
+		data-channel-id={channel.id}
+		data-parent-folder={channel.parentId ?? ''}
 		on:contextmenu={(e) => onChannelRightClick(e, channel)}
 		use:longpress={{ onLongPress: (e) => onChannelLongPress(e, channel) }}
 		on:dragstart|stopPropagation={(e) => onChannelDragStart(e, channel.id)}
-		on:dragover|stopPropagation={(e) => (isVoice ? onVoiceChannelDragOver(e, channel.id) : onChannelDragOver(e, channel.id))}
-		on:dragleave|stopPropagation={() => (isVoice ? onVoiceChannelDragLeave(channel.id) : onChannelDragLeave(channel.id))}
-		on:drop|stopPropagation={(e) => (isVoice ? onVoiceChannelDrop(e, channel.id) : onChannelDrop(e, channel.id))}
+		on:dragover={(e) => { if (isVoice) onVoiceChannelDragOver(e, channel.id); }}
+		on:dragleave={() => { if (isVoice) onVoiceChannelDragLeave(channel.id); }}
+		on:drop={(e) => { if (isVoice) onVoiceChannelDrop(e, channel.id); }}
 		on:dragend={onChannelDragEnd}
 	>
 		<div class={isVoice ? 'voice-channel-main' : 'channel-main'}>
@@ -263,8 +239,6 @@
 				class="channel-btn"
 				data-abbrev={channel.name.charAt(0).toUpperCase()}
 				on:click={(event) => (isVoice ? onVoiceChannelClick(channel.id, event) : onChannelButtonClick(channel.id, event))}
-				on:mouseenter={(event) => handleGlimpseEnter(channel.id, event)}
-				on:mouseleave={() => handleGlimpseLeave(channel.id)}
 			on:auxclick={(event) => {
 				if (!isVoice && event.button === 1 && event.altKey) {
 					event.preventDefault();
@@ -565,4 +539,5 @@
 			{/each}
 		</div>
 	{/if}
+	</div>
 {/each}

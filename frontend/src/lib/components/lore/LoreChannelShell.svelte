@@ -16,6 +16,7 @@ import { channels } from '$lib/channelStore';
 		loadLoreHealth,
 		loadLoreFileDiff,
 		subscribeLoreLive,
+		setLoreChannelContext,
 	} from '$lib/loreStore';
 	import {
 		getSignedLoreUrl,
@@ -39,6 +40,7 @@ import { channels } from '$lib/channelStore';
 		type LoreBranch,
 	} from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
+	import { showToast } from '$lib/toast';
 
 	// VCS components
 	import LoreFileTree from './LoreFileTree.svelte';
@@ -62,7 +64,47 @@ import { channels } from '$lib/channelStore';
 
 	type Tab = 'files' | 'history' | 'diff' | 'review' | 'timeline' | 'automation';
 
-	let activeChannel = $derived($currentChannel);
+	interface Props {
+		/**
+		 * Explicit channel binding for hub mounts. The Code hub resolves the
+		 * repo it shows independently of the currently active channel — without
+		 * this prop every action handler targeted the raw current channel (the
+		 * "ghost channel" bug: uploads silently no-opped while a non-lore
+		 * channel was active). In-channel mounts omit it and fall back to
+		 * $currentChannel.
+		 */
+		channelKey?: string;
+	}
+
+	let { channelKey }: Props = $props();
+
+	let activeChannel = $derived(channelKey ?? $currentChannel);
+
+	/**
+	 * Auth + channel context for repo actions. Returns null — loudly — when
+	 * either is missing. The silent version of this guard made the upload
+	 * buttons no-op with zero feedback whenever the shell was mounted without
+	 * its lore channel active.
+	 */
+	function requireActionContext(): { token: string; channelId: number } | null {
+		const token = getAuthToken();
+		const channelId = parseLoreChannelId(activeChannel);
+		if (token && channelId) return { token, channelId };
+		const reason = !token
+			? 'not signed in'
+			: `this view isn't bound to a Lore channel (active: ${activeChannel ?? 'none'})`;
+		console.error(`[lore] action skipped: ${reason}`);
+		showToast(`Can't do that — ${reason}. Try reopening the Code view.`, 'error');
+		return null;
+	}
+
+	// Channel-scoped store loads (tree, history, diff) must target the same
+	// channel the shell is bound to — not whatever channel is globally active.
+	$effect(() => {
+		setLoreChannelContext(activeChannel);
+		return () => setLoreChannelContext(null);
+	});
+
 	let repo = $derived($loreRepo);
 	let files = $derived($loreFiles);
 	let revisions = $derived($loreRevisions);
@@ -112,9 +154,9 @@ import { channels } from '$lib/channelStore';
 	}
 
 	async function executeDanger() {
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId || !dangerAction) return;
+		const ctx = requireActionContext();
+		if (!ctx || !dangerAction) return;
+		const { token, channelId } = ctx;
 		if (dangerAction === 'delete' && dangerConfirmText !== repo?.repoName) return;
 		dangerBusy = true;
 		dangerError = null;
@@ -147,9 +189,9 @@ import { channels } from '$lib/channelStore';
 	}
 
 	async function executeDelete() {
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId || !deleteTarget) return;
+		const ctx = requireActionContext();
+		if (!ctx || !deleteTarget) return;
+		const { token, channelId } = ctx;
 		const fileName = deleteTarget.path.split('/').pop() ?? deleteTarget.path;
 		if (deleteConfirmText !== fileName) return;
 		deleteBusy = true;
@@ -290,9 +332,9 @@ import { channels } from '$lib/channelStore';
 	);
 
 	async function handleAutoCreateRepo() {
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 		autoCreating = true;
 		autoCreateError = null;
 		try {
@@ -324,9 +366,9 @@ import { channels } from '$lib/channelStore';
 		mediaPreviewUrl = null;
 		activeTab = 'files';
 
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 
 		try {
 			mediaPreviewUrl = isImagePath(path) ? await getSignedLoreUrl(token, channelId, path) : null;
@@ -384,9 +426,9 @@ import { channels } from '$lib/channelStore';
 
 	/** Download any repo file to disk via a signed URL. */
 	async function downloadToDisk(path: string) {
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 		try {
 			const url = await getSignedLoreUrl(token, channelId, path);
 			const res = await fetch(url);
@@ -413,9 +455,9 @@ import { channels } from '$lib/channelStore';
 		selectedFileInfo = files.find(f => f.path === path) || null;
 		fileContent = null;
 		mediaPreviewUrl = null;
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 		try {
 			const history = await getLoreFileHistory(token, channelId, path);
 			if (history.length >= 2) {
@@ -447,9 +489,9 @@ import { channels } from '$lib/channelStore';
 	}
 
 	async function handleCreateBranch(name: string, from: string) {
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 		try {
 			await createLoreBranch(token, channelId, name, from);
 			await loadLoreHistory();
@@ -485,9 +527,9 @@ import { channels } from '$lib/channelStore';
 	);
 
 	async function handleReview(branchName: string, decision: 'approve' | 'reject') {
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId || reviewBusy) return;
+		const ctx = requireActionContext();
+		if (!ctx || reviewBusy) return;
+		const { token, channelId } = ctx;
 
 		reviewBusy = branchName;
 		try {
@@ -518,9 +560,9 @@ import { channels } from '$lib/channelStore';
 		const file = input?.files?.[0];
 		if (!file) return;
 
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 
 		try {
 			const repoPath = `uploads/${file.name}`;
@@ -552,9 +594,9 @@ import { channels } from '$lib/channelStore';
 		const files = Array.from(input?.files ?? []);
 		if (files.length === 0) return;
 
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 
 		uploadingFolder = true;
 		cancelRequested = false;
@@ -601,9 +643,9 @@ import { channels } from '$lib/channelStore';
 		// (templates are the built-in list above; content is a small boilerplate
 		// per language). Uses the same upload path as file uploads so the file
 		// lands in the repo and the tree refreshes.
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 		try {
 			const content = templateContent(template);
 			const blob = new Blob([content], { type: 'text/plain' });
@@ -640,9 +682,9 @@ import { channels } from '$lib/channelStore';
 	}
 
 	async function handleLock(path: string) {
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 		try {
 			await lockLoreFile(token, channelId, path);
 			await loadLoreRepo();
@@ -652,9 +694,9 @@ import { channels } from '$lib/channelStore';
 	}
 
 	async function handleUnlock(path: string) {
-		const token = getAuthToken();
-		const channelId = parseLoreChannelId(activeChannel);
-		if (!token || !channelId) return;
+		const ctx = requireActionContext();
+		if (!ctx) return;
+		const { token, channelId } = ctx;
 		try {
 			await unlockLoreFile(token, channelId, path);
 			await loadLoreRepo();

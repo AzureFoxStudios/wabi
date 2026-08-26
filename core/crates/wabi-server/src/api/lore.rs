@@ -863,16 +863,21 @@ async fn upload_file(
             .into_response());
     }
 
-    // Optimistic concurrency: If-Match must equal the current head etag
-    // (or "" meaning "must not exist"). Absent If-Match = last-write-wins.
-    let current = lore.head_etag(channel_id, &repo_path).await?;
-    let current = match check_if_match(
-        headers.get(axum::http::header::IF_MATCH).and_then(|v| v.to_str().ok()),
-        current,
-    ) {
-        Ok(current) => current,
-        Err(conflict) => return Ok(conflict),
-    };
+    // Optimistic concurrency: only when the client sent an If-Match. Without
+    // a precondition the head-etag fetch is skipped entirely — it syncs the
+    // repo (a per-file round-trip in sidecar mode) and could fail requests
+    // that never opted into conflict checking (folder uploads, recordings,
+    // plain sync pushes).
+    let if_match = headers
+        .get(axum::http::header::IF_MATCH)
+        .and_then(|v| v.to_str().ok());
+    if if_match.is_some() {
+        if let Err(conflict) =
+            check_if_match(if_match, lore.head_etag(channel_id, &repo_path).await?)
+        {
+            return Ok(conflict);
+        }
+    }
 
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join(format!("lore-upload-{}", uuid::Uuid::new_v4()));
@@ -903,7 +908,6 @@ async fn upload_file(
         wdb_recorded = outcome.commit_recorded;
         cursor = outcome.change_cursor;
     }
-    let _ = current; // consumed by check_if_match above
 
     emit_lore_file_changed(
         &state,
@@ -1299,13 +1303,16 @@ async fn delete_file(
         return Ok(mirror_read_only_response());
     }
 
-    // Optimistic concurrency on deletes too.
-    let current = lore.head_etag(channel_id, &path).await?;
-    if let Err(conflict) = check_if_match(
-        headers.get(axum::http::header::IF_MATCH).and_then(|v| v.to_str().ok()),
-        current,
-    ) {
-        return Ok(conflict);
+    // Optimistic concurrency on deletes too — only when If-Match was sent.
+    let if_match = headers
+        .get(axum::http::header::IF_MATCH)
+        .and_then(|v| v.to_str().ok());
+    if if_match.is_some() {
+        if let Err(conflict) =
+            check_if_match(if_match, lore.head_etag(channel_id, &path).await?)
+        {
+            return Ok(conflict);
+        }
     }
 
     lore.delete_file(channel_id, &path, &message).await?;
@@ -2042,6 +2049,43 @@ exit 0
         let listed = files.iter().find(|f| f.path == "docs/file.txt").unwrap();
         assert!(listed.etag.is_some());
         assert_eq!(listed.size, b"version two!".len() as u64);
+    }
+
+    /// Regression: an upload with NO If-Match header must succeed even when
+    /// the file already exists (last-write-wins), and must not need the
+    /// head-etag path at all — folder uploads, recordings, and plain sync
+    /// pushes never send a precondition.
+    #[tokio::test]
+    async fn upload_without_if_match_overwrites_existing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let service = stub_service(tmp.path());
+        let channel_id = 227i64;
+        service
+            .create_repo(channel_id, 1, "test-repo")
+            .await
+            .unwrap();
+
+        let src = tmp.path().join("src.txt");
+        tokio::fs::write(&src, b"first").await.unwrap();
+        service
+            .upload_file(channel_id, src.to_str().unwrap(), "notes/a.txt", "v1", 7)
+            .await
+            .unwrap();
+
+        // Second upload to the SAME path, no precondition semantics involved
+        // (the API layer only computes head_etag when If-Match is present).
+        tokio::fs::write(&src, b"second").await.unwrap();
+        service
+            .upload_file(channel_id, src.to_str().unwrap(), "notes/a.txt", "v2", 7)
+            .await
+            .unwrap();
+
+        let out = tmp.path().join("head.txt");
+        service
+            .download_file(channel_id, "notes/a.txt", out.to_str().unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(tokio::fs::read_to_string(&out).await.unwrap(), "second");
     }
 
     #[tokio::test]
