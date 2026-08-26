@@ -518,13 +518,24 @@ Every phase is one revertible commit. There is no data migration, no persistence
 
 ## 11. Implementation log (append after each phase — executor)
 
-- [ ] Phase 1 — date, commit hash, injection test results, curl outputs
-- [ ] Phase 2 — request counts observed
-- [ ] Phase 3 — eager-graph before/after table, StartupProfile captures
-- [ ] Phase 4 — eager-graph table, surfaces converted / left eager (with reasons)
-- [ ] Phase 5 — cargo test result
-- [ ] Phase 6 — done/date
-- [ ] Final measurement tables (§9) and summary paragraph
+Executed 2026-08-26 by ox-alpha. All phases committed; nothing pushed/deployed.
+
+- [x] **Baseline (§9 bundle)** — pre-change eager union (`entry` + modulepreloads + `nodes/2.*` closure + eager CSS): **4,887,066 bytes / 26 files**. Big items: shared app chunk 2,410,616 B; socket.io chunk 876,562 B; page node `nodes/2.*` 825,750 B; layout CSS 540,118 B. Runtime/network DevTools captures are William's (headless can't render Wabi, rule 7).
+- [x] **Phase 1** — commit `da317fb`. Router extracted into lib-visible `src/app_router.rs` (plan said "in main.rs", but integration tests link the lib target, not the bin — same construction, new home). New test `tests/boot_brand_injection.rs`: 6/6 green (branded `/` + deep link, stock untouched shell, sw/manifest no-cache, accent guard, mtime recompose, script-breakout). Full `cargo test -p wabi-server` green (131×2 unit + all integration). Release build OK.
+  - **Addition beyond plan:** `build_boot_brand_json` output is additionally `\u`-escaped for `<>&` — serde_json does not escape `</script>`, which would let an admin-entered name terminate the inline boot script (found while writing tests; covered by `brand_json_cannot_break_out_of_script`).
+  - **Plan correction applied:** no `AppState {` literal constructions exist in tests (they use `AppState::new`); field init went into `AppState::new`.
+  - Runtime curl verification (release binary, temp data dir): stock `/` serves un-replaced token; branded config injects `<title>Fort Night</title>`, favicon, `#ff0055` theme-color, `"brandName":"Fort Night"`; deep link `/channels/x` gets the SAME composed shell; rewrite of `admin_policies.json` reflected on next request without restart; `sw.js` + `manifest.webmanifest` → `no-cache`.
+- [x] **Phase 2** — commit `97e51a0`. `sharedRequest` dedupe (10 s setup-status / 15 s launch-page) wraps only local variants; `getLaunchPageConfigFrom(baseUrl)` untouched. Login seeds a full `LaunchPageConfig` shape from the injected snapshot when `launchEnabled === false`. Request-count confirmation needs DevTools (William).
+- [x] **Phase 3** — commit `62a0572`. LayoutRouter behind `ensureLayoutRouter()` dynamic import; render gate `{#if !loggedIn || !LayoutRouterCmp}` login `{:else}` `<svelte:component>`; `on:logout` forwarding works in legacy mode (no wrapper needed). Reconnect paths (poll success + `wabi:work-offline`) both kick the import. Eager union after: **1,746,047 bytes / 23 files**; page node 825,750 → 37 KB; 2.41 MB chunk off the login path entirely.
+  - **Deviation (goal-preserving):** the end-of-IIFE 10 s `Promise.race` await runs only when `savedUsername && hasSession` — taken literally it would have started the import for anonymous visitors too, contradicting the phase goal.
+  - **§5.2 stretch SKIPPED per its own criteria:** `currentUser` is defined in `presenceStore.ts`, which statically imports `getSocket/connected` from `socketConnection.ts` → `SocketManager` from `socketConnectionCore.ts` → socket.io. `dmPanelSignal` sits in `socket.ts` behind the same manager. Re-importing either drags the 850 KB chunk; conversion gains nothing. 5.1 alone stands.
+- [x] **Phase 4** — commit `d4d7081`. katex/prism CSS moved into `$lib/markdown.ts` (both JS deps live there) — eager CSS 540,209 → 510,679 B, stylesheets now ship with the dynamic app chunk. Lazy conversions in MainLayout: ModelViewportTab, Settings (bind:isOpen via `<svelte:component>` works), AdminCenterStage (+ its CSS moved into the component), VoiceView, CallModal (trigger: incoming/outgoing/in-call/group-ring/active-calls), PlannerWorkspace, MapWorkspace, MediaAlbumsTab, ReaderTab, GalleryChannel, CallDebugPanel, KeepNotesView. All check-clean; separate chunks/CSS assets confirmed in build output.
+  - **Blockers noted (conversions kept, weight not yet moved):** `PlannerWorkspace` is also statically imported by `Chat.svelte`, and `ModelViewportTab` by `WorkspacePanelHost.svelte` (→ RightPanel) and `WhiteboardTab.svelte`; those static edges pin both components into the shared app-world chunk (~2.05 MB dynamic chunk, 6 small lazy sub-chunks split out so far). Follow-up: apply the same lazy pattern at those two importers.
+  - Final eager union: **1,706,776 bytes / 26 files** vs baseline 4,887,066 → **−65.1%**.
+- [x] **Phase 5** — commit `f2e9df7`. Serial `for u in users { build_user_view(...).await }` replaced with `futures::future::join_all` (order-preserving → identical wire bytes). `online_users` loop left serial per plan ("convert only if trivial" — it iterates connected sockets only). `cargo test -p wabi-server` green.
+- [x] **Phase 6** — commit `08cf03c`. `injectNeutralBranding` added to the static `loginHelpers` import; dynamic-import block deleted. Reconnect probe extracted to `probeReconnect()` and fired immediately before the 3 s interval.
+- [ ] Final runtime StartupProfile tables + network transfer counts — require a real browser (William).
+
 
 ---
 
