@@ -69,6 +69,16 @@
 	function initial(username: string): string {
 		return (username || '?').trim().charAt(0).toUpperCase();
 	}
+
+	// Sessions register with `name: channelId` as a placeholder (channels load
+	// async) — resolve the real channel name reactively at render time.
+	function displayName(session: { id: string; name?: string | null; channelId?: string | null }): string {
+		return (
+			(session.channelId ? $channels.find((c) => c.id === session.channelId)?.name : undefined) ??
+			session.name ??
+			session.id
+		);
+	}
 </script>
 
 <div class="vv">
@@ -89,7 +99,7 @@
 				{@const videos = sessionVideos(session.id)}
 				<article class="vv-card" class:focused={badge === 'focused'} class:silenced={badge === 'silenced'}>
 					<div class="vv-card-head">
-						<span class="vv-card-name">{session.name || session.id}</span>
+						<span class="vv-card-name">{displayName(session)}</span>
 						<span class="vv-badge" data-badge={badge}>{badge}</span>
 						<span class="vv-transport" title={`Transport: ${session.transport ?? session.lifecycle}`}>
 							{session.transport ? session.transport.toUpperCase() : session.lifecycle}
@@ -132,7 +142,7 @@
 								step="5"
 								value={session.volume}
 								oninput={(e) => setCallVolume(session.id, Number((e.currentTarget as HTMLInputElement).value))}
-								aria-label={`Volume for ${session.name || session.id}`}
+								aria-label={`Volume for ${displayName(session)}`}
 							/>
 							<span class="vv-volume-value">{session.volume}%</span>
 						</label>
