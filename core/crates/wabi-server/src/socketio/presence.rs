@@ -85,13 +85,17 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
     // this as the greyed-out "Offline" section (serverMembers minus online
     // users) and the admin user registry. Previously hardcoded empty, which
     // made every registered-but-offline account invisible in the People panel.
+    //
+    // Phase 5 boot optimization: user views build concurrently instead of one
+    // store roundtrip at a time. join_all preserves input order, so the
+    // roster bytes on the wire are identical to the old serial loop.
     let server_members: Vec<Value> = {
         let users = state.app.wdb.list_users().await.unwrap_or_default();
-        let mut views = Vec::with_capacity(users.len());
-        for u in users {
-            views.push(
+        futures::future::join_all(users.into_iter().map(|u| {
+            let state = &state;
+            async move {
                 build_user_view(
-                    &state,
+                    state,
                     u.user_id as i64,
                     &u.username,
                     &u.color,
@@ -105,10 +109,10 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
                     !u.password_hash.is_empty(),
                     None,
                 )
-                .await,
-            );
-        }
-        views
+                .await
+            }
+        }))
+        .await
     };
 
     let online_users: Vec<Value> = {
