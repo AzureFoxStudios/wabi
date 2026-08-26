@@ -210,6 +210,30 @@
 	pointer-events: none;
 }
 
+.cstage-seat-center svg {
+	width: 20px;
+	height: 20px;
+	display: block;
+}
+
+/* --- icon sizing (site-standard feather-style inline SVGs) --- */
+.cstage-chip-icon svg {
+	width: 11px;
+	height: 11px;
+	vertical-align: -2px;
+}
+.cstage-tile-label svg {
+	width: 12px;
+	height: 12px;
+	vertical-align: -2px;
+}
+.cstage-seat-toggle svg {
+	width: 13px;
+	height: 13px;
+	vertical-align: -2px;
+	margin-right: 0.25rem;
+}
+
 .cstage-seat-chip {
 	position: absolute;
 	transform: translate(-50%, -50%);

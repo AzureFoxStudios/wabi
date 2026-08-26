@@ -235,6 +235,13 @@
 		background: var(--accent, var(--accent-primary, var(--accent-primary-color)));
 	}
 
+	.dock-btn svg {
+		width: 14px;
+		height: 14px;
+		stroke: currentColor;
+		vertical-align: -2px;
+	}
+
 	.dock-btn.record {
 		background: rgba(185, 28, 28, 0.18);
 		border-color: rgba(var(--color-danger-rgb, 248, 113, 113), 0.36);
