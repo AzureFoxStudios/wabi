@@ -86,6 +86,12 @@ async function resolveLocalLivekitScreenTrack(): Promise<MediaStreamTrack | null
 export async function startScreenShare(socket: Socket) {
 	if (!canScreenShare()) {
 		console.warn('[screenshare] getDisplayMedia not supported on this platform');
+		// WO-2c: make the unsupported case VISIBLE — most mobile browsers have
+		// no getDisplayMedia, which is why the mobile half of the 2026-08-26
+		// smoke test saw nothing happen.
+		void import('./calling_impl_core').then(({ pushVoiceChannelNotice }) =>
+			pushVoiceChannelNotice('Screen sharing isn\u2019t supported on this browser/device.')
+		).catch(() => undefined);
 		return null;
 	}
 	if (getLivekitRoom() && get(sfuMediaActive)) {
