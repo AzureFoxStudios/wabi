@@ -961,12 +961,13 @@
 		<div class="docked-actions">
 			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open call view">Open</button>
 			<button class="dock-btn" on:click={() => setViewportMode('focus')} title="Focus call">Focus</button>
-			<button
-				class="dock-btn"
-				class:active={spatialAudioActive}
-				on:click={toggleSpatialAudioEnabled}
-				title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
-			>◎</button>
+		<button
+			class="dock-btn"
+			class:active={spatialAudioActive}
+			on:click={toggleSpatialAudioEnabled}
+			title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
+			aria-label="Toggle spatial hearing"
+		><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg></button>
 			<button
 				class="dock-btn debug-toggle"
 				class:active={showSpatialDebugOverlay}
@@ -1149,12 +1150,12 @@
 					Spatial: {$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}
 					<span class="transport-note">src {$spatialAudioDiagnostics.totalSources}</span>
 				</span>
-				<button
-					class="dock-btn"
-					class:active={spatialAudioActive}
-					on:click={toggleSpatialAudioEnabled}
-					title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
-				>◎ Spatial</button>
+			<button
+				class="dock-btn"
+				class:active={spatialAudioActive}
+				on:click={toggleSpatialAudioEnabled}
+				title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
+			><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg> Spatial</button>
 				<button
 					class="dock-btn debug-toggle"
 					class:active={showSpatialDebugOverlay}

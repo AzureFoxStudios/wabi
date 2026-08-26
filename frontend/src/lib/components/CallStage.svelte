@@ -176,7 +176,7 @@
 					<span class="cstage-chip-initial">{initial(p.username || p.userId)}</span>
 				{/if}
 				<span class="cstage-chip-name">{p.username || p.userId}</span>
-				{#if p.isMuted}<span class="cstage-chip-icon" title="Muted">🔇</span>{/if}
+				{#if p.isMuted}<span class="cstage-chip-icon" title="Muted" aria-label="Muted"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></span>{/if}
 			</span>
 		{/each}
 	</div>
@@ -188,7 +188,7 @@
 					{@const userId = streamOwner(key)}
 					<div class="cstage-hero-item">
 						<VideoSink {stream} />
-						<span class="cstage-tile-label">📺 {userId}'s screen</span>
+						<span class="cstage-tile-label"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> {userId}'s screen</span>
 					</div>
 				{/each}
 			</div>
@@ -227,7 +227,8 @@
 					onclick={() => (seatsOpen = !seatsOpen)}
 					title="Arrange the spatial hearing stage"
 				>
-					◎ Seats
+					<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+					Seats
 				</button>
 				{#if seatsOpen}
 					<span class="cstage-seat-hint">Drag avatars to position them in 3D space</span>
@@ -243,7 +244,9 @@
 					onpointerup={onSeatPointerUp}
 					onpointercancel={onSeatPointerUp}
 				>
-					<span class="cstage-seat-center" title="You (listener)">🎧</span>
+					<span class="cstage-seat-center" title="You (listener)">
+						<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+					</span>
 					{#each participants as p (p.userId)}
 						<div
 							class="cstage-seat-chip"
