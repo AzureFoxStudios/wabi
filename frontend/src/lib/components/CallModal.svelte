@@ -23,6 +23,7 @@
 		answerCall,
 		cancelOutgoingCall,
 		rejectCall,
+		dismissChannelCallPanel,
 		stopGroupCallRingingTarget,
 		endCall,
 		toggleMute,
@@ -380,8 +381,9 @@
 
 	$: {
 		if ($isInCall && !wasInCall) {
+			// Auto-spawn contract: the join path itself decides whether the panel
+			// opens (autoOpenChannelCallPanel) — do NOT force it closed here.
 			callViewportMode = 'docked';
-			channelCallPanelOpen.set(false);
 			hatchOpen = false;
 			pinnedTileIds = [];
 			activeSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
@@ -416,12 +418,11 @@
 		showSpatialDebugOverlay = false;
 	}
 
-	// Docked-first (voice UX contract): joining/answering never springs the
-	// fullscreen shell. The docked bar is the resting state; the user expands
-	// explicitly via the docked bar's Open/Focus buttons (setViewportMode)
-	// or by clicking an already-connected voice channel in the sidebar
-	// (openChannelCallPanel — user intent only, safe: every join/answer
-	// path sets channelCallPanelOpen(false), so this can never fire on join).
+	// Auto-spawn (decision 2026-08-26, reverses docked-first): every join/answer
+	// path opens the embedded panel via autoOpenChannelCallPanel, and this
+	// transition docks it in when the store flips true while in-call. Leaving
+	// the call auto-dissolves it via the teardown paths. The sidebar's
+	// openChannelCallPanel click remains user intent and keeps working.
 	$: if ($isInCall && $channelCallPanelOpen && callViewportMode === 'docked') {
 		callViewportMode = 'embedded';
 	}
@@ -799,7 +800,8 @@
 	function setViewportMode(mode: CallViewportMode): void {
 		callViewportMode = mode;
 		if (mode === 'docked') {
-			channelCallPanelOpen.set(false);
+			// User-initiated minimize: sticky for the rest of this call.
+			dismissChannelCallPanel();
 			hatchOpen = false;
 			return;
 		}
@@ -816,7 +818,7 @@
 
 	function minimizeToDocked(): void {
 		callViewportMode = 'docked';
-		channelCallPanelOpen.set(false);
+		dismissChannelCallPanel();
 		hatchOpen = false;
 	}
 
