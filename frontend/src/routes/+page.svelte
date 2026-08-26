@@ -4,7 +4,6 @@
 	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages, currentUser, joinChannel } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
 	import Login from '$lib/components/Login.svelte';
-	import LayoutRouter from '$lib/components/LayoutRouter.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { showToast } from '$lib/toast';
 	import { layoutStore } from '$lib/layoutStore';
@@ -79,6 +78,23 @@
 	let profileImportPromptMessage = '';
 	let perfToastVisible = false;
 	let perfToastDismissed = false;
+
+	// Phase 3 boot optimization: LayoutRouter (and the ~2.4 MB app world it
+	// drags in) is loaded via dynamic import, taken only when a session exists
+	// or login succeeds. The anonymous login path never downloads it.
+	type LayoutRouterComponent = typeof import('$lib/components/LayoutRouter.svelte').default;
+	let LayoutRouterCmp: LayoutRouterComponent | null = null;
+	let layoutRouterPromise: Promise<unknown> | null = null;
+
+	function ensureLayoutRouter(): Promise<unknown> {
+		if (!layoutRouterPromise) {
+			layoutRouterPromise = import('$lib/components/LayoutRouter.svelte').then((m) => {
+				LayoutRouterCmp = m.default;
+				return m;
+			});
+		}
+		return layoutRouterPromise;
+	}
 
 	function dismissDocumentBootShell(): void {
 		if (bootShellDismissed || typeof window === 'undefined') return;
@@ -231,6 +247,8 @@
 
 			if (savedUsername && hasSession) {
 				seedBackendFailoverCache();
+				// Overlap the app-bundle download with the socket connect.
+				void ensureLayoutRouter();
 				startupMark('page:socket:init:start');
 				initSocket(savedUsername, savedToken || undefined);
 				startupMark('page:socket:init:end');
@@ -274,6 +292,7 @@
 						}).then((res) => {
 							if (res.ok && !disposed) {
 								clearInterval(reconnectTimer);
+								void ensureLayoutRouter();
 								loggedIn = true;
 								initSocket(savedUsername, token);
 								syncFollowNotificationPoller(true);
@@ -289,6 +308,7 @@
 
 				const onReconnect = () => {
 					clearInterval(reconnectTimer);
+					void ensureLayoutRouter();
 					loggedIn = true;
 					isBootstrapping = false;
 					dismissDocumentBootShell();
@@ -324,6 +344,22 @@
 			startupMeasure('page:total-to-bootstrap', 'page:onMount:start', 'page:bootstrap:end');
 			startupScheduleReport('initial-load', 400);
 			stopDesktopHelperLifecycle = startDesktopHelperLifecycle();
+			// Hold the boot shell until the app module can actually render — but
+			// ONLY on the session path. An anonymous visitor must never download
+			// LayoutRouter (that's the whole point of this phase); Login renders
+			// immediately for them.
+			if (savedUsername && hasSession) {
+				startupMark('page:layout-module:await:start');
+				try {
+					await Promise.race([
+						ensureLayoutRouter(),
+						new Promise((resolve) => setTimeout(resolve, 10_000)) // never trap the user on the boot shell
+					]);
+				} finally {
+					startupMark('page:layout-module:await:end');
+					startupMeasure('page:layout-module', 'page:layout-module:await:start', 'page:layout-module:await:end');
+				}
+			}
 			isBootstrapping = false;
 			dismissDocumentBootShell();
 			isInitialLoad = false;
@@ -381,6 +417,9 @@
 	}
 
 	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered'; homeExperience?: HomeExperienceMode; mustChangePassword?: boolean }>) {
+		// Start the app-bundle download immediately — it overlaps socket
+		// connect + theme init while Login stays visible and interactive.
+		void ensureLayoutRouter();
 		const { username, token, authMethod, homeExperience, mustChangePassword } = event.detail;
 		setStoredUsername(username);
 
@@ -493,7 +532,8 @@
 			<button class="perf-toast-close" on:click={() => { perfToastVisible = false; perfToastDismissed = true; }} aria-label="Dismiss">×</button>
 		</div>
 	{/if}
-	{#if !loggedIn}
+	{#if !loggedIn || !LayoutRouterCmp}
+		<!-- Login path: also covers the brief loggedIn-but-module-still-loading window -->
 		{#if isInitialLoad}
 			<Login on:login={handleLogin} />
 		{:else}
@@ -503,12 +543,14 @@
 		{/if}
 	{:else}
 		{#if isInitialLoad}
-			<LayoutRouter accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+			<svelte:component this={LayoutRouterCmp} accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
 		{:else}
 			<div transition:fade={{ duration: 300 }}>
-				<LayoutRouter accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+				<svelte:component this={LayoutRouterCmp} accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
 			</div>
 		{/if}
+	{/if}
+	{#if loggedIn}
 		<ConfirmDialog
 			isOpen={showTempPasswordPrompt}
 			title="Temporary Password"
