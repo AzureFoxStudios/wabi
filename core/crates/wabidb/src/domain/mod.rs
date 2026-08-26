@@ -73,6 +73,15 @@ pub struct UserUpdate {
     pub password_hash: Option<String>,
 }
 
+/// Tombstone payload for `user_deleted` events. Guests are hard-deleted
+/// when their last socket disconnects; the tombstone removes the user row
+/// plus dependent rows (channel memberships, DM identities) from the
+/// projections. Registered users are never deleted via this path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserDeleted {
+    pub user_id: u64,
+}
+
 /// A channel in Wabi (text, voice, DM, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Channel {

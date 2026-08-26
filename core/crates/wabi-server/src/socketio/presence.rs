@@ -657,6 +657,46 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
             .await;
     }
 
+    // Guest reaping (hard-temporary guests): when the LAST socket of a
+    // guest account disconnects, tombstone-delete the user from WabiDB so
+    // no `Guest_*` row lingers in the roster. Registered users are never
+    // touched — the password-hash check below is the guard.
+    if let Some(db_user_id) = departed.as_ref().and_then(|u| u.db_user_id) {
+        let username = departed.as_ref().map(|u| u.username.clone()).unwrap_or_default();
+        let still_connected = state
+            .connected_users
+            .read()
+            .await
+            .values()
+            .any(|u| u.db_user_id == Some(db_user_id));
+        if !still_connected {
+            match state.app.wdb.get_user(db_user_id as u64).await {
+                Ok(Some(row)) if row.password_hash.is_empty() => {
+                    match state.app.wdb.delete_user(db_user_id as u64).await {
+                        Ok(()) => {
+                            info!(
+                                "[sio] reaped guest {} ({}) on final disconnect",
+                                db_user_id, username
+                            );
+                            let _ = io
+                                .emit(
+                                    "user-deleted",
+                                    &json!({ "dbUserId": db_user_id }),
+                                )
+                                .await;
+                        }
+                        Err(e) => {
+                            warn!("[sio] guest reap failed for {}: {}", db_user_id, e)
+                        }
+                    }
+                }
+                Ok(Some(_)) => {} // registered account — keep forever
+                Ok(None) => {}    // already gone (boot sweep or earlier reap)
+                Err(e) => warn!("[sio] guest reap lookup failed for {}: {}", db_user_id, e),
+            }
+        }
+    }
+
     // Clean up voice channels
     let voice_lefts: Vec<(String, String)> = {
         let voice = state.voice_channels.read().await;

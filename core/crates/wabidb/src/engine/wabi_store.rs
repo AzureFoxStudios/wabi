@@ -106,6 +106,12 @@ pub trait WabiStore: Send + Sync {
         updates: crate::domain::UserUpdate,
     ) -> Result<()>;
 
+    /// Hard-delete a user via the `user_deleted` tombstone event. Removes
+    /// the account row plus dependent rows (channel memberships, DM
+    /// identities) from the projections on apply/replay. Intended for guest
+    /// accounts whose last socket disconnected; never for registered users.
+    async fn delete_user(&self, user_id: u64) -> Result<()>;
+
     // --- typed reads ---
 
     /// List all stream IDs known to the engine.
@@ -1061,6 +1067,12 @@ impl WabiStore for LocalWabiStore {
         _user_id: u64,
         _updates: crate::domain::UserUpdate,
     ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn delete_user(&self, _user_id: u64) -> Result<()> {
+        // LocalWabiStore is read-only by design; tombstones go through the
+        // engine via WdbAdapter.
         Ok(())
     }
 

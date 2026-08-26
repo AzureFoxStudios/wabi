@@ -320,13 +320,77 @@ pub async fn sweep_stale_state(
 #[allow(dead_code)]
 pub const CONNECTED_USER_STALE_AFTER_MICROS: i64 = 5 * 60 * 1_000_000;
 
+/// Grace window before the guest reaper considers a never-connected guest
+/// account dead. Covers the gap between POST /api/auth/guest returning and
+/// the client opening its socket, plus restart reconnects.
+#[allow(dead_code)]
+pub const GUEST_REAP_GRACE_MICROS: i64 = 5 * 60 * 1_000_000;
+
+/// Hard-temporary guests: tombstone-delete every guest account (empty
+/// password hash) that has no live socket and is past the creation grace
+/// window. This is the safety net for disconnects `on_disconnect` missed
+/// (crash, network loss, stale-socket sweep) and doubles as the boot sweep:
+/// run shortly after startup it clears every accumulated `Guest_*` row,
+/// since no guest can be connected before the listener accepts sockets.
+///
+/// Returns the number of accounts reaped. Registered users are never
+/// touched — the empty-password-hash check is the guard.
+pub async fn reap_disconnected_guests(state: &SioState) -> usize {
+    let now_micros = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros() as i64)
+        .unwrap_or(0);
+
+    let Ok(users) = state.app.wdb.list_users().await else {
+        tracing::warn!("[guest-reap] list_users failed; skipping pass");
+        return 0;
+    };
+
+    let connected: std::collections::HashSet<i64> = state
+        .connected_users
+        .read()
+        .await
+        .values()
+        .filter_map(|u| u.db_user_id)
+        .collect();
+
+    let mut reaped = 0;
+    for user in users {
+        if !user.password_hash.is_empty() {
+            continue; // registered account — keep forever
+        }
+        if connected.contains(&(user.user_id as i64)) {
+            continue; // live session
+        }
+        if now_micros - user.created_at_micros < GUEST_REAP_GRACE_MICROS {
+            continue; // fresh account, socket may still be on its way
+        }
+        match state.app.wdb.delete_user(user.user_id).await {
+            Ok(()) => reaped += 1,
+            Err(e) => {
+                tracing::warn!("[guest-reap] delete_user {} failed: {}", user.user_id, e)
+            }
+        }
+    }
+    if reaped > 0 {
+        tracing::info!("[guest-reap] tombstoned {reaped} disconnected guest account(s)");
+    }
+    reaped
+}
+
 /// Spawn the periodic sweep task. Call from server startup.
 /// The JoinHandle is returned so shutdown can cancel the loop.
 #[allow(dead_code)]
 pub fn spawn_sweep_loop(state: SioState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        // Boot sweep: wait one interval so sockets reconnecting after a
+        // restart land in connected_users first, then clear every guest
+        // row left over from the previous process.
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        reap_disconnected_guests(&state).await;
+
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-        // Skip the first immediate tick — on_disconnect handles startup cleanly.
+        // The boot sweep above already handled the startup pass.
         interval.tick().await;
         loop {
             interval.tick().await;
@@ -339,6 +403,9 @@ pub fn spawn_sweep_loop(state: SioState) -> tokio::task::JoinHandle<()> {
             if u > 0 || v > 0 || g > 0 {
                 tracing::info!("[sweep] removed {} stale connected users, {} empty voice channels, {} empty group call sessions", u, v, g);
             }
+            // Guest reconciliation: catches disconnects on_disconnect
+            // missed and guests whose stale socket entry was just swept.
+            reap_disconnected_guests(&state).await;
         }
     })
 }

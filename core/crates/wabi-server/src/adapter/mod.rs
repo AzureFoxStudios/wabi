@@ -538,6 +538,29 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
+    async fn delete_user(&self, user_id: u64) -> Result<()> {
+        // Emit shape mirrors create_user (stream "users", kind 6 = other).
+        // The UserDeletionProjection owns the cascade across dependent
+        // indexes; this event only carries the target user id.
+        let payload = postcard::to_allocvec(&wabidb::domain::UserDeleted { user_id })
+            .map_err(|e| WabiError::Validation {
+                command: "delete_user".into(),
+                reason: format!("serialize failed: {}", e),
+            })?;
+        self.run(
+            0,
+            "delete_user",
+            "users".into(),
+            "user_deleted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
     // ============================================================
     // Reads
     // ============================================================

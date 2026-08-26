@@ -878,6 +878,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::reactions::ReactionsProjection;
     use crate::projections::registry::{ProjectionRegistration, TypeRegistry};
     use crate::projections::users::UsersProjection;
+    use crate::projections::user_deletion::UserDeletionProjection;
     use crate::projections::webhooks::WebhooksProjection;
     use crate::projections::whiteboard_docs::WhiteboardDocsProjection;
     use crate::projections::wiki::{WikiProjection, WikiRevisionProjection};
@@ -931,6 +932,15 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             handler: Arc::new(UsersProjection),
             index_name: "users",
             record_type_name: "wabidb::projections::users::UserRecord",
+        },
+        // Guest tombstone. One handler per event type is enforced, so this
+        // projection owns `user_deleted` and cascades removal across the
+        // users / channel_members / dm_identities indexes itself.
+        ProjectionRegistration {
+            event_types: &["user_deleted"],
+            handler: Arc::new(UserDeletionProjection),
+            index_name: "users",
+            record_type_name: "wabidb::domain::UserDeleted",
         },
         ProjectionRegistration {
             event_types: &["owner_claimed"],

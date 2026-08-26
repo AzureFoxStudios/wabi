@@ -30,6 +30,7 @@ pub mod reactions;
 pub mod rebuild_auth;
 pub mod registry;
 pub mod secondary_index;
+pub mod user_deletion;
 pub mod users;
 pub mod webhooks;
 pub mod whiteboard_docs;
