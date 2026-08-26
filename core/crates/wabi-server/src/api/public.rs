@@ -34,7 +34,7 @@ pub fn setup_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 /// Load the stored `frontend_app_metadata` admin policy (same file the admin
 /// routes persist to). Falls back to an empty policy so the frontend contract
 /// is always well-formed, never a hardcoded shape that hides user data.
-fn load_frontend_metadata_policy(data_dir: &str) -> Value {
+pub(crate) fn load_frontend_metadata_policy(data_dir: &str) -> Value {
     let path = PathBuf::from(data_dir).join("admin_policies.json");
     if let Ok(s) = std::fs::read_to_string(&path) {
         if let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&s) {
@@ -162,6 +162,73 @@ async fn get_launch_page(State(state): State<Arc<AppState>>) -> Result<Json<Valu
         "footerNote": policy.get("footerNote").cloned().unwrap_or(Value::Null),
         "palette": { "accent": accent }
     })))
+}
+
+/// Compose the compact boot-brand JSON that `serve_static` injects into the
+/// embedded index.html (Phase 1 boot optimization). Field extraction mirrors
+/// `get_launch_page` exactly so the two can never drift.
+///
+/// Returns `None` when displayName AND iconUrl AND accentColor are all unset
+/// (stock Wabi) — the caller then serves the embedded file untouched.
+pub fn build_boot_brand_json(policy: &Value) -> Option<String> {
+    let name = policy
+        .get("displayName")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let icon = policy
+        .get("iconUrl")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let accent = policy
+        .get("accentColor")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    if name.is_none() && icon.is_none() && accent.is_none() {
+        return None;
+    }
+    // Same launch-story expression as get_launch_page.
+    let launch_enabled = policy
+        .get("launchPageEnabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || policy
+            .get("heroTitle")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+        || policy
+            .get("headline")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+        || policy
+            .get("heroPrimaryCtaLabel")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+        || policy
+            .get("highlights")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
+        || policy
+            .get("customCss")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.trim().is_empty());
+
+    let json = serde_json::to_string(&serde_json::json!({
+        "brandName": name.unwrap_or(""),
+        "logoUrl": icon.unwrap_or(""),
+        "accent": accent.unwrap_or(""),
+        "launchEnabled": launch_enabled,
+    }))
+    .ok()?;
+    // Make the payload safe to embed inside an inline <script> block: the
+    // HTML parser closes the element at the first `</script` regardless of
+    // JS string context. `\uXXXX` escapes are valid JSON *and* JS, so this
+    // changes nothing for well-formed values and neutralizes breakout via
+    // admin-entered strings like `</script><script>alert(1)</script>`.
+    Some(
+        json.replace('<', "\\u003c")
+            .replace('>', "\\u003e")
+            .replace('&', "\\u0026"),
+    )
 }
 
 async fn get_auth_policy(State(state): State<Arc<AppState>>) -> Result<Json<Value>> {

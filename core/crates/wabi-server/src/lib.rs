@@ -5,6 +5,7 @@
 pub mod adapter;
 pub mod anchor;
 pub mod api;
+pub mod app_router;
 pub mod auth_extractor;
 pub mod blacklist;
 pub mod blobs;

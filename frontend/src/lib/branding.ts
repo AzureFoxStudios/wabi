@@ -93,6 +93,9 @@ export type BootBrandSnapshot = {
 	brandName?: string;
 	logoUrl?: string;
 	accent?: string;
+	/** Server-injected flag: does this host have a launch story? (Phase 1 boot brand) */
+	launchEnabled?: boolean;
+	bannerUrl?: string;
 	/** Intentionally override a locked boot brand (rare). */
 	force?: boolean;
 };
@@ -103,6 +106,8 @@ declare global {
 		__hideWabiBootShell?: () => void;
 		__enterReconnectMode?: () => void;
 		__WABI_BOOT_BRAND__?: BootBrandSnapshot;
+		/** Server-stamped brand injected into index.html by wabi-server. */
+		__WABI_SERVER_BRAND__?: BootBrandSnapshot | null;
 	}
 }
 

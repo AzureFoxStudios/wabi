@@ -9,6 +9,7 @@
 mod adapter;
 mod anchor;
 mod api;
+mod app_router;
 mod auth_extractor;
 mod blacklist;
 mod blobs;
@@ -36,118 +37,19 @@ mod standby;
 mod state;
 mod upload_registry;
 mod websocket;
-use crate::auth_extractor::OptionalAuthUser;
 use crate::blacklist::BlacklistManager;
 use crate::nodes::NodeCapability;
 use crate::state::AppState;
-use axum::{
-    extract::DefaultBodyLimit,
-    http::{header::CACHE_CONTROL, header::CONTENT_TYPE, StatusCode},
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
-use serde_json::json;
 use clap::Parser;
-use rust_embed::RustEmbed;
-use wabidb::engine::wabi_store::WabiStore;
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tower_http::timeout::TimeoutLayer;
-use tower_http::compression::CompressionLayer;
-use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
 use tracing::info;
+use wabidb::engine::wabi_store::WabiStore;
 
-use crate::api::routes::create_api_router;
 use crate::config::{ServerConfig, ServerRole};
 use crate::secrets::resolve_jwt_secret;
-
-/// Serve a file from the uploads directory
-async fn serve_upload(
-    _auth: OptionalAuthUser,
-    axum::extract::Path(filename): axum::extract::Path<String>,
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
-) -> impl axum::response::IntoResponse {
-    // Defend against path traversal: filename must not contain '/' or '\' or '..'
-    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
-        return (axum::http::StatusCode::BAD_REQUEST, "Invalid filename").into_response();
-    }
-
-    let uploads_dir = PathBuf::from(&state.config.uploads_dir);
-    let file_path = uploads_dir.join(&filename);
-
-    // Must be inside uploads_dir (no symlink escapes)
-    let canonical = std::fs::canonicalize(&uploads_dir).ok();
-    let file_canonical = std::fs::canonicalize(&file_path).ok();
-
-    match (canonical, file_canonical) {
-        (Some(canon_uploads), Some(canon_file)) => {
-            if !canon_file.starts_with(&canon_uploads) {
-                // Path traversal attempted
-                return (axum::http::StatusCode::FORBIDDEN, "Forbidden").into_response();
-            }
-        }
-        _ => {
-            return (axum::http::StatusCode::NOT_FOUND, "File not found").into_response();
-        }
-    }
-
-    // WS-6b: revoked files return 410 Gone.
-    if state.upload_registry.is_revoked(&filename).await {
-        return (axum::http::StatusCode::GONE, "File has been revoked").into_response();
-    }
-
-    match tokio::fs::read(&file_path).await {
-        Ok(data) => {
-            let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
-            tracing::debug!(
-                "Serving upload: {:?} ({} bytes, {})",
-                file_path,
-                data.len(),
-                mime
-            );
-            // Harden user-uploaded content: disallow MIME sniffing and sandbox
-            // it behind a strict CSP so an SVG/image cannot execute script or
-            // reach other origins.
-            let mut headers = axum::http::HeaderMap::new();
-            headers.insert(axum::http::header::CONTENT_TYPE, mime.as_ref().parse().unwrap());
-            for (k, v) in crate::api::upload::upload_response_headers() {
-                headers.insert(k, v);
-            }
-            // WS-6a: cache control + referrer policy for uploaded files.
-            // Upload filenames are content-UUIDs (never overwritten), so they are
-            // safe to cache far longer than a session — 1h max-age made every
-            // avatar/background re-download after an hour (visible boot lag).
-            // The SW media cache still enforces logout-time purge + revocation
-            // returns 410 before this header matters.
-            headers.insert(
-                axum::http::header::CACHE_CONTROL,
-                "private, max-age=31536000, immutable".parse().unwrap(),
-            );
-            headers.insert(
-                axum::http::header::REFERRER_POLICY,
-                "no-referrer".parse().unwrap(),
-            );
-            (headers, data).into_response()
-        }
-        Err(e) => {
-            tracing::debug!("Upload file not found: {:?} — {}", file_path, e);
-            (axum::http::StatusCode::NOT_FOUND, "File not found").into_response()
-        }
-    }
-}
-
-/// Embedded static assets from frontend build
-#[derive(RustEmbed)]
-#[folder = "../../../frontend/build"]
-#[exclude = "*.gitkeep"]
-struct StaticAssets;
 
 /// Wabi Node CLI arguments
 #[derive(Parser, Debug)]
@@ -242,162 +144,6 @@ async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Build the CORS layer based on `WABI_CORS_ORIGINS`.
-///
-/// - If `WABI_CORS_ORIGINS` is set to a non-empty, comma-separated list of
-///   origins, only those exact origins are allowed (with credentials).
-/// - If unset/empty, mirror the request Origin — but ONLY when it is a safe
-///   local origin (localhost, 127.0.0.1, or a Tailscale 100.x address). This
-///   keeps dev/self-host convenient without reflecting arbitrary attacker
-///   origins on a publicly reachable, unconfigured server.
-fn build_cors_layer() -> CorsLayer {
-    let allowed_origins = std::env::var("WABI_CORS_ORIGINS")
-        .ok()
-        .map(|s| {
-            s.split(',')
-                .map(|o| o.trim().to_string())
-                .filter(|o| !o.is_empty())
-                .collect::<Vec<_>>()
-        })
-        .filter(|v| !v.is_empty());
-
-    let allow_origin = match allowed_origins {
-        Some(origins) => {
-            let parsed = origins
-                .iter()
-                .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
-                .collect::<Vec<_>>();
-            tower_http::cors::AllowOrigin::list(parsed)
-        }
-        None => {
-            // Safe-local mirror fallback.
-            tower_http::cors::AllowOrigin::predicate(|origin: &axum::http::HeaderValue, _| {
-                origin
-                    .to_str()
-                    .map(|s| is_safe_local_origin(s))
-                    .unwrap_or(false)
-            })
-        }
-    };
-
-    CorsLayer::new()
-        .allow_origin(allow_origin)
-        .allow_methods([
-            axum::http::Method::GET,
-            axum::http::Method::POST,
-            axum::http::Method::PUT,
-            axum::http::Method::DELETE,
-            axum::http::Method::OPTIONS,
-            axum::http::Method::PATCH,
-        ])
-        .allow_headers([
-            axum::http::header::AUTHORIZATION,
-            axum::http::header::CONTENT_TYPE,
-            axum::http::header::ACCEPT,
-            axum::http::header::ORIGIN,
-            axum::http::header::HeaderName::from_static("x-requested-with"),
-        ])
-        .allow_credentials(true)
-}
-
-/// Returns true for origins that are safe to mirror on an unconfigured server:
-/// localhost, 127.0.0.1, and Tailscale 100.x.x.x (CGNAT range).
-fn is_safe_local_origin(origin: &str) -> bool {
-    // Parse "scheme://host[:port]" — only inspect the host.
-    let host_port = match origin.split_once("://") {
-        Some((_, rest)) => rest.split('/').next().unwrap_or(rest),
-        None => origin.split('/').next().unwrap_or(origin),
-    };
-    // Extract the host portion. IPv6 addresses are bracketed: [::1]:8080.
-    let host = if host_port.starts_with('[') {
-        // Take everything between '[' and the first ']'.
-        host_port
-            .split(']')
-            .next()
-            .and_then(|s| s.strip_prefix('['))
-            .unwrap_or(host_port)
-    } else {
-        host_port.split(':').next().unwrap_or(host_port)
-    };
-
-    if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
-        return true;
-    }
-    // Tailscale IPv4 CGNAT range: 100.64.0.0/10.
-    if let Ok(octets) = host.parse::<std::net::Ipv4Addr>() {
-        let [a, b, _, _] = octets.octets();
-        if a == 100 && b >= 64 && b <= 127 {
-            return true;
-        }
-    }
-    false
-}
-
-#[cfg(test)]
-mod cors_tests {
-    use super::is_safe_local_origin;
-
-    #[test]
-    fn accept_localhost() {
-        assert!(is_safe_local_origin("http://localhost"));
-        assert!(is_safe_local_origin("https://localhost"));
-    }
-
-    #[test]
-    fn accept_localhost_with_port() {
-        assert!(is_safe_local_origin("http://localhost:3000"));
-        assert!(is_safe_local_origin("https://localhost:5173"));
-    }
-
-    #[test]
-    fn accept_ipv4_loopback() {
-        assert!(is_safe_local_origin("http://127.0.0.1"));
-        assert!(is_safe_local_origin("http://127.0.0.1:3000"));
-        assert!(is_safe_local_origin("https://127.0.0.1:5173"));
-    }
-
-    #[test]
-    fn accept_ipv6_loopback() {
-        assert!(is_safe_local_origin("http://[::1]"));
-        assert!(is_safe_local_origin("http://[::1]:8080"));
-        assert!(is_safe_local_origin("https://[::1]:443"));
-    }
-
-    #[test]
-    fn accept_tailscale_cgnat() {
-        assert!(is_safe_local_origin("http://100.64.0.1"));
-        assert!(is_safe_local_origin("http://100.100.100.100:8080"));
-        assert!(is_safe_local_origin("https://100.127.255.255:443"));
-    }
-
-    #[test]
-    fn reject_localhost_subdomain_attack() {
-        // origin.starts_with("https://localhost") would incorrectly accept this
-        assert!(!is_safe_local_origin("https://localhost.evil.com"));
-        assert!(!is_safe_local_origin("http://localhost.evil.com:3000"));
-    }
-
-    #[test]
-    fn reject_external_origins() {
-        assert!(!is_safe_local_origin("https://example.com"));
-        assert!(!is_safe_local_origin("https://evil.com:3000"));
-        assert!(!is_safe_local_origin("http://192.168.1.1"));
-    }
-
-    #[test]
-    fn reject_1x_public_tailscale() {
-        // 100.128.x.x is outside the 100.64.0.0/10 CGNAT range
-        assert!(!is_safe_local_origin("http://100.128.0.1"));
-        assert!(!is_safe_local_origin("http://100.63.255.255"));
-    }
-
-    #[test]
-    fn accept_plain_no_scheme() {
-        // Some clients send Origin without scheme
-        assert!(is_safe_local_origin("localhost"));
-        assert!(is_safe_local_origin("127.0.0.1"));
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -860,9 +606,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Build Socket.IO layer (must be added before the router is finalised)
-    let sio_layer = socketio::create_socket_layer(state.clone());
-
     // Spawn the subscription bridge: engine → Socket.IO push delivery.
     // Reads from the engine's delivery broadcast and emits matching events
     // to the appropriate Socket.IO rooms.
@@ -907,76 +650,11 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Build CORS layer.
-    //
-    // Production: set `WABI_CORS_ORIGINS` to a comma-separated list of exact
-    // allowed origins (e.g. "https://app.example.com,https://admin.example.com").
-    // Only those origins will be allowed, with credentials.
-    //
-    // When `WABI_CORS_ORIGINS` is unset or empty we fall back to mirroring the
-    // request Origin. This keeps local/dev self-hosting convenient (the embedded
-    // frontend and API share an origin), but it is permissive — anyone who can
-    // reach the server can have their Origin mirrored. **Production deployments
-    // MUST set WABI_CORS_ORIGINS.** We additionally gate the mirror fallback to
-    // safe origins (localhost / 127.0.0.1 / Tailscale 100.x) so a public server
-    // left unconfigured does not reflect arbitrary third-party origins.
-    let cors = build_cors_layer();
-
-    let max_body_bytes = config.max_body_size.unwrap_or(50 * 1024 * 1024 * 1024);
-
-    // Rate limiting (configurable via env, default: 10 req/s, burst 20)
-    let rate_limit_rps = std::env::var("WABI_RATE_LIMIT_RPS")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(10);
-    let rate_limit_burst = std::env::var("WABI_RATE_LIMIT_BURST")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(20);
-    let rate_limit_state = rate_limit::RateLimitState::new(rate_limit_rps, rate_limit_burst);
-
-    // Build router
-    let app = Router::new()
-        // Health checks (no rate limit)
-        .route("/health", get(health_check))
-        // Liveness probe — process is up
-        .route("/livez", get(liveness_check))
-        // Readiness probe — engine is answering
-        .route("/readyz", get(readiness_check))
-        // Prometheus metrics (public if WABI_METRICS_PUBLIC=true)
-        .route("/metrics", get(metrics_handler))
-        // API routes — timeout + metrics scoped to /api so uploads and
-        // static SPA fallback are NOT cut by the timeout.
-        .nest(
-            "/api",
-            create_api_router(state.clone())
-                .layer(axum::middleware::from_fn(metrics_middleware))
-                .layer(TimeoutLayer::new(Duration::from_secs(
-                    std::env::var("WABI_HTTP_TIMEOUT_SECS")
-                        .ok()
-                        .and_then(|s| s.parse::<u64>().ok())
-                        .unwrap_or(30),
-                ))),
-        )
-        // WebSocket endpoint (plain WS, kept for future use)
-        .nest("/ws", websocket::ws_router(state.clone()))
-        // Uploaded media files
-        .route("/uploads/{filename}", get(serve_upload))
-        // Static assets (SPA fallback)
-        .fallback(serve_static)
-        // Middleware
-        .layer(axum::middleware::from_fn_with_state(
-            rate_limit_state,
-            rate_limit::rate_limit_middleware,
-        ))
-        .layer(sio_layer)
-        .layer(cors)
-        // Compress JS/CSS/JSON/SVG responses (br preferred, gzip fallback).
-        // The SPA bundle ships multi-MB chunks; this cuts them ~4-5x on the wire.
-        .layer(CompressionLayer::new())
-        .layer(TraceLayer::new_for_http())
-        .layer(DefaultBodyLimit::max(max_body_bytes))
-        .with_state(state);
+    // Build the full application router. Extracted into app_router.rs so
+    // integration tests can exercise the static SPA fallback (it lives on
+    // this router, not inside create_api_router). The Socket.IO layer is
+    // created there too — it must be added before the router is finalised.
+    let app = crate::app_router::build_app_router(state.clone());
 
     // Bind and serve
     let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], config.port));
@@ -1022,121 +700,4 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Server shut down gracefully");
     Ok(())
-}
-
-/// Health check endpoint
-async fn health_check() -> impl IntoResponse {
-    Json(serde_json::json!({
-        "status": "ok",
-        "service": "wabi-server",
-        "role": "authority",
-        "version": env!("CARGO_PKG_VERSION"),
-        "timestamp": chrono::Utc::now().to_rfc3339()
-    }))
-}
-
-/// Liveness probe — process is up and can respond.
-async fn liveness_check() -> impl IntoResponse {
-    Json(serde_json::json!({
-        "status": "ok",
-        "service": "wabi-server",
-    }))
-}
-
-/// Readiness probe — engine is answering. Cheap projection read.
-async fn readiness_check(
-    axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::state::AppState>>,
-) -> axum::response::Response {
-    match state.wdb.list_users().await {
-        Ok(_) => (
-            axum::http::StatusCode::OK,
-            Json(serde_json::json!({ "status": "ok", "engine": "ready" })),
-        )
-            .into_response(),
-        Err(e) => (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({ "status": "degraded", "engine": "not_ready", "reason": format!("{e}") })),
-        )
-            .into_response(),
-    }
-}
-
-/// Prometheus metrics endpoint. Reads from the global static state.
-async fn metrics_handler() -> axum::response::Response {
-    let body = crate::metrics::render_prometheus();
-    (
-        axum::http::StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
-        body,
-    )
-        .into_response()
-}
-
-/// Middleware: count each request and record its latency. Cheap atomic ops.
-async fn metrics_middleware(
-    request: axum::http::Request<axum::body::Body>,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    crate::metrics::MetricsState::record_request();
-    let start = std::time::Instant::now();
-    let response = next.run(request).await;
-    crate::metrics::MetricsState::record_latency_ms(start.elapsed().as_millis() as u64);
-    response
-}
-
-/// Serve static assets with SPA fallback
-async fn serve_static(uri: axum::extract::OriginalUri) -> impl IntoResponse {
-    let path = uri.0.path().trim_start_matches('/');
-    let path = if path.is_empty() || path == "/" {
-        "index.html"
-    } else {
-        path
-    };
-
-    // Cache policy: the SPA entry (index.html) must be revalidated on every
-    // load so rapid redeploys never strand a client on a stale chunk graph.
-    // Hashed immutable assets (_app/...) are safe to cache forever.
-    let cache = if path == "index.html" || path.ends_with("service-worker.js") {
-        "no-cache"
-    } else {
-        "public, max-age=31536000, immutable"
-    };
-
-    // WS-6a: referrer policy on the SPA index.html response.
-    match StaticAssets::get(path) {
-        Some(content) => {
-            let mime = mime_guess::from_path(path).first_or_octet_stream();
-            let mut response = ([(CONTENT_TYPE, mime.as_ref()), (CACHE_CONTROL, cache)], content.data).into_response();
-            if path == "index.html" {
-                response.headers_mut().insert(
-                    axum::http::header::REFERRER_POLICY,
-                    "no-referrer".parse().unwrap(),
-                );
-            }
-            response
-        }
-        None => {
-            // API paths that reach the static fallback are genuinely missing
-            // routes. Return 404 JSON so the frontend's optional-endpoint
-            // guards (isEndpointUnsupported) can degrade gracefully instead
-            // of crashing on HTML.
-            if path == "api" || path.starts_with("api/") {
-                return (
-                    StatusCode::NOT_FOUND,
-                    [(CONTENT_TYPE, "application/json")],
-                    axum::Json(json!({ "error": "not_found" })),
-                )
-                    .into_response();
-            }
-            // SPA fallback
-            match StaticAssets::get("index.html") {
-                Some(content) => (
-                    [(CONTENT_TYPE, "text/html"), (CACHE_CONTROL, "no-cache")],
-                    content.data,
-                )
-                    .into_response(),
-                None => StatusCode::NOT_FOUND.into_response(),
-            }
-        }
-    }
 }

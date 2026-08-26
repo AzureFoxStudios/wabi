@@ -25,6 +25,18 @@ use wabidb::retention::tombstone::TombstoneTable;
 /// channel_id → Vec of message JSON objects (capped at 1000 per channel).
 pub type SessionMessages = Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>;
 
+/// Composed (brand-injected) index.html, cached against admin_policies.json
+/// mtime. Phase 1 boot optimization: the server stamps its identity into the
+/// SPA shell so first paint is branded with zero extra requests. In-memory
+/// Rust state only — no persistence.
+#[derive(Clone)]
+pub struct ComposedIndexCache {
+    pub policy_mtime: Option<std::time::SystemTime>,
+    /// Whether the cached body carries an injected brand (fast-path key).
+    pub has_custom_brand: bool,
+    pub body: Vec<u8>,
+}
+
 /// Shared application state
 pub struct AppState {
     pub config: ServerConfig,
@@ -115,6 +127,10 @@ pub struct AppState {
     pub profile_media_cache: Arc<
         RwLock<HashMap<u64, (String, Option<serde_json::Map<String, serde_json::Value>>)>>,
     >,
+    /// Composed (brand-injected) index.html. Keyed by admin_policies.json
+    /// mtime — admin rebrands are picked up on the next request without
+    /// explicit invalidation.
+    pub composed_index: tokio::sync::RwLock<Option<ComposedIndexCache>>,
 }
 
 /// Channel manager for broadcast channels
@@ -335,6 +351,7 @@ impl AppState {
             steam_http: crate::api::steam::shared_http_client(),
             guest_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
             profile_media_cache: Arc::new(RwLock::new(HashMap::new())),
+            composed_index: tokio::sync::RwLock::new(None),
         })
     }
 
