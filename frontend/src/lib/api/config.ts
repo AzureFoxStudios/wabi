@@ -27,8 +27,33 @@ export interface SetupStatus {
 
 import { getApiBase } from './utils';
 
+// Same-page-load request dedupe for public config endpoints. Module state →
+// per page-load only; no persistence, no cross-user leakage (responses are
+// public). Only local (no-baseUrl) variants go through this — cross-server
+// probes in savedServerActions must never be deduped against the local one.
+type SharedEntry = { expiresAt: number; promise: Promise<unknown> };
+const sharedCache = new Map<string, SharedEntry>();
+
+function sharedRequest<T>(key: string, ttlMs: number, run: () => Promise<T>): Promise<T> {
+	const now = Date.now();
+	const existing = sharedCache.get(key);
+	if (existing && existing.expiresAt > now) {
+		return existing.promise as Promise<T>;
+	}
+	const promise: Promise<T> = run().then(
+		(value) => value,
+		(err) => {
+			// Evict on rejection so a failure is never cached.
+			if (sharedCache.get(key)?.promise === promise) sharedCache.delete(key);
+			throw err;
+		}
+	);
+	sharedCache.set(key, { expiresAt: now + ttlMs, promise });
+	return promise;
+}
+
 export async function getLaunchPageConfig(): Promise<LaunchPageConfig | null> {
-	return getLaunchPageConfigFrom();
+	return sharedRequest('launch-page', 15_000, () => getLaunchPageConfigFrom());
 }
 
 export async function getLaunchPageConfigFrom(baseUrl?: string | null): Promise<LaunchPageConfig | null> {
@@ -93,13 +118,15 @@ export async function getPublicBackendEndpointsFrom(baseUrl?: string | null): Pr
 }
 
 export async function getSetupStatus(): Promise<SetupStatus> {
-	try {
-		const res = await fetchWithTimeout(`${getApiBase()}/api/setup/status`, {
-			timeoutMs: 3000
-		});
-		if (!res.ok) return { setupRequired: false };
-		return await res.json();
-	} catch {
-		return { setupRequired: false };
-	}
+	return sharedRequest('setup-status', 10_000, async () => {
+		try {
+			const res = await fetchWithTimeout(`${getApiBase()}/api/setup/status`, {
+				timeoutMs: 3000
+			});
+			if (!res.ok) return { setupRequired: false };
+			return await res.json();
+		} catch {
+			return { setupRequired: false };
+		}
+	});
 }

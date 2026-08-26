@@ -197,7 +197,39 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		} catch {
 			/* non-fatal */
 		}
-		void getLaunchPageConfig().then((config) => { launchPageConfig = config; }).catch((err) => { console.warn('[Login] Failed to load launch page config:', err); });
+		// Phase 1 boot brand: when the server injected its identity and told us
+		// there is no launch story, skip the launch-page request entirely.
+		const serverBrand = window.__WABI_SERVER_BRAND__;
+		if (serverBrand && typeof serverBrand === 'object' && serverBrand.launchEnabled === false) {
+			// Seed a LaunchPageConfig-compatible object so the reactive chain
+			// (showLaunchPanel / hostBrandName / hostLogoUrl / launchStyles) reads
+			// real values without any fetch. enabled=false keeps the panel closed.
+			launchPageConfig = {
+				enabled: false,
+				brandName: serverBrand.brandName || '',
+				headline: '',
+				subheadline: '',
+				logoUrl: serverBrand.logoUrl || '',
+				backgroundImageUrl: null,
+				customCss: null,
+				heroImageUrl: null,
+				heroTitle: null,
+				heroBody: null,
+				heroPrimaryCtaLabel: null,
+				heroPrimaryCtaUrl: null,
+				highlights: [],
+				footerNote: null,
+				palette: {
+					backgroundTop: '',
+					backgroundBottom: '',
+					cardBackground: '',
+					accent: serverBrand.accent || '',
+					text: ''
+				}
+			};
+		} else {
+			void getLaunchPageConfig().then((config) => { launchPageConfig = config; }).catch((err) => { console.warn('[Login] Failed to load launch page config:', err); });
+		}
 		void getPublicAuthPolicy().then((policy) => {
 			authPolicy = policy;
 			if (!policy.allowRegister && !wizardMode) authMode = 'login';
