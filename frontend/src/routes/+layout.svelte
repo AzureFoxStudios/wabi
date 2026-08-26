@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../styles/styles.css';
-	import '$lib/prism-theme.css';
-	import 'katex/dist/katex.min.css';
+	// Phase 4 boot optimization: katex/prism CSS moved next to their JS usage
+	// in $lib/markdown.ts so they load with the lazy app chunk, not at login.
 	import { onMount, onDestroy } from 'svelte';
 	import { channelMessages, channels } from '$lib/socket';
 	import PureRefViewer from '$lib/components/PureRefViewer.svelte';
