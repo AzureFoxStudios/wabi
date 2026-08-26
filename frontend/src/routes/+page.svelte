@@ -282,7 +282,7 @@
 
 				let reconnectAttempts = 0;
 				const maxReconnectAttempts = 10;
-				let reconnectTimer = setInterval(() => {
+				const probeReconnect = () => {
 					reconnectAttempts++;
 					const token = getAuthToken();
 					if (token) {
@@ -304,7 +304,11 @@
 					if (reconnectAttempts >= maxReconnectAttempts) {
 						clearInterval(reconnectTimer);
 					}
-				}, 3000);
+				};
+				let reconnectTimer = setInterval(probeReconnect, 3000);
+				// Phase 6 nit: probe immediately instead of waiting a full 3 s
+				// for the first interval tick.
+				probeReconnect();
 
 				const onReconnect = () => {
 					clearInterval(reconnectTimer);
