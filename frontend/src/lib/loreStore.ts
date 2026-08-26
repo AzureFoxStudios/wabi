@@ -73,7 +73,18 @@ async function refresh(load: () => Promise<void>) {
 
 /** L4: channel ids are hex on the wire (`ch_{:x}`); never decimal-parse. */
 function getChannelId(): number | null {
-	return parseLoreChannelId(get(currentChannel));
+	return parseLoreChannelId(channelContext ?? get(currentChannel));
+}
+
+/**
+ * Channel context override for hub mounts: when the Code hub shows a repo
+ * while a different channel is globally active, the shell binds store loads
+ * to the repo's channel via this instead of $currentChannel. Null = follow
+ * the current channel (the normal in-channel case).
+ */
+let channelContext: string | null = null;
+export function setLoreChannelContext(channelKey: string | null): void {
+	channelContext = channelKey;
 }
 
 export async function loadLoreRepo() {
@@ -83,7 +94,14 @@ export async function loadLoreRepo() {
 	await refresh(async () => {
 		const [repo, files] = await Promise.all([
 			getLoreRepo(token, channelId),
-			listLoreFiles(token, channelId).catch(() => [] as LoreFileInfo[])
+			// TEMP-DEBUG: surface list failures in the shell's error banner
+			// instead of swallowing them, to diagnose the empty file tree.
+			listLoreFiles(token, channelId).catch((e: unknown) => {
+				loreError.set(
+					`listLoreFiles failed: ${e instanceof Error ? e.message : String(e)}`
+				);
+				return [] as LoreFileInfo[];
+			})
 		]);
 		loreRepo.set(repo);
 		loreFiles.set(files);

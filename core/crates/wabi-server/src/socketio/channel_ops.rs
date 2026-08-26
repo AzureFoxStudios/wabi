@@ -113,6 +113,20 @@ async fn on_reorder_channels(socket: SocketRef, data: Value, state: SioState, io
         return;
     }
 
+    // Role gate: only Owner / Admin / Moderator may rearrange channels for
+    // everyone. Communities decide who their moderators are via role
+    // assignment, so the Moderator role IS the community opt-in. Mirrors the
+    // client-side canReorderChannels gate in ChannelSidebar.svelte.
+    let role = state.app.get_user_highest_role(caller_id).await;
+    if !matches!(role.to_ascii_lowercase().as_str(), "owner" | "admin" | "moderator") {
+        warn!("[sio] reorder-channels denied for user {} (role {})", caller_id, role);
+        let _ = socket.emit(
+            "reorder-channels-error",
+            &json!({"error": "You do not have permission to rearrange channels"}),
+        );
+        return;
+    }
+
     for entry in channels {
         let id = match entry.get("id").and_then(|v| v.as_str()) {
             Some(id) => id.to_string(),
@@ -121,6 +135,11 @@ async fn on_reorder_channels(socket: SocketRef, data: Value, state: SioState, io
         let position = entry.get("position").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
         let parent_id = entry.get("parentId").and_then(|v| v.as_str());
 
+        // Single durable event per channel. The channels projection merges
+        // `update_settings` and `update` identically (projections/channels.rs),
+        // so the old double-ingest was pure write amplification — two event
+        // rows per dragged channel. `update_settings` also preserves the
+        // audit-projection mapping.
         let mut row = serde_json::Map::new();
         row.insert("channel_id".to_string(), json!(id));
         row.insert("position".to_string(), json!(position));
@@ -130,20 +149,8 @@ async fn on_reorder_channels(socket: SocketRef, data: Value, state: SioState, io
             row.insert("parent_id".to_string(), json!(serde_json::Value::Null));
         }
 
-        if let Err(e) = state.app.wdb.ingest_event("channel", "update_settings", &json!({ "row": row.clone() })).await {
+        if let Err(e) = state.app.wdb.ingest_event("channel", "update_settings", &json!({ "row": row })).await {
             warn!("[sio] reorder-channels: failed to update {}: {}", id, e);
-        }
-
-        let mut patch = serde_json::Map::new();
-        patch.insert("channel_id".to_string(), json!(id));
-        patch.insert("position".to_string(), json!(position));
-        if let Some(pid) = parent_id {
-            patch.insert("parent_id".to_string(), json!(pid));
-        } else {
-            patch.insert("parent_id".to_string(), json!(serde_json::Value::Null));
-        }
-        if let Err(e) = state.app.wdb.ingest_event("channel", "update", &json!({ "row": patch })).await {
-            warn!("[sio] reorder-channels: projection merge failed for {}: {}", id, e);
         }
     }
 

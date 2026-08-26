@@ -894,6 +894,7 @@ export class SocketManager {
 		};
 		for (const evt of [
 			'create-thread-error',
+			'reorder-channels-error',
 			'pin-channel-error',
 			'unpin-channel-error',
 			'ban-error',
