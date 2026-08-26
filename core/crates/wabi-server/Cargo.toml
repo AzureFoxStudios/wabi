@@ -65,7 +65,7 @@ chrono = { version = "0.4", features = ["serde"] }
 jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 
 # Password hashing
-bcrypt = "0.17"
+bcrypt = "0.19"
 
 # UUID
 uuid = { version = "1", features = ["v4", "serde"] }
