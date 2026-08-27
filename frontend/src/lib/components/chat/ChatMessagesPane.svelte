@@ -21,6 +21,9 @@
 	export let fullHistorySearchPagesLoaded = 0;
 	export let fullHistorySearchStatus = '';
 	export let visibleTypingUsers: string[] = [];
+	export let emptyStateIcon = '#';
+	export let emptyStateSubtitle = 'This is the start of your self-hosted space.';
+	export let emptyStateActionLabel = 'Send first message';
 	export let channelPaneInTransition: PaneTransition;
 	export let channelPaneOutTransition: PaneTransition;
 	export let formatTypingUsers: (users: string[]) => string;
@@ -80,11 +83,11 @@
 		{/if}
 		{#if filteredMessages.length === 0 && pinnedMessages.length === 0 && !searchInput}
 			<div class="empty-state">
-				<div class="empty-state-icon">#</div>
+				<div class="empty-state-icon">{emptyStateIcon}</div>
 				<div class="empty-state-title">{channelDisplayName || currentChannel}</div>
-				<div class="empty-state-subtitle">This is the start of your self-hosted space.</div>
+				<div class="empty-state-subtitle">{emptyStateSubtitle}</div>
 				<div class="empty-state-actions">
-					<button class="empty-state-btn" type="button" on:click={focusComposer}>Send first message</button>
+					<button class="empty-state-btn" type="button" on:click={focusComposer}>{emptyStateActionLabel}</button>
 				</div>
 			</div>
 		{:else if filteredMessages.length === 0 && searchInput}
@@ -95,6 +98,7 @@
 		{/if}
 		<MessageList
 			messages={filteredMessages}
+			channelId={currentChannel}
 			{onReply}
 			{onQuickMention}
 			{firstUnreadMessageId}

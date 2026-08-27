@@ -389,7 +389,7 @@
 	}
 
 	function handleClose() {
-		layoutStore.closeDM();
+		layoutStore.closeRightDm();
 	}
 
 	function handleRetentionChange(event: Event): void {

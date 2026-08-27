@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { get } from 'svelte/store';
 import { brandName } from './branding';
 import { socket, connected, connectionState } from './socketConnectionState';
 import type { Channel, Message, User } from './socket-types';
@@ -99,26 +100,29 @@ async function seedLocalMockState(mock: LocalMockSocket, username: string): Prom
 
 	const now = Date.now();
 	const me: User = {
-		id: mock.id,
+		id: 'user-1',
 		username,
 		color: '#98D8C8',
 		status: 'active',
-		highestRole: 'guest',
+		dbUserId: 1,
+		highestRole: 'admin',
 		profilePicture: localMockAvatar('H', '#98D8C8')
 	};
 	const artist: User = {
-		id: 'local-mira',
+		id: 'user-2',
 		username: 'Mira',
 		color: '#F6A6FF',
 		status: 'active',
+		dbUserId: 2,
 		bio: 'Local mock collaborator for frontend-only Wabi dev.',
 		profilePicture: localMockAvatar('M', '#F6A6FF')
 	};
 	const sleepy: User = {
-		id: 'local-taro',
+		id: 'user-3',
 		username: 'Taro',
 		color: '#FFD166',
 		status: 'away',
+		dbUserId: 3,
 		profilePicture: localMockAvatar('T', '#FFD166')
 	};
 
@@ -144,7 +148,7 @@ async function seedLocalMockState(mock: LocalMockSocket, username: string): Prom
 			name: 'Mira',
 			type: 'dm',
 			createdAt: now - 3600000,
-			members: [mock.id, artist.id],
+			members: [me.id, artist.id],
 			otherUser: artist,
 			memberUsers: [me, artist]
 		} as Channel
@@ -191,8 +195,8 @@ function createSeedMessages(now: number, username: string): Record<string, Messa
 			{
 				id: 'local-welcome-2',
 				user: username,
-				userId: `local-${username.toLowerCase()}`,
-				senderStableId: `local-${username.toLowerCase()}`,
+				userId: 'user-1',
+				senderStableId: 'user-1',
 				color: '#98D8C8',
 				text: 'Messages you send here stay in browser localStorage for this mock session.',
 				timestamp: now - 60000,
@@ -203,8 +207,8 @@ function createSeedMessages(now: number, username: string): Record<string, Messa
 			{
 				id: 'local-dm-1',
 				user: 'Mira',
-				userId: 'local-mira',
-				senderStableId: 'local-mira',
+				userId: 'user-2',
+				senderStableId: 'user-2',
 				color: '#F6A6FF',
 				text: 'This is a fake DM so DM polish can be inspected offline.',
 				timestamp: now - 90000,
@@ -216,6 +220,77 @@ function createSeedMessages(now: number, username: string): Record<string, Messa
 
 async function handleLocalEmit(mock: LocalMockSocket, event: string, args: any[]): Promise<void> {
 	if (!browser) return;
+	if (event === 'create-dm') {
+		const payload = args[0] || {};
+		const targetUserId = String(payload.targetUserId || '').trim();
+		const [channelStore, presenceStore, messageStore] = await Promise.all([
+			import('./channelStore'),
+			import('./presenceStore'),
+			import('./messageStore')
+		]);
+		const me = get(presenceStore.currentUser);
+		const target = get(presenceStore.serverMembers).find((user) => user.id === targetUserId || (user.dbUserId && `user-${user.dbUserId}` === targetUserId));
+		if (!me || !target) {
+			mock.dispatch('dm-error', { error: 'User not found' });
+			return;
+		}
+		const ids = [me.id, target.id].sort();
+		const channelId = `dm-${ids.join('-')}`;
+		const existing = get(channelStore.channels).find((channel) => channel.id === channelId);
+		if (existing) {
+			mock.dispatch('dm-error', { error: 'DM already exists', channelId });
+			return;
+		}
+		const channel: Channel = {
+			id: channelId,
+			name: `DM with ${target.username}`,
+			type: 'dm',
+			createdAt: Date.now(),
+			members: ids,
+			otherUser: target,
+			memberUsers: [me, target],
+			minRole: 'member'
+		} as Channel;
+		channelStore.channels.update((channels) => [...channels, channel]);
+		messageStore.channelMessages.update((state) => ({ ...state, [channelId]: state[channelId] || [] }));
+		const eventPayload = { channelId, channel, otherUser: target };
+		mock.dispatch('dm-created', eventPayload);
+		mock.dispatch('dm-channel-added', eventPayload);
+		return;
+	}
+	if (event === 'delete-dm') {
+		const payload = args[0] || {};
+		const channelId = String(payload.channelId || '').trim();
+		if (!channelId) return;
+		const [channelStore, messageStore] = await Promise.all([
+			import('./channelStore'),
+			import('./messageStore')
+		]);
+		channelStore.channels.update((channels) => channels.filter((channel) => channel.id !== channelId));
+		messageStore.channelMessages.update((state) => {
+			const next = { ...state };
+			delete next[channelId];
+			persistMessages(next);
+			return next;
+		});
+		mock.dispatch('dm-deleted', { channelId });
+		return;
+	}
+	if (event === 'delete-message') {
+		const payload = args[0] || {};
+		const channelId = String(payload.channelId || '').trim();
+		const messageId = String(payload.messageId || '').trim();
+		if (!channelId || !messageId) return;
+		const { channelMessages } = await import('./messageStore');
+		channelMessages.update((state) => {
+			const nextMessages = (state[channelId] || []).filter((message) => message.id !== messageId);
+			const updated = { ...state, [channelId]: nextMessages };
+			persistMessages(updated);
+			return updated;
+		});
+		mock.dispatch('message-deleted', { channelId, messageId });
+		return;
+	}
 	if (event === 'message') {
 		const payload = args[0] || {};
 		const channelId = String(payload.channelId || 'general');

@@ -35,6 +35,7 @@
 	export let personalPinsEnabled = false;
 
 	export let isOwnMessage: (message: Message) => boolean;
+	export let canDeleteMessage: (message: Message) => boolean = (message) => isOwnMessage(message);
 	export let isPersonalPinnedMessage: (messageId: string) => boolean;
 	export let getDeleteConfirmMessage: (message: Message | null) => string;
 	export let handleOpenFullProfile: (event: CustomEvent<any>) => void;
@@ -92,6 +93,7 @@
 	<MessageContextMenu
 		message={contextMenuMessage}
 		canManageOwnMessage={isOwnMessage(contextMenuMessage)}
+		canDeleteMessage={canDeleteMessage(contextMenuMessage)}
 		bind:visible={contextMenuVisible}
 		x={contextMenuX}
 		y={contextMenuY}
