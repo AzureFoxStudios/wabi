@@ -284,17 +284,24 @@ const CAMERA_LADDER: WabidbVideoQualityStep[] = [
   { width: 320, height: 180, fps: 12 }
 ];
 
+// Screen ladder starts at 720p (not 1080p): every frame rides the shared
+// socket.io connection as base64 JSON — the 2026-08-27 field test showed
+// 1080p15 (~1.5 Mbps) saturating the client socket until the engine.io
+// heartbeat missed ("transport close" → Wabidb reconnects → lag). 720p keeps
+// text readable at a fraction of the envelope rate; the ladder still steps
+// down under sustained overshoot.
 const SCREEN_LADDER: WabidbVideoQualityStep[] = [
-  { width: 1920, height: 1080, fps: 15 },
-  { width: 1280, height: 720, fps: 15 },
-  { width: 1280, height: 720, fps: 10 },
-  { width: 854, height: 480, fps: 8 }
+  { width: 1280, height: 720, fps: 12 },
+  { width: 1280, height: 720, fps: 8 },
+  { width: 854, height: 480, fps: 8 },
+  { width: 640, height: 360, fps: 6 }
 ];
 
 // Sustained bytes/sec ceilings per source. Exceeded → step DOWN the ladder.
+// Screen ceiling lowered 1.5 → 0.9 Mbps for the same socket-health reason.
 const BANDWIDTH_CEIL_BYTES_PER_SEC: Record<WabidbVideoSource, number> = {
   camera: (600 * 1000) / 8, // ~600 kbps
-  screen: (1500 * 1000) / 8 // ~1.5 Mbps
+  screen: (900 * 1000) / 8 // ~900 kbps
 };
 
 // ============================================================================

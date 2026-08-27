@@ -10,8 +10,35 @@
  */
 
 import OpusRecorder from 'opus-recorder';
+// Decoder worker + its sibling wasm, resolved through the bundler so the
+// build actually ships them (see opus-assets.d.ts for the full story).
+import decoderWorkerSource from 'opus-recorder/dist/decoderWorker.min.js?raw';
+import decoderWasmUrl from 'opus-recorder/dist/decoderWorker.min.wasm?url';
 import { parseWabidbMediaEnvelope, type WabidbVideoLane } from './wabidbVideoLane';
 import { attachSessionSource, detachSession, ensureCallAudioGraph } from './callAudioGraph';
+
+// Blob URL for the decoder worker. opus-recorder's decoderWorker.min.js is an
+// Emscripten module whose FIRST line is `var Module=typeof Module!=="undefined"?Module:{}`.
+// Prepending our own `var Module = { locateFile … }` makes the glue resolve
+// `decoderWorker.min.wasm` at the Vite-emitted asset URL instead of a sibling
+// file next to the hashed worker (which never exists → SPA-fallback HTML →
+// "failed to match magic number" abort → zero decoded audio, the 2026-08-27
+// no-audio field report). The URL is created once per page and intentionally
+// never revoked (relays are created per call).
+let decoderWorkerBlobUrl: string | null = null;
+
+function getDecoderWorkerUrl(): string {
+	if (!decoderWorkerBlobUrl) {
+		const prelude =
+			'var Module={locateFile:function(path,prefix){' +
+			`return path.endsWith('.wasm') ? ${JSON.stringify(decoderWasmUrl)} : prefix + path;` +
+			'}};';
+		decoderWorkerBlobUrl = URL.createObjectURL(
+			new Blob([prelude + '\n' + decoderWorkerSource], { type: 'application/javascript' })
+		);
+	}
+	return decoderWorkerBlobUrl;
+}
 
 // addModule is per-AudioContext; the shared call graph registers the playback
 // worklet once and every relay reuses it.
@@ -368,6 +395,11 @@ export class WabidbMediaRelay {
       if (pcmData) {
         this.counters.decodeOk++;
         await this.playbackViaAudioWorklet(fromUserId ?? 'unknown', pcmData);
+      } else {
+        // null = worker never answered (dead worker / wasm abort / timeout) —
+        // count it as a failure so the Diag overlay shows dec=0 + fail>0
+        // instead of a silent zero.
+        this.counters.decodeFail++;
       }
     } catch (error) {
       this.counters.decodeFail++;
@@ -376,8 +408,12 @@ export class WabidbMediaRelay {
   }
 
   private async initializeOpusDecoder(): Promise<void> {
-    const workerUrl = new URL('opus-recorder/dist/decoderWorker.min.js', import.meta.url);
-    this.opusDecoder = new Worker(workerUrl, { type: 'classic' });
+    this.opusDecoder = new Worker(getDecoderWorkerUrl(), { type: 'classic' });
+    this.opusDecoder.onerror = (e: ErrorEvent) => {
+      // WO-1 spirit: a dead decoder worker means every decode times out with
+      // NO other trace — make the failure loud instead of silently deaf.
+      console.error('[WabidbMediaRelay] decoder worker error:', e.message ?? e);
+    };
     this.opusDecoder.onmessage = (e: MessageEvent) => {
       if (e.data === null || e.data === undefined) {
         // Decoder flush signal in live mode; nothing to hand back.

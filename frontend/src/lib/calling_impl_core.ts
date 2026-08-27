@@ -2560,6 +2560,24 @@ export function openChannelCallPanel(): void {
 	channelCallPanelOpen.set(true);
 }
 
+/**
+ * Remote screen-share presentation (2026-08-27 report: "no confirmation at
+ * all to the user"). Called from the `screen-share-started` socket handler
+ * for every AUDIENCE member: visible notice + auto-open of the embedded call
+ * panel (honoring an explicit user dismissal for this call). The sharer also
+ * receives the event (server emits to sender + audience) — filtered here.
+ */
+export function presentRemoteScreenShare(sharerStableId: string, username?: string): void {
+	const selfDbId = getStoredDbUserId();
+	const selfStableId = selfDbId != null ? `user-${selfDbId}` : getStoredUsername() || null;
+	if (sharerStableId === selfStableId) return;
+	const label = username || sharerStableId.replace(/^user-/, '');
+	pushVoiceChannelNotice(`${label} started sharing their screen`);
+	if (!callPanelDismissedByUser) {
+		channelCallPanelOpen.set(true);
+	}
+}
+
 // Auto-spawn contract (decision 2026-08-26): joining any call auto-opens the
 // embedded call panel and leaving auto-dissolves it. An explicit user
 // minimize/dismiss keeps it closed for the remainder of THAT call; every new

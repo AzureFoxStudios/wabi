@@ -314,3 +314,80 @@ confirmed). Remediated same day; details in
 Phase 5 checklist items superseded: the "docked-first" contract line is
 REVERSED (auto-spawn); the FOCUSED badge line is replaced by glow emphasis;
 panel/view controls use site-standard icons.
+
+## Smoke test 2026-08-27 — findings & remediation (round 2)
+
+Field report (wabi + itstafkat, wabi.chat, two accounts): no audio; no live
+chip sync in the sidebar list; screenshare worked one-way and lagged; zero
+indication to the audience that a remote share had started; `[Wabidb]
+Disconnected/Connected` churn; `/api/user/layout` PUT 422; TURN endpoint 400.
+
+Root causes found (all verified against source, most proven by probe/build):
+
+1. **Audio — decoder worker wasm never shipped.** opus-recorder's
+   `encoderWorker.min.js` inlines its wasm (base64) but `decoderWorker.min.js`
+   loads `decoderWorker.min.wasm` as a SIBLING file. Vite emits the worker JS
+   (hashed asset) but not the sibling; the wasm request hits the SPA fallback
+   (index.html, text/html) → `wasm validation error: failed to match magic
+   number` → worker aborts → every decode times out → receiver hears nothing
+   while the sender's counters climb. This also explains the 2026-08-26
+   "sound: none". Fix: import the wasm via `?url` and the worker source via
+   `?raw`, build the worker from a Blob with a `Module.locateFile` prelude
+   (wabidbMediaRelay.ts; opus-assets.d.ts). Proven by
+   `frontend/scripts/probe-decoder-worker-wasm.mjs` (control reproduces the
+   abort, fix instantiates the real wasm) and by the static build emitting
+   `assets/decoderWorker.min.<hash>.wasm`. Decode timeouts now count as
+   decodeFail so Diag localizes instantly. Contributing factor: itstafkat was
+   joined `listening` (multi-listen, non-transmitting) — his direction is
+   silent by design; retests need both sides actively connected.
+2. **Live chip sync — UnifiedChannelList regressed the P0 untrack class.**
+   The sidebar renders UnifiedChannelList, whose "ported from
+   VoiceChannelList" helpers read `$voiceChannelMembers`/`$speakingUsers`/
+   props inside function bodies called from the template (`$.untrack`
+   wrapped — proven by compiler probe: 3 hits). Roster chips/connected
+   styling were blind to join/leave/speaking until an unrelated re-render.
+   Refactored to the `voiceRowsById` derivation contract (same as
+   VoiceChannelList); compiler probe now 0 hits; tripwire test extended to
+   cover UnifiedChannelList so this class cannot silently return.
+3. **Screenshare ran over BOTH transports simultaneously.** On the wabidb
+   transport the share button drove startScreenShare (WebRTC offers) AND the
+   localScreenStream subscription drove the wabidb video lane — double
+   encode + ~1.5 Mbps of base64 JSON on the shared socket.io connection →
+   engine.io heartbeat miss → `transport close` → `[Wabidb] Disconnected`
+   churn + lag + ICE consent flaps. Fix: single-path routing —
+   startScreenShare/stopScreenShare use the wabidb lane exclusively when
+   `wabidbTransportLive()` (WebRTC path untouched for p2p/LiveKit); the
+   `screen-share-targets` handler skips offer creation on the wabidb
+   transport. Screen ladder lowered to 720p12 start, ceiling 1.5→0.9 Mbps
+   (socket-health, not image quality, was the binding constraint).
+4. **No audience confirmation.** The server has always emitted
+   `screen-share-started`; the client had NO listener (only
+   screen-share-targets / webrtc-* / screen-share-stopped). Added the
+   listener → `presentRemoteScreenShare()` notice + auto-open of the call
+   panel (honors the user's dismissal; self-filtered server-side id shape
+   `user-{id}`). This is why the remote share "connected" at ICE level with
+   zero user-visible indication.
+5. **Layout PUT 422.** `SaveLayoutRequest` expected snake_case `layout_json`
+   while every client writer sends camelCase `layoutJson` — every docking
+   save 422'd. Field now `rename="layoutJson"` + snake alias. Also fixed
+   `save_theme` rebuilding the container as `{layout, theme}` and dropping
+   `railDensity`/`railSide` (the clobber class mergeIntoServerContainer
+   guards client-side); it now merges into the existing container.
+6. **TURN 400 is deployment config, not code** (`turn_enabled=false`). Enable
+   via `docker compose --profile turn` + `TURN_HMAC_KEY` + wabi.config
+   `turn_enabled/turn_uri/turn_secret`. Public STUN fallback already works.
+7. **DB reset question — answered NO.** The browser `[Wabidb]
+   Connected/Disconnected` lines are the WabiDbCallState WebSocket client
+   (call-state socket), not the embedded database; the drops were transport
+   strain from (3) and self-healed. Old on-disk data is not implicated by
+   any symptom in the log; the engine replays through dual-decode fallbacks.
+   If DB health is ever in doubt: `wabidb-cli check` / `backup` — not a reset
+   (a reset destroys accounts/channels/messages for zero diagnostic gain).
+
+`bun run check` 0 errors; `bun test` 171 pass (1 pre-existing unrelated
+failure: `setAuthToken` export — present on a clean tree); `STATIC_BUILD=1`
+build emits the wasm asset; Rust touched (user.rs) — run `cargo test -p
+wabi-server` before deploy (no Rust toolchain was available in the authoring
+sandbox). Retest: both accounts actively connected (not listen-only), expect
+Diag `recv>0 dec>0 play>0`, chips updating live in the sidebar, one share
+path only, and a toast+panel when the remote side shares.
