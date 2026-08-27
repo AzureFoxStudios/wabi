@@ -226,6 +226,11 @@ async fn save_layout(
 
 #[derive(Debug, Deserialize)]
 struct SaveLayoutRequest {
+    /// Clients send camelCase `layoutJson` (layoutPersistence.ts /
+    /// railLayout.ts). The original snake_case field rejected every PUT with
+    /// a 422 ("[Docking] Layout save failed: HTTP error", 2026-08-27 report)
+    /// — accept the camelCase name, keep the snake alias for API symmetry.
+    #[serde(rename = "layoutJson", alias = "layout_json")]
     layout_json: String,
 }
 
@@ -274,15 +279,24 @@ async fn save_theme(
     let layout_value = layout
         .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
         .unwrap_or_else(|| serde_json::json!({}));
-    let combined = if layout_value.get("layout").is_some() || layout_value.get("theme").is_some() {
-        serde_json::json!({
-            "layout": layout_value.get("layout").cloned().unwrap_or(serde_json::json!({})),
-            "theme": theme,
-        })
-    } else {
-        serde_json::json!({ "layout": layout_value, "theme": theme })
+    // Merge INTO the existing container instead of rebuilding it: the same
+    // container holds railDensity/railSide (and future slots) — a bare
+    // {layout, theme} rebuild silently dropped them, the exact clobber class
+    // mergeIntoServerContainer guards against client-side.
+    let mut combined = match layout_value {
+        serde_json::Value::Object(map) => map,
+        // Legacy pre-container payloads (raw dock layout without keys) move
+        // under `layout` so the container shape stays normalized.
+        other => {
+            let mut map = serde_json::Map::new();
+            if !other.is_null() {
+                map.insert("layout".to_string(), other);
+            }
+            map
+        }
     };
-    let json = serde_json::to_string(&combined)
+    combined.insert("theme".to_string(), theme);
+    let json = serde_json::to_string(&serde_json::Value::Object(combined))
         .map_err(|error| AppError::BadRequest(format!("invalid theme preferences: {error}")))?;
     state.wdb.upsert_user_layout(auth.user_id as u64, &json).await?;
     Ok(Json(serde_json::Value::Object(filtered)))
