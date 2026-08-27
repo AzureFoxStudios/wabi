@@ -1,13 +1,17 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { users, serverMembers, currentUser, createDM } from '$lib/socket';
-	import type { User } from '$lib/socket';
+	import { users, serverMembers, currentUser, createDM, channels, joinChannel } from '$lib/socket';
+	import type { Channel, User } from '$lib/socket';
+	import { layoutStore } from '$lib/layoutStore';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
+	import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId } from '$lib/dmConversations';
 
 	export let isOpen = false;
 
 	let searchQuery = '';
 	let searchInput: HTMLInputElement | null = null;
+	let pendingUserKey = '';
+	let createError = '';
 
 	$: if (isOpen) {
 		void tick().then(() => searchInput?.focus());
@@ -20,14 +24,60 @@
 		searchQuery
 	});
 
-	function handleUserClick(user: User) {
-		createDM(getDmDirectoryKey(user));
+	function upsertLocalDmPlaceholder(channel: Channel): Channel {
+		channels.update((allChannels) => {
+			const existing = allChannels.find((candidate) => candidate.id === channel.id);
+			if (existing) return allChannels.map((candidate) => (candidate.id === channel.id ? { ...candidate, ...channel } : candidate));
+			return [...allChannels, channel];
+		});
+		return channel;
+	}
+
+	function openDmConversation(channel: Channel, user: User) {
+		layoutStore.openCenterDm(channel.id, user);
+		joinChannel(channel.id);
 		closeModal();
+	}
+
+	async function handleUserClick(user: User) {
+		const targetKey = getDmDirectoryKey(user);
+		const selfKey = getDmStableUserId($currentUser);
+		const userKey = getDmStableUserId(user);
+		if (selfKey && userKey && selfKey === userKey) return;
+
+		createError = '';
+		const existing = findExistingDmChannel($channels || [], user);
+		if (existing) {
+			openDmConversation(existing, user);
+			return;
+		}
+
+		pendingUserKey = targetKey;
+		const result = await createDM(targetKey);
+		if (pendingUserKey !== targetKey) return;
+
+		const created =
+			(result.ok ? result.channel : undefined) ||
+			(result.channelId ? ($channels || []).find((channel) => channel.id === result.channelId) : null) ||
+			findExistingDmChannel($channels || [], user) ||
+			(result.channelId ? upsertLocalDmPlaceholder(buildDmPlaceholderChannel(result.channelId, user, $currentUser)) : null);
+
+		pendingUserKey = '';
+		if (created) {
+			openDmConversation(created, user);
+			return;
+		}
+
+		createError = result.ok
+			? 'DM created, but the conversation was not returned by the server.'
+			: (result as { ok: false; error: string }).error;
 	}
 
 	function closeModal() {
 		isOpen = false;
 		searchQuery = '';
+		pendingUserKey = '';
+		createError = '';
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -71,12 +121,22 @@
 			/>
 		</div>
 
+		{#if createError}
+			<div class="create-error" role="alert">{createError}</div>
+		{/if}
+
 		<div class="user-list">
 			{#if filteredUsers.length === 0}
 				<div class="no-users">No users found</div>
 			{:else}
 				{#each filteredUsers as user (getDmDirectoryKey(user))}
-					<button class="user-item" on:click={() => handleUserClick(user)}>
+					{@const userKey = getDmDirectoryKey(user)}
+					<button
+						class="user-item"
+						class:pending={pendingUserKey === userKey}
+						disabled={Boolean(pendingUserKey)}
+						on:click={() => handleUserClick(user)}
+					>
 						<div class="user-avatar-container">
 							{#if user.profilePicture}
 								<img src={user.profilePicture} alt={user.username} class="user-avatar" />
@@ -89,7 +149,9 @@
 						</div>
 						<div class="user-info">
 							<div class="username">{user.username}</div>
-							<div class="status-text">{user.status}</div>
+							<div class="status-text">
+								{pendingUserKey === userKey ? 'Opening…' : user.status}
+							</div>
 						</div>
 					</button>
 				{/each}
@@ -177,6 +239,16 @@
 		outline: none;
 	}
 
+	.create-error {
+		margin: var(--space-3, 0.75rem) var(--space-6, 1.5rem) 0;
+		padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 28%, transparent);
+		border-radius: var(--radius-md, 8px);
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
+		color: var(--color-danger, #ef4444);
+		font-size: var(--text-sm, 0.8125rem);
+	}
+
 	.user-list {
 		flex: 1;
 		overflow-y: auto;
@@ -202,8 +274,18 @@
 		text-align: left;
 	}
 
-	.user-item:hover {
+	.user-item:hover:not(:disabled) {
 		background: var(--surface-raised, #24243e);
+	}
+
+	.user-item:disabled {
+		cursor: wait;
+		opacity: 0.65;
+	}
+
+	.user-item.pending {
+		background: color-mix(in srgb, var(--accent-primary-color, #6366f1) 12%, transparent);
+		opacity: 1;
 	}
 
 	.user-avatar-container {

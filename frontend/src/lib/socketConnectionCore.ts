@@ -24,6 +24,14 @@ import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } f
 import { isRenderableMessage } from '$lib/displayEnhancements';
 import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
 import { recordSuccessfulServerConnection } from './savedServerActions';
+import {
+	centerDmChannelId,
+	centerDmOtherUser,
+	centerGroupChannel,
+	dmOtherUser,
+	selectedDmChannelId,
+	selectedGroupChannel
+} from './layoutStoreStates';
 
 
 /** Stable identity for message list rows. Prefer server id once accepted. */
@@ -702,6 +710,41 @@ export class SocketManager {
 			if (cid) joinChannel(cid);
 		});
 
+		sock.on('dm-error', (payload: { error?: string; channelId?: string }) => {
+			console.warn('[socket] dm-error', payload?.channelId, payload?.error);
+		});
+
+		sock.on('dm-deleted', (payload: { channelId?: string }) => {
+			const channelId = payload?.channelId;
+			if (!channelId) return;
+			channels.update((list) => list.filter((channel) => channel.id !== channelId));
+			channelMessages.update((state) => {
+				if (!(channelId in state)) return state;
+				const next = { ...state };
+				delete next[channelId];
+				return next;
+			});
+			if (get(selectedDmChannelId) === channelId) {
+				selectedDmChannelId.set(null);
+				dmOtherUser.set(null);
+				selectedGroupChannel.set(null);
+			}
+			if (get(centerDmChannelId) === channelId) {
+				centerDmChannelId.set(null);
+				centerDmOtherUser.set(null);
+				centerGroupChannel.set(null);
+			}
+			_updatePinnedChannels();
+			if (get(currentChannel) === channelId) {
+				const remaining = get(channels);
+				const fallback = remaining.find((channel) => channel.type !== 'dm' && channel.type !== 'group') || remaining[0];
+				if (fallback?.id) {
+					currentChannel.set(fallback.id);
+					joinChannel(fallback.id);
+				}
+			}
+		});
+
 		sock.on('channel-messages', (payload: { channelId?: string; messages?: Message[] }) => {
 			if (!payload?.channelId) return;
 			const raw = Array.isArray(payload.messages) ? payload.messages : [];
@@ -825,6 +868,16 @@ export class SocketManager {
 			for (const id of payload.channelIds || []) removed.add(id);
 			removed.add(deletedId);
 			channels.update((list) => list.filter((c) => !removed.has(c.id)));
+			if (get(selectedDmChannelId) && removed.has(get(selectedDmChannelId) as string)) {
+				selectedDmChannelId.set(null);
+				dmOtherUser.set(null);
+				selectedGroupChannel.set(null);
+			}
+			if (get(centerDmChannelId) && removed.has(get(centerDmChannelId) as string)) {
+				centerDmChannelId.set(null);
+				centerDmOtherUser.set(null);
+				centerGroupChannel.set(null);
+			}
 			_updatePinnedChannels();
 			const active = get(currentChannel);
 			if (removed.has(active)) {

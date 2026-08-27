@@ -46,6 +46,9 @@
 	export let albumAnnouncementUploadName: string | null;
 	export let highlightedMessageId: string | null;
 	export let messageText: string;
+	export let deletionModeEnabled = false;
+	export let canDeleteInDeletionMode = false;
+	export let deletionModeDeleting = false;
 
 	export let onReply: (message: Message) => void;
 	export let onQuickMention: (message: Message) => void;
@@ -74,6 +77,7 @@
 	export let onHandleUtilityPinToggle: (message: Message) => void;
 	export let onHandleUtilityEdit: (message: Message) => void;
 	export let onHandleMarkdownContentClick: (event: MouseEvent) => void;
+	export let onDeletionModeDelete: (message: Message) => void | Promise<void> = () => {};
 	export let onHandleUsernameClick: (event: MouseEvent, message: Message, resolvedUser?: User) => void;
 	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean) => void;
 
@@ -180,7 +184,7 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		id="message-{message.id}"
-		class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinned ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''} {message.deliveryState === 'sending' ? 'is-sending' : ''} {message.deliveryState === 'failed' ? 'is-send-failed' : ''}"
+		class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinned ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''} {deletionModeEnabled ? 'deletion-mode-active' : ''} {message.deliveryState === 'sending' ? 'is-sending' : ''} {message.deliveryState === 'failed' ? 'is-send-failed' : ''}"
 		title={message.deliveryState === 'failed' ? (message.deliveryError || 'Message failed to send') : undefined}
 		on:contextmenu={(e) => onContextMenu(e, message)}
 		use:longpress={{ onLongPress: (e) => onLongPress(e, message) }}
@@ -189,6 +193,19 @@
 			animate: shouldAnimateMessage
 		}}
 	>
+		{#if deletionModeEnabled && canDeleteInDeletionMode}
+			<button
+				type="button"
+				class="deletion-mode-delete-btn"
+				disabled={deletionModeDeleting}
+				title="Delete this message"
+				aria-label="Delete this message"
+				on:click|preventDefault|stopPropagation={() => onDeletionModeDelete(message)}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+				<span>{deletionModeDeleting ? 'Deleting…' : 'Delete'}</span>
+			</button>
+		{/if}
 		<MessageItemActions
 			{message}
 			{ownMessage}
@@ -310,6 +327,58 @@
 {/if}
 
 <style>
+	:global(.message.deletion-mode-active) {
+		position: relative;
+		cursor: crosshair;
+		outline: 1px solid transparent;
+		transition: background var(--duration-fast, 150ms), outline-color var(--duration-fast, 150ms);
+	}
+
+	:global(.message.deletion-mode-active:hover) {
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 7%, transparent) !important;
+		outline-color: color-mix(in srgb, var(--color-danger, #ef4444) 24%, transparent);
+	}
+
+	.deletion-mode-delete-btn {
+		position: absolute;
+		right: var(--space-3, 12px);
+		top: 50%;
+		z-index: var(--z-popover, 60);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1, 4px);
+		padding: var(--space-1, 4px) var(--space-2, 8px);
+		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 48%, transparent);
+		border-radius: var(--radius-md, 8px);
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 92%, var(--bg-primary, #0f1020) 8%);
+		color: #fff;
+		font-size: var(--font-size-xs, 12px);
+		font-weight: 700;
+		line-height: 1;
+		box-shadow: var(--shadow-popover, 0 10px 24px rgba(0, 0, 0, 0.28));
+		transform: translateY(-50%) translateX(6px);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity var(--duration-fast, 150ms), transform var(--duration-fast, 150ms);
+	}
+
+	.deletion-mode-delete-btn svg {
+		width: 13px;
+		height: 13px;
+	}
+
+	:global(.message.deletion-mode-active:hover) .deletion-mode-delete-btn,
+	.deletion-mode-delete-btn:focus-visible {
+		opacity: 1;
+		pointer-events: auto;
+		transform: translateY(-50%) translateX(0);
+	}
+
+	.deletion-mode-delete-btn:disabled {
+		opacity: 0.8;
+		cursor: progress;
+	}
+
 	/* Discord-like cozy force (groupStart 17px, thin line pad) */
 	:global(html[data-message-density='cozy'] .message),
 	:global(html:not([data-message-density]) .message) {
