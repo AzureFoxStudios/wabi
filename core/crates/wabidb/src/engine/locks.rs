@@ -425,6 +425,16 @@ impl ProjectionState {
             })?;
         }
 
+        // Watermark FIRST, rows SECOND. Reading the watermark after copying
+        // the rows could OVER-claim coverage: an event applied between the
+        // row copy and the watermark read is absent from the copied rows but
+        // counted as applied, so replay would skip it forever — observed in
+        // production as a deleted channel resurrecting after a restart
+        // (zombie channels). Under-claiming is safe: replay re-applies
+        // events already reflected in the rows, and every projection applies
+        // as an idempotent keyed upsert/remove.
+        let watermark = self.applied_commit_seq();
+
         let indexes = self
             .indexes
             .read()
@@ -446,7 +456,6 @@ impl ProjectionState {
         }
         drop(indexes);
 
-        let watermark = self.applied_commit_seq();
         let data = SnapshotData {
             watermark,
             indexes: snapshot_indexes,
@@ -630,6 +639,85 @@ mod tests {
         state.insert("messages", b"k1".to_vec(), b"v1".to_vec(), 1);
         assert_eq!(state.get("messages", b"k1"), Some(b"v1".to_vec()));
         assert_eq!(state.get("messages", b"k2"), None);
+    }
+
+    /// Zombie-channel regression (2026-08-27, live on wabi.chat): a shutdown
+    /// snapshot must never claim MORE coverage than its rows actually hold.
+    /// The old code copied the rows first and read the watermark second, so a
+    /// delete applied in between was counted as applied (watermark) but
+    /// missing from the rows — replay then skipped it forever and the
+    /// deleted channel resurrected after restart.
+    ///
+    /// Deterministic tail of the race: with the rows copied at an ARBITRARY
+    /// point, the only safe order is watermark-then-rows. We stress save vs
+    /// apply concurrently and assert the invariant on every restore: if the
+    /// restored watermark covers the delete (seq 2), the deleted key must be
+    /// absent.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn snapshot_never_overclaims_watermark_coverage() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = std::sync::Arc::new(ProjectionState::new());
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        // Applier: cycle N inserts `zombie-N` (seq N), then removes it and
+        // advances to seq N+1 — monotonic, like the real dispatcher. Once a
+        // key's delete is covered by the watermark it can never legitimately
+        // reappear.
+        let applier = {
+            let state = state.clone();
+            let stop = stop.clone();
+            tokio::spawn(async move {
+                let mut n: u64 = 0;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    n += 1;
+                    let key = format!("zombie-{n}");
+                    state.insert(
+                        "channels",
+                        key.as_bytes().to_vec(),
+                        b"active".to_vec(),
+                        n,
+                    );
+                    state.set_applied_commit_seq(n);
+                    state.remove("channels", key.as_bytes());
+                    state.set_applied_commit_seq(n + 1);
+                    tokio::task::yield_now().await;
+                }
+            })
+        };
+
+        // Snapshotter: race save/load against the applier. A restore is an
+        // OVERCLAIM if it holds zombie-N while its watermark is ≥ N+1 (the
+        // delete was counted as applied but its row removal missed the copy).
+        let mut violations: Vec<(String, u64)> = Vec::new();
+        for _ in 0..400 {
+            if state.save_snapshot(dir.path()).is_err() {
+                continue;
+            }
+            if let Ok(Some((restored, watermark))) =
+                ProjectionState::load_snapshot(dir.path())
+            {
+                let indexes = restored.indexes.read().unwrap();
+                if let Some(map) = indexes.get("channels") {
+                    for entry in map.iter() {
+                        let key = String::from_utf8_lossy(entry.key()).to_string();
+                        if let Some(n) = key.strip_prefix("zombie-") {
+                            let n: u64 = n.parse().unwrap_or(0);
+                            if watermark >= n + 1 {
+                                violations.push((key, watermark));
+                            }
+                        }
+                    }
+                }
+            }
+            ProjectionState::remove_snapshot(dir.path());
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        applier.await.unwrap();
+        assert!(
+            violations.is_empty(),
+            "snapshot overclaimed coverage (deleted rows restored with \
+             watermark covering their delete): {violations:?}"
+        );
     }
 
     #[test]
