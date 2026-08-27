@@ -27,7 +27,10 @@ export function resetCallConnectionDiagnostics(state: ConnectionLifecycleState =
 		outboundKbps: null,
 		inboundKbps: null,
 		connectionState: state,
-		updatedAt: null
+		updatedAt: null,
+		packetsSent: null,
+		packetsReceived: null,
+		source: null
 	});
 }
 
@@ -91,7 +94,15 @@ async function sampleCallConnectionDiagnostics(): Promise<void> {
 	try {
 		const callStates = getCallStates();
 		if (!callStates.length) {
-			resetCallConnectionDiagnostics(get(connectionState));
+			// No WebRTC peer connections — we may be riding the wabidb relay
+			// transport (2026-08-27: diagnostics must work on BOTH transports).
+			// Relays + a socket RTT echo cover ping/jitter/loss/bitrate.
+			const sampled = await sampleWabidbTransportDiagnostics();
+			if (sampled) {
+				callConnectionDiagnostics.set(sampled);
+			} else {
+				resetCallConnectionDiagnostics(get(connectionState));
+			}
 			return;
 		}
 
@@ -205,7 +216,10 @@ async function sampleCallConnectionDiagnostics(): Promise<void> {
 			outboundKbps: roundMetric(outboundKbps, 1),
 			inboundKbps: roundMetric(inboundKbps, 1),
 			connectionState: get(connectionState),
-			updatedAt: now
+			updatedAt: now,
+			packetsSent,
+			packetsReceived,
+			source: 'webrtc'
 		});
 
 		const nextTier = getVideoQualityTierForNetwork(jitterMs, outboundPacketLossPct, inboundPacketLossPct);
@@ -213,6 +227,111 @@ async function sampleCallConnectionDiagnostics(): Promise<void> {
 	} catch (error) {
 		console.warn('[WebRTC] Failed to sample connection diagnostics:', error);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// wabidb transport sampling
+//
+// The relay reports per-session envelope counters (sent/recv bytes, seq-gap
+// loss, inter-arrival jitter). RTT comes from a `wabidb-ping`/`wabidb-pong`
+// socket echo (server wiring.rs). Dynamic imports keep this module free of
+// static cycles with callingWabidb/socketConnection.
+// ---------------------------------------------------------------------------
+
+let wabidbPongListenerAttached = false;
+let wabidbPingInFlightAt = 0;
+let lastWabidbRttMs: number | null = null;
+let wabidbPrevSample: { bytesSent: number; bytesReceived: number; timestamp: number } | null = null;
+
+async function sampleWabidbTransportDiagnostics(): Promise<{
+	pingMs: number | null;
+	jitterMs: number | null;
+	outboundPacketLossPct: number | null;
+	inboundPacketLossPct: number | null;
+	outboundKbps: number | null;
+	inboundKbps: number | null;
+	connectionState: ConnectionLifecycleState;
+	updatedAt: number;
+	packetsSent: number | null;
+	packetsReceived: number | null;
+	source: 'wabidb';
+} | null> {
+	const [{ getWabidbRelayDiagnostics }, { getSocket }] = await Promise.all([
+		import('./callingWabidb'),
+		import('./socketConnection')
+	]);
+
+	const relays = getWabidbRelayDiagnostics();
+	if (!relays.length) return null;
+
+	let bytesSent = 0;
+	let bytesReceived = 0;
+	let lostPackets = 0;
+	let sentEnvelopes = 0;
+	let recvEnvelopes = 0;
+	let jitterMs: number | null = null;
+	for (const relay of relays) {
+		bytesSent += relay.sentBytes ?? 0;
+		bytesReceived += relay.recvBytes ?? 0;
+		lostPackets += relay.lostPackets ?? 0;
+		sentEnvelopes += relay.sentEnvelopes ?? 0;
+		recvEnvelopes += relay.recvEnvelopes ?? 0;
+		if (typeof relay.jitterMs === 'number' && relay.jitterMs > 0) {
+			jitterMs = jitterMs == null ? relay.jitterMs : Math.max(jitterMs, relay.jitterMs);
+		}
+	}
+
+	// RTT echo — one probe per sampler tick (2s), EMA'd.
+	const socket = getSocket();
+	if (socket && socket.connected) {
+		if (!wabidbPongListenerAttached) {
+			socket.on('wabidb-pong', (payload: unknown) => {
+				const sentAt = typeof (payload as { t?: number })?.t === 'number' ? (payload as { t: number }).t : 0;
+				if (!sentAt) return;
+				const rtt = Date.now() - sentAt;
+				lastWabidbRttMs = lastWabidbRttMs == null ? rtt : lastWabidbRttMs * 0.7 + rtt * 0.3;
+			});
+			wabidbPongListenerAttached = true;
+		}
+		wabidbPingInFlightAt = Date.now();
+		socket.emit('wabidb-ping', { t: wabidbPingInFlightAt });
+	}
+
+	const now = Date.now();
+	let outboundKbps: number | null = null;
+	let inboundKbps: number | null = null;
+	if (wabidbPrevSample) {
+		const elapsedSec = (now - wabidbPrevSample.timestamp) / 1000;
+		if (elapsedSec > 0) {
+			outboundKbps = ((bytesSent - wabidbPrevSample.bytesSent) * 8) / elapsedSec / 1000;
+			inboundKbps = ((bytesReceived - wabidbPrevSample.bytesReceived) * 8) / elapsedSec / 1000;
+		}
+	}
+	wabidbPrevSample = { bytesSent, bytesReceived, timestamp: now };
+
+	// Outbound loss is unobservable from this side (the relay drops nothing it
+	// accepts); report inbound gap loss on the receive leg only.
+	let inboundPacketLossPct: number | null = null;
+	const inboundTotal = recvEnvelopes + lostPackets;
+	if (inboundTotal > 0) {
+		inboundPacketLossPct = (lostPackets / inboundTotal) * 100;
+	}
+	const packetsSent = sentEnvelopes;
+	const packetsReceived = recvEnvelopes;
+
+	return {
+		pingMs: lastWabidbRttMs == null ? null : roundMetric(lastWabidbRttMs, 0),
+		jitterMs: roundMetric(jitterMs, 1),
+		outboundPacketLossPct: null,
+		inboundPacketLossPct: roundMetric(inboundPacketLossPct, 2),
+		outboundKbps: roundMetric(outboundKbps, 1),
+		inboundKbps: roundMetric(inboundKbps, 1),
+		connectionState: get(connectionState),
+		updatedAt: now,
+		packetsSent,
+		packetsReceived,
+		source: 'wabidb'
+	};
 }
 
 export function startCallDiagnosticsPolling(provider: CallStateProvider, noticeHandler: NoticeHandler): void {
@@ -233,4 +352,6 @@ export function stopCallDiagnosticsPolling(state: ConnectionLifecycleState = 'id
 	}
 	resetCallConnectionDiagnostics(state);
 	activeVideoQualityTier = 'high';
+	lastWabidbRttMs = null;
+	wabidbPrevSample = null;
 }

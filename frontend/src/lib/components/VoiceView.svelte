@@ -23,7 +23,30 @@
 		cameraOff,
 		leaveAllCalls
 	} from '$lib/callSurfaces';
-	import { isMuted, isDeafened, activeCalls } from '$lib/calling';
+	import { isMuted, isDeafened, activeCalls, callTransportState, switchCallTransport } from '$lib/calling';
+	import { getSocket } from '$lib/socketConnection';
+
+	let transportSwapBusy = false;
+	const currentTransport = $derived($callTransportState.activeTransport);
+	async function handleTransportSwap(): Promise<void> {
+		if (transportSwapBusy) return;
+		transportSwapBusy = true;
+		try {
+			const socket = getSocket();
+			if (!socket || !socket.connected) {
+				pushVoiceNotice('Not connected to server — cannot swap transport');
+				return;
+			}
+			await switchCallTransport(socket, currentTransport === 'wabidb' ? 'p2p' : 'wabidb');
+		} catch (err) {
+			console.error('[VoiceView] transport swap failed:', err);
+		} finally {
+			transportSwapBusy = false;
+		}
+	}
+	function pushVoiceNotice(text: string): void {
+		console.warn(`[VoiceView] ${text}`);
+	}
 	import VideoSink from './VideoSink.svelte';
 
 	let sessions = $derived([...$callSessions.values()].sort((a, b) => {
@@ -222,6 +245,15 @@
 			{$isDeafened ? 'Undeafen All' : 'Deafen All'}
 		</button>
 		<button type="button" onclick={cameraOff}>Camera Off</button>
+		<button
+			type="button"
+			class="swap"
+			onclick={handleTransportSwap}
+			disabled={sessions.length === 0 || transportSwapBusy}
+			title="Swap every live call between the wabidb relay and direct peer-to-peer without leaving"
+		>
+			{transportSwapBusy ? 'Swapping…' : currentTransport === 'wabidb' ? 'Swap to P2P' : 'Swap to WabiDB'}
+		</button>
 		<button type="button" class="danger" onclick={leaveAllCalls} disabled={sessions.length === 0}>Leave All</button>
 	</footer>
 </div>

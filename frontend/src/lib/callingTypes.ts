@@ -78,6 +78,12 @@ export interface CallConnectionDiagnostics {
 	inboundKbps: number | null;
 	connectionState: ConnectionLifecycleState;
 	updatedAt: number | null;
+	/** 2026-08-27 — transport-agnostic packet totals (WebRTC getStats or
+	 * wabidb relay envelope counters; null when the source doesn't report). */
+	packetsSent?: number | null;
+	packetsReceived?: number | null;
+	/** Which transport produced this sample ('webrtc' | 'wabidb' | null). */
+	source?: 'webrtc' | 'wabidb' | null;
 }
 
 export interface PeerConnectionState {

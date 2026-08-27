@@ -362,6 +362,15 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            // Calling diagnostics RTT echo for the wabidb relay transport
+            // (2026-08-27): the client stamps {t} and measures the round
+            // trip on `wabidb-pong`. Stateless by design — no DB/state IO.
+            socket.on("wabidb-ping", {
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let _ = socket.emit("wabidb-pong", data);
+                }
+            });
+
             socket.on("call-offer", {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
