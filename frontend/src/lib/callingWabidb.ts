@@ -505,6 +505,14 @@ export async function connectWabidbCall(
 					await connectWabidbCall(socket, targetChannelId, localDisplayName, serverUrl, peerUserId, listenOnly);
 					return;
 				}
+				if (transport === 'p2p') {
+					// 2026-08-27: a dead relay used to be a dead call — the watchdog
+					// had no p2p path and just threw. Rebuild the mesh via the impl
+					// module (dynamic import: calling_impl imports this module).
+					const { reEstablishChannelP2P } = await import('./calling_impl_core');
+					await reEstablishChannelP2P(socket, targetChannelId);
+					return;
+				}
 				throw new Error(`watchdog cannot re-establish ${transport} from here`);
 			},
 			disconnectCurrent: async () => {

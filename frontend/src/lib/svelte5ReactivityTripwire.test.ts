@@ -160,16 +160,21 @@ describe('svelte5 reactivity contract — calling sidebar', () => {
 		expect(hits.some((h) => h.store === 'helper:getMembers')).toBe(true);
 	});
 
-	test('second-click embed survives: handleVoiceChannelClick calls openChannelCallPanel', () => {
-		// Peer sessions have twice reverted this line, killing the embedded call
-		// view ("can't open the call view anymore"). Guard it as behavior.
+	test('click contract: 1st click joins in place, 2nd click opens the focused call view', () => {
+		// Guarded as behavior (peer sessions have reverted this line before).
+		// 2026-08-27 product decision (Discord model): joining must NOT force a
+		// call surface over the chat; the SECOND click on a connected channel
+		// opens the Voice view focused on that call. The old contract
+		// (openChannelCallPanel → translucent CallModal) is retired.
 		const source = readFileSync(
 			join(here, 'components/ChannelSidebar.svelte'),
 			'utf8'
 		);
 		const fnMatch = source.match(/async function handleVoiceChannelClick[\s\S]{0,600}/);
 		expect(fnMatch).not.toBeNull();
-		expect(fnMatch![0]).toContain('openChannelCallPanel');
+		expect(fnMatch![0]).toContain('openVoiceView()');
+		expect(fnMatch![0]).toContain('focusCall(id)');
+		expect(fnMatch![0]).not.toContain('openChannelCallPanel');
 	});
 
 	// Self-check 2 (inline mode): raw store reads DO appear inside untrack

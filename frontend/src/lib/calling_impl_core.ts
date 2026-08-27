@@ -2595,8 +2595,12 @@ export function dismissChannelCallPanel(): void {
 }
 
 function autoOpenChannelCallPanel(): void {
+	// 2026-08-27: channel joins must NOT force a call surface over the chat
+	// (Discord model — the roster lands in the sidebar, the Calls panel peeks).
+	// channelCallPanelOpen drove the old translucent CallModal spawn; the
+	// explicit panel toggle (openChannelCallPanel from the sidebar/panel
+	// buttons) still sets it.
 	callPanelDismissedByUser = false;
-	channelCallPanelOpen.set(true);
 	summonCallsStubOnJoin();
 }
 
@@ -2614,6 +2618,35 @@ function summonCallsStubOnJoin(): void {
 		}
 	} catch {
 		/* layout stores unavailable (SSR / early boot) — never block a join */
+	}
+}
+
+/**
+ * Re-establish ONE channel call over p2p mesh offers. Used by the transport
+ * swap AND by the watchdog's demote path (callingWabidb arms the watchdog
+ * with wabidb as the active transport; before this helper its p2p branch
+ * just threw "watchdog cannot re-establish p2p from here", so a dead relay
+ * = dead call — the wabi.chat wss outage, 2026-08-27).
+ */
+export async function reEstablishChannelP2P(socket: Socket, channelId: string): Promise<void> {
+	const roster = get(voiceChannelMembers)[channelId] ?? [];
+	const selfStable = (() => {
+		const dbId = getStoredDbUserId();
+		return dbId != null ? `user-${dbId}` : null;
+	})();
+	let offers = 0;
+	for (const member of roster) {
+		if (selfStable && member.userId === selfStable) continue;
+		try {
+			await createCallOffer(socket, member.userId, member.username ?? '', { channelId });
+			offers++;
+		} catch (err) {
+			console.warn(`[Calling] p2p re-establish offer failed for ${member.userId}:`, err);
+		}
+	}
+	callSessionManager.markConnected(channelId, 'p2p');
+	if (offers === 0) {
+		console.warn(`[Calling] p2p re-establish for ${channelId}: no peers answered the offer path yet`);
 	}
 }
 

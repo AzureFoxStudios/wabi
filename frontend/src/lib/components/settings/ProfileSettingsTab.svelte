@@ -4,6 +4,7 @@
 	import { brandName } from '$lib/branding';
 	import { currentUser, updateProfile } from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
+	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { changePassword, getUserSettings } from '$lib/api';
 	import { clearActiveCustomStatusPreset } from '$lib/customStatusPresets';
@@ -523,6 +524,9 @@
 	</div>
 {/if}
 
+<!-- 2026-08-27: payment surfaces are omitted entirely unless the server
+     explicitly permits payments (canViewPaymentUi). -->
+{#if $paymentAccessStore.canViewPaymentUi}
 <div class="settings-section">
 	<div class="icon-action-row">
 		<button type="button" class="icon-action" title="Payment requests you created" on:click={openPaymentHistorySafe} disabled={!$currentUser?.dbUserId}>
@@ -545,6 +549,7 @@
 		</button>
 	</div>
 </div>
+{/if}
 
 {#if $currentUser?.dbUserId}
 	<div class="settings-section">

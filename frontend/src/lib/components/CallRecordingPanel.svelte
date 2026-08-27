@@ -1,21 +1,27 @@
 <script lang="ts">
-	import type { CallRecordingState } from '$lib/callRecording';
+	import { formatRecordingElapsedForUi, stopCallRecording, type CallRecordingState } from '$lib/callRecording';
 
 	export let recordingState: CallRecordingState;
 	export let recordingLabel: string = '';
 	export let recordingPresenceCopy: string = '';
-	export const recordingPillText: string = '';
-	export const onToggleRecording: () => void = () => {};
+	// 2026-08-27: these were `export const` — NOT props. Parents passing
+	// recordingPillText/onToggleRecording were silently ignored, and the panel
+	// had no stop control of its own ("no ability to stop recording").
+	export let recordingPillText: string = '';
+	export let onToggleRecording: (() => void) | null = null;
 
-	function formatRecordingElapsed(elapsedMs: number): string {
-		const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-		const hours = Math.floor(totalSeconds / 3600);
-		const minutes = Math.floor((totalSeconds % 3600) / 60);
-		const seconds = totalSeconds % 60;
-		if (hours > 0) {
-			return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+	let stopping = false;
+	async function handleStop(): Promise<void> {
+		if (stopping) return;
+		stopping = true;
+		try {
+			if (onToggleRecording) onToggleRecording();
+			else await stopCallRecording();
+		} catch (err) {
+			console.error('[CallRecordingPanel] stop failed:', err);
+		} finally {
+			stopping = false;
 		}
-		return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 	}
 </script>
 
@@ -24,12 +30,17 @@
 		<span class="recording-pill" class:is-saving={recordingState.status === 'saving'}>
 			<span class="recording-dot"></span>
 			{#if recordingState.status === 'recording'}
-				REC {formatRecordingElapsed(recordingState.elapsedMs)}
+				REC {formatRecordingElapsedForUi(recordingState.elapsedMs)}
 			{:else}
 				Saving
 			{/if}
 		</span>
 		<span class="recording-copy">{recordingPresenceCopy}</span>
+		{#if recordingState.status === 'recording'}
+			<button type="button" class="recording-stop-btn" onclick={handleStop} disabled={stopping}>
+				{stopping ? 'Stopping…' : 'Stop'}
+			</button>
+		{/if}
 	</div>
 {/if}
 
@@ -68,6 +79,23 @@
 		padding: 0.65rem 0.9rem;
 		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.22);
 		border-bottom: 1px solid rgba(var(--color-danger-rgb, 248, 113, 113), 0.18);
+	}
+
+	.recording-stop-btn {
+		flex-shrink: 0;
+		padding: 0.3rem 0.7rem;
+		border-radius: 999px;
+		border: 1px solid rgba(var(--color-danger-rgb, 248, 113, 113), 0.45);
+		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.5);
+		color: var(--accent-danger-soft, #fef2f2);
+		font-size: 0.74rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.recording-stop-btn:disabled {
+		opacity: 0.6;
+		cursor: default;
 	}
 
 	.recording-copy {

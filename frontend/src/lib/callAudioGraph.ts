@@ -62,6 +62,29 @@ export function ensureCallAudioGraph(): CallAudioGraphHandle | null {
 	}
 }
 
+/**
+ * Recording tap: a MediaStreamDestination fed by the shared master bus. The
+ * call recorder mixes this stream whenever remote audio rides the wabidb
+ * relay (no per-peer MediaStreams exist there to record) — 2026-08-27.
+ * Created lazily, never disconnected (a silent tap costs nothing).
+ */
+let recordTap: MediaStreamAudioDestinationNode | null = null;
+
+export function getCallAudioGraphRecordStream(): MediaStream | null {
+	const handle = ensureCallAudioGraph();
+	if (!handle) return null;
+	if (!recordTap) {
+		try {
+			recordTap = handle.ctx.createMediaStreamDestination();
+			handle.master.connect(recordTap);
+		} catch (error) {
+			console.warn('[CallAudioGraph] record tap unavailable:', error);
+			return null;
+		}
+	}
+	return recordTap.stream;
+}
+
 function ensureChain(sessionId: string): SessionChain | null {
 	const handle = ensureCallAudioGraph();
 	if (!handle) return null;
