@@ -154,6 +154,16 @@ impl WdbAdapter {
             reason: format!("decode failed: {}", e),
         })
     }
+
+    /// True for nameless ghost channel rows left behind by older replays
+    /// (an update event applied before any create event materialized a
+    /// placeholder row with an empty name). Every real create path sets a
+    /// non-empty name, an owner (or at least a created-at timestamp), so
+    /// a row matching ALL of these can only be a ghost — filtering it
+    /// cleans up legacy data without touching real channels.
+    fn is_legacy_ghost_channel(c: &Channel) -> bool {
+        c.name.trim().is_empty() && c.owner_user_id == 0 && c.created_at_micros == 0
+    }
 }
 
 /// Returns current wall-clock time in microseconds since Unix epoch.
@@ -700,7 +710,16 @@ impl WabiStore for WdbAdapter {
         let state = self.engine.projection_state();
         let key = channel_id.as_bytes().to_vec();
         match state.get("channels", &key) {
-            Some(bytes) => Ok(Some(Self::decode::<Channel>(&bytes)?)),
+            Some(bytes) => {
+                let channel = Self::decode::<Channel>(&bytes)?;
+                // Tombstoned rows (legacy soft-deletes that predate the
+                // durable channel_deleted event) and nameless ghost rows
+                // must read as gone.
+                if !channel.is_active || Self::is_legacy_ghost_channel(&channel) {
+                    return Ok(None);
+                }
+                Ok(Some(channel))
+            }
             None => Ok(None),
         }
     }
@@ -709,8 +728,17 @@ impl WabiStore for WdbAdapter {
         use wabidb::projections::channels::ChannelProjection;
         use wabidb::projections::query::ChannelsFilter;
         let state = self.engine.projection_state();
-        let all: Vec<Channel> =
-            ChannelProjection.query(&state, &ChannelsFilter::default())?;
+        // Filter out soft-deleted (is_active=false) rows here: legacy
+        // deletions left tombstones in the index with no durable event,
+        // and without this filter every page load re-served them to all
+        // clients ("zombie channels"). Also drop legacy nameless ghost
+        // rows (created by old replays applying an update before any
+        // create) — they rendered as bare "#" / raw-id channels.
+        let all: Vec<Channel> = ChannelProjection
+            .query(&state, &ChannelsFilter::default())?
+            .into_iter()
+            .filter(|c| c.is_active && !Self::is_legacy_ghost_channel(c))
+            .collect();
         match member_user_id {
             None => Ok(all),
             Some(uid) => {
@@ -806,15 +834,36 @@ impl WabiStore for WdbAdapter {
     // Soft-delete + edit (overwrite with updated record)
     // ============================================================
 
-    async fn delete_channel(&self, channel_id: &str, _actor_user_id: u64) -> Result<()> {
-        // v1: soft-delete by overwriting the channel row with is_active=false.
-        if let Some(mut ch) = self.get_channel(channel_id).await? {
-            ch.is_active = false;
-            let bytes = Self::payload_json(&ch)?;
-            let state = self.engine.projection_state();
-            let key = channel_id.as_bytes().to_vec();
-            state.insert("channels", key, bytes, u64::MAX);
-        }
+    async fn delete_channel(&self, channel_id: &str, actor_user_id: u64) -> Result<()> {
+        // Tombstone the row synchronously first so concurrent readers see
+        // the deletion immediately (read-your-writes), then commit the
+        // durable `channel_deleted` event. The projection handler REMOVES
+        // the row when the event applies; the event itself is what makes
+        // the deletion survive event-log replay, snapshot restore and
+        // replication. The old projection-only overwrite emitted no event,
+        // so every restart/replay resurrected the channel ("zombie
+        // channels" — they were never truly deleted).
+        let Some(mut ch) = self.get_channel(channel_id).await? else {
+            // Unknown or already deleted — nothing to do (idempotent).
+            return Ok(());
+        };
+        ch.is_active = false;
+        let bytes = Self::payload_json(&ch)?;
+        let state = self.engine.projection_state();
+        let key = channel_id.as_bytes().to_vec();
+        state.insert("channels", key, bytes, u64::MAX);
+        let payload = serde_json::json!({ "channel_id": channel_id });
+        self.run(
+            actor_user_id,
+            "delete_channel",
+            format!("channels:{}", channel_id),
+            "channel_deleted",
+            1, // 1 = channel
+            Self::payload_json(&payload)?,
+            true,
+            None,
+        )
+        .await?;
         Ok(())
     }
 
@@ -904,6 +953,13 @@ impl WabiStore for WdbAdapter {
         let state = self.engine.projection_state();
         let mut out = Vec::new();
         for c in ChannelProjection.query(&state, &ChannelsFilter::default())? {
+            // Soft-deleted rows (and nameless legacy ghost rows) must
+            // never reach clients — this is the socket-init channel list;
+            // tombstones served here are what made deleted channels
+            // reappear on every page load.
+            if !c.is_active || Self::is_legacy_ghost_channel(&c) {
+                continue;
+            }
             let mut row = std::collections::HashMap::new();
                 row.insert("channel_id".into(), serde_json::Value::String(c.channel_id.clone()));
                 row.insert("id".into(), serde_json::Value::String(c.channel_id));

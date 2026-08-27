@@ -3,7 +3,7 @@
 //! GET    /api/channels      — list all channels (public)
 //! POST   /api/channels      — create channel (admin only)
 //! GET    /api/channels/{id} — get single channel (public)
-//! DELETE /api/channels/{id} — archive channel (admin only)
+//! DELETE /api/channels/{id} — delete channel (admin only)
 
 use axum::{
     extract::{Path, Query, State},
@@ -408,9 +408,10 @@ async fn delete_channel(
         ));
     }
 
-    // WdbAdapter::delete_channel uses the trait's default impl (Ok(()))
-    // for v1 — a no-op soft-delete. The real engine event emission
-    // (channel_deleted → projection handler) is a later WDB engine pass.
+    // WdbAdapter::delete_channel tombstones the row synchronously and
+    // commits a durable `channel_deleted` event; the channels projection
+    // removes the row when the event applies, so the deletion survives
+    // restarts/replay (no zombie channels).
     let all_channels = state.wdb.list_channels(None).await?;
     let mut deleted_ids = vec![id.clone()];
     let mut changed = true;

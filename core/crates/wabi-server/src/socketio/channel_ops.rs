@@ -135,21 +135,30 @@ async fn on_reorder_channels(socket: SocketRef, data: Value, state: SioState, io
         let position = entry.get("position").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
         let parent_id = entry.get("parentId").and_then(|v| v.as_str());
 
-        // Single durable event per channel. The channels projection merges
-        // `update_settings` and `update` identically (projections/channels.rs),
-        // so the old double-ingest was pure write amplification — two event
-        // rows per dragged channel. `update_settings` also preserves the
-        // audit-projection mapping.
-        let mut row = serde_json::Map::new();
-        row.insert("channel_id".to_string(), json!(id));
-        row.insert("position".to_string(), json!(position));
-        if let Some(pid) = parent_id {
-            row.insert("parent_id".to_string(), json!(pid));
-        } else {
-            row.insert("parent_id".to_string(), json!(serde_json::Value::Null));
-        }
+        // Single durable event per channel, routed through `update_channel`
+        // so it lands as `channel_updated` — the event type the channels
+        // projection actually merges (projections/channels.rs). The old
+        // `ingest_event("channel", "update_settings")` call was translated
+        // into `channel_settings_updated`, which only the AUDIT projection
+        // consumes: positions/folder moves silently reverted on every page
+        // load. `update_channel` sends exactly the fields present
+        // (channel_id + position + parent_id), so it is still one event.
+        let mut patch = serde_json::Map::new();
+        patch.insert("position".to_string(), json!(position));
+        patch.insert(
+            "parent_id".to_string(),
+            match parent_id {
+                Some(pid) => json!(pid),
+                None => json!(serde_json::Value::Null),
+            },
+        );
 
-        if let Err(e) = state.app.wdb.ingest_event("channel", "update_settings", &json!({ "row": row })).await {
+        if let Err(e) = state
+            .app
+            .wdb
+            .update_channel(&id, &serde_json::Value::Object(patch), caller_id as u64)
+            .await
+        {
             warn!("[sio] reorder-channels: failed to update {}: {}", id, e);
         }
     }
