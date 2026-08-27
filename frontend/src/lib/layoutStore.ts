@@ -33,7 +33,9 @@ import {
 	selectedDmChannelId,
 	dmOtherUser,
 	centerDmChannelId,
+	centerDmOtherUser,
 	selectedGroupChannel,
+	centerGroupChannel,
 	pinnedDmChannelId,
 	pinnedDmOtherUser,
 	obviousGrabRails,
@@ -163,8 +165,8 @@ const showNotesTab = () => {
 const openDM = (channelIdStr: string, otherUserObj: any, target: 'center' | 'right' = 'right') => {
 	if (target === 'center') {
 		centerDmChannelId.set(channelIdStr);
-		dmOtherUser.set(otherUserObj);
-		selectedGroupChannel.set(null);
+		centerDmOtherUser.set(otherUserObj);
+		centerGroupChannel.set(null);
 	} else {
 		selectedDmChannelId.set(channelIdStr);
 		dmOtherUser.set(otherUserObj);
@@ -176,8 +178,8 @@ const openDM = (channelIdStr: string, otherUserObj: any, target: 'center' | 'rig
 const openGroupDM = (channelIdStr: string, channel: any, target: 'center' | 'right' = 'right') => {
 	if (target === 'center') {
 		centerDmChannelId.set(channelIdStr);
-		dmOtherUser.set(null);
-		selectedGroupChannel.set(channel);
+		centerDmOtherUser.set(null);
+		centerGroupChannel.set(channel);
 	} else {
 		selectedDmChannelId.set(channelIdStr);
 		dmOtherUser.set(null);
@@ -190,6 +192,14 @@ const openCenterDm = (channelIdStr: string, otherUserObj: any) => openDM(channel
 const openCenterGroupDm = (channelIdStr: string, channel: any) => openGroupDM(channelIdStr, channel, 'center');
 const closeCenterDm = () => {
 	centerDmChannelId.set(null);
+	centerDmOtherUser.set(null);
+	centerGroupChannel.set(null);
+};
+
+const closeRightDm = () => {
+	selectedDmChannelId.set(null);
+	dmOtherUser.set(null);
+	selectedGroupChannel.set(null);
 };
 
 	/** N2: open the real notes workspace panel — not a fake DM conversation. */
@@ -204,10 +214,8 @@ const closeCenterDm = () => {
 	};
 
 const closeDM = () => {
-	selectedDmChannelId.set(null);
-	centerDmChannelId.set(null);
-	dmOtherUser.set(null);
-	selectedGroupChannel.set(null);
+	closeRightDm();
+	closeCenterDm();
 };
 
 const pinToAux = (channelId: string, otherUser: any) => {
@@ -274,10 +282,12 @@ const layout = derived(
 		pinnedPanelId,
 		selectedDmChannelId,
 		centerDmChannelId,
+		centerDmOtherUser,
 		pinnedDmChannelId,
 		dmOtherUser,
 		pinnedDmOtherUser,
 		selectedGroupChannel,
+		centerGroupChannel,
 		isResizing,
 		navDock,
 		activeWorkspace,
@@ -297,10 +307,12 @@ const layout = derived(
 		$pinnedPanelId,
 		$selectedDmChannelId,
 		$centerDmChannelId,
+		$centerDmOtherUser,
 		$pinnedDmChannelId,
 		$dmOtherUser,
 		$pinnedDmOtherUser,
 		$selectedGroupChannel,
+		$centerGroupChannel,
 		$isResizing,
 		$navDock,
 		$activeWorkspace,
@@ -324,10 +336,12 @@ const layout = derived(
 			toggleButtonRight: showRightPanel ? $rightPanelWidth : 0,
 			selectedDmChannelId: $selectedDmChannelId,
 			centerDmChannelId: $centerDmChannelId,
+			centerDmOtherUser: $centerDmOtherUser,
 			pinnedDmChannelId: $pinnedDmChannelId,
 			dmOtherUser: $dmOtherUser,
 			pinnedDmOtherUser: $pinnedDmOtherUser,
 			selectedGroupChannel: $selectedGroupChannel,
+			centerGroupChannel: $centerGroupChannel,
 			isResizing: $isResizing,
 			navDock: $navDock,
 			isNavCollapsed: $channelSidebarWidth <= 0,
@@ -361,10 +375,12 @@ export const layoutStore = {
 	isResizingRight,
 	selectedDmChannelId,
 	centerDmChannelId,
+	centerDmOtherUser,
 	pinnedDmChannelId,
 	dmOtherUser,
 	pinnedDmOtherUser,
 	selectedGroupChannel,
+	centerGroupChannel,
 	rightPanelMode,
 	activeRightTab,
 	pinnedPanelId,
@@ -401,6 +417,7 @@ export const layoutStore = {
 	openCenterDm,
 	openCenterGroupDm,
 	closeCenterDm,
+	closeRightDm,
 	openNotes,
 	closeDM,
 	pinToAux,

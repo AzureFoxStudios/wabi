@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import { users, currentUser } from '$lib/socket';
+  import { users, serverMembers, currentUser } from '$lib/socket';
   import type { User } from '$lib/socket-types';
+  import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 
   const dispatch = createEventDispatcher<{
     select: User;
@@ -10,12 +11,11 @@
 
   let search = '';
 
-  $: filtered = ($users || []).filter((u: User) => {
-    if (u.id === $currentUser?.id) return false;
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (u.username || '').toLowerCase().includes(q)
-      || (u.handle || '').toLowerCase().includes(q);
+  $: filtered = buildDmDirectoryUsers({
+    onlineUsers: $users || [],
+    serverMembers: $serverMembers || [],
+    currentUser: $currentUser,
+    searchQuery: search
   });
 
   function select(user: User) {
@@ -51,7 +51,7 @@
 
   <div class="people-picker-list">
     {#if search}
-      {#each filtered as user (user.id)}
+      {#each filtered as user (getDmDirectoryKey(user))}
         <button class="people-picker-item" on:click={() => select(user)}>
           <div class="people-picker-avatar">
             {#if user.profilePicture}
@@ -71,7 +71,7 @@
         <div class="people-picker-empty">No results</div>
       {/each}
     {:else}
-      {#each filtered as user (user.id)}
+      {#each filtered as user (getDmDirectoryKey(user))}
         <button class="people-picker-item" on:click={() => select(user)}>
           <div class="people-picker-avatar">
             {#if user.profilePicture}

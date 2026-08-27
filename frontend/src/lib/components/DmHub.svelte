@@ -1,16 +1,18 @@
 <script lang="ts">
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
-  import { channels, channelMessages, currentUser, userLookup, channelUnreadCounts, createDM, joinChannel } from '$lib/socket';
-  import { get } from 'svelte/store';
+  import { channels, channelMessages, currentUser, users, serverMembers, channelUnreadCounts, createDM, joinChannel } from '$lib/socket';
   import type { Channel, User, Message } from '$lib/socket-types';
-  import { getDMOtherUser } from '$lib/userLookupStore';
+  import { getDmDirectoryKey } from '$lib/dmUserDirectory';
+  import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
   import PeoplePicker from './PeoplePicker.svelte';
   import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 
   import { openDetachedPanel } from '$lib/detachedPanels';
 
   let showPeoplePicker = false;
+  let pendingDmUser: User | null = null;
+  let pendingDmError = '';
 
   let showExternalConfig = false;
   let externalApp = 'obsidian' as 'obsidian' | 'notion' | 'logseq' | 'custom' | 'none';
@@ -62,8 +64,7 @@
   let contextMenuChannel: Channel | null = null;
 
   function otherUserFor(channel: Channel): User | null {
-    if (channel.otherUser) return channel.otherUser;
-    return getDMOtherUser(channel, $currentUser, $userLookup);
+    return resolveDmOtherUser(channel, $currentUser, $users, $serverMembers);
   }
 
   function conversationLabel(channel: Channel): string {
@@ -119,21 +120,21 @@
     }
   }
 
-  function openInCenter(channel: Channel) {
-    const other = otherUserFor(channel);
+  function openInCenter(channel: Channel, fallbackUser: User | null = null) {
+    const other = fallbackUser || otherUserFor(channel);
     if (channel.type === 'group') {
       layoutStore.openCenterGroupDm(channel.id, channel);
-    } else if (other) {
+    } else {
       layoutStore.openCenterDm(channel.id, other);
     }
     joinChannel(channel.id);
   }
 
-  function openInSidePanel(channel: Channel) {
-    const other = otherUserFor(channel);
+  function openInSidePanel(channel: Channel, fallbackUser: User | null = null) {
+    const other = fallbackUser || otherUserFor(channel);
     if (channel.type === 'group') {
       layoutStore.openGroupDM(channel.id, channel);
-    } else if (other) {
+    } else {
       layoutStore.openDM(channel.id, other);
     }
     joinChannel(channel.id);
@@ -154,30 +155,63 @@
       ]
     : [];
 
+  function upsertLocalDmPlaceholder(channel: Channel): Channel {
+    channels.update((allChannels) => {
+      const existing = allChannels.find((candidate) => candidate.id === channel.id);
+      if (existing) return allChannels.map((candidate) => (candidate.id === channel.id ? { ...candidate, ...channel } : candidate));
+      return [...allChannels, channel];
+    });
+    return channel;
+  }
+
+  function isSelfUser(user: User): boolean {
+    const selfStableId = getDmStableUserId($currentUser);
+    const userStableId = getDmStableUserId(user);
+    return Boolean(selfStableId && userStableId && selfStableId === userStableId);
+  }
+
   async function handlePersonSelected(user: User) {
+    pendingDmError = '';
     showPeoplePicker = false;
-    if (!user.dbUserId) return;
-    const self = $currentUser;
-    if (!self || user.dbUserId === self.dbUserId) return;
-    const existing = ($channels || []).find(
-      (ch: Channel) => ch.type === 'dm' && ch.otherUser?.id === user.id
-    );
+    if (isSelfUser(user)) return;
+
+    const existing = findExistingDmChannel($channels || [], user);
     if (existing) {
-      layoutStore.openCenterDm(existing.id, user);
-      joinChannel(existing.id);
+      openInCenter(existing, user);
       return;
     }
-    createDM(user.id);
-    const unsubscribe = channels.subscribe((allChannels: Channel[]) => {
-      const newDM = allChannels.find(
-        (ch: Channel) => ch.type === 'dm' && (ch.otherUser?.id === user.id)
-      );
-      if (newDM) {
-        layoutStore.openCenterDm(newDM.id, user);
-        joinChannel(newDM.id);
-        unsubscribe();
-      }
-    });
+
+    pendingDmUser = user;
+    const result = await createDM(getDmDirectoryKey(user));
+    const alreadyOpened = pendingDmUser === null;
+    if (alreadyOpened) return;
+
+    const created =
+      (result.ok ? result.channel : undefined) ||
+      (result.channelId ? ($channels || []).find((channel) => channel.id === result.channelId) : null) ||
+      findExistingDmChannel($channels || [], user) ||
+      (result.channelId ? upsertLocalDmPlaceholder(buildDmPlaceholderChannel(result.channelId, user, $currentUser)) : null);
+
+    if (created) {
+      pendingDmUser = null;
+      openInCenter(created, user);
+      return;
+    }
+
+    pendingDmUser = null;
+    pendingDmError = result.ok
+      ? 'DM created, but the conversation was not returned by the server.'
+      : (result as { ok: false; error: string }).error;
+    showPeoplePicker = true;
+  }
+
+  $: if (pendingDmUser) {
+    const created = findExistingDmChannel($channels || [], pendingDmUser);
+    if (created) {
+      const user = pendingDmUser;
+      pendingDmUser = null;
+      openInCenter(created, user);
+    }
   }
 
   /**
@@ -265,7 +299,14 @@
     {#if showPeoplePicker}
       <div class="dm-hub-picker">
         <PeoplePicker on:select={async (e) => handlePersonSelected(e.detail)} on:close={() => (showPeoplePicker = false)} />
+        {#if pendingDmError}
+          <div class="dm-hub-error" role="alert">{pendingDmError}</div>
+        {/if}
       </div>
+    {/if}
+
+    {#if pendingDmUser}
+      <div class="dm-hub-pending" role="status">Opening conversation with {pendingDmUser.username}…</div>
     {/if}
 
     <div class="dm-hub-scroll">
@@ -416,6 +457,26 @@
   .dm-hub-picker {
     padding: var(--space-3, 12px) var(--space-6, 24px);
     border-bottom: 1px solid var(--color-border-primary, #302b63);
+  }
+
+  .dm-hub-pending,
+  .dm-hub-error {
+    margin: var(--space-3, 12px) var(--space-6, 24px) 0;
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    border-radius: var(--radius-md, 8px);
+    font-size: var(--font-size-sm, 13px);
+  }
+
+  .dm-hub-pending {
+    color: var(--text-secondary, #b3b3ff);
+    background: color-mix(in srgb, var(--accent-primary-color, #6366f1) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary-color, #6366f1) 24%, transparent);
+  }
+
+  .dm-hub-error {
+    color: var(--color-danger, #ef4444);
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 28%, transparent);
   }
 
   .dm-hub-scroll {

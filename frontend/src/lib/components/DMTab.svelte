@@ -18,6 +18,7 @@
 	import { pinnedDmIdsStore, prunePinnedDms, togglePinnedDm } from '$lib/pinDms';
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
+	import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
 	type ConversationAction = {
 		id: 'voice' | 'video' | 'remove';
 		label: string;
@@ -34,6 +35,8 @@
 
 	let searchQuery = '';
 	let showNewDM = false;
+	let creatingDmKey: string | null = null;
+	let createDmError = '';
 	let showCreateGroup = false;
 	let showGroupSettings = false;
 	let showContextMenu = false;
@@ -50,10 +53,12 @@
 	const HEADER_INLINE_ACTION_BREAKPOINT = 370;
 
 	$: selectedDmId = $layoutStore.selectedDmChannelId;
-	$: dmOther = $layoutStore.dmOtherUser;
 	$: selectedGroup = $layoutStore.selectedGroupChannel;
 	$: isKeepNotesSelected = selectedDmId === NOTES_DM_ID;
 	$: selectedDmChannel = selectedDmId ? $channels.find(ch => ch.id === selectedDmId) || null : null;
+	$: dmOther = selectedDmChannel?.type === 'dm'
+		? resolveDmOtherUser(selectedDmChannel, $currentUser, $users, $serverMembers)
+		: null;
 	$: selectedDmPrivacyMode = selectedDmChannel?.type === 'dm'
 		? getConversationPrivacyMode(selectedDmChannel.id)
 		: null;
@@ -83,15 +88,7 @@
 	});
 
 	function getOtherUser(channel: Channel): User | null {
-		if (channel.otherUser) return channel.otherUser;
-		const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
-		const otherStableId = (channel.members || []).find((id: string) => id !== myStableId);
-		if (!otherStableId) return null;
-		if (otherStableId.startsWith('user-')) {
-			const dbId = parseInt(otherStableId.substring(5), 10);
-			return $users.find(u => u.dbUserId === dbId) || null;
-		}
-		return $users.find(u => u.id === otherStableId) || null;
+		return resolveDmOtherUser(channel, $currentUser, $users, $serverMembers);
 	}
 
 	function getLastPreview(channelId: string): string {
@@ -154,10 +151,53 @@
 		layoutStore.openNotes();
 	}
 
-	function startDMWith(user: User) {
-		createDM(getDmDirectoryKey(user));
+	function upsertLocalDmPlaceholder(channel: Channel): Channel {
+		channels.update((allChannels) => {
+			const existing = allChannels.find((candidate) => candidate.id === channel.id);
+			if (existing) return allChannels.map((candidate) => (candidate.id === channel.id ? { ...candidate, ...channel } : candidate));
+			return [...allChannels, channel];
+		});
+		return channel;
+	}
+
+	function isSelfUser(user: User): boolean {
+		const selfStableId = getDmStableUserId($currentUser);
+		const targetStableId = getDmStableUserId(user);
+		return Boolean(selfStableId && targetStableId && selfStableId === targetStableId);
+	}
+
+	async function startDMWith(user: User) {
+		createDmError = '';
+		if (isSelfUser(user)) return;
+		const targetKey = getDmDirectoryKey(user);
+		const existing = findExistingDmChannel($channels || [], user);
 		showNewDM = false;
 		searchQuery = '';
+		if (existing) {
+			selectConversation(existing);
+			return;
+		}
+
+		creatingDmKey = targetKey;
+		const result = await createDM(targetKey);
+		if (creatingDmKey !== targetKey) return;
+		creatingDmKey = null;
+
+		const created =
+			(result.ok ? result.channel : undefined) ||
+			(result.channelId ? ($channels || []).find((channel) => channel.id === result.channelId) : null) ||
+			findExistingDmChannel($channels || [], user) ||
+			(result.channelId ? upsertLocalDmPlaceholder(buildDmPlaceholderChannel(result.channelId, user, $currentUser)) : null);
+
+		if (created) {
+			selectConversation(created);
+			return;
+		}
+
+		createDmError = result.ok
+			? 'DM created, but the conversation was not returned by the server.'
+			: (result as { ok: false; error: string }).error;
+		showNewDM = true;
 	}
 
 	function handleDeleteOrLeave(channel: Channel) {
@@ -166,7 +206,7 @@
 		} else {
 			deleteDM(channel.id);
 		}
-		if (selectedDmId === channel.id) layoutStore.closeDM();
+		if (selectedDmId === channel.id) layoutStore.closeRightDm();
 	}
 
 	async function startDMQuickCall(user: User, withVideo: boolean) {
@@ -474,7 +514,7 @@
 		<div class="dm-tab-active">
 			<div class="dm-active-header" bind:this={activeHeaderElement}>
 				<div class="dm-header-primary">
-					<button class="dm-back-btn" on:click={() => { showGroupSettings = false; layoutStore.closeDM(); }} title="Back to all DMs" aria-label="Back to all DMs">
+					<button class="dm-back-btn" on:click={() => { showGroupSettings = false; layoutStore.closeRightDm(); }} title="Back to all DMs" aria-label="Back to all DMs">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
 					</button>
 					<div class="dm-header-title-wrap">
@@ -580,9 +620,12 @@
 						placeholder="Search users..."
 						bind:value={searchQuery}
 					/>
+					{#if createDmError}
+						<div class="dm-new-error" role="alert">{createDmError}</div>
+					{/if}
 					<div class="dm-new-list">
 						{#each filteredUsers as user (getDmDirectoryKey(user))}
-							<button class="dm-new-user" on:click={() => startDMWith(user)}>
+							<button class="dm-new-user" disabled={creatingDmKey === getDmDirectoryKey(user)} on:click={() => startDMWith(user)}>
 								{#if user.profilePicture}
 									<img src={user.profilePicture} alt={user.username} class="dm-new-avatar" />
 								{:else}
@@ -1021,12 +1064,22 @@
 
 	.dm-search::placeholder { color: var(--text-secondary); }
 
-	.dm-new-list {
-		max-height: 180px;
-		overflow-y: auto;
-	}
+		.dm-new-error {
+			margin: 0 0 var(--space-2, 8px);
+			padding: var(--space-2, 8px) var(--space-3, 12px);
+			border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 28%, transparent);
+			border-radius: var(--radius-md, 8px);
+			background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
+			color: var(--color-danger, #ef4444);
+			font-size: var(--font-size-xs, 12px);
+		}
 
-	.dm-new-user {
+		.dm-new-list {
+			max-height: 180px;
+			overflow-y: auto;
+		}
+
+		.dm-new-user {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2, 8px);
@@ -1040,9 +1093,13 @@
 		text-align: left;
 	}
 
-	.dm-new-user:hover { background: var(--bg-hover); }
+		.dm-new-user:hover:not(:disabled) { background: var(--bg-hover); }
+		.dm-new-user:disabled {
+			opacity: 0.65;
+			cursor: progress;
+		}
 
-	.dm-new-avatar,
+		.dm-new-avatar,
 	.dm-new-avatar-ph {
 		width: 28px;
 		height: 28px;
