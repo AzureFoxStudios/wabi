@@ -67,6 +67,7 @@ import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
 import { LORE_ADDON_ID } from '$lib/loreWorkspace';
 import { FILES_ADDON_ID } from '$lib/filesWorkspace';
+	import { voiceViewOpen, closeVoiceView } from '$lib/voiceView';
 import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 import KeepNotesView from './KeepNotesView.svelte';
 import LoreWorkspace from './LoreWorkspace.svelte';
@@ -107,6 +108,9 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(NOTES_ADDON_ID)) return 'notes' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(LORE_ADDON_ID)) return 'lore' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(FILES_ADDON_ID)) return 'files' as const;
+		// Voice view is a plain boolean surface (no addon tab): report it when
+		// open, but AFTER the addon tabs — MainLayout renders tabs in front of it.
+		if ($voiceViewOpen) return 'voice' as const;
 		return 'messages' as const;
 	})();
 
@@ -127,6 +131,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			case 'map': return 'Map';
 			case 'media': return 'Media Albums';
 			case 'files': return 'Files';
+			case 'voice': return 'Voice';
 			default: return '';
 		}
 	})();
@@ -135,6 +140,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			case 'reader': return $readerSelection?.title || 'Reader';
 			case 'model': return $modelViewportSelection?.fileName || '3D model';
 			case 'map': return $focusedMapPlace?.name || 'Map';
+			case 'voice': return 'Voice';
 			default: return channelDisplayName;
 		}
 	})();
@@ -146,6 +152,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 			case 'map': return channelDisplayName ? `Opened from #${channelDisplayName}` : 'Map workspace';
 			case 'lore': return channelDescription;
 			case 'files': return "Shared files across this server's spaces";
+			case 'voice': return 'All calls, rosters and transport controls';
 			default: return channelDescription;
 		}
 	})();
@@ -384,6 +391,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	}
 
 	function returnToMessagesView(): void {
+		closeVoiceView();
 		if (chatSurface !== 'messages') setWhiteboardSurface($currentChannel, 'messages');
 		if ($layoutStore.rightPanelMode !== 'none' && $layoutStore.activeRightTab === 'media') layoutStore.closeRightPanel();
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) mobileTabQueue.closeAddonTab(READER_ADDON_ID);

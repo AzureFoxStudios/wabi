@@ -189,6 +189,7 @@ import {
 	removeScreenShare,
 	cleanupAllConnections,
 	openChannelCallPanel,
+	switchCallTransport,
 	presentRemoteScreenShare,
 	closeChannelCallPanel,
 	toggleChannelCallPanel,
@@ -208,6 +209,7 @@ export {
 } from './calling_impl_core';
 
 export {
+	switchCallTransport,
 	clearAudioPerformanceFallbackOverride,
 	refreshSpatialAudioRuntime,
 	toggleSpatialAudioEnabled,
