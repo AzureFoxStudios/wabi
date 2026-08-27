@@ -471,3 +471,90 @@ clean wabiDB↔p2p swap, (5) debug must show ping/packets/loss on BOTH transport
 5. During a call (either transport) → floating debug toggle (bottom corner, no longer
    dev-only) → ping/jitter/loss/rates/packets populated, Transport row names the
    metric source. On wabidb, ping = socket echo RTT; loss = inbound envelope gaps.
+
+---
+
+## Round 4 — 2026-08-27: wabi.chat field-test laundry list
+
+Reported live from wabi.chat (testing grounds). Root causes found + fixes:
+
+1. **Sent messages invisible until channel switch** — `MessageList.svelte`'s
+   render-window block cached the expiry-filtered list (`lastFilteredMessages`)
+   and skipped recompute whenever no ephemeral deadline had expired; channels
+   with no ephemeral messages NEVER picked up new messages. Fix: force
+   re-filter whenever the `messages` array reference changes; the deadline
+   check remains only as a nowMs-tick optimization.
+2. **Joining a channel call forced a translucent modal over chat** —
+   `callUiActive` mounted CallModal for ANY `$isInCall`, including
+   `callMode === 'channel'`. Discord model restored: channel calls live in
+   sidebar roster + Calls panel + Voice view; the modal stays for DM/group
+   rings + DM streams. `autoOpenChannelCallPanel` no longer flips
+   `channelCallPanelOpen` (stub summon only). Sidebar voice click: 1st click
+   joins in place, 2nd click on a connected channel opens Voice view focused
+   on that call (tripwire test updated to guard the new contract).
+3. **Recording was placebo** — `startCallRecording` awaited a
+   `call-recording-set-active` socket ack that the SERVER NEVER IMPLEMENTS →
+   the await hung forever: banner showed "REC 00:00", no MediaRecorder ever
+   started, stop() no-oped, leaving cut it silently. Fixes: 4s presence-ack
+   timeout (non-fatal — recording proceeds, transparency warns), timer starts
+   when the banner flips, `stopCallRecording` hard-resets ghost state,
+   CallRecordingPanel's `export const` props (silently-ignored!) fixed to
+   `export let` + a real Stop button in the banner, leave-guards
+   (`confirmLeaveWhileRecording`) on CallModal hangup / callSurfaces leaves /
+   sidebar leave-voice, VoiceView footer gains ⏺ Record/Stop with live timer
+   (channel calls no longer have the modal), and the mixed recorder taps the
+   shared callAudioGraph master bus when remote audio rides wabidb (no
+   per-peer MediaStreams exist there — remote voices were previously
+   unrecorded on that transport).
+   NOTE: the server-side recording-presence broadcast remains unimplemented
+   (client-side only); the timeout makes it safe but "recording transparency"
+   to other participants is still absent.
+4. **No self screen preview** — the wabidb video lane self-filters your own
+   stream; VoiceView session cards now render a "Your screen" tile from
+   `localScreenStream`.
+5. **GIF/emoji panel pushed messages up + stuck "Loading..."** —
+   `.emoji-picker-container` lost its positioning CSS in the d4d8162
+   extraction and rendered as an inline block; the container now lives inside
+   `.input-wrapper` as an anchored popover (like mention suggestions). The
+   lazy chunk load gets a failure state + Retry button instead of an eternal
+   spinner. The "GIF caption uses composer text (max 280 characters)" hint is
+   removed (owner: "why do we show that at all?").
+6. **Payments visible on a payments-disabled server** —
+   `resolvePaymentAccessSnapshot` failed OPEN on unknown policy; now fails
+   CLOSED (owner directive: disabled => omit all payment UI). Profile settings'
+   payment row (History/Refs/Support) hides unless `canViewPaymentUi`; tests
+   updated.
+7. **React bar** — Forward added to the hover bar (was context-menu only);
+   quick-reaction emoji `<img>`s get an `:name:` text fallback on error
+   (broken URLs no longer render broken-image boxes).
+8. **Watchdog couldn't demote to p2p** — its connect callback only knew
+   wabidb ("watchdog cannot re-establish p2p from here"), so a dead relay =
+   dead call. New `reEstablishChannelP2P` (mesh offers) wired via dynamic
+   import (no static cycle).
+9. **wss://…/ws unreachable on wabi.chat** — Caddyfile.example's backend path
+   list omitted `/ws`; the wabidb relay WebSocket fell through to the frontend
+   container killing the whole transport. Added `/ws /ws/*` (deployment must
+   apply this to the live Caddy config).
+10. **TURN 400 console noise** — server answers 400 "TURN not enabled" when
+    the profile is off; client now treats 400 as an expected quiet state.
+11. **CI `test` baseline failure fixed** — the ancient `setAuthToken` bun
+    failure was `$app/environment` (Vite virtual module) poisoning the shared
+    module cache across suites. tsconfig now maps `$app/*` to real stubs
+    (`test/stubs/`), a global `test/bunPreload.ts` mocks them, authSession
+    uses a local browser guard, and the `$lib/authSession` test mock provides
+    the full export surface. `bun test src/lib`: **175 pass / 0 fail**.
+
+### Unresolved (needs live repro)
+- **Alt+click channel glimpse** — wiring traced end-to-end (UnifiedChannelList
+  click → handleChannelButtonClick altKey → openChannelGlimpse → fixed-position
+  popout; CSS present; dismissal listeners exempt the button) and looks
+  correct on read. No code change made; need a browser repro (console state,
+  which sidebar surface, OS/browser) before touching it.
+
+### Gates
+- `npm run check`: 0 errors · `bun test src/lib`: 175/0/3 · `npm run build`: ✅
+- No Rust changes this round (Caddyfile + tsconfig + frontend only).
+- **Deploy note**: apply the `/ws` route to the live wabi.chat Caddy config,
+  then re-test: wabidb transport connect, transport swap button, diagnostics
+  source badge, recording (start → timer counts → Stop saves), join without
+  modal, 2nd-click focused view.

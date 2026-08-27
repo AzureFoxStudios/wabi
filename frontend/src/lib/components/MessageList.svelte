@@ -1136,6 +1136,12 @@
 		showForwardDialog = true;
 		contextMenuVisible = false;
 	}
+	/** Hover-bar forward (2026-08-27: forward existed only in the context
+	 * menu — the report asked why it was missing from the react bar). */
+	function handleForwardFromBar(message: Message): void {
+		forwardMessage = message;
+		showForwardDialog = true;
+	}
 	function isGroupedWithPrevious(index: number): boolean {
 		if (index <= 0) return false;
 		const current = messages[index];
@@ -1774,6 +1780,15 @@
 	let isLoadingServerHistory = false;
 	let visibleMessages: Message[] = [];
 	let visibleMessageStart = 0;
+	// 2026-08-27 regression fix: the render-window block below cached the
+	// expiry-filtered list (lastFilteredMessages) and skipped recompute on
+	// every pass where no ephemeral deadline had expired. In channels with
+	// no ephemeral messages that meant `visibleMessages` NEVER picked up
+	// newly sent/received messages until a channel switch forced a
+	// recompute — "send a message, see nothing, switch channels and back"
+	// (wabi.chat report). The deadline check is only a nowMs-tick
+	// optimization; a new `messages` array reference must ALWAYS re-filter.
+	let lastRenderSourceMessages: Message[] | null = null;
 
 	// Reactive statements to compute pagination state based on current channel
 	$: {
@@ -1828,9 +1843,11 @@
 		// uniqueness; the keyed {#each} below is the final backstop.
 		const expiredSinceLastPass =
 			earliestPendingDeadline !== null && nowMs >= earliestPendingDeadline;
-		if (!expiredSinceLastPass && lastFilteredMessages !== null) {
+		const messagesReplaced = messages !== lastRenderSourceMessages;
+		if (!messagesReplaced && !expiredSinceLastPass && lastFilteredMessages !== null) {
 			visibleMessages = lastFilteredMessages.slice(visibleMessageStart);
 		} else {
+			lastRenderSourceMessages = messages;
 			const filtered: Message[] = [];
 			let earliest: number | null = null;
 			for (const message of messages) {
@@ -1981,6 +1998,7 @@
 			ensureLinkPreviewLoaded={ensureLinkPreviewLoaded}
 			onReply={handleReply}
 			onQuickMention={handleQuickMention}
+			onForward={handleForwardFromBar}
 			onContextMenu={handleContextMenu}
 			onLongPress={handleMessageLongPress}
 			onOpenReactionPicker={openReactionPicker}

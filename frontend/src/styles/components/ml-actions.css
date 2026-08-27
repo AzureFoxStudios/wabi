@@ -131,3 +131,15 @@
 	height: 18px;
 	stroke-width: 2;
 }
+
+/* 2026-08-27: text fallback shown when a custom quick-reaction emoji image
+   404s — keeps the button usable instead of a broken-image box. */
+.quick-reaction-fallback {
+	font-size: var(--text-xs, 0.75rem);
+	font-weight: 600;
+	color: var(--text-secondary);
+	max-width: 48px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

@@ -85,7 +85,11 @@ Disallow:
     # API, WebSocket, uploads, and health checks -> backend container
     # ------------------------------------------------------------------
     @backend {
-        path /socket.io/* /api/* /uploads/* /health /health/*
+        # /ws = the wabidb media-relay WebSocket (wabidbCallConnection dials
+        # wss://<host>/ws). Without this route it falls through to the
+        # frontend container and the ENTIRE wabidb call transport dies with
+        # "Firefox can't establish a connection" (wabi.chat, 2026-08-27).
+        path /socket.io/* /api/* /uploads/* /health /health/* /ws /ws/*
     }
     reverse_proxy @backend localhost:8080 {
         # Forward client IP for logging

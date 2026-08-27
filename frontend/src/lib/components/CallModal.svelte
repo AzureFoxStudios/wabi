@@ -83,7 +83,7 @@
 		groupCallRecordingParticipants,
 		voiceCallRecordingParticipants
 	} from '$lib/callRecordingPresence';
-	import { callRecordingState, startCallRecording, stopCallRecording } from '$lib/callRecording';
+	import { callRecordingState, startCallRecording, stopCallRecording, confirmLeaveWhileRecording } from '$lib/callRecording';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { openWhiteboardSurface, queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import {
@@ -514,6 +514,9 @@
 	function handleEndCall() {
 		const sock = $socket || getSocket();
 		if (!sock) return;
+		// Recording leave-guard: confirm before ending a call that is being
+		// recorded (2026-08-27 report: leaving silently cut recordings).
+		if (!confirmLeaveWhileRecording()) return;
 		endCall(sock);
 		hatchOpen = false;
 		pinnedTileIds = [];

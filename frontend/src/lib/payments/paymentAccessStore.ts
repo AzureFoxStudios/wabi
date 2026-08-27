@@ -28,9 +28,11 @@ export function resolvePaymentAccessSnapshot(
 	actor?: PaymentAccessActorStatus | null
 ): PaymentAccessSnapshot {
 	if (!policy) {
-		// Policy unknown (server unreachable / no row yet): fail open for viewing
-		// (the sheet's empty state explains missing rails), keep creation auth-gated.
-		return { loaded: true, policyEnabled: false, canCreate: Boolean(token), canViewPaymentUi: true };
+		// 2026-08-27 owner directive: when we cannot CONFIRM payments are
+		// enabled, every payment surface stays hidden ("payments disabled ⇒ all
+		// payment settings/buttons omitted"). The old fail-open kept buttons
+		// visible on servers that never opted in (wabi.chat report).
+		return { loaded: true, policyEnabled: false, canCreate: false, canViewPaymentUi: false };
 	}
 	const policyEnabled = Boolean(policy.enabled);
 	// WS-3: the server-computed actor (persisted policy + payment user blocks)
