@@ -74,6 +74,17 @@ pub async fn replay_projections(
     let mut orphan_skipped: u64 = 0;
     let mut decrypt_skipped: u64 = 0;
     let mut replayed: u64 = 0;
+    // Collect first, apply AFTER sorting by commit_seq. Directory iteration
+    // order (category dir → stream dir → segment) is filesystem-dependent —
+    // ext4 hash order differs per filesystem — and applying inline let a
+    // later-seq event on one stream (e.g. `channel_deleted` on
+    // `channels:{id}`) land BEFORE an earlier-seq event on another (the
+    // shared `channels` stream's `channel_created`), which resurrected
+    // deleted channels on restart ("zombie channels", observed live on
+    // wabi.chat 2026-08-27). The sequencer assigns globally unique,
+    // totally ordered commit_seqs; sorting restores exactly the order the
+    // live dispatcher applied.
+    let mut collected: Vec<DurableEvent> = Vec::new();
     let mut kind_reader = tokio::fs::read_dir(&streams_dir).await?;
 
     while let Some(kind_entry) = kind_reader.next_entry().await? {
@@ -202,25 +213,31 @@ pub async fn replay_projections(
                         Err(_) => continue,
                     };
 
-                    let event = DurableEvent {
+                    collected.push(DurableEvent {
                         commit_seq,
                         stream_id: envelope.stream_id,
                         event_type: envelope.event_type,
                         payload: envelope.payload,
-                    };
-
-                    if let Some(handler) = dispatch_table.get(&event.event_type) {
-                        if let Err(e) = handler.apply(&event, projection_state) {
-                            tracing::error!(
-                                "replay: handler error for {} seq={commit_seq}: {e}",
-                                event.event_type
-                            );
-                        }
-                    }
-                    replayed += 1;
+                    });
                 }
             }
         }
+    }
+
+    // Global total order (see `collected` above): sort by commit_seq, then
+    // apply. DurableEvent derives nothing that orders it, so sort by field.
+    collected.sort_by_key(|e| e.commit_seq);
+    for event in &collected {
+        if let Some(handler) = dispatch_table.get(&event.event_type) {
+            if let Err(e) = handler.apply(event, projection_state) {
+                tracing::error!(
+                    "replay: handler error for {} seq={}: {e}",
+                    event.event_type,
+                    event.commit_seq
+                );
+            }
+        }
+        replayed += 1;
     }
 
     if highest_seq > 0 {
@@ -240,4 +257,118 @@ pub async fn replay_projections(
         tracing::info!("replayed projections up to commit_seq={highest_seq} (applied={replayed})");
     }
     Ok(highest_seq)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::locks::ProjectionState;
+    use crate::engine::WabiDbConfig;
+    use crate::crypto::bootstrap::BootstrapSource;
+    use crate::crypto::stream_key_registry::StreamKeyRegistry;
+    use crate::projections::barrier::LinearizabilityBarrier;
+    use crate::projections::handler::{DispatchTable, Projection};
+    use crate::sequencer::types::{CommandCommit, EventToWrite};
+    use crate::format::record::RecordKind;
+    use std::sync::{Arc, Mutex};
+
+    /// Records the commit_seq of every event a replay applies.
+    struct RecordingProjection {
+        order: Mutex<Vec<u64>>,
+    }
+
+    impl Projection for RecordingProjection {
+        fn event_type(&self) -> &str {
+            "test_event"
+        }
+
+        fn apply(&self, event: &DurableEvent, _state: &ProjectionState) -> Result<()> {
+            self.order.lock().unwrap().push(event.commit_seq);
+            Ok(())
+        }
+    }
+
+    async fn commit(engine: &crate::engine::WabiDbEngine, seq: u64, stream: &str, kind: u8) {
+        engine.get_or_create_stream_key(stream).await.unwrap();
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = CommandCommit {
+            caller_user_id: seq,
+            caller_device_id: format!("dev{seq}"),
+            command_name: "test_cmd".into(),
+            idempotency_key: None,
+            events: vec![EventToWrite {
+                stream_id: stream.to_string(),
+                event_type: "test_event".into(),
+                stream_kind: kind,
+                record_kind: RecordKind::Event,
+                plaintext: vec![seq as u8],
+            }],
+            essential: false,
+            response_tx: tx,
+        };
+        engine.run_command(cmd).await.unwrap();
+    }
+
+    /// Regression (2026-08-27, zombie channels on wabi.chat): replay MUST
+    /// apply events in global commit_seq order regardless of directory
+    /// iteration order. A delete committed at seq N+1 on `channels:{id}`
+    /// (stream kind 1) used to apply before the create at seq N on the
+    /// shared `channels` stream (kind 6) whenever the filesystem iterated
+    /// the kind dirs that way, resurrecting the deleted channel on every
+    /// restart. Interleave events across both kinds and assert order.
+    #[tokio::test]
+    async fn replay_applies_events_in_global_commit_seq_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bootstrap = [0xABu8; 32];
+        let config = WabiDbConfig {
+            data_dir: tmp.path().to_path_buf(),
+            bootstrap_source: BootstrapSource::Provided(bootstrap),
+            bootstrap_salt: None,
+            allow_init: true,
+            replication_config: None,
+            sync_transport: None,
+            test_boot_wallclock_override: None,
+        };
+        let engine = crate::engine::WabiDbEngine::open(config).await.unwrap();
+
+        // Interleave: shared "channels" stream (kind 6) and per-channel
+        // "channels:ch_1" (kind 1) — exactly the create/delete split that
+        // produced zombie channels.
+        commit(&engine, 1, "channels", 6).await;
+        commit(&engine, 2, "channels:ch_1", 1).await;
+        commit(&engine, 3, "channels", 6).await;
+        commit(&engine, 4, "channels:ch_1", 1).await;
+        commit(&engine, 5, "channels:ch_2", 1).await;
+        commit(&engine, 6, "channels", 6).await;
+        drop(engine);
+
+        // Replay into a fresh state with a recording dispatch table.
+        let state = Arc::new(ProjectionState::new());
+        let recorder = Arc::new(RecordingProjection {
+            order: Mutex::new(Vec::new()),
+        });
+        let table = DispatchTable::new(vec![recorder.clone()]).unwrap();
+        let registry = tokio::sync::Mutex::new(StreamKeyRegistry::new());
+        let barrier = LinearizabilityBarrier::new(state.clone());
+
+        let high = replay_projections(
+            tmp.path(),
+            &registry,
+            &bootstrap,
+            &state,
+            &table,
+            &barrier,
+            0,
+        )
+        .await
+        .unwrap();
+
+        let order = recorder.order.lock().unwrap().clone();
+        assert_eq!(order.len(), 6, "all events must replay: {order:?}");
+        assert!(
+            order.windows(2).all(|w| w[0] < w[1]),
+            "replay applied events out of commit_seq order: {order:?}"
+        );
+        assert_eq!(*order.last().unwrap(), high);
+    }
 }
