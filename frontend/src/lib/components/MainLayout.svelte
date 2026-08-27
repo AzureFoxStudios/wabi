@@ -3,7 +3,7 @@
 	import { fly } from 'svelte/transition';
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
-	import { centerPanelView, dmOtherUser, focusMode } from '$lib/layoutStoreStates';
+	import { centerPanelView, centerDmOtherUser, centerGroupChannel, focusMode } from '$lib/layoutStoreStates';
 	import { armPeekDismiss, cancelPeekDismiss } from '$lib/rightPeekGestures';
 	import { registerPluginWorkspacePanels } from '$lib/workspacePanels';
 	import { fetchPluginInventory } from '$lib/addonInventory';
@@ -1206,7 +1206,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 						</div>
 						<div class="center-dm-thread">
 							{#if $layoutStore.centerDmChannelId}
-								<DmConversationView context="center" channelIdProp={$layoutStore.centerDmChannelId} otherUserProp={$dmOtherUser} />
+								<DmConversationView context="center" channelIdProp={$layoutStore.centerDmChannelId} otherUserProp={$centerDmOtherUser} channelProp={$centerGroupChannel} />
 							{:else}
 								<div class="center-dm-empty">
 									<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
