@@ -150,6 +150,15 @@ exists. Setup is GitHub-simple:
 
 ## Known follow-ups
 
+- **Zombie resurrection root-caused post-deploy** (fixed in this branch,
+  `c10030e`): after the a9f4241 deploy, a live create→delete→restart test on
+  wabi.chat resurrected the deleted channel. The durable `channel_deleted`
+  events were on disk and the commit index was gapless — the loss was
+  `ProjectionState::save_snapshot` reading rows first and the watermark
+  second, so a shutdown snapshot could claim coverage it didn't contain and
+  replay would skip the delete forever. Watermark-first ordering fixes it;
+  stress-regression test proves the old order overclaims (59/400 iterations)
+  and the new order never does. Tim redeployed with the fix.
 - The wabi repo's history holds TWO "Initial import" revisions (a stray
   duplicate push during driver debugging) plus the test artifacts' delete
   entries. Harmless; a future `:lore` history view will make pruning obvious.
