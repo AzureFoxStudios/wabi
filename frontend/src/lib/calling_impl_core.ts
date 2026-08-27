@@ -55,6 +55,7 @@ import { prefetchTurnCredentials } from './turnConfig';
 import { getSocket } from './socketConnection';
 import { playCallActionSound, type CallSoundOptions } from './callSounds';
 import { callSessionManager } from './callSessionManager';
+import { channels as channelListStore } from './channelStore';
 import { detachSession as detachSessionAudioChain, detachAllSessions as detachAllSessionAudioChains } from './callAudioGraph';
 import { resolveActiveTransport } from './callingTransport';
 import {
@@ -183,6 +184,19 @@ import {
 	outgoingCall,
 	groupCallRingingTargets
 } from './callingStateStores';
+
+/**
+ * WO-5: resolve a channel's display name for call surfaces. Voice sessions
+ * used to carry the raw channel id ("ch_1f2e") as their name, so cards,
+ * chips and notices showed the id instead of "voice" / "derek's speaking
+ * corner". Falls back to the id only when the channel list has not
+ * hydrated the channel yet.
+ */
+function resolveVoiceChannelDisplayName(channelId: string): string {
+	const match = get(channelListStore).find((channel) => channel.id === channelId);
+	const name = match?.name?.trim();
+	return name || channelId;
+}
 
 // ============================================================================
 // Private State
@@ -1204,7 +1218,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			startPerformanceGuard();
 		}
 		if (!listenOnly) {
-			activeVoiceChannel.set({ id: channelId, name: channelId });
+			activeVoiceChannel.set({ id: channelId, name: resolveVoiceChannelDisplayName(channelId) });
 		}
 		listeningVoiceChannels.update((channels) => (
 			channels.includes(channelId) ? channels : [...channels, channelId]
@@ -1222,7 +1236,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		if (!get(incomingCall) && !get(outgoingCall)) {
 			incomingCall.set(null);
 		}
-		pushVoiceChannelNotice(`Joined voice: ${channelId}`);
+		pushVoiceChannelNotice(`Joined voice: ${resolveVoiceChannelDisplayName(channelId)}`);
 		// Presence BEFORE transport: the server's wabidb room authorization
 		// (Phase 1 hardening) checks the voice roster, so the join/subscribe
 		// must land before join-wabidb-call or the relay join is denied.
@@ -1239,7 +1253,9 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			id: channelId,
 			channelId,
 			kind: 'channel',
-			name: channelId,
+			// Resolved display name; socketConnectionCore backfills the real
+			// name once the channel list hydrates (WO-5).
+			name: resolveVoiceChannelDisplayName(channelId),
 			direction: listenOnly ? 'listen' : 'transmit'
 		});
 		// T2: declarative fallback chain — previously a wabidb failure here was
@@ -1438,7 +1454,7 @@ export async function handleForcedVoiceMove(
 
 	if (isPrimary) {
 		activeVoiceChannelId = toChannelId;
-		activeVoiceChannel.set({ id: toChannelId, name: toChannelId });
+		activeVoiceChannel.set({ id: toChannelId, name: resolveVoiceChannelDisplayName(toChannelId) });
 	}
 	listeningVoiceChannels.update((channels) => (
 		channels.includes(toChannelId) ? channels : [...channels, toChannelId]
@@ -1449,7 +1465,7 @@ export async function handleForcedVoiceMove(
 		id: toChannelId,
 		channelId: toChannelId,
 		kind: 'channel',
-		name: toChannelId,
+		name: resolveVoiceChannelDisplayName(toChannelId),
 		direction: captureHere ? 'transmit' : 'listen'
 	});
 

@@ -12,7 +12,7 @@ import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { getAuthToken, getGuestSessionId } from './authSession';
 import { tryRefresh } from './api/authRefresh';
 import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
-import { callSessionManager } from './callSessionManager';
+import { callSessionManager, backfillCallSessionChannelNames } from './callSessionManager';
 import { SocketHeartbeat } from './socketConnectionHeartbeat';
 import { SocketReconnectionManager } from './socketConnectionReconnect';
 import { drainOutboundQueue } from '$lib/wabidb/drain';
@@ -606,6 +606,11 @@ export class SocketManager {
 			const nextChannels = dedupeByIdKey(normalizeChannelList(payload?.channels));
 			channels.set(nextChannels);
 			_updatePinnedChannels();
+			// WO-5: channel sessions register with the raw channel id as a
+			// placeholder name (channels load async). Now that the list is
+			// hydrated, resolve real names on any live call sessions so
+			// cards/labels stop showing "ch_…" ids.
+			backfillCallSessionChannelNames(nextChannels);
 
 			const activeChannel = get(currentChannel);
 			const savedChannelId = readLastChannel();
@@ -684,6 +689,9 @@ export class SocketManager {
 				);
 			});
 			_updatePinnedChannels();
+			// Late-arriving channel (created after join) can still resolve a
+			// raw-id placeholder on a live call session.
+			backfillCallSessionChannelNames([normalized]);
 		};
 
 		sock.on('dm-created', (payload: { channel?: Channel; channelId?: string }) => {
@@ -858,6 +866,10 @@ export class SocketManager {
 						: ch
 				)
 			);
+			// Renames propagate to live call session labels too.
+			if (typeof payload?.name === 'string' && payload.name.trim()) {
+				backfillCallSessionChannelNames([{ id, name: payload.name }]);
+			}
 		});
 
 		sock.on('channel-deleted', (payload: { channelId?: string; channelIds?: string[] }) => {
