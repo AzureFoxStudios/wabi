@@ -84,6 +84,13 @@ export interface WabidbMediaRelayDiagnostics {
   decodeOk: number;
   decodeFail: number;
   playedChunks: number;
+  /** 2026-08-27 wire-level counters feeding CallDebugPanel on this transport. */
+  sentBytes: number;
+  recvBytes: number;
+  /** Inbound seq-gap estimate (audio envelopes); late reorders count once. */
+  lostPackets: number;
+  /** EMA of inter-arrival deviation (ms) — a stability proxy, not RFC3550. */
+  jitterMs: number;
 }
 
 export interface WabidbMediaRelayConfig {
@@ -189,8 +196,16 @@ export class WabidbMediaRelay {
     droppedSessionMismatch: 0,
     decodeOk: 0,
     decodeFail: 0,
-    playedChunks: 0
+    playedChunks: 0,
+    sentBytes: 0,
+    recvBytes: 0,
+    lostPackets: 0,
+    jitterMs: 0
   };
+  /** Last forwarded sequence number per remote user (audio gap detection). */
+  private lastSeqByUser = new Map<string, number>();
+  private lastArrivalMs = 0;
+  private avgInterArrivalMs = 0;
   private firstRecvLogged = false;
 
   getDiagnostics(): WabidbMediaRelayDiagnostics {
@@ -270,9 +285,30 @@ export class WabidbMediaRelay {
         // `kind` defaults to 'audio' for legacy/compatible senders.
         const env = parseWabidbMediaEnvelope(msg);
         if (!env) return;
+        // Wire-level accounting for every accepted envelope (audio + video).
+        const now = performance.now();
+        this.counters.recvBytes += Math.floor((env.payload?.length ?? 0) * 0.75);
+        if (this.lastArrivalMs > 0) {
+          const inter = now - this.lastArrivalMs;
+          // EMA of the deviation from the running mean inter-arrival time —
+          // a rough jitter/stability indicator for the debug panel.
+          const dev = Math.abs(inter - this.avgInterArrivalMs);
+          this.avgInterArrivalMs = this.avgInterArrivalMs
+            ? this.avgInterArrivalMs * 0.9 + inter * 0.1
+            : inter;
+          this.counters.jitterMs = this.counters.jitterMs * 0.9 + dev * 0.1;
+        }
+        this.lastArrivalMs = now;
         if (env.kind === 'video') {
           this.videoLane?.handleRemoteEnvelope(msg);
           return;
+        }
+        if (env.seq > 0) { // 0 = legacy sender without seq — gaps unmeasurable
+          const last = this.lastSeqByUser.get(env.userId);
+          if (last != null && env.seq > last + 1) {
+            this.counters.lostPackets += env.seq - last - 1;
+          }
+          if (last == null || env.seq > last) this.lastSeqByUser.set(env.userId, env.seq);
         }
         this.handleIncomingMedia(env.userId, env.payload);
       };
@@ -343,6 +379,7 @@ export class WabidbMediaRelay {
             payload: arrayBufferToBase64(data),
           });
           this.counters.sentEnvelopes++;
+          this.counters.sentBytes += data.byteLength;
         }
       };
 

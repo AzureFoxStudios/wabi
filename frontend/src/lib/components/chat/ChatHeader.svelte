@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
+	import { openVoiceView } from '$lib/voiceView';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
 	import { openFullMapTab } from '$lib/mapWorkspace';
@@ -51,6 +52,12 @@
 		switch (view) {
 			case 'messages':
 				onReturnToMessages();
+				break;
+			case 'voice':
+				// The voice pill lives in this header bar while the messages view
+				// is active — without this case it was a silent no-op (2026-08-27
+					// "can't get to the call view" report).
+				openVoiceView();
 				break;
 			case 'whiteboard':
 				setWhiteboardSurface(currentChannel, 'whiteboard');
