@@ -1,26 +1,35 @@
 <script lang="ts">
   import { layoutStore } from '$lib/layoutStore';
-  import { selectedDmChannelId, dmOtherUser, centerDmChannelId } from '$lib/layoutStoreStates';
-  import { channelMessages, currentUser, channels, joinChannel } from '$lib/socket';
+  import { selectedDmChannelId, dmOtherUser } from '$lib/layoutStoreStates';
+  import { channelMessages, currentUser, channels, users, serverMembers, joinChannel } from '$lib/socket';
   import ChatComposer from './chat/ChatComposer.svelte';
   import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
   import { formatTypingUsers } from './chat/typing';
   import { channelPaneInTransition, channelPaneOutTransition } from './chat/transitions';
   import { filterMessages } from './chat/search';
-  import type { Message, User } from '$lib/socket-types';
+  import type { Channel, Message, User } from '$lib/socket-types';
+  import { resolveDmOtherUser } from '$lib/dmConversations';
 
   export let context: 'center' | 'right' = 'right';
   export let channelIdProp: string | null = null;
   export let otherUserProp: User | null = null;
+  export let channelProp: Channel | null = null;
+
+  let lastJoinedChannelId = '';
 
   $: channelId = channelIdProp ?? $selectedDmChannelId;
-  $: otherUser = otherUserProp ?? $dmOtherUser;
-  $: if (channelId) joinChannel(channelId);
+  $: channel = channelProp ?? (channelId ? ($channels || []).find((c: { id: string }) => c.id === channelId) || null : null);
+  $: isGroup = channel?.type === 'group';
+  $: layoutOtherUser = context === 'right' ? $dmOtherUser : null;
+  $: otherUser = otherUserProp ?? layoutOtherUser ?? resolveDmOtherUser(channel, $currentUser, $users, $serverMembers);
+  $: if (channelId && channelId !== lastJoinedChannelId) {
+    lastJoinedChannelId = channelId;
+    joinChannel(channelId);
+  }
   $: messages = channelId ? ($channelMessages[channelId] || []) : [];
   $: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
   $: pinnedMessages = messages.filter((m: Message) => m.isPinned);
-  $: channel = channelId ? ($channels || []).find((c: { id: string }) => c.id === channelId) : null;
-  $: channelDisplayName = otherUser?.handle || otherUser?.username || '';
+  $: channelDisplayName = isGroup ? (channel?.name || 'Group Message') : (otherUser?.handle || otherUser?.username || 'Direct Message');
 
   let replyingTo: Message | null = null;
   let composerVisible = true;
@@ -42,6 +51,11 @@
 
   function handleToggleSurface() {
     if (!channelId) return;
+    if (isGroup && channel) {
+      if (context === 'right') layoutStore.openCenterGroupDm(channelId, channel);
+      else layoutStore.openGroupDM(channelId, channel);
+      return;
+    }
     if (context === 'right') {
       layoutStore.openCenterDm(channelId, otherUser);
     } else {
@@ -60,7 +74,7 @@
     <div class="dm-header-info">
       <span class="dm-header-name">{channelDisplayName}</span>
       <div class="dm-header-meta">
-        <span class="dm-badge">DM</span>
+        <span class="dm-badge">{isGroup ? 'Group' : 'DM'}</span>
       </div>
     </div>
     <div class="dm-header-actions">
@@ -97,6 +111,9 @@
       fullHistorySearchPagesLoaded={0}
       fullHistorySearchStatus=""
       visibleTypingUsers={[]}
+      emptyStateIcon={isGroup ? '👥' : '💬'}
+      emptyStateSubtitle={isGroup ? 'This is the beginning of this group message.' : 'This is the beginning of this direct message.'}
+      emptyStateActionLabel="Send a message"
       {channelPaneInTransition}
       {channelPaneOutTransition}
       formatTypingUsers={(users: string[]) => formatTypingUsers(users)}

@@ -16,7 +16,7 @@
  */
 
 import { writable, get } from 'svelte/store';
-import type { Emoji, User } from './socket-types';
+import type { Channel, Emoji, User } from './socket-types';
 import { getSocket, connected } from './socketConnection';
 import { getWabiDB } from '$lib/wabidb';
 import { loadOlderHistory } from './messagePagination';
@@ -73,10 +73,72 @@ export async function updateProfile(...args: any[]) {
 	sock.emit('update-profile', patch, callback);
 }
 
-export function createDM(userId: string): void {
+export type CreateDMResult =
+	| { ok: true; channelId: string; channel?: Channel }
+	| { ok: false; error: string; channelId?: string };
+
+function normalizeCreateDmTargetId(userId: string): string {
+	const trimmed = String(userId || '').trim();
+	if (!trimmed) return '';
+	return /^\d+$/.test(trimmed) ? `user-${trimmed}` : trimmed;
+}
+
+function dmCreatePayloadMatchesTarget(payload: { channel?: Channel; channelId?: string; otherUser?: User } | undefined, targetUserId: string): boolean {
+	if (!payload || !targetUserId) return false;
+	const normalizedTarget = normalizeCreateDmTargetId(targetUserId);
+	const channel = payload.channel;
+	if (payload.otherUser?.id && normalizeCreateDmTargetId(payload.otherUser.id) === normalizedTarget) return true;
+	if (payload.otherUser?.dbUserId && normalizeCreateDmTargetId(`user-${payload.otherUser.dbUserId}`) === normalizedTarget) return true;
+	if (channel?.otherUser?.id && normalizeCreateDmTargetId(channel.otherUser.id) === normalizedTarget) return true;
+	if (channel?.otherUser?.dbUserId && normalizeCreateDmTargetId(`user-${channel.otherUser.dbUserId}`) === normalizedTarget) return true;
+	if (channel?.members?.some((memberId) => normalizeCreateDmTargetId(memberId) === normalizedTarget)) return true;
+	return Boolean(payload.channelId && payload.channelId.includes(normalizedTarget));
+}
+
+export function createDM(userId: string): Promise<CreateDMResult> {
 	const sock = getSocket();
-	if (!sock) return;
-	sock.emit('create-dm', { targetUserId: userId });
+	const targetUserId = normalizeCreateDmTargetId(userId);
+	if (!sock) return Promise.resolve({ ok: false, error: 'Not connected' });
+	if (!targetUserId) return Promise.resolve({ ok: false, error: 'No user selected' });
+
+	return new Promise((resolve) => {
+		let settled = false;
+		let timeout: ReturnType<typeof setTimeout> | null = null;
+		const cleanup = () => {
+			if (settled) return;
+			settled = true;
+			if (timeout) clearTimeout(timeout);
+			sock.off?.('dm-created', handleCreated);
+			sock.off?.('dm-error', handleError);
+		};
+		const finish = (result: CreateDMResult) => {
+			cleanup();
+			resolve(result);
+		};
+		const handleCreated = (payload: { channel?: Channel; channelId?: string; otherUser?: User }) => {
+			if (!dmCreatePayloadMatchesTarget(payload, targetUserId)) return;
+			const channelId = payload.channel?.id || payload.channelId;
+			if (!channelId) return;
+			finish({ ok: true, channelId, channel: payload.channel });
+		};
+		const handleError = (payload: { error?: string; channelId?: string }) => {
+			// Duplicate-DM errors are useful: the server gives us the existing id.
+			// Other create failures do not include a target, so resolve them for the
+			// active request rather than leaving the picker spinning forever.
+			finish({
+				ok: false,
+				error: payload?.error || 'Failed to create DM',
+				channelId: payload?.channelId
+			});
+		};
+
+		sock.on?.('dm-created', handleCreated);
+		sock.on?.('dm-error', handleError);
+		timeout = setTimeout(() => {
+			finish({ ok: false, error: 'Timed out starting DM' });
+		}, 8000);
+		sock.emit('create-dm', { targetUserId });
+	});
 }
 
 export async function deleteDM(channelId: string) {

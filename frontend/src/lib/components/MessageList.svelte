@@ -85,6 +85,7 @@
 	import { openFullMapTab, openMapPanel, openPreferredMapSurface } from '$lib/mapWorkspace';
 	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
 	export let messages: Message[];
+	export let channelId: string | null = null;
 	export let onReply: (message: Message) => void = () => {};
 	export let onQuickMention: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -108,6 +109,15 @@
 		member: 'Member',
 		guest: 'Guest'
 	};
+
+	$: activeChannelId = channelId || $currentChannel || '';
+	$: activeMessageChannel = $channels.find((channel) => channel.id === activeChannelId) || null;
+	$: activeChannelIsPrivateConversation =
+		activeMessageChannel?.type === 'dm' ||
+		activeMessageChannel?.type === 'group' ||
+		activeChannelId.startsWith('dm-') ||
+		activeChannelId.startsWith('dm_') ||
+		activeChannelId.startsWith('group-');
 	let messageRenderLimit = MESSAGE_RENDER_BATCH;
 	let lastChannelForRenderWindow: string | null = null;
 	let lastObservedMessageCount = 0;
@@ -132,6 +142,8 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuMessage: Message | null = null;
+	let deletionModeEnabled = false;
+	let deletionModeDeletingIds = new Set<string>();
 	type AlbumAnnouncementMeta = { name: string; kind: 'opened' | 'shared' };
 	let albumAnnouncementUploadInput: HTMLInputElement | null = null;
 	let pendingAlbumUploadMeta: AlbumAnnouncementMeta | null = null;
@@ -278,7 +290,7 @@
 		);
 	}
 	$: personalPinnedMessageIdSet = new Set(
-		getPersonalPinsForChannel($currentChannel, $personalPinsStore)
+		getPersonalPinsForChannel(activeChannelId, $personalPinsStore)
 	);
 
 	function formatTimeTooltip(timestamp: number): string {
@@ -321,7 +333,7 @@
 		if (typeof message.scheduledDeletionTime === 'number') {
 			return message.scheduledDeletionTime;
 		}
-		const channelDurationMs = getChannelDeleteDurationMs($currentChannel);
+		const channelDurationMs = getChannelDeleteDurationMs(activeChannelId);
 		if (!channelDurationMs) return null;
 		return message.timestamp + channelDurationMs;
 	}
@@ -647,7 +659,7 @@
 	function saveEdit(messageId: string, text?: string) {
 		const next = (text ?? editText).trim();
 		if (next) {
-			editMessage($currentChannel, messageId, next);
+			editMessage(activeChannelId, messageId, next);
 		}
 		editingMessageId = null;
 		editText = '';
@@ -664,13 +676,13 @@
 	}
 	function confirmDeleteMessage() {
 		if (messageToDelete) {
-			deleteMessage($currentChannel, messageToDelete.id);
+			deleteMessage(activeChannelId, messageToDelete.id);
 		}
 		showDeleteConfirm = false;
 	}
 	function handlePin() {
 		if (!contextMenuMessage) return;
-		togglePinMessage($currentChannel, contextMenuMessage.id);
+		togglePinMessage(activeChannelId, contextMenuMessage.id);
 		contextMenuVisible = false;
 	}
 	function handleReply(message?: Message) {
@@ -694,13 +706,13 @@
 	function handleTogglePersonalPin(message?: Message): void {
 		const targetMessage = message || contextMenuMessage;
 		if (!targetMessage || !$displayEnhancementSettingsStore.personalPinsEnabled) return;
-		togglePersonalPin($currentChannel, targetMessage.id);
+		togglePersonalPin(activeChannelId, targetMessage.id);
 		contextMenuVisible = false;
 	}
 
 	function handleUtilityPinToggle(message: Message): void {
 		if (!$displayEnhancementSettingsStore.messageUtilitiesEnabled) return;
-		togglePinMessage($currentChannel, message.id);
+		togglePinMessage(activeChannelId, message.id);
 	}
 
 	function handleUtilityEdit(message: Message): void {
@@ -769,7 +781,7 @@
 	}
 
 	function getAlbumScopeFromCurrentChannel(): { scopeType: MediaAlbumScopeType; scopeId: string } | null {
-		const activeChannel = $channels.find((channel) => channel.id === $currentChannel);
+		const activeChannel = $channels.find((channel) => channel.id === activeChannelId);
 		if (!activeChannel?.id) return null;
 		const scopeType: MediaAlbumScopeType =
 			activeChannel.type === 'dm' || activeChannel.type === 'group' ? 'dm' : 'channel';
@@ -1075,13 +1087,13 @@
 	async function handleCopyQuote(): Promise<void> {
 		if (!contextMenuMessage) return;
 
-		const activeChannel = $channels.find((channel) => channel.id === $currentChannel);
+		const activeChannel = $channels.find((channel) => channel.id === activeChannelId);
 		const quoteText = formatCustomQuote(
 			{
 				user: contextMenuMessage.user,
 				text: getQuoteSourceText(contextMenuMessage),
 				timestamp: contextMenuMessage.timestamp,
-				channel: activeChannel?.name || $currentChannel,
+				channel: activeChannel?.name || activeChannelId,
 				messageId: contextMenuMessage.id
 			},
 			$customQuoteSettingsStore
@@ -1102,7 +1114,7 @@
 
 	async function handleCopyMessageLink(): Promise<void> {
 		if (!contextMenuMessage) return;
-		const deepLink = `${window.location.origin}${window.location.pathname}#channel/${encodeURIComponent($currentChannel)}/message/${encodeURIComponent(contextMenuMessage.id)}`;
+		const deepLink = `${window.location.origin}${window.location.pathname}#channel/${encodeURIComponent(activeChannelId)}/message/${encodeURIComponent(contextMenuMessage.id)}`;
 		try {
 			if (navigator.clipboard?.writeText) {
 				await navigator.clipboard.writeText(deepLink);
@@ -1145,7 +1157,7 @@
 		// Open emoji picker at the context menu position
 		recordQuickReactionTelemetry('picker_open');
 		reactionPickerMessageId = contextMenuMessage.id;
-		reactionPickerChannelId = $currentChannel;
+		reactionPickerChannelId = activeChannelId;
 		reactionPickerX = contextMenuX;
 		reactionPickerY = contextMenuY;
 		ensureEmojiPickerLoaded();
@@ -1191,7 +1203,7 @@
 		event.stopPropagation();
 		recordQuickReactionTelemetry('picker_open');
 		reactionPickerMessageId = messageId;
-		reactionPickerChannelId = $currentChannel;
+		reactionPickerChannelId = activeChannelId;
 		reactionPickerX = event.clientX;
 		reactionPickerY = event.clientY;
 		ensureEmojiPickerLoaded();
@@ -1210,6 +1222,60 @@
 		if (!$currentUser) return false;
 		if (message.user === $currentUser.username) return true;
 		return ownIdentityIds.has(message.userId);
+	}
+
+	function normalizeRoleName(role: string | null | undefined): string {
+		const normalized = String(role || '').trim().toLowerCase();
+		return normalized === 'moderator' ? 'mod' : normalized;
+	}
+
+	function userHasModeratorTools(user: User | null | undefined): boolean {
+		if (!user) return false;
+		const roles = new Set<string>();
+		roles.add(normalizeRoleName(user.highestRole));
+		for (const role of user.roles || []) roles.add(normalizeRoleName(role));
+		return roles.has('owner') || roles.has('admin') || roles.has('mod');
+	}
+
+	$: currentUserModeratorTools = userHasModeratorTools($currentUser);
+	$: canUseDeletionMode = currentUserModeratorTools && !activeChannelIsPrivateConversation;
+	$: if (!canUseDeletionMode && deletionModeEnabled) deletionModeEnabled = false;
+
+	function canDeleteMessage(message: Message): boolean {
+		return isOwnMessage(message) || canUseDeletionMode;
+	}
+
+	function setDeletionModeDeleting(messageId: string, deleting: boolean): void {
+		const next = new Set(deletionModeDeletingIds);
+		if (deleting) next.add(messageId);
+		else next.delete(messageId);
+		deletionModeDeletingIds = next;
+	}
+
+	function toggleDeletionMode(): void {
+		if (!canUseDeletionMode) return;
+		if (!deletionModeEnabled) {
+			const confirmed = window.confirm('Deletion mode removes messages immediately for everyone. Turn it on?');
+			if (!confirmed) return;
+		}
+		deletionModeEnabled = !deletionModeEnabled;
+	}
+
+	function handleDeletionModeKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape' && deletionModeEnabled) {
+			deletionModeEnabled = false;
+		}
+	}
+
+	async function deleteFromDeletionMode(message: Message): Promise<void> {
+		if (!deletionModeEnabled || !canDeleteMessage(message) || !activeChannelId) return;
+		if (deletionModeDeletingIds.has(message.id)) return;
+		setDeletionModeDeleting(message.id, true);
+		try {
+			await deleteMessage(activeChannelId, message.id);
+		} finally {
+			setDeletionModeDeleting(message.id, false);
+		}
 	}
 
 	function getCurrentReactionIdentityIds(): string[] {
@@ -1236,17 +1302,17 @@
 	function toggleReaction(messageId: string, emojiId: string) {
 		const message = messages.find(m => m.id === messageId);
 		if (!message || !message.reactions) {
-			addReaction($currentChannel, messageId, emojiId);
+			addReaction(activeChannelId, messageId, emojiId);
 			return;
 		}
 		const userReacted = hasCurrentUserReaction(message.reactions[emojiId]);
 		if (userReacted) {
-			removeReaction($currentChannel, messageId, emojiId);
+			removeReaction(activeChannelId, messageId, emojiId);
 		} else {
-			addReaction($currentChannel, messageId, emojiId);
+			addReaction(activeChannelId, messageId, emojiId);
 		}
 	}
-	$: if (showReactionPicker && reactionPickerChannelId && $currentChannel !== reactionPickerChannelId) {
+	$: if (showReactionPicker && reactionPickerChannelId && activeChannelId !== reactionPickerChannelId) {
 		closeReactionPicker();
 	}
 	$: if (showUserPopout) {
@@ -1448,7 +1514,7 @@
 			return;
 		}
 
-		const channel = $channels.find((ch) => ch.id === $currentChannel);
+		const channel = $channels.find((ch) => ch.id === activeChannelId);
 		const otherDbUserId = channel?.type === 'dm' ? channel.otherUser?.dbUserId : undefined;
 		const authToken = getAuthToken();
 		if (!otherDbUserId || !authToken || !false) {
@@ -1567,7 +1633,7 @@
 				},
 				credentials: 'include',
 				body: JSON.stringify({
-					channelId: $currentChannel,
+					channelId: activeChannelId,
 					...event.detail
 				})
 			});
@@ -1711,24 +1777,24 @@
 
 	// Reactive statements to compute pagination state based on current channel
 	$: {
-		const currentChannelData = $channels.find(ch => ch.id === $currentChannel);
+		const currentChannelData = $channels.find(ch => ch.id === activeChannelId);
 		showLoadMore = currentChannelData?.persistMessages === true;
 
 		// Client-side archive pagination
 		if (showLoadMore) {
-			const available = $channelAvailableArchives[$currentChannel] || [];
-			const loaded = $channelLoadedArchives[$currentChannel] || new Set();
-			isLoadingOlder = $channelLoadingOlder[$currentChannel] || false;
+			const available = $channelAvailableArchives[activeChannelId] || [];
+			const loaded = $channelLoadedArchives[activeChannelId] || new Set();
+			isLoadingOlder = $channelLoadingOlder[activeChannelId] || false;
 			hasMoreMessages = available.length > loaded.size;
 			nextArchivePeriod = available.find(a => !loaded.has(a)) || null;
 		}
 
 		// Server-side history pagination
-		hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? false; // Hidden until server confirms
-		isLoadingServerHistory = $channelHistoryLoading[$currentChannel] || false;
+		hasMoreServerHistory = $channelHasMoreHistory[activeChannelId] ?? false; // Hidden until server confirms
+		isLoadingServerHistory = $channelHistoryLoading[activeChannelId] || false;
 	}
-	$: if (lastChannelForRenderWindow !== $currentChannel) {
-		lastChannelForRenderWindow = $currentChannel;
+	$: if (lastChannelForRenderWindow !== activeChannelId) {
+		lastChannelForRenderWindow = activeChannelId;
 		messageRenderLimit = MESSAGE_RENDER_BATCH;
 		lastObservedMessageCount = messages.length;
 		lastObservedLastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
@@ -1783,17 +1849,17 @@
 	}
 
 	async function handleLoadMore() {
-		if (!$currentChannel) return;
+		if (!activeChannelId) return;
 		if (visibleMessageStart > 0) {
 			messageRenderLimit = Math.min(MESSAGE_RENDER_MAX, messageRenderLimit + MESSAGE_RENDER_BATCH);
 			return;
 		}
 		// Prefer server-side history loading
 		if (hasMoreServerHistory && !isLoadingServerHistory) {
-			loadOlderHistory($currentChannel);
+			loadOlderHistory(activeChannelId);
 		} else if (hasMoreMessages && !isLoadingOlder) {
 			// Fallback to client-side archives
-			await loadOlderMessages($currentChannel);
+			await loadOlderMessages(activeChannelId);
 		}
 	}
 
@@ -1802,7 +1868,7 @@
 		const target = e.target as HTMLElement;
 		// Load more when scrolled near the top (within 100px)
 		if (target.scrollTop < 100 && hasMoreServerHistory && !isLoadingServerHistory) {
-			loadOlderHistory($currentChannel);
+			loadOlderHistory(activeChannelId);
 		}
 	}
 </script>
@@ -1811,7 +1877,21 @@
 <svelte:window
 	on:click={dismissMobileActions}
 	on:click|capture={handleCapturedSpoilerClick}
+	on:keydown={handleDeletionModeKeydown}
 />
+
+{#if canUseDeletionMode}
+	<div class="moderation-delete-toolbar" class:active={deletionModeEnabled} role="region" aria-label="Moderation deletion mode">
+		<button type="button" class="moderation-delete-toggle" class:active={deletionModeEnabled} on:click={toggleDeletionMode}>
+			{deletionModeEnabled ? 'Exit deletion mode' : 'Deletion mode'}
+		</button>
+		{#if deletionModeEnabled}
+			<span class="moderation-delete-hint">Hover a message and hit Delete. Esc exits.</span>
+		{:else}
+			<span class="moderation-delete-hint">Mod+ fast-delete for targeted cleanup.</span>
+		{/if}
+	</div>
+{/if}
 
 <!-- Load More Messages Button -->
 {#if visibleMessageStart > 0 || ((hasMoreServerHistory || hasMoreMessages) && messages.length >= 50)}
@@ -1875,7 +1955,7 @@
 			{messageAnimation}
 			{gifCaptionStyleClass}
 			deletionCountdownMode={deletionCountdownMode}
-			currentChannel={$currentChannel}
+			currentChannel={activeChannelId}
 			themeStore={$themeStore}
 			displayEnhancementSettingsStore={$displayEnhancementSettingsStore}
 			chatFilterStore={$chatFilterStore}
@@ -1892,8 +1972,12 @@
 			{nowMs}
 			albumAnnouncementUploadName={albumAnnouncementUploadName}
 			highlightedMessageId={highlightedMessageId}
-			messageText={messageText}
-			LinkPreviewComponent={LinkPreviewComponent}
+				messageText={messageText}
+				deletionModeEnabled={deletionModeEnabled}
+				canDeleteInDeletionMode={canDeleteMessage(message)}
+				deletionModeDeleting={deletionModeDeletingIds.has(message.id)}
+				onDeletionModeDelete={deleteFromDeletionMode}
+				LinkPreviewComponent={LinkPreviewComponent}
 			ensureLinkPreviewLoaded={ensureLinkPreviewLoaded}
 			onReply={handleReply}
 			onQuickMention={handleQuickMention}
@@ -1968,6 +2052,7 @@
 	quickMentionEnabled={$displayEnhancementSettingsStore.quickMentionEnabled}
 	personalPinsEnabled={$displayEnhancementSettingsStore.personalPinsEnabled}
 	{isOwnMessage}
+	{canDeleteMessage}
 	{isPersonalPinnedMessage}
 	{getDeleteConfirmMessage}
 	handleOpenFullProfile={(event) => {
@@ -1995,3 +2080,52 @@
 	{closeEnlargedImage}
 	{closeEnlargedVideo}
 />
+
+<style>
+	.moderation-delete-toolbar {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2, 8px);
+		margin: var(--space-2, 8px) var(--space-4, 16px);
+		padding: var(--space-2, 8px) var(--space-3, 12px);
+		border: 1px solid color-mix(in srgb, var(--border, #2f3450) 76%, transparent);
+		border-radius: var(--radius-lg, 12px);
+		background: color-mix(in srgb, var(--bg-secondary, #171a2d) 88%, transparent);
+		color: var(--text-secondary, #b8c0d8);
+		font-size: var(--font-size-sm, 13px);
+	}
+
+	.moderation-delete-toolbar.active {
+		border-color: color-mix(in srgb, var(--color-danger, #ef4444) 42%, transparent);
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, var(--bg-secondary, #171a2d));
+		color: var(--text-primary, #fff);
+	}
+
+	.moderation-delete-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
+		padding: 0 var(--space-3, 12px);
+		border: 1px solid color-mix(in srgb, var(--border, #2f3450) 86%, transparent);
+		border-radius: var(--radius-md, 8px);
+		background: var(--surface-button, rgba(255, 255, 255, 0.06));
+		color: var(--text-primary, #fff);
+		font-size: var(--font-size-xs, 12px);
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.moderation-delete-toggle:hover,
+	.moderation-delete-toggle.active {
+		border-color: color-mix(in srgb, var(--color-danger, #ef4444) 52%, transparent);
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 18%, transparent);
+	}
+
+	.moderation-delete-hint {
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+</style>

@@ -27,6 +27,7 @@
 	export let personalPinsEnabled = true;
 	export let isPersonalPinned = false;
 	export let canManageOwnMessage: boolean | null = null;
+	export let canDeleteMessage: boolean | null = null;
 
 	function getCurrentIdentityIds(): string[] {
 		if (!$currentUser) return [];
@@ -41,7 +42,8 @@
 		if (message.user === $currentUser.username) return true;
 		return getCurrentIdentityIds().includes(message.userId);
 	})();
-	$: canManageMessage = canManageOwnMessage ?? isOwnMessageByIdentity;
+	$: canEditMessage = canManageOwnMessage ?? isOwnMessageByIdentity;
+	$: canDeleteResolved = canDeleteMessage ?? canEditMessage;
 	$: hasFile = message.type === 'file' && (Boolean(message.fileUrl) || (message.files?.length ?? 0) > 0);
 	$: canCopyText = !!message.text?.trim();
 
@@ -142,7 +144,7 @@
 			});
 		}
 
-		if (canManageMessage) {
+		if (canEditMessage) {
 			list.push({
 				id: 'edit',
 				label: get(_)('context_menu.edit_message'),
@@ -178,13 +180,13 @@
 		list.push({ id: 'danger-divider', type: 'separator' });
 		list.push({
 			id: 'delete',
-			label: canManageMessage ? get(_)('context_menu.delete_message_uploads') : get(_)('context_menu.delete_message'),
-			hint: canManageMessage
+			label: canDeleteResolved ? get(_)('context_menu.delete_message_uploads') : get(_)('context_menu.delete_message'),
+			hint: canDeleteResolved
 				? get(_)('context_menu.delete_message_uploads_hint')
 				: get(_)('context_menu.delete_message_unavailable_hint'),
 			icon: 'trash-2',
 			danger: true,
-			disabled: !canManageMessage,
+			disabled: !canDeleteResolved,
 			onSelect: onDelete
 		});
 
