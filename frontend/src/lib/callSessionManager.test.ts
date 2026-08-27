@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { get } from 'svelte/store';
-import { callSessionManager, callSessions, focusedCallSessionId } from './callSessionManager';
+import { callSessionManager, callSessions, focusedCallSessionId, backfillCallSessionChannelNames } from './callSessionManager';
 import { sessionBadge } from './callSessionTypes';
 
 /**
@@ -146,5 +146,50 @@ describe('CallSessionManager', () => {
 		expect(callSessionManager.get('a')?.spatialSeats['user-9']).toEqual({ x: 2, y: 0, z: -3 });
 		callSessionManager.clearSpatialSeat('a', 'user-9');
 		expect(callSessionManager.get('a')?.spatialSeats['user-9']).toBeUndefined();
+	});
+});
+
+describe('backfillCallSessionChannelNames (WO-5)', () => {
+	beforeEach(() => {
+		callSessionManager.leaveAll();
+	});
+
+	it('replaces raw channel-id placeholder names with real channel names', () => {
+		// joinVoiceChannel registers before the channel list hydrates, so
+		// the session starts with the raw id as its name.
+		callSessionManager.register({ id: 'ch_1f2e', channelId: 'ch_1f2e', kind: 'channel', name: 'ch_1f2e' });
+		backfillCallSessionChannelNames([
+			{ id: 'ch_1f2e', name: "derek's speaking corner" },
+			{ id: 'ch_other', name: 'voice' }
+		]);
+		expect(callSessionManager.get('ch_1f2e')?.name).toBe("derek's speaking corner");
+	});
+
+	it('falls back to id-keyed lookup when channelId is absent', () => {
+		callSessionManager.register({ id: 'ch_2a', kind: 'channel' });
+		backfillCallSessionChannelNames([{ id: 'ch_2a', name: 'voice' }]);
+		expect(callSessionManager.get('ch_2a')?.name).toBe('voice');
+	});
+
+	it('tracks later renames for channel sessions', () => {
+		callSessionManager.register({ id: 'ch_2a', channelId: 'ch_2a', kind: 'channel', name: 'voice' });
+		backfillCallSessionChannelNames([{ id: 'ch_2a', name: 'the-loud-room' }]);
+		expect(callSessionManager.get('ch_2a')?.name).toBe('the-loud-room');
+	});
+
+	it('never clobbers DM/group session labels', () => {
+		callSessionManager.register({ id: 'dm-user-1-user-2', kind: 'direct', name: 'DM with bob' });
+		// Even if a channel happens to share the id, the DM label stays.
+		backfillCallSessionChannelNames([{ id: 'dm-user-1-user-2', name: 'general' }]);
+		expect(callSessionManager.get('dm-user-1-user-2')?.name).toBe('DM with bob');
+	});
+
+	it('ignores channels without usable names and unknown sessions', () => {
+		callSessionManager.register({ id: 'ch_9', channelId: 'ch_9', kind: 'channel', name: 'ch_9' });
+		backfillCallSessionChannelNames([
+			{ id: 'ch_9', name: '   ' },
+			{ id: 'ch_unknown', name: 'voice' }
+		]);
+		expect(callSessionManager.get('ch_9')?.name).toBe('ch_9');
 	});
 });

@@ -293,3 +293,42 @@ function emitVolume(session: CallSession): void {
 
 /** Singleton — the single source of truth for connected calls. */
 export const callSessionManager = new CallSessionManager();
+
+/**
+ * Resolve raw channel-id placeholders on live sessions (WO-5).
+ *
+ * Channel sessions register optimistically at join time, when the channels
+ * store may not be hydrated yet, so they carry `name: channelId` (e.g.
+ * "ch_1f2e") as a placeholder. Whenever the channel list loads or changes,
+ * pass it through here so every session whose id/channelId matches a known
+ * channel gets the real channel name — the cards/labels then show "voice"
+ * or "derek's speaking corner" instead of the raw id.
+ */
+export function backfillCallSessionChannelNames(
+	channelList: ReadonlyArray<{ id: string; name?: string | null }>
+): void {
+	if (!channelList || channelList.length === 0) return;
+	const namesById = new Map<string, string>();
+	for (const channel of channelList) {
+		const name = channel?.name?.trim();
+		if (channel?.id && name) namesById.set(channel.id, name);
+	}
+	if (namesById.size === 0) return;
+	for (const session of get(sessionsWritable).values()) {
+		const lookupId = session.channelId ?? session.id;
+		const resolved = namesById.get(lookupId);
+		if (!resolved) continue;
+		if (session.kind === 'channel') {
+			// Channel sessions always track the live channel name — this
+			// covers both the raw-id placeholder AND later renames.
+			if (session.name !== resolved) callSessionManager.setName(session.id, resolved);
+			continue;
+		}
+		const current = session.name?.trim();
+		// DM/group sessions keep their own labels; only replace empty or
+		// raw-id placeholder names.
+		if (!current || current === session.id || current === session.channelId) {
+			callSessionManager.setName(session.id, resolved);
+		}
+	}
+}

@@ -991,7 +991,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::call_signals::CallSignal",
         },
         ProjectionRegistration {
-            event_types: &["channel_created", "channel_updated"],
+            event_types: &["channel_created", "channel_updated", "channel_deleted"],
             handler: Arc::new(ChannelProjection),
             index_name: "channels",
             record_type_name: "wabidb::projections::channels::Channel",
