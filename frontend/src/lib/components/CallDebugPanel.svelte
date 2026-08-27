@@ -1,8 +1,11 @@
 <!-- frontend/src/lib/components/CallDebugPanel.svelte
 	Shareable calling-diagnostics panel. Shows the metrics captured by
-	callingDiagnostics.ts (ping/jitter/loss/bitrate via getStats()) plus the
-	active transport and participant count. Pure read-only view of the call
-	stores — safe to embed anywhere; used as a floating dev overlay in MainLayout.
+	callingDiagnostics.ts (ping/jitter/loss/bitrate/packet totals) plus the
+	active transport and participant count. Works on BOTH transports: samples
+	come from WebRTC getStats() or the wabidb relay counters + socket RTT
+	echo, tagged via the `source` row. Pure read-only view of the call
+	stores — safe to embed anywhere; used as a floating overlay in MainLayout
+	(shown while a call is active, not just in dev builds).
 -->
 <script lang="ts">
 	import { activeCalls, callConnectionDiagnostics, callTransportState, connectionState } from '$lib/calling';
@@ -30,10 +33,15 @@
 			{ label: 'Inbound Loss', value: formatDiag(d.inboundPacketLossPct, '%') },
 			{ label: 'Outbound Loss', value: formatDiag(d.outboundPacketLossPct, '%') },
 			{ label: 'Inbound Rate', value: formatDiag(d.inboundKbps, 'kbps') },
-			{ label: 'Outbound Rate', value: formatDiag(d.outboundKbps, 'kbps') }
+			{ label: 'Outbound Rate', value: formatDiag(d.outboundKbps, 'kbps') },
+			{ label: 'Packets ↑', value: formatDiag(d.packetsSent ?? null, '') },
+			{ label: 'Packets ↓', value: formatDiag(d.packetsReceived ?? null, '') }
 		];
 		if (showTransport) {
-			items.push({ label: 'Transport', value: $callTransportState.activeTransport.toUpperCase() });
+			items.push({
+				label: 'Transport',
+				value: `${$callTransportState.activeTransport.toUpperCase()}${d.source ? ` (${d.source === 'webrtc' ? 'WebRTC stats' : 'wabidb relay'})` : ''}`
+			});
 		}
 		if (showParticipants) {
 			items.push({ label: 'Participants', value: String(1 + $activeCalls.length) });

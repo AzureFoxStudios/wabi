@@ -10,8 +10,35 @@
  */
 
 import OpusRecorder from 'opus-recorder';
+// Decoder worker + its sibling wasm, resolved through the bundler so the
+// build actually ships them (see opus-assets.d.ts for the full story).
+import decoderWorkerSource from 'opus-recorder/dist/decoderWorker.min.js?raw';
+import decoderWasmUrl from 'opus-recorder/dist/decoderWorker.min.wasm?url';
 import { parseWabidbMediaEnvelope, type WabidbVideoLane } from './wabidbVideoLane';
 import { attachSessionSource, detachSession, ensureCallAudioGraph } from './callAudioGraph';
+
+// Blob URL for the decoder worker. opus-recorder's decoderWorker.min.js is an
+// Emscripten module whose FIRST line is `var Module=typeof Module!=="undefined"?Module:{}`.
+// Prepending our own `var Module = { locateFile … }` makes the glue resolve
+// `decoderWorker.min.wasm` at the Vite-emitted asset URL instead of a sibling
+// file next to the hashed worker (which never exists → SPA-fallback HTML →
+// "failed to match magic number" abort → zero decoded audio, the 2026-08-27
+// no-audio field report). The URL is created once per page and intentionally
+// never revoked (relays are created per call).
+let decoderWorkerBlobUrl: string | null = null;
+
+function getDecoderWorkerUrl(): string {
+	if (!decoderWorkerBlobUrl) {
+		const prelude =
+			'var Module={locateFile:function(path,prefix){' +
+			`return path.endsWith('.wasm') ? ${JSON.stringify(decoderWasmUrl)} : prefix + path;` +
+			'}};';
+		decoderWorkerBlobUrl = URL.createObjectURL(
+			new Blob([prelude + '\n' + decoderWorkerSource], { type: 'application/javascript' })
+		);
+	}
+	return decoderWorkerBlobUrl;
+}
 
 // addModule is per-AudioContext; the shared call graph registers the playback
 // worklet once and every relay reuses it.
@@ -57,6 +84,13 @@ export interface WabidbMediaRelayDiagnostics {
   decodeOk: number;
   decodeFail: number;
   playedChunks: number;
+  /** 2026-08-27 wire-level counters feeding CallDebugPanel on this transport. */
+  sentBytes: number;
+  recvBytes: number;
+  /** Inbound seq-gap estimate (audio envelopes); late reorders count once. */
+  lostPackets: number;
+  /** EMA of inter-arrival deviation (ms) — a stability proxy, not RFC3550. */
+  jitterMs: number;
 }
 
 export interface WabidbMediaRelayConfig {
@@ -162,8 +196,16 @@ export class WabidbMediaRelay {
     droppedSessionMismatch: 0,
     decodeOk: 0,
     decodeFail: 0,
-    playedChunks: 0
+    playedChunks: 0,
+    sentBytes: 0,
+    recvBytes: 0,
+    lostPackets: 0,
+    jitterMs: 0
   };
+  /** Last forwarded sequence number per remote user (audio gap detection). */
+  private lastSeqByUser = new Map<string, number>();
+  private lastArrivalMs = 0;
+  private avgInterArrivalMs = 0;
   private firstRecvLogged = false;
 
   getDiagnostics(): WabidbMediaRelayDiagnostics {
@@ -243,9 +285,30 @@ export class WabidbMediaRelay {
         // `kind` defaults to 'audio' for legacy/compatible senders.
         const env = parseWabidbMediaEnvelope(msg);
         if (!env) return;
+        // Wire-level accounting for every accepted envelope (audio + video).
+        const now = performance.now();
+        this.counters.recvBytes += Math.floor((env.payload?.length ?? 0) * 0.75);
+        if (this.lastArrivalMs > 0) {
+          const inter = now - this.lastArrivalMs;
+          // EMA of the deviation from the running mean inter-arrival time —
+          // a rough jitter/stability indicator for the debug panel.
+          const dev = Math.abs(inter - this.avgInterArrivalMs);
+          this.avgInterArrivalMs = this.avgInterArrivalMs
+            ? this.avgInterArrivalMs * 0.9 + inter * 0.1
+            : inter;
+          this.counters.jitterMs = this.counters.jitterMs * 0.9 + dev * 0.1;
+        }
+        this.lastArrivalMs = now;
         if (env.kind === 'video') {
           this.videoLane?.handleRemoteEnvelope(msg);
           return;
+        }
+        if (env.seq > 0) { // 0 = legacy sender without seq — gaps unmeasurable
+          const last = this.lastSeqByUser.get(env.userId);
+          if (last != null && env.seq > last + 1) {
+            this.counters.lostPackets += env.seq - last - 1;
+          }
+          if (last == null || env.seq > last) this.lastSeqByUser.set(env.userId, env.seq);
         }
         this.handleIncomingMedia(env.userId, env.payload);
       };
@@ -316,6 +379,7 @@ export class WabidbMediaRelay {
             payload: arrayBufferToBase64(data),
           });
           this.counters.sentEnvelopes++;
+          this.counters.sentBytes += data.byteLength;
         }
       };
 
@@ -368,6 +432,11 @@ export class WabidbMediaRelay {
       if (pcmData) {
         this.counters.decodeOk++;
         await this.playbackViaAudioWorklet(fromUserId ?? 'unknown', pcmData);
+      } else {
+        // null = worker never answered (dead worker / wasm abort / timeout) —
+        // count it as a failure so the Diag overlay shows dec=0 + fail>0
+        // instead of a silent zero.
+        this.counters.decodeFail++;
       }
     } catch (error) {
       this.counters.decodeFail++;
@@ -376,8 +445,12 @@ export class WabidbMediaRelay {
   }
 
   private async initializeOpusDecoder(): Promise<void> {
-    const workerUrl = new URL('opus-recorder/dist/decoderWorker.min.js', import.meta.url);
-    this.opusDecoder = new Worker(workerUrl, { type: 'classic' });
+    this.opusDecoder = new Worker(getDecoderWorkerUrl(), { type: 'classic' });
+    this.opusDecoder.onerror = (e: ErrorEvent) => {
+      // WO-1 spirit: a dead decoder worker means every decode times out with
+      // NO other trace — make the failure loud instead of silently deaf.
+      console.error('[WabidbMediaRelay] decoder worker error:', e.message ?? e);
+    };
     this.opusDecoder.onmessage = (e: MessageEvent) => {
       if (e.data === null || e.data === undefined) {
         // Decoder flush signal in live mode; nothing to hand back.

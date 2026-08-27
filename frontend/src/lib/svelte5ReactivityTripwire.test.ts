@@ -134,6 +134,15 @@ describe('svelte5 reactivity contract — calling sidebar', () => {
 		expect(findUntrackedStoreReads(source)).toEqual([]);
 	});
 
+	// 2026-08-27: UnifiedChannelList (the list the sidebar actually renders)
+	// regressed the exact bug class above — getVoiceMembers/visibleVoiceMembers
+	// called from the template kept the roster chips blind to voice state
+	// ("no live chip sync" field report). Guard it like its siblings.
+	test('UnifiedChannelList has no store-closing helpers called from the template', () => {
+		const source = readFileSync(join(componentDir, 'UnifiedChannelList.svelte'), 'utf8');
+		expect(findUntrackedStoreReads(source)).toEqual([]);
+	});
+
 	// Self-check 1: the detector must fire on the original roster bug shape, so
 	// a silent detector regression can never become an always-green test.
 	test('detector fires on a helper that closes over a store (sanity)', () => {

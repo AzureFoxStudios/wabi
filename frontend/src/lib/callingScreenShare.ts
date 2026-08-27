@@ -20,6 +20,9 @@ import { getLivekitRoom } from './callingLivekit';
 import { Track } from 'livekit-client';
 import { getScreenShareQualityProfile } from './mediaRuntime';
 import { prefetchTurnCredentials } from './turnConfig';
+// Static import is cycle-safe (callingWabidb never imports this module) and
+// keeps startScreenShare/stopScreenShare synchronous in their wabidb branch.
+import { wabidbTransportLive } from './callingWabidb';
 import {
 	getConnectionKey,
 	queueIceCandidate as queuePendingIceCandidate,
@@ -108,6 +111,44 @@ export async function startScreenShare(socket: Socket) {
 		isSharing.set(true);
 		return null;
 	}
+	// Wabidb relay transport: the share rides the wabidb video lane
+	// (WebCodecs → base64 envelopes), which auto-starts from the
+	// localScreenStream subscription in callingWabidb.ts. Do NOT also run the
+	// WebRTC screen path below — the 2026-08-27 field report showed the dual
+	// path double-encoding every frame and flooding the shared socket.io
+	// connection until the heartbeat died ("transport close" → Wabidb
+	// disconnects → lag). We still emit start-screen-share so the AUDIENCE
+	// gets the `screen-share-started` notification; offer creation is skipped
+	// on the sharer side (see the screen-share-targets handler).
+	if (wabidbTransportLive()) {
+		try {
+			const screenShareQuality = getScreenShareQualityProfile();
+			const stream = await navigator.mediaDevices.getDisplayMedia({
+				video: screenShareQuality.constraints,
+				audio: true
+			});
+			for (const track of stream.getAudioTracks()) {
+				if (track.readyState !== 'live' || !track.enabled) {
+					stream.removeTrack(track);
+					track.stop();
+				}
+			}
+			localScreenStream.set(stream);
+			isSharing.set(true);
+			socket.emit('start-screen-share');
+			stream.getVideoTracks()[0].onended = () => {
+				stopScreenShare(socket);
+			};
+			return stream;
+		} catch (error) {
+			if (error instanceof DOMException &&
+				(error.name === 'NotAllowedError' || error.name === 'NotSupportedError' || error.name === 'AbortError')) {
+				return null;
+			}
+			console.error('Error starting screen share (wabidb lane):', error);
+			return null;
+		}
+	}
 	try {
 		await prefetchTurnCredentials();
 		const screenShareQuality = getScreenShareQualityProfile();
@@ -167,7 +208,15 @@ export function stopScreenShare(socket: Socket) {
 	}
 
 	isSharing.set(false);
+	// Audience notification (also drives remote share teardown). On the
+	// wabidb transport the lane sender is stopped by the localScreenStream
+	// subscription — there are no screen-share peer connections to close.
 	socket.emit('stop-screen-share');
+
+	if (wabidbTransportLive()) {
+		syncSpatialAudioGraph();
+		return;
+	}
 
 	// Close all outbound screen share connections (collect keys first)
 	const outboundKeys: string[] = [];

@@ -111,105 +111,160 @@
 		}
 	}
 
-	// ---- voice helpers (ported from VoiceChannelList) ----
-	function getVoiceMembers(channelId: string) {
-		return $voiceChannelMembers[channelId] || [];
+	// ---- voice rows (Svelte 5 reactivity contract — do not regress) ----
+	// In Svelte 5 legacy mode, template expressions that CALL script functions
+	// compile to `$.untrack(() => fn(args))`: arguments stay tracked, but every
+	// store/prop read INSIDE the function body registers NO dependency. The
+	// helpers this list used to call from the template (getVoiceMembers,
+	// visibleVoiceMembers, isMemberSpeaking, isConnectedToVoice, ...) made the
+	// roster chips blind to join/leave/speaking events until an unrelated
+	// signal fired — the "no live chip sync" field report (2026-08-27; the
+	// sibling VoiceChannelList had the same bug class, fixed 2026-08-24).
+	// Contract (mirrors VoiceChannelList, enforced by
+	// svelte5ReactivityTripwire.test.ts):
+	//   1. All store/prop reads happen in the top-level `$:` derivation below.
+	//   2. The template consumes precomputed row values via member access.
+	//   3. Pure helpers receive every reactive input as an ARGUMENT.
+
+	interface RowMember {
+		userId: string;
+		socketId?: string;
+		username?: string;
+		profilePicture?: string;
 	}
 
-	function isConnectedToVoice(channelId: string): boolean {
-		return connectedVoiceChannelIds.has(channelId);
+	interface VoiceRow {
+		members: RowMember[];
+		visibleMembers: RowMember[];
+		isConnected: boolean;
+		isSelfSpeaking: boolean;
+		selfRecording: boolean;
+		speakingIds: Set<string>;
+		recordingIds: Set<string>;
+		recordingCount: number;
+		memberPresence: Map<string, number | null>;
+		selfPresenceStart: number | null;
+		showMembers: boolean;
 	}
 
-	function isPrimaryVoiceChannel(channelId: string): boolean {
-		return runtimeActiveVoiceChannelId === channelId;
-	}
-
-	function isSelfSpeakingInChannel(channelId: string): boolean {
-		const isLocallySpeaking = $isLocalSpeaking && !$callMuted && !$callDeafened;
-		if (!isLocallySpeaking) return false;
-		if ($voiceTransmitMode === 'all-listening') {
-			return isConnectedToVoice(channelId);
+	function buildVoiceRow(
+		channelId: string,
+		ctx: {
+			membersMap: Record<string, RowMember[]>;
+			connectedIds: Set<string>;
+			primaryId: string | null;
+			transmitMode: string;
+			speaking: Set<string>;
+			recordingByChannel: Record<string, Array<{ userId: string }>>;
+			currentUserId: string | null;
+			currentDbUserId: number | null;
+			selfLocallySpeaking: boolean;
+			presenceSince: Map<string, number>;
 		}
-		return isPrimaryVoiceChannel(channelId);
-	}
+	): VoiceRow {
+		const members = ctx.membersMap[channelId] || [];
+		const isConnected = ctx.connectedIds.has(channelId);
 
-	function isMemberSpeaking(member: { userId: string }, channelId: string): boolean {
-		if (member.userId === $currentUser?.id) {
-			return isSelfSpeakingInChannel(channelId);
+		const selfMatches = (userId: string): boolean =>
+			userId === ctx.currentUserId ||
+			(ctx.currentDbUserId != null && userId === `user-${ctx.currentDbUserId}`);
+		const selfStableId =
+			ctx.currentDbUserId != null ? `user-${ctx.currentDbUserId}` : ctx.currentUserId;
+
+		// 'all-listening' broadcast: self speaks into every connected channel;
+		// otherwise only the runtime-active (primary) channel shows self speaking.
+		const isSelfSpeaking =
+			ctx.selfLocallySpeaking &&
+			(ctx.transmitMode === 'all-listening' ? isConnected : ctx.primaryId === channelId);
+
+		const recordingParticipants = ctx.recordingByChannel[channelId] || [];
+		const recordingIds = new Set(recordingParticipants.map((p) => p.userId));
+		const selfRecording = selfStableId != null && recordingIds.has(selfStableId);
+
+		const speakingIds = new Set<string>();
+		for (const member of members) {
+			if (!selfMatches(member.userId) && ctx.speaking.has(member.userId)) {
+				speakingIds.add(member.userId);
+			}
 		}
-		return $speakingUsers.has(member.userId);
-	}
 
-	function getSelfStableVoiceUserId(): string | null {
-		if ($currentUser?.dbUserId) {
-			return `user-${$currentUser.dbUserId}`;
+		const visibleMembers = members.filter((member) => !selfMatches(member.userId));
+
+		const memberPresence = new Map<string, number | null>();
+		for (const member of members) {
+			memberPresence.set(member.userId, ctx.presenceSince.get(`${channelId}::${member.userId}`) ?? null);
 		}
-		return $currentUser?.id || null;
+		let selfPresenceStart: number | null = null;
+		const selfCandidates = [
+			ctx.currentDbUserId != null ? `user-${ctx.currentDbUserId}` : null,
+			ctx.currentUserId
+		].filter((id): id is string => id != null);
+		for (const candidate of selfCandidates) {
+			const start = ctx.presenceSince.get(`${channelId}::${candidate}`);
+			if (start) { selfPresenceStart = start; break; }
+		}
+
+		return {
+			members,
+			visibleMembers,
+			isConnected,
+			isSelfSpeaking,
+			selfRecording,
+			speakingIds,
+			recordingIds,
+			recordingCount: recordingParticipants.length,
+			memberPresence,
+			selfPresenceStart,
+			showMembers: isConnected || members.length > 0
+		};
 	}
 
-	function getRecordingParticipantsForChannel(channelId: string) {
-		return $voiceCallRecordingParticipants[channelId] || [];
+	/** Every channel that renders a voice row: list channels + breakout children. */
+	function collectRowChannels(): Channel[] {
+		const seen = new Set<string>();
+		const out: Channel[] = [];
+		const push = (list: Channel[] | undefined) => {
+			for (const channel of list ?? []) {
+				if (!seen.has(channel.id)) { seen.add(channel.id); out.push(channel); }
+			}
+		};
+		push(channels);
+		for (const children of Object.values(breakoutChannelsByParent)) push(children);
+		return out;
 	}
 
-	function isVoiceChannelBeingRecorded(channelId: string): boolean {
-		return getRecordingParticipantsForChannel(channelId).length > 0;
-	}
+	$: selfLocallySpeakingRow = $isLocalSpeaking && !$callMuted && !$callDeafened;
 
-	function getVoiceChannelRecordingCount(channelId: string): number {
-		return getRecordingParticipantsForChannel(channelId).length;
-	}
+	$: voiceRowsById = (() => {
+		const map = new Map<string, VoiceRow>();
+		const ctx = {
+			membersMap: $voiceChannelMembers,
+			connectedIds: connectedVoiceChannelIds,
+			primaryId: runtimeActiveVoiceChannelId,
+			transmitMode: $voiceTransmitMode,
+			speaking: $speakingUsers,
+			recordingByChannel: $voiceCallRecordingParticipants,
+			currentUserId: $currentUser?.id ?? null,
+			currentDbUserId: $currentUser?.dbUserId ?? null,
+			selfLocallySpeaking: selfLocallySpeakingRow,
+			presenceSince: voicePresenceSince
+		};
+		for (const channel of collectRowChannels()) {
+			map.set(channel.id, buildVoiceRow(channel.id, ctx));
+		}
+		return map;
+	})();
 
-	function isSelfRecordingInChannel(channelId: string): boolean {
-		const selfStableId = getSelfStableVoiceUserId();
-		if (!selfStableId) return false;
-		return getRecordingParticipantsForChannel(channelId).some((participant) => participant.userId === selfStableId);
-	}
-
-	function isMemberRecording(member: { userId: string }, channelId: string): boolean {
-		return getRecordingParticipantsForChannel(channelId).some((participant) => participant.userId === member.userId);
-	}
-
-	function showVoiceMembers(channelId: string): boolean {
-		return isConnectedToVoice(channelId) || getVoiceMembers(channelId).length > 0;
-	}
-
-	function visibleVoiceMembers(channelId: string): Array<{ userId: string; socketId?: string; username?: string; profilePicture?: string }> {
-		const members = getVoiceMembers(channelId);
-		if (!$currentUser) return members;
-		return members.filter((member) => {
-			if (member.userId === $currentUser?.id) return false;
-			if ($currentUser?.dbUserId && member.userId === `user-${$currentUser.dbUserId}`) return false;
-			return true;
-		});
-	}
-
-	function getVoicePresenceStart(channelId: string, userId: string): number | null {
-		return voicePresenceSince.get(`${channelId}::${userId}`) ?? null;
-	}
-
-	function getSelfVoicePresenceStart(channelId: string): number | null {
-		const stableId = getSelfStableVoiceUserId();
-		if (!stableId) return null;
-		return getVoicePresenceStart(channelId, stableId);
-	}
-
-	function formatVoiceDuration(startMs: number | null): string {
-		return formatVoiceDurationLabel(startMs, nowMs);
-	}
-
-	function showSelfVoiceDuration(): boolean {
-		return voiceDurationMode === 'all';
-	}
-
-	function showOtherVoiceDuration(): boolean {
-		return voiceDurationMode === 'all' || voiceDurationMode === 'others';
+	/** Pure duration formatter — `nowMs` arrives as a tracked argument. */
+	function formatVoiceDuration(startMs: number | null, now: number): string {
+		return formatVoiceDurationLabel(startMs, now);
 	}
 </script>
 
 {#each channels as channel (channel.id)}
 	{@const isVoice = isVoiceLike(channel)}
-	{@const members = isVoice ? getVoiceMembers(channel.id) : []}
-	{@const channelIsConnected = isVoice && isConnectedToVoice(channel.id)}
+	{@const row = isVoice ? voiceRowsById.get(channel.id) : undefined}
+	{@const channelIsConnected = isVoice && (row?.isConnected ?? false)}
 	<div class="unified-channel-wrap" animate:flip={rowFlipParams}>
 	<div
 		class="channel-item unified-channel-item"
@@ -295,17 +350,17 @@
 				{#if liveWhiteboardChannelIds.has(channel.id)}
 					<span class="live-pill" title="Someone is on this whiteboard"><span class="live-dot"></span>LIVE</span>
 				{/if}
-				{#if isVoice && isVoiceChannelBeingRecorded(channel.id)}
-					<span class="voice-recording-tag" title={`${getVoiceChannelRecordingCount(channel.id)} participant(s) recording in this call`}>
-						REC {getVoiceChannelRecordingCount(channel.id)}
+				{#if isVoice && row && row.recordingCount > 0}
+					<span class="voice-recording-tag" title={`${row.recordingCount} participant(s) recording in this call`}>
+						REC {row.recordingCount}
 					</span>
 				{/if}
 			</button>
 			{#if isVoice}
 				<div class="voice-channel-actions">
-					<span class="voice-inline-count voice-action-count" title={getVoiceOccupancyTitle(channel, members.length)}>
+					<span class="voice-inline-count voice-action-count" title={getVoiceOccupancyTitle(channel, row ? row.members.length : 0)}>
 						<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-						{formatVoiceOccupancy(channel, members.length)}
+						{formatVoiceOccupancy(channel, row ? row.members.length : 0)}
 					</span>
 					<button
 						class="follow-btn voice-follow-btn"
@@ -350,26 +405,25 @@
 			{/if}
 		</div>
 	</div>
-	{#if isVoice && showVoiceMembers(channel.id)}
+	{#if isVoice && row?.showMembers}
 		<div class="voice-member-list" transition:slide={reducedMotion ? undefined : { duration: 180, easing: cubicOut }}>
 			{#if channelIsConnected && $currentUser}
-				{@const channelId = channel.id}
 				<div class="voice-member-item" in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}>
 					{#if $currentUser.profilePicture}
-						<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(channelId)} src={$currentUser.profilePicture} alt={$currentUser.username} />
+						<img class="voice-member-avatar" class:speaking={row?.isSelfSpeaking} src={$currentUser.profilePicture} alt={$currentUser.username} />
 					{:else}
-						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(channelId)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
+						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row?.isSelfSpeaking}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
 					<span class="voice-member-name">{$currentUser.username}</span>
-					{#if isSelfRecordingInChannel(channelId)}
+					{#if row?.selfRecording}
 						<span class="voice-recording-tag member">REC</span>
 					{/if}
-					{#if showSelfVoiceDuration()}
-						<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(channelId))}</span>
+					{#if voiceDurationMode === 'all'}
+						<span class="voice-member-duration">{formatVoiceDuration(row?.selfPresenceStart ?? null, nowMs)}</span>
 					{/if}
 				</div>
 			{/if}
-			{#each visibleVoiceMembers(channel.id) as member (member.userId)}
+			{#each row?.visibleMembers ?? [] as member (member.userId)}
 				<div
 					class="voice-member-item"
 					class:voice-member-draggable={canDragVoiceMember(member.userId)}
@@ -381,16 +435,16 @@
 					out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}
 				>
 					{#if member.profilePicture}
-						<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, channel.id)} src={member.profilePicture} alt={member.username || member.userId} />
+						<img class="voice-member-avatar" class:speaking={row?.speakingIds.has(member.userId)} src={member.profilePicture} alt={member.username || member.userId} />
 					{:else}
-						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member, channel.id)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row?.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
 					<span class="voice-member-name">{member.username || member.userId}</span>
-					{#if isMemberRecording(member, channel.id)}
+					{#if row?.recordingIds.has(member.userId)}
 						<span class="voice-recording-tag member">REC</span>
 					{/if}
-					{#if showOtherVoiceDuration()}
-						<span class="voice-member-duration">{formatVoiceDuration(getVoicePresenceStart(channel.id, member.userId))}</span>
+					{#if voiceDurationMode === 'all' || voiceDurationMode === 'others'}
+						<span class="voice-member-duration">{formatVoiceDuration(row?.memberPresence.get(member.userId) ?? null, nowMs)}</span>
 					{/if}
 					{#if canKickVoiceMember(member.userId)}
 						<button
@@ -408,8 +462,8 @@
 		</div>
 	{/if}
 	{#each breakoutChannelsByParent[channel.id] || [] as breakout (breakout.id)}
-		{@const breakoutMembers = getVoiceMembers(breakout.id)}
-		{@const breakoutIsConnected = isConnectedToVoice(breakout.id)}
+		{@const breakoutRow = voiceRowsById.get(breakout.id)}
+		{@const breakoutIsConnected = breakoutRow?.isConnected ?? false}
 		<div
 			class="channel-item voice-channel-item breakout-channel-item"
 			class:active={breakoutIsConnected}
@@ -426,16 +480,16 @@
 			<button class="channel-btn" data-abbrev={breakout.name.charAt(0).toUpperCase()} on:click={(e) => onVoiceChannelClick(breakout.id, e)}>
 				<span class="breakout-prefix" aria-hidden="true">&gt;</span>
 				<span class="voice-channel-name">{breakout.name}</span>
-				{#if isVoiceChannelBeingRecorded(breakout.id)}
-					<span class="voice-recording-tag" title={`${getVoiceChannelRecordingCount(breakout.id)} participant(s) recording in this call`}>
-						REC {getVoiceChannelRecordingCount(breakout.id)}
+				{#if breakoutRow && breakoutRow.recordingCount > 0}
+					<span class="voice-recording-tag" title={`${breakoutRow.recordingCount} participant(s) recording in this call`}>
+						REC {breakoutRow.recordingCount}
 					</span>
 				{/if}
 			</button>
 			<div class="voice-channel-actions">
-				<span class="voice-inline-count voice-action-count" title={getVoiceOccupancyTitle(breakout, breakoutMembers.length)}>
+				<span class="voice-inline-count voice-action-count" title={getVoiceOccupancyTitle(breakout, breakoutRow ? breakoutRow.members.length : 0)}>
 					<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-					{formatVoiceOccupancy(breakout, breakoutMembers.length)}
+					{formatVoiceOccupancy(breakout, breakoutRow ? breakoutRow.members.length : 0)}
 				</span>
 				<button
 					class="follow-btn voice-follow-btn"
@@ -461,25 +515,25 @@
 				</button>
 			</div>
 		</div>
-		{#if showVoiceMembers(breakout.id)}
+		{#if breakoutRow?.showMembers}
 			<div class="voice-member-list breakout-member-list" transition:slide={reducedMotion ? undefined : { duration: 180, easing: cubicOut }}>
 				{#if breakoutIsConnected && $currentUser}
 					<div class="voice-member-item" in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}>
 						{#if $currentUser.profilePicture}
-							<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(breakout.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
+							<img class="voice-member-avatar" class:speaking={breakoutRow?.isSelfSpeaking} src={$currentUser.profilePicture} alt={$currentUser.username} />
 						{:else}
-							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(breakout.id)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
+							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={breakoutRow?.isSelfSpeaking}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}
 						<span class="voice-member-name">{$currentUser.username}</span>
-						{#if isSelfRecordingInChannel(breakout.id)}
+						{#if breakoutRow?.selfRecording}
 							<span class="voice-recording-tag member">REC</span>
 						{/if}
-						{#if showSelfVoiceDuration()}
-							<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(breakout.id))}</span>
+						{#if voiceDurationMode === 'all'}
+							<span class="voice-member-duration">{formatVoiceDuration(breakoutRow?.selfPresenceStart ?? null, nowMs)}</span>
 						{/if}
 					</div>
 				{/if}
-				{#each visibleVoiceMembers(breakout.id) as member (member.userId)}
+				{#each breakoutRow?.visibleMembers ?? [] as member (member.userId)}
 					<div
 						class="voice-member-item"
 						class:voice-member-draggable={canDragVoiceMember(member.userId)}
@@ -491,16 +545,16 @@
 						out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}
 					>
 						{#if member.profilePicture}
-							<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, breakout.id)} src={member.profilePicture} alt={member.username || member.userId} />
+							<img class="voice-member-avatar" class:speaking={breakoutRow?.speakingIds.has(member.userId)} src={member.profilePicture} alt={member.username || member.userId} />
 						{:else}
-							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member, breakout.id)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={breakoutRow?.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}
 						<span class="voice-member-name">{member.username || member.userId}</span>
-						{#if isMemberRecording(member, breakout.id)}
+						{#if breakoutRow?.recordingIds.has(member.userId)}
 							<span class="voice-recording-tag member">REC</span>
 						{/if}
-						{#if showOtherVoiceDuration()}
-							<span class="voice-member-duration">{formatVoiceDuration(getVoicePresenceStart(breakout.id, member.userId))}</span>
+						{#if voiceDurationMode === 'all' || voiceDurationMode === 'others'}
+							<span class="voice-member-duration">{formatVoiceDuration(breakoutRow?.memberPresence.get(member.userId) ?? null, nowMs)}</span>
 						{/if}
 						{#if canKickVoiceMember(member.userId)}
 							<button

@@ -189,6 +189,8 @@ import {
 	removeScreenShare,
 	cleanupAllConnections,
 	openChannelCallPanel,
+	switchCallTransport,
+	presentRemoteScreenShare,
 	closeChannelCallPanel,
 	toggleChannelCallPanel,
 	setVoiceTransmitRoutingMode,
@@ -207,6 +209,7 @@ export {
 } from './calling_impl_core';
 
 export {
+	switchCallTransport,
 	clearAudioPerformanceFallbackOverride,
 	refreshSpatialAudioRuntime,
 	toggleSpatialAudioEnabled,
@@ -249,6 +252,7 @@ export {
 	removeScreenShare,
 	cleanupAllConnections,
 	openChannelCallPanel,
+	presentRemoteScreenShare,
 	closeChannelCallPanel,
 	toggleChannelCallPanel,
 	setVoiceTransmitRoutingMode,

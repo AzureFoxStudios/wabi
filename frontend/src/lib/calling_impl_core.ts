@@ -3,6 +3,9 @@ import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
 import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive, setWabidbSpatialPosition, wabidbStopRemoteVideo } from './callingWabidb';
+import { transportWatchdog } from './callingWatchdog';
+import { addStub, peekPanel } from './layoutStoreRightPanel';
+import { rightPanelMode } from './layoutStoreStates';
 import {
 	configureLivekitTokenRefresh
 } from './callingLivekitTokenRefresh';
@@ -23,7 +26,7 @@ export {
 	handleScreenShareIceCandidate
 } from './callingScreenShare';
 import { initScreenShareDeps } from './callingScreenShare';
-import { connectWithFallback, type CallSurface } from './callingFallback';
+import { connectWithFallback, MESH_MAX_PARTICIPANTS, type CallSurface } from './callingFallback';
 import { voiceChannelMembers, _updateVoiceChannelMember, _removeVoiceChannelMember } from './presenceStore';
 import { getStoredDbUserId, getStoredUsername } from './authSession';
 import { clearActiveAudioCaptureSession,
@@ -57,6 +60,7 @@ import { resolveActiveTransport } from './callingTransport';
 import {
 	getStoredCallMuteBehavior,
 	getStoredCallTransportMode,
+	setCallTransportMode,
 	getStoredAudioProcessingMode,
 	getStoredSpatialAudioSettings,
 	setSpatialAudioEnabled
@@ -2560,6 +2564,24 @@ export function openChannelCallPanel(): void {
 	channelCallPanelOpen.set(true);
 }
 
+/**
+ * Remote screen-share presentation (2026-08-27 report: "no confirmation at
+ * all to the user"). Called from the `screen-share-started` socket handler
+ * for every AUDIENCE member: visible notice + auto-open of the embedded call
+ * panel (honoring an explicit user dismissal for this call). The sharer also
+ * receives the event (server emits to sender + audience) — filtered here.
+ */
+export function presentRemoteScreenShare(sharerStableId: string, username?: string): void {
+	const selfDbId = getStoredDbUserId();
+	const selfStableId = selfDbId != null ? `user-${selfDbId}` : getStoredUsername() || null;
+	if (sharerStableId === selfStableId) return;
+	const label = username || sharerStableId.replace(/^user-/, '');
+	pushVoiceChannelNotice(`${label} started sharing their screen`);
+	if (!callPanelDismissedByUser) {
+		channelCallPanelOpen.set(true);
+	}
+}
+
 // Auto-spawn contract (decision 2026-08-26): joining any call auto-opens the
 // embedded call panel and leaving auto-dissolves it. An explicit user
 // minimize/dismiss keeps it closed for the remainder of THAT call; every new
@@ -2575,6 +2597,146 @@ export function dismissChannelCallPanel(): void {
 function autoOpenChannelCallPanel(): void {
 	callPanelDismissedByUser = false;
 	channelCallPanelOpen.set(true);
+	summonCallsStubOnJoin();
+}
+
+/**
+ * Summon the Calls right-panel stub when a call joins (2026-08-27 request):
+ * the stub is ADDED to the edge strip if missing (persistent, discoverable)
+ * and the panel PEEKS when nothing is pinned — visible confirmation without
+ * stealing chat width. A pinned panel is left alone (user intent wins).
+ */
+function summonCallsStubOnJoin(): void {
+	try {
+		addStub('calls');
+		if (get(rightPanelMode) === 'none') {
+			peekPanel('calls');
+		}
+	} catch {
+		/* layout stores unavailable (SSR / early boot) — never block a join */
+	}
+}
+
+/**
+ * Cleanly swap the active call transport between the wabidb relay and
+ * traditional p2p (2026-08-27 request). The stored mode is updated first so
+ * createCallOffer()/connectWabidbCall() route consistently, then every live
+ * session is torn down on the old transport and re-established on the new
+ * one WITHOUT dropping voice presence:
+ *  - to p2p: relays leave their wabidb rooms (the server stops forwarding to
+ *    us), then mesh call-offers go to every other channel member — their
+ *    handleCallOffer() answers carry their audio back over WebRTC.
+ *  - to wabidb: channel-scoped p2p peer connections close, then the relay
+ *    rejoins the deterministic session key.
+ * Refuses meshes above MESH_MAX_PARTICIPANTS (renegotiation hell guard).
+ */
+export async function switchCallTransport(socket: Socket, target: 'wabidb' | 'p2p'): Promise<void> {
+	if (!get(isInCall)) {
+		pushVoiceChannelNotice('Not in a call — nothing to swap');
+		return;
+	}
+	const current = get(callTransportState).activeTransport;
+	if (current === target) {
+		pushVoiceChannelNotice(`Already on ${target.toUpperCase()}`);
+		return;
+	}
+
+	const channelSessions = callSessionManager.list().filter((session) => session.kind === 'channel');
+	const rosterCounts = channelSessions.map(
+		(session) => (session.channelId ? (get(voiceChannelMembers)[session.channelId]?.length ?? 1) : 1)
+	);
+	const largestRoster = Math.max(1, ...rosterCounts);
+
+	if (target === 'p2p') {
+		// Full-mesh guard (same law as effectiveChain): a big channel over p2p
+		// is an outage, not a swap.
+		if (largestRoster > MESH_MAX_PARTICIPANTS) {
+			pushVoiceChannelNotice(`P2P mesh is capped at ${MESH_MAX_PARTICIPANTS} — this call is too large`);
+			return;
+		}
+		// Preference first, so offer routing agrees with the swap.
+		setCallTransportMode('p2p-only');
+		// Stop the wabidb watchdog before tearing its transport down, or it
+		// reads the teardown as a failure and demotes mid-swap.
+		transportWatchdog.stop();
+		for (const session of channelSessions) {
+			const channelId = session.channelId ?? session.id;
+			try { await disconnectWabidbChannel(channelId); } catch { /* already gone */ }
+		}
+		try { await disconnectWabidbCall(); } catch { /* already gone */ }
+
+		// Mesh offers per channel session, then DM peers.
+		let offers = 0;
+		const selfStable = (() => {
+			const dbId = getStoredDbUserId();
+			return dbId != null ? `user-${dbId}` : null;
+		})();
+		for (const session of channelSessions) {
+			const channelId = session.channelId ?? session.id;
+			const members = get(voiceChannelMembers)[channelId] ?? [];
+			for (const member of members) {
+				if (selfStable && member.userId === selfStable) continue;
+				try {
+					await createCallOffer(socket, member.userId, member.username ?? '', { channelId });
+					offers++;
+				} catch (err) {
+					console.warn(`[Calling] p2p swap offer failed for ${member.userId}:`, err);
+				}
+			}
+		}
+		for (const call of get(activeCalls)) {
+			try {
+				await createCallOffer(socket, call.userId, call.username ?? '');
+				offers++;
+			} catch (err) {
+				console.warn(`[Calling] p2p swap offer failed for ${call.userId}:`, err);
+			}
+		}
+		callTransportState.update((state) => ({
+			...state,
+			activeTransport: 'p2p' as const,
+			isFallback: false,
+			reason: 'user_switch',
+			checkedAt: Date.now()
+		}));
+		for (const session of channelSessions) {
+			callSessionManager.markConnected(session.channelId ?? session.id, 'p2p');
+		}
+		pushVoiceChannelNotice(
+			offers > 0
+				? `Switched to P2P (${offers} peer connection${offers === 1 ? '' : 's'})`
+				: 'Switched to P2P — waiting for peers to answer'
+		);
+	} else {
+		// Back to the wabidb-first chain (auto keeps the p2p tail as fallback).
+		setCallTransportMode('auto');
+		// Close channel-scoped p2p connections; unrelated screenshares survive.
+		const keysToClose: string[] = [];
+		peerConnections.forEach((state, key) => {
+			if (state.type === 'call') keysToClose.push(key);
+		});
+		keysToClose.forEach((key) => cleanupPeerConnection(key));
+
+		for (const session of channelSessions) {
+			const channelId = session.channelId ?? session.id;
+			try {
+				await connectWabidbCall(socket, channelId, `${brandName} User`, undefined, undefined, session.direction === 'listen');
+				callSessionManager.markConnected(channelId, 'wabidb');
+			} catch (err) {
+				console.warn(`[Calling] wabidb swap reconnect failed for ${channelId}:`, err);
+			}
+		}
+		syncWabidbCapture((cid) => shouldSendAudioToChannel(cid));
+		callTransportState.update((state) => ({
+			...state,
+			activeTransport: 'wabidb' as const,
+			isFallback: false,
+			reason: 'user_switch',
+			checkedAt: Date.now()
+		}));
+		pushVoiceChannelNotice('Switched to WabiDB relay');
+	}
+	syncSpatialAudioGraph();
 }
 
 export function closeChannelCallPanel(): void {
