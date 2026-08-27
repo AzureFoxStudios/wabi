@@ -18,7 +18,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
 	import VoiceLiveStrip from '$lib/components/VoiceLiveStrip.svelte';
-	import { voiceViewOpen } from '$lib/voiceView';
+	import { voiceViewOpen, openVoiceView } from '$lib/voiceView';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo } from '$lib/calling';
@@ -80,7 +80,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let showVoiceDebugDetails = false;
 	let showCallDebugPanel = false;
 	// Dev-only gate: the floating calling-diagnostics overlay must never ship to regular users.
-	const callDebugPanelEnabled = import.meta.env.DEV;
+	// 2026-08-27: the diagnostics overlay was DEV-only, so real users could
+	// never see ping/loss/bitrate during field tests. Always compiled in; the
+	// floating toggle only MOUNTS while a call surface is active.
+	const callDebugPanelEnabled = true;
 	let showServerSwitcher = false;
 	let mobileNavVisible = false;
 	let mobileNavIdleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -164,8 +167,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				voiceViewOpen.set(false);
 				break;
 			case 'voice':
-				closeAllAddonTabs();
-				voiceViewOpen.set(true);
+				openVoiceView();
 				break;
 			case 'reader':
 				mobileTabQueue.openAddonTab(READER_ADDON_ID);
@@ -1242,7 +1244,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<!-- Floating sub-window layer inside the app webview. This is the Odysseus-style panel system for Tauri/browser. -->
 	<FloatingPanelHost />
 
-	{#if callDebugPanelEnabled}
+	{#if callDebugPanelEnabled && (callUiActive || showCallDebugPanel)}
 		<button
 			type="button"
 			class="call-debug-toggle"

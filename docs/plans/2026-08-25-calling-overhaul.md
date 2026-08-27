@@ -391,3 +391,83 @@ wabi-server` before deploy (no Rust toolchain was available in the authoring
 sandbox). Retest: both accounts actively connected (not listen-only), expect
 Diag `recv>0 dec>0 play>0`, chips updating live in the sidebar, one share
 path only, and a toast+panel when the remote side shares.
+
+---
+
+## Round 3 — 2026-08-27: voice view reachability, stub summon, transport swap, dual-transport diagnostics
+
+User report: (1) the call "view" is unreachable from the messages view, (2) joining a
+call doesn't summon the Calls right-panel stub, (3) confirm multi-call joins, (4) want a
+clean wabiDB↔p2p swap, (5) debug must show ping/packets/loss on BOTH transports.
+
+### Root causes found (read-only pass)
+- **Voice view unreachable**: the workspace pill bar visible in the messages view is
+  rendered by `ChatHeader.svelte` (not MainLayout — that bar only shows once a
+  non-messages surface is open). `ChatHeader.handleWorkspaceViewSelect` had no
+  `case 'voice'` → silent no-op; `WorkspaceViewKey` (chat/types.ts) also omitted
+  `'voice'`, so `Chat.svelte`'s `selectedWorkspaceView` could never report it and the
+  pill never highlighted.
+- **Stub never summoned**: `autoOpenChannelCallPanel()` only flipped a modal flag
+  (`channelCallPanelOpen`); it never touched the right-panel stub strip.
+- **Transport swap didn't exist as a user action**: `setCallTransportMode` had no UI
+  caller; the only way onto p2p was the watchdog demoting a broken wabidb link.
+- **Debug was WebRTC-only AND dev-only**: `CallDebugPanel` mounts behind
+  `import.meta.env.DEV`, and `callingDiagnostics` sampled `pc.getStats()` exclusively —
+  on wabidb calls (no RTCPeerConnection) every metric reset to null.
+
+### Changes
+1. **Voice view reachability** — `voiceView.ts` gains `openVoiceView()` (closes the six
+   center addon tabs, then flips the store) + `closeVoiceView()`; `WorkspaceViewKey`
+   adds `'voice'`; `Chat.svelte` derives/maps/labels it and `returnToMessagesView()`
+   closes it; `ChatHeader` handles `case 'voice'` via the shared opener; MainLayout's
+   bar case now uses the same opener.
+2. **Stub summon on join** — `autoOpenChannelCallPanel()` calls `summonCallsStubOnJoin()`:
+   `addStub('calls')` (persistent, appears on the edge strip) + `peekPanel('calls')`
+   when nothing is pinned (visible confirmation without stealing chat width). Applies
+   to every auto-open site (join, DM answer, group establish, forced move).
+3. **Multi-call** — verified (no code needed): sidebar click while transmitting =
+   listen-subscribe; VoiceView lists joinable channels with Join/Listen-Join;
+   callSessionManager tracks one transmit + N listen sessions; swap preserves
+   listen-direction (connectWabidbCall listenOnly flag / shouldTransmitToChannel gate).
+4. **Clean transport swap** — `switchCallTransport(socket, 'wabidb' | 'p2p')` in
+   calling_impl_core (re-exported via calling.ts): stores the mode FIRST (offer routing
+   agrees), stops the watchdog before teardown (no phantom demotion), tears down the
+   old transport per session, rebuilds on the new one (mesh offers with channelId /
+   relay reconnect), updates session + transport-state stores, refuses meshes >
+   MESH_MAX_PARTICIPANTS. UI: "Swap to P2P / Swap to WabiDB" button in VoiceView footer
+   (visible when sessions exist).
+5. **Dual-transport debug** —
+   - Server: `wabidb-ping` stateless echo handler → `wabidb-pong` (wiring.rs).
+   - Relay: byte counters (sent/recv), seq-gap inbound loss estimate (per-user, seq>0
+     senders only), inter-arrival jitter EMA in `WabidbMediaRelayDiagnostics`.
+   - Sampler: when no peer connections exist, `callingDiagnostics` aggregates relay
+     counters + socket RTT echo (dynamic imports, no static cycles) and tags
+     `source: 'wabidb'`; WebRTC samples carry packetsSent/Received + `source: 'webrtc'`.
+   - Panel: CallDebugPanel adds Packets ↑/↓ rows and a Transport line showing which
+     metric source is live. MainLayout no longer gates the overlay to DEV builds —
+     the floating toggle mounts whenever a call surface is active.
+   - Note: outbound loss is unobservable on wabidb from the sender side (the relay
+     drops nothing it accepts); reported as `--`. Jitter is an inter-arrival
+     deviation EMA, not RFC3550 — labelled a stability proxy.
+
+### Gates
+- `npm run check`: 0 errors (180 pre-existing warnings)
+- `bun test src/lib`: 171 pass / 3 skip / 1 fail — the fail is the pre-existing
+  `setAuthToken` export baseline, untouched by this change
+- `npm run build`: exit 0
+- `cargo test -p wabi-server`: still REQUIRED before deploy (no Rust toolchain in the
+  sandbox — wiring.rs handler is a stateless echo, hand-reviewed against the
+  adjacent `call-offer` pattern)
+
+### Retest recipe
+1. Fresh login → messages view → **Voice** pill in the chat header → voice view opens,
+   pill highlights; Messages pill returns.
+2. Join a voice channel → Calls stub appears on the right edge + panel peeks (unless a
+   panel is pinned — user intent wins).
+3. Join a second channel from the sidebar/VoiceView → two session cards, one transmit
+   badge, per-call volume/mute/leave work.
+4. VoiceView footer → "Swap to P2P" → transport badge flips, audio continues, notice
+   with peer count; "Swap to WabiDB" → relay reconnects. Watchdog stays quiet.
+5. During a call (either transport) → floating debug toggle (bottom corner, no longer
+   dev-only) → ping/jitter/loss/rates/packets populated, Transport row names the
+   metric source. On wabidb, ping = socket echo RTT; loss = inbound envelope gaps.
