@@ -296,7 +296,15 @@ async fn create_channel(
             if lore_channel_id != 0 {
                 let lore_guard = state.lore_service.read().await;
                 if let Some(lore) = lore_guard.as_ref() {
-                    let repo_name = format!("ch-{channel_id}");
+                    // Repo named after its channel (lore://host/my-project),
+                    // not its numeric id — "the channel IS the repo" reads
+                    // wrong when the URL says ch-47.
+                    let slug = wabi_lore::slugify_repo_name(&name);
+                    let repo_name = if slug.is_empty() {
+                        format!("ch-{channel_id}")
+                    } else {
+                        slug
+                    };
                     match lore.create_repo(lore_channel_id, auth.user_id, &repo_name).await {
                         Ok(repo) => {
                             let _ = state
