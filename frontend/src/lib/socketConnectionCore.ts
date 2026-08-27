@@ -1134,10 +1134,35 @@ export class SocketManager {
 		sock.on('screen-share-targets', (payload: { targets?: Array<{ userId?: string; username?: string }> }) => {
 			void import('./calling').then(({ createScreenShareOffer, isSharing }) => {
 				if (!get(isSharing)) return;
-				for (const target of payload?.targets ?? []) {
-					if (target?.userId) void createScreenShareOffer(sock, target.userId);
-				}
+				// Wabidb transport: the share rides the wabidb video lane; WebRTC
+				// offer creation here would run the SAME share over a second
+				// transport (double encode + socket flood — 2026-08-27 report).
+				void import('./callingWabidb').then(({ wabidbTransportLive }) => {
+					if (wabidbTransportLive()) return;
+					for (const target of payload?.targets ?? []) {
+						if (target?.userId) void createScreenShareOffer(sock, target.userId);
+					}
+				}).catch(() => undefined);
 			}).catch((error) => console.warn('[Socket] Failed to create screen share offers:', error));
+		});
+
+		// Remote share notification — the "confirmation" the 2026-08-27 report
+		// found missing: the server has always emitted this event, but no
+		// client listener existed, so a remote sharer's share could connect
+		// (or fail) with zero indication to the audience.
+		sock.on('screen-share-started', (payload: { senderId?: string; userId?: string; username?: string }) => {
+			const sharerId = payload?.senderId || payload?.userId;
+			if (!sharerId) return;
+			void import('./calling').then(({ presentRemoteScreenShare }) =>
+				presentRemoteScreenShare(sharerId, payload?.username)
+			).catch((error) => console.warn('[Socket] Failed to present remote screen share:', error));
+		});
+
+		sock.on('screen-share-stopped', (payload: { senderId?: string; userId?: string }) => {
+			const userId = payload?.senderId || payload?.userId;
+			if (!userId) return;
+			void import('./calling').then(({ removeScreenShare }) => removeScreenShare(userId))
+				.catch((error) => console.warn('[Socket] Failed to remove screen share:', error));
 		});
 
 		sock.on('webrtc-offer', (payload: { senderId?: string; username?: string; offer?: RTCSessionDescriptionInit }) => {
@@ -1305,13 +1330,6 @@ export class SocketManager {
 					candidate: payload.candidate!
 				})
 			).catch((error) => console.warn('[Socket] Failed to handle P2P ICE candidate:', error));
-		});
-
-		sock.on('screen-share-stopped', (payload: { senderId?: string; userId?: string }) => {
-			const userId = payload?.senderId || payload?.userId;
-			if (!userId) return;
-			void import('./calling').then(({ removeScreenShare }) => removeScreenShare(userId))
-				.catch((error) => console.warn('[Socket] Failed to remove screen share:', error));
 		});
 
 		sock.on('voice-channel-user-joined', (payload: { channelId?: string; userId?: string; socketId?: string; username?: string; profilePicture?: string }) => {

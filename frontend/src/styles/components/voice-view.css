@@ -242,6 +242,16 @@
 	background: color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 14%, transparent);
 }
 .vv-buttons button.danger,
+.vv-global button.swap {
+	background: transparent;
+	border-color: var(--accent, #7c6ff0);
+	color: var(--accent, #7c6ff0);
+}
+
+.vv-global button.swap:disabled {
+	opacity: 0.5;
+}
+
 .vv-global button.danger,
 .cpanel-controls button.danger {
 	border-color: color-mix(in srgb, #e06c6c 55%, transparent);
