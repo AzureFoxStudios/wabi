@@ -76,6 +76,12 @@ async fn on_group_call_leave(socket: SocketRef, data: Value, state: SioState, io
                 .await;
         }
     }
+
+    // Round 5 hot-mic fix: leaving the group call drops the channel's wabidb
+    // media room membership too — but only if no voice-roster slot remains
+    // (a departing group member may legitimately keep listening to the
+    // channel).
+    leave_wabidb_channel_room_if_unrostered(&socket, &state, &channel_id).await;
 }
 
 #[allow(dead_code)]

@@ -23,7 +23,6 @@
  *    chunkCount). The receiver reassembles per (userId, seq) before decoding.
  *  - Receiver: per-user VideoDecoder → draw VideoFrame into a per-user <canvas>,
  *    then expose `canvas.captureStream()` as a MediaStream handle for UI tiles.
- *    MediaStreamTrackGenerator is used when available as a lighter path.
  *  - Bandwidth guard: measure sent bytes/s; if sustained over threshold, drop
  *    RESOLUTION first (reconfigure encoder), then fps. Keyframe after reconfig.
  */
@@ -853,15 +852,16 @@ export class WabidbVideoLane {
   private exposeRemoteStream(streamKey: string, canvas: HTMLCanvasElement): void {
     let stream = this.remoteStreams.get(streamKey);
     if (!stream) {
-      // Prefer MediaStreamTrackGenerator when available (lighter), else canvas.captureStream.
-      const MSG = (globalThis as any).MediaStreamTrackGenerator;
-      if (typeof MSG === 'function' && typeof (globalThis as any).MediaStreamTrackProcessor === 'function') {
-        try {
-          const track = new MSG({ kind: 'video' });
-          stream = new MediaStream([track]);
-        } catch { stream = null as any; }
-      }
-      if (!stream && typeof (canvas as any).captureStream === 'function') {
+      // 2026-08-27 round 5: ALWAYS capture the decode canvas. The previous
+      // "lighter" path preferred a MediaStreamTrackGenerator on Chromium, but
+      // its `writable` end was never connected to anything — the exposed track
+      // received zero frames and every remote video tile rendered black on
+      // Chrome/Edge (the 2026-08-26 "picked a window, nothing rendered" and
+      // 2026-08-27 "call renders, screenshare doesn't" reports; Firefox lacks
+      // the constructor, took this canvas path, and worked — hence "one-way").
+      // onDecodedFrame paints every decoded frame into this canvas, so
+      // captureStream(15) always carries live pixels.
+      if (typeof (canvas as any).captureStream === 'function') {
         stream = (canvas as any).captureStream(15);
       }
       if (stream) {

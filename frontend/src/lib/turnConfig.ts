@@ -89,7 +89,10 @@ async function fetchEphemeralTurnCredentials(): Promise<void> {
 		});
 
 		if (!response.ok) {
-			if (response.status !== 401 && response.status !== 503) {
+			// 400 = the server explicitly answers "TURN not enabled" — the normal
+			// state on deployments without the TURN profile, not a fault worth a
+			// console warning (wabi.chat log noise, 2026-08-27).
+			if (response.status !== 401 && response.status !== 503 && response.status !== 400) {
 				console.warn(`[TURN Config] TURN credential endpoint returned ${response.status}`);
 			}
 			return;

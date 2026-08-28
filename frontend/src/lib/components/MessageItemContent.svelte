@@ -52,6 +52,8 @@
 
 	export let onReply: (message: Message) => void;
 	export let onQuickMention: (message: Message) => void;
+	export let onForward: (message: Message) => void = () => {};
+
 	export let onContextMenu: (event: MouseEvent, message: Message) => void;
 	export let onLongPress: (event: TouchEvent, message: Message) => void;
 	export let onOpenReactionPicker: (event: MouseEvent, messageId: string) => void;
@@ -214,6 +216,7 @@
 			{displayEnhancementSettingsStore}
 			{onReply}
 			{onQuickMention}
+			{onForward}
 			{onContextMenu}
 			{onOpenReactionPicker}
 			{onQuickReact}

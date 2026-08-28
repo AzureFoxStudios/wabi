@@ -17,6 +17,7 @@ import { SocketHeartbeat } from './socketConnectionHeartbeat';
 import { SocketReconnectionManager } from './socketConnectionReconnect';
 import { drainOutboundQueue } from '$lib/wabidb/drain';
 import { getWabiDB } from '$lib/wabidb';
+import { applyRemoteRecordingPresence } from './callRecordingPresence';
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
 import { upsertBreakoutRooms, removeBreakoutRooms } from './breakoutChannels';
@@ -1228,6 +1229,26 @@ export class SocketManager {
 			if (!userId) return;
 			void import('./calling').then(({ removeScreenShare }) => removeScreenShare(userId))
 				.catch((error) => console.warn('[Socket] Failed to remove screen share:', error));
+		});
+
+		// Recording transparency (round 5): the server relays per-recorder
+		// deltas — feed them to the presence stores that drive REC badges.
+		sock.on('call-recording-presence-changed', (payload: {
+			active?: boolean;
+			scope?: string;
+			channelIds?: string[];
+			recorder?: { userId?: string; username?: string; profilePicture?: string };
+		}) => {
+			if (typeof payload?.active !== 'boolean') return;
+			if (!payload.recorder?.userId) return;
+			const scope = payload.scope;
+			if (scope !== 'direct' && scope !== 'group' && scope !== 'channel') return;
+			applyRemoteRecordingPresence({
+				active: payload.active,
+				scope,
+				channelIds: payload.channelIds ?? [],
+				recorder: payload.recorder
+			});
 		});
 
 		sock.on('webrtc-offer', (payload: { senderId?: string; username?: string; offer?: RTCSessionDescriptionInit }) => {

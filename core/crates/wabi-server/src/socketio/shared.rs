@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use socketioxide::{
-    extract::{Data, SocketRef, State},
+    extract::{AckSender, Data, SocketRef, State},
     layer::SocketIoLayer,
     SocketIo,
 };

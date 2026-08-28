@@ -457,7 +457,6 @@ export async function connectWabidbCall(
 						).catch(() => undefined);
 					}
 				});
-				relay?.attachVideoLane(lane);
 				wabidbVideoLaneInst = lane;
 
 				// Auto-start the lane when the user toggles screen share while on
@@ -479,6 +478,10 @@ export async function connectWabidbCall(
 				console.warn('[Wabidb] Video lane import failed, continuing without:', e);
 			}
 		}
+		// Route THIS relay's inbound video envelopes to the shared lane. The
+		// lane is created once; without this attach, a SECOND concurrent
+		// channel's relay dropped every inbound video envelope (round 5).
+		relay?.attachVideoLane(wabidbVideoLaneInst ?? null);
 
 		socket.emit('join-wabidb-call', { sessionId: newSessionId, channelId: targetChannelId });
 		// Phase 1 hardening: on denial, onWabidbCallDenied feeds the transport
@@ -503,6 +506,14 @@ export async function connectWabidbCall(
 			connect: async (transport) => {
 				if (transport === 'wabidb') {
 					await connectWabidbCall(socket, targetChannelId, localDisplayName, serverUrl, peerUserId, listenOnly);
+					return;
+				}
+				if (transport === 'p2p') {
+					// 2026-08-27: a dead relay used to be a dead call — the watchdog
+					// had no p2p path and just threw. Rebuild the mesh via the impl
+					// module (dynamic import: calling_impl imports this module).
+					const { reEstablishChannelP2P } = await import('./calling_impl_core');
+					await reEstablishChannelP2P(socket, targetChannelId);
 					return;
 				}
 				throw new Error(`watchdog cannot re-establish ${transport} from here`);

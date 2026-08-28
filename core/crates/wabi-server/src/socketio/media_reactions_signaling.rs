@@ -59,6 +59,55 @@ async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _i
     }
 }
 
+// ---------------------------------------------------------------------------
+// WabiDB media room eviction (2026-08-27 round 5 — hot-mic fix)
+// ---------------------------------------------------------------------------
+
+/// Evict the socket from the channel's wabidb media room when it no longer
+/// holds ANY roster slot (primary or listen-only) in that channel. Room
+/// membership is the relay's ONLY authorization — before this, a departed
+/// socket kept both relay rights (a still-emitting client kept streaming its
+/// mic to everyone remaining) and every media envelope until it fully
+/// disconnected.
+async fn leave_wabidb_channel_room_if_unrostered(
+    socket: &SocketRef,
+    state: &SioState,
+    channel_id: &str,
+) {
+    let still_member = {
+        let voice = state.voice_channels.read().await;
+        voice
+            .get(channel_id)
+            .map(|members| members.iter().any(|p| p.socket_id == socket.id.to_string()))
+            .unwrap_or(false)
+    };
+    if !still_member {
+        let room = format!("wabidb-call-channel:{}", channel_id);
+        let _ = socket.leave(room.clone());
+        info!(
+            "[sio] Socket {} left wabiDB media room {} (unrostered)",
+            socket.id, room
+        );
+    }
+}
+
+/// Mirror of the client's `wabidbDmSessionKey`: ids normalize digits to
+/// `user-{n}`, the pair sorts lexicographically, room = `dm:{a}:{b}`.
+fn dm_media_room_key(my_id: &str, peer_id: &str) -> String {
+    let normalize = |id: &str| -> String {
+        let trimmed = id.trim();
+        if !trimmed.is_empty() && trimmed.bytes().all(|b| b.is_ascii_digit()) {
+            format!("user-{}", trimmed)
+        } else {
+            trimmed.to_string()
+        }
+    };
+    let a = normalize(my_id);
+    let b = normalize(peer_id);
+    let (first, second) = if a <= b { (a, b) } else { (b, a) };
+    format!("dm:{}:{}", first, second)
+}
+
 #[allow(dead_code)]
 async fn on_wabidb_media(socket: SocketRef, data: Value, _state: SioState, io: SocketIo) {
     // SEC-1: unauthenticated sockets may not relay media at all.
@@ -447,6 +496,175 @@ async fn screen_share_audience(
         })
         .collect();
     (username, audience)
+}
+
+// ---------------------------------------------------------------------------
+// Call recording presence (2026-08-27 round 5)
+// ---------------------------------------------------------------------------
+
+/// `call-recording-set-active` — the transparency half of call recording.
+/// The local MediaRecorder runs client-side; this handler records WHO is
+/// recording and tells their call audience (`call-recording-presence-changed`)
+/// so REC badges are honest on every participant's screen. Guests are
+/// rejected: no attested identity to attribute the recording to.
+#[allow(dead_code)]
+async fn on_call_recording_set_active(
+    socket: SocketRef,
+    data: Value,
+    state: SioState,
+    io: SocketIo,
+    ack: AckSender,
+) {
+    let Some(identity) = resolve_sio_identity(&socket) else {
+        let _ = ack.send(&json!({"ok": false, "error": "authentication required"}));
+        return;
+    };
+    if identity.user_id <= 0 {
+        let _ = ack.send(&json!({"ok": false, "error": "guests cannot record"}));
+        return;
+    }
+    let active = data.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+    let stable_id = format!("user-{}", identity.user_id);
+
+    if !active {
+        if let Some(entry) = recording_presence_remove(&socket.id.to_string()) {
+            broadcast_recording_presence(&io, &entry, false, Vec::new()).await;
+        }
+        let _ = ack.send(&json!({"ok": true}));
+        return;
+    }
+
+    let scope = data
+        .get("scope")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let username = {
+        let connected = state.connected_users.read().await;
+        connected
+            .get(&socket.id.to_string())
+            .map(|u| u.username.clone())
+            .unwrap_or_default()
+    };
+
+    // Derive the addressed channels from SERVER truth — a client's channel
+    // claims are never trusted for addressing (a forged scope would fake REC
+    // badges in arbitrary channels).
+    let channel_ids: Vec<String> = match scope.as_str() {
+        "direct" => Vec::new(),
+        "group" => {
+            let group_id = data.get("channelId").and_then(|v| v.as_str()).unwrap_or("");
+            let groups = state.group_call_sessions.read().await;
+            let is_member = groups
+                .get(group_id)
+                .map(|s| s.connected_participants.contains(&stable_id))
+                .unwrap_or(false);
+            drop(groups);
+            if !is_member {
+                let _ = ack.send(&json!({"ok": false, "error": "not a member of this group call"}));
+                return;
+            }
+            vec![group_id.to_string()]
+        }
+        "channel" => {
+            let voice = state.voice_channels.read().await;
+            voice
+                .iter()
+                .filter(|(_, members)| {
+                    members.iter().any(|p| p.socket_id == socket.id.to_string())
+                })
+                .map(|(channel_id, _)| channel_id.clone())
+                .collect()
+        }
+        _ => {
+            let _ = ack.send(&json!({"ok": false, "error": "unknown recording scope"}));
+            return;
+        }
+    };
+
+    let entry = RecordingPresenceEntry {
+        stable_id: stable_id.clone(),
+        username,
+        scope: scope.clone(),
+        channel_ids,
+    };
+    // Scope changes mid-recording first deactivate the previous scope so no
+    // stale REC badge survives (e.g. group → channel).
+    if let Some(previous) = recording_presence_upsert(&socket.id.to_string(), entry.clone()) {
+        if previous.scope != entry.scope || previous.channel_ids != entry.channel_ids {
+            broadcast_recording_presence(&io, &previous, false, Vec::new()).await;
+        }
+    }
+    // Audience = everyone sharing a call relationship with the recorder
+    // (same consent scan as screen-share notifications) + the recorder's own
+    // stable-id room (their other devices stay in sync).
+    let (_, audience) = screen_share_audience(&socket, &state).await;
+    let extra_rooms = audience.into_iter().map(|(id, _)| id).collect();
+    broadcast_recording_presence(&io, &entry, true, extra_rooms).await;
+    let _ = ack.send(&json!({"ok": true}));
+}
+
+fn recording_presence_payload(entry: &RecordingPresenceEntry, active: bool) -> Value {
+    json!({
+        "active": active,
+        "scope": entry.scope,
+        "channelIds": entry.channel_ids,
+        "recorder": {
+            "userId": entry.stable_id,
+            "username": entry.username,
+        },
+    })
+}
+
+/// Fan out one recording-state change. `extra_rooms` carries the
+/// consent-scoped audience (live handlers have a socket to scan with);
+/// disconnect cleanup passes the departed channels' members instead.
+async fn broadcast_recording_presence(
+    io: &SocketIo,
+    entry: &RecordingPresenceEntry,
+    active: bool,
+    extra_rooms: Vec<String>,
+) {
+    let mut rooms = extra_rooms;
+    rooms.push(entry.stable_id.clone());
+    rooms.sort();
+    rooms.dedup();
+    let _ = io
+        .to(rooms)
+        .emit(
+            "call-recording-presence-changed",
+            &recording_presence_payload(entry, active),
+        )
+        .await;
+}
+
+/// Stable-id rooms to notify about `entry` when the recorder's own socket is
+/// already gone (disconnect cleanup): every remaining member of the recorded
+/// channels. Live activation/deactivation uses the consent scan instead.
+async fn recording_presence_departure_rooms(
+    state: &SioState,
+    entry: &RecordingPresenceEntry,
+) -> Vec<String> {
+    let mut rooms: Vec<String> = Vec::new();
+    if entry.scope == "channel" || entry.scope == "group" {
+        let voice = state.voice_channels.read().await;
+        let groups = state.group_call_sessions.read().await;
+        for channel_id in &entry.channel_ids {
+            if let Some(members) = voice.get(channel_id) {
+                for member in members {
+                    rooms.push(member.stable_id.clone());
+                }
+            }
+            if let Some(session) = groups.get(channel_id) {
+                for stable_id in &session.connected_participants {
+                    rooms.push(stable_id.clone());
+                }
+            }
+        }
+    }
+    rooms.sort();
+    rooms.dedup();
+    rooms
 }
 
 #[allow(dead_code)]

@@ -247,6 +247,10 @@ async fn on_voice_channel_unsubscribe(socket: SocketRef, data: Value, state: Sio
                 }),
             )
             .await;
+        // Round 5 hot-mic fix: a listen-only departure must also drop the
+        // wabidb media room membership (guarded — a primary member sending a
+        // stray unsubscribe keeps its room).
+        leave_wabidb_channel_room_if_unrostered(&socket, &state, &channel_id).await;
     }
 }
 
@@ -301,6 +305,10 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
             }),
         )
         .await;
+
+    // Round 5 hot-mic fix: drop the wabidb media room membership once no
+    // roster slot remains — room membership is the relay's only authorization.
+    leave_wabidb_channel_room_if_unrostered(&socket, &state, &channel_id).await;
 }
 
 #[allow(dead_code)]

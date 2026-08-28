@@ -9,6 +9,7 @@ import {
 	callSessionManager
 } from './callSessionManager';
 import { sessionBadge, type CallSession } from './callSessionTypes';
+import { confirmLeaveWhileRecording } from './callRecording';
 import { getSocket } from './socketConnection';
 import {
 	joinVoiceChannel,
@@ -35,6 +36,9 @@ export function joinVoice(channelId: string): void {
 export function leaveCall(session: CallSession): void {
 	const socket = getSocket();
 	if (!socket) return;
+	// Recording leave-guard (2026-08-27): leaving must never silently kill an
+	// active recording — confirm first, then stop+save via the guard.
+	if (!confirmLeaveWhileRecording()) return;
 	if (session.kind === 'channel') {
 		void leaveVoiceChannel(socket, session.channelId ?? session.id);
 		return;
@@ -88,6 +92,7 @@ export function cameraOff(): void {
 export function leaveAllCalls(): void {
 	const socket = getSocket();
 	if (!socket) return;
+	if (!confirmLeaveWhileRecording()) return;
 	const sessions = callSessionManager.list();
 	let endedCall = false;
 	for (const session of sessions) {

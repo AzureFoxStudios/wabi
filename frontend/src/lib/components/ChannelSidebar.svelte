@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
+	import { focusCall } from '$lib/callSurfaces';
+	import { confirmLeaveWhileRecording } from '$lib/callRecording';
+	import { openVoiceView } from '$lib/voiceView';
 	import { fly, slide } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
 	import { cubicOut } from 'svelte/easing';
@@ -385,14 +388,17 @@
 	function getVoiceMembers(id: string) { return $voiceChannelMembers[id] || []; }
 	function isConnectedToVoice(id: string) { return connectedVoiceChannelIds.has(id); }
 	function isPrimaryVoiceChannel(id: string) { return primaryVoiceChannelId === id; }
-	async function handleVoiceChannelClick(id: string, e?: MouseEvent) { (e?.currentTarget as HTMLElement | null)?.blur?.(); if (isConnectedToVoice(id)) { openChannelCallPanel(); dispatch('close'); return; } if (runtimeActiveVoiceChannelId) { subscribeVoiceChannel(id); return; } try { await joinVoiceChannel(id); dispatch('close'); } catch (e) { console.error('Failed to join voice channel:', e); } }
+	// Discord model (2026-08-27 report): 1st click JOINS and stays put (the
+	// roster lands in the sidebar + the Calls panel peeks); 2nd click on a
+	// connected channel opens the focused call view (Voice view, call focused).
+	async function handleVoiceChannelClick(id: string, e?: MouseEvent) { (e?.currentTarget as HTMLElement | null)?.blur?.(); if (isConnectedToVoice(id)) { openVoiceView(); focusCall(id); dispatch('close'); return; } if (runtimeActiveVoiceChannelId) { subscribeVoiceChannel(id); return; } try { await joinVoiceChannel(id); } catch (e) { console.error('Failed to join voice channel:', e); } }
 	function handleToggleListenChannel(id: string) { if (isPrimaryVoiceChannel(id)) return; isConnectedToVoice(id) ? unsubscribeVoiceChannel(id) : subscribeVoiceChannel(id); }
 	function handleTransmitModeChange(e: Event) {
 		const mode = (e.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
 		setVoiceTransmitRoutingMode(mode);
 		setVoiceTransmitMode(mode);
 	}
-	async function handleLeaveVoice() { if (primaryVoiceChannelId) { await leaveVoiceChannel(primaryVoiceChannelId); return; } for (const id of connectedVoiceChannelIds) unsubscribeVoiceChannel(id); }
+	async function handleLeaveVoice() { if (!confirmLeaveWhileRecording()) return; if (primaryVoiceChannelId) { await leaveVoiceChannel(primaryVoiceChannelId); return; } for (const id of connectedVoiceChannelIds) unsubscribeVoiceChannel(id); }
 	function hasBreakoutRooms(id: string) { return (breakoutChannelsByParent[id] || []).length > 0; }
 	let showBreakoutModal = false;
 	let breakoutTargetChannel: Channel | null = null;

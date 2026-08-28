@@ -561,6 +561,16 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            // The client awaits the ack with a 4s timeout (old servers never
+            // ack; recording proceeds locally either way).
+            socket.on("call-recording-set-active", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>, ack: AckSender| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_call_recording_set_active(socket, data, s, io, ack).await }
+                }
+            });
+
             socket.on("webrtc-offer", {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {

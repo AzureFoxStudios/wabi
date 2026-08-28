@@ -639,6 +639,20 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     media_rate_forget(&socket_id);
     dm_link_clear_user(&get_my_stable_id(&socket, &state.app.config.jwt_secret));
 
+    // Recording transparency cleanup (2026-08-27 round 5): a disconnected
+    // recorder stops recording — tell the members of every channel they
+    // recorded so no stale REC badge survives on other screens.
+    if let Some(entry) = recording_presence_remove(&socket_id) {
+        let rooms = recording_presence_departure_rooms(&state, &entry).await;
+        let _ = io
+            .to(rooms)
+            .emit(
+                "call-recording-presence-changed",
+                &recording_presence_payload(&entry, false),
+            )
+            .await;
+    }
+
     let departed = {
         let mut connected = state.connected_users.write().await;
         connected.remove(&socket_id)

@@ -471,3 +471,193 @@ clean wabiDB↔p2p swap, (5) debug must show ping/packets/loss on BOTH transport
 5. During a call (either transport) → floating debug toggle (bottom corner, no longer
    dev-only) → ping/jitter/loss/rates/packets populated, Transport row names the
    metric source. On wabidb, ping = socket echo RTT; loss = inbound envelope gaps.
+
+---
+
+## Round 4 — 2026-08-27: wabi.chat field-test laundry list
+
+Reported live from wabi.chat (testing grounds). Root causes found + fixes:
+
+1. **Sent messages invisible until channel switch** — `MessageList.svelte`'s
+   render-window block cached the expiry-filtered list (`lastFilteredMessages`)
+   and skipped recompute whenever no ephemeral deadline had expired; channels
+   with no ephemeral messages NEVER picked up new messages. Fix: force
+   re-filter whenever the `messages` array reference changes; the deadline
+   check remains only as a nowMs-tick optimization.
+2. **Joining a channel call forced a translucent modal over chat** —
+   `callUiActive` mounted CallModal for ANY `$isInCall`, including
+   `callMode === 'channel'`. Discord model restored: channel calls live in
+   sidebar roster + Calls panel + Voice view; the modal stays for DM/group
+   rings + DM streams. `autoOpenChannelCallPanel` no longer flips
+   `channelCallPanelOpen` (stub summon only). Sidebar voice click: 1st click
+   joins in place, 2nd click on a connected channel opens Voice view focused
+   on that call (tripwire test updated to guard the new contract).
+3. **Recording was placebo** — `startCallRecording` awaited a
+   `call-recording-set-active` socket ack that the SERVER NEVER IMPLEMENTS →
+   the await hung forever: banner showed "REC 00:00", no MediaRecorder ever
+   started, stop() no-oped, leaving cut it silently. Fixes: 4s presence-ack
+   timeout (non-fatal — recording proceeds, transparency warns), timer starts
+   when the banner flips, `stopCallRecording` hard-resets ghost state,
+   CallRecordingPanel's `export const` props (silently-ignored!) fixed to
+   `export let` + a real Stop button in the banner, leave-guards
+   (`confirmLeaveWhileRecording`) on CallModal hangup / callSurfaces leaves /
+   sidebar leave-voice, VoiceView footer gains ⏺ Record/Stop with live timer
+   (channel calls no longer have the modal), and the mixed recorder taps the
+   shared callAudioGraph master bus when remote audio rides wabidb (no
+   per-peer MediaStreams exist there — remote voices were previously
+   unrecorded on that transport).
+   NOTE: the server-side recording-presence broadcast remains unimplemented
+   (client-side only); the timeout makes it safe but "recording transparency"
+   to other participants is still absent.
+4. **No self screen preview** — the wabidb video lane self-filters your own
+   stream; VoiceView session cards now render a "Your screen" tile from
+   `localScreenStream`.
+5. **GIF/emoji panel pushed messages up + stuck "Loading..."** —
+   `.emoji-picker-container` lost its positioning CSS in the d4d8162
+   extraction and rendered as an inline block; the container now lives inside
+   `.input-wrapper` as an anchored popover (like mention suggestions). The
+   lazy chunk load gets a failure state + Retry button instead of an eternal
+   spinner. The "GIF caption uses composer text (max 280 characters)" hint is
+   removed (owner: "why do we show that at all?").
+6. **Payments visible on a payments-disabled server** —
+   `resolvePaymentAccessSnapshot` failed OPEN on unknown policy; now fails
+   CLOSED (owner directive: disabled => omit all payment UI). Profile settings'
+   payment row (History/Refs/Support) hides unless `canViewPaymentUi`; tests
+   updated.
+7. **React bar** — Forward added to the hover bar (was context-menu only);
+   quick-reaction emoji `<img>`s get an `:name:` text fallback on error
+   (broken URLs no longer render broken-image boxes).
+8. **Watchdog couldn't demote to p2p** — its connect callback only knew
+   wabidb ("watchdog cannot re-establish p2p from here"), so a dead relay =
+   dead call. New `reEstablishChannelP2P` (mesh offers) wired via dynamic
+   import (no static cycle).
+9. **wss://…/ws unreachable on wabi.chat** — Caddyfile.example's backend path
+   list omitted `/ws`; the wabidb relay WebSocket fell through to the frontend
+   container killing the whole transport. Added `/ws /ws/*` (deployment must
+   apply this to the live Caddy config).
+10. **TURN 400 console noise** — server answers 400 "TURN not enabled" when
+    the profile is off; client now treats 400 as an expected quiet state.
+11. **CI `test` baseline failure fixed** — the ancient `setAuthToken` bun
+    failure was `$app/environment` (Vite virtual module) poisoning the shared
+    module cache across suites. tsconfig now maps `$app/*` to real stubs
+    (`test/stubs/`), a global `test/bunPreload.ts` mocks them, authSession
+    uses a local browser guard, and the `$lib/authSession` test mock provides
+    the full export surface. `bun test src/lib`: **175 pass / 0 fail**.
+
+### Unresolved (needs live repro)
+- **Alt+click channel glimpse** — wiring traced end-to-end (UnifiedChannelList
+  click → handleChannelButtonClick altKey → openChannelGlimpse → fixed-position
+  popout; CSS present; dismissal listeners exempt the button) and looks
+  correct on read. No code change made; need a browser repro (console state,
+  which sidebar surface, OS/browser) before touching it.
+
+### Gates
+- `npm run check`: 0 errors · `bun test src/lib`: 175/0/3 · `npm run build`: ✅
+- No Rust changes this round (Caddyfile + tsconfig + frontend only).
+- **Deploy note**: apply the `/ws` route to the live wabi.chat Caddy config,
+  then re-test: wabidb transport connect, transport swap button, diagnostics
+  source badge, recording (start → timer counts → Stop saves), join without
+  modal, 2nd-click focused view.
+
+---
+
+## Round 5 — 2026-08-27: screenshare display path, recording presence, hot-mic teardown
+
+Report: "call renders, screenshare doesn't"; recording is looks-only; suspicion
+of mics that stay live after leaving. Root causes found (all verified against
+source):
+
+1. **Screenshare black tiles — unfed `MediaStreamTrackGenerator`.**
+   `WabidbVideoLane.exposeRemoteStream` "preferred" constructing a
+   MediaStreamTrackGenerator video track when the browser exposed it, falling
+   back to `canvas.captureStream(15)`. NOTHING ever connected the generator's
+   `writable` end — decoded frames were only `drawImage`-ed onto a hidden
+   canvas nobody viewed once the generator branch won. The constructor ships
+   enabled-by-default in Chrome/Edge/Opera since 94 (Firefox lacks it), so on
+   Chromium every remote wabidb video stream was a live-but-frameless track:
+   black tiles while Diag counted `rx>0 dec>0`. This retro-explains the
+   2026-08-26 "picked a window, nothing rendered" (never root-caused — prior
+   rounds fixed audio wasm, dual-transport flood, notices, self-preview, but
+   never the display path) and round 2's "worked one-way" (the Firefox side
+   took the working canvas fallback). Fix: generator path removed; the decode
+   canvas is ALWAYS the exposed stream. Regression test installs a
+   throwing MediaStreamTrackGenerator stub (`wabidbVideoLane.test.ts`).
+2. **Screenshare invisible on P2P channel calls + sharer's own tile.**
+   `CallStage` (the focused channel stage) read only
+   `wabidbRemoteVideoStreams` — after "Swap to P2P" (or watchdog demotion)
+   remote shares land in the `screenShares` store and rendered NOWHERE for
+   channel calls (CallModal's grid is replaced by CallStage when a session is
+   focused); the sharer's own screen had no tile on that stage either (only
+   `localCamera`). Same P2P gap in `VoiceView.sessionVideos`. Fix: pure
+   `mergeScreenShareEntries()` in callRenderModel (wabidb `:screen` entries +
+   P2P `screenShares` + local preview, stable-id normalized, wabidb wins
+   dedupe, roster-named labels); CallStage hero + VoiceView session cards
+   render from it; CallModal passes roster displayNames to
+   `buildWabidbScreenShares` ("Alice's Screen" instead of "Shared Screen").
+3. **Second wabidb relay dropped inbound video.** `connectWabidbCall`
+   attached the video lane only inside the `if (!wabidbVideoLaneInst)` guard —
+   a second concurrent channel's relay never routed inbound video envelopes.
+   Fix: `relay?.attachVideoLane(wabidbVideoLaneInst ?? lane)` outside the
+   guard (every relay routes to the shared lane).
+4. **Recording presence was dead code.** The local record→save chain is real
+   since round 4 (uncommitted then, placebo on wabi.chat), but no server
+   handler existed for `call-recording-set-active` and nothing ever called
+   `setRecordingPresence` — the entire REC-transparency UI rendered from
+   permanently empty stores. Fix: server handler (media_reactions_signaling)
+   + per-socket registry (call_security, unit-tested) that validates scope
+   against SERVER truth (voice roster / group session membership — client
+   channel claims are never trusted for addressing), acks `{ok}` via
+   AckSender, and broadcasts per-recorder deltas `call-recording-presence-
+   changed {active, scope, channelIds, recorder}` to the consent-scoped
+   audience (same `screen_share_audience` scan as screen-share notices) +
+   the recorder's own stable-id room; disconnect cleanup broadcasts
+   deactivation to the recorded channels' members. Client: listener in
+   socketConnectionCore feeds `applyRemoteRecordingPresence` (upsert/remove
+   reducer, unit-tested); `handleRemoteDirectCallEnded` drops the peer's
+   direct REC badge. Guest identities are rejected.
+5. **Hot mics — client leaks.** `answerCall`'s catch and the group-call-start
+   catch did `localStream.set(null)` WITHOUT stopping tracks or clearing the
+   capture session — a failed answer/group-start left the mic (and camera,
+   same stream) hot until the next call acquired a new session. Fix: both
+   catches stop tracks + `clearActiveAudioCaptureSession()` (mirrors
+   `startCall`'s catch).
+6. **Hot mics — server ghost relay membership.** No code path ever left a
+   `wabidb-call-{session}` room: voice-channel-leave, unsubscribe,
+   group-call-leave, and DM call-end all left the socket in the media room —
+   and room membership is the relay's ONLY authorization, so a departed
+   socket that kept emitting (exactly leak #5, or an old build) kept
+   streaming its mic to everyone remaining, and kept receiving all media
+   envelopes, until it fully disconnected. Fix:
+   `leave_wabidb_channel_room_if_unrostered` (evicts only when no roster slot
+   — primary or listen-only — remains, so a stray unsubscribe from a primary
+   keeps its room) on voice leave/unsubscribe + group leave;
+   `dm_media_room_key` (mirrors client `wabidbDmSessionKey`, unit-tested)
+   evicts the per-peer DM rooms on call-end. Socket disconnect dissolves
+   rooms automatically.
+7. **Drive-by (build blocker)**: round 3's `wabidb-pong` emit was authored
+   without a Rust toolchain and never compiled — `socket.emit("wabidb-pong",
+   data)` needed `&data` (wiring.rs). Fixed; `cargo test -p wabi-server` now
+   runs green for the first time since round 3.
+
+### Gates
+- `bun run check`: 0 errors (182 warnings, pre-existing baseline)
+- `bun test src/lib`: **188 pass / 0 fail / 3 skip** (13 new: video-lane
+  display-path regression incl. throwing generator stub, merge helper,
+  recording-presence reducer)
+- `cargo test -p wabi-server`: **all green** (137 unit + integration suites;
+  new: `dm_media_room_key_matches_client_derivation`,
+  `recording_presence_registry_round_trips`)
+
+### Retest recipe (two Chromium clients + one Firefox if available)
+1. **Screenshare**: A shares in a channel call → B sees the hero tile with
+   pixels immediately (Diag: `rx>0 dec>0` AND visible frames — the pre-fix
+   signature was counters climbing over a black tile). A's own "Your Screen"
+   tile shows on the focused stage + VoiceView.
+2. **P2P parity**: Swap to P2P → share again → tiles still render (previously
+   invisible on channel calls).
+3. **Recording**: A records → B sees the REC banner/badge (presence now
+   real); Stop → file downloads on A; B's badge clears. A disconnects
+   mid-recording → B's badge clears.
+4. **Hot mics**: after leaving a call, the browser tab mic indicator goes
+   out; the remaining side never hears the departed user; Diag on the
+   departed tab shows no relay counters moving.

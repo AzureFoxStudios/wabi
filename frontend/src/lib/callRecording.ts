@@ -113,10 +113,21 @@ async function updateRecordingPresence(active: boolean, snapshot = getCurrentSna
 		: { active };
 
 	await new Promise<void>((resolve, reject) => {
+		// 2026-08-27: servers without the `call-recording-set-active` handler
+		// never ack — the old await hung startCallRecording mid-way, leaving a
+		// fake "REC 00:00" banner with NO recorder behind it (wabi.chat
+		// "placebo recording" report). Presence is transparency metadata, not a
+		// precondition: on timeout we proceed with the local recording and warn.
+		const PRESENCE_ACK_TIMEOUT_MS = 4_000;
+		const timer = setTimeout(() => {
+			console.warn('[CallRecording] presence ack timed out — server may not support recording transparency; recording continues locally.');
+			resolve();
+		}, PRESENCE_ACK_TIMEOUT_MS);
 		socket.emit(
 			'call-recording-set-active',
 			payload,
 			(response?: { ok?: boolean; error?: string }) => {
+				clearTimeout(timer);
 				if (response?.ok) {
 					resolve();
 					return;
@@ -156,6 +167,9 @@ export async function startCallRecording(options: CallRecordingStartOptions = {}
 		elapsedMs: 0,
 		lastError: null
 	});
+	// Timer runs from the moment the banner appears — if session setup later
+	// fails, the catch below stops it again. (Elapsed time must never freeze.)
+	startRecordingTimer();
 
 	try {
 		await updateRecordingPresence(true, snapshot);
@@ -175,7 +189,6 @@ export async function startCallRecording(options: CallRecordingStartOptions = {}
 			mimeType: sessionState.mimeType,
 			fileName: sessionState.fileName
 		}));
-		startRecordingTimer();
 	} catch (error) {
 		await updateRecordingPresence(false).catch(() => undefined);
 		currentSession = null;
@@ -190,7 +203,19 @@ export async function startCallRecording(options: CallRecordingStartOptions = {}
 }
 
 export async function stopCallRecording(): Promise<void> {
-	if (!currentSession) return;
+	if (!currentSession) {
+		// Ghost banner (e.g. start crashed after status flipped, or a server
+		// without recording presence acked late): still clear state + timer so
+		// the UI never gets stuck on a fake "REC 00:00".
+		stopRecordingTimer();
+		callRecordingState.update((current) =>
+			current.status === 'recording' || current.status === 'saving'
+				? { ...INITIAL_STATE, status: 'idle' }
+				: current
+		);
+		void updateRecordingPresence(false).catch(() => undefined);
+		return;
+	}
 	const session = currentSession;
 	currentSession = null;
 	stopRecordingTimer();
@@ -243,6 +268,38 @@ export async function stopCallRecording(): Promise<void> {
 
 export function refreshCallRecordingMix(): void {
 	currentSession?.refresh();
+}
+
+/** mm:ss / h:mm:ss for REC banners (CallRecordingPanel + VoiceView footer). */
+export function formatRecordingElapsedForUi(elapsedMs: number): string {
+	const totalSeconds = Math.max(0, Math.floor((elapsedMs || 0) / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	if (hours > 0) {
+		return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+	}
+	return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Leave-guard for every "leave call" entry point (2026-08-27 report: leaving
+ * silently killed an active recording). Returns TRUE when the leave may
+ * proceed — i.e. no active recording, or the user explicitly confirmed the
+ * recording will stop and save.
+ */
+export function confirmLeaveWhileRecording(): boolean {
+	const state = get(callRecordingState);
+	if (state.status !== 'recording' && state.status !== 'saving') return true;
+	const okToLeave = typeof window !== 'undefined'
+		? window.confirm('A call recording is in progress. Leave and stop the recording?')
+		: true;
+	if (okToLeave) {
+		// Fire-and-forget: stopCallRecording finalizes artifacts and flips the
+		// banner to "saving" on its own.
+		void stopCallRecording().catch(() => undefined);
+	}
+	return okToLeave;
 }
 
 /**

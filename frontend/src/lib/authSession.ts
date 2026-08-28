@@ -1,6 +1,12 @@
-import { browser } from '$app/environment';
 import { normalizeServerUrl, resolveServerUrl } from './serverUrl';
 import { clearRefreshToken } from './api/authRefresh';
+
+// 2026-08-27: this module is imported (transitively) by bun:test suites, and
+// the `$app/environment` Vite virtual module poisons the shared module cache
+// when a suite forgot to mock it — every later import of authSession then
+// fails with "export 'setAuthToken' not found" (the long-standing baseline
+// bun/CI `test` failure). Same browser-guard pattern as callAudioGraph.
+const browser: boolean = typeof window !== 'undefined' && typeof document !== 'undefined';
 
 const LEGACY_AUTH_TOKEN_KEY = 'authToken';
 const LEGACY_SESSION_ID_KEY = 'sessionId';
