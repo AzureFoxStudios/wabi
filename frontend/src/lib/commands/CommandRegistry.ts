@@ -4,6 +4,7 @@
  */
 
 import { get } from 'svelte/store';
+import { parseLoreChannelId } from '$lib/api/lore';
 import {
 	resources,
 	tags,
@@ -401,13 +402,19 @@ registerCommand('res', async (args, context) => {
 		// /lore help - Show Lore commands
 		registerCommand('lore', async (args, context) => {
 			const sub = args[0]?.toLowerCase() || 'help';
-			const channelId = parseInt(context.channelId, 16);
+			// Channel ids are wire-format `ch_{hex}` — parse the hex payload,
+			// not the whole string (parseInt used to read just the "c").
+			const channelId = parseLoreChannelId(context.channelId);
 			const token = localStorage.getItem('token') || '';
+
+			if (!channelId) {
+				return { success: false, message: 'This channel has no Lore repo id.' };
+			}
 
 			if (sub === 'help' || !sub) {
 				return {
 					success: true,
-					message: `**Lore Commands**\n\n• /lore status — Show repo status\n• /lore files — List files\n• /lore files <prefix> — List files by prefix\n• /lore history — Show commit history\n• /lore diff <path> — Show file diff\n• /lore branch list — List branches\n• /lore branch create <name> — Create branch\n• /lore branch switch <name> — Switch branch\n• /lore lock <path> — Lock file\n• /lore unlock <path> — Unlock file\n• /lore stage <path> — Stage file\n• /lore commit <message> — Commit staged changes\n• /lore sync — Sync with remote\n• /lore url — Get repo URL`,
+					message: `**Lore Commands**\n\n• /lore status — Show repo status\n• /lore files — List files\n• /lore files <prefix> — List files by prefix\n• /lore history — Show commit history\n• /lore diff <path> — Show file diff\n• /lore branch list — List branches\n• /lore branch create <name> — Create branch\n• /lore lock <path> — Lock file\n• /lore unlock <path> — Unlock file\n• /lore commit <message> — Commit staged changes\n• /lore sync — Sync with remote\n• /lore url — Get repo URL`,
 					action: 'send-message'
 				};
 			}
@@ -467,7 +474,8 @@ registerCommand('res', async (args, context) => {
 					if (!path) {
 						return { success: false, message: 'Usage: /lore diff <path>' };
 					}
-					const diff = await loreApi(`/repos/${channelId}/files/${encodeURIComponent(path)}/diff?from=&to=`);
+					const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+					const diff = await loreApi(`/repos/${channelId}/diff/${encodedPath}`);
 					const preview = (diff || '').split('\n').slice(0, 20).join('\n');
 					return {
 						success: true,
@@ -507,23 +515,15 @@ registerCommand('res', async (args, context) => {
 					}
 
 					if (branchCmd === 'switch') {
-						const name = args[2];
-						if (!name) {
-							return { success: false, message: 'Usage: /lore branch switch <name>' };
-						}
-						// Switch is a server-side operation — create a branch switch request
-						await loreApi(`/repos/${channelId}/branches/${encodeURIComponent(name)}/merge`, {
-							method: 'POST',
-							headers: { 'Authorization': `Bearer ${token}` }
-						});
+						// No server switch endpoint exists — merging and calling it
+						// "switched" used to lie about what happened.
 						return {
-							success: true,
-							message: `✅ Switched to branch **${name}**`,
-							action: 'send-message'
+							success: false,
+							message: 'Branch switching from chat is not supported yet — use the branch picker in the Project view (merge with `/lore branch merge <name>` once added).'
 						};
 					}
 
-					return { success: false, message: 'Usage: /lore branch list|create|switch' };
+					return { success: false, message: 'Usage: /lore branch list|create' };
 				}
 
 				if (sub === 'lock') {
@@ -531,7 +531,8 @@ registerCommand('res', async (args, context) => {
 					if (!path) {
 						return { success: false, message: 'Usage: /lore lock <path>' };
 					}
-					await loreApi(`/repos/${channelId}/files/${encodeURIComponent(path)}/lock`, {
+					const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+					await loreApi(`/repos/${channelId}/lock/${encodedPath}`, {
 						method: 'POST',
 						headers: { 'Authorization': `Bearer ${token}` }
 					});
@@ -547,7 +548,8 @@ registerCommand('res', async (args, context) => {
 					if (!path) {
 						return { success: false, message: 'Usage: /lore unlock <path>' };
 					}
-					await loreApi(`/repos/${channelId}/files/${encodeURIComponent(path)}/lock`, {
+					const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+					await loreApi(`/repos/${channelId}/lock/${encodedPath}`, {
 						method: 'DELETE',
 						headers: { 'Authorization': `Bearer ${token}` }
 					});
@@ -559,22 +561,11 @@ registerCommand('res', async (args, context) => {
 				}
 
 				if (sub === 'stage') {
-					const path = args[1];
-					if (!path) {
-						return { success: false, message: 'Usage: /lore stage <path>' };
-					}
-					// Staging is done via upload (PUT) — for existing files, a touch works
-					await loreApi(`/repos/${channelId}/files/${encodeURIComponent(path)}`, {
-						method: 'PUT',
-						headers: { 'Authorization': `Bearer ${token}` },
-						body: ''
-					}).catch(() => {
-						// If file doesn't exist for upload, just inform
-					});
+					// The old "stage" silently PUT an EMPTY body — overwriting the
+					// file's content. Honest answer instead.
 					return {
-						success: true,
-						message: `📋 Staged **${path}** — use \`/lore commit <message>\` to commit`,
-						action: 'send-message'
+						success: false,
+						message: 'Staging individual files from chat is not supported — upload via the Files view or wabi-sync, then `/lore commit <message>`.'
 					};
 				}
 

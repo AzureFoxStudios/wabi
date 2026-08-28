@@ -605,6 +605,35 @@ impl LoreService {
         Ok(())
     }
 
+    /// Resolve the repo for a write and validate the target path: writability
+    /// (mirrors are read-only), traversal safety (P0), and `.wabiignore`.
+    /// Shared by commit-uploads and stage-only uploads so the two paths
+    /// cannot drift apart.
+    async fn resolve_writable_target(
+        &self,
+        channel_id: i64,
+        repo_path: &str,
+    ) -> anyhow::Result<LoreRepo> {
+        let repo = self
+            .get_repo(channel_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
+        self.ensure_writable(&repo)?;
+
+        // P0 hardening: reject traversal/absolute/control paths before any
+        // filesystem or lore CLI touch. The string stays borrowed — it was
+        // proven safe above, so joining it below cannot escape the tree.
+        sanitize_repo_path(repo_path)?;
+
+        // Reject ignored paths BEFORE touching the working tree — a late
+        // rejection used to leave the uploaded bytes on disk.
+        let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
+        if filter.is_ignored(repo_path) {
+            anyhow::bail!("path '{}' is ignored by .wabiignore", repo_path);
+        }
+        Ok(repo)
+    }
+
     // -- Repo management --
 
     /// Create a new Lore repository for the given channel.
@@ -974,7 +1003,9 @@ impl LoreService {
             return self.mirror_list_files(&repo, path_prefix).await;
         }
 
-        // `lore status --scan` outputs file status
+        // `lore status --scan` reports only UNCOMMITTED changes — a committed
+        // repo listed as status alone browsed as empty. The working tree is
+        // the truth for browsing: walk it, then overlay status labels.
         let output = run_lore(
             &self.config.lore_binary_path,
             &repo.working_tree,
@@ -984,14 +1015,31 @@ impl LoreService {
         .await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut files: Vec<LoreFileInfo> = stdout
+        let status_map: std::collections::HashMap<String, String> = stdout
             .lines()
             .filter_map(parse_status_line)
-            .map(|(status, path)| LoreFileInfo {
-                path,
-                size: 0,
-                status,
-                etag: None,
+            .collect();
+
+        // Filter out ignored paths (node_modules, target, .env, etc.)
+        let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
+
+        let mut paths: Vec<String> = walk_working_tree_files(&repo.working_tree).await;
+        paths.retain(|p| !filter.is_ignored(p));
+        paths.sort();
+
+        let mut files: Vec<LoreFileInfo> = paths
+            .into_iter()
+            .map(|path| {
+                let status = status_map
+                    .get(&path)
+                    .cloned()
+                    .unwrap_or_else(|| "clean".to_string());
+                LoreFileInfo {
+                    path,
+                    size: 0,
+                    status,
+                    etag: None,
+                }
             })
             .collect();
 
@@ -999,10 +1047,6 @@ impl LoreService {
         if let Some(prefix) = path_prefix {
             files.retain(|f| f.path.starts_with(prefix));
         }
-
-        // Filter out ignored paths (node_modules, target, .env, etc.)
-        let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
-        files.retain(|f| !filter.is_ignored(&f.path));
 
         // Enrich with file sizes and etags from the filesystem
         for file in files.iter_mut() {
@@ -1135,29 +1179,7 @@ impl LoreService {
         message: &str,
         author_id: i64,
     ) -> anyhow::Result<LoreUploadResult> {
-        let repo = self
-            .get_repo(channel_id)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("No Lore repo for channel {channel_id}"))?;
-        self.ensure_writable(&repo)?;
-
-        // P0 hardening: reject traversal/absolute/control paths before any
-        // filesystem or lore CLI touch. The string stays borrowed — it was
-        // proven safe above, so joining it below cannot escape the tree.
-        sanitize_repo_path(repo_path)?;
-
-        // Reject ignored paths BEFORE touching the working tree or creating a
-        // review branch — a late rejection used to leave the uploaded bytes
-        // on disk and the repo stranded on the review branch.
-        {
-            let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
-            if filter.is_ignored(repo_path) {
-                return Err(anyhow::anyhow!(
-                    "path '{}' is ignored by .wabiignore",
-                    repo_path
-                ));
-            }
-        }
+        let repo = self.resolve_writable_target(channel_id, repo_path).await?;
 
         // Artist-friendly review flow: switch to a fresh per-upload branch
         // BEFORE touching the working tree so the new file lands on the branch,
@@ -1287,6 +1309,70 @@ impl LoreService {
             file_info,
             pending_review,
             review_branch,
+        })
+    }
+
+    /// Stage a file WITHOUT committing — the batch-push half of the device
+    /// setup flow. A folder's files are staged one by one, then sealed with a
+    /// single `snapshot`/commit, so importing N files produces ONE revision
+    /// instead of N (GitHub-style "initial commit").
+    ///
+    /// Deliberately bypasses `auto_branch_on_upload`: staged batches are
+    /// sealed by an explicit snapshot on the current branch, not routed
+    /// through per-upload review branches.
+    pub async fn stage_file(
+        &self,
+        channel_id: i64,
+        local_path: &str,
+        repo_path: &str,
+    ) -> anyhow::Result<LoreFileInfo> {
+        let repo = self.resolve_writable_target(channel_id, repo_path).await?;
+
+        // Create parent directory in working tree
+        let dest = repo.working_tree.join(repo_path);
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // Copy file into working tree
+        tokio::fs::copy(local_path, &dest).await?;
+
+        // Stage the file (commit happens later, once, via snapshot)
+        run_lore(
+            &self.config.lore_binary_path,
+            &repo.working_tree,
+            &["stage", repo_path],
+            self.config.mode
+        )
+        .await?;
+
+        let size = tokio::fs::metadata(&dest).await.map(|m| m.len()).unwrap_or(0);
+        let etag = file_etag(&dest).await.ok();
+        if let Some(etag) = &etag {
+            let mtime = tokio::fs::metadata(&dest)
+                .await
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            self.etag_cache.lock().unwrap().insert(
+                (channel_id, repo_path.to_string()),
+                (size, mtime, etag.clone()),
+            );
+        }
+
+        info!(
+            channel_id,
+            repo_path,
+            "Staged file in Lore repo (batch push, no commit yet)"
+        );
+
+        Ok(LoreFileInfo {
+            path: repo_path.to_string(),
+            size,
+            status: "staged".to_string(),
+            etag,
         })
     }
 
@@ -2224,8 +2310,22 @@ impl LoreService {
         name: &str,
         upstream_url: &str,
     ) -> Result<LoreRepo, LoreImportError> {
-        if self.get_repo(channel_id).await.is_some() {
-            return Err(LoreImportError::RepoExists);
+        if let Some(existing) = self.get_repo(channel_id).await {
+            // Adopt EMPTY repos — with auto-create on, every new lore channel
+            // gets a repo the moment it exists, and "create project channel →
+            // import my existing code" must work, not 409. The move-into-place
+            // step below replaces the pristine tree and the registration.
+            // Anything with real content (or a read-only mirror) stays a hard
+            // RepoExists.
+            if existing.read_only()
+                || !working_tree_is_pristine(&existing.working_tree).await
+            {
+                return Err(LoreImportError::RepoExists);
+            }
+            info!(
+                channel_id,
+                "Adopting empty Lore repo registration for git import"
+            );
         }
 
         let tmp_dir = std::env::temp_dir().join(format!(
@@ -2390,6 +2490,115 @@ fn sanitize_username(author_id: i64) -> String {
             }
         })
         .collect()
+}
+
+/// Slug for auto-created repo names: lowercase `[a-z0-9-]`, separator runs
+/// collapsed, leading/trailing dashes trimmed. A channel named "My Project!"
+/// becomes repo `my-project`, so lore URLs read `lore://host/my-project`
+/// instead of `lore://host/ch-47`. Empty output (e.g. input "!!!") tells the
+/// caller to fall back to the `ch-{id}` form.
+pub fn slugify_repo_name(input: &str) -> String {
+    let mut slug = String::with_capacity(input.len());
+    let mut pending_dash = false;
+    for c in input.chars() {
+        if c.is_ascii_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            pending_dash = false;
+            slug.push(c.to_ascii_lowercase());
+        } else {
+            pending_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    slug
+}
+
+/// Collect every regular file under `root` as repo-relative POSIX paths.
+/// Same furniture rules as [`working_tree_is_pristine`]: lore metadata, the
+/// Wabi sidecar, ignore seeds, and the mirror cache stay hidden from
+/// listings; symlinks are skipped so the walk can never escape the tree.
+async fn walk_working_tree_files(root: &std::path::Path) -> Vec<String> {
+    fn walk<'a>(
+        root: &'a std::path::Path,
+        dir: &'a std::path::Path,
+        out: &'a mut Vec<String>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            let mut entries = match tokio::fs::read_dir(dir).await {
+                Ok(e) => e,
+                Err(_) => return,
+            };
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if dir == root {
+                    match entry.file_name().to_string_lossy().as_ref() {
+                        ".lore" | ".wabi-repo.json" | ".wabiignore" | ".loreignore"
+                        | ".mirror-cache" => continue,
+                        _ => {}
+                    }
+                }
+                let path = entry.path();
+                // symlink_metadata: never follow links out of the tree.
+                let Ok(meta) = tokio::fs::symlink_metadata(&path).await else {
+                    continue;
+                };
+                if meta.is_dir() {
+                    walk(root, &path, out).await;
+                } else if meta.is_file() {
+                    if let Ok(rel) = path.strip_prefix(root) {
+                        out.push(rel.to_string_lossy().replace('\\', "/"));
+                    }
+                }
+            }
+        })
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out).await;
+    out
+}
+
+/// True when a working tree holds nothing but lore metadata and the seeded
+/// ignore files — i.e. the repo was created (auto-create) but never received
+/// content. Used by [`LoreService::import_from_git`] to decide whether an
+/// existing registration is adoptable.
+async fn working_tree_is_pristine(dir: &std::path::Path) -> bool {
+    fn walk(
+        dir: &std::path::Path,
+        top: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+        Box::pin(async move {
+            let mut entries = match tokio::fs::read_dir(dir).await {
+                Ok(e) => e,
+                // Missing/unreadable tree — nothing to protect, treat as pristine.
+                Err(_) => return true,
+            };
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if top {
+                    // Seeded repo furniture: lore metadata, the Wabi sidecar
+                    // state file, ignore files, and the mirror clone cache.
+                    match entry.file_name().to_string_lossy().as_ref() {
+                        ".lore" | ".wabi-repo.json" | ".wabiignore" | ".loreignore"
+                        | ".mirror-cache" => continue,
+                        _ => {}
+                    }
+                }
+                let path = entry.path();
+                if path.is_dir() {
+                    if !walk(&path, false).await {
+                        return false;
+                    }
+                } else {
+                    // Any user file anywhere makes the tree non-pristine.
+                    return false;
+                }
+            }
+            true
+        })
+    }
+    walk(dir, true).await
 }
 
 /// Validate a user-supplied repo-relative path BEFORE joining it into any
@@ -2870,5 +3079,82 @@ Date      : Sat, 8 Aug 2026 03:05:43 +0000
         assert_eq!(sanitize_username(42), "user-42");
         // '-' is an allowed char, so negative ids pass through harmlessly.
         assert_eq!(sanitize_username(-7), "user--7");
+    }
+
+    #[test]
+    fn test_slugify_repo_name() {
+        assert_eq!(slugify_repo_name("Wabi"), "wabi");
+        assert_eq!(slugify_repo_name("My Project!"), "my-project");
+        // Separator runs collapse; leading/trailing junk trims away.
+        assert_eq!(slugify_repo_name("  --Audio -- Assets-- "), "audio-assets");
+        // Unicode falls back to separators, never panics.
+        assert_eq!(slugify_repo_name("日本語プロジェクト"), "");
+        assert_eq!(slugify_repo_name("!!!"), "");
+    }
+
+    #[tokio::test]
+    async fn test_walk_working_tree_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Furniture is hidden; nested files come back as POSIX rel paths.
+        tokio::fs::create_dir_all(tmp.path().join(".lore")).await.unwrap();
+        tokio::fs::create_dir_all(tmp.path().join("src/deep")).await.unwrap();
+        tokio::fs::write(tmp.path().join(".wabi-repo.json"), b"{}")
+            .await
+            .unwrap();
+        for f in ["README.md", ".wabiignore", "src/hello.rs", "src/deep/x.txt"] {
+            tokio::fs::write(tmp.path().join(f), b"x").await.unwrap();
+        }
+        // A symlink must not be followed or listed.
+        #[cfg(unix)]
+        tokio::fs::symlink("/etc/hostname", tmp.path().join("escape"))
+            .await
+            .ok();
+
+        let mut paths = walk_working_tree_files(tmp.path()).await;
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![
+                "README.md".to_string(),
+                "src/deep/x.txt".to_string(),
+                "src/hello.rs".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_working_tree_is_pristine() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Empty tree: pristine.
+        tokio::fs::create_dir_all(tmp.path()).await.unwrap();
+        assert!(working_tree_is_pristine(tmp.path()).await);
+
+        // Seeded furniture only: still pristine.
+        for furniture in [".lore", ".mirror-cache"] {
+            tokio::fs::create_dir_all(tmp.path().join(furniture))
+                .await
+                .unwrap();
+        }
+        for file in [".wabi-repo.json", ".wabiignore", ".loreignore"] {
+            tokio::fs::write(tmp.path().join(file), b"x")
+                .await
+                .unwrap();
+        }
+        assert!(working_tree_is_pristine(tmp.path()).await);
+
+        // Furniture inside .lore is ignored wholesale.
+        tokio::fs::write(tmp.path().join(".lore/head"), b"x")
+            .await
+            .unwrap();
+        assert!(working_tree_is_pristine(tmp.path()).await);
+
+        // Any user file — even nested, even empty — breaks pristine.
+        tokio::fs::create_dir_all(tmp.path().join("src"))
+            .await
+            .unwrap();
+        tokio::fs::write(tmp.path().join("src/hello.rs"), b"fn main() {}")
+            .await
+            .unwrap();
+        assert!(!working_tree_is_pristine(tmp.path()).await);
     }
 }

@@ -157,6 +157,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::Users => render_users(frame, app, chunks[1]),
         Screen::Server => render_server(frame, app, chunks[1]),
         Screen::Logs => render_logs(frame, app, chunks[1]),
+        Screen::Lore => render_lore(frame, app, chunks[1]),
     }
     render_footer(frame, app, chunks[2]);
 
@@ -180,12 +181,13 @@ pub fn render(frame: &mut Frame, app: &App) {
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
-    let tabs = ["1 Chat", "2 Users", "3 Server", "4 Logs"];
+    let tabs = ["1 Chat", "2 Users", "3 Server", "4 Logs", "5 Lore"];
     let selected = match app.screen {
         Screen::Chat => 0,
         Screen::Users => 1,
         Screen::Server => 2,
         Screen::Logs => 3,
+        Screen::Lore => 4,
     };
 
     let user_bit = if let Some(ref u) = app.user {
@@ -348,7 +350,7 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
             let (what, hint) = match ch.kind {
                 ChannelKind::Voice => ("Voice channel", "live audio runs in the web client — no terminal audio here"),
                 ChannelKind::Planning => ("Planner channel", "board view lives in the Planner workspace (web client)"),
-                ChannelKind::Lore => ("Lore channel", "versioned asset storage — browse via the Files/Code views (web client)"),
+                ChannelKind::Lore => ("Lore channel", "versioned asset storage — press 5 or :lore for the repo browser in this TUI"),
                 ChannelKind::Whiteboard => ("Whiteboard channel", "canvas surface — open the Whiteboard workspace (web client)"),
                 ChannelKind::Wiki => ("Wiki channel", "wiki pages live in the web client"),
                 ChannelKind::Forum => ("Forum channel", "threads live in the web client"),
@@ -739,6 +741,188 @@ fn render_logs(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
+/// Lore screen: left = lore channels with repo state, right = file list of
+/// the selected repo (or a text preview fetched with `v`). This is the TUI's
+/// answer to "see what a repo properly looks like" without a browser.
+fn render_lore(frame: &mut Frame, app: &App, area: Rect) {
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(32), Constraint::Percentage(68)])
+        .split(area);
+
+    let lore = app.lore_channels();
+    let focused_left = app.focus == FocusPane::Left;
+
+    // Left pane: every lore channel + whether its repo exists.
+    let mut items: Vec<ListItem> = Vec::new();
+    for (i, ch) in lore.iter().enumerate() {
+        let sel = i == app.lore_selected;
+        let cid = crate::api::ApiClient::parse_channel_id(&ch.id);
+        let repo = cid.as_ref().and_then(|id| app.lore_repos.get(id));
+        let files = cid.as_ref().and_then(|id| app.lore_files.get(id));
+        let status_span = match repo {
+            Some(Some(r)) => Span::styled(
+                format!(
+                    " ✓ {} · {} file{}{}",
+                    r.repo_name,
+                    files.map(|f| f.len()).unwrap_or(0),
+                    if files.map(|f| f.len()) == Some(1) { "" } else { "s" },
+                    if r.class == "mirror" { " · read-only" } else { "" }
+                ),
+                Style::default().fg(c_ok()),
+            ),
+            Some(None) => Span::styled(
+                " ⚠ no repo — :lore push creates one",
+                Style::default().fg(c_warn()),
+            ),
+            None => Span::styled(" …", Style::default().fg(c_muted())),
+        };
+        let style = if sel {
+            Style::default()
+                .fg(c_accent2())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(c_text())
+        };
+        let mark = if sel { "▶ " } else { "  " };
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(mark, style),
+            Span::styled(ch.name.clone(), style),
+            status_span,
+        ])));
+    }
+    if items.is_empty() {
+        items.push(ListItem::new(Line::from(Span::styled(
+            "no lore channels yet — :lore new <name>",
+            Style::default().fg(c_muted()),
+        ))));
+    }
+    frame.render_widget(
+        List::new(items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(pane_border(focused_left))
+                .title(" Repos (lore channels) ")
+                .style(Style::default().bg(c_panel()).fg(c_text())),
+        ),
+        cols[0],
+    );
+
+    // Right pane: repo detail + file list, or a text preview.
+    let selected_id = app.selected_lore_channel_id();
+    let repo = selected_id.as_ref().and_then(|id| app.lore_repos.get(id));
+    let files = selected_id.as_ref().and_then(|id| app.lore_files.get(id));
+    let ch_name = lore
+        .get(app.lore_selected)
+        .map(|c| c.name.as_str())
+        .unwrap_or("—");
+
+    let mut lines: Vec<Line> = Vec::new();
+    match repo {
+        Some(Some(r)) => {
+            lines.push(Line::from(vec![
+                Span::styled("repo  ", Style::default().fg(c_muted())),
+                Span::styled(
+                    format!("{}/{}", r.lore_server_url, r.repo_name),
+                    Style::default().fg(c_accent2()),
+                ),
+            ]));
+            if let Some(src) = &r.imported_from {
+                lines.push(Line::from(vec![
+                    Span::styled("from  ", Style::default().fg(c_muted())),
+                    Span::styled(src.clone(), Style::default().fg(c_muted())),
+                ]));
+            }
+            lines.push(Line::from(""));
+        }
+        Some(None) => {
+            lines.push(Line::from(Span::styled(
+                "No repo attached — :lore push <dir> creates one and fills it.",
+                Style::default().fg(c_warn()),
+            )));
+            lines.push(Line::from(""));
+        }
+        None => {
+            lines.push(Line::from(Span::styled(
+                "loading… (r to refresh)",
+                Style::default().fg(c_muted()),
+            )));
+        }
+    }
+
+    if let (Some(preview), true) = (&app.lore_preview, app.focus == FocusPane::Center) {
+        lines.push(Line::from(Span::styled(
+            format!("── preview {} ──", preview.path),
+            Style::default().fg(c_accent2()).add_modifier(Modifier::BOLD),
+        )));
+        for l in preview.lines.iter() {
+            lines.push(Line::from(Span::styled(l.clone(), Style::default().fg(c_text()))));
+        }
+    } else if let Some(files) = files {
+        if files.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "(empty repo)",
+                Style::default().fg(c_muted()),
+            )));
+        }
+        // Window around the cursor so huge repos stay snappy.
+        let visible = cols[1].height.saturating_sub(6) as usize;
+        let start = app
+            .lore_file_cursor
+            .saturating_sub(visible / 2);
+        for (i, f) in files.iter().enumerate().skip(start).take(visible.max(1)) {
+            let sel = i == app.lore_file_cursor;
+            let style = if sel {
+                Style::default().fg(c_accent2()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(c_text())
+            };
+            let mark = if sel { "▶ " } else { "  " };
+            lines.push(Line::from(vec![
+                Span::styled(mark, style),
+                Span::styled(f.path.clone(), style),
+                Span::styled(format!("  {}", human_size(f.size)), Style::default().fg(c_muted())),
+            ]));
+        }
+        if files.len() > visible.max(1) {
+            lines.push(Line::from(Span::styled(
+                format!("… {} of {} files", app.lore_file_cursor + 1, files.len()),
+                Style::default().fg(c_muted()),
+            )));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "v preview · j/k move · h/l panes · :lore push <dir>",
+            Style::default().fg(c_muted()),
+        )));
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(pane_border(!focused_left))
+                    .title(format!(" {ch_name} "))
+                    .style(Style::default().bg(c_panel()).fg(c_text())),
+            )
+            .wrap(Wrap { trim: false }),
+        cols[1],
+    );
+}
+
+fn human_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes}B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1}K", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1}M", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.1}G", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let footer = match app.mode {
         AppMode::Input => Paragraph::new(app.input.as_str())
@@ -823,7 +1007,7 @@ fn render_command_bar(frame: &mut Frame, app: &App) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(c_accent2()))
-                .title(" :chat :users :server :logs :filter x :ufilter x :goto name :refresh :logout :help "),
+                .title(" :chat :users :server :logs :lore new|push|import|health :filter x :ufilter x :goto name :refresh :logout :help "),
         ),
         area,
     );
@@ -874,6 +1058,7 @@ fn render_help(frame: &mut Frame) {
         Line::from("  2           Users (admin ops)"),
         Line::from("  3           Server health + stats"),
         Line::from("  4           Event log"),
+        Line::from("  5           Lore repos (channel = repo)"),
         Line::from(""),
         Line::from("CHAT"),
         Line::from("  j/k ↑↓      channels"),
@@ -887,6 +1072,16 @@ fn render_help(frame: &mut Frame) {
         Line::from("  p           reset password (temp)"),
         Line::from("  c           clear login lockout"),
         Line::from("  :ufilter x  filter users"),
+        Line::from(""),
+        Line::from("LORE (repos)"),
+        Line::from("  j/k         repos (left) / files (right)"),
+        Line::from("  Space/h/l   cycle focus panes"),
+        Line::from("  v           preview selected text file"),
+        Line::from("  r           refresh repo state"),
+        Line::from("  :lore new <name>   channel + repo in one step"),
+        Line::from("  :lore push <dir>   link a local folder (1 commit)"),
+        Line::from("  :lore import <git> import a git repo/url"),
+        Line::from("  :lore health       addon status"),
         Line::from(""),
         Line::from("GLOBAL"),
         Line::from("  l           login"),

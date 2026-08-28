@@ -25,7 +25,6 @@
 	let repoName = $state('');
 	let upstreamUrl = $state('');
 	let autoBranchOnUpload = $state(false);
-	let loreServerUrl = $state('lore://127.0.0.1:41337');
 	let creating = $state(false);
 	let error = $state<string | null>(null);
 	let health = $state<string | null>(null);
@@ -174,15 +173,25 @@
 		<!-- Health check -->
 		<div class="health-section">
 			<div class="health-row">
-				<span class="health-label">Lore Server</span>
-				<span class="health-status" class:healthy={health === 'ok'} class:error={health === 'error'}>
+				<span class="health-label">Lore Storage</span>
+				<span class="health-status" class:healthy={health === 'ok'} class:error={health === 'error' || health === 'disabled'}>
 					<span class="health-dot"></span>
-					{health === 'ok' ? 'Connected' : health === 'error' ? 'Unavailable' : 'Checking...'}
+					{health === 'ok'
+						? 'Ready'
+						: health === 'disabled'
+							? 'Disabled'
+							: health === 'error'
+								? 'Unavailable'
+								: 'Checking...'}
 				</span>
 			</div>
 			{#if health === 'error'}
 				<div class="health-warning">
-					⚠️ Lore server is not running. Make sure <code>loreserver</code> is started on this machine.
+					⚠️ Lore storage is unreachable. Embedded servers need no separate process — ask your operator to check the lore addon health and config on the server.
+				</div>
+			{:else if health === 'disabled'}
+				<div class="health-warning">
+					⚠️ The lore addon is disabled on this server (WABI_LORE_ENABLED=false). Ask your operator to enable it.
 				</div>
 			{/if}
 		</div>
@@ -222,63 +231,41 @@
 					</span>
 				</div>
 
-				{#if mode === 'create'}
-					<div class="form-group">
-						<label for="repo-name">Space name</label>
-						<input
-							id="repo-name"
-							type="text"
-							bind:value={repoName}
-							placeholder="my-project"
-							class="input-field"
-							autofocus
-						/>
-						<span class="input-hint">Creates a brand-new empty space for this channel.</span>
-					</div>
+					{#if mode === 'create'}
+						<div class="form-group">
+							<label for="repo-name">Space name</label>
+							<input
+								id="repo-name"
+								type="text"
+								bind:value={repoName}
+								placeholder="my-project"
+								class="input-field"
+								autofocus
+							/>
+							<span class="input-hint">Creates a brand-new empty space for this channel.</span>
+						</div>
 
-					<div class="form-group">
-						<label for="server-url">Lore server URL</label>
-						<input
-							id="server-url"
-							type="text"
-							bind:value={loreServerUrl}
-							class="input-field"
-						/>
-						<span class="input-hint">Default: lore://127.0.0.1:41337</span>
-					</div>
-
-					<label class="checkbox-row">
-						<input type="checkbox" bind:checked={autoBranchOnUpload} />
-						<span class="checkbox-copy">
-							<span class="checkbox-title">Review uploads with the team before they're official</span>
-							<span class="checkbox-hint">Uploads are saved as a new version and need approval before becoming official.</span>
-						</span>
-					</label>
-				{:else if mode === 'link'}
-					<div class="form-group">
-						<label for="repo-name">Space name</label>
-						<input
-							id="repo-name"
-							type="text"
-							bind:value={repoName}
-							placeholder="my-existing-project"
-							class="input-field"
-							autofocus
-						/>
-						<span class="input-hint">Links an existing space from the Lore server — history included.</span>
-					</div>
-
-					<div class="form-group">
-						<label for="server-url">Lore server URL</label>
-						<input
-							id="server-url"
-							type="text"
-							bind:value={loreServerUrl}
-							class="input-field"
-						/>
-						<span class="input-hint">Default: lore://127.0.0.1:41337</span>
-					</div>
-				{:else}
+						<label class="checkbox-row">
+							<input type="checkbox" bind:checked={autoBranchOnUpload} />
+							<span class="checkbox-copy">
+								<span class="checkbox-title">Review uploads with the team before they're official</span>
+								<span class="checkbox-hint">Uploads are saved as a new version and need approval before becoming official.</span>
+							</span>
+						</label>
+					{:else if mode === 'link'}
+						<div class="form-group">
+							<label for="repo-name">Space name</label>
+							<input
+								id="repo-name"
+								type="text"
+								bind:value={repoName}
+								placeholder="my-existing-project"
+								class="input-field"
+								autofocus
+							/>
+							<span class="input-hint">Links an existing space from the Lore server — history included (needs sidecar/remote mode; embedded servers have nothing to clone).</span>
+						</div>
+					{:else}
 					<div class="form-group">
 						<label for="repo-name">Space name</label>
 						<input
