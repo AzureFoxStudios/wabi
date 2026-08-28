@@ -1,0 +1,866 @@
+2026-08-26T13:03:52.394051Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-26T13:03:52.394331Z  INFO [security] generated and persisted a new jwt_secret to "./data/jwt_secret"
+2026-08-26T13:03:52.394484Z  INFO 📡 Starting server on 0.0.0.0:3000
+2026-08-26T13:03:52.394693Z  WARN [security] generated a new WabiDB root key at "./data/wabidb/root_key". BACK THIS UP: it is required to read this server's data and is NOT recoverable from anywhere else
+2026-08-26T13:03:52.425389Z  WARN [live-reaper] SocketIo handle not available, skipping tick
+2026-08-26T13:03:52.428062Z  INFO [blacklist] Loaded 0 entries from ./data/blacklist.txt
+2026-08-26T13:03:52.428221Z  WARN subscription bridge: SocketIo handle not available, retrying in 1s
+2026-08-26T13:03:52.433981Z  INFO ✅ Server ready
+2026-08-26T13:03:52.434016Z  INFO 🌐 Frontend: http://localhost:3000
+2026-08-26T13:03:52.434018Z  INFO 🔌 API: http://localhost:3000/api
+2026-08-26T13:03:52.434022Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-26T13:03:52.682562Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-08-26T13:03:52.682618Z  INFO [bot:hermes] ready: user-1
+2026-08-26T13:05:52.480937Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-26T13:05:52.483648Z  INFO Server shut down gracefully
+2026-08-26T13:08:17.159365Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-26T13:08:17.159522Z  INFO 📡 Starting server on 0.0.0.0:3000
+2026-08-26T13:08:17.177498Z  INFO [blacklist] Loaded 0 entries from ./data/blacklist.txt
+2026-08-26T13:08:17.177573Z  WARN subscription bridge: SocketIo handle not available, retrying in 1s
+2026-08-26T13:08:17.177606Z  INFO [bot:hermes] bot account already exists (id=1)
+2026-08-26T13:08:17.177611Z  INFO [bot:hermes] ready: user-1
+2026-08-26T13:08:17.178316Z  WARN [live-reaper] SocketIo handle not available, skipping tick
+2026-08-26T13:08:17.180970Z  INFO ✅ Server ready
+2026-08-26T13:08:17.180987Z  INFO 🌐 Frontend: http://localhost:3000
+2026-08-26T13:08:17.180989Z  INFO 🔌 API: http://localhost:3000/api
+2026-08-26T13:08:17.180991Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-26T13:08:57.640299Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-26T13:08:57.640851Z  INFO 📡 Starting server on 0.0.0.0:3000
+2026-08-26T13:13:32.109778Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-26T13:13:32.109884Z  INFO 📡 Starting server on 0.0.0.0:3000
+2026-08-26T13:13:32.114461Z  INFO replayed projections up to commit_seq=1 (applied=1)
+2026-08-26T13:13:32.114529Z  INFO sequencer continuing above commit_seq 1 (segments=1 index=1 snapshot=0)
+2026-08-26T13:13:32.114733Z  INFO WabiDbEngine opened at ./data/wabidb
+2026-08-26T13:13:32.121423Z  INFO [blacklist] Loaded 0 entries from ./data/blacklist.txt
+2026-08-26T13:13:32.121455Z  INFO [bot:hermes] bot account already exists (id=1)
+2026-08-26T13:13:32.121472Z  INFO [bot:hermes] ready: user-1
+2026-08-26T13:13:32.121473Z  WARN subscription bridge: SocketIo handle not available, retrying in 1s
+2026-08-26T13:13:32.122629Z  WARN [live-reaper] SocketIo handle not available, skipping tick
+2026-08-26T13:13:32.124269Z  INFO ✅ Server ready
+2026-08-26T13:13:32.124292Z  INFO 🌐 Frontend: http://localhost:3000
+2026-08-26T13:13:32.124294Z  INFO 🔌 API: http://localhost:3000/api
+2026-08-26T13:13:32.124295Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-26T13:14:08.465325Z DEBUG request: started processing request method=GET uri=/ version=HTTP/1.1
+2026-08-26T13:14:08.466693Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/ version=HTTP/1.1
+2026-08-26T13:14:54.255834Z DEBUG request: started processing request method=GET uri=/api/health version=HTTP/1.1
+2026-08-26T13:14:54.256458Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/api/health version=HTTP/1.1
+2026-08-26T13:32:47.044155Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T13:32:47.045474Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T13:32:47.192133Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:32:47.193041Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:32:47.196590Z DEBUG request: end of stream stream_duration=3 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:32:47.197219Z DEBUG request: started processing request method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:32:47.197457Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:32:47.197850Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:32:55.383178Z DEBUG request: started processing request method=OPTIONS uri=/api/auth/register version=HTTP/1.1
+2026-08-26T13:32:55.383282Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/auth/register version=HTTP/1.1
+2026-08-26T13:32:55.492862Z DEBUG request: started processing request method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-26T13:32:56.170467Z  INFO request: [setup] owner claimed by user_id=2 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-26T13:32:56.228119Z DEBUG request: finished processing request latency=735 ms status=200 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-26T13:32:56.229738Z DEBUG request: end of stream stream_duration=1 ms method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-26T13:33:23.162030Z DEBUG request: started processing request method=OPTIONS uri=/api/admin/policies/auth_policy version=HTTP/1.1
+2026-08-26T13:33:23.162129Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/admin/policies/auth_policy version=HTTP/1.1
+2026-08-26T13:33:23.164541Z DEBUG request: started processing request method=POST uri=/api/admin/policies/auth_policy version=HTTP/1.1
+2026-08-26T13:33:23.169819Z DEBUG request: finished processing request latency=5 ms status=200 method=POST uri=/api/admin/policies/auth_policy version=HTTP/1.1
+2026-08-26T13:33:23.170554Z DEBUG request: end of stream stream_duration=0 ms method=POST uri=/api/admin/policies/auth_policy version=HTTP/1.1
+2026-08-26T13:33:23.178323Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:33:23.178562Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:33:23.178870Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:33:23.183638Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T13:33:23.183775Z DEBUG request: finished processing request latency=0 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T13:33:23.303529Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:33:23.303632Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:33:23.305840Z DEBUG request: started processing request method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:33:23.307046Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:33:23.307283Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:33:23.325788Z  INFO [sio] connected: Gr3xq6WJJCPyYfrl
+2026-08-26T13:33:23.516726Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:33:23.516921Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:33:23.517488Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:33:23.525074Z DEBUG request: started processing request method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:33:23.526227Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:33:23.527647Z DEBUG request: end of stream stream_duration=1 ms method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:33:23.530821Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:33:23.531099Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:33:23.531689Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:33:23.548171Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:33:23.548251Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:33:23.550634Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:33:23.551528Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:33:23.552065Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:33:25.731168Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:33:25.731276Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:33:25.732170Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:33:25.732349Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:33:25.732551Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:33:25.735599Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:33:25.736396Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:33:25.736714Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:33:34.438011Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:33:34.438090Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:33:34.439154Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:33:34.439394Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:33:34.439564Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:33:34.471212Z DEBUG request: started processing request method=OPTIONS uri=/api/addons version=HTTP/1.1
+2026-08-26T13:33:34.471267Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/addons version=HTTP/1.1
+2026-08-26T13:33:34.473559Z DEBUG request: started processing request method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:33:34.474135Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:33:34.474386Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:33:34.487891Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T13:33:34.488377Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T13:33:34.535146Z DEBUG request: started processing request method=GET uri=/api/places version=HTTP/1.1
+2026-08-26T13:33:34.535247Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/places version=HTTP/1.1
+2026-08-26T13:33:34.539769Z DEBUG request: started processing request method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:33:34.540001Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:33:34.540418Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:33:34.541805Z DEBUG request: started processing request method=GET uri=/uploads/eb209153-a186-4014-bf5c-79240471e406.jpg version=HTTP/1.1
+2026-08-26T13:33:34.541973Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/eb209153-a186-4014-bf5c-79240471e406.jpg version=HTTP/1.1
+2026-08-26T13:33:34.573897Z DEBUG request: started processing request method=OPTIONS uri=/api/business/get version=HTTP/1.1
+2026-08-26T13:33:34.573952Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/business/get version=HTTP/1.1
+2026-08-26T13:33:34.575106Z DEBUG request: started processing request method=GET uri=/api/business/get version=HTTP/1.1
+2026-08-26T13:33:34.575256Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/api/business/get version=HTTP/1.1
+2026-08-26T13:33:38.080029Z DEBUG request: started processing request method=OPTIONS uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:33:38.080106Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:33:38.081262Z DEBUG request: started processing request method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:33:38.081558Z DEBUG request: finished processing request latency=0 ms status=400 method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:33:38.081755Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:33:38.088310Z DEBUG request: started processing request method=OPTIONS uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:33:38.088406Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:33:38.089504Z DEBUG request: started processing request method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:33:38.094167Z DEBUG request: finished processing request latency=4 ms status=200 method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:33:38.094562Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:33:38.099998Z DEBUG request: started processing request method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:33:38.101102Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:33:38.101485Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:33:41.329823Z  WARN [sio] on_voice_channel_join called: channel_id=ch_7, user_id_num=2
+2026-08-26T13:33:41.329917Z  WARN [sio] emitted voice-channel-state: channel_id=ch_7, member_count=1
+2026-08-26T13:34:55.174916Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T13:34:55.175104Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T13:34:55.369033Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:34:55.369559Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:34:55.370272Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:34:55.370990Z DEBUG request: started processing request method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:34:55.371153Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:34:55.371313Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:35:09.895154Z DEBUG request: started processing request method=OPTIONS uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:35:09.895248Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:35:09.921641Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:35:10.560365Z DEBUG request: finished processing request latency=638 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:35:10.562782Z DEBUG request: end of stream stream_duration=2 ms method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:35:10.603400Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:35:10.606474Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T13:35:10.606594Z DEBUG request: finished processing request latency=0 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T13:35:10.607487Z DEBUG request: finished processing request latency=4 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:35:10.607702Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:35:10.732727Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:35:10.732830Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:35:10.749114Z DEBUG request: started processing request method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:35:10.751905Z DEBUG request: finished processing request latency=2 ms status=200 method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:35:10.752202Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:35:10.759426Z  INFO [sio] connected: ynr9SQSinBXr1e0n
+2026-08-26T13:35:10.818942Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:10.819031Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:10.821380Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:10.822471Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:10.824847Z DEBUG request: end of stream stream_duration=2 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:10.834644Z DEBUG request: started processing request method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:35:10.835047Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:35:10.835241Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:35:10.835668Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:35:10.836874Z DEBUG request: finished processing request latency=2 ms status=200 method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:35:10.837293Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:35:10.837863Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:35:10.838104Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:35:10.838422Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:35:11.717721Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:35:11.718001Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:35:11.901970Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:35:11.902622Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:35:11.902837Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:35:15.062948Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:35:15.063010Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:35:15.091512Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:35:15.091765Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:35:15.091914Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:35:15.251533Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:35:15.252188Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:35:15.252471Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:35:15.456118Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:15.456236Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:15.460365Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:15.460624Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:15.460919Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:35:15.495100Z DEBUG request: started processing request method=OPTIONS uri=/api/addons version=HTTP/1.1
+2026-08-26T13:35:15.495207Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/addons version=HTTP/1.1
+2026-08-26T13:35:15.498333Z DEBUG request: started processing request method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:35:15.498795Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:35:15.499062Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:35:15.512462Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T13:35:15.512577Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T13:35:15.574671Z DEBUG request: started processing request method=GET uri=/api/places version=HTTP/1.1
+2026-08-26T13:35:15.574771Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/places version=HTTP/1.1
+2026-08-26T13:35:15.578617Z DEBUG request: started processing request method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:35:15.578850Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:35:15.579379Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:35:15.579686Z DEBUG request: started processing request method=GET uri=/uploads/eb209153-a186-4014-bf5c-79240471e406.jpg version=HTTP/1.1
+2026-08-26T13:35:15.579841Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/eb209153-a186-4014-bf5c-79240471e406.jpg version=HTTP/1.1
+2026-08-26T13:35:15.775250Z DEBUG request: started processing request method=OPTIONS uri=/api/business/get version=HTTP/1.1
+2026-08-26T13:35:15.775333Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/business/get version=HTTP/1.1
+2026-08-26T13:35:15.779492Z DEBUG request: started processing request method=GET uri=/api/business/get version=HTTP/1.1
+2026-08-26T13:35:15.779647Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/api/business/get version=HTTP/1.1
+2026-08-26T13:35:18.019807Z DEBUG request: started processing request method=OPTIONS uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:35:18.019951Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:35:18.028053Z DEBUG request: started processing request method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:35:18.028320Z DEBUG request: finished processing request latency=0 ms status=400 method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:35:18.028550Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:35:18.079696Z DEBUG request: started processing request method=OPTIONS uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:35:18.079896Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:35:18.085882Z DEBUG request: started processing request method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:35:18.088000Z DEBUG request: finished processing request latency=2 ms status=200 method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:35:18.088613Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:35:18.124119Z DEBUG request: started processing request method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:35:18.125759Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:35:18.126163Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:35:22.087076Z  WARN [sio] on_voice_channel_join called: channel_id=ch_7, user_id_num=2
+2026-08-26T13:35:22.087238Z  WARN [sio] emitted voice-channel-state: channel_id=ch_7, member_count=2
+2026-08-26T13:36:26.779579Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:26.779698Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:26.785455Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:26.785687Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:26.785894Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:26.817970Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:26.818336Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:26.818594Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:28.882140Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:28.882687Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:28.882967Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:28.922851Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:28.923168Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:28.923467Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:31.951049Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:31.951156Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:31.961092Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:31.961405Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:31.961708Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:32.000332Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:32.000666Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:32.000896Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:33.968535Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:33.968865Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:33.969134Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:33.992683Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:33.993073Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:33.993382Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:38.758620Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:38.758744Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:38.764304Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:38.764650Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:38.764873Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:38.842669Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:38.843246Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:38.843967Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:53.325699Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:53.325799Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:53.332145Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:53.332651Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:53.333082Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:53.376760Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:53.377131Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:53.377513Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:56.919981Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:56.920299Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:56.920591Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:56.951551Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:56.951910Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:36:56.952142Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:44.828008Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:44.828094Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:44.834245Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:44.834939Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:44.835320Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:44.861139Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:44.861452Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:44.861644Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:49.000899Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:49.001220Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:49.001450Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:49.021508Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:49.021873Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:37:49.022187Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:38:32.125693Z  INFO [sweep] removed 1 stale connected users, 0 empty voice channels, 0 empty group call sessions
+2026-08-26T13:39:44.262009Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:44.262078Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:44.267895Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:44.268186Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:44.268415Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:44.302278Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:44.302600Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:44.302951Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:54.588317Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:54.588418Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:54.594437Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:54.594786Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:54.595065Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:54.630170Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:54.630526Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:39:54.630779Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:32.125723Z  INFO [sweep] removed 1 stale connected users, 0 empty voice channels, 0 empty group call sessions
+2026-08-26T13:40:50.193848Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:50.193942Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:50.198939Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:50.199259Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:50.199558Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:50.244208Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:50.244550Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:50.244816Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:55.552974Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:55.553103Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:55.557857Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:55.558109Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:55.558297Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:55.587671Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:55.587992Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:55.588243Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:59.193390Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:59.193639Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:59.193837Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:59.217532Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:59.217840Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:40:59.218113Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:22.528324Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:22.528454Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:22.534362Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:22.534611Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:22.534813Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:22.594358Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:22.594733Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:22.594993Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:24.857373Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:24.857747Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:24.858010Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:24.876419Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:24.876864Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:24.877108Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:32.649907Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:32.650002Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:32.657634Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:32.657922Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:32.658126Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:32.676729Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:32.677090Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:32.677367Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:38.983512Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:38.983637Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:38.990012Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:38.990429Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:38.990858Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:39.032635Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:39.032932Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:41:39.033158Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:42:47.922511Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:42:47.922638Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:42:47.927713Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:42:47.927974Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:42:47.928771Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:42:47.955216Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:42:47.955566Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:42:47.956180Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:10.817732Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:10.817841Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:10.823381Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:10.823630Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:10.824021Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:10.857123Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:10.857544Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:10.857826Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:33.239095Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:33.239164Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:33.242558Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:33.242918Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:33.243174Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:33.274983Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:33.275396Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:50:33.275770Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:51:18.969734Z DEBUG request: started processing request method=OPTIONS uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:18.969828Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:18.976579Z DEBUG request: started processing request method=GET uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:18.981986Z DEBUG request: finished processing request latency=5 ms status=200 method=GET uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:18.994955Z DEBUG request: started processing request method=GET uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:18.995225Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:44.383720Z DEBUG request: started processing request method=OPTIONS uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:44.383814Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:44.388727Z DEBUG request: started processing request method=GET uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:44.388995Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:44.399599Z DEBUG request: started processing request method=GET uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:51:44.400040Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/albums?scopeType=channel&scopeId=ch_4&limit=200 version=HTTP/1.1
+2026-08-26T13:52:15.459622Z DEBUG request: started processing request method=OPTIONS uri=/api/users version=HTTP/1.1
+2026-08-26T13:52:15.459716Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/users version=HTTP/1.1
+2026-08-26T13:52:15.468394Z DEBUG request: started processing request method=GET uri=/api/users version=HTTP/1.1
+2026-08-26T13:52:15.475275Z DEBUG request: finished processing request latency=6 ms status=401 method=GET uri=/api/users version=HTTP/1.1
+2026-08-26T13:52:15.478652Z DEBUG request: end of stream stream_duration=3 ms method=GET uri=/api/users version=HTTP/1.1
+2026-08-26T13:52:58.126324Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:52:58.126464Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:52:58.131885Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:52:58.132113Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:52:58.132496Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:52:58.163955Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:52:58.164271Z DEBUG request: finished processing request latency=0 ms status=401 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:52:58.164585Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:33.185638Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:55:33.185759Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:55:33.191244Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:55:33.194608Z DEBUG request: finished processing request latency=3 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:55:33.197111Z DEBUG request: end of stream stream_duration=2 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:55:33.503733Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:33.504149Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:33.509964Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:33.510178Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:33.510581Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:33.550705Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:33.550954Z DEBUG request: finished processing request latency=0 ms status=401 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:33.551161Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:44.396064Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:44.396150Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:44.404113Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:44.404583Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:44.404989Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:44.434100Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:44.435423Z DEBUG request: finished processing request latency=1 ms status=401 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:44.435798Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:55.718126Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:55.718230Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:55.724682Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:55.724969Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:55.725168Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:55.758524Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:55.758822Z DEBUG request: finished processing request latency=0 ms status=401 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:55.759153Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:58.067565Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:58.067858Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:58.068680Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:58.100193Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:58.101004Z DEBUG request: finished processing request latency=0 ms status=401 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:55:58.101278Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:57:47.472153Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:57:47.472244Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:57:47.477009Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:57:47.477206Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:57:47.477447Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:57:47.502290Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:57:47.502656Z DEBUG request: finished processing request latency=0 ms status=401 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:57:47.502900Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:09.673699Z DEBUG request: started processing request method=OPTIONS uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:59:09.673793Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:59:09.681294Z DEBUG request: started processing request method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:59:09.687935Z DEBUG request: finished processing request latency=6 ms status=401 method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:59:09.690332Z DEBUG request: end of stream stream_duration=2 ms method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T13:59:09.717591Z DEBUG request: started processing request method=OPTIONS uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:59:09.717672Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:59:09.722445Z DEBUG request: started processing request method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:59:09.724415Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:59:09.725203Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:59:09.748001Z DEBUG request: started processing request method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:59:09.749426Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:59:09.749744Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T13:59:09.916802Z  WARN [sio] on_voice_channel_join called: channel_id=ch_7, user_id_num=2
+2026-08-26T13:59:09.917072Z  WARN [sio] emitted voice-channel-state: channel_id=ch_7, member_count=2
+2026-08-26T13:59:13.446473Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:13.446556Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:13.451527Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:13.453664Z DEBUG request: finished processing request latency=2 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:13.454124Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:25.525377Z  INFO [sio] disconnected: ynr9SQSinBXr1e0n
+2026-08-26T13:59:29.269804Z DEBUG request: started processing request method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:59:29.270486Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:29.271473Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:59:29.271473Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:29.272013Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:59:29.272013Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:29.283474Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:29.283601Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:29.283750Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:29.283930Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T13:59:29.284769Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T13:59:29.339490Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:29.339556Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:29.359144Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:29.359418Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:29.359817Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:29.424052Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:29.424100Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:29.427013Z DEBUG request: started processing request method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:29.427462Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:29.427657Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:30.611975Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:30.612069Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:30.826856Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:30.827133Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:30.827438Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:33.481811Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:33.482131Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:33.482514Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:33.482825Z DEBUG request: started processing request method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:59:33.483013Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:59:33.483145Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T13:59:38.521445Z DEBUG request: started processing request method=OPTIONS uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:59:38.521532Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:59:38.529864Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:59:39.185204Z DEBUG request: finished processing request latency=655 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:59:39.185595Z DEBUG request: end of stream stream_duration=0 ms method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-26T13:59:39.206893Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:39.207100Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:39.207371Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:39.362993Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:39.363085Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:39.370481Z DEBUG request: started processing request method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:39.370871Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:39.371305Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T13:59:39.457842Z DEBUG request: started processing request method=GET uri=/api/places version=HTTP/1.1
+2026-08-26T13:59:39.458901Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/places version=HTTP/1.1
+2026-08-26T13:59:39.479863Z DEBUG request: started processing request method=OPTIONS uri=/api/addons version=HTTP/1.1
+2026-08-26T13:59:39.479939Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/addons version=HTTP/1.1
+2026-08-26T13:59:39.492256Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T13:59:39.493559Z DEBUG request: finished processing request latency=1 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T13:59:39.494219Z DEBUG request: started processing request method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:59:39.494513Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:59:39.494866Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:59:39.513999Z DEBUG request: started processing request method=GET uri=/uploads/eb209153-a186-4014-bf5c-79240471e406.jpg version=HTTP/1.1
+2026-08-26T13:59:39.514212Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/eb209153-a186-4014-bf5c-79240471e406.jpg version=HTTP/1.1
+2026-08-26T13:59:39.522915Z DEBUG request: started processing request method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:59:39.523171Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:59:39.523638Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T13:59:39.562429Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T13:59:39.562645Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T13:59:40.027220Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:40.027307Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:40.031769Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:40.032169Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:40.032421Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T13:59:42.220973Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:42.221114Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:42.228001Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:42.228189Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:42.228374Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:42.256965Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:42.257257Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:42.257494Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T13:59:47.142600Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T13:59:47.145233Z DEBUG request: finished processing request latency=2 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T13:59:47.155258Z  INFO [sio] connected: SRvzBFMf8nlG7l3A
+2026-08-26T13:59:47.183411Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:47.183663Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:47.183928Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T13:59:47.185753Z DEBUG request: started processing request method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:59:47.186501Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:59:47.186990Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T13:59:47.187893Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:47.188214Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:47.188641Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T13:59:47.191617Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.191702Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.193933Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.194171Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.194461Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.283140Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.283243Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.297979Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.298302Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T13:59:47.298621Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:00:13.116323Z DEBUG request: started processing request method=OPTIONS uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T14:00:13.116431Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T14:00:13.122092Z DEBUG request: started processing request method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T14:00:13.122542Z DEBUG request: finished processing request latency=0 ms status=400 method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T14:00:13.122989Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/turn-credentials version=HTTP/1.1
+2026-08-26T14:00:13.158565Z DEBUG request: started processing request method=OPTIONS uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T14:00:13.158683Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T14:00:13.164713Z DEBUG request: started processing request method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T14:00:13.165994Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T14:00:13.166433Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T14:00:13.189335Z DEBUG request: started processing request method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T14:00:13.190143Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T14:00:13.190515Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/media/runtime version=HTTP/1.1
+2026-08-26T14:00:13.308671Z  WARN [sio] on_voice_channel_join called: channel_id=ch_7, user_id_num=2
+2026-08-26T14:00:13.308794Z  WARN [sio] emitted voice-channel-state: channel_id=ch_7, member_count=2
+2026-08-26T14:00:27.222327Z  INFO [sio] disconnected: SRvzBFMf8nlG7l3A
+2026-08-26T14:00:27.373839Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:00:27.374189Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:00:27.375737Z DEBUG request: end of stream stream_duration=1 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:00:27.381558Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T14:00:27.381558Z DEBUG request: started processing request method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T14:00:27.381834Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T14:00:27.381942Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T14:00:27.382247Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/auth-policy version=HTTP/1.1
+2026-08-26T14:00:50.942522Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:00:50.942567Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:00:50.943030Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:00:50.943177Z DEBUG request: finished processing request latency=0 ms status=401 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:00:50.943300Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:00:50.995561Z DEBUG request: started processing request method=OPTIONS uri=/api/auth/refresh version=HTTP/1.1
+2026-08-26T14:00:50.995629Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/auth/refresh version=HTTP/1.1
+2026-08-26T14:00:50.996548Z DEBUG request: started processing request method=POST uri=/api/auth/refresh version=HTTP/1.1
+2026-08-26T14:00:50.998485Z DEBUG request: finished processing request latency=1 ms status=200 method=POST uri=/api/auth/refresh version=HTTP/1.1
+2026-08-26T14:00:50.998736Z DEBUG request: end of stream stream_duration=0 ms method=POST uri=/api/auth/refresh version=HTTP/1.1
+2026-08-26T14:00:51.009988Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:00:51.010370Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:00:51.010640Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:07.398739Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:01:07.398846Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:01:07.399884Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:01:07.400189Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:01:07.400398Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:01:07.406808Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:01:07.407145Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:01:07.407449Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:01:11.580826Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:11.580922Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:11.585105Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:11.586107Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:11.586723Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:15.070526Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.070722Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.136070Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.136233Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.184308Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.184499Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.307168Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.307429Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.581526Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:15.581719Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:16.122238Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:16.122427Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:16.799566Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:16.799710Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:16.878057Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:16.878211Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:17.314578Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:17.314888Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:17.415307Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:17.415993Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:20.137987Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:20.138068Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:20.139500Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:20.139750Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:20.139952Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:29.442859Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:29.443078Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:29.626395Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:01:29.626486Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:01:29.627759Z DEBUG request: started processing request method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:01:29.716811Z DEBUG request: finished processing request latency=89 ms status=200 method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:01:32.125232Z  INFO [sweep] removed 0 stale connected users, 1 empty voice channels, 0 empty group call sessions
+2026-08-26T14:01:48.749025Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:48.749106Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:48.752254Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:48.752492Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:48.752767Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:50.606440Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:50.606674Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:50.606874Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:01:54.013008Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:54.013277Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:01:54.192962Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:01:54.193051Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:01:54.194419Z DEBUG request: started processing request method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:01:54.209669Z DEBUG request: finished processing request latency=15 ms status=200 method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:03.026508Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:03.026562Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:03.027792Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:03.028085Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:03.029789Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:04.905762Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:04.906258Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:04.906563Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:10.673559Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:10.673788Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:10.849059Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:10.849151Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:10.850704Z DEBUG request: started processing request method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:10.862312Z DEBUG request: finished processing request latency=11 ms status=200 method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:18.039195Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:18.039270Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:18.041500Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:18.041841Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:18.041996Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:20.772013Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:20.772317Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:20.772677Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:25.684961Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:25.685757Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:25.864442Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:25.864643Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:25.866629Z DEBUG request: started processing request method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:25.881382Z DEBUG request: finished processing request latency=14 ms status=200 method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:26.712284Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:26.712502Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:26.887475Z DEBUG request: started processing request method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:26.895693Z DEBUG request: finished processing request latency=8 ms status=200 method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:45.731791Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:45.731867Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:45.732863Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:45.733088Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:45.733242Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:47.895709Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:47.896045Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:47.896503Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:02:51.735021Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:51.735327Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:51.934252Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:51.934337Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:51.935943Z DEBUG request: started processing request method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:51.945424Z DEBUG request: finished processing request latency=9 ms status=200 method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:53.844963Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:53.845930Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:02:54.032313Z DEBUG request: started processing request method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:02:54.039143Z DEBUG request: finished processing request latency=6 ms status=200 method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:03:03.890707Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:03.890811Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:03.892081Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:03.892357Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:03.892560Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:05.482358Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:05.482598Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:05.482802Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:09.655660Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:03:09.655815Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:03:09.838700Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:03:09.838794Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:03:09.840183Z DEBUG request: started processing request method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:03:09.851082Z DEBUG request: finished processing request latency=10 ms status=200 method=POST uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:03:27.468043Z DEBUG request: started processing request method=OPTIONS uri=/api/channels version=HTTP/1.1
+2026-08-26T14:03:27.468123Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/channels version=HTTP/1.1
+2026-08-26T14:03:27.469489Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-26T14:03:27.508532Z DEBUG request: finished processing request latency=39 ms status=200 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-26T14:03:27.509187Z DEBUG request: end of stream stream_duration=0 ms method=POST uri=/api/channels version=HTTP/1.1
+2026-08-26T14:03:29.824689Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:03:29.824835Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:03:34.721171Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:34.721767Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:34.723554Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:34.724494Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:34.724836Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:03:53.392845Z DEBUG request: started processing request method=OPTIONS uri=/api/upload-profile-picture version=HTTP/1.1
+2026-08-26T14:03:53.392927Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/upload-profile-picture version=HTTP/1.1
+2026-08-26T14:03:53.394483Z DEBUG request: started processing request method=POST uri=/api/upload-profile-picture version=HTTP/1.1
+2026-08-26T14:03:53.398146Z  INFO request: Profile picture uploaded: Gemini_Generated_Image_7n1dhs7n1dhs7n1d.webp (19364 bytes) -> "./data/uploads/8c25d636-a13d-4a27-91b5-dd68696056a9.webp" method=POST uri=/api/upload-profile-picture version=HTTP/1.1
+2026-08-26T14:03:53.401144Z DEBUG request: finished processing request latency=6 ms status=200 method=POST uri=/api/upload-profile-picture version=HTTP/1.1
+2026-08-26T14:03:53.401499Z DEBUG request: end of stream stream_duration=0 ms method=POST uri=/api/upload-profile-picture version=HTTP/1.1
+2026-08-26T14:03:53.417731Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:03:53.417799Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:03:53.418890Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:03:53.420637Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:03:53.420916Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:02.626458Z DEBUG request: started processing request method=OPTIONS uri=/api/upload-profile-media version=HTTP/1.1
+2026-08-26T14:04:02.626556Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/upload-profile-media version=HTTP/1.1
+2026-08-26T14:04:02.628245Z DEBUG request: started processing request method=POST uri=/api/upload-profile-media version=HTTP/1.1
+2026-08-26T14:04:02.637636Z  INFO request: Profile media uploaded by user 2: 5cd603d4-4574-4fdf-b192-970da4108306_removalai_preview.png (161570 bytes) -> "./data/uploads/ae61c7ac-1da2-41c8-a22a-f1a576145672.png" method=POST uri=/api/upload-profile-media version=HTTP/1.1
+2026-08-26T14:04:02.638888Z DEBUG request: finished processing request latency=10 ms status=200 method=POST uri=/api/upload-profile-media version=HTTP/1.1
+2026-08-26T14:04:02.639455Z DEBUG request: end of stream stream_duration=0 ms method=POST uri=/api/upload-profile-media version=HTTP/1.1
+2026-08-26T14:04:02.674979Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:02.675073Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:02.680020Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:02.680417Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:02.680727Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:11.276171Z  INFO [sio] disconnected: Gr3xq6WJJCPyYfrl
+2026-08-26T14:04:13.244046Z DEBUG request: started processing request method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:13.244136Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:13.245947Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:13.246210Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:13.246484Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:13.260519Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:04:13.261411Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:04:13.261778Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:04:13.263330Z DEBUG request: started processing request method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T14:04:13.263739Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T14:04:13.264300Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T14:04:13.363759Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T14:04:13.364168Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-26T14:04:13.374577Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:13.374754Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:13.374950Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:13.458011Z DEBUG request: started processing request method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:04:13.458106Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:04:13.459429Z DEBUG request: started processing request method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:04:13.459974Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/theme version=HTTP/1.1
+2026-08-26T14:04:14.142539Z DEBUG request: started processing request method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:04:14.142625Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:04:14.254495Z DEBUG request: started processing request method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:04:14.254718Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:04:14.254929Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/settings version=HTTP/1.1
+2026-08-26T14:04:15.436194Z DEBUG request: started processing request method=OPTIONS uri=/api/addons version=HTTP/1.1
+2026-08-26T14:04:15.436321Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/addons version=HTTP/1.1
+2026-08-26T14:04:15.436560Z DEBUG request: started processing request method=GET uri=/api/places version=HTTP/1.1
+2026-08-26T14:04:15.436760Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/places version=HTTP/1.1
+2026-08-26T14:04:15.438145Z DEBUG request: started processing request method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T14:04:15.438539Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T14:04:15.438920Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T14:04:15.442139Z DEBUG request: started processing request method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T14:04:15.442285Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T14:04:15.442547Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/addons version=HTTP/1.1
+2026-08-26T14:04:15.442712Z DEBUG request: started processing request method=GET uri=/uploads/eb209153-a186-4014-bf5c-79240471e406.jpg version=HTTP/1.1
+2026-08-26T14:04:15.442812Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/eb209153-a186-4014-bf5c-79240471e406.jpg version=HTTP/1.1
+2026-08-26T14:04:15.467962Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:15.468123Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:15.498709Z DEBUG request: started processing request method=OPTIONS uri=/api/business/get version=HTTP/1.1
+2026-08-26T14:04:15.498804Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/business/get version=HTTP/1.1
+2026-08-26T14:04:15.500740Z DEBUG request: started processing request method=GET uri=/api/business/get version=HTTP/1.1
+2026-08-26T14:04:15.501544Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/api/business/get version=HTTP/1.1
+2026-08-26T14:04:16.501710Z DEBUG request: started processing request method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:16.501934Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:16.502144Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:16.507574Z DEBUG request: started processing request method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:16.507745Z DEBUG request: finished processing request latency=0 ms status=422 method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:16.507859Z DEBUG request: end of stream stream_duration=0 ms method=PUT uri=/api/user/layout version=HTTP/1.1
+2026-08-26T14:04:21.812487Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:21.812712Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:21.812954Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:30.447300Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:30.447520Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:30.447749Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:32.109131Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:32.109297Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:32.111511Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T14:04:32.111641Z DEBUG request: finished processing request latency=0 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T14:04:32.242481Z  INFO [sio] connected: Khr3cIAFdBLHXqRj
+2026-08-26T14:04:32.272023Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:32.272191Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:32.272913Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T14:04:32.273357Z DEBUG request: started processing request method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T14:04:32.273710Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T14:04:32.274080Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/frontend-app-metadata version=HTTP/1.1
+2026-08-26T14:04:32.274313Z DEBUG request: started processing request method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:04:32.274609Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:04:32.274918Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/public/launch-page version=HTTP/1.1
+2026-08-26T14:04:32.376709Z DEBUG request: started processing request method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:32.376813Z DEBUG request: finished processing request latency=0 ms status=200 method=OPTIONS uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:32.378957Z DEBUG request: started processing request method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:32.379228Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:32.379490Z DEBUG request: end of stream stream_duration=0 ms method=GET uri=/api/payments/access version=HTTP/1.1
+2026-08-26T14:04:33.344553Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:33.344719Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:35.721555Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:35.721693Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:52.895025Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:04:52.895218Z DEBUG request: finished processing request latency=0 ms status=404 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-26T14:10:32.125575Z  INFO [sweep] removed 1 stale connected users, 0 empty voice channels, 0 empty group call sessions
+2026-08-26T15:47:05.460033Z  INFO [sio] disconnected: Khr3cIAFdBLHXqRj
+2026-08-26T15:48:27.016135Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:48:27.050586Z DEBUG request: finished processing request latency=47 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:51:10.458525Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:51:10.458662Z DEBUG request: finished processing request latency=0 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:53:33.144589Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:53:53.260110Z DEBUG request: finished processing request latency=20123 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:53:53.472305Z DEBUG request: end of stream stream_duration=210 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:53:53.497587Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:53:53.497675Z DEBUG request: finished processing request latency=0 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:54:34.305994Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:54:34.307083Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:54:34.316995Z DEBUG request: end of stream stream_duration=9 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:54:54.646463Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:54:54.646593Z DEBUG request: finished processing request latency=0 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:55:14.981505Z DEBUG request: started processing request method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:55:14.987734Z DEBUG request: finished processing request latency=6 ms status=200 method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:55:15.057495Z DEBUG request: end of stream stream_duration=69 ms method=GET uri=/api/public/backend-endpoints version=HTTP/1.1
+2026-08-26T15:55:15.109462Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:55:15.109580Z DEBUG request: finished processing request latency=0 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:57:37.404794Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
+2026-08-26T15:57:37.404906Z DEBUG request: finished processing request latency=0 ms status=101 method=GET uri=/socket.io/?EIO=4&transport=websocket version=HTTP/1.1
