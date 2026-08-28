@@ -2634,6 +2634,10 @@ function autoOpenChannelCallPanel(): void {
 	// explicit panel toggle (openChannelCallPanel from the sidebar/panel
 	// buttons) still sets it.
 	callPanelDismissedByUser = false;
+<<<<<<< HEAD
+=======
+	channelCallPanelOpen.set(true);
+>>>>>>> origin/arena/01a04113-wabi
 	summonCallsStubOnJoin();
 }
 
@@ -2655,6 +2659,7 @@ function summonCallsStubOnJoin(): void {
 }
 
 /**
+<<<<<<< HEAD
  * Re-establish ONE channel call over p2p mesh offers. Used by the transport
  * swap AND by the watchdog's demote path (callingWabidb arms the watchdog
  * with wabidb as the active transport; before this helper its p2p branch
@@ -2684,6 +2689,8 @@ export async function reEstablishChannelP2P(socket: Socket, channelId: string): 
 }
 
 /**
+=======
+>>>>>>> origin/arena/01a04113-wabi
  * Cleanly swap the active call transport between the wabidb relay and
  * traditional p2p (2026-08-27 request). The stored mode is updated first so
  * createCallOffer()/connectWabidbCall() route consistently, then every live

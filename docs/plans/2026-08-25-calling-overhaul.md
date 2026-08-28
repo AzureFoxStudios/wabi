@@ -471,6 +471,7 @@ clean wabiDB↔p2p swap, (5) debug must show ping/packets/loss on BOTH transport
 5. During a call (either transport) → floating debug toggle (bottom corner, no longer
    dev-only) → ping/jitter/loss/rates/packets populated, Transport row names the
    metric source. On wabidb, ping = socket echo RTT; loss = inbound envelope gaps.
+<<<<<<< HEAD
 
 ---
 
@@ -661,3 +662,5 @@ source):
 4. **Hot mics**: after leaving a call, the browser tab mic indicator goes
    out; the remaining side never hears the departed user; Diag on the
    departed tab shows no relay counters moving.
+=======
+>>>>>>> origin/arena/01a04113-wabi
