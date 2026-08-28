@@ -367,11 +367,10 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
             // trip on `wabidb-pong`. Stateless by design — no DB/state IO.
             socket.on("wabidb-ping", {
                 move |socket: SocketRef, Data(data): Data<Value>| {
-<<<<<<< HEAD
+
                     let _ = socket.emit("wabidb-pong", &data);
-=======
-                    let _ = socket.emit("wabidb-pong", data);
->>>>>>> origin/arena/01a04113-wabi
+
+
                 }
             });
 
