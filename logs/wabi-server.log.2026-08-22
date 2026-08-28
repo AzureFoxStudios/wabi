@@ -1,0 +1,29 @@
+2026-08-22T09:52:54.798299Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-22T09:52:54.982673Z DEBUG request: finished processing request latency=184 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-22T09:52:54.990317Z DEBUG request: started processing request method=POST uri=/api/calls/sessions version=HTTP/1.1
+2026-08-22T09:52:54.990733Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/calls/sessions version=HTTP/1.1
+2026-08-22T09:53:09.230246Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-22T09:53:09.420076Z DEBUG request: finished processing request latency=189 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-22T09:53:09.428054Z DEBUG request: started processing request method=POST uri=/api/calls/sessions/channel%3Asmoketest/join version=HTTP/1.1
+2026-08-22T09:53:09.428436Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/calls/sessions/channel%3Asmoketest/join version=HTTP/1.1
+2026-08-22T09:53:09.432724Z DEBUG request: started processing request method=POST uri=/api/calls/sessions/channel%3Asmoketest/signals version=HTTP/1.1
+2026-08-22T09:53:09.433039Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/calls/sessions/channel%3Asmoketest/signals version=HTTP/1.1
+2026-08-22T10:01:07.378524Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-22T10:01:07.567923Z DEBUG request: finished processing request latency=189 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-22T15:39:05.881532Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-08-22T15:39:05.881777Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-08-22T15:39:17.344040Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-22T15:39:17.345834Z  INFO Server shut down gracefully
+2026-08-22T15:40:00.398278Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-22T15:40:00.398433Z  INFO 📡 Starting server on 0.0.0.0:3001
+2026-08-22T15:40:00.400705Z  INFO [bot:hermes] bot account already exists (id=1)
+2026-08-22T15:40:00.400713Z  INFO [bot:hermes] ready: user-1
+2026-08-22T15:40:00.400723Z  INFO [blacklist] Loaded 0 entries from /tmp/wabi-k6-data/blacklist.txt
+2026-08-22T15:40:00.401979Z  INFO ✅ Server ready
+2026-08-22T15:40:00.401983Z  INFO 🌐 Frontend: http://localhost:3001
+2026-08-22T15:40:00.401984Z  INFO 🔌 API: http://localhost:3001/api
+2026-08-22T15:40:00.401985Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-22T15:40:23.133991Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-08-22T15:40:23.134623Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-08-22T15:40:23.138129Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-22T15:40:23.320543Z DEBUG request: finished processing request latency=182 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1

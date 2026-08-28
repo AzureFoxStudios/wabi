@@ -1,0 +1,129 @@
+2026-08-21T04:22:28.350752Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-21T04:22:28.350827Z  INFO [security] generated and persisted a new jwt_secret to "/tmp/wabi-e2e/jwt_secret"
+2026-08-21T04:22:28.350858Z  INFO 📡 Starting server on 0.0.0.0:3999
+2026-08-21T04:22:28.350952Z  WARN [security] generated a new WabiDB root key at "/tmp/wabi-e2e/wabidb/root_key". BACK THIS UP: it is required to read this server's data and is NOT recoverable from anywhere else
+2026-08-21T04:22:28.351446Z  INFO [blacklist] Created empty blacklist file at /tmp/wabi-e2e/blacklist.txt
+2026-08-21T04:22:28.353093Z  INFO ✅ Server ready
+2026-08-21T04:22:28.353096Z  INFO 🌐 Frontend: http://localhost:3999
+2026-08-21T04:22:28.353097Z  INFO 🔌 API: http://localhost:3999/api
+2026-08-21T04:22:28.353098Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-21T04:22:28.540994Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-08-21T04:22:28.541003Z  INFO [bot:hermes] ready: user-1
+2026-08-21T04:22:36.516712Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T04:22:36.517381Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T04:22:36.522601Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-08-21T04:22:36.522635Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-08-21T04:23:15.496360Z DEBUG request: started processing request method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T04:23:15.682210Z  INFO request: [setup] owner claimed by user_id=2 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T04:23:15.683207Z DEBUG request: finished processing request latency=186 ms status=200 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T04:25:55.865962Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T04:25:55.866001Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T04:26:05.910020Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-21T04:26:06.093084Z DEBUG request: finished processing request latency=183 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-21T04:26:06.101801Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.102642Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.106742Z DEBUG request: started processing request method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.106781Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.126438Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.126515Z DEBUG request: finished processing request latency=0 ms status=422 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.130387Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.131369Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.134956Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:26:06.135705Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:03.156588Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-21T04:28:03.156994Z  INFO Server shut down gracefully
+2026-08-21T04:28:12.340920Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-21T04:28:12.341001Z  INFO [security] generated and persisted a new jwt_secret to "/tmp/wabi-e2e2/jwt_secret"
+2026-08-21T04:28:12.341047Z  INFO 📡 Starting server on 0.0.0.0:3999
+2026-08-21T04:28:12.341179Z  WARN [security] generated a new WabiDB root key at "/tmp/wabi-e2e2/wabidb/root_key". BACK THIS UP: it is required to read this server's data and is NOT recoverable from anywhere else
+2026-08-21T04:28:12.341865Z  INFO [blacklist] Created empty blacklist file at /tmp/wabi-e2e2/blacklist.txt
+2026-08-21T04:28:12.343324Z  INFO ✅ Server ready
+2026-08-21T04:28:12.343328Z  INFO 🌐 Frontend: http://localhost:3999
+2026-08-21T04:28:12.343329Z  INFO 🔌 API: http://localhost:3999/api
+2026-08-21T04:28:12.343330Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-21T04:28:12.530895Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-08-21T04:28:12.530904Z  INFO [bot:hermes] ready: user-1
+2026-08-21T04:28:24.854859Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T04:28:24.855496Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T04:28:24.859569Z DEBUG request: started processing request method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T04:28:25.050053Z  INFO request: [setup] owner claimed by user_id=2 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T04:28:25.051354Z DEBUG request: finished processing request latency=191 ms status=200 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T04:28:25.077863Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.077916Z DEBUG request: finished processing request latency=0 ms status=401 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.082121Z DEBUG request: started processing request method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.082172Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.119878Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.119945Z DEBUG request: finished processing request latency=0 ms status=401 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.124953Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.125027Z DEBUG request: finished processing request latency=0 ms status=401 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.129033Z DEBUG request: started processing request method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:25.129094Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:28:33.384177Z DEBUG request: started processing request method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T04:28:33.572276Z DEBUG request: finished processing request latency=188 ms status=400 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T04:29:20.376929Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-21T04:29:20.561337Z DEBUG request: finished processing request latency=184 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-21T04:30:10.216746Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-21T04:30:10.400795Z DEBUG request: finished processing request latency=184 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-21T04:30:10.409443Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.410342Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.414582Z DEBUG request: started processing request method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.414612Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.432351Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.433489Z DEBUG request: finished processing request latency=1 ms status=200 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.437050Z DEBUG request: started processing request method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.437855Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.441234Z DEBUG request: started processing request method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:10.441277Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:22.976440Z DEBUG request: started processing request method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-21T04:30:23.164826Z DEBUG request: finished processing request latency=188 ms status=200 method=POST uri=/api/auth/login version=HTTP/1.1
+2026-08-21T04:30:23.171921Z DEBUG request: started processing request method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:23.171988Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/channels version=HTTP/1.1
+2026-08-21T04:30:46.527269Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-21T04:30:46.527585Z  INFO Server shut down gracefully
+2026-08-21T17:10:53.084092Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-21T17:10:53.084223Z  INFO [security] generated and persisted a new jwt_secret to "/var/home/Ronin/wabi/data/jwt_secret"
+2026-08-21T17:10:53.084256Z  INFO 📡 Starting server on 0.0.0.0:3001
+2026-08-21T17:10:53.084407Z  WARN [security] generated a new WabiDB root key at "/var/home/Ronin/wabi/data/wabidb/root_key". BACK THIS UP: it is required to read this server's data and is NOT recoverable from anywhere else
+2026-08-21T17:10:53.088570Z  INFO [blacklist] Created empty blacklist file at /var/home/Ronin/wabi/data/blacklist.txt
+2026-08-21T17:10:53.090379Z  INFO ✅ Server ready
+2026-08-21T17:10:53.090383Z  INFO 🌐 Frontend: http://localhost:3001
+2026-08-21T17:10:53.090385Z  INFO 🔌 API: http://localhost:3001/api
+2026-08-21T17:10:53.090385Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-21T17:10:53.273756Z  INFO [bot:hermes] registered hermes-bot account (id=12)
+2026-08-21T17:10:53.273769Z  INFO [bot:hermes] ready: user-12
+2026-08-21T17:11:18.354333Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-08-21T17:11:18.354955Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-08-21T17:11:18.358307Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T17:11:18.358345Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T17:11:18.361696Z DEBUG request: started processing request method=GET uri=/ version=HTTP/1.1
+2026-08-21T17:11:18.361766Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/ version=HTTP/1.1
+2026-08-21T17:11:40.623935Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-21T17:11:40.624272Z  INFO Server shut down gracefully
+2026-08-21T17:12:14.334345Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-21T17:12:14.334428Z  INFO [security] generated and persisted a new jwt_secret to "/tmp/wabi-k6-data/jwt_secret"
+2026-08-21T17:12:14.334462Z  INFO 📡 Starting server on 0.0.0.0:3001
+2026-08-21T17:12:14.334552Z  WARN [security] generated a new WabiDB root key at "/tmp/wabi-k6-data/wabidb/root_key". BACK THIS UP: it is required to read this server's data and is NOT recoverable from anywhere else
+2026-08-21T17:12:14.335144Z  INFO [blacklist] Created empty blacklist file at /tmp/wabi-k6-data/blacklist.txt
+2026-08-21T17:12:14.336487Z  INFO ✅ Server ready
+2026-08-21T17:12:14.336490Z  INFO 🌐 Frontend: http://localhost:3001
+2026-08-21T17:12:14.336491Z  INFO 🔌 API: http://localhost:3001/api
+2026-08-21T17:12:14.336492Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-21T17:12:14.515407Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-08-21T17:12:14.515416Z  INFO [bot:hermes] ready: user-1
+2026-08-21T17:12:26.953741Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-08-21T17:12:26.954363Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-08-21T17:12:26.957717Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T17:12:26.957753Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-21T17:12:49.317183Z DEBUG request: started processing request method=POST uri=/api/setup version=HTTP/1.1
+2026-08-21T17:12:49.317269Z DEBUG request: finished processing request latency=0 ms status=404 method=POST uri=/api/setup version=HTTP/1.1
+2026-08-21T17:15:17.183831Z DEBUG request: started processing request method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T17:15:17.363916Z  INFO request: [setup] owner claimed by user_id=2 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T17:15:17.364852Z DEBUG request: finished processing request latency=181 ms status=200 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T17:15:28.856806Z DEBUG request: started processing request method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T17:15:29.040102Z DEBUG request: finished processing request latency=183 ms status=200 method=POST uri=/api/auth/register version=HTTP/1.1
+2026-08-21T17:16:01.673791Z DEBUG request: started processing request method=GET uri=/socket.io/?EIO=4&transport=polling version=HTTP/1.1
+2026-08-21T17:16:01.673829Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/socket.io/?EIO=4&transport=polling version=HTTP/1.1
+2026-08-21T17:17:12.212265Z DEBUG request: started processing request method=GET uri=/ version=HTTP/1.1
+2026-08-21T17:17:12.212312Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/ version=HTTP/1.1
+2026-08-21T17:18:00.827620Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-08-21T17:18:00.827664Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1

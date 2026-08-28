@@ -1,0 +1,59 @@
+2026-08-24T03:47:50.738146Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-24T03:47:50.738253Z  INFO 📡 Starting server on 127.0.0.1:3099
+2026-08-24T03:47:50.740241Z  INFO [blacklist] Created empty blacklist file at /tmp/wabi-bgtest/data/blacklist.txt
+2026-08-24T03:47:50.742171Z  INFO ✅ Server ready
+2026-08-24T03:47:50.742176Z  INFO 🌐 Frontend: http://localhost:3099
+2026-08-24T03:47:50.742177Z  INFO 🔌 API: http://localhost:3099/api
+2026-08-24T03:47:50.742178Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-24T03:47:50.932700Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-08-24T03:47:50.932710Z  INFO [bot:hermes] ready: user-1
+2026-08-24T03:48:13.506494Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-08-24T03:48:13.507155Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-08-24T03:48:13.511254Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-24T03:48:13.511327Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-24T03:48:28.067233Z DEBUG request: started processing request method=POST uri=/api/auth/guest version=HTTP/1.1
+2026-08-24T03:48:28.067610Z DEBUG request: finished processing request latency=0 ms status=200 method=POST uri=/api/auth/guest version=HTTP/1.1
+2026-08-24T03:50:01.468803Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-24T03:50:01.469345Z  INFO Server shut down gracefully
+2026-08-24T06:32:13.155871Z  INFO 🚀 Wabi Node v0.1.0
+2026-08-24T06:32:13.156003Z  INFO [security] generated and persisted a new jwt_secret to "/tmp/wabi-bootproof-data/jwt_secret"
+2026-08-24T06:32:13.156071Z  INFO 📡 Starting server on 0.0.0.0:3987
+2026-08-24T06:32:13.156293Z  WARN [security] generated a new WabiDB root key at "/tmp/wabi-bootproof-data/wabidb/root_key". BACK THIS UP: it is required to read this server's data and is NOT recoverable from anywhere else
+2026-08-24T06:32:13.165341Z  INFO [blacklist] Created empty blacklist file at /tmp/wabi-bootproof-data/blacklist.txt
+2026-08-24T06:32:13.173840Z  INFO ✅ Server ready
+2026-08-24T06:32:13.173857Z  INFO 🌐 Frontend: http://localhost:3987
+2026-08-24T06:32:13.173862Z  INFO 🔌 API: http://localhost:3987/api
+2026-08-24T06:32:13.173865Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-08-24T06:32:13.760696Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-08-24T06:32:13.760734Z  INFO [bot:hermes] ready: user-1
+2026-08-24T06:32:26.971374Z DEBUG request: started processing request method=GET uri=/api/health version=HTTP/1.1
+2026-08-24T06:32:26.972309Z DEBUG request: finished processing request latency=1 ms status=404 method=GET uri=/api/health version=HTTP/1.1
+2026-08-24T06:32:26.975905Z DEBUG request: started processing request method=GET uri=/ version=HTTP/1.1
+2026-08-24T06:32:26.976832Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/ version=HTTP/1.1
+2026-08-24T06:32:26.980291Z DEBUG request: started processing request method=GET uri=/_app/immutable/entry/start.isP9OfZ7.js version=HTTP/1.1
+2026-08-24T06:32:26.981259Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/_app/immutable/entry/start.isP9OfZ7.js version=HTTP/1.1
+2026-08-24T06:32:26.983205Z DEBUG request: end of stream stream_duration=1 ms method=GET uri=/_app/immutable/entry/start.isP9OfZ7.js version=HTTP/1.1
+2026-08-24T06:32:26.986563Z DEBUG request: started processing request method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:27.035412Z DEBUG request: finished processing request latency=48 ms status=200 method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:27.319726Z DEBUG request: end of stream stream_duration=284 ms method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:27.324192Z DEBUG request: started processing request method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:27.375445Z DEBUG request: finished processing request latency=51 ms status=200 method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:27.738522Z DEBUG request: end of stream stream_duration=363 ms method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:53.643240Z DEBUG request: started processing request method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:53.693342Z DEBUG request: finished processing request latency=50 ms status=200 method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:53.977449Z DEBUG request: end of stream stream_duration=284 ms method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:53.982143Z DEBUG request: started processing request method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:54.031215Z DEBUG request: finished processing request latency=49 ms status=200 method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:54.399678Z DEBUG request: end of stream stream_duration=368 ms method=GET uri=/_app/immutable/chunks/BBodWtXz.js version=HTTP/1.1
+2026-08-24T06:32:54.403983Z DEBUG request: started processing request method=GET uri=/wabi-logo-boot.webp version=HTTP/1.1
+2026-08-24T06:32:54.405186Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/wabi-logo-boot.webp version=HTTP/1.1
+2026-08-24T06:32:54.408714Z DEBUG request: started processing request method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-24T06:32:54.408965Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/api/setup/status version=HTTP/1.1
+2026-08-24T06:33:06.834199Z DEBUG request: started processing request method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-24T06:33:06.834858Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/uploads/f70ba8b2-4e01-4ecf-ac38-8e8bacffebc7.jpg version=HTTP/1.1
+2026-08-24T06:33:18.845368Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-24T06:33:18.846240Z  INFO Server shut down gracefully
+2026-08-24T09:14:43.602623Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-24T09:14:43.610600Z  INFO Server shut down gracefully
+2026-08-24T09:14:43.659211Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-08-24T09:14:43.661084Z  INFO Server shut down gracefully
