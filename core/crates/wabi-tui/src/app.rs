@@ -20,6 +20,15 @@ pub enum BgMsg {
     Stats(ServerStats),
     Health(String),
     SendOk(String),
+    /// A lore channel was created (`:lore new`) — add it, select it on the
+    /// Lore screen, and pull its repo state.
+    LoreCreated(Channel),
+    /// Repo + file-list state for one lore channel (None repo = no repo yet).
+    LoreRepoLoaded(i64, Option<crate::api::LoreRepoInfo>, Vec<crate::api::LoreFile>),
+    /// A lore repo changed (push/import finished) — refresh that channel.
+    LoreChanged(i64),
+    /// Text preview fetched from the Lore screen.
+    LorePreview(LorePreview),
     LoginOk {
         request_id: u64,
         token: String,
@@ -54,6 +63,7 @@ pub enum Screen {
     Users,
     Server,
     Logs,
+    Lore,
 }
 
 impl Screen {
@@ -62,15 +72,17 @@ impl Screen {
             Self::Chat => Self::Users,
             Self::Users => Self::Server,
             Self::Server => Self::Logs,
-            Self::Logs => Self::Chat,
+            Self::Logs => Self::Lore,
+            Self::Lore => Self::Chat,
         }
     }
     pub fn prev(self) -> Self {
         match self {
-            Self::Chat => Self::Logs,
+            Self::Chat => Self::Lore,
             Self::Users => Self::Chat,
             Self::Server => Self::Users,
             Self::Logs => Self::Server,
+            Self::Lore => Self::Logs,
         }
     }
     pub fn label(self) -> &'static str {
@@ -79,6 +91,7 @@ impl Screen {
             Self::Users => "Users",
             Self::Server => "Server",
             Self::Logs => "Logs",
+            Self::Lore => "Lore",
         }
     }
 }
@@ -108,6 +121,13 @@ pub enum AppMode {
 pub enum PromptKind {
     ResetPassword,
     ConfirmAction,
+}
+
+/// Text preview of a lore file (fetched on `v` from the Lore screen).
+#[derive(Debug, Clone)]
+pub struct LorePreview {
+    pub path: String,
+    pub lines: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -156,6 +176,12 @@ pub struct App {
     pub typing_channel: Option<String>,
     pub typing_user: Option<String>,
     pub typing_at_ms: u64,
+    /// Lore screen: repo state per lore channel (numeric channel id).
+    pub lore_repos: HashMap<i64, Option<crate::api::LoreRepoInfo>>,
+    pub lore_files: HashMap<i64, Vec<crate::api::LoreFile>>,
+    pub lore_selected: usize,
+    pub lore_file_cursor: usize,
+    pub lore_preview: Option<LorePreview>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,11 +254,16 @@ impl App {
         if let Some(token) = config.token.clone() {
             api.set_token(token);
         }
-        let remembered_user = config.username.as_ref().map(|username| User {
-            id: 0,
-            username: username.clone(),
-            handle: None,
-            highest_role: None,
+        // Only show a "logged in" user when a token actually exists — a
+        // remembered username without a token used to render a fake `● user`
+        // header while every authenticated call failed.
+        let remembered_user = config.token.as_ref().and_then(|_| {
+            config.username.as_ref().map(|username| User {
+                id: 0,
+                username: username.clone(),
+                handle: None,
+                highest_role: None,
+            })
         });
         let (bg_tx, bg_rx) = mpsc::channel(128);
 
@@ -288,6 +319,11 @@ impl App {
             typing_channel: None,
             typing_user: None,
             typing_at_ms: 0,
+            lore_repos: HashMap::new(),
+            lore_files: HashMap::new(),
+            lore_selected: 0,
+            lore_file_cursor: 0,
+            lore_preview: None,
         };
 
         if app.mode != AppMode::ServerSetup {
@@ -450,6 +486,385 @@ impl App {
         });
     }
 
+    // -- Lore screen + setup flow --
+
+    /// Lore channels in list order (the channel IS the repo).
+    pub fn lore_channels(&self) -> Vec<&Channel> {
+        self.channels
+            .iter()
+            .filter(|c| matches!(c.kind, ChannelKind::Lore))
+            .collect()
+    }
+
+    /// Numeric channel id of the Lore screen selection.
+    pub fn selected_lore_channel_id(&self) -> Option<i64> {
+        self.lore_channels()
+            .get(self.lore_selected)
+            .and_then(|c| ApiClient::parse_channel_id(&c.id))
+    }
+
+    /// Refresh repo + file state for every lore channel (or one, if given).
+    pub fn spawn_lore_refresh(&self) {
+        let ids: Vec<i64> = self
+            .lore_channels()
+            .iter()
+            .filter_map(|c| ApiClient::parse_channel_id(&c.id))
+            .collect();
+        for id in ids {
+            self.spawn_lore_refresh_channel(id);
+        }
+    }
+
+    fn spawn_lore_refresh_channel(&self, channel_id: i64) {
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        tokio::spawn(async move {
+            match api.lore_get_repo(channel_id).await {
+                Ok(repo) => {
+                    let files = match &repo {
+                        Some(_) => api.lore_list_files(channel_id).await.unwrap_or_default(),
+                        None => Vec::new(),
+                    };
+                    let _ = tx
+                        .send(BgMsg::LoreRepoLoaded(channel_id, repo, files))
+                        .await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(BgMsg::Error(format!("Lore repo {channel_id}: {e}")))
+                        .await;
+                }
+            }
+        });
+    }
+
+    /// `:lore new <name>` — channel + repo in ONE step (GitHub-simple).
+    /// The server auto-creates the repo with the channel; if auto-create is
+    /// off we create it explicitly so the flow always ends "repo ready".
+    fn spawn_lore_new(&self, name: String) {
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        tokio::spawn(async move {
+            let ch = match api.create_channel(&name, "lore").await {
+                Ok(ch) => ch,
+                Err(e) => {
+                    let _ = tx.send(BgMsg::Error(format!("lore new: {e}"))).await;
+                    return;
+                }
+            };
+            let _ = tx
+                .send(BgMsg::Info(format!(
+                    "lore: channel '{}' created ({})",
+                    ch.name, ch.id
+                )))
+                .await;
+            let Some(cid) = ApiClient::parse_channel_id(&ch.id) else {
+                let _ = tx
+                    .send(BgMsg::Error(format!("lore: unparseable channel id {}", ch.id)))
+                    .await;
+                return;
+            };
+            match api.lore_get_repo(cid).await {
+                Ok(Some(repo)) => {
+                    let _ = tx
+                        .send(BgMsg::ActionOk(format!(
+                            "✓ repo ready: {}/{}",
+                            repo.lore_server_url, repo.repo_name
+                        )))
+                        .await;
+                }
+                Ok(None) => {
+                    let slug = crate::api::slugify(&name);
+                    let repo_name =
+                        if slug.is_empty() { format!("ch-{cid}") } else { slug };
+                    match api.lore_create_repo(cid, &repo_name).await {
+                        Ok(repo) => {
+                            let _ = tx
+                                .send(BgMsg::ActionOk(format!(
+                                    "✓ repo ready: {}/{}",
+                                    repo.lore_server_url, repo.repo_name
+                                )))
+                                .await;
+                        }
+                        Err(e) => {
+                            let _ = tx
+                                .send(BgMsg::Error(format!(
+                                    "lore: channel created but repo create failed: {e}"
+                                )))
+                                .await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(BgMsg::Info(format!(
+                            "lore: could not confirm repo (addon off?): {e}"
+                        )))
+                        .await;
+                }
+            }
+            let _ = tx.send(BgMsg::LoreCreated(ch)).await;
+        });
+    }
+
+    /// `:lore push <dir>` — the device-link flow: stage every file under
+    /// `dir` (bounded concurrency, no per-file commits), then seal the whole
+    /// batch with ONE snapshot commit.
+    fn spawn_lore_push(&mut self, channel: &Channel, dir: String) {
+        let channel_id = match ApiClient::parse_channel_id(&channel.id) {
+            Some(id) => id,
+            None => {
+                self.set_error(format!("lore push: bad channel id {}", channel.id));
+                return;
+            }
+        };
+        let dir = std::path::PathBuf::from(dir);
+        if !dir.is_dir() {
+            self.set_error(format!("lore push: not a directory: {}", dir.display()));
+            return;
+        }
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        let channel_name = channel.name.clone();
+        tokio::spawn(async move {
+            // Auto-create may be off — make sure the channel has its repo.
+            if matches!(api.lore_get_repo(channel_id).await, Ok(None)) {
+                let slug = crate::api::slugify(&channel_name);
+                let repo_name =
+                    if slug.is_empty() { format!("ch-{channel_id}") } else { slug };
+                if let Err(e) = api.lore_create_repo(channel_id, &repo_name).await {
+                    let _ = tx.send(BgMsg::Error(format!("lore push: {e}"))).await;
+                    return;
+                }
+            }
+            let files = match collect_push_files(&dir) {
+                Ok(f) if f.is_empty() => {
+                    let _ = tx
+                        .send(BgMsg::Info(format!(
+                            "lore push: nothing to push from {} (all skipped?)",
+                            dir.display()
+                        )))
+                        .await;
+                    return;
+                }
+                Ok(f) => f,
+                Err(e) => {
+                    let _ = tx
+                        .send(BgMsg::Error(format!("lore push: walk failed: {e}")))
+                        .await;
+                    return;
+                }
+            };
+            let total = files.len();
+            let _ = tx
+                .send(BgMsg::Info(format!(
+                    "lore push: staging {total} files from {}…",
+                    dir.display()
+                )))
+                .await;
+
+            let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+            let mut set: tokio::task::JoinSet<anyhow::Result<String>> =
+                tokio::task::JoinSet::new();
+            for (abs, rel) in files {
+                let api = api.clone();
+                let permit = sem.clone().acquire_owned().await.unwrap();
+                set.spawn(async move {
+                    let _permit = permit;
+                    let bytes = tokio::fs::read(&abs).await?;
+                    api.lore_stage(channel_id, &rel, bytes).await?;
+                    Ok(rel)
+                });
+            }
+            let mut staged = 0usize;
+            let mut failed = 0usize;
+            while let Some(res) = set.join_next().await {
+                match res {
+                    Ok(Ok(_)) => {
+                        staged += 1;
+                        if staged % 100 == 0 {
+                            let _ = tx
+                                .send(BgMsg::Info(format!(
+                                    "lore push: {staged}/{total} staged"
+                                )))
+                                .await;
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        failed += 1;
+                        let _ = tx.send(BgMsg::Info(format!("lore push: {e}"))).await;
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        let _ = tx.send(BgMsg::Info(format!("lore push: join: {e}"))).await;
+                    }
+                }
+            }
+            if staged == 0 {
+                let _ = tx
+                    .send(BgMsg::Error(
+                        "lore push: every file failed — nothing staged".into(),
+                    ))
+                    .await;
+                return;
+            }
+            let message =
+                format!("Initial import from {} ({staged} files)", dir.display());
+            match api.lore_snapshot(channel_id, &message).await {
+                Ok(rev) => {
+                    let short = if rev.len() > 12 { rev[..12].to_string() } else { rev };
+                    let _ = tx
+                        .send(BgMsg::ActionOk(format!(
+                            "✓ lore push: {staged} files, 1 commit ({short}){}",
+                            if failed > 0 {
+                                format!(" — {failed} failed (see logs)")
+                            } else {
+                                String::new()
+                            }
+                        )))
+                        .await;
+                    let _ = tx.send(BgMsg::LoreChanged(channel_id)).await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(BgMsg::Error(format!(
+                            "lore push: staged {staged} files but snapshot failed: {e}"
+                        )))
+                        .await;
+                }
+            }
+        });
+    }
+
+    /// `:lore import <path|url> [name]` — server-side git import into a
+    /// fresh channel (single "Initial import from …" commit).
+    fn spawn_lore_import(&self, upstream: String, name: Option<String>) {
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        tokio::spawn(async move {
+            let name = name.unwrap_or_else(|| {
+                std::path::Path::new(&upstream)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("imported")
+                    .to_string()
+            });
+            let ch = match api.create_channel(&name, "lore").await {
+                Ok(ch) => ch,
+                Err(e) => {
+                    let _ = tx.send(BgMsg::Error(format!("lore import: {e}"))).await;
+                    return;
+                }
+            };
+            let Some(cid) = ApiClient::parse_channel_id(&ch.id) else {
+                let _ = tx
+                    .send(BgMsg::Error(format!("lore: unparseable channel id {}", ch.id)))
+                    .await;
+                return;
+            };
+            match api.lore_import(cid, &name, &upstream).await {
+                Ok(repo) => {
+                    let _ = tx
+                        .send(BgMsg::ActionOk(format!(
+                            "✓ imported {upstream} → {}/{}",
+                            repo.lore_server_url, repo.repo_name
+                        )))
+                        .await;
+                }
+                Err(e) => {
+                    let _ = tx.send(BgMsg::Error(format!("lore import: {e}"))).await;
+                }
+            }
+            let _ = tx.send(BgMsg::LoreCreated(ch)).await;
+        });
+    }
+
+    /// `:lore` subcommand dispatch — `new`, `push`, `import`, `health`, bare.
+    fn run_lore_command(&mut self, args: &[&str]) {
+        if self.config.token.is_none() {
+            self.set_error("Not logged in — press l".into());
+            return;
+        }
+        let sub = args.first().copied().unwrap_or("list");
+        match sub {
+            "list" => {
+                self.screen = Screen::Lore;
+                self.spawn_load_channels();
+                self.spawn_lore_refresh();
+            }
+            "new" => {
+                let name = args[1..].join(" ").trim().to_string();
+                if name.is_empty() {
+                    self.set_error("usage: :lore new <name>".into());
+                    return;
+                }
+                if !self.is_adminish() {
+                    self.set_error("lore new needs admin/owner (channel creation)".into());
+                    return;
+                }
+                self.status = format!("creating lore channel '{name}'…");
+                self.spawn_lore_new(name);
+            }
+            "push" => {
+                let Some(dir) = args.get(1).map(|s| s.to_string()) else {
+                    self.set_error("usage: :lore push <dir>".into());
+                    return;
+                };
+                // Target: the active lore channel if we're on one, else the
+                // Lore screen selection, else the first lore channel.
+                let target = self
+                    .channels
+                    .iter()
+                    .find(|c| {
+                        Some(&c.id) == self.active_channel.as_ref()
+                            && matches!(c.kind, ChannelKind::Lore)
+                    })
+                    .or_else(|| self.lore_channels().get(self.lore_selected).copied())
+                    .or_else(|| self.lore_channels().first().copied())
+                    .cloned();
+                match target {
+                    Some(ch) => {
+                        self.status = format!("lore push {dir} → {}…", ch.name);
+                        self.spawn_lore_push(&ch, dir);
+                    }
+                    None => self.set_error(
+                        "no lore channel — create one first with :lore new <name>".into(),
+                    ),
+                }
+            }
+            "import" => {
+                let Some(upstream) = args.get(1).map(|s| s.to_string()) else {
+                    self.set_error("usage: :lore import <git-url-or-path> [name]".into());
+                    return;
+                };
+                if !self.is_adminish() {
+                    self.set_error("lore import needs admin/owner (channel creation)".into());
+                    return;
+                }
+                let name = args.get(2).map(|s| s.to_string());
+                self.status = format!("importing {upstream}…");
+                self.spawn_lore_import(upstream, name);
+            }
+            "health" => {
+                let api = self.api.clone();
+                let tx = self.bg_tx.clone();
+                tokio::spawn(async move {
+                    match api.lore_health().await {
+                        Ok(v) => {
+                            let _ = tx.send(BgMsg::Info(format!("lore health: {v}"))).await;
+                        }
+                        Err(e) => {
+                            let _ = tx.send(BgMsg::Error(format!("lore health: {e}"))).await;
+                        }
+                    }
+                });
+            }
+            other => self.set_error(format!(
+                "unknown :lore {other} — try :lore new <name> · :lore push <dir> · :lore import <git> · :lore health"
+            )),
+        }
+    }
+
     pub fn poll_bg(&mut self) {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -513,6 +928,34 @@ impl App {
                 BgMsg::Stats(stats) => {
                     self.log("admin stats refreshed");
                     self.stats = Some(stats);
+                }
+                BgMsg::LoreCreated(ch) => {
+                    let id = ch.id.clone();
+                    if !self.channels.iter().any(|c| c.id == id) {
+                        self.channels.push(ch);
+                    }
+                    if let Some(idx) = self.lore_channels().iter().position(|c| c.id == id) {
+                        self.lore_selected = idx;
+                    }
+                    self.screen = Screen::Lore;
+                    if let Some(cid) = ApiClient::parse_channel_id(&id) {
+                        self.spawn_lore_refresh_channel(cid);
+                    }
+                }
+                BgMsg::LoreRepoLoaded(cid, repo, files) => {
+                    let count = files.len();
+                    self.lore_repos.insert(cid, repo);
+                    self.lore_files.insert(cid, files);
+                    self.lore_file_cursor = 0;
+                    self.lore_preview = None;
+                    self.log(format!("lore[{cid}]: {count} files"));
+                }
+                BgMsg::LoreChanged(cid) => {
+                    self.spawn_lore_refresh_channel(cid);
+                }
+                BgMsg::LorePreview(p) => {
+                    self.status = format!("preview {} ({} lines)", p.path, p.lines.len());
+                    self.lore_preview = Some(p);
                 }
                 BgMsg::Health(h) => {
                     self.health_blob = h;
@@ -763,6 +1206,11 @@ impl App {
                 self.screen = Screen::Logs;
                 return Ok(true);
             }
+            KeyCode::Char('5') => {
+                self.screen = Screen::Lore;
+                self.on_screen_enter();
+                return Ok(true);
+            }
             KeyCode::Char('l') | KeyCode::Char('L') => {
                 self.mode = AppMode::Login;
                 self.login_username = self.config.username.clone().unwrap_or_default();
@@ -787,6 +1235,7 @@ impl App {
             Screen::Users => self.handle_users_keys(key),
             Screen::Server => self.handle_server_keys(key),
             Screen::Logs => Ok(true),
+            Screen::Lore => self.handle_lore_keys(key),
         }
     }
 
@@ -806,6 +1255,12 @@ impl App {
                     self.spawn_load_channels();
                 }
             }
+            Screen::Lore => {
+                if self.channels.is_empty() {
+                    self.spawn_load_channels();
+                }
+                self.spawn_lore_refresh();
+            }
             Screen::Logs => {}
         }
     }
@@ -823,6 +1278,10 @@ impl App {
             Screen::Server => {
                 self.spawn_health();
                 self.spawn_admin_stats();
+            }
+            Screen::Lore => {
+                self.spawn_load_channels();
+                self.spawn_lore_refresh();
             }
             Screen::Logs => {}
         }
@@ -965,6 +1424,100 @@ impl App {
                 self.stats = None;
                 self.status = "Logged out".into();
                 self.log("logout");
+            }
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    fn handle_lore_keys(&mut self, key: KeyCode) -> Result<bool> {
+        let repos = self.lore_channels().len();
+        let files = self
+            .selected_lore_channel_id()
+            .and_then(|id| self.lore_files.get(&id))
+            .map(|f| f.len())
+            .unwrap_or(0);
+        match key {
+            KeyCode::Char('h') | KeyCode::Left => self.focus = FocusPane::Left,
+            KeyCode::Char('l') | KeyCode::Right => self.focus = FocusPane::Center,
+            KeyCode::Char(' ') => {
+                self.focus = match self.focus {
+                    FocusPane::Left => FocusPane::Center,
+                    _ => FocusPane::Left,
+                };
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.focus == FocusPane::Left {
+                    if repos > 0 {
+                        self.lore_selected = (self.lore_selected + 1).min(repos - 1);
+                        self.lore_file_cursor = 0;
+                        self.lore_preview = None;
+                        if let Some(id) = self.selected_lore_channel_id() {
+                            if !self.lore_files.contains_key(&id) {
+                                self.spawn_lore_refresh_channel(id);
+                            }
+                        }
+                    }
+                } else if files > 0 {
+                    self.lore_file_cursor = (self.lore_file_cursor + 1).min(files - 1);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if self.focus == FocusPane::Left {
+                    self.lore_selected = self.lore_selected.saturating_sub(1);
+                    self.lore_file_cursor = 0;
+                    self.lore_preview = None;
+                    if let Some(id) = self.selected_lore_channel_id() {
+                        if !self.lore_files.contains_key(&id) {
+                            self.spawn_lore_refresh_channel(id);
+                        }
+                    }
+                } else {
+                    self.lore_file_cursor = self.lore_file_cursor.saturating_sub(1);
+                }
+            }
+            KeyCode::Char('r') | KeyCode::Enter => {
+                self.spawn_lore_refresh();
+            }
+            KeyCode::Char('v') => {
+                // Preview the selected text file (small files only).
+                let sel = self.selected_lore_channel_id();
+                let file = sel
+                    .and_then(|id| self.lore_files.get(&id))
+                    .and_then(|files| files.get(self.lore_file_cursor))
+                    .cloned();
+                if let (Some(id), Some(f)) = (sel, file) {
+                    if f.size > 64 * 1024 {
+                        self.status = "preview: file too large (>64 KiB)".into();
+                    } else {
+                        let path = f.path.clone();
+                        let api = self.api.clone();
+                        let tx = self.bg_tx.clone();
+                        self.status = format!("loading {path}…");
+                        tokio::spawn(async move {
+                            match api.lore_download(id, &path).await {
+                                Ok(bytes) => {
+                                    let text = String::from_utf8_lossy(&bytes);
+                                    let lines: Vec<String> =
+                                        text.lines().take(400).map(str::to_string).collect();
+                                    let _ = tx
+                                        .send(BgMsg::LorePreview(LorePreview {
+                                            path,
+                                            lines,
+                                        }))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = tx
+                                        .send(BgMsg::Info(format!(
+                                            "preview {path} failed: {e}"
+                                        )))
+                                        .await;
+                                }
+                            }
+                        });
+                    }
+                }
             }
             _ => {}
         }
@@ -1116,6 +1669,7 @@ impl App {
                 }
             }
             "help" => self.show_help = true,
+            "lore" => self.run_lore_command(&parts.collect::<Vec<_>>()),
             "fps" => {
                 if let Some(raw) = parts.next() {
                     if let Ok(n) = raw.parse::<f32>() {
@@ -1171,7 +1725,7 @@ impl App {
             }
             "" => {}
             other => self.set_error(format!(
-                "Unknown :{other} — try :chat :users :server :logs :filter :ufilter :goto :refresh :logout :fps :poll :eink :help"
+                "Unknown :{other} — try :chat :users :server :logs :lore :filter :ufilter :goto :refresh :logout :fps :poll :eink :help"
             )),
         }
     }
@@ -1340,4 +1894,69 @@ impl App {
         }
         Ok(true)
     }
+}
+
+/// Collect files under `root` for `:lore push`, as (absolute path, repo
+/// path) pairs. Skips build artifacts, dependency trees, secrets, local
+/// state, and symlinks — the client-side mirror of the server's seeded
+/// .wabiignore, so a first push doesn't drown the repo in junk (or leak
+/// `.env` files). The server re-checks with .wabiignore regardless.
+fn collect_push_files(root: &std::path::Path) -> std::io::Result<Vec<(std::path::PathBuf, String)>> {
+    /// Directory names skipped wherever they appear.
+    const SKIP_DIRS: &[&str] = &[
+        ".git",
+        ".hg",
+        ".svn",
+        "target",       // rust build output
+        "node_modules", // js deps
+        "data",         // wabi server state
+        "logs",         // wabi server logs
+        "lore-data",    // lore working trees (avoid recursion)
+        ".svelte-kit",
+        "build",        // embedded frontend build (regenerated)
+        "dist",
+        ".next",
+        ".nuxt",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".cache",
+        ".gradle",
+    ];
+
+    fn is_skipped_file(name: &str) -> bool {
+        name == ".DS_Store" || name == ".env" || name.starts_with(".env.")
+    }
+
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let mut entries: Vec<_> = std::fs::read_dir(&dir)?
+            .filter_map(|e| e.ok())
+            .collect();
+        // Deterministic order despite the DFS stack.
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let path = entry.path();
+            // Symlinks: skip outright — never follow out of the tree.
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() {
+                if SKIP_DIRS.contains(&name.as_ref()) {
+                    continue;
+                }
+                stack.push(path);
+            } else if meta.is_file() && !is_skipped_file(&name) {
+                let rel = path
+                    .strip_prefix(root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.push((path, rel));
+            }
+        }
+    }
+    out.sort_by(|a, b| a.1.cmp(&b.1));
+    Ok(out)
 }

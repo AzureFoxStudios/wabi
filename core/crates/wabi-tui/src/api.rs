@@ -95,6 +95,88 @@ pub struct ApiClient {
     token: Option<String>,
 }
 
+/// Lore repo state for one channel (from GET /api/addons/lore/repos/{id}).
+#[derive(Debug, Clone)]
+pub struct LoreRepoInfo {
+    pub channel_id: i64,
+    pub repo_name: String,
+    pub lore_server_url: String,
+    /// "native" or "mirror" — normalized from the wire's string-or-object
+    /// shape at this boundary (same contract as the web client).
+    pub class: String,
+    pub imported_from: Option<String>,
+}
+
+impl LoreRepoInfo {
+    fn from_json(body: &serde_json::Value) -> Self {
+        let as_str = |v: &serde_json::Value| v.as_str().map(str::to_ascii_lowercase);
+        let class = match &body["class"] {
+            // Wire shapes seen in the wild: "Native", "Mirror", and the
+            // tagged-object form {"type":"native"}.
+            serde_json::Value::String(s) => {
+                if s.eq_ignore_ascii_case("mirror") {
+                    "mirror"
+                } else {
+                    "native"
+                }
+            }
+            serde_json::Value::Object(o) => match as_str(
+                o.get("type")
+                    .or_else(|| o.values().next())
+                    .unwrap_or(&serde_json::Value::Null),
+            )
+            .as_deref()
+            {
+                Some("mirror") => "mirror",
+                _ => "native",
+            },
+            _ => "native",
+        }
+        .to_string();
+        LoreRepoInfo {
+            channel_id: body["channel_id"].as_i64().unwrap_or(0),
+            repo_name: body["repo_name"].as_str().unwrap_or("default").to_string(),
+            lore_server_url: body["lore_server_url"]
+                .as_str()
+                .unwrap_or("lore://localhost:10000")
+                .to_string(),
+            class,
+            imported_from: body["imported_from"].as_str().map(str::to_string),
+        }
+    }
+}
+
+/// A file inside a lore repo.
+#[derive(Debug, Clone)]
+pub struct LoreFile {
+    pub path: String,
+    pub size: u64,
+    pub status: String,
+}
+
+/// Client-side mirror of the server's repo-name slug (wabi_lore::slugify_repo_name):
+/// lowercase `[a-z0-9-]`, separator runs collapsed. Empty output tells the
+/// caller to fall back to `ch-{id}`.
+pub fn slugify(input: &str) -> String {
+    let mut slug = String::with_capacity(input.len());
+    let mut pending_dash = false;
+    for c in input.chars() {
+        if c.is_ascii_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            pending_dash = false;
+            slug.push(c.to_ascii_lowercase());
+        } else {
+            pending_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    slug
+}
+
 #[derive(Serialize)]
 struct LoginRequest {
     username: String,
@@ -480,4 +562,211 @@ impl ApiClient {
         }
         Ok(())
     }
+
+    // -- Lore: channel-as-repo setup + browsing --
+
+    /// Parse a wire channel id (`ch_2f`) into the numeric id the lore API
+    /// routes expect. Same contract as the web client's parseLoreChannelId.
+    pub fn parse_channel_id(wire: &str) -> Option<i64> {
+        wire.strip_prefix("ch_")
+            .and_then(|hex| i64::from_str_radix(hex, 16).ok())
+    }
+
+    pub async fn create_channel(&self, name: &str, channel_type: &str) -> Result<Channel> {
+        let url = format!("{}/api/channels", self.base_url);
+        let resp = self
+            .auth(self.client.post(&url))
+            .json(&serde_json::json!({ "name": name, "channel_type": channel_type }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        if !status.is_success() {
+            let err = body["error"].as_str().unwrap_or("unknown error");
+            anyhow::bail!("Create channel failed ({status}): {err}");
+        }
+        let id = body["id"].as_str().unwrap_or_default().to_string();
+        if id.is_empty() {
+            anyhow::bail!("Create channel response missing id: {body}");
+        }
+        let ctype = body["type"]
+            .as_str()
+            .or_else(|| body["channel_type"].as_str())
+            .unwrap_or(channel_type)
+            .to_string();
+        Ok(Channel {
+            kind: ChannelKind::from_type(&ctype),
+            id,
+            name: body["name"].as_str().unwrap_or(name).to_string(),
+            channel_type: ctype,
+            description: None,
+        })
+    }
+
+    pub async fn lore_health(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/api/addons/lore/health", self.base_url);
+        let resp = self.auth(self.client.get(&url)).send().await?;
+        let status = resp.status();
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .unwrap_or(serde_json::json!({ "status": "unparseable" }));
+        if !status.is_success() {
+            anyhow::bail!("Lore health check failed ({status})");
+        }
+        Ok(body)
+    }
+
+    /// GET /repos/{id} — 404 maps to Ok(None) (channel without a repo).
+    pub async fn lore_get_repo(&self, channel_id: i64) -> Result<Option<LoreRepoInfo>> {
+        let url = format!("{}/api/addons/lore/repos/{channel_id}", self.base_url);
+        let resp = self.auth(self.client.get(&url)).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        if !status.is_success() {
+            anyhow::bail!("Lore repo fetch failed ({status})");
+        }
+        Ok(Some(LoreRepoInfo::from_json(&body)))
+    }
+
+    pub async fn lore_create_repo(&self, channel_id: i64, repo_name: &str) -> Result<LoreRepoInfo> {
+        let url = format!("{}/api/addons/lore/repos", self.base_url);
+        let resp = self
+            .auth(self.client.post(&url))
+            .json(&serde_json::json!({ "channelId": channel_id, "repoName": repo_name }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        if !status.is_success() {
+            let err = body["error"].as_str().unwrap_or("unknown error");
+            anyhow::bail!("Lore repo create failed ({status}): {err}");
+        }
+        Ok(LoreRepoInfo::from_json(&body))
+    }
+
+    /// Import a git repo (URL or local path) into a channel's lore repo.
+    /// The server adopts an empty auto-created repo; a repo with content 409s.
+    pub async fn lore_import(
+        &self,
+        channel_id: i64,
+        name: &str,
+        upstream: &str,
+    ) -> Result<LoreRepoInfo> {
+        let url = format!("{}/api/addons/lore/repos/import", self.base_url);
+        let resp = self
+            .auth(self.client.post(&url))
+            .json(&serde_json::json!({
+                "channel_id": channel_id,
+                "upstream_url": upstream,
+                "name": name,
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        if !status.is_success() {
+            let err = body["error"].as_str().unwrap_or("unknown error");
+            anyhow::bail!("Lore import failed ({status}): {err}");
+        }
+        Ok(LoreRepoInfo::from_json(&body))
+    }
+
+    pub async fn lore_list_files(&self, channel_id: i64) -> Result<Vec<LoreFile>> {
+        let url = format!("{}/api/addons/lore/repos/{channel_id}/files", self.base_url);
+        let resp = self.auth(self.client.get(&url)).send().await?;
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        if !status.is_success() {
+            anyhow::bail!("Lore file list failed ({status})");
+        }
+        let mut files: Vec<LoreFile> = Vec::new();
+        if let Some(arr) = body.as_array() {
+            for f in arr {
+                files.push(LoreFile {
+                    path: f["path"].as_str().unwrap_or_default().to_string(),
+                    size: f["size"].as_u64().unwrap_or(0),
+                    status: f["status"].as_str().unwrap_or("clean").to_string(),
+                });
+            }
+        }
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(files)
+    }
+
+    /// Stage a file (batch push) without committing — the whole batch is
+    /// sealed with one `lore_snapshot` afterwards.
+    pub async fn lore_stage(&self, channel_id: i64, repo_path: &str, bytes: Vec<u8>) -> Result<u64> {
+        let path = encode_repo_path(repo_path);
+        let url = format!(
+            "{}/api/addons/lore/repos/{channel_id}/files/{path}?stageOnly=true",
+            self.base_url
+        );
+        let resp = self
+            .auth(self.client.put(&url))
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(bytes)
+            .send()
+            .await?;
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        if !status.is_success() {
+            let err = body["error"].as_str().unwrap_or("unknown error");
+            anyhow::bail!("stage {repo_path} failed ({status}): {err}");
+        }
+        Ok(body["file"]["size"].as_u64().unwrap_or(0))
+    }
+
+    /// Seal a staged batch with a single commit; returns the revision hash.
+    pub async fn lore_snapshot(&self, channel_id: i64, message: &str) -> Result<String> {
+        let url = format!("{}/api/addons/lore/repos/{channel_id}/snapshot", self.base_url);
+        let resp = self
+            .auth(self.client.post(&url))
+            .json(&serde_json::json!({ "message": message }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        if !status.is_success() {
+            let err = body["error"].as_str().unwrap_or("unknown error");
+            anyhow::bail!("Lore snapshot failed ({status}): {err}");
+        }
+        Ok(body["revision"]["hash"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string())
+    }
+
+    /// Download a file's bytes (head revision) — used for text previews.
+    pub async fn lore_download(&self, channel_id: i64, repo_path: &str) -> Result<Vec<u8>> {
+        let path = encode_repo_path(repo_path);
+        let url = format!(
+            "{}/api/addons/lore/repos/{channel_id}/files/{path}",
+            self.base_url
+        );
+        let resp = self.auth(self.client.get(&url)).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            anyhow::bail!("download {repo_path} failed ({status})");
+        }
+        Ok(resp.bytes().await?.to_vec())
+    }
+}
+
+/// Percent-encode a repo path for a URL segment: keep `/` and unreserved
+/// chars, escape everything else (spaces, `#`, `?`, non-ASCII, …).
+fn encode_repo_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for b in path.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }

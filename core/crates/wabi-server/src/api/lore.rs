@@ -522,6 +522,15 @@ struct ImportRepoPayload {
     name: String,
 }
 
+#[allow(dead_code)]
+async fn _probe_import_sig(
+    State(_s): State<Arc<AppState>>,
+    _a: AuthUser,
+    Json(_p): Json<ImportRepoPayload>,
+) -> Result<axum::response::Response> {
+    Ok(axum::response::Response::default())
+}
+
 async fn import_repo(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -826,6 +835,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
 struct UploadQuery {
     message: Option<String>,
     repo_path: Option<String>,
+    /// Stage the file WITHOUT committing — batch pushes (folder imports,
+    /// wabi-sync initial sync) stage N files, then seal them with a single
+    /// POST /snapshot so the repo gains ONE revision instead of N.
+    #[serde(default, alias = "stageOnly")]
+    stage_only: Option<bool>,
 }
 
 async fn upload_file(
@@ -882,6 +896,40 @@ async fn upload_file(
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join(format!("lore-upload-{}", uuid::Uuid::new_v4()));
     tokio::fs::write(&tmp_path, &body).await?;
+
+    // Batch-push half of the device setup flow: stage the bytes now, seal the
+    // whole batch with ONE POST /snapshot afterwards. Per-file WDB commit
+    // recording is deferred to that snapshot (which owns the revision hash).
+    if query.stage_only.unwrap_or(false) {
+        let file = lore
+            .stage_file(channel_id, tmp_path.to_str().unwrap_or("/dev/null"), &repo_path)
+            .await?;
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        let etag = file
+            .etag
+            .clone()
+            .unwrap_or_else(|| wabi_lore::etag_for_bytes(&body));
+        emit_lore_file_changed(
+            &state,
+            channel_id,
+            serde_json::json!({
+                "action": "staged",
+                "path": repo_path,
+                "etag": etag,
+                "authorUserId": auth.user_id,
+                "cursor": 0,
+            }),
+        )
+        .await;
+        return Ok(Json(serde_json::json!({
+            "staged": true,
+            "file": file,
+            "etag": etag,
+            "wdbRecorded": false,
+            "cursor": 0,
+        }))
+            .into_response());
+    }
 
     let result = lore
         .upload_file(channel_id, tmp_path.to_str().unwrap_or("/dev/null"), &repo_path, &message, auth.user_id)
@@ -2111,5 +2159,115 @@ exit 0
             .await
             .unwrap();
         assert!(leaked.is_empty(), "rejected upload must not leave bytes behind");
+    }
+
+    /// The device setup flow: stage N files WITHOUT committing, then seal the
+    /// whole batch with one snapshot — so importing a folder produces ONE
+    /// revision ("Initial import"), not one revision per file.
+    #[tokio::test]
+    async fn staged_batch_push_seals_into_single_snapshot_commit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let service = stub_service(tmp.path());
+        let channel_id = 228i64;
+        service
+            .create_repo(channel_id, 1, "test-repo")
+            .await
+            .unwrap();
+
+        let a = tmp.path().join("a.txt");
+        tokio::fs::write(&a, b"alpha").await.unwrap();
+        let b = tmp.path().join("b.txt");
+        tokio::fs::write(&b, b"beta").await.unwrap();
+        let fa = service
+            .stage_file(channel_id, a.to_str().unwrap(), "docs/a.txt")
+            .await
+            .unwrap();
+        service
+            .stage_file(channel_id, b.to_str().unwrap(), "src/b.txt")
+            .await
+            .unwrap();
+        assert_eq!(fa.status, "staged");
+        assert!(fa.etag.is_some(), "staged files carry etags");
+
+        // Both files are visible in the working tree before any commit.
+        let files = service.list_files(channel_id, None).await.unwrap();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"docs/a.txt") && paths.contains(&"src/b.txt"));
+
+        // Seal the batch — ONE revision for the whole push.
+        let rev = service
+            .commit_staged(channel_id, "Initial import (2 files)", 7)
+            .await
+            .unwrap();
+        assert!(!rev.hash.is_empty(), "snapshot must yield a revision hash");
+
+        // Head content survived the seal.
+        let out = tmp.path().join("out.txt");
+        service
+            .download_file(channel_id, "docs/a.txt", out.to_str().unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(tokio::fs::read_to_string(&out).await.unwrap(), "alpha");
+    }
+
+    /// With WABI_LORE_AUTO_CREATE on, every new lore channel gets an empty
+    /// repo — importing existing code into it must ADOPT the empty repo, not
+    /// 409. A repo with real content stays a hard RepoExists.
+    #[tokio::test]
+    async fn git_import_adopts_empty_auto_created_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let service = stub_service(tmp.path());
+        let channel_id = 229i64;
+
+        // A local git "upstream" with one committed file.
+        let src = tmp.path().join("upstream");
+        tokio::fs::create_dir_all(&src).await.unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&src)
+                .args(["-c", "user.email=test@example.com", "-c", "user.name=test"])
+                .args(args)
+                .output()
+                .expect("git binary");
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        tokio::fs::write(src.join("README.md"), b"imported hello")
+            .await
+            .unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "init"]);
+
+        // The auto-created empty repo for the channel.
+        service
+            .create_repo(channel_id, 1, "auto")
+            .await
+            .unwrap();
+
+        // Import adopts the empty registration instead of RepoExists.
+        let repo = service
+            .import_from_git(channel_id, 1, "imported", src.to_str().unwrap())
+            .await
+            .expect("import must adopt the empty auto-created repo");
+        assert_eq!(repo.imported_from.as_deref(), Some(src.to_str().unwrap()));
+
+        let files = service.list_files(channel_id, None).await.unwrap();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"README.md"));
+
+        // Re-importing into a repo that now HAS content is refused.
+        let err = service
+            .import_from_git(channel_id, 1, "again", src.to_str().unwrap())
+            .await;
+        assert!(matches!(
+            err,
+            Err(wabi_lore::LoreImportError::RepoExists)
+        ));
     }
 }
