@@ -9,6 +9,24 @@
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": false,
-		"moduleResolution": "bundler"
+		"moduleResolution": "bundler",
+		"baseUrl": ".",
+		"paths": {
+			"$lib": [
+				"src/lib"
+			],
+			"$lib/*": [
+				"src/lib/*"
+			],
+			"$app/environment": [
+				"test/stubs/appEnvironment.ts"
+			],
+			"$app/navigation": [
+				"test/stubs/appNavigation.ts"
+			],
+			"$app/state": [
+				"test/stubs/appState.ts"
+			]
+		}
 	}
 }

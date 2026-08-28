@@ -504,6 +504,18 @@ async fn on_call_end(socket: SocketRef, data: Value, state: SioState, io: Socket
         for participant_id in &participant_ids {
             dm_link_forget(&my_stable_id, participant_id);
         }
+        // Round 5 hot-mic fix: the DM's wabidb media room membership dies
+        // with the call — room membership is the relay's only authorization,
+        // so a lingering room means a still-emitting client keeps streaming
+        // its mic to the "ended" call.
+        for participant_id in &participant_ids {
+            let room = format!("wabidb-call-{}", dm_media_room_key(&my_stable_id, participant_id));
+            let _ = socket.leave(room.clone());
+            info!(
+                "[sio] Socket {} left wabiDB media room {} (call ended)",
+                socket.id, room
+            );
+        }
         for participant_id in participant_ids {
             let _ = io
                 .to(participant_id)

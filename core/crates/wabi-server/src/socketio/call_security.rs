@@ -70,6 +70,51 @@ pub fn media_rate_forget(socket_id: &str) {
         .remove(socket_id);
 }
 
+// ---------------------------------------------------------------------------
+// Call recording presence (per socket)
+// ---------------------------------------------------------------------------
+
+/// One socket's active call recording, for transparency broadcasts. The
+/// addressed channels are SERVER-derived (voice roster / group session) —
+/// client-supplied channel claims are never trusted for addressing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordingPresenceEntry {
+    pub stable_id: String,
+    pub username: String,
+    /// "direct" | "group" | "channel"
+    pub scope: String,
+    /// group: the session channel; channel: every occupied voice channel;
+    /// direct: empty.
+    pub channel_ids: Vec<String>,
+}
+
+fn recording_presence_map() -> &'static std::sync::RwLock<HashMap<String, RecordingPresenceEntry>> {
+    static MAP: std::sync::OnceLock<std::sync::RwLock<HashMap<String, RecordingPresenceEntry>>> =
+        std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::RwLock::new(HashMap::new()))
+}
+
+/// Remember/replace a socket's active recording. Returns the previous entry
+/// when one existed so the caller can broadcast its deactivation first.
+pub fn recording_presence_upsert(
+    socket_id: &str,
+    entry: RecordingPresenceEntry,
+) -> Option<RecordingPresenceEntry> {
+    recording_presence_map()
+        .write()
+        .expect("recording presence lock")
+        .insert(socket_id.to_string(), entry)
+}
+
+/// Forget a socket's recording (explicit stop or disconnect). Returns the
+/// entry so the caller can broadcast the deactivation.
+pub fn recording_presence_remove(socket_id: &str) -> Option<RecordingPresenceEntry> {
+    recording_presence_map()
+        .write()
+        .expect("recording presence lock")
+        .remove(socket_id)
+}
+
 /// Cheap recursive size estimate for a parsed JSON envelope — dominated by
 /// the base64 payload strings, so string lengths carry the signal.
 pub fn json_size_hint(value: &serde_json::Value) -> usize {
@@ -457,5 +502,42 @@ mod call_security_tests {
         // Oversized envelopes are dropped immediately by the byte bucket.
         assert!(!media_rate_allow(socket, 100_000_000));
         media_rate_forget(socket);
+    }
+
+    #[test]
+    fn dm_media_room_key_matches_client_derivation() {
+        // Mirror of the client's wabidbDmSessionKey: digits normalize to
+        // `user-{n}`, the pair sorts LEXICOGRAPHICALLY (user-10 < user-2 —
+        // same as JS string sort), key = `dm:{first}:{second}`.
+        assert_eq!(dm_media_room_key("user-2", "user-10"), "dm:user-10:user-2");
+        assert_eq!(dm_media_room_key("user-10", "user-2"), "dm:user-10:user-2");
+        // Raw numeric ids (envelope form) normalize identically.
+        assert_eq!(dm_media_room_key("2", "user-10"), "dm:user-10:user-2");
+        // Non-user ids (never valid participants) still derive deterministically.
+        assert_eq!(dm_media_room_key("a", "b"), "dm:a:b");
+    }
+
+    #[test]
+    fn recording_presence_registry_round_trips() {
+        let socket = "rec-pres-test-socket";
+        assert!(recording_presence_remove(socket).is_none());
+        let entry = RecordingPresenceEntry {
+            stable_id: "user-42".to_string(),
+            username: "recorder".to_string(),
+            scope: "channel".to_string(),
+            channel_ids: vec!["ch-1".to_string()],
+        };
+        assert!(recording_presence_upsert(socket, entry.clone()).is_none());
+        // A scope switch returns the previous entry so its deactivation can
+        // be broadcast before the new state lands.
+        let next = RecordingPresenceEntry {
+            stable_id: "user-42".to_string(),
+            username: "recorder".to_string(),
+            scope: "direct".to_string(),
+            channel_ids: vec![],
+        };
+        assert_eq!(recording_presence_upsert(socket, next.clone()), Some(entry));
+        assert_eq!(recording_presence_remove(socket), Some(next));
+        assert!(recording_presence_remove(socket).is_none());
     }
 }

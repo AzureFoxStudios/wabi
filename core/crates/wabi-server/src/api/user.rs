@@ -205,17 +205,10 @@ async fn save_layout(
         .map_err(|e| AppError::BadRequest(format!("invalid layout JSON: {e}")))?;
 
     // Only allow known layout keys so users can't stash arbitrary data.
-    // The layoutJson container also holds docking layout (`layout`) and theme (`theme`).
-    let allowed_keys = ["layout", "theme", "railDensity", "railSide"];
-    if let Some(obj) = parsed.as_object() {
-        for key in obj.keys() {
-            if !allowed_keys.contains(&key.as_str()) {
-                return Err(AppError::BadRequest(format!(
-                    "unknown layout key: {key}"
-                )));
-            }
-        }
-    }
+    // The layoutJson container holds docking layout (`layout`), theme (`theme`),
+    // rail chrome (`railDensity`/`railSide`) and profile media
+    // (`profile_media` — written by save_profile_media/presence.rs).
+    validate_layout_keys(&parsed)?;
 
     let _ = state
         .wdb
@@ -225,6 +218,7 @@ async fn save_layout(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SaveLayoutRequest {
     /// Clients send camelCase `layoutJson` (layoutPersistence.ts /
     /// railLayout.ts). The original snake_case field rejected every PUT with
@@ -232,6 +226,21 @@ struct SaveLayoutRequest {
     /// — accept the camelCase name, keep the snake alias for API symmetry.
     #[serde(rename = "layoutJson", alias = "layout_json")]
     layout_json: String,
+}
+
+/// Top-level keys allowed inside the shared layoutJson container.
+/// Must include every slot the server's own writers store
+/// (save_profile_media / socketio presence both persist `profile_media`).
+fn validate_layout_keys(parsed: &serde_json::Value) -> Result<()> {
+    const ALLOWED_KEYS: [&str; 5] = ["layout", "theme", "railDensity", "railSide", "profile_media"];
+    if let Some(obj) = parsed.as_object() {
+        for key in obj.keys() {
+            if !ALLOWED_KEYS.contains(&key.as_str()) {
+                return Err(AppError::BadRequest(format!("unknown layout key: {key}")));
+            }
+        }
+    }
+    Ok(())
 }
 
 const DEFAULT_THEME_JSON: &str = r#"{
@@ -355,6 +364,38 @@ async fn save_profile_media(
         .map_err(|error| AppError::BadRequest(error.to_string()))?;
     state.wdb.upsert_user_layout(auth.user_id as u64, &serialized).await?;
     Ok(Json(serde_json::Value::Object(media.clone())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: the frontend PUTs `{ layoutJson: "..." }` (camelCase).
+    /// Without `rename_all = "camelCase"` serde expected `layout_json`,
+    /// extraction failed, and Axum returned 422 before the handler ran.
+    #[test]
+    fn save_layout_request_accepts_camel_case_body() {
+        let body = r#"{ "layoutJson": "{\"layout\":{}}" }"#;
+        let req: SaveLayoutRequest =
+            serde_json::from_str(body).expect("camelCase layoutJson must deserialize");
+        assert_eq!(req.layout_json, r#"{"layout":{}}"#);
+    }
+
+    /// The GET-merge-PUT writers forward every existing container slot, so
+    /// the whitelist must accept all server-written keys — including
+    /// profile_media (banners/overlays) or saves 400 for those users.
+    #[test]
+    fn validate_layout_keys_accepts_full_container_and_rejects_unknown() {
+        let full: serde_json::Value = serde_json::from_str(
+            r#"{ "layout": {}, "theme": {}, "railDensity": "cozy", "railSide": "left", "profile_media": {"banner_url": null} }"#,
+        )
+        .unwrap();
+        assert!(validate_layout_keys(&full).is_ok());
+
+        let unknown: serde_json::Value =
+            serde_json::from_str(r#"{ "layout": {}, "arbitrary": 1 }"#).unwrap();
+        assert!(validate_layout_keys(&unknown).is_err());
+    }
 }
 
 

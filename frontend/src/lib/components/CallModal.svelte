@@ -83,7 +83,7 @@
 		groupCallRecordingParticipants,
 		voiceCallRecordingParticipants
 	} from '$lib/callRecordingPresence';
-	import { callRecordingState, startCallRecording, stopCallRecording } from '$lib/callRecording';
+	import { callRecordingState, startCallRecording, stopCallRecording, confirmLeaveWhileRecording } from '$lib/callRecording';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { openWhiteboardSurface, queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import {
@@ -215,10 +215,22 @@
 		);
 	})();
 	$: shares = (() => {
+		// Roster + call labels for wabidb share tiles ("Alice's Screen" instead
+		// of the generic "Shared Screen" — the lane keys carry only ids).
+		const displayNames: Record<string, string> = {};
+		for (const memberList of Object.values($voiceChannelMembers)) {
+			for (const member of memberList) {
+				if (member.username) displayNames[member.userId] = member.username;
+			}
+		}
+		for (const call of $activeCalls) {
+			if (call.username) displayNames[call.userId] = call.username;
+		}
 		const base = buildShares($screenShares, $isSharing, $localScreenStream);
 		const wabidbShares = buildWabidbScreenShares(
 			$wabidbRemoteVideoStreams,
-			$wabidbLocalVideoActive ? ($wabidbLocalPreviewStreams.get('screen') ?? null) : null
+			$wabidbLocalVideoActive ? ($wabidbLocalPreviewStreams.get('screen') ?? null) : null,
+			displayNames
 		);
 		if (wabidbShares.length === 0) return base;
 		// Prefer the wabidb local screen preview over the P2P one when both exist.
@@ -514,6 +526,9 @@
 	function handleEndCall() {
 		const sock = $socket || getSocket();
 		if (!sock) return;
+		// Recording leave-guard: confirm before ending a call that is being
+		// recorded (2026-08-27 report: leaving silently cut recordings).
+		if (!confirmLeaveWhileRecording()) return;
 		endCall(sock);
 		hatchOpen = false;
 		pinnedTileIds = [];

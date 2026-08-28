@@ -66,6 +66,7 @@
 	let emojiPickerButton: HTMLButtonElement;
 	let emojiPickerContainer: HTMLElement | null = null;
 	let EmojiPickerComponent: typeof import('../EmojiPicker.svelte').default | null = null;
+	let emojiPickerLoadFailed = false;
 	let emojiPickerLoadPromise: Promise<void> | null = null;
 	let showMediaMenu = false;
 	let mediaMenuContainer: HTMLElement | null = null;
@@ -425,7 +426,7 @@
 	}
 	async function handlePhotoCapture(event: CustomEvent<Blob>) { const blob = event.detail; const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }); if (file.size > 10 * 1024 * 1024) { showToast('Photo too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showCameraCapture = false; showMediaMenu = false; }
 	async function handleAudioSend(event: CustomEvent<Blob>) { const blob = event.detail; const ext = blob.type.includes('webm') ? 'weba' : 'm4a'; const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }); if (file.size > 10 * 1024 * 1024) { showToast('Audio too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showAudioRecorder = false; showMediaMenu = false; }
-	function ensureEmojiPickerLoaded(): void { if (EmojiPickerComponent || emojiPickerLoadPromise) return; emojiPickerLoadPromise = import('../EmojiPicker.svelte').then(mod => { EmojiPickerComponent = mod.default; }).catch(err => { console.error('Failed to load EmojiPicker:', err); }).finally(() => { emojiPickerLoadPromise = null; }); }
+	function ensureEmojiPickerLoaded(): void { if (EmojiPickerComponent || emojiPickerLoadPromise) return; emojiPickerLoadFailed = false; emojiPickerLoadPromise = import('../EmojiPicker.svelte').then(mod => { EmojiPickerComponent = mod.default; }).catch(err => { console.error('Failed to load EmojiPicker:', err); emojiPickerLoadFailed = true; }).finally(() => { emojiPickerLoadPromise = null; }); }
 	function supportsMediaCapture(): boolean { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
 	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mediaMenuContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showMediaMenu = false; showEmojiPicker = false; showMentionSuggestions = false; }
 	onMount(() => { document.addEventListener('click', handleGlobalClick); void loadPlaceRegistry(); return () => document.removeEventListener('click', handleGlobalClick); });
@@ -435,16 +436,28 @@
 <VideoCompressionController bind:this={videoCompressionController} />
 <EditReplyStatus {editingMessage} {replyingTo} onCancelEdit={cancelEdit} onCancelReply={cancelReply} />
 
-{#if showEmojiPicker}
-	<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
-		{#if EmojiPickerComponent}<svelte:component this={EmojiPickerComponent} on:select={handleEmojiSelect} on:gif={handleGifSelect} on:close={() => (showEmojiPicker = false)} />{:else}<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>{/if}
-	</div>
-{/if}
-
 <CameraCapture isOpen={showCameraCapture} on:close={() => (showCameraCapture = false)} on:capture={handlePhotoCapture} />
 <AudioRecorder isOpen={showAudioRecorder} on:close={() => (showAudioRecorder = false)} on:send={handleAudioSend} />
 
 <div class="input-wrapper" class:hidden={$isMobile && !composerVisible}>
+	{#if showEmojiPicker}
+		<!-- 2026-08-27: this container used to render at composer-root level with
+			 NO positioning CSS — an inline block that pushed the whole message list
+			 up when opened. Now anchored inside .input-wrapper (position:relative)
+			 as an overlay popover, matching MentionSuggestions. -->
+		<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
+			{#if EmojiPickerComponent}
+				<svelte:component this={EmojiPickerComponent} on:select={handleEmojiSelect} on:gif={handleGifSelect} on:close={() => (showEmojiPicker = false)} />
+			{:else if emojiPickerLoadFailed}
+				<div class="emoji-picker-loading error" role="alert">
+					<span>Failed to load the emoji/GIF panel.</span>
+					<button type="button" on:click|stopPropagation={ensureEmojiPickerLoaded}>Retry</button>
+				</div>
+			{:else}
+				<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
+			{/if}
+		</div>
+	{/if}
 	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
 	{#if showEmojiSuggestions}<EmojiSuggestions suggestions={emojiSuggestions} selectedIndex={emojiSuggestionSelectedIndex} onApply={applyEmojiSuggestion} />{/if}
 	{#if filePreviews.length > 0 && !isUploading}		<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
@@ -468,5 +481,5 @@
 		<button class="send-button" on:click={handleSubmit} disabled={(selectedFiles.length === 0 && !messageInput.trim()) || sendCooldownUntil > Date.now() || isUploading} title={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')} aria-label={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></button>
 	</div>
 	{#if unicodeEmojisEnabled && unicodeComposerPreviewTokens > 0 && unicodeComposerPreview !== messageInput}<div class="unicode-conversion-hint">Unicode preview: {unicodeComposerPreview}</div>{/if}
-	{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}<div class="gif-caption-draft-row"><input type="text" class="gif-caption-draft-input input input-sm" bind:value={gifCaptionInput} maxlength={MAX_GIF_CAPTION_LENGTH} placeholder="GIF caption (used when sending from GIF picker)" /><span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>{gifCaptionDraftLength}/{MAX_GIF_CAPTION_LENGTH}</span></div>{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}<div class="unicode-conversion-hint">GIF caption preview: {unicodeGifCaptionPreview}</div>{/if}{:else if gifCaptionerEnabled && showEmojiPicker}<div class="gif-caption-hint">GIF caption uses composer text (max {MAX_GIF_CAPTION_LENGTH} characters).</div>{/if}
+	{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}<div class="gif-caption-draft-row"><input type="text" class="gif-caption-draft-input input input-sm" bind:value={gifCaptionInput} maxlength={MAX_GIF_CAPTION_LENGTH} placeholder="GIF caption (used when sending from GIF picker)" /><span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>{gifCaptionDraftLength}/{MAX_GIF_CAPTION_LENGTH}</span></div>{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}<div class="unicode-conversion-hint">GIF caption preview: {unicodeGifCaptionPreview}</div>{/if}{/if}
 </div>

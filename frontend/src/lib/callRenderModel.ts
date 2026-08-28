@@ -308,3 +308,66 @@ export function buildWabidbScreenShares(
 	}
 	return shares.sort((a, b) => a.id.localeCompare(b.id));
 }
+
+/**
+ * One normalized screen-share entry per participant, across BOTH transports.
+ * `key` is stable for Svelte keyed-each; `ownerId` is the stable user id
+ * ('local' for the sharer's own screen). Wabidb entries win on dedupe: their
+ * owner ids are server-attested, while P2P ids come from connection targets.
+ */
+export interface MergedScreenShareEntry {
+	key: string;
+	ownerId: string;
+	label: string;
+	stream: MediaStream | null;
+	isLocal: boolean;
+}
+
+export function mergeScreenShareEntries(
+	remoteStreams: Map<string, MediaStream>,
+	p2pShares: ScreenShare[],
+	localScreenPreview: MediaStream | null,
+	displayNames: Record<string, string> = {}
+): MergedScreenShareEntry[] {
+	const entries = new Map<string, MergedScreenShareEntry>();
+	const labelFor = (stableId: string, fallback?: string): string => {
+		const name = displayNames[stableId] ?? fallback ?? stableId.replace(/^user-/, '');
+		return `${name}'s Screen`;
+	};
+
+	for (const [key, stream] of remoteStreams) {
+		if (!key.endsWith(':screen')) continue;
+		const ownerId = key.slice(0, -':screen'.length);
+		entries.set(ownerId, {
+			key: `wabidb:${key}`,
+			ownerId,
+			label: labelFor(ownerId),
+			stream,
+			isLocal: false
+		});
+	}
+
+	for (const share of p2pShares) {
+		const ownerId = toStableUserKey(share.userId);
+		if (entries.has(ownerId)) continue;
+		entries.set(ownerId, {
+			key: `p2p:${ownerId}`,
+			ownerId,
+			label: labelFor(ownerId, share.username),
+			stream: share.stream,
+			isLocal: false
+		});
+	}
+
+	if (localScreenPreview) {
+		entries.set('local', {
+			key: 'local',
+			ownerId: 'local',
+			label: 'Your Screen',
+			stream: localScreenPreview,
+			isLocal: true
+		});
+	}
+
+	return Array.from(entries.values()).sort((a, b) => a.key.localeCompare(b.key));
+}

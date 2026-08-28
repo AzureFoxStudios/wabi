@@ -136,7 +136,18 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: if (showSettings && !SettingsCmp) void import('./Settings.svelte').then((m) => (SettingsCmp = m.default));
 	$: if (showCallDebugPanel && !CallDebugPanelCmp) void import('./CallDebugPanel.svelte').then((m) => (CallDebugPanelCmp = m.default));
 	// CallModal renders whenever any call surface could be visible.
-	$: callUiActive = Boolean($incomingCall || $outgoingCall || $isInCall || $activeGroupCall || $groupCallRingingTargets?.length || $activeCalls?.length);
+	// Discord-style call surfaces (2026-08-27 report): joining a CHANNEL call
+	// must not throw a translucent modal over the chat — channel calls live in
+	// the sidebar roster + Calls panel + Voice view. The modal layer stays for
+	// DM rings/streams and group-call rings.
+	$: callUiActive = Boolean(
+		$incomingCall ||
+			$outgoingCall ||
+			$activeGroupCall ||
+			$groupCallRingingTargets?.length ||
+			$activeCalls?.length ||
+			($isInCall && $callMode !== 'channel')
+	);
 	$: if (callUiActive && !CallModalCmp) void import('./CallModal.svelte').then((m) => (CallModalCmp = m.default));
 
 	$: workspaceActiveView = (() => {

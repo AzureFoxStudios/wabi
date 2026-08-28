@@ -23,11 +23,39 @@
 		cameraOff,
 		leaveAllCalls
 	} from '$lib/callSurfaces';
-	import { isMuted, isDeafened, activeCalls, callTransportState, switchCallTransport } from '$lib/calling';
+	import { isMuted, isDeafened, activeCalls, callTransportState, switchCallTransport, localScreenStream, screenShares } from '$lib/calling';
+	import { callRecordingState, startCallRecording, stopCallRecording, formatRecordingElapsedForUi } from '$lib/callRecording';
 	import { getSocket } from '$lib/socketConnection';
 
 	let transportSwapBusy = false;
+	let recordBusy = false;
 	const currentTransport = $derived($callTransportState.activeTransport);
+	const recording = $derived($callRecordingState.status === 'recording');
+	const recordElapsedLabel = $derived(
+		recording ? formatRecordingElapsedForUi($callRecordingState.elapsedMs) : ''
+	);
+	/** Own screen preview: the wabidb lane self-filters our stream, so without
+	 * an explicit local tile you can never confirm your own share is live
+	 * (2026-08-27 report: "no confirming self-seeing-of your own screen"). */
+	const ownScreenStream = $derived(
+		($localScreenStream?.getVideoTracks().length ?? 0) > 0 ? $localScreenStream : null
+	);
+
+	async function handleToggleRecord(): Promise<void> {
+		if (recordBusy) return;
+		recordBusy = true;
+		try {
+			if ($callRecordingState.status === 'recording' || $callRecordingState.status === 'saving') {
+				await stopCallRecording();
+				return;
+			}
+			await startCallRecording();
+		} catch (err) {
+			console.error('[VoiceView] recording toggle failed:', err);
+		} finally {
+			recordBusy = false;
+		}
+	}
 	async function handleTransportSwap(): Promise<void> {
 		if (transportSwapBusy) return;
 		transportSwapBusy = true;
@@ -83,10 +111,20 @@
 		const session = $callSessions.get(sessionId);
 		if (!session) return [];
 		const ids = new Set(session.participants.map((p) => p.userId));
-		return [...$wabidbRemoteVideoStreams.entries()].filter(([key]) => {
+		const entries = [...$wabidbRemoteVideoStreams.entries()].filter(([key]) => {
 			const owner = key.replace(/:(camera|screen)$/, '');
 			return ids.has(owner);
 		});
+		// P2P screenshares (round 5): after a transport swap these live in the
+		// screenShares store, not the wabidb lane — fold them in by owner. The
+		// wabidb entry wins on dedupe, so keys never collide.
+		for (const share of $screenShares) {
+			const owner = /^\d+$/.test(share.userId) ? `user-${share.userId}` : share.userId;
+			if (!ids.has(owner)) continue;
+			if (entries.some(([key]) => key === `${owner}:screen`)) continue;
+			entries.push([`${owner}:screen`, share.stream]);
+		}
+		return entries;
 	}
 
 	function initial(username: string): string {
@@ -131,9 +169,18 @@
 						</span>
 					</div>
 
-					{#if videos.length > 0}
-						<div class="vv-card-videos">
-							{#each videos.slice(0, 4) as [key, stream] (key)}
+					{#if videos.length > 0 || ownScreenStream}
+					<div class="vv-card-videos">
+						{#if ownScreenStream}
+							<div class="vv-card-video screen own">
+								<VideoSink stream={ownScreenStream} />
+								<span class="vv-video-label">
+									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+									Your screen
+								</span>
+							</div>
+						{/if}
+						{#each videos.slice(0, 4) as [key, stream] (key)}
 								{@const owner = key.replace(/:(camera|screen)$/, '')}
 								<div class="vv-card-video" class:screen={key.endsWith(':screen')}>
 									<VideoSink {stream} />
@@ -245,6 +292,16 @@
 			{$isDeafened ? 'Undeafen All' : 'Deafen All'}
 		</button>
 		<button type="button" onclick={cameraOff}>Camera Off</button>
+	<button
+		type="button"
+		class="record"
+		class:active={recording}
+		onclick={handleToggleRecord}
+		disabled={sessions.length === 0 || recordBusy || $callRecordingState.status === 'saving'}
+		title={recording ? 'Stop recording and save' : 'Record this call (mixed audio)'}
+	>
+		{recording ? `⏺ ${recordElapsedLabel} — Stop` : '⏺ Record'}
+	</button>
 		<button
 			type="button"
 			class="swap"

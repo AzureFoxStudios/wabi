@@ -3,3 +3,5 @@
 [test]
 # Keep root at frontend so bun test discovers src/lib/**/*.test.ts
 root = "."
+# Global SvelteKit virtual-module mocks (see test/bunPreload.ts).
+preload = ["./test/bunPreload.ts"]

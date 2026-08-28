@@ -9,6 +9,7 @@
 	export let displayEnhancementSettingsStore: any;
 	export let onReply: (message: Message) => void;
 	export let onQuickMention: (message: Message) => void;
+	export let onForward: (message: Message) => void = () => {};
 	export let onContextMenu: (event: MouseEvent, message: Message) => void;
 	export let onOpenReactionPicker: (event: MouseEvent, messageId: string) => void;
 	export let onQuickReact: (messageId: string, emojiId: string) => void;
@@ -36,6 +37,19 @@
 						class="quick-reaction-emoji"
 						loading="lazy"
 						decoding="async"
+							on:error={(e) => {
+								// Dead emoji URL (server emoji deleted / CDN hiccup): swap
+								// the broken image for a text glyph so the button still works
+								// ("symbols poofed/unlinked", 2026-08-27).
+								const img = e.currentTarget as HTMLImageElement;
+								if (img.dataset.fallbackApplied) return;
+								img.dataset.fallbackApplied = '1';
+								img.style.display = 'none';
+								const fallback = document.createElement('span');
+								fallback.textContent = `:${quickEmoji.displayName || quickEmoji.name}:`;
+								fallback.className = 'quick-reaction-fallback';
+								img.parentElement?.appendChild(fallback);
+							}}
 					/>
 				</button>
 			{/each}
@@ -48,6 +62,10 @@
 
 	<button class="action-btn" title={$_('messages.actions.reply')} on:click={() => onReply(message)}>
 		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+	</button>
+
+	<button class="action-btn" title="Forward" on:click={() => onForward(message)}>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></svg>
 	</button>
 
 	{#if displayEnhancementSettingsStore.messageUtilitiesEnabled}

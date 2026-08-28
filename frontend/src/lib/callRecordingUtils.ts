@@ -4,6 +4,7 @@
  */
 
 import { isDesktopTauri } from './tauri-platform';
+import { getCallAudioGraphRecordStream } from './callAudioGraph';
 import { getStoredCallRecordingStemMode } from './mediaRuntime';
 import type { CallRecordingMode, CallRecordingPreset, CallRecordingSnapshot, RecordingAudioInput } from './callRecordingTypes';
 import { AUDIO_MIME_CANDIDATES, VIDEO_MIME_CANDIDATES } from './callRecordingTypes';
@@ -137,6 +138,22 @@ export function buildMixedAudioInputs(snapshot: CallRecordingSnapshot, respectLo
 			stream: share.stream,
 			gain: 1
 		});
+	}
+
+	// Wabidb transport (2026-08-27): remote audio plays through the shared
+	// callAudioGraph instead of per-peer MediaStreams, so the mixed recording
+	// captured NOTHING from remote participants. Tap the graph's master bus —
+	// but only when no WebRTC call streams are present, or remote voices would
+	// be double-counted on p2p (p2p sources also attach to the graph).
+	if (inputs.every((input) => input.id === 'local-mic' || input.id === 'share:local')) {
+		try {
+			const graphStream = getCallAudioGraphRecordStream();
+			if (graphStream?.getAudioTracks().length) {
+				inputs.push({ id: 'graph:remote', stream: graphStream, gain: 1 });
+			}
+		} catch {
+			/* graph unavailable — mic-only recording still works */
+		}
 	}
 
 	return inputs;

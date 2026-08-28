@@ -12,8 +12,9 @@
 	 */
 	import { wabidbRemoteVideoStreams, wabidbLocalPreviewStreams } from '$lib/wabidbVideoLane';
 	import { voiceChannelMembers } from '$lib/presenceStore';
-	import { applySpatialSeat, applySpatialSeatToAudio, clearSpatialSeat } from '$lib/calling';
+	import { applySpatialSeat, applySpatialSeatToAudio, clearSpatialSeat, localScreenStream, screenShares } from '$lib/calling';
 	import { computeSpatialPosition, loadSpatialSeats, sortByUserId } from '$lib/callingSpatialRuntime';
+	import { mergeScreenShareEntries } from '$lib/callRenderModel';
 	import type { CallSession, CallSpatialPosition } from '$lib/callSessionTypes';
 	import VideoSink from './VideoSink.svelte';
 
@@ -54,9 +55,30 @@
 			participants.some((p) => key === `${p.userId}:camera` || key === `${p.userId}:screen`)
 		)
 	);
-	let screenEntries = $derived(videoEntries.filter(([key]) => key.endsWith(':screen')));
 	let cameraEntries = $derived(videoEntries.filter(([key]) => !key.endsWith(':screen')));
 	let localCamera = $derived($wabidbLocalPreviewStreams.get('camera') ?? null);
+
+	// Screen tiles span BOTH transports (round 5): wabidb `:screen` streams,
+	// P2P `screenShares` (invisible here after "Swap to P2P" before), and the
+	// sharer's own preview (the lane self-filters own streams, so without an
+	// explicit tile the sharer never sees confirmation on this stage).
+	let displayNames = $derived.by(() => {
+		const names: Record<string, string> = {};
+		for (const p of participants) {
+			if (p.username) names[p.userId] = p.username;
+		}
+		return names;
+	});
+	let localScreenPreview = $derived(
+		$wabidbLocalPreviewStreams.get('screen') ?? $localScreenStream ?? null
+	);
+	let mergedScreenEntries = $derived(
+		mergeScreenShareEntries($wabidbRemoteVideoStreams, $screenShares, localScreenPreview, displayNames)
+	);
+	let participantIds = $derived(new Set(participants.map((p) => p.userId)));
+	let screenEntries = $derived(
+		mergedScreenEntries.filter((entry) => entry.isLocal || participantIds.has(entry.ownerId))
+	);
 
 	function initial(username: string): string {
 		return (username || '?').trim().charAt(0).toUpperCase();
@@ -184,11 +206,10 @@
 	<div class="cstage-body">
 		{#if screenEntries.length > 0}
 			<div class="cstage-hero">
-				{#each screenEntries as [key, stream] (key)}
-					{@const userId = streamOwner(key)}
-					<div class="cstage-hero-item">
-						<VideoSink {stream} />
-						<span class="cstage-tile-label"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> {userId}'s screen</span>
+				{#each screenEntries as share (share.key)}
+					<div class="cstage-hero-item" class:own={share.isLocal}>
+						<VideoSink stream={share.stream} />
+						<span class="cstage-tile-label"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> {share.label}</span>
 					</div>
 				{/each}
 			</div>
