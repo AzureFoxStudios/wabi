@@ -1,0 +1,11 @@
+{
+  "bots": {
+    "12": {
+      "botUserId": 12,
+      "tokenHash": "6224ad6c577bb3d6aa8974b82d1ac8550442d3beb82987bc5f51d2cbb4acb3b2",
+      "createdAtMicros": 1787332253273694,
+      "rotatedAtMicros": null,
+      "enabled": true
+    }
+  }
+}
