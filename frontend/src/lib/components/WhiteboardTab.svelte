@@ -402,6 +402,7 @@
 					onImportImages={triggerImportPicker}
 					onExportPng={handleExportPng}
 					onExportJson={handleExportJson}
+					{boardId}
 					{exportBusy}
 					importDisabled={!channelId}
 					{readOnly}

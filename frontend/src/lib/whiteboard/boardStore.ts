@@ -38,6 +38,8 @@ export interface BoardStyle {
 	opacity: number;
 	hardness: number;
 	fontSize: number;
+	fontFamily: string;
+	fontId?: string;
 	strokeDash?: number[];
 	borderRadius?: number;
 }

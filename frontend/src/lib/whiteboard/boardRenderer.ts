@@ -9,6 +9,9 @@ import { getServerUrl } from '$lib/serverUrl';
 import { strokeWidthAt } from './tools';
 import { renderMathToCanvas } from './mathRender';
 import { renderRasterLayer } from './rasterLayers';
+import { CODE_CARD_METRICS, CODE_FONT_STACK, TEXT_LINE_HEIGHT_FACTOR, codeFont } from './textMetrics';
+import { CODE_CARD_BG, CODE_CARD_BORDER, CODE_LANGUAGE_TAG_COLOR, highlightCodeLines, tokenColor, type HighlightedLine } from './codeHighlight';
+import { ensureBoardFont, getActiveFontScope, getFontEpoch, resolveFontFamily } from './fontAssets';
 
 // ---------------------------------------------------------------------------
 // Image cache (module-level, shared across renders)
@@ -127,6 +130,7 @@ export function renderElements(
 			case 'ellipse': renderEllipse(ctx, el); break;
 			case 'arrow': renderArrow(ctx, el); break;
 			case 'text': renderText(ctx, el); break;
+			case 'code': renderCode(ctx, el); break;
 			case 'image': renderImage(ctx, el); break;
 			case 'math': renderMath(ctx, el); break;
 		}
@@ -261,6 +265,7 @@ function drawSortedElements(ctx: CanvasRenderingContext2D, els: BoardElement[]):
 			case 'ellipse': renderEllipse(ctx, el); break;
 			case 'arrow': renderArrow(ctx, el); break;
 			case 'text': renderText(ctx, el); break;
+			case 'code': renderCode(ctx, el); break;
 			case 'image': renderImage(ctx, el); break;
 			case 'math': renderMath(ctx, el); break;
 		}
@@ -437,7 +442,9 @@ export function renderLayersWithBlend(
 		// Content-identity cache key — viewport is deliberately absent so pan/zoom
 		// reuse the cached bitmap. Layer opacity is also absent (applied at
 		// composite), so the opacity slider recomposites without re-rasterizing.
-		const contentKey = `${blendMode}:${dpr}|${els
+		// The font epoch folds in async custom-font loads: text elements' updatedAt
+		// do not change when their font finishes loading, but their raster must.
+		const contentKey = `${blendMode}:${dpr}:${getFontEpoch()}|${els
 			.map((el) => `${el.id}:${el.updatedAt}:${el.zIndex}:${el.opacity}:${el.locked}`)
 			.join('|')}`;
 
@@ -680,7 +687,9 @@ function drawArrowHead(ctx: CanvasRenderingContext2D, x: number, y: number, angl
 function renderText(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 	const te = el as any;
 	const fontSize = te.fontSize || 16;
-	const fontFamily = te.fontFamily || 'sans-serif';
+	const fallbackFamily = te.fontFamily || 'sans-serif';
+	const fontFamily = resolveFontFamily(getActiveFontScope(), te.fontId, fallbackFamily);
+	if (te.fontId) ensureBoardFont(getActiveFontScope(), te.fontId);
 	ctx.font = `${fontSize}px ${fontFamily}`;
 	ctx.fillStyle = el.strokeColor;
 	ctx.textAlign = te.textAlign || 'left';
@@ -688,12 +697,113 @@ function renderText(ctx: CanvasRenderingContext2D, el: BoardElement): void {
 
 	const text: string = te.text || '';
 	const lines = text.split('\n');
-	const lineHeight = fontSize * 1.3;
+	const lineHeight = fontSize * TEXT_LINE_HEIGHT_FACTOR;
 	for (let i = 0; i < lines.length; i++) {
 		let tx = el.x;
 		if (te.textAlign === 'center') tx = el.x + el.width / 2;
 		else if (te.textAlign === 'right') tx = el.x + el.width;
 		ctx.fillText(lines[i], tx, el.y + i * lineHeight);
+	}
+}
+
+// Measured code layout — run x-offsets depend on the live monospace font, so
+// they are cached per element identity + size, not with the prism token cache
+// (which is font-independent). Keeps the render loop free of per-frame
+// measureText storms on large pastes.
+interface CodeLayout {
+	lines: HighlightedLine[];
+	advances: number[][];
+}
+
+const codeLayoutCache = new Map<string, CodeLayout>();
+const CODE_LAYOUT_CACHE_MAX = 60;
+
+function layoutCode(el: BoardElement, fontSize: number): CodeLayout {
+	const ce = el as any;
+	const key = `${el.id}:${ce.updatedAt}:${Math.round(fontSize)}:${ce.code.length}`;
+	const hit = codeLayoutCache.get(key);
+	if (hit) {
+		codeLayoutCache.delete(key);
+		codeLayoutCache.set(key, hit);
+		return hit;
+	}
+	const lines = highlightCodeLines(String(ce.code || ''), String(ce.language || ''));
+	const advances = lines.map((line) => {
+		const offsets: number[] = [];
+		let x = 0;
+		for (const run of line) {
+			offsets.push(x);
+			x += ctx0Measure(run.text, codeFont(fontSize));
+		}
+		return offsets;
+	});
+	const layout: CodeLayout = { lines, advances };
+	codeLayoutCache.set(key, layout);
+	while (codeLayoutCache.size > CODE_LAYOUT_CACHE_MAX) {
+		const oldest = codeLayoutCache.keys().next().value;
+		if (oldest === undefined) break;
+		codeLayoutCache.delete(oldest);
+	}
+	return layout;
+}
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+
+function ctx0Measure(text: string, font: string): number {
+	if (measureCtx === undefined) {
+		measureCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+	}
+	if (!measureCtx) return text.length * fontSizeFromFont(font) * 0.6;
+	measureCtx.font = font;
+	return measureCtx.measureText(text).width;
+}
+
+function fontSizeFromFont(font: string): number {
+	const match = /(\d+(?:\.\d+)?)px/.exec(font);
+	return match ? Number(match[1]) : 16;
+}
+
+function renderCode(ctx: CanvasRenderingContext2D, el: BoardElement): void {
+	const ce = el as any;
+	const fontSize = ce.fontSize || 13;
+	const pad = CODE_CARD_METRICS.padding;
+
+	// Card
+	ctx.beginPath();
+	ctx.roundRect(el.x, el.y, el.width, el.height, CODE_CARD_METRICS.borderRadius);
+	ctx.fillStyle = CODE_CARD_BG;
+	ctx.fill();
+	if (el.strokeWidth > 0) {
+		ctx.strokeStyle = CODE_CARD_BORDER;
+		ctx.lineWidth = el.strokeWidth;
+		ctx.stroke();
+	}
+
+	// Language tag, top-right inside the card
+	const tagSize = Math.max(9, Math.round(fontSize * 0.62));
+	if (ce.language) {
+		ctx.font = `${tagSize}px ${CODE_FONT_STACK}`;
+		ctx.fillStyle = CODE_LANGUAGE_TAG_COLOR;
+		ctx.textAlign = 'right';
+		ctx.textBaseline = 'top';
+		ctx.fillText(String(ce.language), el.x + el.width - pad, el.y + Math.round(pad * 0.35));
+	}
+
+	// Tokenized lines
+	const layout = layoutCode(el, fontSize);
+	ctx.font = codeFont(fontSize);
+	ctx.textAlign = 'left';
+	ctx.textBaseline = 'top';
+	const lineHeight = fontSize * TEXT_LINE_HEIGHT_FACTOR;
+	for (let i = 0; i < layout.lines.length; i++) {
+		const line = layout.lines[i];
+		const offsets = layout.advances[i];
+		const y = el.y + pad + i * lineHeight;
+		for (let r = 0; r < line.length; r++) {
+			const run = line[r];
+			ctx.fillStyle = tokenColor(run.type);
+			ctx.fillText(run.text, el.x + pad + offsets[r], y);
+		}
 	}
 }
 
@@ -855,6 +965,7 @@ export function renderDrawPreview(
 		case 'ellipse': renderEllipse(ctx, previewEl); break;
 		case 'arrow': renderArrow(ctx, previewEl); break;
 		case 'text': renderText(ctx, previewEl); break;
+		case 'code': renderCode(ctx, previewEl); break;
 		case 'image': renderImage(ctx, previewEl); break;
 		case 'math': renderMath(ctx, previewEl); break;
 	}

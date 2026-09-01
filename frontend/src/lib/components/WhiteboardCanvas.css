@@ -45,6 +45,18 @@
   word-wrap: break-word;
 }
 
+/* Editing a code element: mirror the code card look. */
+.text-edit-overlay.is-code {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  padding: 12px;
+  border-radius: 8px;
+  min-width: 240px;
+  min-height: 60px;
+  overflow: auto;
+}
+
 .whiteboard-import-hud {
   position: absolute;
   top: 0;

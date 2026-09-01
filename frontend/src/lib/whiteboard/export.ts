@@ -3,6 +3,8 @@ import type { BoardElement, StrokeElement } from './elementTypes';
 import { getSelectionBBox } from './coords';
 import { preloadImage, renderLayersWithBlend } from './boardRenderer';
 import { sortWhiteboardLayers } from './layers';
+import { CODE_CARD_METRICS, CODE_FONT_STACK, TEXT_LINE_HEIGHT_FACTOR } from './textMetrics';
+import { CODE_CARD_BG, CODE_CARD_BORDER, CODE_LANGUAGE_TAG_COLOR, highlightCodeLines, tokenColor } from './codeHighlight';
 
 function sanitizeExportBaseName(boardId: string): string {
 	const normalized = (boardId || 'whiteboard')
@@ -222,6 +224,30 @@ function elementToSvg(el: BoardElement, ctx: SvgContext): string {
 				.map((line, i) => `<tspan x="${fmtNum(dx(tx))}" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
 				.join('');
 			body = `<text x="${fmtNum(dx(tx))}" y="${fmtNum(dy(el.y))}" font-family="${escapeXml(fontFamily)}" font-size="${fontSize}" fill="${el.strokeColor}" text-anchor="${anchor}">${tspans}</text>`;
+			break;
+		}
+		case 'code': {
+			const ce = el as BoardElement & { code?: string; language?: string; fontSize?: number };
+			const fontSize = ce.fontSize || 13;
+			const pad = CODE_CARD_METRICS.padding;
+			const parts: string[] = [];
+			parts.push(`<rect x="${fmtNum(dx(el.x))}" y="${fmtNum(dy(el.y))}" width="${fmtNum(el.width)}" height="${fmtNum(el.height)}" rx="${CODE_CARD_METRICS.borderRadius}" fill="${CODE_CARD_BG}"${el.strokeWidth > 0 ? ` stroke="${CODE_CARD_BORDER}" stroke-width="${fmtNum(el.strokeWidth)}"` : ''}/>`);
+			if (ce.language) {
+				const tagSize = Math.max(9, Math.round(fontSize * 0.62));
+				parts.push(`<text x="${fmtNum(dx(el.x + el.width - pad))}" y="${fmtNum(dy(el.y + Math.round(pad * 0.35)))}" font-family="${escapeXml(CODE_FONT_STACK)}" font-size="${tagSize}" fill="${CODE_LANGUAGE_TAG_COLOR}" text-anchor="end">${escapeXml(ce.language)}</text>`);
+			}
+			const lines = highlightCodeLines(String(ce.code || ''), String(ce.language || ''));
+			const lineHeight = fontSize * TEXT_LINE_HEIGHT_FACTOR;
+			const tspans = lines
+				.map((line, i) => {
+					const runs = line
+						.map((run) => `<tspan fill="${tokenColor(run.type)}">${escapeXml(run.text)}</tspan>`)
+						.join('');
+					return `<text x="${fmtNum(dx(el.x + pad))}" y="${fmtNum(dy(el.y + pad + i * lineHeight))}" font-family="${escapeXml(CODE_FONT_STACK)}" font-size="${fontSize}">${runs}</text>`;
+				})
+				.join('\n');
+			parts.push(tspans);
+			body = parts.join('\n');
 			break;
 		}
 		case 'image': {

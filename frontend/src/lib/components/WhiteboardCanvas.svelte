@@ -6,13 +6,17 @@
 	import type { ToolType } from '$lib/whiteboard/boardStore';
 	import { renderElements, renderLayersWithBlend, renderGrid, renderSelectionBox, renderHandles, renderDrawPreview, renderSelectionRect, renderRemoteCursors, preloadImage } from '$lib/whiteboard/boardRenderer';
 	import { screenToBoard, getSelectionBBox, getSelectionHandles } from '$lib/whiteboard/coords';
-	import type { BoardElement, TextElement } from '$lib/whiteboard/elementTypes';
+	import type { BoardElement, CodeElement } from '$lib/whiteboard/elementTypes';
+	import { generateElementId } from '$lib/whiteboard/elementTypes';
 	import { getToolHandler, onTextPlacement, type ToolPointerEvent, type ToolInteraction, type TextPlacement } from '$lib/whiteboard/tools';
 	import { broadcastCursor } from '$lib/whiteboard/boardSync';
 	import { getRasterStrokeDirtyBounds } from '$lib/whiteboard/rasterLayers';
 	import { dequeueWhiteboardImport, queueWhiteboardImport, whiteboardPendingImports, type PendingWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import { createWhiteboardImageElement, uploadWhiteboardImage } from '$lib/whiteboard/imageImports';
-	import { resolveWhiteboardLayerId, resolveWritableWhiteboardLayerId } from '$lib/whiteboard/layers';
+	import { resolveWhiteboardLayerId, resolveWritableWhiteboardLayerId, MAX_WHITEBOARD_LAYERS } from '$lib/whiteboard/layers';
+	import { planPaste, stripDangerousClipboardText, suggestPasteLayerName } from '$lib/whiteboard/codePaste';
+	import { buildCodeElement, buildTextElement } from '$lib/whiteboard/textMetrics';
+	import { loadFontsForBoard, onFontsLoaded, setActiveFontScope } from '$lib/whiteboard/fontAssets';
 import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	import './WhiteboardCanvas.css';
 
@@ -51,6 +55,13 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	let textEditY = 0;
 	let textEditValue = '';
 	let textEditPlacement: TextPlacement | null = null;
+	// Non-null while re-editing an existing element (double-click): commit
+	// updates that element instead of creating a new one.
+	let textEditExistingId: string | null = null;
+	let textEditIsCode = false;
+	let textEditFontSize = 16;
+	let textEditFontFamily = 'sans-serif';
+	let pasteCount = 0;
 	let resizeObserver: ResizeObserver;
 	let renderScheduled = false;
 	let baseDirty = false;
@@ -386,7 +397,10 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 		if (item.layerId) return { layerId: resolveWhiteboardLayerId(state.layers, item.layerId) };
 		if (item.layerMode === 'reference') { const layer = boardStore.ensureLayer({ id: 'layer-reference', name: 'Reference', kind: 'reference', visible: true, locked: true, opacity: 0.82 }); return { layerId: layer.id }; }
 		if (item.layerMode === 'background') { const layer = boardStore.ensureLayer({ id: 'layer-background', name: 'Background', kind: 'background', visible: true, locked: true, opacity: 1 }); return { layerId: layer.id }; }
-		return { layerId: resolveWritableWhiteboardLayerId(state.layers, state.activeLayerId) };
+		// Default: every pasted/dropped image gets its OWN layer at the bottom,
+		// locked, so each import is independently toggleable and drawable-over.
+		const name = item.file.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Image';
+		return { layerId: createPasteLayer(`Image — ${name}`) };
 	}
 	async function maybeProcessPendingImports(): Promise<void> {
 		if (!syncReady || readOnly || importBusy || !channelId || !boardId || pendingImportsForChannel.length === 0) return;
@@ -457,24 +471,173 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	const unsubTextPlacement = onTextPlacement((placement) => {
 		const vp = get(viewport);
 		const screen = { x: (placement.x - vp.x) * vp.zoom, y: (placement.y - vp.y) * vp.zoom };
-		textEditing = true; textEditX = screen.x; textEditY = screen.y; textEditValue = ''; textEditPlacement = placement;
+		textEditing = true; textEditX = screen.x; textEditY = screen.y; textEditValue = '';
+		textEditPlacement = placement; textEditExistingId = null; textEditIsCode = false;
+		textEditFontSize = placement.style.fontSize || 16;
+		textEditFontFamily = placement.style.fontFamily || 'sans-serif';
 		requestAnimationFrame(() => { if (textOverlay) textOverlay.focus(); });
 	});
+
+	// Double-click on a text/code element reopens the editor prefilled.
+	function handleDoubleClick(e: MouseEvent) {
+		if (textEditing || readOnly) return;
+		const rect = interactionCanvas.getBoundingClientRect();
+		const vp = get(viewport);
+		const board = screenToBoard(e.clientX - rect.left, e.clientY - rect.top, vp);
+		const state = get(boardStore);
+		const tolerance = 6 / vp.zoom;
+		// Top-most first; layer lock does not block an explicit edit intent,
+		// element lock does.
+		const sorted = [...state.elements].sort((a, b) => b.zIndex - a.zIndex);
+		for (const el of sorted) {
+			if (el.type !== 'text' && el.type !== 'code') continue;
+			const layer = state.layers.find((candidate) => candidate.id === el.layerId);
+			if (layer && layer.visible === false) continue;
+			if (el.locked) continue;
+			if (board.x < el.x - tolerance || board.x > el.x + el.width + tolerance) continue;
+			if (board.y < el.y - tolerance || board.y > el.y + el.height + tolerance) continue;
+			const screenPos = { x: (el.x - vp.x) * vp.zoom, y: (el.y - vp.y) * vp.zoom };
+			textEditing = true; textEditX = screenPos.x; textEditY = screenPos.y;
+			textEditExistingId = el.id;
+			textEditIsCode = el.type === 'code';
+			textEditPlacement = null;
+			if (el.type === 'text') {
+				textEditValue = el.text;
+				textEditFontSize = el.fontSize || 16;
+				textEditFontFamily = el.fontFamily || 'sans-serif';
+			} else {
+				textEditValue = el.code;
+				textEditFontSize = el.fontSize || 13;
+				textEditFontFamily = 'monospace';
+			}
+			boardStore.select([el.id]);
+			requestAnimationFrame(() => { if (textOverlay) textOverlay.focus(); });
+			return;
+		}
+	}
+
 	function commitTextEdit() {
+		const value = textEditValue;
+		if (textEditExistingId) {
+			const id = textEditExistingId;
+			if (value.trim()) {
+				if (textEditIsCode) {
+					const measures = buildCodeElement({ id, x: 0, y: 0, zIndex: 0, layerId: '', code: value, language: '', fontSize: textEditFontSize });
+					const existing = get(boardStore).elements.find((el) => el.id === id) as CodeElement | undefined;
+					boardStore.updateElement(id, {
+						code: value,
+						fontSize: textEditFontSize,
+						width: measures.width,
+						height: measures.height,
+						language: existing?.language || ''
+					});
+				} else {
+					const measures = buildTextElement({ id, x: 0, y: 0, zIndex: 0, layerId: '', text: value, fontSize: textEditFontSize, fontFamily: textEditFontFamily, strokeColor: '#111111', strokeWidth: 1, fillColor: 'transparent' });
+					boardStore.updateElement(id, { text: value, width: measures.width, height: measures.height });
+				}
+			} else {
+				boardStore.deleteElements([id]);
+			}
+			textEditing = false; textEditExistingId = null; textEditPlacement = null;
+			return;
+		}
 		if (!textEditPlacement) { textEditing = false; return; }
 		const text = textEditValue.trim();
 		if (text) {
 			const style = textEditPlacement.style;
-			const el: TextElement = { id: textEditPlacement.elementId, type: 'text', x: textEditPlacement.x, y: textEditPlacement.y, width: 200, height: 30, rotation: 0, zIndex: textEditPlacement.maxZ, layerId: textEditPlacement.layerId, opacity: 1, strokeColor: style.strokeColor, strokeWidth: style.strokeWidth, fillColor: style.fillColor, createdBy: '', updatedAt: Date.now(), locked: false, text, fontSize: style.fontSize || 16, fontFamily: 'sans-serif', textAlign: 'left' };
+			const el = buildTextElement({
+				id: textEditPlacement.elementId,
+				x: textEditPlacement.x,
+				y: textEditPlacement.y,
+				zIndex: textEditPlacement.maxZ,
+				layerId: textEditPlacement.layerId,
+				text,
+				fontSize: style.fontSize || 16,
+				fontFamily: style.fontFamily || 'sans-serif',
+				fontId: style.fontId,
+				strokeColor: style.strokeColor,
+				strokeWidth: style.strokeWidth,
+				fillColor: style.fillColor
+			});
 			boardStore.addElement(el);
 		}
 		textEditing = false; textEditPlacement = null;
 	}
+
+	/**
+	 * Create a dedicated layer for a pasted item, inserted at the BOTTOM of the
+	 * stack (kind reference, locked) so the paste sits under the active content
+	 * layer — paste something, then draw on it. Falls back to the active layer
+	 * at the layer cap.
+	 */
+	function createPasteLayer(name: string): string {
+		const state = get(boardStore);
+		if (state.layers.length >= MAX_WHITEBOARD_LAYERS) {
+			return resolveWritableWhiteboardLayerId(state.layers, state.activeLayerId);
+		}
+		const minOrder = state.layers.reduce((min, layer) => Math.min(min, layer.order), 0);
+		const created = boardStore.addLayer({ name, kind: 'reference', visible: true, locked: true, opacity: 1, order: minOrder - 1 });
+		return created.id;
+	}
+
+	function pasteTextAsElement(rawText: string): void {
+		const text = stripDangerousClipboardText(rawText);
+		const { plan, error } = planPaste(text);
+		if (error) { setImportError(error); return; }
+		if (!plan) return;
+		const state = get(boardStore);
+		const vp = state.viewport;
+		pasteCount += 1;
+		// One undo step for the whole paste (layer + element).
+		boardStore.pushHistoryCheckpoint();
+		const layerId = createPasteLayer(suggestPasteLayerName(plan, pasteCount));
+		const maxZ = state.elements
+			.filter((element) => element.layerId === layerId)
+			.reduce((max, element) => Math.max(max, element.zIndex), 0);
+		const centerX = vp.x + (canvasWidth || containerEl?.clientWidth || 960) / vp.zoom / 2;
+		const centerY = vp.y + (canvasHeight || containerEl?.clientHeight || 640) / vp.zoom / 2;
+		if (plan.kind === 'code') {
+			const el = buildCodeElement({
+				id: generateElementId(),
+				x: 0, y: 0, zIndex: maxZ + 1, layerId,
+				code: text, language: plan.language, fontSize: 13
+			});
+			el.x = centerX - el.width / 2;
+			el.y = centerY - el.height / 2;
+			boardStore.addElement(el);
+		} else {
+			const style = state.style;
+			const el = buildTextElement({
+				id: generateElementId(),
+				x: 0, y: 0, zIndex: maxZ + 1, layerId,
+				text: text.trim(), fontSize: style.fontSize || 16, fontFamily: style.fontFamily || 'sans-serif', fontId: style.fontId,
+				strokeColor: style.strokeColor, strokeWidth: style.strokeWidth, fillColor: style.fillColor
+			});
+			el.x = centerX - el.width / 2;
+			el.y = centerY - el.height / 2;
+			boardStore.addElement(el);
+		}
+	}
+
 	async function handlePaste(e: ClipboardEvent) {
 		if (textEditing || readOnly) return;
 		const items = e.clipboardData?.items;
 		if (!items) return;
-		for (const item of items) { if (item.type.startsWith('image/')) { e.preventDefault(); const file = item.getAsFile(); if (!file) continue; queueFiles([file], 'clipboard'); break; } }
+		for (const item of items) {
+			if (item.type.startsWith('image/')) {
+				e.preventDefault();
+				const file = item.getAsFile();
+				if (!file) continue;
+				queueFiles([file], 'clipboard');
+				return;
+			}
+		}
+		const textItem = Array.from(items).find((item) => item.type === 'text/plain');
+		if (textItem) {
+			e.preventDefault();
+			const text = e.clipboardData?.getData('text/plain') || '';
+			if (text.trim()) pasteTextAsElement(text);
+		}
 	}
 	function handleDragEnter(event: DragEvent) { if (readOnly || !dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = true; }
 	function handleDragOver(event: DragEvent) { if (readOnly || !dataTransferHasImages(event.dataTransfer)) return; event.preventDefault(); isDragHover = true; }
@@ -503,12 +666,17 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 		return handler.cursor;
 	})();
 
-	onMount(() => { resizeObserver = new ResizeObserver(updateSize); resizeObserver.observe(containerEl); updateSize(); });
+	onMount(() => {
+		resizeObserver = new ResizeObserver(updateSize); resizeObserver.observe(containerEl); updateSize();
+		if (boardId) { setActiveFontScope(boardId); void loadFontsForBoard(boardId); }
+	});
+	const unsubFontsLoaded = onFontsLoaded(() => requestRender());
+	$: if (boardId) { setActiveFontScope(boardId); void loadFontsForBoard(boardId); }
 	onDestroy(() => {
 		resizeObserver?.disconnect();
 		cancelAnimationFrame(animFrameId);
 		if (cursorAnimId) cancelAnimationFrame(cursorAnimId);
-		unsubEls(); unsubVp(); unsubSel(); unsubPendingImports(); unsubTextPlacement();
+		unsubEls(); unsubVp(); unsubSel(); unsubPendingImports(); unsubTextPlacement(); unsubFontsLoaded();
 		clearImportError();
 		for (const previewUrl of importPreviewUrls.values()) URL.revokeObjectURL(previewUrl);
 		importPreviewUrls.clear();
@@ -524,10 +692,10 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 
 <div class="whiteboard-canvas-container" bind:this={containerEl} role="region" aria-label="Whiteboard canvas" on:paste={handlePaste} on:dragenter={handleDragEnter} on:dragover={handleDragOver} on:dragleave={handleDragLeave} on:drop={handleDrop} tabindex="-1">
 	<canvas bind:this={baseCanvas} class="whiteboard-layer base-layer"></canvas>
-	<canvas bind:this={interactionCanvas} class="whiteboard-layer interaction-layer" style="cursor: {cursorStyle}" on:pointerdown={handlePointerDown} on:pointermove={handlePointerMove} on:pointerup={handlePointerUp} on:pointercancel={handlePointerCancel} on:wheel|preventDefault={handleWheel} on:contextmenu|preventDefault></canvas>
+	<canvas bind:this={interactionCanvas} class="whiteboard-layer interaction-layer" style="cursor: {cursorStyle}" on:pointerdown={handlePointerDown} on:pointermove={handlePointerMove} on:pointerup={handlePointerUp} on:pointercancel={handlePointerCancel} on:wheel|preventDefault={handleWheel} on:dblclick={handleDoubleClick} on:contextmenu|preventDefault></canvas>
 
 	{#if textEditing}
-		<textarea bind:this={textOverlay} class="text-edit-overlay" style="left: {textEditX}px; top: {textEditY}px;" bind:value={textEditValue} on:blur={commitTextEdit} on:keydown={handleTextKeydown}></textarea>
+		<textarea bind:this={textOverlay} class="text-edit-overlay" class:is-code={textEditIsCode} style="left: {textEditX}px; top: {textEditY}px; font-size: {Math.max(11, textEditFontSize * get(viewport).zoom)}px;" bind:value={textEditValue} on:blur={commitTextEdit} on:keydown={handleTextKeydown}></textarea>
 	{/if}
 
 	{#if importPreviewCards.length > 0 || importError || isDragHover}
