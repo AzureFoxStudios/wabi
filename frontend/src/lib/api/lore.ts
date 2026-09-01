@@ -932,3 +932,177 @@ console.log(files);`;
 
 	return raw.map((s) => ({ lang: s.lang, label: s.label, code: fillLoreSnippet(s.code, server, repo, tok, url) }));
 }
+
+// ---------------------------------------------------------------------------
+// Chat-channel Lore bindings + promote-from-chat (spec 2026-08-28, Phase 1)
+// ---------------------------------------------------------------------------
+
+export interface LoreChannelBinding {
+	channelId: number;
+	repoChannelId: number;
+	path: string;
+	branch: string;
+	mode: 'none' | 'direct' | 'stage' | 'hybrid' | string;
+	allowedTypes: string[];
+	autoStage: boolean;
+	updatedBy: number;
+	updatedAtMicros: number;
+}
+
+export interface LorePromoteInfo {
+	messageId: string;
+	channelId: number;
+	repoChannelId: number;
+	fileUrl: string;
+	fileName: string;
+	path: string;
+	branch: string;
+	mode: string;
+	revisionHash: string;
+	pendingReview: boolean;
+	reviewBranch: string | null;
+	promotedBy: number;
+	timestampMicros: number;
+}
+
+export interface LorePromoteResponse {
+	collision?: boolean;
+	path?: string;
+	revision?: { hash: string; message?: string };
+	branch?: string;
+	mode?: string;
+	pendingReview?: boolean;
+	reviewBranch?: string | null;
+}
+
+function bindingFromRaw(raw: Record<string, unknown> | null | undefined): LoreChannelBinding | null {
+	if (!raw) return null;
+	const pick = <T>(k: string): T => ((raw[k] ?? raw[toCamel(k)]) as T);
+	return {
+		channelId: pick<number>('channel_id') ?? 0,
+		repoChannelId: pick<number>('repo_channel_id') ?? 0,
+		path: pick<string>('path') ?? '/',
+		branch: pick<string>('branch') ?? 'main',
+		mode: pick<string>('mode') ?? 'none',
+		allowedTypes: pick<string[]>('allowed_types') ?? [],
+		autoStage: pick<boolean>('auto_stage') ?? false,
+		updatedBy: pick<number>('updated_by') ?? 0,
+		updatedAtMicros: pick<number>('updated_at_micros') ?? 0
+	};
+}
+
+function toCamel(snake: string): string {
+	return snake.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+}
+
+function promoteFromRaw(raw: Record<string, unknown>): LorePromoteInfo {
+	const pick = <T>(k: string): T => ((raw[k] ?? raw[toCamel(k)]) as T);
+	return {
+		messageId: pick<string>('message_id') ?? '',
+		channelId: pick<number>('channel_id') ?? 0,
+		repoChannelId: pick<number>('repo_channel_id') ?? 0,
+		fileUrl: pick<string>('file_url') ?? '',
+		fileName: pick<string>('file_name') ?? '',
+		path: pick<string>('path') ?? '',
+		branch: pick<string>('branch') ?? '',
+		mode: pick<string>('mode') ?? '',
+		revisionHash: pick<string>('revision_hash') ?? '',
+		pendingReview: pick<boolean>('pending_review') ?? false,
+		reviewBranch: (pick<string | null>('review_branch') as string | null) ?? null,
+		promotedBy: pick<number>('promoted_by') ?? 0,
+		timestampMicros: pick<number>('timestamp_micros') ?? 0
+	};
+}
+
+async function loreApiError(res: Response): Promise<string> {
+	try {
+		const body = await res.json();
+		return String(body?.error ?? body?.message ?? body?.detail ?? res.statusText);
+	} catch {
+		return res.statusText;
+	}
+}
+
+export async function getLoreBinding(token: string, channelId: number): Promise<LoreChannelBinding | null> {
+	const res = await fetchWithTimeout(loreUrl(`/binding/${channelId}`), {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (res.status === 404) return null;
+	if (!res.ok) throw new Error(`Lore binding fetch failed: ${await loreApiError(res)}`);
+	const body = await res.json();
+	return bindingFromRaw(body?.binding);
+}
+
+export async function setLoreBinding(
+	token: string,
+	channelId: number,
+	binding: {
+		repoChannelId: number;
+		path: string;
+		branch?: string;
+		mode: string;
+		allowedTypes?: string[];
+		autoStage?: boolean;
+	}
+): Promise<LoreChannelBinding> {
+	const res = await fetchWithTimeout(loreUrl(`/binding/${channelId}`), {
+		method: 'PUT',
+		headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			repo_channel_id: binding.repoChannelId,
+			path: binding.path,
+			branch: binding.branch ?? 'main',
+			mode: binding.mode,
+			allowed_types: binding.allowedTypes ?? [],
+			auto_stage: binding.autoStage ?? false
+		})
+	});
+	if (!res.ok) throw new Error(await loreApiError(res));
+	return (await res.json()) as unknown as LoreChannelBinding;
+}
+
+export async function deleteLoreBinding(token: string, channelId: number): Promise<void> {
+	const res = await fetchWithTimeout(loreUrl(`/binding/${channelId}`), {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok && res.status !== 404) throw new Error(await loreApiError(res));
+}
+
+export async function promoteLoreFromMessage(
+	token: string,
+	req: {
+		messageId: string;
+		fileUrl: string;
+		repoChannelId?: number;
+		path?: string;
+		branch?: string;
+		mode?: 'direct' | 'stage';
+		collision?: 'overwrite';
+	}
+): Promise<LorePromoteResponse> {
+	const res = await fetchWithTimeout(loreUrl('/promote/from-message'), {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			message_id: req.messageId,
+			file_url: req.fileUrl,
+			repo_channel_id: req.repoChannelId,
+			path: req.path,
+			branch: req.branch,
+			mode: req.mode,
+			collision: req.collision
+		})
+	});
+	if (!res.ok) throw new Error(await loreApiError(res));
+	return (await res.json()) as LorePromoteResponse;
+}
+
+export async function getLorePromotesForMessage(token: string, messageId: string): Promise<LorePromoteInfo[]> {
+	const res = await fetchWithTimeout(loreUrl(`/promotes/${encodeURIComponent(messageId)}`), {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) throw new Error(await loreApiError(res));
+	const body = await res.json();
+	return Array.isArray(body?.promotes) ? body.promotes.map(promoteFromRaw) : [];
+}

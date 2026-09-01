@@ -7,6 +7,9 @@
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageItem from './MessageItem.svelte';
 	import MessageListOverlays from './message/MessageListOverlays.svelte';
+	import LorePromoteModal from './lore/LorePromoteModal.svelte';
+	import { hasAddonCapability } from '$lib/addonInventory';
+	import { fetchPromotesForMessage } from '$lib/lorePromoteCache';
 	import {
 		countMessageAttachments,
 		getMessageAttachmentActionItems,
@@ -644,12 +647,37 @@
 		contextMenuMessage = message;
 		contextMenuX = x;
 		contextMenuY = y;
+		// Keep promote badges fresh for the message being inspected.
+		if (loreAvailable) void fetchPromotesForMessage(message.id);
 		// Defer open so the same right-click event cannot instantly close the menu
 		// via overlay/window handlers mid-dispatch.
 		requestAnimationFrame(() => {
 			contextMenuVisible = true;
 		});
 	}
+
+	// --- Promote to Lore (spec 2026-08-28 P1.4) ---
+	let loreAvailable = false;
+	let showPromoteModal = false;
+	let promoteModalMessage: Message | null = null;
+	// Sticky-true probe, re-probed on failure (same pattern as ChannelSidebar).
+	void hasAddonCapability('lore').then((ok) => {
+		loreAvailable = ok;
+	});
+
+	$: canPromoteToLore =
+		loreAvailable &&
+		['owner', 'admin', 'developer', 'artist'].includes(
+			($currentUser?.highestRole ?? '').toLowerCase()
+		);
+
+	function handlePromoteToLore(): void {
+		if (!contextMenuMessage) return;
+		promoteModalMessage = contextMenuMessage;
+		showPromoteModal = true;
+		contextMenuVisible = false;
+	}
+
 	function handleEdit() {
 		if (!contextMenuMessage) return;
 		editingMessageId = contextMenuMessage.id;
@@ -2080,6 +2108,7 @@
 	}}
 	{handleReactionSelect}
 	{closeReactionPicker}
+	handlePromoteToLore={canPromoteToLore ? handlePromoteToLore : undefined}
 	{handleEdit}
 	{handleDelete}
 	{handlePin}
@@ -2097,6 +2126,13 @@
 	{queueBlendImport}
 	{closeEnlargedImage}
 	{closeEnlargedVideo}
+/>
+
+<LorePromoteModal
+	open={showPromoteModal}
+	message={promoteModalMessage}
+	channelId={activeChannelId}
+	onClose={() => (showPromoteModal = false)}
 />
 
 <style>

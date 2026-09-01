@@ -49,6 +49,7 @@
 	export let handleTogglePersonalPin: (message?: Message) => void;
 	export let handleDownload: () => void;
 	export let handleAddToAlbum: () => void;
+	export let handlePromoteToLore: (() => void) | undefined = undefined;
 	export let handleCopyQuote: () => void;
 	export let handleCopyMessageLink: () => void;
 	export let handleForward: () => void;
@@ -105,6 +106,7 @@
 		onTogglePersonalPin={handleTogglePersonalPin}
 		onDownload={handleDownload}
 		onAddToAlbum={handleAddToAlbum}
+		onPromoteToLore={handlePromoteToLore}
 		onCopyQuote={handleCopyQuote}
 		onCopyMessageLink={handleCopyMessageLink}
 		onForward={handleForward}

@@ -207,3 +207,21 @@ cargo test -p wabi-server 2>&1 | tail -3  # Should show "44 passed"
 ```
 
 The skill is ready when all assault queue gaps are closed and the test suite passes.
+## Lore chat-integration events (added 2026-09-01)
+
+New durable events + projections for the Lore × chat feature (spec:
+`docs/plans/2026-08-28-lore-chat-integration-spec.md`):
+
+| Event | Projection | Index | Record |
+|---|---|---|---|
+| `lore_binding_set` / `lore_binding_removed` | `LoreBindingProjection` | `lore_bindings` | `LoreBindingRecord` (key: channel_id LE) |
+| `lore_promoted` | `LorePromoteProjection` | `lore_promotes` | `LorePromoteRecord` (key: channel_id + message_id + 0x00 + file_url) |
+
+- Emitted from `WdbAdapter::lore_set_binding` / `lore_remove_binding` /
+  `lore_record_promote` via the standard `self.run(actor, op, stream, event_type, 6, payload, true, None)` shape.
+- Both are **append-only new state** — no postcard record was modified (golden rule 5 safe).
+  Binding `mode` is a string, not an enum, so adding modes never breaks replay.
+- Channel ids on the wire are `ch_{seq:x}` strings; lore addressing hex-parses them to i64
+  (`parseLoreChannelId` client-side, `strip_prefix("ch_") + from_str_radix(_, 16)` server-side).
+- Contract tests: `core/crates/wabi-server/tests/lore_binding_promote_contract.rs`
+  (replay durability + promote provenance surviving message soft-delete).

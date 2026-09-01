@@ -382,6 +382,207 @@ impl LoreTokenProjection {
     }
 }
 
+// ---------------------------------------------------------------------------
+// LoreBindingRecord — chat-channel → repo path binding ("pipe")
+//
+// One binding per channel. Mode is stored as a string ("none"|"direct"|"stage"|"hybrid")
+// rather than an enum so adding modes later never breaks postcard replay of older
+// events (golden rule 5).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoreBindingRecord {
+    pub channel_id: i64,
+    pub repo_channel_id: i64,
+    pub path: String,
+    pub branch: String,
+    pub mode: String,
+    pub allowed_types: Vec<String>,
+    pub auto_stage: bool,
+    pub updated_by: i64,
+    pub updated_at_micros: i64,
+}
+
+impl RecordCodec for LoreBindingRecord {
+    fn codec_name() -> &'static str {
+        "lore_bindings"
+    }
+}
+
+pub fn encode_binding_record(r: &LoreBindingRecord) -> Vec<u8> {
+    postcard::to_allocvec(r).expect("postcard serialization failed")
+}
+
+pub fn decode_binding_record(buf: &[u8]) -> Result<LoreBindingRecord> {
+    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
+        location: "lore binding projection".into(),
+        detail: format!("postcard decode failed: {e}"),
+    })
+}
+
+impl LoreBindingProjection {
+    /// Look up a channel's Lore binding.
+    pub fn get_binding(state: &ProjectionState, channel_id: i64) -> Result<Option<LoreBindingRecord>> {
+        let key = channel_id.to_le_bytes().to_vec();
+        match state.get("lore_bindings", &key) {
+            None => Ok(None),
+            Some(bytes) => decode_binding_record(&bytes).map(Some),
+        }
+    }
+
+    /// All bindings (for startup wiring and admin surfaces).
+    pub fn list_bindings(state: &ProjectionState) -> Result<Vec<LoreBindingRecord>> {
+        let mut results = Vec::new();
+        state.for_each("lore_bindings", |_key, value| {
+            if let Ok(record) = decode_binding_record(value) {
+                results.push(record);
+            }
+        });
+        Ok(results)
+    }
+}
+
+pub struct LoreBindingProjection;
+
+impl Projection for LoreBindingProjection {
+    fn event_type(&self) -> &str {
+        "lore_binding_set"
+    }
+
+    fn event_types(&self) -> Vec<&str> {
+        vec!["lore_binding_set", "lore_binding_removed"]
+    }
+
+    fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        match event.event_type.as_str() {
+            "lore_binding_set" => {
+                let record: LoreBindingRecord = decode_binding_record(&event.payload)?;
+                let key = record.channel_id.to_le_bytes().to_vec();
+                state.insert(
+                    "lore_bindings",
+                    key,
+                    encode_binding_record(&record),
+                    event.commit_seq,
+                );
+                Ok(())
+            }
+            "lore_binding_removed" => {
+                let channel_id_bytes: [u8; 8] = event.payload[..8].try_into().map_err(|_| {
+                    crate::error::WabiError::Corrupt {
+                        location: "lore binding projection".into(),
+                        detail: "invalid channel_id in remove payload".into(),
+                    }
+                })?;
+                let key = i64::from_le_bytes(channel_id_bytes).to_le_bytes().to_vec();
+                state.remove("lore_bindings", &key);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LorePromoteRecord — provenance for attachments promoted from chat into Lore
+//
+// This is the durable link between a chat message/attachment and the Lore
+// commit (or pending review branch) it produced. It deliberately outlives the
+// chat message: deleting the message never removes this record (spec
+// 2026-08-28, settled decision 7/9).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LorePromoteRecord {
+    pub message_id: String,
+    pub channel_id: i64,
+    pub repo_channel_id: i64,
+    /// Attachment URL as it appeared on the message (`/uploads/{filename}`).
+    pub file_url: String,
+    pub file_name: String,
+    pub path: String,
+    pub branch: String,
+    /// "direct" | "stage" — the mode actually used at promote time.
+    pub mode: String,
+    pub revision_hash: String,
+    pub pending_review: bool,
+    pub review_branch: Option<String>,
+    pub promoted_by: i64,
+    pub timestamp_micros: i64,
+}
+
+impl RecordCodec for LorePromoteRecord {
+    fn codec_name() -> &'static str {
+        "lore_promotes"
+    }
+}
+
+pub fn encode_promote_record(r: &LorePromoteRecord) -> Vec<u8> {
+    postcard::to_allocvec(r).expect("postcard serialization failed")
+}
+
+pub fn decode_promote_record(buf: &[u8]) -> Result<LorePromoteRecord> {
+    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
+        location: "lore promote projection".into(),
+        detail: format!("postcard decode failed: {e}"),
+    })
+}
+
+/// Key: channel_id (8 LE) + message_id + 0x00 + file_url.
+pub fn encode_promote_key(channel_id: i64, message_id: &str, file_url: &str) -> Vec<u8> {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&channel_id.to_le_bytes());
+    buf.extend_from_slice(message_id.as_bytes());
+    buf.push(0);
+    buf.extend_from_slice(file_url.as_bytes());
+    buf
+}
+
+impl LorePromoteProjection {
+    /// All promotes originating from a message (one per attachment promoted).
+    pub fn promotes_for_message(state: &ProjectionState, message_id: &str) -> Result<Vec<LorePromoteRecord>> {
+        let mut results = Vec::new();
+        state.for_each("lore_promotes", |_key, value| {
+            if let Ok(record) = decode_promote_record(value) {
+                if record.message_id == message_id {
+                    results.push(record);
+                }
+            }
+        });
+        Ok(results)
+    }
+
+    /// Promotes originating from a channel (prefix scan on channel_id).
+    pub fn promotes_for_channel(state: &ProjectionState, channel_id: i64) -> Result<Vec<LorePromoteRecord>> {
+        let prefix = channel_id.to_le_bytes().to_vec();
+        let mut results = Vec::new();
+        state.prefix_scan("lore_promotes", &prefix, |_key, value| {
+            if let Ok(record) = decode_promote_record(value) {
+                results.push(record);
+            }
+        });
+        Ok(results)
+    }
+}
+
+pub struct LorePromoteProjection;
+
+impl Projection for LorePromoteProjection {
+    fn event_type(&self) -> &str {
+        "lore_promoted"
+    }
+
+    fn event_types(&self) -> Vec<&str> {
+        vec!["lore_promoted"]
+    }
+
+    fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        let record: LorePromoteRecord = decode_promote_record(&event.payload)?;
+        let key = encode_promote_key(record.channel_id, &record.message_id, &record.file_url);
+        state.insert("lore_promotes", key, encode_promote_record(&record), event.commit_seq);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,5 +788,91 @@ mod tests {
         proj.apply(&revoke, &state).unwrap();
         assert!(LoreTokenProjection::get_token(&state, "deadbeef").unwrap().is_none());
         assert!(LoreTokenProjection::list_tokens(&state, 42).unwrap().is_empty());
+    }
+
+    #[test]
+    fn binding_set_get_remove() {
+        let state = ProjectionState::new();
+        let proj = LoreBindingProjection;
+        let record = LoreBindingRecord {
+            channel_id: 7,
+            repo_channel_id: 42,
+            path: "/art/concepts/".into(),
+            branch: "main".into(),
+            mode: "hybrid".into(),
+            allowed_types: vec!["image/*".into()],
+            auto_stage: false,
+            updated_by: 3,
+            updated_at_micros: 1,
+        };
+        let set = DurableEvent {
+            commit_seq: 1,
+            stream_id: "7".into(),
+            event_type: "lore_binding_set".to_string(),
+            payload: encode_binding_record(&record),
+        };
+        proj.apply(&set, &state).unwrap();
+
+        let got = LoreBindingProjection::get_binding(&state, 7).unwrap().unwrap();
+        assert_eq!(got.repo_channel_id, 42);
+        assert_eq!(got.mode, "hybrid");
+        assert_eq!(got.allowed_types, vec!["image/*".to_string()]);
+        assert_eq!(LoreBindingProjection::list_bindings(&state).unwrap().len(), 1);
+
+        let remove = DurableEvent {
+            commit_seq: 2,
+            stream_id: "7".into(),
+            event_type: "lore_binding_removed".to_string(),
+            payload: 7i64.to_le_bytes().to_vec(),
+        };
+        proj.apply(&remove, &state).unwrap();
+        assert!(LoreBindingProjection::get_binding(&state, 7).unwrap().is_none());
+        assert!(LoreBindingProjection::list_bindings(&state).unwrap().is_empty());
+    }
+
+    #[test]
+    fn promote_record_roundtrip_and_queries() {
+        let state = ProjectionState::new();
+        let proj = LorePromoteProjection;
+        let record = LorePromoteRecord {
+            message_id: "msg_abc".into(),
+            channel_id: 7,
+            repo_channel_id: 42,
+            file_url: "/uploads/x.png".into(),
+            file_name: "x.png".into(),
+            path: "/art/x.png".into(),
+            branch: "main".into(),
+            mode: "direct".into(),
+            revision_hash: "abc123".into(),
+            pending_review: false,
+            review_branch: None,
+            promoted_by: 3,
+            timestamp_micros: 1,
+        };
+        let ev = DurableEvent {
+            commit_seq: 1,
+            stream_id: "7".into(),
+            event_type: "lore_promoted".to_string(),
+            payload: encode_promote_record(&record),
+        };
+        proj.apply(&ev, &state).unwrap();
+
+        assert_eq!(LorePromoteProjection::promotes_for_message(&state, "msg_abc").unwrap().len(), 1);
+        assert_eq!(LorePromoteProjection::promotes_for_channel(&state, 7).unwrap().len(), 1);
+        assert!(LorePromoteProjection::promotes_for_channel(&state, 9).unwrap().is_empty());
+
+        // Re-promote of the same attachment replaces (idempotent key).
+        let mut updated = record.clone();
+        updated.revision_hash = "def456".into();
+        let ev2 = DurableEvent {
+            commit_seq: 2,
+            stream_id: "7".into(),
+            event_type: "lore_promoted".to_string(),
+            payload: encode_promote_record(&updated),
+        };
+        proj.apply(&ev2, &state).unwrap();
+        let got = LorePromoteProjection::promotes_for_message(&state, "msg_abc").unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].revision_hash, "def456");
     }
 }
