@@ -28,6 +28,8 @@ export function estimateBytes(elements: BoardElement[]): number {
 	for (const el of elements) {
 		bytes += 200;
 		if (el.type === 'stroke') bytes += el.points.length * 24;
+		if (el.type === 'code') bytes += el.code.length;
+		if (el.type === 'text') bytes += el.text.length * 2;
 	}
 	return bytes;
 }

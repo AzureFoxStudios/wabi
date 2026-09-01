@@ -16,8 +16,18 @@
 	} from '$lib/whiteboard/boardStore';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
 	import { onMathPlacement, buildMathElement, type MathPlacement } from '$lib/whiteboard/tools';
+	import { uploadWhiteboardFont, whiteboardFonts } from '$lib/whiteboard/fontAssets';
 
 	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text', 'math', 'eraser']);
+
+	const BUILT_IN_FONTS: Array<{ label: string; css: string }> = [
+		{ label: 'Sans', css: 'sans-serif' },
+		{ label: 'Serif', css: 'serif' },
+		{ label: 'Mono', css: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
+		{ label: 'Cursive', css: 'cursive' },
+		{ label: 'Fantasy', css: 'fantasy' },
+		{ label: 'System UI', css: 'system-ui, sans-serif' }
+	];
 
 	const tools: Array<{ id: ToolType | 'math'; label: string; shortcut: string; icon: string }> = [
 		{ id: 'select', label: 'Select', shortcut: 'V', icon: 'cursor' },
@@ -37,6 +47,7 @@
 	export let onExportPng: (() => void) | null = null;
 	export let onExportJson: (() => void) | null = null;
 	export let onImportImages: (() => void) | null = null;
+	export let boardId = '';
 	export let exportBusy = false;
 	export let importDisabled = false;
 	export let readOnly = false;
@@ -45,10 +56,66 @@
 	let strokeColorInput = $currentStyle.strokeColor;
 	let fillColorInput = $currentStyle.fillColor;
 	let fontSizeInput = $currentStyle.fontSize || 16;
+	let fontUploadInput: HTMLInputElement | null = null;
+	let fontUploadBusy = false;
+	let fontError = '';
+	let fontErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
 	$: strokeColorInput = $currentStyle.strokeColor;
 	$: fillColorInput = $currentStyle.fillColor;
 	$: fontSizeInput = $currentStyle.fontSize || 16;
+
+	$: boardFonts = ($whiteboardFonts[boardId] || []);
+	$: selectionTextCount = $elements.filter((e) => e.type === 'text' && $selection.has(e.id)).length;
+	$: fontPickerVisible = $activeTool === 'text' || selectionTextCount > 0;
+	$: fontSelectValue = $currentStyle.fontId
+		? `custom:${$currentStyle.fontId}`
+		: `builtin:${$currentStyle.fontFamily || 'sans-serif'}`;
+
+	function applyFontChoice(value: string): void {
+		if (value === '__add__') {
+			fontUploadInput?.click();
+			return;
+		}
+		if (value.startsWith('custom:')) {
+			const fontId = value.slice('custom:'.length);
+			const font = boardFonts.find((f) => f.fontId === fontId);
+			if (!font) return;
+			boardStore.setStyle({ fontId, fontFamily: `"${font.family}"` });
+			applyFontToSelection({ fontId, fontFamily: `"${font.family}"` });
+			return;
+		}
+		const css = value.slice('builtin:'.length) || 'sans-serif';
+		boardStore.setStyle({ fontId: undefined, fontFamily: css });
+		applyFontToSelection({ fontId: undefined, fontFamily: css });
+	}
+
+	function applyFontToSelection(font: { fontId?: string; fontFamily: string }): void {
+		const entries = $elements
+			.filter((e) => e.type === 'text' && $selection.has(e.id))
+			.map((e) => ({ id: e.id, partial: font }));
+		if (entries.length > 0) boardStore.updateElementsBatch(entries);
+	}
+
+	async function handleFontUpload(event: Event): Promise<void> {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file || fontUploadBusy || !boardId) return;
+		fontUploadBusy = true;
+		fontError = '';
+		try {
+			const font = await uploadWhiteboardFont(boardId, file);
+			boardStore.setStyle({ fontId: font.fontId, fontFamily: `"${font.family}"` });
+			applyFontToSelection({ fontId: font.fontId, fontFamily: `"${font.family}"` });
+		} catch (error) {
+			fontError = error instanceof Error ? error.message : 'Font upload failed';
+			if (fontErrorTimer) clearTimeout(fontErrorTimer);
+			fontErrorTimer = setTimeout(() => { fontError = ''; fontErrorTimer = null; }, 6000);
+		} finally {
+			fontUploadBusy = false;
+		}
+	}
 
 	$: policyBadge = (() => {
 		const p = $policy;
@@ -520,6 +587,47 @@
 				<span class="wb-brush-row">
 					<input type="range" min="8" max="120" step="1" value={fontSizeInput} on:input={(e) => setFontSize(Number((e.currentTarget as HTMLInputElement).value))} class="wb-brush-slider" disabled={readOnly} aria-label="Text size" />
 					<span class="wb-brush-value">{fontSizeInput}px</span>
+				</span>
+			</label>
+		</div>
+	{/if}
+
+	{#if fontPickerVisible}
+		<div class="wb-toolbar-section context-settings">
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Font</span>
+				<span class="wb-brush-row">
+					<select
+						class="wb-brush-select"
+						value={fontSelectValue}
+						on:change={(e) => applyFontChoice((e.currentTarget as HTMLSelectElement).value)}
+						disabled={readOnly}
+						aria-label="Font family"
+					>
+						{#each BUILT_IN_FONTS as font (font.css)}
+							<option value={`builtin:${font.css}`}>{font.label}</option>
+						{/each}
+						{#if boardFonts.length > 0}
+							<optgroup label="Board fonts">
+								{#each boardFonts as font (font.fontId)}
+									<option value={`custom:${font.fontId}`}>{font.family}</option>
+								{/each}
+							</optgroup>
+						{/if}
+						{#if boardId && !readOnly}
+							<option value="__add__">+ Add font…</option>
+						{/if}
+					</select>
+					<input
+						type="file"
+						accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+						bind:this={fontUploadInput}
+						on:change={handleFontUpload}
+						class="wb-font-upload-input"
+						aria-label="Upload font file"
+					/>
+					{#if fontUploadBusy}<span class="wb-brush-value">Uploading…</span>{/if}
+					{#if fontError}<span class="wb-brush-value wb-font-error" role="alert">{fontError}</span>{/if}
 				</span>
 			</label>
 		</div>
@@ -1152,5 +1260,23 @@
 		.wb-math-btn:hover:not(:disabled) {
 			transform: none;
 		}
+	}
+
+	.wb-font-upload-input {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		opacity: 0;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+	}
+
+	.wb-font-error {
+		color: #f87171;
+		max-width: 220px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 </style>

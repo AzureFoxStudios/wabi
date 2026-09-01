@@ -2634,10 +2634,6 @@ function autoOpenChannelCallPanel(): void {
 	// explicit panel toggle (openChannelCallPanel from the sidebar/panel
 	// buttons) still sets it.
 	callPanelDismissedByUser = false;
-<<<<<<< HEAD
-=======
-	channelCallPanelOpen.set(true);
->>>>>>> origin/arena/01a04113-wabi
 	summonCallsStubOnJoin();
 }
 

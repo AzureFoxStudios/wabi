@@ -64,7 +64,16 @@ export interface TextElement extends ElementBase {
 	text: string;
 	fontSize: number;
 	fontFamily: string;
+	/** Board-scoped custom font (fontAssets); when set it wins over fontFamily. */
+	fontId?: string;
 	textAlign: 'left' | 'center' | 'right';
+}
+
+export interface CodeElement extends ElementBase {
+	type: 'code';
+	code: string;
+	language: string;
+	fontSize: number;
 }
 
 export interface ImageElement extends ElementBase {
@@ -90,6 +99,7 @@ export type BoardElement =
 	| EllipseElement
 	| ArrowElement
 	| TextElement
+	| CodeElement
 	| ImageElement
 	| MathElement;
 
@@ -106,6 +116,8 @@ export const DEFAULT_STYLE = {
 	opacity: 1,
 	hardness: 1,
 	fontSize: 16,
+	fontFamily: 'sans-serif',
+	fontId: undefined,
 	strokeDash: undefined,
 	borderRadius: 0
 } as const;
