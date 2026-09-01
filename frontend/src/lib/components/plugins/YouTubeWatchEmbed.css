@@ -35,7 +35,7 @@
 	background: #000;
 }
 .player-host { width: 100%; height: 100%; }
-.player-host :global(iframe) { width: 100%; height: 100%; border: 0; }
+.player-host iframe { width: 100%; height: 100%; border: 0; }
 .no-video { width: 100%; height: 100%; display: grid; place-items: center; color: #cbd5e1; font-size: 0.85rem; }
 .overlay-toggle { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--text-secondary, #94a3b8); font-size: 0.75rem; }
 .overlay-toggle input { margin: 0; }
