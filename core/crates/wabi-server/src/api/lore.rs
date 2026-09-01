@@ -154,22 +154,52 @@ async fn lore_role(state: &AppState, user_id: i64) -> Option<String> {
 }
 
 async fn can_edit_lore(state: &AppState, user_id: i64) -> bool {
-    if state.is_owner(user_id).await || state.is_admin(user_id).await {
-        return true;
-    }
-    match lore_role(state, user_id).await.map(|r| r.to_ascii_lowercase()) {
-        Some(r) => matches!(r.as_str(), "owner" | "admin" | "developer"),
-        None => false,
-    }
+    // Legacy gate preserved: commit OR manage-binding capability.
+    can_lore(state, user_id, "lore.commit").await
+        || can_lore(state, user_id, "lore.manage-binding").await
 }
 
 async fn can_asset_write_lore(state: &AppState, user_id: i64) -> bool {
-    if can_edit_lore(state, user_id).await {
-        return true;
+    can_lore(state, user_id, "lore.stage").await
+}
+
+/// Granular Lore capabilities (spec 2026-08-28 P1.2), derived from workspace
+/// roles. Phase 1 mapping (no per-channel override store yet — Phase 2):
+///   owner/admin    → everything
+///   developer      → view, stage, commit, approve, lock
+///   artist         → view, stage, lock
+///   viewer/member  → view
+/// `may_write_lore` (connect-token scope) remains an orthogonal transport gate.
+pub(crate) async fn can_lore(state: &AppState, user_id: i64, capability: &str) -> bool {
+    const OWNER_ADMIN_CAPS: [&str; 7] = [
+        "lore.view",
+        "lore.stage",
+        "lore.commit",
+        "lore.approve",
+        "lore.lock",
+        "lore.manage-binding",
+        "lore.admin",
+    ];
+    const DEVELOPER_CAPS: [&str; 5] = [
+        "lore.view",
+        "lore.stage",
+        "lore.commit",
+        "lore.approve",
+        "lore.lock",
+    ];
+    const ARTIST_CAPS: [&str; 3] = ["lore.view", "lore.stage", "lore.lock"];
+
+    if state.is_owner(user_id).await || state.is_admin(user_id).await {
+        return OWNER_ADMIN_CAPS.contains(&capability);
     }
     match lore_role(state, user_id).await.map(|r| r.to_ascii_lowercase()) {
-        Some(r) => r == "artist",
-        None => false,
+        Some(r) => match r.as_str() {
+            "owner" | "admin" => OWNER_ADMIN_CAPS.contains(&capability),
+            "developer" => DEVELOPER_CAPS.contains(&capability),
+            "artist" => ARTIST_CAPS.contains(&capability),
+            _ => capability == "lore.view",
+        },
+        None => capability == "lore.view",
     }
 }
 
@@ -206,6 +236,11 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Artist-friendly review flow (auto_branch_on_upload)
         .route("/repos/{channel_id}/review/{branch_name}/approve", axum::routing::post(approve_review_branch))
         .route("/repos/{channel_id}/review/{branch_name}/reject", axum::routing::post(reject_review_branch))
+        // Chat-channel → repo bindings
+        .route("/binding/{channel_id}", axum::routing::get(get_binding).put(set_binding).delete(delete_binding))
+        // Promote from chat
+        .route("/promote/from-message", axum::routing::post(promote_from_message))
+        .route("/promotes/{message_id}", axum::routing::get(promotes_for_message))
         // Health
         .route("/health", axum::routing::get(health_check))
         // Call recording upload (auto-resolves the configured Recordings channel)
@@ -463,6 +498,417 @@ async fn update_repo(
         .await
         .ok_or_else(|| AppError::NotFound("No Lore repo for this channel".into()))?;
     Ok(Json(serde_json::json!(repo)))
+}
+
+// ---------------------------------------------------------------------------
+// Channel Lore bindings — chat-channel → repo path "pipe" (spec 2026-08-28 P1.1)
+// ---------------------------------------------------------------------------
+
+const LORE_BINDING_MODES: [&str; 4] = ["none", "direct", "stage", "hybrid"];
+
+fn now_micros() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros() as i64)
+        .unwrap_or(0)
+}
+
+/// GET /binding/{channel_id} — the channel's binding, or `{ "binding": null }`.
+async fn get_binding(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let binding = state.wdb.lore_get_binding(channel_id).await?;
+    Ok(Json(serde_json::json!({ "binding": binding })))
+}
+
+/// PUT /binding/{channel_id} — create or replace the channel's binding.
+#[derive(Deserialize)]
+struct SetBindingPayload {
+    repo_channel_id: i64,
+    path: String,
+    branch: Option<String>,
+    mode: String,
+    #[serde(default)]
+    allowed_types: Vec<String>,
+    #[serde(default)]
+    auto_stage: bool,
+}
+
+async fn set_binding(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<SetBindingPayload>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_lore(&state, auth.user_id, "lore.manage-binding").await {
+        return Err(AppError::Forbidden(
+            "Managing Lore bindings requires the lore.manage-binding capability".into(),
+        ));
+    }
+    let mode = payload.mode.to_lowercase();
+    if !LORE_BINDING_MODES.contains(&mode.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "Invalid binding mode '{}': expected one of none|direct|stage|hybrid",
+            payload.mode
+        )));
+    }
+    let path = payload.path.trim().to_string();
+    if !path.starts_with('/') || path.contains("..") {
+        return Err(AppError::BadRequest(
+            "Binding path must be absolute within the repo (start with '/') and contain no '..'".into(),
+        ));
+    }
+    // The target repo must actually be registered (and the setter must be able to see it).
+    ensure_channel_member(&state, payload.repo_channel_id, auth.user_id).await?;
+    if state.wdb.lore_get_repo(payload.repo_channel_id).await?.is_none() {
+        return Err(AppError::NotFound(format!(
+            "Channel {} has no Lore repo to bind to",
+            payload.repo_channel_id
+        )));
+    }
+
+    let record = wabidb::projections::lore::LoreBindingRecord {
+        channel_id,
+        repo_channel_id: payload.repo_channel_id,
+        path,
+        branch: payload.branch.unwrap_or_else(|| "main".into()),
+        mode,
+        allowed_types: payload.allowed_types,
+        auto_stage: payload.auto_stage,
+        updated_by: auth.user_id,
+        updated_at_micros: now_micros(),
+    };
+    state.wdb.lore_set_binding(&record).await?;
+    info!(channel_id, repo_channel_id = record.repo_channel_id, "Lore binding set via API");
+    Ok(Json(serde_json::json!(record)))
+}
+
+/// DELETE /binding/{channel_id}
+async fn delete_binding(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    if !can_lore(&state, auth.user_id, "lore.manage-binding").await {
+        return Err(AppError::Forbidden(
+            "Managing Lore bindings requires the lore.manage-binding capability".into(),
+        ));
+    }
+    if state.wdb.lore_get_binding(channel_id).await?.is_none() {
+        return Err(AppError::NotFound("No Lore binding for this channel".into()));
+    }
+    state.wdb.lore_remove_binding(channel_id, auth.user_id).await?;
+    info!(channel_id, "Lore binding removed via API");
+    Ok(Json(serde_json::json!({ "status": "ok" })))
+}
+
+// ---------------------------------------------------------------------------
+// Promote from chat (spec 2026-08-28 P1.3)
+// ---------------------------------------------------------------------------
+
+/// MIME-group → common extensions, for `allowed_types` entries like `image/*`.
+fn mime_group_extensions(group: &str) -> &'static [&'static str] {
+    match group {
+        "image" => &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "tiff"],
+        "video" => &["mp4", "webm", "mov", "mkv", "avi"],
+        "audio" => &["mp3", "wav", "ogg", "flac", "aac", "m4a"],
+        "text" => &["txt", "md", "json", "csv", "xml", "yml", "yaml"],
+        _ => &[],
+    }
+}
+
+/// True when `file_name`'s extension matches the binding's allowed-types list.
+/// Empty list = everything allowed. Entries may be `group/*`, `.ext`, or `ext`.
+fn attachment_allowed(file_name: &str, allowed: &[String]) -> bool {
+    if allowed.is_empty() {
+        return true;
+    }
+    let ext = file_name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    allowed.iter().any(|entry| {
+        let entry = entry.trim().to_ascii_lowercase();
+        if let Some(group) = entry.strip_suffix("/*") {
+            return mime_group_extensions(group).contains(&ext.as_str());
+        }
+        let wanted = entry.strip_prefix('.').unwrap_or(&entry);
+        !ext.is_empty() && ext == wanted
+    })
+}
+
+/// POST /promote/from-message — promote a chat attachment into a Lore repo.
+#[derive(Deserialize)]
+struct PromoteFromMessagePayload {
+    message_id: String,
+    /// The attachment's `file_url` as it appears on the message.
+    file_url: String,
+    /// Overrides when the channel has no binding (or to deviate from it).
+    #[serde(default)]
+    repo_channel_id: Option<i64>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    branch: Option<String>,
+    /// "direct" | "stage" — overrides the binding mode for this promote.
+    #[serde(default)]
+    mode: Option<String>,
+    /// Set to "overwrite" to confirm a collision prompt (new revision).
+    #[serde(default)]
+    collision: Option<String>,
+}
+
+async fn promote_from_message(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(payload): Json<PromoteFromMessagePayload>,
+) -> Result<Json<serde_json::Value>> {
+    let message = state
+        .wdb
+        .get_message_typed(&payload.message_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Message {} not found", payload.message_id)))?;
+    // Channel ids are "ch_{seq:x}" strings; lore addressing is numeric.
+    let channel_id: i64 = message
+        .channel_id
+        .strip_prefix("ch_")
+        .and_then(|h| i64::from_str_radix(h, 16).ok())
+        .ok_or_else(|| {
+            AppError::BadRequest(format!("Message channel {} is not Lore-bindable", message.channel_id))
+        })?;
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+
+    let attachment = message
+        .files
+        .iter()
+        .find(|f| f.file_url == payload.file_url)
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "Message {} has no attachment {}",
+                payload.message_id, payload.file_url
+            ))
+        })?;
+
+    let binding = state.wdb.lore_get_binding(channel_id).await?;
+    let repo_channel_id = payload
+        .repo_channel_id
+        .or_else(|| binding.as_ref().map(|b| b.repo_channel_id))
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "This channel has no Lore binding; provide repo_channel_id/path/branch explicitly"
+                    .into(),
+            )
+        })?;
+    let base_path = payload
+        .path
+        .clone()
+        .or_else(|| binding.as_ref().map(|b| b.path.clone()))
+        .unwrap_or_else(|| "/".into());
+    let target_path = format!(
+        "{}/{}",
+        base_path.trim_end_matches('/'),
+        attachment.file_name.replace(['/', '\\', '\0'], "_")
+    );
+    if target_path.contains("..") {
+        return Err(AppError::BadRequest("Invalid target path".into()));
+    }
+    let branch = payload
+        .branch
+        .clone()
+        .or_else(|| binding.as_ref().map(|b| b.branch.clone()))
+        .unwrap_or_else(|| "main".into());
+
+    // Capability + binding type gate (mode "none" allows only explicit promotes,
+    // which this always is — the context-menu action — so "none" never blocks here).
+    let can_commit = can_lore(&state, auth.user_id, "lore.commit").await;
+    let can_stage = can_lore(&state, auth.user_id, "lore.stage").await;
+    if !can_commit && !can_stage {
+        return Err(AppError::Forbidden(
+            "Promoting to Lore requires the lore.stage or lore.commit capability".into(),
+        ));
+    }
+    if let Some(b) = &binding {
+        if !attachment_allowed(&attachment.file_name, &b.allowed_types) {
+            return Err(AppError::BadRequest(format!(
+                "This channel's Lore binding only accepts [{}]; '{}' was not promoted",
+                b.allowed_types.join(", "),
+                attachment.file_name
+            )));
+        }
+    }
+
+    // Resolve mode: explicit override > binding mode; hybrid splits on capability.
+    let mode = payload
+        .mode
+        .as_deref()
+        .map(str::to_lowercase)
+        .or_else(|| binding.as_ref().map(|b| b.mode.clone()))
+        .unwrap_or_else(|| "direct".into());
+    let mode = match mode.as_str() {
+        "stage" => "stage".to_string(),
+        "hybrid" if !can_commit => "stage".to_string(),
+        _ => "direct".to_string(),
+    };
+
+    let lore = lore_service(&state).await?;
+    if repo_read_only(&lore, repo_channel_id).await {
+        return Err(AppError::Forbidden("Target repo is a read-only mirror".into()));
+    }
+
+    // Collision guard (spec D2): the engine's upload_file overwrites silently,
+    // so we check the working tree first and force an explicit choice.
+    let rel = target_path.trim_start_matches('/');
+    if payload.collision.as_deref() != Some("overwrite") {
+        if let Some(tree) = lore.repo_working_tree(repo_channel_id).await {
+            if tree.join(rel).exists() {
+                return Ok(Json(serde_json::json!({
+                    "collision": true,
+                    "path": target_path,
+                    "message_id": payload.message_id,
+                    "file_url": payload.file_url,
+                    "options": ["overwrite", "rename", "cancel"]
+                })));
+            }
+        }
+    }
+
+    // Local bytes: /uploads/{filename} on disk.
+    let filename = attachment
+        .file_url
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    if filename.is_empty() || filename.contains("..") {
+        return Err(AppError::BadRequest("Invalid attachment URL".into()));
+    }
+    let uploads_dir = std::path::PathBuf::from(&state.config.uploads_dir);
+    let local_path = uploads_dir.join(&filename);
+    if !local_path.exists() {
+        return Err(AppError::NotFound(format!(
+            "Attachment bytes for {} are no longer on disk",
+            attachment.file_url
+        )));
+    }
+
+    // Provenance goes in the commit message: the lore engine has no KV metadata
+    // and drops author_id (spike S1), so this string + the WabiDB promote event
+    // are the durable record.
+    let commit_message = format!(
+        "Promoted from channel {} by user {}: {} (msg:{})",
+        channel_id, auth.user_id, attachment.file_name, payload.message_id
+    );
+
+    let (result, pending_review, review_branch) = if mode == "stage" {
+        // Review-gated: commit on a dedicated branch; a reviewer merges via the
+        // existing approve_review_branch flow.
+        let branch_name = format!(
+            "chat/u{}-{}",
+            auth.user_id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        );
+        lore.create_branch(repo_channel_id, &branch_name, None).await?;
+        lore.switch_branch(repo_channel_id, &branch_name).await?;
+        let result = lore
+            .upload_file(
+                repo_channel_id,
+                local_path.to_str().unwrap_or_default(),
+                &target_path,
+                &commit_message,
+                auth.user_id,
+            )
+            .await?;
+        (result, true, Some(branch_name))
+    } else {
+        if branch != "main" {
+            lore.switch_branch(repo_channel_id, &branch).await?;
+        }
+        let result = lore
+            .upload_file(
+                repo_channel_id,
+                local_path.to_str().unwrap_or_default(),
+                &target_path,
+                &commit_message,
+                auth.user_id,
+            )
+            .await?;
+        if branch != "main" {
+            lore.switch_branch(repo_channel_id, "main").await?;
+        }
+        (result, false, None)
+    };
+
+    let record = wabidb::projections::lore::LorePromoteRecord {
+        message_id: payload.message_id.clone(),
+        channel_id,
+        repo_channel_id,
+        file_url: attachment.file_url.clone(),
+        file_name: attachment.file_name.clone(),
+        path: target_path.clone(),
+        branch: review_branch.clone().unwrap_or_else(|| branch.clone()),
+        mode: mode.clone(),
+        revision_hash: result.revision.hash.clone(),
+        pending_review,
+        review_branch: review_branch.clone(),
+        promoted_by: auth.user_id,
+        timestamp_micros: now_micros(),
+    };
+    state.wdb.lore_record_promote(&record).await?;
+
+    // Audit system message in the origin channel. `^c/` renders as a citation
+    // chip with drift detection in the existing frontend.
+    let short_rev = &result.revision.hash[..result.revision.hash.len().min(7)];
+    let system_content = if pending_review {
+        format!(
+            "📋 Staged `{}` for review → ^c{} (branch {}, rev {})",
+            attachment.file_name, target_path, review_branch.clone().unwrap_or_default(), short_rev
+        )
+    } else {
+        format!(
+            "📦 Promoted `{}` → ^c{} (rev {})",
+            attachment.file_name, target_path, short_rev
+        )
+    };
+    state
+        .wdb
+        .send_message(&message.channel_id, auth.user_id as u64, &system_content, false, &[])
+        .await?;
+
+    info!(channel_id, repo_channel_id, path = %target_path, pending_review, "Attachment promoted to Lore from chat");
+    Ok(Json(serde_json::json!({
+        "revision": result.revision,
+        "path": target_path,
+        "branch": record.branch,
+        "mode": mode,
+        "pending_review": pending_review,
+        "review_branch": review_branch,
+        "file": result.file_info,
+    })))
+}
+
+/// GET /promotes/{message_id} — promote state for a message's attachments
+/// (drives the committed/staged badge).
+async fn promotes_for_message(
+    State(state): State<Arc<AppState>>,
+    auth: OptionalAuthUser,
+    Path(message_id): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let Some(auth) = auth.0 else {
+        return Err(AppError::Unauthorized("Authentication required".into()));
+    };
+    let promotes = state.wdb.lore_promotes_for_message(&message_id).await?;
+    if let Some(first) = promotes.first() {
+        ensure_channel_member(&state, first.channel_id, auth.user_id).await?;
+    }
+    Ok(Json(serde_json::json!({ "promotes": promotes })))
 }
 
 /// POST /repos/{channel_id}/external — register a read-only external mirror.

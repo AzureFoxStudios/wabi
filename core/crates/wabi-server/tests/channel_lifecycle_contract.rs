@@ -139,7 +139,7 @@ async fn dm_channel_lives_under_its_caller_assigned_id() {
     let dm_id = "dm-user-1-user-2";
     state
         .wdb
-        .create_dm_channel(dm_id, "DM with bob", Some(&["user-1", "user-2"]), 1)
+        .create_dm_channel(dm_id, "DM with bob", Some(&["user-1".to_string(), "user-2".to_string()]), 1)
         .await
         .unwrap();
 
@@ -174,7 +174,7 @@ async fn group_channel_lives_under_its_caller_assigned_id() {
     let group_id = "group-1234";
     state
         .wdb
-        .upsert_group(group_id, "the crew", "group", Some(&["user-1", "user-2"]), None, None)
+        .upsert_group(group_id, "the crew", "group", Some(&["user-1".to_string(), "user-2".to_string()]), None, None)
         .await
         .unwrap();
 

@@ -16,6 +16,7 @@
 	export let onReply: () => void;
 	export let onDownload: (() => void) | undefined = undefined;
 	export let onAddToAlbum: (() => void) | undefined = undefined;
+	export let onPromoteToLore: (() => void) | undefined = undefined;
 	export let onCopyMessageLink: (() => void) | undefined = undefined;
 	export let onCopyQuote: (() => void) | undefined = undefined;
 	export let onForward: (() => void) | undefined = undefined;
@@ -114,6 +115,15 @@
 				label: get(_)('context_menu.add_to_album'),
 				icon: 'archive',
 				onSelect: onAddToAlbum
+			});
+		}
+
+		if (hasFile && onPromoteToLore) {
+			list.push({
+				id: 'promote-to-lore',
+				label: 'Promote to Lore…',
+				icon: 'archive',
+				onSelect: onPromoteToLore
 			});
 		}
 

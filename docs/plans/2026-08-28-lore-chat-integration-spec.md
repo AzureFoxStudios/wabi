@@ -159,3 +159,57 @@ Ordered slices; each ships with tests (see §7 constraints).
 - v1 draft: "Lore Integration UX & Feature Specification" (external paste, 2026-08-28 22:34) — full detail on promote flows, staging UX, snippets/patch system, context menus, templates.
 - v2 draft: "…Comprehensive UX & Feature Specification (v2)" (external paste, 2026-08-28 22:29) — personas, content-model question, annotations, moderation/legal, lifecycle edge cases, open decisions.
 - Both are superseded by this doc; where they conflict with the tree, the tree wins.
+
+---
+
+## 9. Implementation status — Phase 1 backend + frontend (2026-09-01)
+
+**Done (verified: wabidb 886 tests, wabi-server 343 tests incl. 2 new contract tests, svelte-check 0 errors):**
+
+- **S1 spike findings** (opencode audit of `lore/backend/lib.rs`): `upload_file()` overwrites
+  unconditionally (no etag guard) → collision prompt enforced at the promote endpoint; commits
+  carry no KV provenance and `commit_staged()` drops `author_id` → provenance lives in the commit
+  message string + the WabiDB promote event; **no revert/undo exists** → D3 confirmed (no undo
+  button; revert = delete_file commit or lore browser history).
+- **P1.1** `LoreBindingRecord` + `LoreBindingProjection` (`lore_binding_set`/`lore_binding_removed`
+  events, index `lore_bindings`) in `wabidb/projections/lore.rs`; registered in engine; `WabiStore`
+  trait + adapter methods; REST `GET/PUT/DELETE /api/addons/lore/binding/{channel_id}`. Mode stored
+  as string (rule-5-proof). Channel ids are `ch_{seq:x}` — hex-parsed to i64 for lore addressing
+  (bug caught by contract test: plain decimal parse always failed).
+- **P1.2** `can_lore(state, user, cap)` capability mapper over workspace roles in `api/lore.rs`:
+  owner/admin → all 7 caps; developer → view/stage/commit/approve/lock; artist → view/stage/lock;
+  others → view. `can_edit_lore`/`can_asset_write_lore` are now thin wrappers (behavior preserved).
+  Binding management requires `lore.manage-binding`. Per-channel grant store deferred to Phase 2.
+- **P1.3** `POST /api/addons/lore/promote/from-message` + `GET .../promotes/{message_id}`:
+  resolves message → attachment (`file_url` → `uploads_dir`), binding defaults, type whitelist
+  (`group/*` MIME globs + extensions), hybrid mode split by capability, collision guard returning
+  `{collision: true, options}` (D2), direct commit via `upload_file`, stage via
+  `create_branch("chat/u{id}-{ts}") + switch + upload_file`, provenance event
+  (`LorePromoteRecord`, index `lore_promotes`, key channel+message+file_url), and a system message
+  in the origin channel using `^c/path` citation syntax (renders as drift-detecting chip).
+- **P1.4** Frontend: `getLoreBinding`/`setLoreBinding`/`deleteLoreBinding`/
+  `promoteLoreFromMessage`/`getLorePromotesForMessage` in `api/lore.ts`;
+  `LorePromoteModal.svelte` (runes, BaseModal) with attachment picker, binding prefill, mode
+  override, collision flow (overwrite-as-new-revision / choose another path / cancel);
+  "Promote to Lore…" context-menu item (gated on addon capability + role) threaded
+  MessageList → MessageListOverlays → MessageContextMenu; channel-header binding pill
+  (`ChatHeader`); binding config form in `ChannelSettingsModal` (repo select from lore channels,
+  path/branch/mode/allowed types).
+- **P1.5** Attachment badge (`📦 in Lore` / `📋 staged for review`) in `MessageFileContent`,
+  backed by `lorePromoteCache.ts` (svelte store). Populated on promote success and on
+  context-menu open; socket-push hydration is Phase 2. The `^c/` system message is the
+  cross-client indicator in Phase 1.
+- **Tests**: projection unit tests (binding set/remove, promote roundtrip + idempotent key) in
+  `wabidb/projections/lore.rs`; `wabi-server/tests/lore_binding_promote_contract.rs` (restart
+  replay durability, binding removal durability, promote provenance surviving message soft-delete).
+  Also fixed pre-existing compile drift in `channel_lifecycle_contract.rs`
+  (`create_dm_channel`/`upsert_group` now take `&[String]`).
+- Golden-rule hygiene: `ChannelView.ts` re-appended with `position`/`parentId` after ts-rs regen
+  (it had been committed without them).
+
+**Known gaps / next:**
+- Promote endpoint not yet covered by an HTTP-level test (store-level contract only — the lore
+  engine isn't available in the test harness without the addon fixture).
+- Badge has no socket push; multi-repo `^c/` citations resolve to the first lore channel —
+  use `^c/#chan/path` form when multiple repos exist.
+- Review queue UI, binding presets, and per-channel capability grants are Phase 2.

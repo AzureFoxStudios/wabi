@@ -2946,6 +2946,80 @@ impl WabiStore for WdbAdapter {
         LoreRepoProjection::list_repos(&state)
     }
 
+    async fn lore_set_binding(&self, binding: &wabidb::projections::lore::LoreBindingRecord) -> Result<()> {
+        use wabidb::projections::lore::encode_binding_record;
+        let payload = encode_binding_record(binding);
+        self.run(
+            binding.updated_by as u64,
+            "lore_set_binding",
+            binding.channel_id.to_string(),
+            "lore_binding_set",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn lore_remove_binding(&self, channel_id: i64, removed_by: i64) -> Result<()> {
+        let payload = channel_id.to_le_bytes().to_vec();
+        self.run(
+            removed_by as u64,
+            "lore_remove_binding",
+            channel_id.to_string(),
+            "lore_binding_removed",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn lore_get_binding(&self, channel_id: i64) -> Result<Option<wabidb::projections::lore::LoreBindingRecord>> {
+        use wabidb::projections::lore::LoreBindingProjection;
+        let state = self.engine.projection_state();
+        LoreBindingProjection::get_binding(&state, channel_id)
+    }
+
+    async fn list_lore_bindings(&self) -> Result<Vec<wabidb::projections::lore::LoreBindingRecord>> {
+        use wabidb::projections::lore::LoreBindingProjection;
+        let state = self.engine.projection_state();
+        LoreBindingProjection::list_bindings(&state)
+    }
+
+    async fn lore_record_promote(&self, record: &wabidb::projections::lore::LorePromoteRecord) -> Result<()> {
+        use wabidb::projections::lore::encode_promote_record;
+        let payload = encode_promote_record(record);
+        self.run(
+            record.promoted_by as u64,
+            "lore_record_promote",
+            record.channel_id.to_string(),
+            "lore_promoted",
+            6,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn lore_promotes_for_message(&self, message_id: &str) -> Result<Vec<wabidb::projections::lore::LorePromoteRecord>> {
+        use wabidb::projections::lore::LorePromoteProjection;
+        let state = self.engine.projection_state();
+        LorePromoteProjection::promotes_for_message(&state, message_id)
+    }
+
+    async fn lore_promotes_for_channel(&self, channel_id: i64) -> Result<Vec<wabidb::projections::lore::LorePromoteRecord>> {
+        use wabidb::projections::lore::LorePromoteProjection;
+        let state = self.engine.projection_state();
+        LorePromoteProjection::promotes_for_channel(&state, channel_id)
+    }
+
     async fn lore_commit(&self, channel_id: i64, commit_hash: &str, repo_name: &str, file_path: &str, message: &str, author_user_id: i64) -> Result<()> {
         use wabidb::projections::lore::{encode_record, LoreCommitRecord};
         let now = now_micros();

@@ -12,6 +12,9 @@
 	import { openLoreSurface } from '$lib/loreWorkspace';
 	import { openFilesSurface } from '$lib/filesWorkspace';
 	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
+	import { getLoreBinding, parseLoreChannelId, type LoreChannelBinding } from '$lib/api/lore';
+	import { getAuthToken } from '$lib/authSession';
+	import { hasAddonCapability } from '$lib/addonInventory';
 	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
 	import type { User } from '$lib/socket';
@@ -24,6 +27,22 @@
 	export let selectedWorkspaceView: WorkspaceViewKey = 'messages';
 	export let currentChannel = '';
 	export let forceSpoiler = false;
+
+	// Lore binding indicator (spec 2026-08-28 P1.4): shows the channel's pipe.
+	let loreBinding: LoreChannelBinding | null = null;
+	$: if (currentChannel) void refreshLoreBinding(currentChannel);
+	async function refreshLoreBinding(channel: string): Promise<void> {
+		loreBinding = null;
+		const numeric = parseLoreChannelId(channel);
+		const token = getAuthToken();
+		if (!numeric || !token) return;
+		if (!(await hasAddonCapability('lore'))) return;
+		try {
+			loreBinding = await getLoreBinding(token, numeric);
+		} catch {
+			loreBinding = null;
+		}
+	}
 	export let dmCallTargetUser: User | null = null;
 	export let dmDirectCallActive = false;
 	export let dmDirectCallPending = false;
@@ -106,6 +125,12 @@
 		{/if}
 		{#if forceSpoiler}
 			<span class="spoiler-channel-badge" title="Every message in this channel is hidden until clicked.">🔒 Spoilers</span>
+		{/if}
+		{#if loreBinding}
+			<span
+				class="spoiler-channel-badge"
+				title="Lore binding: uploads promote to {loreBinding.path} on branch {loreBinding.branch} (mode: {loreBinding.mode})"
+			>📦 {loreBinding.path}</span>
 		{/if}
 		{#if $displayEnhancementSettingsStore.spoilerAllMessagesEnabled}
 			<span class="spoiler-channel-badge" title="You have Spoiler All Messages enabled — every message is hidden until clicked (your view only).">🔒 Spoiler All</span>

@@ -2,7 +2,10 @@
 	import { createEventDispatcher } from 'svelte';
 import { get } from 'svelte/store';
 	import type { Channel, VoiceChannelSettings } from '$lib/socket';
-	import { currentUser } from '$lib/socket';
+	import { currentUser, channels } from '$lib/socket';
+	import { getLoreBinding, setLoreBinding, deleteLoreBinding, parseLoreChannelId } from '$lib/api/lore';
+	import { getAuthToken } from '$lib/authSession';
+	import { hasAddonCapability } from '$lib/addonInventory';
 	import { getSocket, connected } from '$lib/socketConnection';
 	import { getWabiDB } from '$lib/wabidb';
 	import {
@@ -129,6 +132,86 @@ import { get } from 'svelte/store';
 	let activeChannelId = '';
 	let tempPersistMessages = false;
 
+	// --- Lore binding (spec 2026-08-28 P1.4) ---
+	let loreBindingAvailable = false;
+	let loreBindingActive = false;
+	let loreBindingStatus = '';
+	let tempLoreRepoChannel = '';
+	let tempLorePath = '/';
+	let tempLoreBranch = 'main';
+	let tempLoreMode = 'hybrid';
+	let tempLoreAllowedTypes = '';
+	$: loreChannels = $channels.filter((c) => (c.type || 'text') === 'lore');
+	void hasAddonCapability('lore').then((ok) => {
+		loreBindingAvailable = ok;
+	});
+
+	async function loadLoreBinding(channelId: string): Promise<void> {
+		loreBindingActive = false;
+		loreBindingStatus = '';
+		tempLoreRepoChannel = '';
+		tempLorePath = '/';
+		tempLoreBranch = 'main';
+		tempLoreMode = 'hybrid';
+		tempLoreAllowedTypes = '';
+		const numeric = parseLoreChannelId(channelId);
+		const token = getAuthToken();
+		if (!numeric || !token || !loreBindingAvailable) return;
+		try {
+			const b = await getLoreBinding(token, numeric);
+			if (b) {
+				loreBindingActive = true;
+				tempLoreRepoChannel = `ch_${b.repoChannelId.toString(16)}`;
+				tempLorePath = b.path;
+				tempLoreBranch = b.branch;
+				tempLoreMode = b.mode;
+				tempLoreAllowedTypes = b.allowedTypes.join(', ');
+			}
+		} catch {
+			// Leave the form blank; saving will surface errors.
+		}
+	}
+
+	async function saveLoreBinding(): Promise<void> {
+		const numeric = parseLoreChannelId(channel.id);
+		const repoNumeric = parseLoreChannelId(tempLoreRepoChannel);
+		const token = getAuthToken();
+		if (!numeric || !repoNumeric || !token) return;
+		loreBindingStatus = 'Saving…';
+		try {
+			await setLoreBinding(token, numeric, {
+				repoChannelId: repoNumeric,
+				path: tempLorePath,
+				branch: tempLoreBranch || 'main',
+				mode: tempLoreMode,
+				allowedTypes: tempLoreAllowedTypes
+					.split(',')
+					.map((s) => s.trim())
+					.filter(Boolean)
+			});
+			loreBindingActive = true;
+			loreBindingStatus = 'Binding saved.';
+		} catch (e) {
+			loreBindingStatus = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	async function removeLoreBinding(): Promise<void> {
+		const numeric = parseLoreChannelId(channel.id);
+		const token = getAuthToken();
+		if (!numeric || !token) return;
+		loreBindingStatus = 'Removing…';
+		try {
+			await deleteLoreBinding(token, numeric);
+			loreBindingActive = false;
+			tempLoreRepoChannel = '';
+			tempLorePath = '/';
+			loreBindingStatus = 'Binding removed.';
+		} catch (e) {
+			loreBindingStatus = e instanceof Error ? e.message : String(e);
+		}
+	}
+
 	$: channelKind = (channel.type || 'text') as string;
 	$: isWikiChannel = channelKind === 'wiki';
 	$: isForumChannel = channelKind === 'forum';
@@ -158,6 +241,7 @@ import { get } from 'svelte/store';
 
 	$: if (channel && channel.id !== activeChannelId) {
 		activeChannelId = channel.id;
+		void loadLoreBinding(channel.id);
 		tempPersistMessages = channel.persistMessages || false;
 		tempDescription = channel.description || '';
 		tempChannelName = channel.name || '';
@@ -380,6 +464,60 @@ import { get } from 'svelte/store';
 						{/each}
 					</div>
 				</div>
+				{#if isChatLikeChannel && loreBindingAvailable}
+				<div class="setting-group">
+					<span class="setting-label">Lore binding</span>
+					<p class="setting-description">
+						Bind this channel to a path in a Lore repo — attachments can be promoted there
+						via their context menu.
+					</p>
+					{#if loreChannels.length === 0}
+						<p class="setting-description">No Lore channels exist yet — create one first.</p>
+					{:else}
+						<label class="setting-field">
+							<span class="setting-label">Repo (Lore channel)</span>
+							<select bind:value={tempLoreRepoChannel}>
+								<option value="" disabled>Select a Lore channel…</option>
+								{#each loreChannels as c (c.id)}
+									<option value={c.id}>{c.name}</option>
+								{/each}
+							</select>
+						</label>
+						<label class="setting-field">
+							<span class="setting-label">Target path</span>
+							<input type="text" bind:value={tempLorePath} placeholder="/art/concepts/" />
+						</label>
+						<label class="setting-field">
+							<span class="setting-label">Branch</span>
+							<input type="text" bind:value={tempLoreBranch} placeholder="main" />
+						</label>
+						<label class="setting-field">
+							<span class="setting-label">Mode</span>
+							<select bind:value={tempLoreMode}>
+								<option value="none">None (manual promote only)</option>
+								<option value="direct">Direct commit</option>
+								<option value="stage">Stage for review</option>
+								<option value="hybrid">Hybrid (role-based)</option>
+							</select>
+						</label>
+						<label class="setting-field">
+							<span class="setting-label">Allowed types (comma-separated, e.g. image/*, .blend)</span>
+							<input type="text" bind:value={tempLoreAllowedTypes} placeholder="image/*" />
+						</label>
+						<div class="lore-binding-actions">
+							<button class="save-btn" type="button" disabled={!tempLoreRepoChannel || !tempLorePath.startsWith('/')} on:click={saveLoreBinding}>
+								{loreBindingActive ? 'Update binding' : 'Save binding'}
+							</button>
+							{#if loreBindingActive}
+								<button class="danger-btn" type="button" on:click={removeLoreBinding}>Remove binding</button>
+							{/if}
+							{#if loreBindingStatus}
+								<span class="setting-description">{loreBindingStatus}</span>
+							{/if}
+						</div>
+					{/if}
+				</div>
+				{/if}
 				{:else if isWikiChannel}
 				<div class="setting-group">
 					<span class="setting-label">Wiki options</span>

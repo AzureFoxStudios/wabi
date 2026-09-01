@@ -8,6 +8,7 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
+	import { promoteCacheStore } from '$lib/lorePromoteCache';
 	import {
 		formatFileSize,
 		getFileIcon,
@@ -24,6 +25,12 @@
 
 	export let message: Message;
 	export let forceSpoiler = false;
+
+	// Chat→Lore promote badge (spec 2026-08-28 P1.5). Populated on promote
+	// success or when the message's context menu opens; socket push is Phase 2.
+	$: singlePromote = message.fileUrl
+		? $promoteCacheStore.get(message.id)?.find((p) => p.fileUrl === message.fileUrl)
+		: undefined;
 
 	// A spoiler channel, the active server's "spoiler all", or the user's
 	// global "Spoiler All Messages" setting forces every message to render
@@ -300,6 +307,17 @@
 							</div>
 						{/if}
 					{:else if message.fileUrl}
+						{#if singlePromote}
+							<!-- eslint-disable-next-line svelte/no-inline-styles -->
+							<span
+								style="display:inline-block;margin:2px 0;padding:2px 8px;border-radius:10px;font-size:0.72rem;background:{singlePromote.pendingReview ? 'rgba(250,200,80,0.18)' : 'rgba(90,200,140,0.18)'};color:{singlePromote.pendingReview ? '#e8c268' : '#7fd4a4'};"
+								title={singlePromote.pendingReview
+									? `Staged for review → ${singlePromote.path}`
+									: `Promoted to Lore → ${singlePromote.path}`}
+							>
+								{singlePromote.pendingReview ? '📋 staged for review' : '📦 in Lore'}
+							</span>
+						{/if}
 						{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
 						<div class="model-container">
 							<ModelViewerLauncher src={getFileUrl(message.fileUrl)} fileName={message.fileName || $_('messages.media.model_fallback_name')} />

@@ -7,7 +7,7 @@ use crate::domain::{
     WikiPage, WikiRevision,
 };
 use crate::error::Result;
-use crate::projections::lore::{LoreCommitRecord, LoreFileChangeRecord, LoreRepoRecord, LoreTokenRecord};
+use crate::projections::lore::{LoreBindingRecord, LoreCommitRecord, LoreFileChangeRecord, LorePromoteRecord, LoreRepoRecord, LoreTokenRecord};
 use crate::projections::payments::{
     PaymentAccountLinkRecord, PaymentIntentRecord, PaymentUserBlockRecord,
 };
@@ -840,6 +840,41 @@ pub trait WabiStore: Send + Sync {
     /// Remove a Lore repo registration from the event log.
     async fn lore_delete_repo(&self, _channel_id: i64, _deleted_by: i64) -> Result<()> {
         Ok(())
+    }
+
+    /// Set (create or replace) a chat-channel → Lore repo binding.
+    async fn lore_set_binding(&self, _binding: &LoreBindingRecord) -> Result<()> {
+        Ok(())
+    }
+
+    /// Remove a channel's Lore binding.
+    async fn lore_remove_binding(&self, _channel_id: i64, _removed_by: i64) -> Result<()> {
+        Ok(())
+    }
+
+    /// Look up a channel's Lore binding.
+    async fn lore_get_binding(&self, _channel_id: i64) -> Result<Option<LoreBindingRecord>> {
+        Ok(None)
+    }
+
+    /// All Lore bindings (for admin surfaces and startup wiring).
+    async fn list_lore_bindings(&self) -> Result<Vec<LoreBindingRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Record a chat→Lore promote (provenance: message, attachment, revision).
+    async fn lore_record_promote(&self, _record: &LorePromoteRecord) -> Result<()> {
+        Ok(())
+    }
+
+    /// Promotes originating from a message (one entry per attachment).
+    async fn lore_promotes_for_message(&self, _message_id: &str) -> Result<Vec<LorePromoteRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Promotes originating from a channel.
+    async fn lore_promotes_for_channel(&self, _channel_id: i64) -> Result<Vec<LorePromoteRecord>> {
+        Ok(Vec::new())
     }
 
     /// Look up a Lore repo by channel_id.

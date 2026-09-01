@@ -869,7 +869,8 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::incidents::IncidentProjection;
     use crate::projections::layouts::LayoutsProjection;
     use crate::projections::lore::{
-        LoreCommitProjection, LoreFileChangeProjection, LoreRepoProjection, LoreTokenProjection,
+        LoreBindingProjection, LoreCommitProjection, LoreFileChangeProjection, LorePromoteProjection,
+        LoreRepoProjection, LoreTokenProjection,
     };
     use crate::projections::messages::MessagesProjection;
     use crate::projections::noop::NoopProjection;
@@ -1046,6 +1047,18 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             handler: Arc::new(LoreRepoProjection),
             index_name: "lore_repos",
             record_type_name: "wabidb::projections::lore::LoreRepoRecord",
+        },
+        ProjectionRegistration {
+            event_types: &["lore_binding_set", "lore_binding_removed"],
+            handler: Arc::new(LoreBindingProjection),
+            index_name: "lore_bindings",
+            record_type_name: "wabidb::projections::lore::LoreBindingRecord",
+        },
+        ProjectionRegistration {
+            event_types: &["lore_promoted"],
+            handler: Arc::new(LorePromoteProjection),
+            index_name: "lore_promotes",
+            record_type_name: "wabidb::projections::lore::LorePromoteRecord",
         },
         ProjectionRegistration {
             event_types: &["lore_commit"],
