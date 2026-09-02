@@ -1,6 +1,6 @@
 //! Stream segment record format: read, write, and verify.
 //!
-//! See `core/crates/wabidb/docs/STORAGE_FORMAT.md` §2 for the full byte layout.
+//! See `docs/architecture/STORAGE_FORMAT.md` §2 for the full byte layout.
 //!
 //! The header is 48 bytes (not 36 as the endstate doc originally stated — the
 //! header was extended to include `payload_crc32c` as a separate field for

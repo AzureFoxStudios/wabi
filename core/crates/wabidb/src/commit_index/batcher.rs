@@ -3,7 +3,7 @@
 //! Batches incoming commit index entries and flushes them to `.widx` files
 //! on a configurable batch size (default 10) or maximum age (default 50 ms).
 //! Rotates files at 10 000 entries per file, in accordance with the
-//! [`STORAGE_FORMAT.md`](https://docs/STORAGE_FORMAT.md) §3 spec.
+//! [`STORAGE_FORMAT.md`](../../../docs/architecture/STORAGE_FORMAT.md) §3 spec.
 //!
 //! ## On-disk layout (per file)
 //!

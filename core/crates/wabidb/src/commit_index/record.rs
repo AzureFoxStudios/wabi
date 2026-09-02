@@ -1,6 +1,6 @@
 //! Global commit index record format: single-entry serialization.
 //!
-//! See `core/crates/wabidb/docs/STORAGE_FORMAT.md` §3 for the full byte layout.
+//! See `docs/architecture/STORAGE_FORMAT.md` §3 for the full byte layout.
 //!
 //! Each commit index entry is a length-prefixed flat buffer:
 //!

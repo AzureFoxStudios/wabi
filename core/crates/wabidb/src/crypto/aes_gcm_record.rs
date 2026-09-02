@@ -1,6 +1,6 @@
 //! Per-stream record encryption: AES-256-GCM.
 //!
-//! See `core/crates/wabidb/docs/STORAGE_FORMAT.md` §2 (Stream segment record
+//! See `docs/architecture/STORAGE_FORMAT.md` §2 (Stream segment record
 //! format) and `core/crates/wabidb/docs/architecture/wabidb-council-reviews.md`
 //! Council Review #1 §1.1-1.3 (the decisions that produced this design).
 //!

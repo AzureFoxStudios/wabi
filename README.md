@@ -112,7 +112,7 @@ Wabi supports one-to-one voice/video calls, private group calls, and persistent 
 
 The optional SRT media gateway currently supplies gateway heartbeats, session lifecycle/control-plane integration, recording, and distribution hooks. It does not replace WebRTC as the browser’s interactive media path.
 
-See [`PROJECT_DOCS/01-architecture/CALLING_TRANSPORT_ARCHITECTURE.md`](PROJECT_DOCS/01-architecture/CALLING_TRANSPORT_ARCHITECTURE.md) for transport boundaries and rollout status.
+See [`docs/architecture/CALLING_TRANSPORT_ARCHITECTURE.md`](docs/architecture/CALLING_TRANSPORT_ARCHITECTURE.md) for transport boundaries and rollout status.
 
 ### Screen sharing
 
@@ -138,7 +138,7 @@ Implementation: `frontend/src/lib/callingScreenShare.ts`, `frontend/src/lib/medi
 - `relay-node/`: Volunteer-hosted relay node for file delivery
 - `media-gateway/`: SRT gateway daemon (control-plane + worker orchestration)
 
-See full architecture and deep technical docs in `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` and `PROJECT_DOCS/archive/CODEBASE_OVERVIEW.md`.
+See full architecture and deep technical docs in `docs/architecture/ARCHITECTURE.md` (deep history lives on the `docs-history` branch).
 
 ## Quick start
 
@@ -249,7 +249,7 @@ powershell -ExecutionPolicy Bypass -File scripts/relay-launch-forWindows.ps1 con
 powershell -ExecutionPolicy Bypass -File scripts/relay-launch-forWindows.ps1 up
 ```
 
-Relay runbook: `PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md`
+Relay runbook: the `docs-history` branch (historical); current relay ops: `docs/deployment/` + the wabi-deploy skill
 
 ## Development
 
@@ -321,7 +321,7 @@ Compose example:
 docker compose -f docker-compose.yml up -d --build
 ```
 
-See `PROJECT_DOCS/DEPLOYMENT.md` for full deployment guidance.
+See `docs/deployment/FRESH_INSTALL.md` and `docs/README.md` (the old PROJECT_DOCS/DEPLOYMENT.md documented the removed SpacetimeDB stack and lives on the `docs-history` branch).
 
 ## Configuration
 
@@ -378,15 +378,15 @@ Then restart the backend server and run add-on detection again from Settings if 
 
 ## Key docs
 
-- Overview: `PROJECT_DOCS/README.md`
-- Architecture: `PROJECT_DOCS/ARCHITECTURE.md`
-- Deployment: `PROJECT_DOCS/DEPLOYMENT.md`
+- Overview: `docs/README.md`
+- Architecture: `docs/architecture/overview.md` and `docs/architecture/ARCHITECTURE.md`
+- Deployment: `docs/deployment/FRESH_INSTALL.md`
 - Translation guide: `TRANSLATION_GUIDE.md`
-- TURN setup: `PROJECT_DOCS/TURN_SETUP.md`
-- TURN REST auth: `PROJECT_DOCS/TURN_REST_AUTH.md`
-- Calling transport: `PROJECT_DOCS/CALLING_TRANSPORT_ARCHITECTURE.md`
-- Policy system: `PROJECT_DOCS/POLICY_SYSTEM.md`
-- Tauri readiness: `PROJECT_DOCS/TAURI_BUILD_READINESS.md`
+- TURN setup: `docs/deployment/TURN_SETUP.md`
+- TURN REST auth: `docs-history` branch (historical)
+- Calling transport: `docs/architecture/CALLING_TRANSPORT_ARCHITECTURE.md`
+- Policy system: `docs/architecture/POLICY_SYSTEM.md`
+- Tauri readiness: `docs/tauri/TAURI_BUILD_READINESS.md`
 
 ## License
 
