@@ -101,6 +101,27 @@ Re-attaching CF is a separate step after origin health is proven.
 
 ---
 
+## Private access via Tailcat (built-in, optional)
+
+**New (2026-09-01):** Wabi ships a private-access transport addon (`core/addons/tailcat`) built on
+[tailcat](https://github.com/tailscale/tailcat) — Tailscale's userspace WireGuard data plane without
+the control plane. For family/friend instances this replaces "layer 2 + layer 3" of the stack above
+with **one paste-able `tc…` code**: no port-forward, no domain, no cloud tunnel, and the home box
+gets *darker* (zero inbound ports; magicsock punches outbound).
+
+- **Transport only.** The pipe grants reachability, never membership — Wabi auth always gates.
+- **Per-member keys.** Each member's desktop client registers its own key against their account;
+  an admin revokes per member. No shared bearer tokens.
+- **Off by default.** Enable from Admin → Runtime → "Private access" (explicit confirm to turn on;
+  instant kill-switch to turn off). Disabled = no subprocess, zero footprint.
+- **Requirements:** the `tailcat` binary v0.4.0+ on PATH (or `WABI_TAILCAT_BINARY`), desktop/Tauri
+  clients for members (browser users keep using the normal address).
+- **Rate limits:** pipe clients are keyed per-connection (not collapsed into one `127.0.0.1`
+  bucket), so a family creating accounts the same evening doesn't trip the 5/hour guest cap.
+- **Public DERP caveat:** bootstrap/relay uses Tailscale's free DERP fleet (rate-limited, no SLA);
+  self-host [`derper`](https://github.com/tailscale/tailscale/tree/main/cmd/derper) for reliability.
+- Design + spike evidence: `docs/plans/2026-09-01-tailcat-private-access.md`.
+
 ## Related
 
 - Deploy skill: `~/.hermes/skills/devops/wabi-deploy/` (v3+)  

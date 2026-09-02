@@ -537,6 +537,11 @@ async fn main() -> anyhow::Result<()> {
     }
     state.set_blacklist(blacklist).await;
 
+    // Initialize the Tailcat private-access transport: load persisted
+    // settings and auto-respawn the listener if it was enabled before a
+    // restart. Disabled (the default) = no subprocess, zero footprint.
+    state.tailcat.init().await;
+
     // Spawn the periodic cleanup task for expired blacklist entries.
     // WABI_AUDIT_REPORT.md #6 + WABI_BAN_SYSTEM_MEMORY_FIX.md.
     // JoinHandle is dropped — the task runs until process exit. Future

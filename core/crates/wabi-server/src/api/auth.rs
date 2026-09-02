@@ -436,10 +436,14 @@ async fn handle_recover(
 /// Guest login (no password required)
 async fn handle_guest(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
     Json(req): Json<GuestRequest>,
 ) -> Result<Json<AuthResponse>> {
-    // WS-5b: per-IP rate limit for guest creation.
+    // WS-5b: per-IP rate limit for guest creation. Pipe clients (Tailcat
+    // forwarder, validated via the in-process token) are keyed per pipe
+    // connection instead of collapsing into one "127.0.0.1" bucket —
+    // otherwise a 5-member family exhausts the 5/hour cap on evening one.
     let mut guest_limiter = state.guest_rate_limiter.write().await;
     if guest_limiter.len() > 10_000 {
         let keys: Vec<String> = guest_limiter.keys().take(guest_limiter.len() / 2).cloned().collect();
@@ -447,7 +451,7 @@ async fn handle_guest(
             guest_limiter.remove(&k);
         }
     }
-    let ip = peer.ip().to_string();
+    let ip = state.tailcat.rate_limit_key(&headers, &peer);
     let count = guest_limiter.entry(ip).or_insert(0);
     *count += 1;
     // 5 guest creations per hour per IP.

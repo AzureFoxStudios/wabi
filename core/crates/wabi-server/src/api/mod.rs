@@ -18,6 +18,7 @@ pub mod jobs;
 pub mod lan;
 pub mod media;
 pub mod mesh;
+pub mod tailcat;
 #[cfg(feature = "wabi-lore")]
 pub mod lore;
 pub mod messages;

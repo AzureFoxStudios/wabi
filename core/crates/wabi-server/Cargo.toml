@@ -32,6 +32,9 @@ wabi-core = { path = "../../../crates/wabi-core", features = ["ts"] }
 # Mesh coordination (core functionality)
 wabi-mesh = { path = "../../addons/mesh/backend" }
 
+# Tailcat private-access transport (runtime-gated, like mesh)
+wabi-tailcat = { path = "../../addons/tailcat/backend" }
+
 # WabiDB engine (the new state engine, replacing SpacetimeDB)
 wabidb = { path = "../wabidb" }
 postcard = { version = "1", features = ["alloc"] }
@@ -97,6 +100,7 @@ wabi-payments-us = { path = "../../addons/payments-us/backend", optional = true 
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util", "timeout"] }
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 
 [features]
 default = []

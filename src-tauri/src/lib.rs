@@ -1,6 +1,7 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .manage(tailcat::TailcatState::default())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -28,7 +29,11 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
         commands::open_model_viewer,
-        recording::save_call_recording
+        recording::save_call_recording,
+        tailcat::tailcat_register_key,
+        tailcat::tailcat_connect,
+        tailcat::tailcat_disconnect,
+        tailcat::tailcat_status
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -36,4 +41,6 @@ pub fn run() {
 
 mod commands;
 mod recording;
+mod tailcat;
+pub mod tailcat_proxy;
 mod viewer;

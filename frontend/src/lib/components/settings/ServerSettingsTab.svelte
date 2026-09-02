@@ -13,6 +13,7 @@
 		hasPendingRemoteBusinessUpdate,
 		businessSyncAvailable
 	} from '$lib/business/sync';
+	import TailcatConnectionCard from './TailcatConnectionCard.svelte';
 
 	const dispatch = createEventDispatcher<{
 		clearServer: void;
@@ -105,4 +106,6 @@
 			</button>
 		</div>
 	</div>
+
+	<TailcatConnectionCard />
 </div>
