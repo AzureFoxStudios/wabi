@@ -119,6 +119,10 @@ pub struct AppState {
     pub steam_http: crate::api::steam::SharedHttpClient,
     /// Guest creation rate limiter (IP → count). WS-5b.
     pub guest_rate_limiter: Arc<RwLock<HashMap<String, u32>>>,
+    /// Tailcat private-access transport (unconditionally compiled, runtime-
+    /// gated — disabled = no subprocess, zero footprint). See
+    /// core/addons/tailcat/backend and docs/plans/2026-09-01-tailcat-private-access.md.
+    pub tailcat: Arc<wabi_tailcat::TailcatManager>,
     /// Parsed profile_media per user (t_55544bc2). The init payload builds a
     /// UserView for every registered user on every socket connect; each used
     /// to serde_json-parse that user's whole layout_json. Cache maps
@@ -308,6 +312,10 @@ impl AppState {
         let recovery_file = Self::recovery_file_path(&config.data_dir);
         let recovery_codes = RwLock::new(Self::load_recovery_codes(&config.data_dir).await);
 
+        let tailcat = wabi_tailcat::TailcatManager::new(
+            config.port,
+            std::path::Path::new(config.data_dir.as_str()),
+        );
         Ok(Self {
             config,
             wdb,
@@ -350,6 +358,7 @@ impl AppState {
             steam_cache: Arc::new(Mutex::new(Default::default())),
             steam_http: crate::api::steam::shared_http_client(),
             guest_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
+            tailcat,
             profile_media_cache: Arc::new(RwLock::new(HashMap::new())),
             composed_index: tokio::sync::RwLock::new(None),
         })

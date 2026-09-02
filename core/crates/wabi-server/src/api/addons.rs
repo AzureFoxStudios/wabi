@@ -80,6 +80,28 @@ fn enabled_addons() -> Vec<AddonCapability> {
         },
     });
 
+    // tailcat — always compiled into wabi-server (runtime-gated like mesh):
+    // disabled = no subprocess, no listener, zero footprint.
+    out.push(AddonCapability {
+        id: "tailcat".into(),
+        name: "Tailcat Private Access".into(),
+        version: "0.1.0".into(),
+        description: "Token-dialed WireGuard pipes (tailscale/tailcat) so family/friend members reach a home-hosted server without port forwarding. Transport only - Wabi auth always gates membership.".into(),
+        enabled: true,
+        backend_runtime: "rust".into(),
+        cargo_feature: None,
+        permissions: vec!["network:outbound".into(), "process:spawn".into()],
+        frontend: FrontendInfo {
+            bundled: false,
+            contributions: FrontendContributions {
+                channel_types: vec![],
+                workspace_panels: vec![],
+                settings_pages: vec![],
+                mobile_tabs: vec![],
+            },
+        },
+    });
+
     // lore — optional feature `wabi-lore`
     #[cfg(feature = "wabi-lore")]
     out.push(AddonCapability {
@@ -238,6 +260,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 
     #[cfg(feature = "wabi-lore")]
     let router = router.nest("/lore", crate::api::lore::routes(state.clone()));
+
+    let router = router.nest("/tailcat", crate::api::tailcat::routes(state.clone()));
 
     router.with_state(state)
 }

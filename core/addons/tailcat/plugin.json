@@ -1,0 +1,25 @@
+{
+  "id": "tailcat",
+  "name": "Tailcat Private Access",
+  "version": "0.1.0",
+  "description": "Token-dialed WireGuard pipes (tailscale/tailcat) so family/friend members reach a home-hosted server without port forwarding. Transport only - Wabi auth always gates membership.",
+  "backend": {
+    "runtime": "rust",
+    "path": "backend",
+    "crate": "wabi-tailcat",
+    "cargo_feature": null
+  },
+  "frontend": {
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": [],
+      "settingsPages": [],
+      "mobileTabs": []
+    },
+    "bundled": false
+  },
+  "permissions": [
+    "network:outbound",
+    "process:spawn"
+  ]
+}

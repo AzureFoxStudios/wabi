@@ -1,0 +1,27 @@
+[package]
+name = "wabi-tailcat"
+version = "0.1.0"
+edition = "2021"
+description = "Wabi Tailcat addon - private-access transport via tailscale/tailcat WireGuard pipes"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+hex = "0.4"
+
+# Forwarder (loopback proxy that tags pipe ingress)
+http = "1"
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1"] }
+http-body-util = "0.1"
+bytes = "1"
+
+[dev-dependencies]
+tempfile = "3"

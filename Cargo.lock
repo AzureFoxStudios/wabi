@@ -5264,6 +5264,7 @@ dependencies = [
  "wabi-payments-crypto",
  "wabi-payments-eu",
  "wabi-payments-us",
+ "wabi-tailcat",
  "wabi-webhooks",
  "wabidb",
 ]
@@ -5282,6 +5283,27 @@ dependencies = [
  "sha2 0.11.0",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "wabi-tailcat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "chrono",
+ "hex",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

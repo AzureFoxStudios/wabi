@@ -8,6 +8,7 @@ members = [
   "core/addons/webhooks/backend",
   "core/addons/mesh/backend",
   "core/addons/lore/backend",
+  "core/addons/tailcat/backend",
   "core/addons/payments-crypto/backend",
   "core/addons/payments-eu/backend",
   "core/addons/payments-us/backend",

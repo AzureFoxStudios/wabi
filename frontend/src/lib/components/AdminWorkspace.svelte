@@ -42,6 +42,8 @@ import { get } from 'svelte/store';
 	import FrontendMetadataPanel from './admin/FrontendMetadataPanel.svelte';
 	import AdminUserList from './admin/AdminUserList.svelte';
 	import ServerPolicyPanel from './admin/ServerPolicyPanel.svelte';
+	import TailcatPanel from './admin/TailcatPanel.svelte';
+	import TailcatCallout from './admin/TailcatCallout.svelte';
 
 	export let section:
 		| 'all'
@@ -658,6 +660,7 @@ import { get } from 'svelte/store';
 
 {#if section === 'all'}
 	<div class="admin-tab">
+		<TailcatCallout />
 		<AdminHeader
 			currentUserHighestRole={$currentUser?.highestRole}
 			{canManageRoles}
@@ -911,6 +914,8 @@ import { get } from 'svelte/store';
 			onRefresh={refreshCompressionPanel}
 			onResetMetrics={resetCompressionPanelMetrics}
 		/>
+
+		<TailcatPanel canManageAdmin={canManageRoles} />
 	{/if}
 	{:else if section === 'branding'}
 	{#if canManageRoles}
