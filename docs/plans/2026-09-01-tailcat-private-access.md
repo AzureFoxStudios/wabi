@@ -1,7 +1,7 @@
 # Tailcat Private Access — plan + Phase 1 spike results
 
 **Date:** 2026-09-01
-**Status:** Phase 1 (validation spike) COMPLETE — **GO** for Phase 2 v1 build
+**Status:** SHIPPED — v1 + follow-ups landed (commit `69fb8d1`), deployed to Tim 2026-09-02 (binary sha `3f21da7f2a54e3d9`, verified healthy + public). Cross-NAT punch measured ironin→Tim (results below). Operator guide: `PROJECT_DOCS/03-features/PRIVATE_ACCESS_GUIDE.md`.
 **Upstream:** [tailscale/tailcat](https://github.com/tailscale/tailcat) — pinned **v0.4.0** (tag `ce6fedc`, signed; note v0.3.0 release notes say "recommend updating for security reasons" — upstream is churning fast, 4 releases in 2 days; re-pin deliberately before any deploy)
 
 ## Goal
@@ -166,6 +166,28 @@ beyond-localhost services, public-path integration.
    `PROJECT_DOCS/02-deployment/DERP_SELF_HOST_GUIDE.md`.
 5. **Cross-NAT punch spot-check** — RECIPE BELOW; requires a physical second network, so it
    stays open until someone runs it.
+
+### Cross-NAT punch results (2026-09-02, ironin → Tim — REAL second network)
+
+Throwaway allow-listed listener on Tim (v0.4.0, port 13001, no production exposure); client =
+ironin (containerized sandbox NAT — a harder-than-typical client).
+
+| Measurement | Result |
+|---|---|
+| `ping --until-direct` ×10 | 1/10 upgraded to **direct** (Tim's public socket 27.130.21.128) within the 10s budget; 9/10 served via **DERP(tok) relay** |
+| Single 60s-budget run | stayed relayed for all 58 pongs |
+| Cold full connection (socks + HTTP GET) | ~0.8 s through relay |
+| Throughput, RELAYED (10 MB, DERP(tok)) | **~390 KB/s (≈3.1 Mbps)** — chat-class traffic is fine; big uploads work but slowly |
+| Data integrity through tunnel | HTTP 200, full 10 MB, no corruption |
+
+Interpretation: the pipe ALWAYS works (relay fallback is the floor), and punching to a
+public-IP server can be immediate — but this client's NAT mostly kept it relayed, which is the
+expected hard-client behavior. A typical home laptop should punch more often. Conclusions:
+
+1. The design's assumption holds — relay is a viable floor, direct is the bonus.
+2. Operators who need relay throughput/reliability should self-host derper (guide exists).
+3. The phone-hotspot/CGNAT spot-check (original recipe below) remains the one untested client
+   profile — optional final confirmation, not a blocker.
 
 ### Cross-NAT punch spot-check recipe (needs a real second network)
 
