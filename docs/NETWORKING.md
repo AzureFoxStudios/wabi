@@ -120,7 +120,9 @@ gets *darker* (zero inbound ports; magicsock punches outbound).
   bucket), so a family creating accounts the same evening doesn't trip the 5/hour guest cap.
 - **Public DERP caveat:** bootstrap/relay uses Tailscale's free DERP fleet (rate-limited, no SLA);
   self-host [`derper`](https://github.com/tailscale/tailscale/tree/main/cmd/derper) for reliability.
-- Design + spike evidence: `docs/plans/2026-09-01-tailcat-private-access.md`.
+- Design + spike/E2E evidence: `docs/plans/2026-09-01-tailcat-private-access.md` (incl. measured
+  cross-NAT relay floor ~390 KB/s, 1/10 immediate direct). Operator walkthrough:
+  `PROJECT_DOCS/03-features/PRIVATE_ACCESS_GUIDE.md`.
 
 ## Related
 

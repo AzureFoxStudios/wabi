@@ -19,6 +19,17 @@
 - State on disk: `<data_dir>/tailcat/{settings.json, keys.json, audit.jsonl, addr.txt}` — include
   in backups; nothing touches postcard-encoded WabiDB records.
 
+## Deploy record
+
+- **2026-09-02**: feature deployed to Tim (binary sha `3f21da7f2a54e3d9`, STATIC_BUILD frontend,
+  `--features addons`). Swap per runbook (both WabiDB locks cleared). Verified: container healthy,
+  `:8088` health ok, public `https://wabi.chat/health` ok, SPA `<!doctype html>`, socket.io polling
+  sid via public path, fresh logs clean, public addon catalog `mesh, tailcat, lore, webhooks`.
+  Feature disabled by default on Tim — zero footprint.
+- **Heads-up (user plan, 2026-09-02)**: the Cloudflare tunnel on Tim is planned to be CLOSED later
+  this week. After that, public-URL runbook steps are void until a replacement front door exists —
+  reachability will be tailnet/pipe-first. Re-audit before any next deploy.
+
 ## Deploy checklist
 
 1. `tailcat` binary **v0.4.0 or newer** present on the host (PATH or `WABI_TAILCAT_BINARY=...`).
