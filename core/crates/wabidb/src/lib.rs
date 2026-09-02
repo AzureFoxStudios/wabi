@@ -28,9 +28,9 @@
 //!
 //! ## Design references
 //!
-//! - Endstate doc: `/var/home/Ronin/wabi/docs/proposals/wabidb-endstate.md`
-//! - Council reviews: `/var/home/Ronin/wabi/docs/architecture/wabidb-council-reviews.md`
-//! - Kanban: `/var/home/Ronin/wabi/docs/wabidb-kanban.md`
+//! - Endstate doc: `docs/proposals/wabidb-endstate.md`
+//! - Council reviews: `docs/architecture/wabidb-council-reviews.md`
+//! - Kanban: `docs/wabidb-kanban.md`
 
 #![allow(clippy::needless_return)]
 

@@ -15,7 +15,7 @@ Single root Cargo workspace (`Cargo.toml`):
 | `core/addons/webhooks/backend`, `core/addons/mesh/backend`, `core/addons/lore/backend` | Rust addon backends (workspace members) |
 | `frontend/` | SvelteKit app (adapter-static, Svelte 5 runes). Built with `STATIC_BUILD=1` and embedded into the binary via rust_embed |
 | `packages/wabi-protocol/` | **GENERATED** TypeScript from wabi-core. Do NOT hand-edit |
-| `docs/` | Plans, architecture, handoffs |
+| `docs/` | ALL documentation, one tree. `README.md` = index/front door; `architecture/`, `deployment/`, `features/`, `addons/`, `ai/` (wabidb internals), `plans/` (dated build docs), `research/`, `proposals/`. Historical docs live on the `docs-history` branch, not in the tree |
 
 ## Mental model (one paragraph)
 

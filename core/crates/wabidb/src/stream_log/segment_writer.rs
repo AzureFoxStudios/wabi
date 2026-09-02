@@ -1,6 +1,6 @@
 //! Stream segment writer.
 //!
-//! See `core/crates/wabidb/docs/STORAGE_FORMAT.md` §2 for the full byte layout.
+//! See `docs/architecture/STORAGE_FORMAT.md` §2 for the full byte layout.
 //!
 //! A [`SegmentWriter`] writes records to a single `.wseg` file. When the segment
 //! reaches [`MAX_SEGMENT_SIZE`] bytes, the caller should open a new segment via

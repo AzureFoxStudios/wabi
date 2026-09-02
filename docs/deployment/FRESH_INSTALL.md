@@ -13,13 +13,13 @@ Get one machine healthy on `localhost` first, then add one extra layer at a time
 
 ## 1. Create `wabi.config`
 
-Copy [wabi.config.example](C:/Users/Willp/Documents/GitHub/Wabi/wabi.config.example) to `wabi.config`.
+Copy [wabi.config.example](../../wabi.config.example) to `wabi.config`.
 
 Start with this minimal config:
 
 ```env
-PROFILE=starter
-RUNTIME=node
+PROFILE=authority
+RUNTIME=rust
 DOMAIN=localhost
 CALLS=self_hosted_turn
 

@@ -1,3 +1,8 @@
+> ⚠️ **STALE (2026-09-02): this documents the REMOVED SpacetimeDB stack.**
+> The current deployment flow is `FRESH_INSTALL.md` in this directory, the
+> `wabi-deploy` agent skill, and `docs/NETWORKING.md`. Kept for historical
+> reference on the `docs-history` branch.
+
 # Wabi Chat - Deployment Guide
 
 > **Note on STDB state plane (2026-04-23):** The STDB migration's P1–P6 phases completed

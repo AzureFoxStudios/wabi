@@ -1,6 +1,6 @@
 //! Stream segment reader.
 //!
-//! See `core/crates/wabidb/docs/STORAGE_FORMAT.md` §2 for the full byte layout.
+//! See `docs/architecture/STORAGE_FORMAT.md` §2 for the full byte layout.
 //!
 //! A [`SegmentReader`] reads records sequentially from a single `.wseg` file.
 //! It stops at the first invalid header (truncated tail), skips records with
