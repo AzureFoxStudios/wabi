@@ -19,7 +19,7 @@ exclude = [
 [dependencies]
 # TUI framework
 ratatui = "0.29"
-crossterm = "0.28"
+crossterm = "0.29"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
