@@ -400,11 +400,21 @@ import { channels } from '$lib/channelStore';
 		if (readme) void handleOpen(readme);
 	});
 
-	let contextMenu = $state<{ path: string; x: number; y: number } | null>(null);
+	let contextMenu = $state<{ path: string; x: number; y: number; isFolder?: boolean } | null>(null);
+	/** Folder chosen via its context menu; the next single upload lands there. */
+	let uploadTargetFolder = $state<string | null>(null);
+	let fileInputEl = $state<HTMLInputElement | undefined>(undefined);
 
-	function handleContextMenu(path: string, event: MouseEvent) {
+	function handleContextMenu(path: string, event: MouseEvent, isFolder = false) {
 		event.preventDefault();
-		contextMenu = { path, x: event.clientX, y: event.clientY };
+		contextMenu = { path, x: event.clientX, y: event.clientY, isFolder };
+	}
+
+	function contextMenuUploadHere() {
+		if (!contextMenu) return;
+		uploadTargetFolder = contextMenu.isFolder ? contextMenu.path : null;
+		closeContextMenu();
+		fileInputEl?.click();
 	}
 
 	function closeContextMenu() {
@@ -580,7 +590,12 @@ import { channels } from '$lib/channelStore';
 		const { token, channelId } = ctx;
 
 		try {
-			const repoPath = `uploads/${file.name}`;
+			// Land in the folder chosen via its context menu (if any);
+			// default remains the flat uploads/ drop zone.
+			const repoPath = uploadTargetFolder
+				? `${uploadTargetFolder}/${file.name}`
+				: `uploads/${file.name}`;
+			uploadTargetFolder = null;
 			await uploadLoreFile(token, channelId, repoPath, file, `Upload ${file.name}`);
 			await loadLoreRepo();
 		} catch (e: any) {
@@ -892,7 +907,7 @@ import { channels } from '$lib/channelStore';
 						<line x1="12" y1="3" x2="12" y2="15"/>
 					</svg>
 					Upload
-					<input type="file" style="display:none" onchange={handleUpload} />
+					<input type="file" style="display:none" onchange={handleUpload} bind:this={fileInputEl} />
 				</label>
 			{/if}
 
@@ -1241,37 +1256,47 @@ import { channels } from '$lib/channelStore';
 			role="menu"
 			style="left: {Math.min(contextMenu.x, window.innerWidth - 200)}px; top: {Math.min(contextMenu.y, window.innerHeight - 200)}px;"
 		>
-			{#if canAssetWrite && !(files.find((f) => f.path === contextMenu.path)?.lockedBy)}
+			{#if contextMenu.isFolder && canAssetWrite}
+				<div class="ctx-item" role="menuitem" onclick={contextMenuUploadHere} title="Upload a file into this folder">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+					Upload here…
+				</div>
+			{/if}
+			{#if !contextMenu.isFolder && canAssetWrite && !(files.find((f) => f.path === contextMenu.path)?.lockedBy)}
 				<div class="ctx-item" role="menuitem" onclick={contextMenuLock} title="Lock this file for editing">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
 					Lock
 				</div>
 			{/if}
-			{#if files.find((f) => f.path === contextMenu.path)?.lockedBy}
+			{#if !contextMenu.isFolder && files.find((f) => f.path === contextMenu.path)?.lockedBy}
 				<div class="ctx-item" role="menuitem" onclick={contextMenuUnlock} title="Release the lock on this file">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
 					Unlock
 				</div>
 			{/if}
-			<div class="ctx-item" role="menuitem" onclick={contextMenuDiffPrevious} title="Diff this file against its previous version">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></svg>
-				Diff vs previous
-			</div>
+			{#if !contextMenu.isFolder}
+				<div class="ctx-item" role="menuitem" onclick={contextMenuDiffPrevious} title="Diff this file against its previous version">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></svg>
+					Diff vs previous
+				</div>
+			{/if}
 			{#if canEdit}
 				<div class="ctx-item" role="menuitem" onclick={contextMenuEditor} title="Open this repo in a code-server editor session">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
 					Open in editor
 				</div>
 			{/if}
-			<div class="ctx-item" role="menuitem" onclick={contextMenuDownload} title="Download this file">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-				Download
-			</div>
+			{#if !contextMenu.isFolder}
+				<div class="ctx-item" role="menuitem" onclick={contextMenuDownload} title="Download this file">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+					Download
+				</div>
+			{/if}
 			<div class="ctx-item" role="menuitem" onclick={contextMenuCopyPath} title="Copy the repo path">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 				Copy path
 			</div>
-			{#if canAssetWrite}
+			{#if canAssetWrite && !contextMenu.isFolder}
 				<div class="ctx-sep" role="separator"></div>
 				<div class="ctx-item ctx-danger" role="menuitem" onclick={contextMenuDelete} title="Delete this file (requires typed confirmation)">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
