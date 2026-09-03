@@ -1,19 +1,7 @@
-import Prism from 'prismjs';
-// Register the same grammar set the chat markdown renderer loads, so board
-// code cards highlight the same languages. Already in the app bundle.
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-java';
-import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
-import 'prismjs/components/prism-csharp';
-import 'prismjs/components/prism-go';
-import 'prismjs/components/prism-rust';
-import 'prismjs/components/prism-ruby';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-css';
+// Prism grammar components are loaded by $lib/prism (see that module for why
+// they must not be statically imported here); this highlights the same
+// language set the chat markdown renderer uses.
+import Prism from '$lib/prism';
 
 /** A run of same-colored text on one line; type '' means plain text. */
 export interface HighlightRun {

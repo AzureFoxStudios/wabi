@@ -14,6 +14,7 @@
 	import { currentUser } from '$lib/socket';
 	import { isDesktopTauri } from '$lib/tauri-platform';
 	import { snapWindow, type SnapPosition } from '$lib/tauri-window';
+	import { ensurePrismGrammars } from '$lib/prism';
 
 	let panelState = readDetachedPanelState($page.url);
 	let bootError: string | null = null;
@@ -49,6 +50,9 @@
 		}
 
 		try {
+			// This route imports Chat directly (no ensureLayoutRouter), so the
+			// Prism grammar components need their own load-before-render here.
+			await ensurePrismGrammars();
 			initSocket(username, token);
 			if (panelState.kind === 'channel-chat' && panelState.channelId) {
 				joinChannel(panelState.channelId);
