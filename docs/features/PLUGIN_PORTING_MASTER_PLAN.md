@@ -5,7 +5,7 @@ Port high-value plugin functionality into Wabi in controlled phases, with clear 
 
 ## Conversion Playbook
 - Step-by-step directions for the implemented BetterDiscord-to-Wabi workflow:
-  - `PROJECT_DOCS/BETTERDISCORD_CONVERSION_DIRECTIONS.md`
+  - `BETTERDISCORD_CONVERSION_DIRECTIONS.md` (docs-history branch)
 
 ## Execution Rules
 1. Functionality-first, but no blind copy/paste.
@@ -64,7 +64,7 @@ Grade each candidate before implementation so effort stays focused on high-value
 | UnicodeEmojis | P3 | D | 48 | Addon | Done | Complete | Source toggles, local counters, compose previews, prefs import/export, and compatibility smoke coverage are complete |
 
 ## Round 1 Translation Status (Current Codebase)
-The following entries from `PROJECT_DOCS/PLUGIN_GRADING_ROUND1.md` are implemented as Wabi-native features.
+The following entries from `PLUGIN_GRADING_ROUND1.md` (docs-history branch) are implemented as Wabi-native features.
 
 | Plugin (Round 1) | Status | Wabi Translation Notes |
 |---|---|---|
@@ -121,7 +121,7 @@ The following entries from `PROJECT_DOCS/PLUGIN_GRADING_ROUND1.md` are implement
 - Status: `Approved`
 - Track: `Core`
 - Rationale: align media browsing with Line/Discord-style album flows while keeping one consistent Wabi UX across desktop/mobile.
-- Spec: `PROJECT_DOCS/FEATURE_SPEC_MEDIA_ALBUMS.md`
+- Spec: `FEATURE_SPEC_MEDIA_ALBUMS.md` (this directory)
 
 ## ZipPreview Initial Breakdown
 ### Phase 0 - Discovery
@@ -378,8 +378,8 @@ The following entries from `PROJECT_DOCS/PLUGIN_GRADING_ROUND1.md` are implement
   - frontend checks/build validated with warning-only baseline (`bun run check`, `bun run build:only`).
 
 ## Required Artifacts Per Plugin
-- Spec: `PROJECT_DOCS/PLUGIN_SPEC_<NAME>.md`
-- Decisions: `PROJECT_DOCS/PLUGIN_DECISIONS_<NAME>.md`
+- Spec: `PLUGIN_SPEC_<NAME>.md` (docs-history branch, old-specs/)
+- Decisions: `PLUGIN_DECISIONS_<NAME>.md` (docs-history branch, plugin-decisions/)
 - Changelog note in final implementation PR/commit message.
 
 ## Working Checklist (Use Every Phase)

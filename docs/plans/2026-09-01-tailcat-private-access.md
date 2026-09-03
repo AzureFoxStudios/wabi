@@ -1,7 +1,7 @@
 # Tailcat Private Access — plan + Phase 1 spike results
 
 **Date:** 2026-09-01
-**Status:** SHIPPED — v1 + follow-ups landed (commit `69fb8d1`), deployed to Tim 2026-09-02 (binary sha `3f21da7f2a54e3d9`, verified healthy + public). Cross-NAT punch measured ironin→Tim (results below). Operator guide: `PROJECT_DOCS/03-features/PRIVATE_ACCESS_GUIDE.md`.
+**Status:** SHIPPED — v1 + follow-ups landed (commit `69fb8d1`), deployed to Tim 2026-09-02 (binary sha `3f21da7f2a54e3d9`, verified healthy + public). Cross-NAT punch measured ironin→Tim (results below). Operator guide: `docs/features/PRIVATE_ACCESS_GUIDE.md`.
 **Upstream:** [tailscale/tailcat](https://github.com/tailscale/tailcat) — pinned **v0.4.0** (tag `ce6fedc`, signed; note v0.3.0 release notes say "recommend updating for security reasons" — upstream is churning fast, 4 releases in 2 days; re-pin deliberately before any deploy)
 
 ## Goal
@@ -77,7 +77,7 @@ Per approved plan: addon crate `core/addons/tailcat/backend` (Lore external-
 binary pattern, runtime-gated), event-sourced settings + projections, admin
 routes `/addons/tailcat/*`, ingress tagging, setup-wizard posture preset,
 Tauri connection profile + per-member keys, docs (`docs/NETWORKING.md`,
-`PROJECT_DOCS/02-deployment`, derper guidance), integration + unit tests.
+`docs-history branch: 02-deployment`, derper guidance), integration + unit tests.
 
 Explicitly out of scope: browser/WASM, CallTransportAdapter, mesh, Headscale,
 beyond-localhost services, public-path integration.
@@ -163,7 +163,7 @@ beyond-localhost services, public-path integration.
    when the feature is off AND the binary is present; dismissible, never re-nags.
 4. **Self-hosted derper** — DONE. `WABI_TAILCAT_DERPMAP_URL` env → listener `--derpmap-url`
    flag (flag-order contract respected); guide at
-   `PROJECT_DOCS/02-deployment/DERP_SELF_HOST_GUIDE.md`.
+   `docs/deployment/DERP_SELF_HOST_GUIDE.md`.
 5. **Cross-NAT punch spot-check** — RECIPE BELOW; requires a physical second network, so it
    stays open until someone runs it.
 

@@ -128,6 +128,6 @@ my-addon/
 
 For the full addon architecture specification (manifest schema v3, loading lifecycle, permission model, signing protocol, and integration patterns), see:
 
-`PROJECT_DOCS/01-architecture/ADDON_ARCHITECTURE.md`
+`docs/architecture/ADDON_ARCHITECTURE.md`
 
 That document is intended for engineers building addons or extending the addon system. This guide is for users and curious newcomers.

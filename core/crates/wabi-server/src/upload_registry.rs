@@ -1,6 +1,6 @@
 //! Upload ownership registry for files served under the generic `/uploads/` URL space.
 //!
-//! Option 1 (see FILE_SECURITY_AUDIT_DECISION_2026-07-31.md): this registry is
+//! Option 1 (see docs/audits/FILE_SECURITY_AUDIT_DECISION_2026-07-31.md): this registry is
 //! **ops metadata, not an authz brain**. It records which channel / user each
 //! uploaded file belongs to so operators can audit disk usage and (later) build
 //! a read gate. It is deliberately *not* consulted on the serve path —

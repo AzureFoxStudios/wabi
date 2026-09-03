@@ -8,7 +8,7 @@ This document outlines the plan to fix critical issues in Wabi's reader mode and
 
 ## Architecture Context (Rust Realignment)
 
-Based on [RUST_REALIGNMENT_DECISION_MEMO.md](./RUST_REALIGNMENT_DECISION_MEMO.md):
+Based on [RUST_REALIGNMENT_DECISION_MEMO.md](RUST_REALIGNMENT_DECISION_MEMO.md (docs-history branch, 2026-04-rust-realignment/)):
 
 ```
 wabi-core (Rust)     <- Protocol, domain rules, validation, types
@@ -523,7 +523,7 @@ readerPreferences.subscribe((value) => {
    - Add functions for opening image documents
    - Add comments noting future wabi-core migration
 
-3. `/PROJECT_DOCS/READER_MODE_ENHANCEMENT_PLAN.md`
+3. `/docs-history branch: READER_MODE_ENHANCEMENT_PLAN.md`
    - Updated for Rust realignment architecture
    - Added image/manga viewer to scope
    - Documented future wabi-core integration path

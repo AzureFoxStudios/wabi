@@ -4,8 +4,8 @@ Last updated: 2026-03-08
 Status: Core backend + frontend payment sheet + `th-payments` + `western-payments` contracted-adapter flows + `btc-payments` Bitcoin-first rail + signed-only rollout path implemented
 Owner: Core backend + plugin platform
 
-Current shipped behavior is documented in `PROJECT_DOCS/PAYMENTS_IMPLEMENTATION.md`.
-Verified-provider adapter shape is documented in `PROJECT_DOCS/PAYMENTS_ADAPTER_CONTRACT.md`.
+Current shipped behavior is documented in `PAYMENTS_IMPLEMENTATION.md on the docs-history branch`.
+Verified-provider adapter shape is documented in `PAYMENTS_ADAPTER_CONTRACT.md on the docs-history branch`.
 
 ## 1) Goal
 
@@ -285,7 +285,7 @@ Implemented in this repository:
    - `scripts/payments-signed-only-rollout.mjs`
    - `backend/scripts/payments-provider-sandbox-smoke.ts`
    - `backend/scripts/payments-western-provider-sandbox-smoke.ts`
-   - provider ops runbook: `PROJECT_DOCS/PAYMENTS_PROVIDER_RUNBOOK.md`
+   - provider ops runbook: `PAYMENTS_PROVIDER_RUNBOOK.md on the docs-history branch`
 12. Second provider plugin (`western-payments`):
    - `plugins/western-payments/plugin.json`
    - `plugins/western-payments/backend/index.mjs`

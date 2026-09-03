@@ -38,7 +38,7 @@ audit list shows every change with who/when. Nothing here ever requires restarti
 - **Fallback path:** if both networks refuse a direct connection, traffic relays through
   Tailscale's free DERP fleet. Measured cross-network relay throughput: ~390 KB/s — plenty for
   chat and fine for occasional uploads. Reliability purists: self-host a relay
-  (`PROJECT_DOCS/02-deployment/DERP_SELF_HOST_GUIDE.md`).
+  (`docs/deployment/DERP_SELF_HOST_GUIDE.md`).
 - **Keys are per-device.** An admin revokes a member's device in the same panel; only that
   device loses access.
 - **Same-box extras (future):** the data model already supports exposing other services on the

@@ -2,7 +2,7 @@
 
 Status: Research, verified Aug 2026
 Owner: Payments (th-payments / western-payments / btc-payments)
-Related: `PROJECT_DOCS/04-payments/PAYMENTS_NONCUSTODIAL_PLAN.md`, `PROJECT_DOCS/archive/PAYMENTS_IMPLEMENTATION.md`, `PROJECT_DOCS/archive/PAYMENTS_ADAPTER_CONTRACT.md`
+Related: `docs/payments/PAYMENTS_NONCUSTODIAL_PLAN.md`, `docs-history branch (archive/) PAYMENTS_IMPLEMENTATION.md`, `docs-history branch (archive/) PAYMENTS_ADAPTER_CONTRACT.md`
 
 ## 1) The reframe
 

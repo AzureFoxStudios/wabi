@@ -136,4 +136,4 @@ Also standard: run behind HTTPS (Caddy/cloudflared profile), keep
 
 ## Stale docs
 
-- `DEPLOYMENT_READY.md`, much of `PROJECT_DOCS/02-deployment/DEPLOYMENT.md` — STDB-era; prefer this file + `docker-compose.yml` header + `docs/NETWORKING.md`.
+- `DEPLOYMENT_READY.md`, much of `docs/deployment/DEPLOYMENT.md` — STDB-era; prefer this file + `docker-compose.yml` header + `docs/NETWORKING.md`.

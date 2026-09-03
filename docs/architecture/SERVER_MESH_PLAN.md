@@ -83,7 +83,7 @@ The replication module is implemented in code but not yet wired into the wabi-se
 - TURN and SFU are deployed close to users
 - Selection is per-call, measured at call start
 - Media is not stored; only routed
-- See `PROJECT_DOCS/02-deployment/TURN_SETUP.md`
+- See `docs/deployment/TURN_SETUP.md`
 
 ## 5. Privacy + Operational Posture
 
@@ -106,6 +106,6 @@ The replication module is implemented in code but not yet wired into the wabi-se
 - `core/crates/wabidb/src/replication/` — replication module implementation
 - `core/crates/wabidb/src/replication/mod.rs` — module overview
 - `core/crates/wabi-server/src/mesh.rs` — wabi-server mesh runtime
-- `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` §6 — multi-server topology overview
-- `PROJECT_DOCS/02-deployment/TURN_SETUP.md` — TURN deployment
-- `PROJECT_DOCS/01-architecture/WABI_MULTI_SERVER_ARCHITECTURE.md` — user-facing multi-server UX (separate concern: federation, not mesh runtime)
+- `docs/architecture/ARCHITECTURE.md` §6 — multi-server topology overview
+- `docs/deployment/TURN_SETUP.md` — TURN deployment
+- `docs/architecture/WABI_MULTI_SERVER_ARCHITECTURE.md` — user-facing multi-server UX (separate concern: federation, not mesh runtime)

@@ -244,7 +244,7 @@ A federated deployment where multiple Authority servers share state via the Wabi
 - Anti-entropy (resolving drift between peers)
 - Failover (promoting an Anchor to Authority if the primary fails)
 
-The mesh runs on top of helper-node connections, not direct peer-to-peer. See `PROJECT_DOCS/01-architecture/WABI_MULTI_SERVER_ARCHITECTURE.md` for the full design.
+The mesh runs on top of helper-node connections, not direct peer-to-peer. See `docs/architecture/WABI_MULTI_SERVER_ARCHITECTURE.md` for the full design.
 
 ---
 
@@ -282,10 +282,10 @@ Located at `core/crates/wabi-tui/`. A terminal client for headless environments.
 - `docs/proposals/wabidb-endstate.md` — Wabidb endstate design
 - `docs/proposals/wabidb-call-session-design.md` — call-session design (F16)
 - `docs/architecture/wabidb-council-reviews.md` — Council Review #1 invariants
-- `PROJECT_DOCS/01-architecture/PERSISTENCE_MODEL.md` — persistence tier model
-- `PROJECT_DOCS/01-architecture/SERVER_MESH_PLAN.md` — multi-server topology
-- `PROJECT_DOCS/01-architecture/ADDON_ARCHITECTURE.md` — plugin system
-- `PROJECT_DOCS/01-architecture/CALLING_TRANSPORT_ARCHITECTURE.md` — call media routing
+- `docs/architecture/PERSISTENCE_MODEL.md` — persistence tier model
+- `docs/architecture/SERVER_MESH_PLAN.md` — multi-server topology
+- `docs/architecture/ADDON_ARCHITECTURE.md` — plugin system
+- `docs/architecture/CALLING_TRANSPORT_ARCHITECTURE.md` — call media routing
 - `docker-compose.yml` — production stack definition
 - `scripts/local-dev.sh` — local dev stack bootstrap
 
@@ -295,6 +295,6 @@ Located at `core/crates/wabi-tui/`. A terminal client for headless environments.
 
 - Wire protocol details for Socket.IO events (see `socketio/wiring.rs` and the API reference)
 - Internal Wabidb key derivation details (see `wabidb::crypto::bootstrap`)
-- Plugin authoring (see `PROJECT_DOCS/01-architecture/ADDON_ARCHITECTURE.md`)
-- TURN/SFU configuration (see `PROJECT_DOCS/02-deployment/TURN_SETUP.md`)
-- Operator runbooks (see `PROJECT_DOCS/02-deployment/`)
+- Plugin authoring (see `docs/architecture/ADDON_ARCHITECTURE.md`)
+- TURN/SFU configuration (see `docs/deployment/TURN_SETUP.md`)
+- Operator runbooks (see `docs/deployment/`)

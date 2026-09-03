@@ -381,7 +381,7 @@ I am stating these explicitly so we are not surprised by them later.
 
 6. **Frontend coupling.** The current frontend talks to STDB via `stdb_bindings/` generated code. We will need to remove or rewrite that. This is a frontend task, not a backend task. It happens in Phase 2-3.
 
-7. **Skill unknowns.** I have not yet read the Wabi `PROJECT_DOCS/archive/2026-04-stdb-migration/SPACETIMEDB_WABI_STATE_PLAN.md` end-to-end in this session. The Phase 0 trait boundary should be cross-checked against whatever that doc promises. If it contradicts, the futuresight doc wins; we update the plan doc.
+7. **Skill unknowns.** I have not yet read the Wabi `docs-history branch (archive/) 2026-04-stdb-migration/SPACETIMEDB_WABI_STATE_PLAN.md` end-to-end in this session. The Phase 0 trait boundary should be cross-checked against whatever that doc promises. If it contradicts, the futuresight doc wins; we update the plan doc.
 
 8. **"WASM-like isolation for any future addon system" trade-off.** If we ever want to run user addons, we are giving up the WASM sandbox that STDB gives us. The Wabi-shaped answer is: addons are frontend-only, and any backend-touching extension must go through a small set of built-in object APIs with explicit capability tokens. This is a known trade-off, not a hidden one.
 
