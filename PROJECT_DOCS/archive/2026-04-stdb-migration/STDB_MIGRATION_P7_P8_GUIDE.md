@@ -1,0 +1,279 @@
+# STDB Migration — P7 + P8 Handoff Guide
+
+Context: the hybrid legacy-db+STDB → STDB-only migration completed phases P1–P6 on 2026-04-22.
+All 6 state plane stores (`message`, `channel`, `channel_member`, `user`, `session`, `rbac`) run in
+`stdb_primary` mode on tim with clean writes and no shadow/warmup/parity/outbox-replay plumbing.
+This guide exists so a future session can finish P7 (cleanup) and P8 (multi-server client features)
+without re-deriving the context.
+
+### 2026-04-23 P7 progress checkpoint
+
+Partial P7 work landed in this session:
+
+- **P7a (legacy admin route done; repo deletion DEFERRED as P7.5).** `/api/admin/legacy-message-status`
+  + its `findLegacyMessageByMessageId` dep wiring are gone. But the repo files themselves
+  (`messageRepository`, `channelRepository`, `channelMemberRepository`, `userRepository`,
+  `sessionRepository`) are NOT deletable in a simple cleanup — `userRepository.create/update`,
+  `sessionRepository.create/delete`, `channelRepository.create` etc. are still called from
+  `authRoutes.ts`, `server.ts`, `albumRoutes.ts`, `manualSettlementRoutes.ts`,
+  `dictionaryRoutes.ts`, `relayRoutes.ts`, `whiteboardAccess.ts`. The `createAsync` shim pattern
+  in authRoutes.ts (line ~274) hints these do route through STDB at runtime — but unwinding to
+  call the state-plane stores directly is a multi-hour write-path cutover. **Call this P7.5.**
+- **P7b partial.** setup.sh, setup-forWindows.ps1, local-dev.sh, local-dev.ps1, and
+  state-plane-ingress-check.mjs are clean. launch.sh's user-facing help text + `.env` write
+  block are clean (so newly-generated `.env` files no longer contain dead flags). ~173 internal
+  parse/apply lines in launch.sh still reference the dead flags — dead code inside an operator
+  tool, harmless, left for P7-remainder. `scripts/state-plane-stdb-benchmark.ps1` (9 hits) whole
+  premise (dual_write vs stdb_primary comparison) is obsolete — can be deleted outright.
+- **P7c done.** SPACETIMEDB_WABI_STATE_PLAN.md and DEPLOYMENT.md have banners at the top
+  marking their legacy content as historical and pointing operators at `/state-plane/healthz`
+  + `WABI_STDB_BRIDGE_*`. Did not line-by-line rewrite — too big for the remaining budget.
+- **Schema.sql was ALREADY CLEAN** of `state_*` + `message_archive` CREATE TABLEs before P7
+  started. Guide's "drop these" step was a false alarm.
+
+Remaining P7 work for next session:
+1. P7.5 (write-path cutover): rewire callers of `userRepository`, `sessionRepository`,
+   `channelRepository`, `channelMemberRepository` to hit the state-plane stores directly,
+   then delete the repo files.
+2. launch.sh internal dead-code sweep (~173 lines across config-state vars, parse branches,
+   apply blocks, upsert calls around lines 39-106, 496-642, 809-854, 1286-1442, 1500-1598).
+3. Delete `scripts/state-plane-stdb-benchmark.ps1` if nobody wants to refit it.
+4. P7d: tim deploy + smoke test + git push (deferred because this session's changes are
+   compile-time-only and don't change runtime behavior).
+
+Verify current state: `curl http://tim:8080/state-plane/healthz` should return `mode=stdb_primary`
+in every `*_store` block with no `warmup`/`shadow`/`parity`/`read_switch` sections.
+
+### 2026-04-23 completion update
+
+Follow-up work in this session finished the code-side P7 cleanup:
+
+- **P7.5 done.** Shared state types/formatting moved to `backend/src/state-plane/records.ts`.
+  Runtime callers now import the state-plane stores directly (or alias them locally after
+  importing from `state-plane/index.ts`), the auth async shim fallback is gone, and the
+  legacy repository files for `message`, `channel`, `channel_member`, `user`, and `session`
+  were deleted.
+- **P7b done.** `scripts/launch.sh` no longer parses/applies the retired hybrid/shadow
+  env flags, and `scripts/state-plane-stdb-benchmark.ps1` was deleted.
+- **Additional cleanup:** `payments/userBlocks.ts` now hydrates usernames from STDB-backed
+  user lookups instead of joining the stale legacy embedded DB `users` mirror, and `server.ts` no longer
+  uses legacy embedded DB `users`/`sessions` paths for setup status or moderation session revocation.
+- **Still deferred:** live tim verification/deploy. From this coding environment `tim` did not
+  resolve, so `/state-plane/healthz`, rsync, and smoke tests on tim were not rerun here.
+- **Important nuance:** the legacy embedded DB tables `users`, `sessions`, `channels`, `channel_members`,
+  and `messages` still exist in `schema.sql`/`database.ts`. They are no longer used through
+  the deleted repository layer, but fully dropping them is a separate schema-decoupling task
+  because other legacy legacy embedded DB tables and scripts still reference them directly or via foreign
+  keys.
+
+### 2026-04-23 P8 progress update
+
+P8 is now partially implemented in code, with the backend/client failover plumbing in place:
+
+- **Backend endpoint discovery shipped.** Backend instance leases now publish a client-connect
+  URL in the existing lease `row_json` payload, and `GET /api/public/backend-endpoints` returns
+  the active backend candidates for the current mesh. This did **not** require a new STDB table
+  or a bridge republish because the extra field rides inside the existing lease JSON. The runtime
+  advertises `WABI_PUBLIC_BACKEND_URL` when set, otherwise falls back to `PUBLIC_URL` /
+  `FRONTEND_URL`.
+- **Client endpoint rotation shipped.** The frontend caches backend candidates in localStorage,
+  carries auth/session/identity scope forward when rotating to a peer backend, and reconnects
+  against alternate healthy endpoints instead of retrying one dead URL forever.
+- **Reconnect catch-up improved.** On reconnect/failover, the client now requests newer history
+  for each locally-loaded channel instead of only attempting a same-URL socket reconnect.
+- **Still deferred:** live multi-node smoke and operator rollout. No tim/developer mesh test was
+  run from this environment, so same-region failover is code-complete but not operationally
+  proven yet.
+
+### 2026-04-24 P8 completion update
+
+P8 is now operationally verified on the 3-node Tailscale mesh:
+
+- **Client failover shipped and proven live.** The frontend now seeds backend candidates during
+  session restore / login in `frontend/src/routes/+page.svelte`, in addition to the socket-level
+  refresh path. This closes the gap where the browser could fetch `/api/public/backend-endpoints`
+  but never persist `wabi.backendEndpoints.v1` before a backend died.
+- **Two STDB auth bugs were fixed.**
+  - `backend/src/state-plane/stdbUserStore.ts` now preserves `password_hash` on STDB writes.
+    Earlier sanitized writes stripped it, which broke bcrypt verification for newly-created
+    owner users.
+  - `backend/src/state-plane/stdbSessionStore.ts` no longer issues `WHERE user_id = <int>`
+    SQL against the `Option<i64>` `state_session.user_id` column. Registered-session lookups now
+    scan active sessions and filter in process, which fixed login/session revocation on peers.
+- **Live mesh rollout completed on tim + local + Iyoku.** Frontend and backend builds were
+  refreshed across:
+  - `http://100.96.11.45:8080` / `:3000` (`tim`)
+  - `http://100.87.255.66:8080` / `:3000` (local dev box)
+  - `http://100.104.166.42:8080` / `:3000` (`Iyoku`)
+- **Browser failover was validated twice.**
+  - A browser session served from the local frontend but pinned to `tim` rotated from
+    `http://100.96.11.45:8080` to `http://100.87.255.66:8080` after `tim` backend shutdown, and
+    the mesh reported the live registered connection on the new node.
+  - A browser session served from the `tim` frontend rotated from `http://100.96.11.45:8080` to
+    `http://100.104.166.42:8080` after `tim` backend shutdown, proving the 3rd node participates
+    as a real failover target.
+- **Current steady state:** `/state-plane/healthz` is clean `stdb_primary` on all 3 backends and
+  `/api/public/backend-endpoints` returns the full 3-node peer set from both `tim` and `Iyoku`.
+
+Residual note:
+- `StdbPrimaryMessageStore.cleanup()` still logs a non-fatal STDB SQL helper error on
+  `expires_at IS NOT NULL` when retained-message expiry cleanup runs on peers. This did not block
+  P8 failover, but it is still worth fixing in a later cleanup pass.
+
+---
+
+## P7 — Cleanup (deferred from P6)
+
+P6 removed the state-plane code paths, dead scripts, and obvious env flags. P7 finishes the job:
+kill dead SQL tables, strip remaining backcompat env plumbing in shell scripts, retire one admin
+endpoint, and update the docs.
+
+### P7a — Drop dead state_* repositories + findByMessageId path
+
+**Problem.** These still exist but nothing in the running code path calls them since P5:
+
+- `backend/src/db/repositories/messageRepository.ts` — used only by `stdbMessageStore.toClientFormat()` (pure formatter — can inline or pull into a `formatMessage` helper) and `findLegacyMessageByMessageId` (dead).
+- `/api/admin/legacy-message-status` in `backend/src/api/runtimeAdminRoutes.ts` — introspects the legacy embedded DB message_archive table that P5 stopped writing to.
+- The `findByMessageId` repo method it calls.
+- `backend/src/api/followRoutes.ts` reference — verify whether it's still in the hot path or a vestige.
+
+**Steps.**
+
+1. Grep: `grep -rn "legacy-message-status\|findLegacyMessageByMessageId\|messageRepository\." backend/src`.
+2. For each caller, either delete the call site (dead admin route, dead helper) or replace the
+   repo call with the state-plane store equivalent (most should already be routed through
+   `stateMessageStore`).
+3. Once `messageRepository` has zero callers outside its own file, delete the repository file
+   and remove the import from `db/database.ts`.
+4. Apply the same treatment to `channelRepository`, `channelMemberRepository`, `userRepository`,
+   `sessionRepository`, and the RBAC repo — anything under `backend/src/db/repositories/` that
+   wraps a `state_*` concept is dead. Keep non-state repos (payments, plugins, etc).
+5. `backend/src/db/schema.sql`: drop the `CREATE TABLE` statements for `state_message`,
+   `state_channel`, `state_channel_member`, `state_user`, `state_session`, `state_rbac_*`, and
+   `message_archive`. Keep non-state tables (users? check — user_profile stays, but `users` may be
+   dead if `stateUserStore` owns everything).
+6. `backend/src/db/database.ts`: remove any migration that depended on the removed tables. The
+   `applySchema no such column tolerance` safety net stays.
+7. Verify: `bun run build` succeeds. Deploy to tim. `/state-plane/healthz` still clean. Create a
+   message, a channel, a user via normal flow and confirm they round-trip.
+
+**Gotcha.** Some tests in `backend/tests/` and `backend/scripts/*-smoke.ts` may still seed via the
+dead repos. Update them to seed through the state-plane stores, or delete the test if its premise
+(shadow/parity/dual-write) no longer applies. Smoke scripts already touched in P6 include
+`operator-reset-password-smoke.ts` and `payments-stdb-hybrid-smoke.ts` — the second can probably be
+renamed (no longer "hybrid").
+
+### P7b — Clean launch.sh / setup.sh / platform variants
+
+Affected files (each has ~dozens of refs to the removed env flags):
+
+- `scripts/launch.sh` (~1700 lines)
+- `scripts/setup.sh` (~500 lines)
+- `scripts/local-dev.sh`, `scripts/local-dev.ps1`
+- `scripts/setup-forWindows.ps1`
+- `scripts/state-plane-stdb-benchmark.ps1`
+
+**Strings to purge (all removed as valid envs in P5/P6):**
+`STATE_BACKEND_MODE`, `STATE_STDB_READ_ENABLED`, `STATE_STDB_WRITE_ENABLED`,
+`STATE_BACKEND_STRICT`, `STATE_SHADOW_TOKEN`, `STATE_SHADOW_POLL_INTERVAL_MS`,
+`STATE_SHADOW_BATCH_SIZE`, `STATE_SHADOW_WARMUP_ENABLED`, `STATE_SHADOW_WARMUP_LIMIT`,
+`STATE_STDB_PRIMARY_MIRROR_LEGACY_WRITES`, `STATE_SHADOW_SIGNING_SECRET`,
+`STATE_SHADOW_SIGNING_KEY_ID`.
+
+**Strings to keep** (still valid): `STATE_STDB_SUBSCRIPTIONS_ENABLED`, `STATE_STDB_ENFORCE_RBAC`,
+`STATE_OUTBOX_*`, `WABI_STDB_BRIDGE_*`, `WABI_STDB_AUTH_TOKEN`, `STATE_PLANE_SCHEMA_*`,
+`STATE_REDUCER_INGRESS_*`.
+
+**Approach.** launch.sh is load-bearing for operators — don't do a find/replace blind. Read each
+function that references a dead flag and:
+  - if it's help text / prompt → drop the paragraph.
+  - if it's a case/menu branch that wrote the flag to `.env` → remove the branch and simplify the
+    enclosing menu.
+  - if it's a `sed -i` that rewrites the flag → drop the command.
+  - if it's a pre-flight check that errored on bad values → drop the check.
+
+Do a final grep on the pruned files to confirm zero matches for the kill-list above.
+
+### P7c — Documentation pass
+
+- `PROJECT_DOCS/SPACETIMEDB_WABI_STATE_PLAN.md` — plan doc, likely describes the phased rollout.
+  Rewrite to reflect "P1–P6 done, STDB is sole source of truth." Keep it as a historical record
+  rather than a forward plan.
+- `PROJECT_DOCS/DEPLOYMENT.md` — remove any dual-write / shadow / read-canary sections. Operators
+  now just need `WABI_STDB_BRIDGE_*` + token.
+- `spacetimedb/wabi_state_bridge/README.md` — should already describe the Rust module. Ensure it
+  doesn't reference `dual_write` or the command sink scripts deleted in P6b.
+- `frontend/scripts/state-plane-benchmark.mjs` — quick check: if it calls removed admin endpoints,
+  update or delete.
+- `scripts/state-plane-ingress-check.mjs` — kept in P6 because it has no legacy refs. Re-verify
+  after P7a that it still works (touches state-plane healthz).
+
+### P7d — Build + tim verify + git push
+
+1. `cd backend && bun run build` — must succeed.
+2. `rsync` to tim (`--exclude 'data/'` — see the tim deploy memory for why this is critical).
+3. `docker compose build backend && docker compose up -d backend` on tim.
+4. Check `/state-plane/healthz` — all stores `mode=stdb_primary`, no write failures.
+5. Smoke test: create a message, create a channel, reset a password via operator script — all
+   should round-trip through STDB.
+6. Once green, user will push to git. Do NOT push without explicit ask.
+
+---
+
+## P8 — Multi-server client features
+
+The original migration plan ended at P8: once STDB is the sole source of truth, the backend is no
+longer a shared-state bottleneck, so clients can move between backend instances without losing
+presence/sessions/subscriptions. P8 delivers the features that were gated on this.
+
+P8 started as a design-first phase, but the failover plumbing below is now implemented. Remaining
+work is mostly operational proof and any follow-on mesh UX hardening.
+
+1. **Mesh presence leases.** Each backend node already registers with `WABI_MESH_*` envs; add a
+   shared presence table in STDB (`state_presence_lease`?) and have each backend write a
+   heartbeat-expiring row keyed by `(user_id, instance_id)`. Frontend/other backends read the
+   table to know who's online and where.
+2. **Cross-backend socket routing.** When User A on backend-1 sends a DM to User B who is connected
+   to backend-2, route the realtime event through the mesh. Current code in
+   `backend/src/services/presenceMeshRuntime.ts` has scaffolding — it needs to consume the
+   presence table from P8.1 to pick the right peer.
+3. **Subscription failover on the client.** When a client's backend goes down, the client should
+   reconnect to any healthy backend and resume subscriptions without losing messages. STDB's
+   subscription model gives us the raw tools; the client code in `frontend/src/lib/state-plane/`
+   needs to handle "backend endpoint rotation" (not just "socket reconnect").
+4. **Horizontal scale test.** Stand up 2 backends on tim + 1 on a dev box, point all at the same
+   STDB instance, verify messages sent to one show up on clients of the other. The mesh shared
+   token (`WABI_MESH_SHARED_TOKEN` in `wabi.config`) is already wired for inter-node auth.
+
+**Prereqs before P8 code work:**
+- STDB subscriptions enabled (`STATE_STDB_SUBSCRIPTIONS_ENABLED=true`) — currently off on tim.
+- A second STDB bridge table for presence leases (add to `spacetimedb/wabi_state_bridge/src/lib.rs`
+  and republish — see tim deploy memory for the owner-identity gotcha).
+- Either use the Rust module bindings from the Node backend (SpacetimeDB Node SDK) or keep using
+  the HTTP helper. Subscription mode will want the SDK — the HTTP helper is poll-based.
+
+**What user flagged as the end-goal:** catch up all dev computers (not just tim) and then push to
+git. So P7 + P8 should land together, with git push the final step, not per-phase.
+
+---
+
+## Key files to re-read before starting
+
+- `backend/src/state-plane/index.ts` — how the 6 stores are wired.
+- `backend/src/state-plane/stdbSyncClient.ts` — HTTP helper client. Don't forget the
+  runHelper-stdout-on-failure patch (2026-04-22).
+- `backend/src/server.ts` line ~1947 — `/state-plane/healthz` endpoint; shape of the response.
+- `spacetimedb/wabi_state_bridge/src/lib.rs` — all state_* tables.
+- `docker-compose.yml` — service wiring (backend / spacetimedb / stdb-proxy / stdb-publisher).
+- Tim deploy memory (`project_tim_deploy.md` in Claude's auto-memory) — gotchas that will burn an
+  hour if you don't know them.
+
+## Key invariants to preserve
+
+- All `state_*` tables in the Rust bridge are `public` so non-owner identities can SELECT.
+  `ingest_auth_config` stays private.
+- `WABI_STDB_AUTH_TOKEN` in `.env` must match the token in
+  `data/stdb-publisher-config/cli.toml` after every republish.
+- Never wipe only one of `data/spacetimedb/` or `data/stdb-publisher-config/` — wipe both or
+  neither. Mismatched wipe = `403 Forbidden: not authorized to update database`.
+- `rsync` to tim always needs `--exclude 'data/'`.
