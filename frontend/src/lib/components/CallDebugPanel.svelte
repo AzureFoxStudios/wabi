@@ -8,8 +8,9 @@
 	(shown while a call is active, not just in dev builds).
 -->
 <script lang="ts">
-	import { activeCalls, callConnectionDiagnostics, callTransportState, connectionState } from '$lib/calling';
-	import { formatDiag } from '$lib/components/sidebar/channelSidebarHelpers';
+	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callTransportState, connectionState } from '$lib/calling';
+	import { voiceChannelMembers } from '$lib/presenceStore';
+	import { callParticipantCount, formatDiag } from '$lib/components/sidebar/channelSidebarHelpers';
 
 	let {
 		open = false,
@@ -44,7 +45,18 @@
 			});
 		}
 		if (showParticipants) {
-			items.push({ label: 'Participants', value: String(1 + $activeCalls.length) });
+			// Relay transport: activeCalls stays empty (WebRTC-only store), so
+			// count the live voice-channel roster instead — see callParticipantCount.
+			const rosterLength =
+				$callTransportState.activeTransport === 'wabidb' && $activeVoiceChannel
+					? ($voiceChannelMembers[$activeVoiceChannel.id]?.length ?? null)
+					: null;
+			items.push({
+				label: 'Participants',
+				value: String(
+					callParticipantCount($callTransportState.activeTransport, $activeCalls.length, rosterLength)
+				)
+			});
 		}
 		return items;
 	});

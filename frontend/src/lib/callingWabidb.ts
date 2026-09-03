@@ -22,7 +22,8 @@ import { getSocket } from './socketConnection';
 import { bindCallSessionAudio, callSessionManager } from './callSessionManager';
 import {
 	setSessionVolume as graphSetSessionVolume,
-	detachSession as graphDetachSession
+	detachSession as graphDetachSession,
+	resumeCallAudioGraph
 } from './callAudioGraph';
 import type { WabidbVideoLaneDiagnostics } from './wabidbVideoLane';
 
@@ -93,6 +94,28 @@ let wabidbCallState: WabiDbCallState | null = null;
 // existing wabidbMediaRelay imported lazily so the call flow doesn't break
 // while the websocket media path is being migrated.
 const wabidbMediaRelays = new Map<string, any>();
+
+// Round 6 (2026-09-03): autoplay policies keep the shared AudioContext
+// suspended until a user gesture. While any relay is live, the first
+// pointer/key interaction resumes it — otherwise decoded audio reaches a
+// running graph that the browser refuses to actually run.
+let audioGestureResumeListener: (() => void) | null = null;
+
+function ensureAudioGestureResume(): void {
+	if (audioGestureResumeListener || typeof document === 'undefined') return;
+	audioGestureResumeListener = () => {
+		void resumeCallAudioGraph().catch(() => undefined);
+	};
+	document.addEventListener('pointerdown', audioGestureResumeListener, { passive: true });
+	document.addEventListener('keydown', audioGestureResumeListener);
+}
+
+function releaseAudioGestureResumeIfIdle(): void {
+	if (wabidbMediaRelays.size > 0 || !audioGestureResumeListener) return;
+	document.removeEventListener('pointerdown', audioGestureResumeListener);
+	document.removeEventListener('keydown', audioGestureResumeListener);
+	audioGestureResumeListener = null;
+}
 const sessionIds = new Map<string, string>();
 let sessionId: string | null = null;
 let channelId: string | null = null;
@@ -219,18 +242,24 @@ export async function disconnectWabidbChannel(targetChannelId: string): Promise<
 	// If that was the last wabidb session, tear down the shared video lane.
 	if (wabidbMediaRelays.size === 0) {
 		teardownWabidbVideoLane();
+		releaseAudioGestureResumeIfIdle();
 	}
 }
 
 /**
  * Re-evaluate outbound capture on every wabidb relay. `shouldCapture` decides
- * per channel (transmit routing mode, mute/deafen) so the wabidb transport
- * honors the same gating as the WebRTC/LiveKit paths in syncLocalAudioState.
+ * per channel (transmit routing mode, mute) so the wabidb transport honors
+ * the same gating as the WebRTC/LiveKit paths in syncLocalAudioState.
+ * Awaited per relay: setCapture's enable path recreates the opus recorder,
+ * and an unawaited toggle could leave `captureEnabled` true with
+ * `opusRecorder === null` forever (Round 6).
  */
-export function syncWabidbCapture(shouldCapture: (channelId: string) => boolean): void {
+export async function syncWabidbCapture(
+	shouldCapture: (channelId: string) => boolean
+): Promise<void> {
 	for (const [channelId, relay] of wabidbMediaRelays.entries()) {
 		try {
-			void relay.setCapture?.(shouldCapture(channelId));
+			await relay.setCapture?.(shouldCapture(channelId));
 		} catch (_) {}
 	}
 }
@@ -423,6 +452,7 @@ export async function connectWabidbCall(
 			});
 			await relay.start(stream);
 			wabidbMediaRelays.set(targetChannelId, relay);
+			ensureAudioGestureResume();
 			// Phase 3: also index by the graph/session id (direct:{peer} for
 			// DMs) so seat/volume lookups address the relay without knowing
 			// the legacy channel-key convention.

@@ -281,3 +281,23 @@ export function resolveDropGap(
 	}
 	return { gap: { scope: 'root', anchorId: hit.id, pos }, lineY, indented: false };
 }
+
+/**
+ * Participant count for the call diagnostics panel (CallDebugPanel).
+ * `activeCalls` is only populated by the WebRTC ontrack handler or an SFU
+ * join — the wabidb relay transport never touches it — so on the relay the
+ * count must come from the voice-channel roster, or a healthy multi-person
+ * relay call reads "1" (2026-09-03: a 2-person relay call showed
+ * "Participants: 1"). `relayRosterLength` is the roster size INCLUDING
+ * self, or null when no roster is known for the active channel.
+ */
+export function callParticipantCount(
+	activeTransport: string,
+	activeCallsLength: number,
+	relayRosterLength: number | null
+): number {
+	if (activeTransport === 'wabidb' && relayRosterLength != null && relayRosterLength > 0) {
+		return relayRosterLength;
+	}
+	return 1 + activeCallsLength;
+}
