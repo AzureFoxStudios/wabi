@@ -18,6 +18,7 @@ import { channels } from '$lib/channelStore';
 		subscribeLoreLive,
 		setLoreChannelContext,
 	} from '$lib/loreStore';
+	import { findReadmePath } from '$lib/lore/readmeDefault';
 	import {
 		getSignedLoreUrl,
 		parseLoreChannelId,
@@ -384,6 +385,20 @@ import { channels } from '$lib/channelStore';
 			mediaPreviewUrl = null;
 		}
 	}
+
+	// README auto-open (docs/plans convention): when a repo loads and nothing
+	// is selected, a root README becomes the selection — like clicking it
+	// yourself. It never fights the user: once per repo identity, so closing
+	// the viewer or picking another file keeps the README out of the way.
+	let readmeAutoOpenedFor = $state<string | null>(null);
+	$effect(() => {
+		if (!files.length || selectedPath) return;
+		const identity = `${activeChannel ?? 'none'}:${repo?.repoName ?? 'none'}`;
+		if (readmeAutoOpenedFor === identity) return;
+		readmeAutoOpenedFor = identity;
+		const readme = findReadmePath(files);
+		if (readme) void handleOpen(readme);
+	});
 
 	let contextMenu = $state<{ path: string; x: number; y: number } | null>(null);
 

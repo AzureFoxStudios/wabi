@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { LoreFileInfo } from '$lib/api/lore';
+	import { parseMessage } from '$lib/markdown';
+	import { isMarkdownPath } from '$lib/lore/readmeDefault';
 	import {
 		LoreConflictError,
 		downloadLoreFileText,
@@ -53,6 +55,17 @@
 
 	let copied = $state(false);
 	let editing = $state(false);
+	/** Markdown files render like wiki/chat documents; source toggle available. */
+	let mdMode = $state<'rendered' | 'source'>('rendered');
+	const MD_RENDER_CAP_BYTES = 512 * 1024;
+	$effect(() => {
+		filePath; // reset the preference whenever a different file opens
+		mdMode = 'rendered';
+	});
+	let isMarkdown = $derived(isMarkdownPath(filePath));
+	let mdRenderable = $derived(
+		isMarkdown && !!fileContent && fileContent.length <= MD_RENDER_CAP_BYTES
+	);
 	let enteringEdit = $state(false);
 	let saving = $state(false);
 	let saveError = $state<string | null>(null);
@@ -326,6 +339,22 @@
 				</button>
 				<button class="action-btn" onclick={exitEditMode} title="Stop editing">👁</button>
 			{/if}
+			{#if isMarkdown && !editing}
+				<button
+					class="action-btn"
+					class:active-btn={mdMode === 'rendered'}
+					onclick={() => (mdMode = 'rendered')}
+					title="Rendered document view"
+				>📄</button
+				>
+				<button
+					class="action-btn"
+					class:active-btn={mdMode === 'source'}
+					onclick={() => (mdMode = 'source')}
+					title="Markdown source view"
+				>⌨</button
+				>
+			{/if}
 			{#if token && channelId !== undefined}
 				<button class="action-btn" onclick={() => void downloadFile()} title="Download this file">&#x2B07;</button>
 			{/if}
@@ -380,6 +409,8 @@
 		</div>
 	{:else if editing}
 		<div class="editor-host" bind:this={host}></div>
+	{:else if mdRenderable && mdMode === 'rendered'}
+		<div class="lore-md">{@html parseMessage(fileContent)}</div>
 	{:else if fileContent}
 		<div class="editor-host readonly" bind:this={host}></div>
 		<noscript>
@@ -391,6 +422,36 @@
 </div>
 
 <style>
+	/* Rendered markdown: document styling consistent with wiki pages. */
+	.lore-md {
+		padding: 20px 24px;
+		overflow: auto;
+		line-height: 1.6;
+		font-size: 0.95em;
+	}
+	.lore-md :global(img) {
+		max-width: 100%;
+		border-radius: 8px;
+	}
+	.lore-md :global(pre) {
+		background: rgba(0, 0, 0, 0.25);
+		padding: 10px 12px;
+		border-radius: 8px;
+		overflow: auto;
+	}
+	.lore-md :global(th),
+	.lore-md :global(td) {
+		border: 1px solid var(--wabi-border, #2a2a35);
+		padding: 4px 10px;
+	}
+	.lore-md :global(h1),
+	.lore-md :global(h2) {
+		border-bottom: 1px solid var(--wabi-border, #2a2a35);
+		padding-bottom: 4px;
+	}
+	.active-btn {
+		border-color: var(--wabi-accent, #7c6cf0);
+	}
 	.lore-file-viewer {
 		display: flex;
 		flex-direction: column;
