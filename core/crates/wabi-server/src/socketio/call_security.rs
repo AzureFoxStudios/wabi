@@ -71,6 +71,74 @@ pub fn media_rate_forget(socket_id: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// WabiDB media header replay (2026-09-03 round 6 — late-joiner no-audio fix)
+// ---------------------------------------------------------------------------
+
+/// Audio envelopes with `seq <= 1` are the sender's Ogg Opus BOS header
+/// pages (the client's `startCapture()` resets its seq counter for every
+/// encoder stream). opus-recorder's decoder CANNOT initialize from
+/// mid-stream pages — a socket that joins the media room after the sender
+/// started (late join, or its own reconnect: socket.io rooms do not survive
+/// reconnects) never sees them and stays deaf with a `decoderBuffer is
+/// undefined` error per frame. Cache the first two audio envelopes per
+/// (session, sender) and replay them on `join-wabidb-call`.
+///
+/// No skip-self on replay: envelopes carry the ORIGINAL sender's socket id,
+/// and same-account multi-device sessions (2026-08-26 fix) legitimately need
+/// their own account's headers from the other device. A stale own-stream
+/// decoder that never receives live pages is harmless and short-lived.
+const HEADER_CACHE_MAX_SESSIONS: usize = 128;
+const HEADER_CACHE_PER_SENDER: usize = 2;
+
+type HeaderCache = HashMap<String, HashMap<String, Vec<Value>>>;
+
+fn wabidb_header_cache() -> &'static std::sync::RwLock<HeaderCache> {
+    static CACHE: std::sync::OnceLock<std::sync::RwLock<HeaderCache>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::RwLock::new(HashMap::new()))
+}
+
+/// Cache one relayed audio envelope when it is a header envelope (seq <= 1).
+/// A seq reset to 0 (encoder restart) replaces the sender's previous entry.
+pub fn wabidb_header_cache_remember(session_id: &str, sender: &str, seq: u64, envelope: &Value) {
+    if seq > 1 {
+        return;
+    }
+    let mut cache = wabidb_header_cache().write().expect("header cache lock");
+    if cache.len() >= HEADER_CACHE_MAX_SESSIONS && !cache.contains_key(session_id) {
+        // Safety valve only (128 sessions ≈ far beyond current scale): drop
+        // an arbitrary session to keep the map bounded.
+        if let Some(victim) = cache.keys().next().cloned() {
+            cache.remove(&victim);
+        }
+    }
+    let senders = cache.entry(session_id.to_string()).or_default();
+    let entry = senders.entry(sender.to_string()).or_default();
+    if seq == 0 {
+        entry.clear();
+    }
+    if entry.len() < HEADER_CACHE_PER_SENDER {
+        entry.push(envelope.clone());
+    }
+}
+
+/// Snapshot every cached header envelope for a session, senders ordered by
+/// first contribution (pure — unit-testable without sockets).
+pub fn wabidb_header_cache_snapshot(session_id: &str) -> Vec<Value> {
+    let cache = wabidb_header_cache().read().expect("header cache lock");
+    let mut senders: Vec<(&String, &Vec<Value>)> = cache
+        .get(session_id)
+        .map(|m| m.iter().collect())
+        .unwrap_or_default();
+    senders.sort_by(|a, b| a.0.cmp(b.0));
+    senders
+        .into_iter()
+        .flat_map(|(_, envelopes)| envelopes.iter())
+        .cloned()
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // Call recording presence (per socket)
 // ---------------------------------------------------------------------------
 
@@ -515,6 +583,64 @@ mod call_security_tests {
         assert_eq!(dm_media_room_key("2", "user-10"), "dm:user-10:user-2");
         // Non-user ids (never valid participants) still derive deterministically.
         assert_eq!(dm_media_room_key("a", "b"), "dm:a:b");
+    }
+
+    #[test]
+    fn header_cache_keeps_first_two_and_replaces_on_seq_reset() {
+        let session = "hdr-c1";
+        let envelope = |seq: u64| {
+            json!({"sessionId": session, "userId": "2", "kind": "audio",
+                   "seq": seq, "payload": format!("p{seq}")})
+        };
+        wabidb_header_cache_remember(session, "2", 0, &envelope(0));
+        wabidb_header_cache_remember(session, "2", 1, &envelope(1));
+        // seq 2+ is not a header envelope — never cached.
+        wabidb_header_cache_remember(session, "2", 2, &envelope(2));
+        let snap = wabidb_header_cache_snapshot(session);
+        assert_eq!(snap.len(), 2);
+        assert_eq!(snap[0]["seq"], json!(0));
+        assert_eq!(snap[1]["seq"], json!(1));
+        // Encoder restart: seq resets to 0 and the old entry is REPLACED.
+        wabidb_header_cache_remember(session, "2", 0, &envelope(0));
+        let snap = wabidb_header_cache_snapshot(session);
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap[0]["payload"], json!("p0"));
+    }
+
+    #[test]
+    fn header_cache_snapshots_multiple_senders_deterministically() {
+        let session = "hdr-c2";
+        for (sender, seq) in [("9", 0u64), ("9", 1), ("3", 0), ("3", 1)] {
+            let envelope = json!({"sessionId": session, "userId": sender,
+                                   "kind": "audio", "seq": seq, "payload": "x"});
+            wabidb_header_cache_remember(session, sender, seq, &envelope);
+        }
+        let snap = wabidb_header_cache_snapshot(session);
+        assert_eq!(snap.len(), 4);
+        // Senders ordered by id ("3" before "9"), headers in seq order.
+        assert_eq!(snap[0]["userId"], json!("3"));
+        assert_eq!(snap[2]["userId"], json!("9"));
+        assert_eq!(snap[0]["seq"], json!(0));
+        assert_eq!(snap[1]["seq"], json!(1));
+        // Unknown sessions snapshot empty.
+        assert!(wabidb_header_cache_snapshot("hdr-never").is_empty());
+    }
+
+    #[test]
+    fn header_cache_is_bounded_by_session_cap() {
+        for i in 0..(HEADER_CACHE_MAX_SESSIONS + 40) {
+            let session = format!("hdr-cap-{i}");
+            let envelope = json!({"sessionId": session, "userId": "2",
+                                   "kind": "audio", "seq": 0, "payload": "x"});
+            wabidb_header_cache_remember(&session, "2", 0, &envelope);
+        }
+        let cache = wabidb_header_cache().read().expect("header cache lock");
+        assert!(
+            cache.len() <= HEADER_CACHE_MAX_SESSIONS,
+            "cache.len()={} cap={}",
+            cache.len(),
+            HEADER_CACHE_MAX_SESSIONS
+        );
     }
 
     #[test]

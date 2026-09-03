@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { wabidbDmSessionKey, wabidbChannelSessionKey, resolveWabidbSessionKey } from './wabidbMediaRelay';
+import {
+	wabidbDmSessionKey,
+	wabidbChannelSessionKey,
+	resolveWabidbSessionKey,
+	oggHasBosPage
+} from './wabidbMediaRelay';
 import {
 	parseWabidbMediaEnvelope,
 	buildAudioEnvelope,
@@ -7,6 +12,43 @@ import {
 	videoStreamKey,
 	WabidbVideoReassembler
 } from './wabidbVideoLane';
+
+/** Synthetic Ogg page: "OggS" magic + version + header_type byte. */
+function oggPage(headerType: number, bodyLen = 16): Uint8Array {
+	const page = new Uint8Array(27 + bodyLen);
+	page.set([0x4f, 0x67, 0x67, 0x53, 0x00, headerType], 0);
+	return page;
+}
+
+describe('oggHasBosPage — BOS gating for the decoder', () => {
+	test('page with BOS flag (header_type bit 1) is detected', () => {
+		expect(oggHasBosPage(oggPage(0x02))).toBe(true);
+		expect(oggHasBosPage(oggPage(0x03))).toBe(true); // BOS+EOS combined
+	});
+
+	test('non-BOS pages (continuation 0x00, EOS 0x04) are not', () => {
+		expect(oggHasBosPage(oggPage(0x00))).toBe(false);
+		expect(oggHasBosPage(oggPage(0x04))).toBe(false);
+	});
+
+	test('BOS page found after leading garbage (scan, not just offset 0)', () => {
+		const buf = new Uint8Array(40);
+		buf.set(oggPage(0x02).subarray(0, 27), 9);
+		expect(oggHasBosPage(buf)).toBe(true);
+	});
+
+	test('garbage, empty, and too-short buffers are false without throwing', () => {
+		expect(oggHasBosPage(new Uint8Array(0))).toBe(false);
+		expect(oggHasBosPage(new Uint8Array([0x4f, 0x67, 0x67]))).toBe(false);
+		expect(oggHasBosPage(new Uint8Array(64).fill(0xff))).toBe(false);
+	});
+
+	test('magic without the flag byte in range is false (no OOB read)', () => {
+		const buf = new Uint8Array(5);
+		buf.set([0x4f, 0x67, 0x67, 0x53, 0x00], 0);
+		expect(oggHasBosPage(buf)).toBe(false);
+	});
+});
 
 describe('wabidb media envelope — audio compatibility', () => {
 	test('legacy audio emit (no kind) is parsed as audio with payload preserved', () => {

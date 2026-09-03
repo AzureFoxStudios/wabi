@@ -355,3 +355,4 @@ export function stopCallDiagnosticsPolling(state: ConnectionLifecycleState = 'id
 	lastWabidbRttMs = null;
 	wabidbPrevSample = null;
 }
+

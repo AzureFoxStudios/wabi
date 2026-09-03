@@ -11,6 +11,14 @@ export default defineConfig({
 		// Vite 8 uses Lightning CSS, whose targets must be browsers rather than ES versions.
 		cssTarget: browserTargets,
 		minify: !process.env.TAURI_DEBUG, // esbuild minify (terser broke Svelte store runtime in SPA client bundle)
+		// AudioWorklet processors referenced via `new URL(..., import.meta.url)`
+		// must stay real files. Below the default 4KB threshold Vite inlines
+		// assets as base64 data: URLs, and addModule() loads them under the
+		// page's script-src CSP — which wabi.chat's does not allow, so Firefox
+		// aborted every load and dropped every incoming audio frame
+		// (2026-09-03 no-audio incident). Never inline worklet modules; all
+		// other assets keep the default 4KB behavior (undefined = default).
+		assetsInlineLimit: (filePath: string) => (filePath.includes('worklet') ? false : undefined)
 	},
 	server: {
 		// Plain localhost only. If you need a public URL, set PUBLIC_URL env

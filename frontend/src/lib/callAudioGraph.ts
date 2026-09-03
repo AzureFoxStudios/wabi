@@ -55,10 +55,53 @@ export function ensureCallAudioGraph(): CallAudioGraphHandle | null {
 		master = master ?? ctx.createGain();
 		master.gain.value = 1;
 		master.connect(ctx.destination);
+		// Autoplay policies suspend contexts created without a user gesture
+		// (or after backgrounding). Without state tracking the graph stays
+		// suspended forever and relayed calls are silently deaf — so make
+		// every transition visible (Round 6, 2026-09-03).
+		ctx.onstatechange = () => {
+			console.info(`[CallAudioGraph] AudioContext state: ${ctx?.state}`);
+		};
 		return { ctx, master };
 	} catch (error) {
 		console.warn('[CallAudioGraph] WebAudio unavailable:', error);
 		return null;
+	}
+}
+
+/**
+ * Resume the shared context when it is suspended (autoplay policy). Safe
+ * no-op when running or absent; resolves false when the browser refused the
+ * resume (needs a user gesture) so callers can surface "click to enable
+ * audio" once instead of guessing.
+ */
+export async function resumeCallAudioGraph(): Promise<boolean> {
+	if (!ctx || ctx.state !== 'suspended') return true;
+	try {
+		await ctx.resume();
+		// Widen through a local: TS keeps the earlier `state === 'suspended'`
+		// narrowing across the await, which would flag the direct comparison.
+		const state: string = ctx.state;
+		return state === 'running';
+	} catch (error) {
+		console.warn('[CallAudioGraph] resume rejected (needs a user gesture):', error);
+		return false;
+	}
+}
+
+/**
+ * Deafen's output gate for the relay transport (Round 6): every session
+ * chain feeds `master`, so one gain ramp silences all relayed playback
+ * without touching capture (deafen must not gate the mic — Discord
+ * semantics; toggleDeafen handles the force-mute coupling instead).
+ */
+export function setGraphOutputMuted(muted: boolean): void {
+	if (!ctx || !master) return;
+	const target = muted ? 0 : 1;
+	try {
+		master.gain.setTargetAtTime(target, ctx.currentTime, 0.03);
+	} catch {
+		master.gain.value = target;
 	}
 }
 

@@ -15,7 +15,7 @@ import OpusRecorder from 'opus-recorder';
 import decoderWorkerSource from 'opus-recorder/dist/decoderWorker.min.js?raw';
 import decoderWasmUrl from 'opus-recorder/dist/decoderWorker.min.wasm?url';
 import { parseWabidbMediaEnvelope, type WabidbVideoLane } from './wabidbVideoLane';
-import { attachSessionSource, detachSession, ensureCallAudioGraph } from './callAudioGraph';
+import { attachSessionSource, detachSession, ensureCallAudioGraph, resumeCallAudioGraph } from './callAudioGraph';
 
 // Blob URL for the decoder worker. opus-recorder's decoderWorker.min.js is an
 // Emscripten module whose FIRST line is `var Module=typeof Module!=="undefined"?Module:{}`.
@@ -40,9 +40,38 @@ function getDecoderWorkerUrl(): string {
 	return decoderWorkerBlobUrl;
 }
 
+/**
+ * True when `pages` contains an Ogg page with the BOS (beginning-of-stream)
+ * header flag set — the page opus-recorder's decoder requires before it
+ * allocates its buffers. Mirrors the worker's own check: "OggS" magic
+ * followed by the header_type byte, bit 1 = BOS. Gates mid-stream pages we
+ * can't decode anyway (a late join / reconnect that missed the sender's
+ * header pages) so they drop with a counter instead of throwing
+ * "this.decoderBuffer is undefined" inside the worker on every frame.
+ */
+export function oggHasBosPage(pages: Uint8Array): boolean {
+	for (let i = 0; i + 6 <= pages.length; i++) {
+		if (
+			pages[i] === 0x4f &&
+			pages[i + 1] === 0x67 &&
+			pages[i + 2] === 0x67 &&
+			pages[i + 3] === 0x53 &&
+			(pages[i + 5] & 0x02) !== 0
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
 // addModule is per-AudioContext; the shared call graph registers the playback
 // worklet once and every relay reuses it.
 const contextsWithPlaybackModule = new WeakSet<AudioContext>();
+// Sticky failure latch for the playback worklet module. Without it a failed
+// addModule() (e.g. CSP blocking the module URL) retried on EVERY incoming
+// frame — hundreds of AbortErrors per call and zero audio. The load cannot
+// heal within a page load (CSP is fixed per document), so latch and drop.
+let playbackWorkletLoadFailed = false;
 
 // Socket.IO via socketioxide `Data<serde_json::Value>` silently DROPS binary
 // attachments (they become `{"_placeholder":true,"num":0}` placeholders and the
@@ -91,6 +120,13 @@ export interface WabidbMediaRelayDiagnostics {
   lostPackets: number;
   /** EMA of inter-arrival deviation (ms) — a stability proxy, not RFC3550. */
   jitterMs: number;
+  /** Pages dropped because the sender's BOS header pages never arrived
+   * (late join / reconnect race) — undecodable by contract, not lost wire. */
+  droppedHeaderless: number;
+  /** Envelopes that failed envelope parsing (shape mismatch / corruption). */
+  droppedParseFail: number;
+  /** Oldest jitter entries dropped by the 50-entry clamp under backlog. */
+  droppedJitterOverflow: number;
 }
 
 export interface WabidbMediaRelayConfig {
@@ -180,8 +216,18 @@ export class WabidbMediaRelay {
    */
   private pendingPositions = new Map<string, { x: number; y: number; z: number }>();
   private jitterBuffer: JitterEntry[] = [];
-  private opusDecoder: Worker | null = null;
-  private pendingDecodeResolvers: Array<(pcm: Float32Array | null) => void> = [];
+  /**
+   * One decoder worker per REMOTE sender (2026-09-03): Ogg streams are
+   * per-sender — the old single shared decoder interleaved every talker's
+   * pages into one stream state, corrupting all of them, and its shared
+   * resolver queue misaligned whenever the 500ms timeout dropped an entry.
+   */
+  private userDecoders = new Map<string, {
+    worker: Worker;
+    resolvers: Array<(pcm: Float32Array | null) => void>;
+  }>();
+  /** Per-sender BOS-seen flag (gating in decodeAndPlay); survives worker recreation. */
+  private streamSawBos = new Map<string, boolean>();
   private onIncomingMediaHandler: ((msg: any) => void) | null = null;
   private isActive = false;
   private captureEnabled = true;
@@ -200,7 +246,10 @@ export class WabidbMediaRelay {
     sentBytes: 0,
     recvBytes: 0,
     lostPackets: 0,
-    jitterMs: 0
+    jitterMs: 0,
+    droppedHeaderless: 0,
+    droppedParseFail: 0,
+    droppedJitterOverflow: 0
   };
   /** Last forwarded sequence number per remote user (audio gap detection). */
   private lastSeqByUser = new Map<string, number>();
@@ -284,7 +333,10 @@ export class WabidbMediaRelay {
         // attached lane. The server forwards the whole envelope verbatim, and
         // `kind` defaults to 'audio' for legacy/compatible senders.
         const env = parseWabidbMediaEnvelope(msg);
-        if (!env) return;
+        if (!env) {
+          this.counters.droppedParseFail++;
+          return;
+        }
         // Wire-level accounting for every accepted envelope (audio + video).
         const now = performance.now();
         this.counters.recvBytes += Math.floor((env.payload?.length ?? 0) * 0.75);
@@ -352,6 +404,11 @@ export class WabidbMediaRelay {
 
   private async startCapture(): Promise<void> {
     if (!this.localStream || this.opusRecorder) return;
+    // Every encoder stream starts its header (BOS) pages at seq 0/1 — the
+    // server caches seq≤1 audio envelopes per sender and replays them to
+    // late joiners (media_reactions_signaling.rs), so the counter must
+    // restart with each new stream.
+    this.audioSeq = 0;
     this.opusRecorder = new OpusRecorder({
       encoderSampleRate: 48000,
       encoderChannels: 1,
@@ -393,6 +450,7 @@ export class WabidbMediaRelay {
     this.jitterBuffer.push({ data: bytes, timestamp: Date.now(), fromUserId });
 
     if (this.jitterBuffer.length > 50) {
+      this.counters.droppedJitterOverflow += this.jitterBuffer.length - 50;
       this.jitterBuffer.splice(0, this.jitterBuffer.length - 50);
     }
     // Speaking-ring feed: notify the host app which user this audio belongs
@@ -407,8 +465,40 @@ export class WabidbMediaRelay {
     }, 20);
   }
 
+  private lastResumeAttemptMs = 0;
+  private resumeNoticeShown = false;
+
+  /**
+   * Autoplay policies suspend the AudioContext without a gesture (or after
+   * the tab backgrounded) — a suspended graph plays nothing even when decode
+   * is healthy. Throttled resume attempt from the drain tick; the one-time
+   * console warning tells the user a click unlocks audio. Round 6.
+   */
+  private maybeResumeAudioContext(): void {
+    if (!this.audioContext || this.audioContext.state !== 'suspended') return;
+    const now = Date.now();
+    if (now - this.lastResumeAttemptMs < 2000) return;
+    this.lastResumeAttemptMs = now;
+    const attempt = this.ownsAudioContext
+      ? this.audioContext.resume().then(() => this.audioContext?.state === 'running')
+      : resumeCallAudioGraph();
+    void attempt
+      .then((running) => {
+        if (!running && !this.resumeNoticeShown) {
+          this.resumeNoticeShown = true;
+          console.warn(
+            '[WabidbMediaRelay] AudioContext suspended by the browser — interact with the page to enable call audio'
+          );
+        }
+      })
+      .catch(() => {
+        /* resume races with teardown */
+      });
+  }
+
   private drainJitterBuffer(): void {
     if (!this.isActive || this.jitterBuffer.length === 0) return;
+    this.maybeResumeAudioContext();
 
     const now = Date.now();
     while (this.jitterBuffer.length > 0) {
@@ -423,12 +513,22 @@ export class WabidbMediaRelay {
     }
   }
 
-  private async decodeAndPlay(fromUserId: string | undefined, opusPayload: Uint8Array): Promise<void> {
+  private async decodeAndPlay(fromUserId: string, opusPayload: Uint8Array): Promise<void> {
     try {
-      if (!this.opusDecoder) {
-        await this.initializeOpusDecoder();
+      // BOS gating: pages from a stream whose header pages never reached us
+      // cannot decode (the worker only allocates on a BOS page) — drop them
+      // with a counter instead of letting the worker throw per frame. The
+      // server replays cached headers on room join, so this normally only
+      // trips during the replay race or after a missed rejoin.
+      if (!this.streamSawBos.get(fromUserId)) {
+        if (oggHasBosPage(opusPayload)) {
+          this.streamSawBos.set(fromUserId, true);
+        } else {
+          this.counters.droppedHeaderless++;
+          return;
+        }
       }
-      const pcmData = await this.decodeOpus(opusPayload);
+      const pcmData = await this.decodeOpus(fromUserId, opusPayload);
       if (pcmData) {
         this.counters.decodeOk++;
         await this.playbackViaAudioWorklet(fromUserId ?? 'unknown', pcmData);
@@ -444,31 +544,36 @@ export class WabidbMediaRelay {
     }
   }
 
-  private async initializeOpusDecoder(): Promise<void> {
-    this.opusDecoder = new Worker(getDecoderWorkerUrl(), { type: 'classic' });
-    this.opusDecoder.onerror = (e: ErrorEvent) => {
+  private initializeUserDecoder(userId: string): void {
+    const worker = new Worker(getDecoderWorkerUrl(), { type: 'classic' });
+    const state = {
+      worker,
+      resolvers: [] as Array<(pcm: Float32Array | null) => void>
+    };
+    worker.onerror = (e: ErrorEvent) => {
       // WO-1 spirit: a dead decoder worker means every decode times out with
       // NO other trace — make the failure loud instead of silently deaf.
-      console.error('[WabidbMediaRelay] decoder worker error:', e.message ?? e);
+      console.error(`[WabidbMediaRelay] decoder worker error (${userId}):`, e.message ?? e);
     };
-    this.opusDecoder.onmessage = (e: MessageEvent) => {
+    worker.onmessage = (e: MessageEvent) => {
       if (e.data === null || e.data === undefined) {
         // Decoder flush signal in live mode; nothing to hand back.
         return;
       }
-      const resolve = this.pendingDecodeResolvers.shift();
+      const resolve = state.resolvers.shift();
       if (!resolve) return;
       const buffers: Float32Array[] = e.data;
       resolve(this.mergeFloat32(buffers));
     };
     // opus-recorder v8 decoder worker requires an `init` command with the
     // decoder config before any `decode` command will produce output.
-    this.opusDecoder.postMessage({
+    worker.postMessage({
       command: 'init',
       decoderSampleRate: 48000,
       decoderChannels: 1,
       outputBufferLength: 4096,
     });
+    this.userDecoders.set(userId, state);
   }
 
   private mergeFloat32(buffers: Float32Array[]): Float32Array {
@@ -485,31 +590,36 @@ export class WabidbMediaRelay {
     return out;
   }
 
-  private async decodeOpus(opusPayload: Uint8Array): Promise<Float32Array | null> {
+  private async decodeOpus(fromUserId: string, opusPayload: Uint8Array): Promise<Float32Array | null> {
     return new Promise((resolve) => {
-      if (!this.opusDecoder) {
+      if (!this.userDecoders.has(fromUserId)) {
+        this.initializeUserDecoder(fromUserId);
+      }
+      const state = this.userDecoders.get(fromUserId);
+      if (!state) {
         resolve(null);
         return;
       }
+      const settle = (pcm: Float32Array | null) => {
+        window.clearTimeout(timeout);
+        resolve(pcm);
+      };
       const timeout = window.setTimeout(() => {
-        const idx = this.pendingDecodeResolvers.indexOf(resolve);
+        const idx = state.resolvers.indexOf(settle);
         if (idx !== -1) {
-          this.pendingDecodeResolvers.splice(idx, 1);
+          state.resolvers.splice(idx, 1);
           resolve(null);
         }
       }, 500);
-      this.pendingDecodeResolvers.push((pcm) => {
-        window.clearTimeout(timeout);
-        resolve(pcm);
-      });
+      state.resolvers.push(settle);
       // opus-recorder v8 decoder worker expects `command: 'decode'` and the
       // opus pages under `pages`.
-      this.opusDecoder!.postMessage({ command: 'decode', pages: opusPayload });
+      state.worker.postMessage({ command: 'decode', pages: opusPayload });
     });
   }
 
   private async playbackViaAudioWorklet(fromUserId: string, pcmData: Float32Array): Promise<void> {
-    if (!this.audioContext) return;
+    if (!this.audioContext || playbackWorkletLoadFailed) return;
     let chain = this.userPlaybackChains.get(fromUserId);
     if (!chain) {
       try {
@@ -541,7 +651,12 @@ export class WabidbMediaRelay {
           this.applyChainPosition(chain);
         }
       } catch (error) {
-        console.error('[WabidbMediaRelay] Failed to load AudioWorklet:', error);
+        playbackWorkletLoadFailed = true;
+        console.error(
+          '[WabidbMediaRelay] Playback worklet unavailable for this page load — incoming audio will be dropped. ' +
+            'Usual cause: CSP script-src blocking the worklet module URL (look for a blocked data:/blob: script).',
+          error
+        );
         return;
       }
     }
@@ -617,10 +732,12 @@ export class WabidbMediaRelay {
     }
     this.audioContext = null;
     detachSession(this.audioSessionId);
-    if (this.opusDecoder) {
-      this.opusDecoder.terminate();
-      this.opusDecoder = null;
+    for (const state of this.userDecoders.values()) {
+      for (const resolve of state.resolvers) resolve(null);
+      state.worker.terminate();
     }
+    this.userDecoders.clear();
+    this.streamSawBos.clear();
     this.jitterBuffer = [];
     if (this.videoLane) {
       this.videoLane.stopAll();

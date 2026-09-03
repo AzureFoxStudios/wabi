@@ -471,7 +471,6 @@ clean wabiDB↔p2p swap, (5) debug must show ping/packets/loss on BOTH transport
 5. During a call (either transport) → floating debug toggle (bottom corner, no longer
    dev-only) → ping/jitter/loss/rates/packets populated, Transport row names the
    metric source. On wabidb, ping = socket echo RTT; loss = inbound envelope gaps.
-<<<<<<< HEAD
 
 ---
 
@@ -662,5 +661,152 @@ source):
 4. **Hot mics**: after leaving a call, the browser tab mic indicator goes
    out; the remaining side never hears the departed user; Diag on the
    departed tab shows no relay counters moving.
-=======
->>>>>>> origin/arena/01a04113-wabi
+
+---
+
+## Round 5 — 2026-09-03: relay playback dead on prod (CSP) + p2p demote routing
+
+Field report: two-device channel call on wabi.chat (laptop + cell, 2 accounts) —
+zero audio either direction, debug panel said "Participants: 1" with 2 people
+connected, and a "no peers answered the offer path yet" warning around the P2P
+button. Three separate defects conspiring to look like "the call sees no one":
+
+1. **Playback worklet blocked by CSP (the actual no-audio bug).** Vite inlines
+   assets under 4KB as base64 data: URLs — including the 1.3KB
+   `audio-worklet-playback.js` referenced via `new URL(..., import.meta.url)`.
+   `audioWorklet.addModule()` fetches under script-src, Caddyfile.tunnel's CSP
+   has no `data:` there, so Firefox aborted every load — and
+   `playbackViaAudioWorklet` retried on EVERY incoming frame, dropping all of
+   them (hundreds of AbortErrors per call). Dev on :5173 never saw it (Vite
+   serves the real file). Fixes: `vite.config.ts` `assetsInlineLimit` never
+   inlines worklet files (Vite 8 signature: return `false`, `undefined` =
+   default limit — verified against vite's shouldInline source); the relay now
+   latches the failed load (`playbackWorkletLoadFailed`) and logs once instead
+   of per-frame. Verified in the static build: worklet emitted as
+   `_app/immutable/assets/audio-worklet-playback.*.js` (same-origin, allowed
+   by `script-src 'self'`), zero `data:text/javascript` left in the bundle —
+   no CSP change needed.
+2. **Debug panel Participants row counted a WebRTC-only store.**
+   `CallDebugPanel` computed `1 + activeCalls.length`, but `activeCalls` is fed
+   only by WebRTC ontrack / SFU joins — the wabidb relay never populates it,
+   so the panel read "1" forever on relay. New `callParticipantCount()` (in
+   `channelSidebarHelpers` — kept out of `callingDiagnostics` because that
+   module's store graph doesn't link standalone under `bun test`) counts the
+   `voiceChannelMembers` roster for the active channel on the relay transport.
+3. **Watchdog p2p demote couldn't actually build the mesh.**
+   `reEstablishChannelP2P` didn't flip transport routing, so each
+   `createCallOffer` consulted `resolveActiveTransport()` → still `wabidb`
+   under mode `auto` → early-return reconnected the relay the watchdog just
+   declared dead, then stamped the session `markConnected('p2p')` regardless.
+   Fixes: `createCallOffer` takes `forceTransport: 'p2p'` (escape hatch past
+   the resolver — the button path keeps its mode-first mechanism);
+   `markConnected('p2p')` and a truthful `callTransportState` update only fire
+   when ≥1 real offer went out; the misleading "no peers answered" warning is
+   split into its two real cases (empty roster — e.g. presence still
+   repopulating after reconnect — vs per-peer offer failure, each logged with
+   its own cause). Note the peers DO auto-answer offers already
+   (`handleCallOffer` has no ringing gate for channel calls).
+4. **Drive-by**: resolved leftover merge-conflict markers at this doc's tail
+   (HEAD side was the full Round 4 text, other side empty).
+
+### Gates
+- `bun run check`: 0 errors (185 warnings, pre-existing baseline)
+- `bun test src/lib`: 240 pass / 3 skip / 4 fail — the 4 fails are
+  `lore/fileTree.test.ts`, reproduce on the clean tree (separate WIP)
+- Static build: worklet emitted as a real hashed asset, referenced same-origin
+  from its chunk; no `data:` script URLs anywhere in the bundle
+
+### Retest recipe (laptop + cell, wabi.chat)
+1. Join ch_7 from both devices → Diag panel shows Participants: 2 on the relay.
+2. Talk → the other side hears audio (worklet now loads; Firefox console shows
+   no AudioWorklet errors — at most ONE if something else is broken).
+3. VoiceView → Swap to P2P → offers go out, peers auto-answer, transport badge
+   flips; kill the relay (or force demote) mid-call → watchdog rebuilds the
+   mesh for real (console no longer shows "no peers answered", and only
+   "roster has no other members" if presence genuinely lagged).
+
+---
+
+## Round 6 — 2026-09-03: relay no-audio, take two (decoder headers, reconnect rooms, autoplay)
+
+Field report after the Round 5 deploy: worklet loads, capture starts, but the
+opus decoder worker throws `this.decoderBuffer is undefined` per incoming
+frame — decode=0, play=0. Merged diagnosis (secondary audit cross-checked,
+two of its claims corrected against code):
+
+1. **Late joiners/reconnectors never receive the Ogg Opus BOS header pages.**
+   opus-recorder's decoder only allocates its buffers when it sees a BOS page
+   (`header_type & 2`); the server relayed envelopes verbatim with no
+   history, so any socket that joined the media room after a sender started
+   (or after its own reconnect — socket.io rooms do not survive reconnects)
+   stayed deaf with one TypeError per frame. **Fix:** server-side header
+   cache (`wabidb_header_cache_remember/_snapshot`, call_security.rs) —
+   first two audio envelopes per (session, sender), seq<=1 convention (the
+   client's `startCapture()` now resets `audioSeq` per encoder stream);
+   `on_join_wabidb_call` replays them to the joiner. No skip-self on replay:
+   envelopes carry the ORIGINAL sender socket id, and same-account
+   multi-device sessions legitimately need their own account's headers from
+   the other device (2026-08-26 fix); a stale own-stream decoder is harmless.
+2. **Media-room rejoin after reconnect was conditional** — audit said
+   unwired; actually it ran via `drainOutboundQueue` → `rejoinWabidbCallRooms`,
+   but that path early-returns when the WabiDB offline-queue client is null.
+   Queue-disabled users never rejoined: server denied 100% of envelopes
+   ("not in room"). **Fix:** `socketConnectionCore` 'connect' handler now
+   calls `rejoinWabidbCallRooms()` directly (after the rejoin/join emit, so
+   the roster restores before re-authorization).
+3. **One shared decoder worker for ALL senders** — two talkers interleaved
+   two Ogg streams into one decoder; the shared resolver queue also
+   misaligned on the 500ms timeout. **Fix:** per-user decoder map + per-user
+   resolver queues in `wabidbMediaRelay.ts`; BOS gating
+   (`oggHasBosPage`) drops undecodable mid-stream pages with a
+   `droppedHeaderless` counter instead of feeding the TypeError storm; a
+   fresh BOS (sender restart) re-inits the worker cleanly.
+4. **Autoplay-suspended AudioContext never resumed** — the shared graph was
+   created and resumed once at call start; Firefox/Chrome suspend without a
+   gesture (or after backgrounding) and it stayed silent forever.
+   **Fix:** `resumeCallAudioGraph()` + `ctx.onstatechange` logging
+   (callAudioGraph.ts), a throttled resume attempt from the relay's drain
+   tick, and a document pointerdown/keydown listener while any relay is
+   live; one-time console warning when the browser still refuses.
+5. **Deafen gated the mic** — `shouldSendAudioToChannel` returned false on
+   `isDeafened`, so unmuting while deafened kept the mic dead (Discord:
+   deafen gates only output; `toggleDeafen` already force-mutes on deafen).
+   **Fix:** gate is `isMuted` only; deafen now ramps the shared graph's
+   master gain (`setGraphOutputMuted`) for relay playback.
+   `syncWabidbCapture` awaits `setCapture` per relay so the enable path
+   can't leave `opusRecorder === null` with capture enabled.
+6. Observability: `droppedParseFail`, `droppedJitterOverflow` counters
+   (envelope parse failures + 50-entry jitter clamp), all in the Diag overlay.
+
+### Gates
+- `bun run check`: 0 errors (185 warnings, pre-existing baseline)
+- `bun test src/lib`: 252 pass / 0 fail / 3 skip (new: oggHasBosPage suite)
+- `cargo test -p wabi-server`: all 12 suites green (new: 3 header-cache
+  tests — first-two/replace-on-seq-reset, deterministic multi-sender
+  snapshot, session-cap bound)
+- `STATIC_BUILD=1`: worklet / decoder wasm / encoder worker all emitted as
+  real hashed assets; no `data:` script URLs in the bundle
+
+### Retest recipe (two devices, after deploy)
+1. A joins ch_7 and talks; B joins LATE → B hears within one jitter window
+   (Diag: recv>0, decodeOk>0, playedChunks>0; droppedHeaderless may tick
+   briefly then stop).
+2. Kill B's wifi ~10s mid-call → reconnect → audio resumes; server log
+   shows the media-room rejoin, no "relay denied" spam.
+3. Background the tab 30s → return + click → audio resumes (statechange
+   log shows suspended→running).
+4. Deafen while talking → others still receive your audio until mute; you
+   hear nothing; undeafen (still muted per Discord) → unmic → transmitting
+   again without rejoining.
+5. Both talk at once → both directions decode (per-user decoders).
+
+### Deployment note
+Client + server ship in one binary; the seq<=1 header convention is only
+fully in effect once both sides run this build (old clients keep the old
+behavior — no breakage, they just don't benefit).
+
+### Deferred (follow-up nits, 2026-09-03)
+- The jitter buffer is still ONE 50-cap array shared by all senders, with
+  global `lastArrivalMs`/`avgInterArrivalMs` — per-user jitter estimation and
+  head-of-line isolation are a follow-up (secondary audit flag; not a
+  regression vs this round).

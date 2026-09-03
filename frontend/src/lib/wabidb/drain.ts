@@ -61,6 +61,10 @@ export async function drainOutboundQueue(): Promise<void> {
 	// Presence replays above restore the server roster; the media rooms ride
 	// a separate emit and must re-authorize AFTER that (review F6 — without
 	// this, relayed audio silently dies until the next manual channel click).
+	// Deliberate DUPLICATE of the socket 'connect' handler's rejoin
+	// (socketConnectionCore, Round 6): that one is unconditional; this one
+	// only runs when the offline queue exists but preserves the
+	// roster-before-media ordering here. The join is idempotent server-side.
 	try {
 		const { rejoinWabidbCallRooms } = await import('$lib/callingWabidb');
 		rejoinWabidbCallRooms();

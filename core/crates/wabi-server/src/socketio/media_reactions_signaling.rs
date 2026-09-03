@@ -45,6 +45,15 @@ async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _i
                 "[sio] Socket {} ({}) joined wabiDB call room {}",
                 socket.id, my_stable, room_id
             );
+            // Round 6 (2026-09-03): replay the session's cached Ogg header
+            // envelopes to this socket. A late joiner (or a reconnector —
+            // socket.io rooms do not survive reconnects) never saw the
+            // senders' BOS pages and opus-recorder's decoder cannot init from
+            // mid-stream pages, so without this every decode throws
+            // `decoderBuffer is undefined` and the call is silently deaf.
+            for envelope in wabidb_header_cache_snapshot(&session_id) {
+                let _ = socket.emit("wabidb-media", &envelope);
+            }
         }
         Err(reason) => {
             warn!(
@@ -151,6 +160,14 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, _state: SioState, io: S
     // CONNECTION instead of account — same-account multi-device sessions
     // would otherwise drop each other's audio/video as "self-echo".
     payload["senderSocket"] = json!(socket.id.to_string());
+
+    // Round 6: cache header envelopes (audio, seq <= 1) for late-joiner
+    // replay — see wabidb_header_cache_remember for the convention.
+    if data.get("kind").and_then(|v| v.as_str()) != Some("video") {
+        if let Some(seq) = data.get("seq").and_then(|v| v.as_u64()) {
+            wabidb_header_cache_remember(&session_id, &identity.user_id.to_string(), seq, &payload);
+        }
+    }
 
     // Relay to every authorized participant of this call session (except sender).
     let _ = io

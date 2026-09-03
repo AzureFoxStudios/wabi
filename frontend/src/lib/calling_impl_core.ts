@@ -56,7 +56,7 @@ import { getSocket } from './socketConnection';
 import { playCallActionSound, type CallSoundOptions } from './callSounds';
 import { callSessionManager } from './callSessionManager';
 import { channels as channelListStore } from './channelStore';
-import { detachSession as detachSessionAudioChain, detachAllSessions as detachAllSessionAudioChains } from './callAudioGraph';
+import { detachSession as detachSessionAudioChain, detachAllSessions as detachAllSessionAudioChains, setGraphOutputMuted } from './callAudioGraph';
 import { resolveActiveTransport } from './callingTransport';
 import {
 	getStoredCallMuteBehavior,
@@ -469,7 +469,11 @@ function shouldTransmitToChannel(channelId?: string): boolean {
 }
 
 function shouldSendAudioToChannel(channelId?: string): boolean {
-	if (get(isMuted) || get(isDeafened)) {
+	// Mute gates the mic. Deafen does NOT (Discord semantics): toggleDeafen
+	// already force-mutes on deafen, but a user who unmutes while still
+	// deafened keeps transmitting — deafen only gates THEIR output, which for
+	// the relay is handled by the shared graph's output mute.
+	if (get(isMuted)) {
 		return false;
 	}
 	return shouldTransmitToChannel(channelId);
@@ -500,9 +504,11 @@ async function syncLocalAudioState(): Promise<void> {
 		await Promise.allSettled(tasks);
 	}
 
-	// Gate the wabidb relays too — transmit routing ("all listening channels"),
-	// mute, and deafen must behave the same on the default transport.
-	syncWabidbCapture((channelId) => shouldSendAudioToChannel(channelId));
+	// Gate the wabidb relays too — transmit routing ("all listening channels")
+	// and mute must behave the same on the default transport. Deafen gates the
+	// shared graph's OUTPUT (the relay's playback), not capture.
+	setGraphOutputMuted(get(isDeafened));
+	tasks.push(syncWabidbCapture((channelId) => shouldSendAudioToChannel(channelId)));
 }
 
 async function renegotiateCallConnection(state: PeerConnectionState, socket: Socket): Promise<void> {
@@ -2388,12 +2394,15 @@ export async function createCallOffer(
 	socket: Socket,
 	targetId: string,
 	username: string = '',
-	options?: { channelId?: string }
+	options?: { channelId?: string; forceTransport?: 'p2p' }
 ) {
 	// Check if wabidb relay is the active transport — if so, skip P2P/WebRTC
 	// offer creation entirely and connect the wabidb media relay with the
 	// peer's stable user ID for a deterministic shared session.
-	const activeTransport = await resolveActiveTransport(options?.channelId);
+	// forceTransport is the watchdog/swap escape hatch: the p2p rebuild MUST
+	// produce WebRTC offers even while the stored mode still routes to wabidb
+	// (previously the early-return reconnected the dying relay instead).
+	const activeTransport = options?.forceTransport ?? (await resolveActiveTransport(options?.channelId));
 	if (activeTransport === 'wabidb') {
 		try {
 			await connectWabidbCall(
@@ -2660,6 +2669,14 @@ function summonCallsStubOnJoin(): void {
  * with wabidb as the active transport; before this helper its p2p branch
  * just threw "watchdog cannot re-establish p2p from here", so a dead relay
  * = dead call — the wabi.chat wss outage, 2026-08-27).
+ *
+ * 2026-09-03 fix: offers are now created with forceTransport: 'p2p'. Without
+ * it createCallOffer consulted resolveActiveTransport() — still 'wabidb'
+ * under mode 'auto' — and quietly reconnected the relay the watchdog had just
+ * declared dead, then stamped the session 'p2p' anyway. markConnected now
+ * only fires when a real offer went out, and the old "no peers answered the
+ * offer path yet" warning (which actually meant "zero offers created") is
+ * split into its two real cases: empty roster vs offer failure per peer.
  */
 export async function reEstablishChannelP2P(socket: Socket, channelId: string): Promise<void> {
 	const roster = get(voiceChannelMembers)[channelId] ?? [];
@@ -2667,20 +2684,39 @@ export async function reEstablishChannelP2P(socket: Socket, channelId: string): 
 		const dbId = getStoredDbUserId();
 		return dbId != null ? `user-${dbId}` : null;
 	})();
+	const peers = roster.filter((member) => !selfStable || member.userId !== selfStable);
+	if (peers.length === 0) {
+		console.warn(
+			`[Calling] p2p re-establish for ${channelId}: roster has no other members yet — nothing to offer (presence may still be repopulating after a reconnect)`
+		);
+		return;
+	}
 	let offers = 0;
-	for (const member of roster) {
-		if (selfStable && member.userId === selfStable) continue;
+	for (const member of peers) {
 		try {
-			await createCallOffer(socket, member.userId, member.username ?? '', { channelId });
+			await createCallOffer(socket, member.userId, member.username ?? '', {
+				channelId,
+				forceTransport: 'p2p'
+			});
 			offers++;
 		} catch (err) {
 			console.warn(`[Calling] p2p re-establish offer failed for ${member.userId}:`, err);
 		}
 	}
-	callSessionManager.markConnected(channelId, 'p2p');
 	if (offers === 0) {
-		console.warn(`[Calling] p2p re-establish for ${channelId}: no peers answered the offer path yet`);
+		// Every per-peer failure is logged above; the session keeps its current
+		// transport state rather than being mislabeled 'p2p' with no mesh.
+		pushVoiceChannelNotice('P2P fallback could not reach any peer — call audio may be silent');
+		return;
 	}
+	callSessionManager.markConnected(channelId, 'p2p');
+	callTransportState.update((state) => ({
+		...state,
+		activeTransport: 'p2p' as const,
+		isFallback: true,
+		reason: 'watchdog_p2p_reestablish',
+		checkedAt: Date.now()
+	}));
 }
 
 /**

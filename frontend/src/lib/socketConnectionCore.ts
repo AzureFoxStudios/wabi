@@ -509,6 +509,20 @@ export class SocketManager {
 				sock.emit('join', this.username);
 			}
 
+			// Round 6 (2026-09-03): rejoin wabiDB media rooms on EVERY
+			// reconnect. socket.io rooms do not survive a reconnect, and the
+			// only other caller (drainOutboundQueue) is gated on the optional
+			// offline-queue client being initialized — users with the queue
+			// disabled never rejoined, so the server denied 100% of their
+			// media envelopes ("not in room") and relayed calls went silent
+			// after any reconnect. Runs after the rejoin/join emit above so
+			// the server roster is restored before re-authorization.
+			void import('$lib/callingWabidb')
+				.then(({ rejoinWabidbCallRooms }) => rejoinWabidbCallRooms())
+				.catch(() => {
+					/* never block the connect path on the relay module */
+				});
+
 			// Fetch server-side custom emotes (merged into the picker store).
 			sock.emit('get-emojis');
 			// Fetch the assignable badge catalog (falls back to the client
