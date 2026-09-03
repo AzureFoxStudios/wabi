@@ -318,7 +318,7 @@ This means:
 - **Lore License**: MIT (Copyright 2026 Epic Games, Inc.)
 - **Lore SDKs**: lore-js, lore-python, lore-dotnet, lore-go
 - **Wabi GitHub**: (private)
-- **Wabi Architecture**: `/PROJECT_DOCS/01-architecture/ARCHITECTURE.md`
+- **Wabi Architecture**: `/docs/architecture/ARCHITECTURE.md`
 
 ---
 

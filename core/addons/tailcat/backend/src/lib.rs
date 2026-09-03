@@ -34,7 +34,7 @@ pub const BINARY_ENV: &str = "WABI_TAILCAT_BINARY";
 
 /// Optional env pointing at a self-hosted DERP map JSON (passed to the
 /// listener as `--derpmap-url`). Bootstrap-level infra config, like the
-/// binary path. See PROJECT_DOCS/02-deployment/DERP_SELF_HOST_GUIDE.md.
+/// binary path. See docs/deployment/DERP_SELF_HOST_GUIDE.md.
 pub const DERPMAP_ENV: &str = "WABI_TAILCAT_DERPMAP_URL";
 
 #[derive(Debug, Clone, Serialize)]

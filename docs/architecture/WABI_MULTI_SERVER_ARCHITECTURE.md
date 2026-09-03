@@ -72,7 +72,7 @@ This is by design. Wabi is not a federated protocol like Matrix or ActivityPub; 
 
 ## Cross-References
 
-- `PROJECT_DOCS/01-architecture/SERVER_MESH_PLAN.md` — runtime mesh between Authority and Anchor nodes (separate concern)
-- `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` §6 — multi-server topology
+- `docs/architecture/SERVER_MESH_PLAN.md` — runtime mesh between Authority and Anchor nodes (separate concern)
+- `docs/architecture/ARCHITECTURE.md` §6 — multi-server topology
 - `frontend/src/lib/components/` — server switcher UI components (Svelte)
 - `core/crates/wabi-tui/` — TUI client (also supports multi-server)

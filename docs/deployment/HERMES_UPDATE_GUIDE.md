@@ -68,7 +68,7 @@ ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose ps'
 ssh tim@100.96.11.45 'curl -fsS http://127.0.0.1:8080/health'
 ssh tim@100.96.11.45 'curl -I http://127.0.0.1:3000'
 
-ssh Iyoku@100.104.166.42 'ls ~/Desktop/Wabi/PROJECT_DOCS/02-deployment/TIM_IYOKU_UPDATE_RUNBOOK.md && echo synced-ok'
+ssh Iyoku@100.104.166.42 'ls ~/Desktop/Wabi/docs/deployment/TIM_IYOKU_UPDATE_RUNBOOK.md && echo synced-ok'
 ```
 
 A green `/health` on tim is the success signal. If it's red, jump to the gotchas below before doing anything else.

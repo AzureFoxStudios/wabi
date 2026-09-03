@@ -5,7 +5,7 @@ projection) + Phases 2-4 (crypto / EPC SEPA / US rails) executed same day**
 Provenance: payments audit session 2026-08-18 (regional rails re-verified against
 Aug 2026 sources; repo state surveyed; legal posture question raised by Ronin).
 Related: `docs/research/western-bank-to-bank-payments-2026.md` (canonical rail
-reference, updated same day), `PROJECT_DOCS/04-payments/PAYMENTS_NONCUSTODIAL_PLAN.md`
+reference, updated same day), `docs/payments/PAYMENTS_NONCUSTODIAL_PLAN.md`
 (non-custodial hard boundaries), `core/crates/wabi-server/src/api/payments/`
 (live PromptPay v1, shipped 2026-08-16).
 

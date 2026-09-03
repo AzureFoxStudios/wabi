@@ -41,7 +41,7 @@ WABI_MAX_BODY_SIZE=53687091200
 
 # Advanced media flags (off by default).
 # Relay network setup is intentionally separated from core server setup.
-# For relay deployment, use relay-node/README.md and PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md.
+# For relay deployment, use relay-node/README.md and the docs-history branch (historical).
 ENABLE_MEDIA_GATEWAY=false
 # SFU plugin provider:
 #   none    -> disable SFU module (default)

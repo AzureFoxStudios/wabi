@@ -65,7 +65,7 @@ ssh tim@100.96.11.45 'curl -I http://127.0.0.1:3000'
 Iyoku is currently a synced machine, not the live rebuilt host in this runbook. Verify the tree landed:
 
 ```bash
-ssh Iyoku@100.104.166.42 'cd ~/Desktop/Wabi && test -f PROJECT_DOCS/CODEBASE_CLEANUP_STATUS.md && echo ok'
+ssh Iyoku@100.104.166.42 'cd ~/Desktop/Wabi && test -f docs-history branch: CODEBASE_CLEANUP_STATUS.md && echo ok'
 ```
 
 ## Current Cleanup Reference

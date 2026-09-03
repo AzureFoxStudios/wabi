@@ -51,7 +51,7 @@ in-process event-sourced engine **WabiDB**. Philosophy: *no spying, no bloat, ju
 ## Where did the old docs go?
 
 Nothing was deleted. ~300 historical files (shipped plans, worker reports, STDB-era docs, the
-old `PROJECT_DOCS/` tree, the `audit/` dump) live on the **`docs-history`** branch at their
+old `docs-history branch: ` tree, the `audit/` dump) live on the **`docs-history`** branch at their
 original paths — browse it on GitHub or use *Code → Download ZIP* on that branch for a bundle.
 They are also importable into a Wabi wiki via `scripts/import-docs-to-wiki.sh`.
 

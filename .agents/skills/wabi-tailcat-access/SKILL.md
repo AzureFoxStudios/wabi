@@ -7,7 +7,7 @@ description: Wabi Tailcat private-access addon — architecture, ops semantics, 
 
 Family/friend instances reach a home-hosted wabi-server through tailcat's userspace WireGuard
 pipes. Canonical design + spike/E2E evidence: `docs/plans/2026-09-01-tailcat-private-access.md`.
-Ops handoff: `PROJECT_DOCS/02-deployment/HERMES_TAILCAT_HANDOFF.md`.
+Ops handoff: `docs/deployment/HERMES_TAILCAT_HANDOFF.md`.
 
 ## Architecture (one paragraph)
 

@@ -122,7 +122,7 @@ gets *darker* (zero inbound ports; magicsock punches outbound).
   self-host [`derper`](https://github.com/tailscale/tailscale/tree/main/cmd/derper) for reliability.
 - Design + spike/E2E evidence: `docs/plans/2026-09-01-tailcat-private-access.md` (incl. measured
   cross-NAT relay floor ~390 KB/s, 1/10 immediate direct). Operator walkthrough:
-  `PROJECT_DOCS/03-features/PRIVATE_ACCESS_GUIDE.md`.
+  `docs/features/PRIVATE_ACCESS_GUIDE.md`.
 
 ## Related
 

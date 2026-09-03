@@ -196,10 +196,10 @@ Restore is the inverse: write the directory back, then run `wabidb check` to ver
 
 ## 8. What This Document Does Not Cover
 
-- Wire protocol for client-server sync — see `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` §5
+- Wire protocol for client-server sync — see `docs/architecture/ARCHITECTURE.md` §5
 - Internal Wabidb key derivation — see `wabidb::crypto::bootstrap`
-- Operator runbook for backups — see `PROJECT_DOCS/02-deployment/BACKUP_AND_RESTORE.md`
-- Disaster recovery procedures — see `PROJECT_DOCS/02-deployment/DEPLOYMENT.md`
+- Operator runbook for backups — see `docs/deployment/BACKUP_AND_RESTORE.md`
+- Disaster recovery procedures — see `docs/deployment/DEPLOYMENT.md`
 
 ---
 
@@ -207,6 +207,6 @@ Restore is the inverse: write the directory back, then run `wabidb check` to ver
 
 - `core/crates/wabidb/docs/STORAGE_FORMAT.md` — full byte-level format spec
 - `docs/proposals/wabidb-endstate.md` — Wabidb endstate design (the larger storage architecture)
-- `PROJECT_DOCS/02-deployment/BACKUP_AND_RESTORE.md` — operator backup runbook
-- `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` §4 — Wabidb engine architecture
-- `PROJECT_DOCS/archive/2026-04-stdb-migration/` — historical context for what this doc replaced
+- `docs/deployment/BACKUP_AND_RESTORE.md` — operator backup runbook
+- `docs/architecture/ARCHITECTURE.md` §4 — Wabidb engine architecture
+- `docs-history branch (archive/) 2026-04-stdb-migration/` — historical context for what this doc replaced
