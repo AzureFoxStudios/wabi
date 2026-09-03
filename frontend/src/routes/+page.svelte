@@ -88,10 +88,22 @@
 
 	function ensureLayoutRouter(): Promise<unknown> {
 		if (!layoutRouterPromise) {
-			layoutRouterPromise = import('$lib/components/LayoutRouter.svelte').then((m) => {
-				LayoutRouterCmp = m.default;
-				return m;
-			});
+			layoutRouterPromise = import('$lib/prism')
+				.then((prismModule) => prismModule.ensurePrismGrammars())
+				.then(() => import('$lib/components/LayoutRouter.svelte'))
+				.then((m) => {
+					LayoutRouterCmp = m.default;
+					return m;
+				})
+				.catch((err) => {
+					// A module-eval crash anywhere in the app bundle used to
+					// reject this promise silently — auth/socket had already
+					// succeeded, so it masqueraded as "login broken" (Tim
+					// 2026-09-02). Surface it and allow a retry.
+					console.error('[App] App bundle failed to load:', err);
+					showToast('App bundle failed to load — see console for details.', 'error');
+					layoutRouterPromise = null;
+				});
 		}
 		return layoutRouterPromise;
 	}

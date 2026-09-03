@@ -1,5 +1,7 @@
 import { marked } from 'marked';
-import Prism from 'prismjs';
+// Prism grammar components are loaded by $lib/prism (see that module for why
+// they must not be statically imported here).
+import Prism from '$lib/prism';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
 // Phase 4 boot optimization: these stylesheets ship with THIS module (off the
@@ -8,22 +10,6 @@ import 'katex/dist/katex.min.css';
 import '$lib/prism-theme.css';
 import { emojis } from './emoji-store';
 import type { MessageEntity } from './socket-types';
-
-// Import Prism language support
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-java';
-import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
-import 'prismjs/components/prism-csharp';
-import 'prismjs/components/prism-go';
-import 'prismjs/components/prism-rust';
-// Removed PHP - causes tokenizePlaceholders error
-import 'prismjs/components/prism-ruby';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-css';
 
 // Emote store (will be populated from server)
 export const emotes = new Map<string, {
