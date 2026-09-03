@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { LoreFileInfo } from '$lib/api/lore';
+	import { buildLoreFileTree } from '$lib/lore/fileTree';
 	import TreeNode from './LoreTreeNode.svelte';
 
 	interface Props {
@@ -8,72 +9,18 @@
 		loading: boolean;
 		onSelect: (path: string) => void;
 		onOpen: (path: string) => void;
-		onContextMenu: (path: string, event: MouseEvent) => void;
+		onContextMenu: (path: string, event: MouseEvent, isFolder?: boolean) => void;
 	}
 
 	let { files, selectedPath, loading, onSelect, onOpen, onContextMenu }: Props = $props();
 
 	let searchQuery = $state('');
 
-	interface TreeNodeData {
-		name: string;
-		path: string;
-		isFolder: boolean;
-		children: TreeNodeData[];
-		file?: LoreFileInfo;
-	}
-
-	function buildTree(fileList: LoreFileInfo[]): TreeNodeData[] {
-		const root: TreeNodeData[] = [];
-		const pathMap: Record<string, TreeNodeData> = {};
-
-		for (const file of [...fileList].sort((a, b) => a.path.localeCompare(b.path))) {
-			const parts = file.path.split('/');
-			let currentPath = '';
-
-			for (let i = 0; i < parts.length; i++) {
-				const part = parts[i];
-				currentPath = currentPath ? `${currentPath}/${part}` : part;
-
-				if (i < parts.length - 1) {
-					if (!pathMap[currentPath]) {
-						const folder: TreeNodeData = {
-							name: part,
-							path: currentPath,
-							isFolder: true,
-							children: []
-						};
-						pathMap[currentPath] = folder;
-						const parentPath = currentPath.slice(0, currentPath.lastIndexOf('/'));
-						if (parentPath && pathMap[parentPath]) {
-							pathMap[parentPath].children.push(folder);
-						} else if (!parentPath) {
-							root.push(folder);
-						}
-					}
-				} else {
-					const node: TreeNodeData = {
-						name: part,
-						path: file.path,
-						isFolder: false,
-						children: [],
-						file
-					};
-					const parentPath = currentPath.slice(0, currentPath.lastIndexOf('/'));
-					if (parentPath && pathMap[parentPath]) {
-						pathMap[parentPath].children.push(node);
-					} else {
-						root.push(node);
-					}
-				}
-			}
-		}
-		return root;
-	}
-
-	let tree = $derived(buildTree(files.filter(f =>
-		!searchQuery || f.path.toLowerCase().includes(searchQuery.toLowerCase())
-	)));
+	let tree = $derived(
+		buildLoreFileTree(
+			files.filter((f) => !searchQuery || f.path.toLowerCase().includes(searchQuery.toLowerCase()))
+		)
+	);
 </script>
 
 <div class="lore-file-tree">
@@ -93,7 +40,9 @@
 		</div>
 	{:else}
 		<ul class="tree-root" role="tree" aria-label="File tree">
-			{#each tree as node}
+			<!-- Keyed by path: without keys, filtering/rebuilding the tree
+			     scrambles per-node expansion state across unrelated folders. -->
+			{#each tree as node (node.path)}
 				<TreeNode
 					{node}
 					{selectedPath}

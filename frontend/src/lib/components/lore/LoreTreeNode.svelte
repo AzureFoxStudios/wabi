@@ -1,21 +1,14 @@
 <script lang="ts">
 	import type { LoreFileInfo } from '$lib/api/lore';
+	import type { FileTreeNode } from '$lib/lore/fileTree';
 	import TreeNode from './LoreTreeNode.svelte';
 
-	interface TreeNodeData {
-		name: string;
-		path: string;
-		isFolder: boolean;
-		children: TreeNodeData[];
-		file?: LoreFileInfo;
-	}
-
 	interface Props {
-		node: TreeNodeData;
+		node: FileTreeNode;
 		selectedPath: string | null;
 		onSelect: (path: string) => void;
 		onOpen: (path: string) => void;
-		onContextMenu: (path: string, event: MouseEvent) => void;
+		onContextMenu: (path: string, event: MouseEvent, isFolder?: boolean) => void;
 	}
 
 	let { node, selectedPath, onSelect, onOpen, onContextMenu }: Props = $props();
@@ -41,14 +34,18 @@
 
 {#if node.isFolder}
 	<li role="treeitem" aria-expanded={expanded}>
-		<button class="tree-folder" onclick={() => expanded = !expanded}>
+		<button
+			class="tree-folder"
+			onclick={() => expanded = !expanded}
+			oncontextmenu={(e) => { e.preventDefault(); onContextMenu(node.path, e, true); }}
+		>
 			<span class="folder-arrow">{expanded ? '▼' : '▶'}</span>
 			<span class="folder-icon">📁</span>
 			<span class="node-name">{node.name}</span>
 		</button>
 		{#if expanded && node.children.length > 0}
 			<ul class="tree-children" role="group">
-				{#each node.children as child}
+				{#each node.children as child (child.path)}
 					<TreeNode
 						node={child}
 						{selectedPath}
