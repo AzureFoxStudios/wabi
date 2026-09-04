@@ -136,6 +136,14 @@ export interface WabidbMediaRelayConfig {
   onError?: (err: Error) => void;
   /** Fired when inbound audio arrives from a user (speaking-ring feed). */
   onRemoteAudioActivity?: (fromUserId: string) => void;
+  /**
+   * One-shot: fired once inbound audio has actually DECODED to PCM
+   * (threshold below), i.e. this relay provably carries live voices — not
+   * merely that its socket joined a room. The transport layer uses it to
+   * retire a redundant p2p mesh only after the relay proves itself, so a
+   * just-started (possibly one-sided) relay never kills working audio.
+   */
+  onFirstDecodedAudio?: () => void;
   kind?: WabidbMediaRelayKind;
   peerStableUserId?: string;
   capture?: boolean;
@@ -193,6 +201,8 @@ export class WabidbMediaRelay {
   private socket: any;
   private onError?: (err: Error) => void;
   private onRemoteAudioActivity?: (fromUserId: string) => void;
+  private onFirstDecodedAudio?: () => void;
+  private firstDecodedFired = false;
   private localStream: MediaStream | null = null;
   private opusRecorder: OpusRecorder | null = null;
   private audioContext: AudioContext | null = null;
@@ -274,6 +284,7 @@ export class WabidbMediaRelay {
     this.socket = cfg.socket;
     this.onError = cfg.onError;
     this.onRemoteAudioActivity = cfg.onRemoteAudioActivity;
+    this.onFirstDecodedAudio = cfg.onFirstDecodedAudio;
     this.captureEnabled = cfg.capture !== false;
   }
 
@@ -531,6 +542,14 @@ export class WabidbMediaRelay {
       const pcmData = await this.decodeOpus(fromUserId, opusPayload);
       if (pcmData) {
         this.counters.decodeOk++;
+        // Inbound proof (one-shot, after a few chunks so a single blip can't
+        // retire the fallback mesh): the relay demonstrably carries voices.
+        if (!this.firstDecodedFired && this.counters.decodeOk >= 5) {
+          this.firstDecodedFired = true;
+          try {
+            this.onFirstDecodedAudio?.();
+          } catch { /* transport-layer concern, never break playback */ }
+        }
         await this.playbackViaAudioWorklet(fromUserId ?? 'unknown', pcmData);
       } else {
         // null = worker never answered (dead worker / wasm abort / timeout) —
