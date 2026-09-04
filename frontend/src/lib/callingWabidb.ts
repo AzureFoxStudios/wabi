@@ -492,6 +492,19 @@ async function doConnectWabidbCall(
 						notifyRelayAudioActivity(fromUserId)
 					);
 				},
+				// Single-transport rule, proof-gated: only retire a redundant
+				// p2p mesh once this relay has DECODED real inbound voices.
+				// Closing on start alone killed working p2p audio while the
+				// relay was still warming up (or one-sided) — the "heard noise
+				// for a second then silence" report. Until this fires, both
+				// paths may briefly coexist; the mesh side stays muted by no
+				// extra action needed once the relay takes over playback.
+				onFirstDecodedAudio: () => {
+					console.log(`[Wabidb] relay proved inbound audio for ${targetChannelId} — retiring p2p mesh`);
+					void import('./calling_impl_core').then(({ closeChannelP2PMesh }) => {
+						try { closeChannelP2PMesh(targetChannelId); } catch { /* best-effort */ }
+					}).catch(() => {});
+				},
 				...(isDirectCall
 					? { kind: 'dm' as const, peerStableUserId: peerUserId }
 					: {}),
@@ -581,18 +594,11 @@ async function doConnectWabidbCall(
 		socket.on('wabidb-call-denied', onWabidbCallDenied);
 		sessionIds.set(targetChannelId, newSessionId);
 
-		// Single-transport rule: the relay is primary. A p2p mesh built by an
-		// earlier fallback (or watchdog demote) on this channel would otherwise
-		// stay live alongside the healed relay — dual playback of the same
-		// voices ~80-200ms apart reads as choppy stutter, and each side's
-		// transport badge disagrees (phone P2P / computer wabiDB split-brain).
-		// Only after the relay is fully live (room joined above).
-		if (relay) {
-			try {
-				const { closeChannelP2PMesh } = await import('./calling_impl_core');
-				closeChannelP2PMesh(targetChannelId);
-			} catch { /* best-effort: relay still wins even if mesh lingers */ }
-		}
+		// NOTE: no mesh close here by design. Single-transport convergence
+		// happens via the relay's onFirstDecodedAudio callback (proof-gated):
+		// the redundant p2p mesh retires only after this relay demonstrably
+		// decodes inbound voices. Closing on start alone killed working p2p
+		// audio during relay warmup — never close unproven.
 
 		connectionState.set('connected');
 		callTransportState.update((state) => ({
