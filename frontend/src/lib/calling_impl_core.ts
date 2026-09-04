@@ -2683,17 +2683,25 @@ function summonCallsStubOnJoin(): void {
  * split into its two real cases: empty roster vs offer failure per peer.
  */
 export async function reEstablishChannelP2P(socket: Socket, channelId: string): Promise<void> {
-	const roster = get(voiceChannelMembers)[channelId] ?? [];
+	let roster = get(voiceChannelMembers)[channelId] ?? [];
 	const selfStable = (() => {
 		const dbId = getStoredDbUserId();
 		return dbId != null ? `user-${dbId}` : null;
 	})();
-	const peers = roster.filter((member) => !selfStable || member.userId !== selfStable);
+	let peers = roster.filter((member) => !selfStable || member.userId !== selfStable);
 	if (peers.length === 0) {
-		console.warn(
-			`[Calling] p2p re-establish for ${channelId}: roster has no other members yet — nothing to offer (presence may still be repopulating after a reconnect)`
-		);
-		return;
+		// Presence may still be repopulating after a socket.io reconnect
+		// (voice-channel-state 0 → 1 → 2 arrives 100-300ms later) — the last
+		// field report showed exactly this race, so retry once before giving up.
+		await new Promise<void>((resolve) => setTimeout(resolve, 700));
+		roster = get(voiceChannelMembers)[channelId] ?? [];
+		peers = roster.filter((member) => !selfStable || member.userId !== selfStable);
+		if (peers.length === 0) {
+			console.warn(
+				`[Calling] p2p re-establish for ${channelId}: roster has no other members yet — nothing to offer (presence may still be repopulating after a reconnect)`
+			);
+			return;
+		}
 	}
 	let offers = 0;
 	for (const member of peers) {

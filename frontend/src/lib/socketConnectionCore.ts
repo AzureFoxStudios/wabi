@@ -1137,6 +1137,25 @@ export class SocketManager {
 				);
 			}
 			console.log('[voice-channel-state] set members for', payload.channelId, 'count:', members.length);
+			// Self-heal: wabidb /ws can reconnect late after the 10s handshake
+			// timeout cleared sessionIds (nada 2/boo reports: Connected after
+			// timeout but no relay, so rejoinWabidbCallRooms had nothing to emit).
+			// If roster says we are still present but the media relay is dead,
+			// re-create it — has() guard in connectWabidbCall keeps it idempotent.
+			if (payload.channelId && members.length > 0) {
+				const sockId = (sock as any)?.id as string | undefined;
+				const selfEntry = sockId ? members.find((m: any) => m?.socketId === sockId) : null;
+				if (selfEntry) {
+					void import('$lib/callingWabidb').then(({ wabidbTransportLive, rejoinWabidbCallRooms, connectWabidbCall }) => {
+						if (wabidbTransportLive()) return;
+						try { rejoinWabidbCallRooms(); } catch {}
+						if (!wabidbTransportLive()) {
+							const listenOnly = Boolean((selfEntry as any)?.isListeningOnly);
+							void connectWabidbCall(sock, payload.channelId!, 'wabi', undefined, undefined, listenOnly).catch(() => {});
+						}
+					}).catch(() => {});
+				}
+			}
 		});
 
 		// The server moved this socket's voice presence (breakout move, moderator
