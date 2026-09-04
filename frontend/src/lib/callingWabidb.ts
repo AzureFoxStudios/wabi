@@ -339,7 +339,43 @@ function onWabidbCallDenied(payload: { sessionId?: string; reason?: string }): v
 	transportWatchdog.handleDisconnect();
 }
 
+// In-flight connects per channel. WabiDbCallState holds SINGLE-slot
+// onConnect/onDisconnect handlers, so two concurrent connectWabidbCall runs
+// overwrite each other's resolvers: the first handshake's resolve is lost and
+// it dies on timeout, then its catch tears down the HEALTHY relay the second
+// run just built (field report: Connected/Started/Call-connected followed by
+// 2x timeout + Stopped + dead p2p fallback). The voice-channel-state heal can
+// fire mid-handshake (server sends listening then primary back-to-back), so
+// gate here — has() alone is not enough because the relay only lands in the
+// map at the END of a successful run.
+const wabidbConnectInflight = new Map<string, Promise<void>>();
+
 export async function connectWabidbCall(
+	socket: Socket,
+	targetChannelId: string,
+	localDisplayName: string,
+	serverUrl: string = defaultWabidbServer,
+	peerUserId?: string,
+	listenOnly = false,
+): Promise<void> {
+	if (wabidbMediaRelays.has(targetChannelId)) {
+		return;
+	}
+	const inflight = wabidbConnectInflight.get(targetChannelId);
+	if (inflight) {
+		await inflight;
+		return;
+	}
+	const run = doConnectWabidbCall(socket, targetChannelId, localDisplayName, serverUrl, peerUserId, listenOnly);
+	wabidbConnectInflight.set(targetChannelId, run);
+	try {
+		await run;
+	} finally {
+		wabidbConnectInflight.delete(targetChannelId);
+	}
+}
+
+async function doConnectWabidbCall(
 	socket: Socket,
 	targetChannelId: string,
 	localDisplayName: string,
@@ -540,6 +576,19 @@ export async function connectWabidbCall(
 		socket.off('wabidb-call-denied', onWabidbCallDenied);
 		socket.on('wabidb-call-denied', onWabidbCallDenied);
 		sessionIds.set(targetChannelId, newSessionId);
+
+		// Single-transport rule: the relay is primary. A p2p mesh built by an
+		// earlier fallback (or watchdog demote) on this channel would otherwise
+		// stay live alongside the healed relay — dual playback of the same
+		// voices ~80-200ms apart reads as choppy stutter, and each side's
+		// transport badge disagrees (phone P2P / computer wabiDB split-brain).
+		// Only after the relay is fully live (room joined above).
+		if (relay) {
+			try {
+				const { closeChannelP2PMesh } = await import('./calling_impl_core');
+				closeChannelP2PMesh(targetChannelId);
+			} catch { /* best-effort: relay still wins even if mesh lingers */ }
+		}
 
 		connectionState.set('connected');
 		callTransportState.update((state) => ({

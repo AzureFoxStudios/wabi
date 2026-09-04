@@ -76,7 +76,9 @@ import {
 } from './callingSpatialRuntime';
 import {
 	addOptimizedTrack,
+	dropOrphanIceCandidates,
 	flushIceCandidateQueue as flushQueuedIceCandidates,
+	flushOrphanIceCandidates,
 	getConnectionKey,
 	keyTypeFromPCType,
 	optimizeSender,
@@ -358,6 +360,8 @@ function createPeerConnection(
 	};
 
 	peerConnections.set(key, state);
+	// Drain ICE candidates that arrived before this PC existed (trickle race).
+	flushOrphanIceCandidates(peerConnections, key);
 	connectionState.set('signaling');
 	if (type === 'call') {
 		startCallDiagnosticsPolling(
@@ -524,6 +528,25 @@ async function renegotiateCallConnection(state: PeerConnectionState, socket: Soc
 	});
 }
 
+/**
+ * Close every channel-scoped p2p call mesh connection for one channel.
+ * Used when the wabidb relay (the primary transport) heals after a fallback:
+ * without this the orphaned mesh keeps playing the same voices alongside the
+ * relay, out of sync — choppy stutter plus split-brain transport badges.
+ * Screenshares (`screen-share-*`) are untouched; only `call` mesh goes.
+ */
+export function closeChannelP2PMesh(channelId: string): void {
+	if (!channelId) return;
+	const keys: string[] = [];
+	peerConnections.forEach((state, key) => {
+		if (state.type === 'call' && state.channelId === channelId) keys.push(key);
+	});
+	if (keys.length > 0) {
+		console.log(`[Calling] closing ${keys.length} orphan p2p mesh connection(s) for ${channelId} (relay healed)`);
+	}
+	keys.forEach((key) => cleanupPeerConnection(key));
+}
+
 function cleanupPeerConnection(key: string): void {
 	const state = peerConnections.get(key);
 	if (!state) return;
@@ -537,6 +560,7 @@ function cleanupPeerConnection(key: string): void {
 	}
 
 	peerConnections.delete(key);
+	dropOrphanIceCandidates(key);
 
 	// Only clean the relevant store based on connection type
 	if (state.type === 'call') {
