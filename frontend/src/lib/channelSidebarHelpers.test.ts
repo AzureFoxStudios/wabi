@@ -11,22 +11,24 @@ import { describe, expect, test } from 'bun:test';
 import { callParticipantCount } from './components/sidebar/channelSidebarHelpers';
 
 describe('callParticipantCount', () => {
-	test('relay transport counts the roster (includes self)', () => {
+	test('a known roster wins on every transport (includes self)', () => {
 		expect(callParticipantCount('wabidb', 0, 2)).toBe(2);
 		expect(callParticipantCount('wabidb', 0, 5)).toBe(5);
+		// The demoted-but-idle p2p tail also has no activeCalls entries.
+		expect(callParticipantCount('p2p', 0, 4)).toBe(4);
 	});
 
-	test('relay with no roster knowledge falls back to activeCalls formula', () => {
+	test('no roster knowledge falls back to activeCalls formula', () => {
 		expect(callParticipantCount('wabidb', 0, null)).toBe(1);
 		expect(callParticipantCount('wabidb', 2, null)).toBe(3);
+		expect(callParticipantCount('p2p', 3, null)).toBe(4);
 	});
 
 	test('empty roster is treated as unknown, never zero participants', () => {
 		expect(callParticipantCount('wabidb', 0, 0)).toBe(1);
 	});
 
-	test('non-relay transports keep the legacy count', () => {
-		expect(callParticipantCount('p2p', 0, 4)).toBe(1);
+	test('a healthy p2p mesh and roster agree', () => {
 		expect(callParticipantCount('p2p', 3, 4)).toBe(4);
 		expect(callParticipantCount('sfu', 3, null)).toBe(4);
 	});

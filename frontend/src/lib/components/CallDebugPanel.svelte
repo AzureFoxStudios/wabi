@@ -45,12 +45,12 @@
 			});
 		}
 		if (showParticipants) {
-			// Relay transport: activeCalls stays empty (WebRTC-only store), so
-			// count the live voice-channel roster instead — see callParticipantCount.
-			const rosterLength =
-				$callTransportState.activeTransport === 'wabidb' && $activeVoiceChannel
-					? ($voiceChannelMembers[$activeVoiceChannel.id]?.length ?? null)
-					: null;
+			// activeCalls is a WebRTC/SFU-only store — the roster is the
+			// truthful count on the relay AND on an idle p2p tail. See
+			// callParticipantCount.
+			const rosterLength = $activeVoiceChannel
+				? ($voiceChannelMembers[$activeVoiceChannel.id]?.length ?? null)
+				: null;
 			items.push({
 				label: 'Participants',
 				value: String(
