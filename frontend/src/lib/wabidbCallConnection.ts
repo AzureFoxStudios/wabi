@@ -13,6 +13,7 @@ import type {
   StateCallSignalRow,
 } from './wabidbCallTypes';
 import { getAuthToken } from './authSession';
+import { tryRefresh } from './api/authRefresh';
 
 export interface WabiDbCallConfig {
   serverUrl: string; // e.g. "https://wabi.example.com" (no trailing slash)
@@ -76,6 +77,35 @@ export class WabiDbCallState {
   }
 
   // --- HTTP writes ---
+  //
+  // All call HTTP goes through authedFetch: on a 401 (the 15-minute access
+  // token expired mid-call) it silent-refreshes once and retries. Without
+  // this a single expiry killed every relay (re)connect with
+  // `createSession failed: 401` while the socket itself stayed up, so
+  // presence looked alive and media just died.
+
+  private async authedFetch(url: string, init: RequestInit): Promise<Response> {
+    const withLiveAuth = (): RequestInit => {
+      const headers = new Headers(init.headers);
+      const live = getAuthToken();
+      const token = live || this.cfg.token;
+      if (token) headers.set('authorization', `Bearer ${token}`);
+      return { ...init, headers };
+    };
+    let res = await fetch(url, withLiveAuth());
+    if (res.status === 401) {
+      let refreshed = false;
+      try {
+        refreshed = await tryRefresh();
+      } catch {
+        refreshed = false;
+      }
+      if (refreshed) {
+        res = await fetch(url, withLiveAuth());
+      }
+    }
+    return res;
+  }
 
   async createSession(
     sessionId: string,
@@ -84,7 +114,7 @@ export class WabiDbCallState {
     hostUserId: number,
     maxParticipants = 0,
   ): Promise<void> {
-    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions`, {
+    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({
@@ -103,7 +133,7 @@ export class WabiDbCallState {
     _userId: number,
     stableUserId: string,
   ): Promise<void> {
-    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/join`, {
+    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/join`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({ stable_user_id: stableUserId }),
@@ -116,7 +146,7 @@ export class WabiDbCallState {
     _userId: number,
     _stableUserId: string,
   ): Promise<void> {
-    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/leave`, {
+    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/leave`, {
       method: 'POST',
       headers: this.headers(),
     });
@@ -128,7 +158,7 @@ export class WabiDbCallState {
     _userId?: number,
     _stableUserId?: string,
   ): Promise<void> {
-    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/end`, {
+    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/end`, {
       method: 'POST',
       headers: this.headers(),
     });
@@ -142,7 +172,7 @@ export class WabiDbCallState {
     payloadJson: string,
     targetUserId?: number,
   ): Promise<void> {
-    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/signals`, {
+    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/signals`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({
@@ -157,7 +187,7 @@ export class WabiDbCallState {
   // --- HTTP reads (fallback when WS push is unavailable) ---
 
   async getSession(sessionId: string): Promise<StateCallSessionRow | undefined> {
-    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}`, {
+    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}`, {
       headers: this.headers(),
     });
     if (res.status === 404) return undefined;
@@ -167,7 +197,7 @@ export class WabiDbCallState {
   }
 
   async getParticipants(sessionId: string): Promise<StateCallParticipantRow[]> {
-    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/participants`, {
+    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/participants`, {
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`getParticipants failed: ${res.status}`);
@@ -180,7 +210,7 @@ export class WabiDbCallState {
     since: number = 0,
   ): Promise<StateCallSignalRow[]> {
     const url = `${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/signals?since=${since}`;
-    const res = await fetch(url, { headers: this.headers() });
+    const res = await this.authedFetch(url, { headers: this.headers() });
     if (!res.ok) throw new Error(`getSignals failed: ${res.status}`);
     const data = (await res.json()) as { signals: any[] };
     return data.signals.map(wabidbSignalToRow);
