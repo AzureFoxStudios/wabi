@@ -220,6 +220,47 @@ export class WabiDbCallState {
   onConnect(cb: () => void): void { this._onConnect = cb; }
   onDisconnect(cb: () => void): void { this._onDisconnect = cb; }
   onError(cb: (err: Error) => void): void { this._onError = cb; }
+
+  // One-shot waiters for the WS handshake. The legacy single-slot onConnect
+  // callback above loses resolvers when two handshakes overlap (the second
+  // overwrites the first's resolve and the first hangs until timeout, then
+  // its catch tears down the healthy relay). Waiters stack: every pending
+  // requestConnect settles on open/error/close.
+  private connectWaiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
+
+  private settleConnectWaiters(resolve: boolean, err?: Error): void {
+    if (this.connectWaiters.length === 0) return;
+    const waiters = this.connectWaiters;
+    this.connectWaiters = [];
+    for (const w of waiters) {
+      try {
+        if (resolve) w.resolve();
+        else w.reject(err ?? new Error('WebSocket closed during handshake'));
+      } catch { /* waiter already settled via timeout */ }
+    }
+  }
+
+  /**
+   * Resolve when the WS is open (immediately if already connected).
+   * Rejects on WS error/close or after timeoutMs. Safe under overlap: every
+   * caller gets its own waiter instead of fighting over one callback slot.
+   */
+  requestConnect(timeoutMs = 10000): Promise<void> {
+    if (this._isConnected) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const idx = this.connectWaiters.indexOf(waiter);
+        if (idx !== -1) this.connectWaiters.splice(idx, 1);
+        reject(new Error(`Wabidb connection timeout (${Math.round(timeoutMs / 1000)}s)`));
+      }, timeoutMs);
+      const waiter = {
+        resolve: () => { clearTimeout(timer); resolve(); },
+        reject: (err: Error) => { clearTimeout(timer); reject(err); },
+      };
+      this.connectWaiters.push(waiter);
+      this.connect();
+    });
+  }
   onSessionChange(cb: (rows: StateCallSessionRow[]) => void): void { this._onSessionChange = cb; }
   onParticipantChange(cb: (rows: StateCallParticipantRow[]) => void): void { this._onParticipantChange = cb; }
   onSignal(cb: (row: StateCallSignalRow) => void): void {
@@ -249,6 +290,7 @@ export class WabiDbCallState {
         this._isConnected = true;
         this.reconnectAttempts = 0;
         this._onConnect?.();
+        this.settleConnectWaiters(true);
         // Re-subscribe to any active sessions
         for (const sessionId of this.subscribedSessionIds) {
           this.sendWsMessage({ type: 'subscribe_call', session_id: sessionId });
@@ -258,11 +300,14 @@ export class WabiDbCallState {
       this.ws.onclose = () => {
         this._isConnected = false;
         this._onDisconnect?.();
+        this.settleConnectWaiters(false, new Error('WebSocket closed during handshake'));
         if (!this.explicitlyClosed) this.scheduleReconnect();
       };
 
       this.ws.onerror = (e) => {
-        this._onError?.(new Error(`WebSocket error: ${e}`));
+        const err = new Error(`WebSocket error: ${e}`);
+        this._onError?.(err);
+        this.settleConnectWaiters(false, err);
       };
 
       this.ws.onmessage = (ev) => {

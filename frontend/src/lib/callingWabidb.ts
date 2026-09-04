@@ -419,44 +419,38 @@ async function doConnectWabidbCall(
 
 		connectionState.set('connecting');
 
+		// The /ws disconnect tap stays single-slot (one subscriber: the
+		// watchdog), but the handshake itself uses stacked waiters inside
+		// requestConnect — overlapping runs can no longer steal each other's
+		// resolve and hang to timeout.
+		wabidbCallState!.onDisconnect(() => {
+			console.log('[Wabidb] Disconnected');
+			// T3: notify the mid-call watchdog; it runs the grace/reconnect
+			// probe and demotes to the next chain link if the relay stays dead.
+			// The socket.io media relay itself is untouched here — a bare /ws
+			// flap (Cloudflare ~100s idle kill) heals via auto-reconnect inside
+			// the grace window without dropping audio.
+			transportWatchdog.handleDisconnect();
+		});
+
 		if (!wabidbCallState.isConnected) {
 			// Two 10s attempts, timeout-only: the /ws handshake can stall
 			// transiently behind Cloudflare (2026-09-03 field report: 42
 			// timeouts, then Connected). The old single window orphaned the
 			// late connection — the chain demoted to the dead p2p tail while
 			// the socket healed a moment later with nobody waiting for it.
+			// runId makes concurrent/sequential runs attributable in field logs.
+			const runId = `${targetChannelId}:${Date.now().toString(36)}`;
 			let lastError: unknown = new Error('Wabidb connection timeout (10s)');
 			for (let attempt = 0; attempt < 2 && !wabidbCallState.isConnected; attempt++) {
 				try {
-					await new Promise<void>((resolve, reject) => {
-						const timeout = setTimeout(() => {
-							reject(new Error('Wabidb connection timeout (10s)'));
-						}, 10000);
-
-						wabidbCallState!.onConnect(() => {
-							clearTimeout(timeout);
-							console.log('[Wabidb] Connected');
-							resolve();
-						});
-
-						wabidbCallState!.onError((err) => {
-							clearTimeout(timeout);
-							console.error('[Wabidb] Connection error:', err);
-							reject(err);
-						});
-
-						wabidbCallState!.onDisconnect(() => {
-							console.log('[Wabidb] Disconnected');
-							// T3: notify the mid-call watchdog; it runs the grace/reconnect
-							// probe and demotes to the next chain link if the relay stays dead.
-							transportWatchdog.handleDisconnect();
-						});
-
-						wabidbCallState!.connect();
-					});
+					console.log(`[Wabidb] handshake ${runId} attempt ${attempt + 1}/2`);
+					await wabidbCallState!.requestConnect(10000);
+					console.log('[Wabidb] Connected');
 					lastError = null;
 				} catch (err) {
 					lastError = err;
+					console.warn(`[Wabidb] handshake ${runId} attempt ${attempt + 1} failed:`, err);
 					// Only a timeout is worth retrying — explicit errors
 					// (auth, protocol) fail fast to the fallback chain.
 					if (!(err instanceof Error && err.message.includes('timeout'))) throw err;
@@ -515,8 +509,18 @@ async function doConnectWabidbCall(
 				wabidbMediaRelays.set(audioSessionId, relay);
 			}
 		} catch (e) {
-			console.warn('[Wabidb] Media relay import failed, continuing without:', e);
+			console.warn('[Wabidb] Media relay start failed:', e);
+			relay = null;
 		}
+		// A wabidb attempt without a live receive relay is a failed attempt:
+		// claiming "connected" here leaves the user silently deaf on a
+		// transport the router believes is healthy. Throw so the fallback
+		// chain (or the next heal) can carry audio instead. A redundant run
+		// that finds another run's relay already live returns via the guards.
+		if (!wabidbMediaRelays.has(targetChannelId)) {
+			throw new Error('Wabidb media relay failed to start');
+		}
+		relay = wabidbMediaRelays.get(targetChannelId);
 
 		// Attach the video lane (camera + screenshare) to the relay so inbound
 		// video envelopes are routed to it. The lane owns its own outbound emit
@@ -624,7 +628,13 @@ async function doConnectWabidbCall(
 		console.log(`[Wabidb] Call connected to session ${newSessionId}`);
 	} catch (error) {
 		console.error('[Wabidb] Connection failed:', error);
-		await disconnectWabidbChannel(targetChannelId);
+		// Ownership: only tear down what THIS run built. A failed (or
+		// redundant) handshake must never stop a healthy relay another run
+		// established — that was the Connected→2×timeout→Stopped self-kill.
+		// Explicit leaves bypass this catch via disconnectWabidbChannel/Call.
+		if (relay && wabidbMediaRelays.get(targetChannelId) === relay) {
+			await disconnectWabidbChannel(targetChannelId);
+		}
 		throw error;
 	}
 }
