@@ -19,8 +19,12 @@ export function keyTypeFromPCType(pcType: PeerConnectionState['type']): Connecti
 // answer and trickle race: the remote's trickle can land before our
 // createPeerConnection runs). Dropping them breaks cross-network joins where
 // every srflx/relay candidate counts — park per key and flush on creation.
-const orphanIceCandidates = new Map<string, RTCIceCandidateInit[]>();
+const orphanIceCandidates = new Map<string, Array<{ candidate: RTCIceCandidateInit; at: number }>>();
 const ORPHAN_ICE_CAP = 50;
+// Candidates outlive the PC generation they were trickled for (re-offer
+// recreates the PC with a new ufrag; adding the old ones then fails with
+// "Unknown ufrag" noise). Drop parked entries older than this at flush.
+const ORPHAN_ICE_MAX_AGE_MS = 30_000;
 
 export function queueIceCandidate(
 	peerConnections: Map<string, PeerConnectionState>,
@@ -34,7 +38,7 @@ export function queueIceCandidate(
 			parked = [];
 			orphanIceCandidates.set(key, parked);
 		}
-		if (parked.length < ORPHAN_ICE_CAP) parked.push(candidate);
+		if (parked.length < ORPHAN_ICE_CAP) parked.push({ candidate, at: Date.now() });
 		console.log(`[WebRTC] Parked early ICE candidate for ${key} (no PC yet, parked: ${parked.length})`);
 		return;
 	}
@@ -63,7 +67,12 @@ export function flushOrphanIceCandidates(
 	orphanIceCandidates.delete(key);
 	const state = peerConnections.get(key);
 	if (!state) return;
-	for (const candidate of parked) {
+	const now = Date.now();
+	const fresh = parked.filter((p) => now - p.at < ORPHAN_ICE_MAX_AGE_MS);
+	if (fresh.length < parked.length) {
+		console.log(`[WebRTC] Dropped ${parked.length - fresh.length} stale parked ICE candidate(s) for ${key} (older generation)`);
+	}
+	for (const { candidate } of fresh) {
 		if (state.hasRemoteDescription) {
 			state.pc.addIceCandidate(candidate).catch(err => {
 				console.error('[WebRTC] Failed to add parked ICE candidate:', err);
@@ -72,7 +81,7 @@ export function flushOrphanIceCandidates(
 			state.iceCandidateQueue.push(candidate);
 		}
 	}
-	console.log(`[WebRTC] Flushed ${parked.length} parked ICE candidate(s) for ${key}`);
+	console.log(`[WebRTC] Flushed ${fresh.length} parked ICE candidate(s) for ${key}`);
 }
 
 /** Drop parked candidates for a torn-down connection so the map can't leak. */
