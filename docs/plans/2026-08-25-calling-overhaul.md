@@ -810,3 +810,58 @@ behavior — no breakage, they just don't benefit).
   global `lastArrivalMs`/`avgInterArrivalMs` — per-user jitter estimation and
   head-of-line isolation are a follow-up (secondary audit flag; not a
   regression vs this round).
+
+---
+
+## Round 7 — 2026-09-04: "nada 2" — wabidb /ws transient demotes into a dead p2p tail
+
+Field report after the Round 6 deploy: call silent again, console showed
+`[Wabidb] Connection failed: timeout (10s)` ×42 → chain demoted
+`wabidb -> p2p` → "Channel p2p tail reached — mesh audio only" → overlay
+Transport P2P, Participants 1, ping --, no audio. Round 6's decoder/header
+work was never exercised — the call never rode wabidb.
+
+Live probes (Tim): origin `:3001/ws` GET 400 (route alive) + WS upgrade
+**101**; caddy `:8088/ws` upgrade **101**; public `https://wabi.chat/ws`
+upgrade **101**. The /ws path is healthy end-to-end — the failure was a
+TRANSIENT CF-path stall (container swap churned connector pools; one
+cloudflared connector). Two client defects turned that transient into a
+permanently dead call:
+
+1. **The channel p2p tail was a no-op** (`calling_impl_core.ts` fallback
+   `connect` handler): a bare `console.warn`, after which the executor
+   stamped `activeTransport='p2p'` and `markConnected` — a call that LOOKS
+   connected with zero peers, no offers, no relay. Fix: the tail now runs
+   the same mesh build the watchdog demote uses (`reEstablishChannelP2P`,
+   forceTransport 'p2p', real offers, sessions marked connected only when
+   offers went out).
+2. **One-shot 10s wabidb handshake wait orphaned the late connect**
+   (`callingWabidb.ts`): timeout → reject → catch → `disconnectWabidbChannel`
+   deletes `sessionIds` — while `wabidbCallState` kept retrying in the
+   background and Connected a moment later with nobody waiting; the Round 6
+   unconditional rejoin then iterated an EMPTY sessionIds map. Fix: two 10s
+   attempts (timeout-only retry; explicit errors fail fast) — the observed
+   transient lands inside the window and the initial connect proceeds. The
+   joinVoiceChannel re-click heal remains the manual backstop.
+3. **Overlay Participants lied on the p2p tail** — the Round 5 fix counted
+   the roster only on the wabidb transport; `callParticipantCount` now uses
+   the roster whenever it is known (any transport), falling back to
+   1 + activeCalls only for DM calls.
+
+Also noted: `docker logs wabi-server` is EMPTY on Tim since the Round 6
+restart (0 lines total — even startup lines), so server-side log diagnosis
+was impossible during this round; the sio info!/warn! lines from
+media_reactions_signaling never appear. Log pipeline needs attention
+(follow-up).
+
+### Gates
+- `bun run check`: 0 errors; `bun test src/lib`: 252/0 (participant-count
+  tests updated: roster wins on every transport).
+
+### Retest recipe
+1. Happy path unchanged: A joins+talks, B joins late → wabidb, Participants
+   2, audio (Round 6 recipe).
+2. Transient /ws stall (or force by restarting the wabidb WS mid-join):
+   join now waits up to 2×10s → connects on wabidb instead of demoting.
+3. True wabidb outage: chain demotes to p2p and the mesh ACTUALLY builds —
+   offers in console, Transport P2P with Participants 2 and live ping.

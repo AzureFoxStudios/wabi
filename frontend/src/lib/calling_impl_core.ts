@@ -1277,9 +1277,13 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 				} else if (transport === 'wabidb') {
 					await connectWabidbCall(socket, channelId, `${brandName} User`, undefined, undefined, listenOnly);
 				} else {
-					// p2p tail for channels: no relay to join; presence rides the
-					// socket room and audio negotiates via existing P2P machinery.
-					console.warn('[Calling] Channel p2p tail reached — mesh audio only');
+					// p2p tail for channels: build the mesh for real. This branch
+					// used to be a bare console.warn — the chain then stamped
+					// Transport: P2P with zero peers, no offers, no relay: a
+					// call that LOOKS connected and is completely deaf
+					// (2026-09-03 "nada" report). Same mesh path the watchdog
+					// demote uses; forceTransport: 'p2p' bypasses the resolver.
+					await reEstablishChannelP2P(socket, channelId);
 				}
 			}
 		});

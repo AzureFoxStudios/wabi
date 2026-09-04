@@ -383,32 +383,51 @@ export async function connectWabidbCall(
 
 		connectionState.set('connecting');
 
-		if (!wabidbCallState.isConnected) await new Promise<void>((resolve, reject) => {
-			const timeout = setTimeout(() => {
-				reject(new Error('Wabidb connection timeout (10s)'));
-			}, 10000);
+		if (!wabidbCallState.isConnected) {
+			// Two 10s attempts, timeout-only: the /ws handshake can stall
+			// transiently behind Cloudflare (2026-09-03 field report: 42
+			// timeouts, then Connected). The old single window orphaned the
+			// late connection — the chain demoted to the dead p2p tail while
+			// the socket healed a moment later with nobody waiting for it.
+			let lastError: unknown = new Error('Wabidb connection timeout (10s)');
+			for (let attempt = 0; attempt < 2 && !wabidbCallState.isConnected; attempt++) {
+				try {
+					await new Promise<void>((resolve, reject) => {
+						const timeout = setTimeout(() => {
+							reject(new Error('Wabidb connection timeout (10s)'));
+						}, 10000);
 
-			wabidbCallState!.onConnect(() => {
-				clearTimeout(timeout);
-				console.log('[Wabidb] Connected');
-				resolve();
-			});
+						wabidbCallState!.onConnect(() => {
+							clearTimeout(timeout);
+							console.log('[Wabidb] Connected');
+							resolve();
+						});
 
-			wabidbCallState!.onError((err) => {
-				clearTimeout(timeout);
-				console.error('[Wabidb] Connection error:', err);
-				reject(err);
-			});
+						wabidbCallState!.onError((err) => {
+							clearTimeout(timeout);
+							console.error('[Wabidb] Connection error:', err);
+							reject(err);
+						});
 
-			wabidbCallState!.onDisconnect(() => {
-				console.log('[Wabidb] Disconnected');
-				// T3: notify the mid-call watchdog; it runs the grace/reconnect
-				// probe and demotes to the next chain link if the relay stays dead.
-				transportWatchdog.handleDisconnect();
-			});
+						wabidbCallState!.onDisconnect(() => {
+							console.log('[Wabidb] Disconnected');
+							// T3: notify the mid-call watchdog; it runs the grace/reconnect
+							// probe and demotes to the next chain link if the relay stays dead.
+							transportWatchdog.handleDisconnect();
+						});
 
-			wabidbCallState!.connect();
-		});
+						wabidbCallState!.connect();
+					});
+					lastError = null;
+				} catch (err) {
+					lastError = err;
+					// Only a timeout is worth retrying — explicit errors
+					// (auth, protocol) fail fast to the fallback chain.
+					if (!(err instanceof Error && err.message.includes('timeout'))) throw err;
+				}
+			}
+			if (lastError) throw lastError;
+		}
 
 		await wabidbCallState.createSession(newSessionId, targetChannelId, 'audio-call', currentUserId ?? 0, 100);
 
