@@ -19,6 +19,29 @@ If stale:
 2. Hard refresh.
 3. Re-check hash.
 
+## Mid-call lazy-chunk 404 after swap (old client, new binary)
+
+Distinct from edge staleness above: the page loaded FINE (fresh `index.html`),
+but it loaded BEFORE the swap. The new binary embeds new hashed chunks and the
+old hashes no longer exist on the server. The next lazy `await import()` in the
+old page 404s:
+
+```
+Uncaught (in promise) TypeError: error loading dynamically imported module:
+https://wabi.chat/_app/immutable/chunks/CWDXsqFO.js
+```
+
+In calling this is fatal, not cosmetic: the fallback/heal paths
+(`reEstablishChannelP2P`, mesh close, relay re-create) all run through dynamic
+imports, so the 404 throws mid-chain and the transport is lost — on a client
+whose chunk prefix (e.g. `bnW4HGz3.js`) differs from live (`BJ25VJPY.js`).
+
+Rule: after EVERY ship, hard-refresh ALL test devices BEFORE testing calls,
+and confirm the chunk prefix in console sources matches live
+(`curl -s https://wabi.chat/ | grep -oE 'entry/start\.[A-Za-z0-9_-]+\.js'`).
+A call log on a stale chunk cannot judge the new code. Single-shot capability:
+there is no N-1 asset retention — the old hashes die with the swap.
+
 ## Diagnostic runtime patch for `e.subscribe is not a function`
 
 When static audits don't surface the truthy non-store, patch the built runtime

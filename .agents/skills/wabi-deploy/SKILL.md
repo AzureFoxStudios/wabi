@@ -1,7 +1,7 @@
 ---
 name: wabi-deploy
 description: Deploy wabi-server (WabiDB-embedded Rust binary) to Tim or other hosts. Build static frontend + release binary, bind-mount swap, health checks. Cloudflare is optional. Always audit live stack before deploy.
-version: 3.3.0
+version: 3.3.1
 author: Hermes Agent
 license: MIT
 metadata:
