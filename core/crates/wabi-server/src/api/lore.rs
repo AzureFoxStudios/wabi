@@ -215,6 +215,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/repos/{channel_id}/snapshot", axum::routing::post(snapshot))
         // File operations
         .route("/repos/{channel_id}/files", axum::routing::get(list_files))
+        .route("/repos/{channel_id}/archive", axum::routing::get(repo_archive))
         .route("/repos/{channel_id}/files/{*path}", axum::routing::put(upload_file).get(download_file).delete(delete_file))
         // Sync protocol: one-call manifest + cursor-ordered change feed
         .route("/repos/{channel_id}/manifest", axum::routing::get(repo_manifest))
@@ -1101,6 +1102,98 @@ async fn list_files(
     let lore = lore_service(&state).await?;
     let files = lore.list_files(channel_id, query.prefix.as_deref()).await?;
     Ok(Json(serde_json::json!(files)))
+}
+
+/// Build the repo zip from the addon's visible listing. Unreadable or
+/// escaping paths are skipped with a warn (an archive must never fail
+/// wholesale because one file vanished mid-zip).
+fn build_repo_zip(
+    working_tree: &std::path::Path,
+    files: &[wabi_lore::LoreFileInfo],
+) -> Result<Vec<u8>> {
+    use std::io::Write as _;
+
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for file in files {
+        if file.status == "deleted" {
+            continue;
+        }
+        let source = working_tree.join(&file.path);
+        // Defense in depth: listing paths are addon-relative, but never let
+        // one escape the working tree.
+        if !source.starts_with(working_tree) {
+            warn!(path = %file.path, "archive: skipping path outside working tree");
+            continue;
+        }
+        let bytes = match std::fs::read(&source) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                warn!(path = %file.path, %error, "archive: unreadable file skipped");
+                continue;
+            }
+        };
+        zip.start_file(&file.path, options)
+            .map_err(|e| AppError::Internal(format!("zip write failed: {e}")))?;
+        zip.write_all(&bytes)
+            .map_err(|e| AppError::Internal(format!("zip write failed: {e}")))?;
+    }
+    Ok(zip
+        .finish()
+        .map_err(|e| AppError::Internal(format!("zip finalize failed: {e}")))?
+        .into_inner())
+}
+
+/// GET /repos/{channel_id}/archive — the repo's visible working tree as a
+/// zip ("Download project" in the file tree). Uses the addon's own listing,
+/// so .wabiignore/.loreignore filtering matches exactly what the tree shows.
+/// Mirror repos are excluded: their listing is served from the git cache,
+/// not a real working tree.
+async fn repo_archive(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<axum::response::Response> {
+    ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    let lore = lore_service(&state).await?;
+    let repo = lore
+        .get_repo(channel_id)
+        .await
+        .ok_or_else(|| AppError::NotFound("No Lore repo for this channel".into()))?;
+    if repo.read_only() {
+        return Err(AppError::BadRequest(
+            "Mirror repos cannot be archived — archive the upstream repository instead".into(),
+        ));
+    }
+    let files = lore
+        .list_files(channel_id, None)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to list repo files: {e}")))?;
+    let bytes = build_repo_zip(&repo.working_tree, &files)?;
+
+    let safe_name: String = repo
+        .repo_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect();
+    let filename = if safe_name.is_empty() {
+        format!("lore-channel-{channel_id}.zip")
+    } else {
+        format!("{safe_name}.zip")
+    };
+    Ok((
+        axum::http::StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/zip".to_string()),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 // -- Sync protocol: manifest + change feed --
@@ -2485,7 +2578,6 @@ exit 0
         let tmp = tempfile::tempdir().unwrap();
         let service = stub_service(tmp.path());
         let channel_id = 225i64;
-
         service
             .create_repo(channel_id, 1, "test-repo")
             .await
@@ -2543,6 +2635,45 @@ exit 0
         let listed = files.iter().find(|f| f.path == "docs/file.txt").unwrap();
         assert!(listed.etag.is_some());
         assert_eq!(listed.size, b"version two!".len() as u64);
+    }
+
+    #[tokio::test]
+    async fn archive_zips_the_visible_working_tree() {
+        use std::io::Read as _;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let service = stub_service(tmp.path());
+        let channel_id = 226i64;
+        service
+            .create_repo(channel_id, 1, "archive-test")
+            .await
+            .unwrap();
+
+        let src = tmp.path().join("a.txt");
+        tokio::fs::write(&src, b"alpha").await.unwrap();
+        service
+            .upload_file(channel_id, src.to_str().unwrap(), "docs/a.txt", "m1", 7)
+            .await
+            .unwrap();
+        tokio::fs::write(&src, b"beta").await.unwrap();
+        service
+            .upload_file(channel_id, src.to_str().unwrap(), "docs/deep/b.txt", "m2", 7)
+            .await
+            .unwrap();
+
+        let repo = service.get_repo(channel_id).await.unwrap();
+        let files = service.list_files(channel_id, None).await.unwrap();
+        let bytes = build_repo_zip(&repo.working_tree, &files).unwrap();
+
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        let mut a = String::new();
+        zip.by_name("docs/a.txt").unwrap().read_to_string(&mut a).unwrap();
+        assert_eq!(a, "alpha");
+        let mut b = String::new();
+        zip.by_name("docs/deep/b.txt").unwrap().read_to_string(&mut b).unwrap();
+        assert_eq!(b, "beta");
+        // Internal metadata sidecars never ship in a project download.
+        assert!(zip.by_name(".wabi-repo.json").is_err());
     }
 
     /// Regression: an upload with NO If-Match header must succeed even when

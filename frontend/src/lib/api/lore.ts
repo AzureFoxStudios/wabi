@@ -144,6 +144,30 @@ export async function createLoreRepo(
 	return normalizeLoreRepo(await res.json());
 }
 
+/**
+ * Download the whole repo as a zip ("Download project"). The server builds
+ * the archive from the same listing the file tree shows, so ignore rules
+ * match. Saves via a blob anchor using the server's Content-Disposition name.
+ */
+export async function downloadLoreProject(token: string, channelId: number): Promise<void> {
+	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/archive`), {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw loreError((err as any).error || 'Failed to download project', res.status);
+	}
+	const disposition = res.headers.get('Content-Disposition') ?? '';
+	const match = disposition.match(/filename="?([^";]+)"?/);
+	const blob = await res.blob();
+	const objectUrl = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = objectUrl;
+	a.download = match?.[1] ?? `lore-${channelId}.zip`;
+	a.click();
+	URL.revokeObjectURL(objectUrl);
+}
+
 /** Link an EXISTING space on the local Lore server to a channel (clone, not create). */
 export async function linkLoreRepo(
 	token: string,
