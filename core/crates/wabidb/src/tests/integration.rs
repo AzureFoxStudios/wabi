@@ -8,7 +8,6 @@ use crate::engine::locks::{DispatchItem, ProjectionState, SequencerPermit};
 use crate::engine::{WabiDbConfig, WabiDbEngine};
 use crate::error::WabiError;
 use crate::format::record::RecordKind;
-use crate::projections::barrier::LinearizabilityBarrier;
 use crate::projections::handler::{DispatchTable, DurableEvent, Projection};
 use crate::sequencer::types::{CommandCommit, EventToWrite};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -82,7 +81,6 @@ async fn engine_starts_and_serves_a_command() {
     tokio::spawn(batcher_fut);
 
     let state = Arc::new(ProjectionState::new());
-    let barrier = Arc::new(LinearizabilityBarrier::new(Arc::clone(&state)));
     let table = Arc::new(DispatchTable::new(vec![]).unwrap());
     let dispatcher_handle = crate::engine::locks::spawn_projection_dispatcher(
         Arc::clone(&state),
@@ -104,7 +102,6 @@ async fn engine_starts_and_serves_a_command() {
             registry,
             batcher,
             dispatcher_tx,
-            Arc::clone(&barrier),
             cmd_rx,
             data_dir,
             0,
@@ -237,7 +234,7 @@ async fn engine_rebuilds_projections_on_startup() {
             event_type: "rebuild_event".into(),
             stream_id: "rebuild".into(),
             payload: b"test payload".to_vec(),
-        })
+        }.into())
         .await
         .unwrap();
 

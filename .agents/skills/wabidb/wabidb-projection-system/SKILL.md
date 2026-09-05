@@ -24,15 +24,36 @@ This skill covers WabiDB's in-memory materialized view system — how events are
 ## Architecture Overview
 
 ```
-Event committed → ProjectionDispatcher → Handler lookup by event_type
-    → Handler.apply(event, state) → mutate SkipMap index
-    → advance watermark → linearizability barrier
+Durable command → DispatchCommit → apply every event in command order
+    → mutate primary/secondary indexes → advance shared watermark once
+    → acknowledge application → command success / server readback and live push
 ```
 
 - **Handlers** are sync (no async) because projection state is in-memory
 - **Dispatch** is single-threaded per the lock ordering rule in `engine::locks`
 - **State** is partitioned into named indexes (one `crossbeam-skiplist::SkipMap` per index)
 - **Snapshots** serialize all indexes to JSON (hex-encoded keys/values) for fast recovery
+
+### Completion boundary (2026-09-05)
+
+The dispatcher applies a whole command under the application lock; snapshots
+take the same lock and cannot capture partial commands. Snapshot replacement
+is temporary-file write + fsync + rename, not truncation of the last checkpoint.
+Never acquire the application lock from a handler (including via save_snapshot).
+Ordinary index reads do not take it: this is read-after-write visibility, not
+MVCC or snapshot isolation for concurrent reads.
+
+A registered handler error halts the dispatcher/writer without advancing the
+watermark or checkpointing partial state. Replay also fails startup on handler
+errors or missing indexed events; it preserves event-ref order within a commit.
+Do not turn validation/decode failures into logged-and-skipped success.
+Valid call end/leave events for absent rows are explicitly idempotent no-ops
+(no phantom session or secondary participant membership); malformed payloads
+still fail. No call record fields or postcard layouts changed.
+
+Regression entrypoints: `tests::write_completion` in wabidb and
+`write_visibility_contract` in wabi-server. See `wabidb-transaction-system`
+for backpressure, recovery, and retry limits.
 
 ## Key Files
 
@@ -58,7 +79,7 @@ Event committed → ProjectionDispatcher → Handler lookup by event_type
 | `prefix_scan(index, prefix, fn)` | Iterate entries whose key starts with a prefix |
 | `remove(index, key) -> bool` | Remove a single entry |
 | `compact_index(index, predicate) -> usize` | Two-pass remove-all-matching (collect then delete) |
-| `snapshot()` / `load_snapshot()` | Persist/restore all indexes to/from JSON |
+| `save_snapshot()` / `load_snapshot()` | Persist/restore all indexes to/from JSON |
 
 All read operations hold only a read lock. `insert` and `remove` hold a write lock briefly (SkipMap operations are lock-free internally).
 

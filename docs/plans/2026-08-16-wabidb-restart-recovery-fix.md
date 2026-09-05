@@ -126,6 +126,14 @@ documented no-op that dropped the permit it claimed to leak.
 
 ## Known follow-ups (not in this pass)
 
+**2026-09-05 follow-up:** [write completion and projection integrity](2026-09-05-wabidb-write-completion.md)
+resolves barrier-ahead-of-apply with whole-command acknowledgments and shares one
+watch-backed applied watermark. It also makes checkpoints whole-commit/atomic,
+rejects partial indexed replay, and fixes empty-index orphan resurrection.
+Checkpoints remain synchronous JSON; the binary-format/off-thread work below
+is still open. Group-window fsync has already landed in the sequencer; the
+per-command batching note below records the state at this August audit.
+
 - **Compaction scheduling**: `compact_segment` still has no production
   caller; server retention is logical deletes only, so `.wseg` bytes grow
   monotonically. Needs a scheduler in the engine (avoided touching

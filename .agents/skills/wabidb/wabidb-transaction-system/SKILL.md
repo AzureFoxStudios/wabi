@@ -1,198 +1,99 @@
 ---
 name: wabidb-transaction-system
-description: "Learn WabiDB transaction system and ACID guarantees."
-version: 0.1.0
-author: Hermes
-platforms: [linux, macos, windows]
+description: "Trace and change WabiDB command completion, durability, projection barriers, and crash recovery."
 metadata:
   hermes:
-    tags: [Transaction, ACID, Isolation, WabiDB, Consensus]
+    tags: [Transaction, WabiDB, Durability, Recovery]
 ---
 
-# WabiDB Transaction System Learning Guide
+# WabiDB command completion
 
-This skill provides a structured approach to learning the WabiDB transaction system, including its ACID properties, isolation levels, and consensus mechanisms.
+Use this skill when changing command sequencing, write acknowledgments, replay,
+or projection visibility. Paths below are relative to `core/crates/wabidb`.
+The implementation contract was corrected on 2026-09-05; older plans describe
+barrier-before-apply and must not be copied.
 
-## When to Use
+## Trace the actual write path
 
-- Need to understand WabiDB's transaction guarantees
-- Building applications that rely on WabiDB's consistency properties
-- Debugging transaction-related issues or performance problems
-- Learning how WabiDB implements atomic commits and durability
-- Comparing WabiDB's transaction model to other storage systems
+Read `src/sequencer/run_command.rs`, `src/sequencer/mod.rs`,
+`src/engine/locks.rs`, `src/projections/barrier.rs`, and
+`src/engine/replay.rs` for the layer being changed.
 
-## Prerequisites
+1. Admission: essential commands wait for command-queue capacity; optional
+   commands may get `EngineBusy` here, before writing.
+2. The single sequencer assigns a sequence. At most one event per stream per
+   command is allowed: encryption uses the stream key and commit sequence as
+   its nonce. Supporting more requires a versioned encryption-format design.
+3. Encrypt/append events and fsync every touched segment before the commit index.
+   Failed preparation can leave orphan records; it is not physical rollback.
+4. Submit index entries, then await the group-window fsync (up to 32 commands).
+5. Dispatch each whole command as `DispatchCommit`, preserving event order.
+   Await its application acknowledgment before finalizing the next command.
+6. The dispatcher applies all handlers synchronously, advances the shared
+   watch-backed watermark once, and acknowledges. Only then return success.
 
-- Access to WabiDB source code (specifically sequencer module)
-- Understanding of ACID properties and transaction concepts
-- Familiarity with consensus algorithms and distributed systems basics
-- Rust programming knowledge (for implementation references)
-- Basic knowledge of asynchronous programming patterns
+Do not advance the barrier from the sequencer or reply when a batch is merely
+queued. Once durable, optional work must wait too; a post-fsync busy response
+would invite retries of an already committed command.
 
-## How to Learn
+## Guarantees and limits
 
-Follow this structured approach to learn the WabiDB transaction system:
+- Success means segment/index durability plus complete projection application.
+  Immediate adapter reads and live payload construction need no catch-up sleeps.
+- This is ordered writes and read-after-write visibility, NOT MVCC, snapshot
+  isolation, or serializable application read-modify-write transactions.
+  Ordinary reads can see a later command while its handlers are applying.
+- A handler error after durability cannot roll back the log. Halt the applied
+  prefix and writer, keep the last good checkpoint, and return an invariant
+  failure. Remaining commands in the same flushed window may also be durable.
+  Lost acknowledgment is an uncertain outcome, not proof of non-commit.
+- Validate ordinary user errors before committing. Handlers must replay valid
+  events deterministically. Explicitly idempotent absent teardown is a no-op;
+  malformed durable payloads must not be swallowed as successful application.
+- Dropping the caller does not cancel admitted durable work.
+- The idempotency table is in-memory and has a check/insert concurrency gap.
+  Do not promise restart-safe exactly-once retries. Replication ingestion is a
+  separate path; local command completion does not prove replica application
+  or distributed consensus.
 
-## Procedure
+## Checkpoint and replay invariants
 
-### 1. Review Transaction System Architecture
+Application and snapshot writers share the application lock. Take that lock
+before index locks; never snapshot inside a projection handler and never hold
+these synchronous locks across an await. Save only complete healthy commits,
+writing/fsyncing a temporary JSON snapshot and renaming it over the old file
+(parent-directory fsync on Unix). Engine checkpoints still use
+`projections/snapshot.json`, not the separate binary snapshot implementation.
 
-Read through the key files to understand the overall structure:
-- `src/sequencer/mod.rs`: Main sequencer logic and commit process
-- `src/engine/mod.rs`: Engine initialization and component wiring
-- `src/engine/locks.rs`: Locking and synchronization mechanisms
-- `src/engine/replay.rs`: Recovery and replay mechanisms
-- `src/projections/barrier.rs`: Linearizability barrier for read-after-write consistency
+Replay uses the commit index as authority even when empty. Skip unindexed
+orphans, but count their sequences for nonce allocation. Recover every indexed
+post-snapshot event or fail startup; apply in `(commit_seq, event_ref ordinal)`
+order. A registered handler failure is a startup error. The applied watermark
+tracks committed work, not the larger orphan-inclusive sequence high-water.
+Failed open must release only the lock it acquired.
 
-### 2. Understand the Commit Sequencer (Core Transaction Mechanism)
+Legacy writer caching uses stream ID, not (kind, ID); chat/workspace operations
+can therefore record different kinds in one physical stream directory. Replay
+matches stream hash/segment/offset/length to event references, not directory kind.
+Keep the shared-stream restart regression when tightening reference validation.
 
-**Key Components to Study:**
-
-**Sequencer Role:**
-- Single global ordering point for all writes (serializes all transactions)
-- Holds a Semaphore(1) permit to ensure exclusive access
-- Assigns monotonic commit sequences (never reused, even on failure)
-- Ensures durability before returning success (fsync wait)
-
-**Transaction Processing Flow:**
-1. **Assign commit sequence**: Get next monotonic `commit_seq` (burned on failure)
-2. **Write events to streams**: Encrypt and append to per-stream segment files
-3. **Build commit index entry**: Create entry with all event references
-4. **Submit to batcher**: Add to commit index batch for fsync
-5. **Wait for durability**: Block until batch is flushed to disk (fsync)
-6. **Advance linearizability barrier**: Make changes visible to readers
-7. **Notify projection dispatcher**: Send events to update materialized views
-8. **Return result**: Send commit success/failure back to caller
-
-### 3. Study ACID Properties Implementation
-
-**Atomicity:**
-- All events in a transaction are written together or none at all
-- If any step fails, the entire transaction is aborted
-- Burned sequence numbers ensure partial transactions don't consume IDs
-- Recovery process ignores incomplete transactions (orphan handling)
-
-**Consistency:**
-- Schema validation at write time (through projection handlers)
-- Invariant checking during commit process
-- Referential integrity maintained through stream references
-- Cryptographic validation (hashes, signatures) on all data
-
-**Isolation:**
-- **Serialization**: Single sequencer ensures serializable isolation
-- **Lock-free reads**: Projections use lock-free skiplists for concurrent reads
-- **Write serialization**: Semaphore(1) ensures only one transaction commits at a time
-- **Read-after-write consistency**: Linearizability barrier ensures immediate visibility
-- **Snapshot isolation**: Readers see consistent snapshots via projection versions
-
-**Durability:**
-- **WAL-like behavior**: Each transaction fsyncs before returning success
-- **Batcher optimization**: Groups commits for efficient fsync while maintaining durability
-- **Crash recovery**: Replay from commit index to restore state
-- **Power-loss testing**: Artificial crash points validate recovery at key boundaries
-
-### 4. Examine Isolation Levels and Guarantees
-
-**Strong Guarantees Provided:**
-- **Strict Serializability**: Equivalent to executing transactions one-at-a-time in some order
-- **Linearizable Reads**: Read-after-write consistency via barrier
-- **Monotonic Reads**: No going back in time for individual readers
-- **Consistent Prefix**: Readers see transactions in commit order
-- **Write Serialization**: No concurrent writes to same data
-
-**Implementation Mechanisms:**
-- **Sequencer Permit**: `Semaphore(1)` ensures exclusive commit access
-- **LinearizabilityBarrier**: Blocks reads until previous writes are visible
-- **Projection Versioning**: Readers work on consistent snapshots
-- **Commit Index Ordering**: Single source of truth for transaction order
-
-### 5. Analyze Crash Recovery and Resilience
-
-**Recovery Process:**
-1. **Lock file validation**: Ensure only one instance runs
-2. **Manifest loading**: Read storage configuration
-3. **Replay from commit index**: Rebuild state from durable log
-4. **Orphan handling**: Ignore writes not referenced in commit index (Option B)
-5. **Projection rebuild**: Use snapshots + post-snapshot journal entries
-6. **Subscription recovery**: Re-establish streams and resume from checkpoints
-
-**Crash Injection Points (for testing):**
-- `crash_before_any_write`: Test burned-seq invariant
-- `crash_mid_stream_write`: Test orphan skip in multi-stream transactions
-- `crash_before_index_fsync`: Test Option B recovery (ignore uncommitted writes)
-- `crash_after_index_fsync`: Test durability-await correctness
-- `crash_after_projection_update`: Test idempotency and replay safety
-
-### 6. Review Configuration and Tuning
-
-**Key Transaction-Related Settings:**
-- **Batch size**: Number of commits per fsync operation (tradeoff: throughput vs latency)
-- **Batch age**: Maximum time to wait for batch to fill
-- **Sync timeout**: How long to wait for fsync completion
-- **Sequencer channel size**: Buffer for incoming commands
-- **Dispatcher channel size**: Buffer for projection updates
-
-### 7. Study Related Components
-
-**Commit Index Batcher:**
-- Groups multiple commits for efficient fsync
-- Maintains durability guarantees while improving throughput
-- Handles partial batch failures gracefully
-
-**Projection System:**
-- Materialized views updated asynchronously
-- Lock-free reads for high concurrency
-- Snapshot-based recovery for fast startup
-- Incremental updates from commit journal
-
-**Subscription Engine:**
-- Real-time event delivery to clients
-- Snapshot + resume mechanism for reconnections
-- Message ordering guarantees matching transaction order
+Do not casually alter postcard records, event envelopes, stream references, or
+nonce construction. Consult existing compatibility decoders and document any
+migration. This completion change required no encoded-record changes.
 
 ## Verification
 
-Confirm your understanding by being able to:
+- `cargo test -p wabidb --lib`
+- `cargo test -p wabidb --features test-harness --lib tests::write_completion`
+- `cargo test -p wabi-server --test write_visibility_contract`
 
-1. **Explain the commit sequence** step-by-step from command submission to result return
-2. **Describe how each ACID property** is implemented in the system
-3. **Detail the isolation guarantees** and how they're achieved
-4. **Walk through the recovery process** after a crash at each injection point
-5. **Explain the role of each component** (sequencer, batcher, barrier, dispatcher)
-6. **Describe how durability is ensured** despite batching optimizations
-7. **Explain why burned sequence numbers** are critical for correctness
-8. **Detail how read-after-write consistency** is achieved without blocking reads
+Use gates/acknowledgments to prove pending state rather than sleeps that make a
+race disappear. Cover multi-event application, concurrent snapshotting, failure
+after partial apply, canceled callers, admission/backpressure, and durable
+group-window failure. The subprocess regression exits at all five sequencer
+crash points and reopens actual segments/indexes; it is process-crash coverage,
+not a hardware power-cut test.
 
-## Practice Exercises
-
-To solidify your learning:
-
-1. **Trace a transaction**: Follow a single command through the entire sequencer process
-2. **Analyze failure scenarios**: What happens if the process crashes at each step?
-3. **Compare isolation levels**: How would you implement weaker isolation if needed?
-4. **Optimize batching**: What trade-offs exist in batch size and timing choices?
-5. **Design a monitoring system**: What metrics would indicate transaction system health?
-6. **Implement a simple test**: Create a test that verifies atomicity under failure conditions
-
-## Reference Implementation
-
-Focus on these key files for implementation details:
-- `src/sequencer/mod.rs`: Core transaction processing logic
-- `src/sequencer/types.rs`: Transaction data structures
-- `src/sequencer/run_command.rs`: Individual command processing
-- `src/engine/locks.rs`: Synchronization and locking mechanisms
-- `src/engine/replay.rs`: Recovery and replay procedures
-- `src/projections/barrier.rs`: Linearizability and read-after-write consistency
-- `src/commit_index/batcher.py`: Commit batching for efficient fsync
-
-## Summary
-
-By following this learning guide, you will understand how WabiDB implements:
-- A single-threaded commit sequencer for transaction ordering
-- ACID guarantees through careful durability and consistency mechanisms
-- Strong isolation levels using locking barriers and versioning
-- Crash recovery with orphan handling and replay semantics
-- Performance optimizations like batching while maintaining correctness
-- The relationship between transactions, projections, and subscriptions
-
-This knowledge enables you to reason about WabiDB's behavior, build correct applications on top of it, and contribute effectively to its development.
+Update the active plan and relevant docs/skills for projection/domain changes
+per AGENTS.md. This does not authorize pushing or deployment. Detailed evidence:
+`docs/plans/2026-09-05-wabidb-write-completion.md` at repository root.

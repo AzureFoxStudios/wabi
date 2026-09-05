@@ -39,7 +39,12 @@ pub fn secondary_key(session_id: &str) -> Vec<u8> {
 
 /// Update the secondary index when a participant is added or updated.
 /// Stores a JSON array of participant_keys for the session.
-fn secondary_add(state: &ProjectionState, session_id: &str, participant_key: &str, commit_seq: u64) {
+fn secondary_add(
+    state: &ProjectionState,
+    session_id: &str,
+    participant_key: &str,
+    commit_seq: u64,
+) {
     let key = secondary_key(session_id);
     let mut keys: Vec<String> = state
         .get(INDEX_NAME, &key)
@@ -74,17 +79,29 @@ impl Projection for CallParticipantsProjection {
                     .strip_prefix("call_participant:")
                     .unwrap_or(&event.stream_id);
                 let key = encode_key(participant_key);
-                let existing_bytes = state.get(INDEX_NAME, &key).ok_or_else(|| {
-                    WabiError::NotFound {
-                        what: format!("call_participant:{}", participant_key),
-                    }
-                })?;
-                let mut existing = decode_value(&existing_bytes)?;
-                let patch: serde_json::Value = serde_json::from_slice(&event.payload)
-                    .map_err(|e| WabiError::Validation {
+                // A leave after a failed join is already satisfied. Invalid
+                // payloads must still fail instead of being silently ignored.
+                let patch: serde_json::Value =
+                    serde_json::from_slice(&event.payload).map_err(|e| WabiError::Validation {
                         command: "call_participants_projection".into(),
                         reason: format!("invalid partial update: {e}"),
                     })?;
+                if event.event_type == "call_participant_left"
+                    && patch
+                        .get("left_at_micros")
+                        .and_then(|v| v.as_i64())
+                        .is_some()
+                    && state.get(INDEX_NAME, &key).is_none()
+                {
+                    return Ok(());
+                }
+                let existing_bytes =
+                    state
+                        .get(INDEX_NAME, &key)
+                        .ok_or_else(|| WabiError::NotFound {
+                            what: format!("call_participant:{}", participant_key),
+                        })?;
+                let mut existing = decode_value(&existing_bytes)?;
                 if let Some(v) = patch.get("left_at_micros").and_then(|v| v.as_i64()) {
                     existing.left_at_micros = Some(v);
                 }
@@ -126,5 +143,25 @@ mod tests {
     #[test]
     fn encode_key_matches_participant_key() {
         assert_eq!(encode_key("s_1:1"), b"s_1:1".to_vec());
+    }
+
+    #[test]
+    fn absent_teardown_is_idempotent_without_creating_secondary_membership() {
+        let state = ProjectionState::new();
+        let mut event = DurableEvent {
+            commit_seq: 1,
+            stream_id: "call_participant:absent:1".into(),
+            event_type: "call_participant_left".into(),
+            payload: serde_json::to_vec(&serde_json::json!({"left_at_micros": 42})).unwrap(),
+        };
+        for _ in 0..2 {
+            CallParticipantsProjection.apply(&event, &state).unwrap();
+        }
+        assert!(state.get(INDEX_NAME, b"absent:1").is_none());
+        assert!(state.get(INDEX_NAME, &secondary_key("absent")).is_none());
+        for invalid in [b"not json".to_vec(), b"{}".to_vec()] {
+            event.payload = invalid;
+            assert!(CallParticipantsProjection.apply(&event, &state).is_err());
+        }
     }
 }

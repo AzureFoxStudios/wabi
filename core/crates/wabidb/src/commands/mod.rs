@@ -14,4 +14,3 @@ pub mod membership_revalidation;
 pub mod metrics;
 pub mod namespace;
 pub mod rate_limit;
-pub mod send_dm_message;
