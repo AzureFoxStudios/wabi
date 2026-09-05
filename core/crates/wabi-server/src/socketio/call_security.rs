@@ -100,6 +100,12 @@ fn wabidb_header_cache() -> &'static std::sync::RwLock<HeaderCache> {
 
 /// Cache one relayed audio envelope when it is a header envelope (seq <= 1).
 /// A seq reset to 0 (encoder restart) replaces the sender's previous entry.
+///
+/// `sender` must be the STREAM-QUALIFIED key (`"{user_id}:mic"` or
+/// `"{user_id}:screen"`): one sender can run two independent opus streams
+/// (mic + screen-share audio, 2026-09-04), and a shared key would let the
+/// second stream's seq-0/1 headers evict the first stream's — late joiners
+/// would go deaf on the mic the moment a share with audio started.
 pub fn wabidb_header_cache_remember(session_id: &str, sender: &str, seq: u64, envelope: &Value) {
     if seq > 1 {
         return;
@@ -592,26 +598,53 @@ mod call_security_tests {
             json!({"sessionId": session, "userId": "2", "kind": "audio",
                    "seq": seq, "payload": format!("p{seq}")})
         };
-        wabidb_header_cache_remember(session, "2", 0, &envelope(0));
-        wabidb_header_cache_remember(session, "2", 1, &envelope(1));
+        wabidb_header_cache_remember(session, "2:mic", 0, &envelope(0));
+        wabidb_header_cache_remember(session, "2:mic", 1, &envelope(1));
         // seq 2+ is not a header envelope — never cached.
-        wabidb_header_cache_remember(session, "2", 2, &envelope(2));
+        wabidb_header_cache_remember(session, "2:mic", 2, &envelope(2));
         let snap = wabidb_header_cache_snapshot(session);
         assert_eq!(snap.len(), 2);
         assert_eq!(snap[0]["seq"], json!(0));
         assert_eq!(snap[1]["seq"], json!(1));
         // Encoder restart: seq resets to 0 and the old entry is REPLACED.
-        wabidb_header_cache_remember(session, "2", 0, &envelope(0));
+        wabidb_header_cache_remember(session, "2:mic", 0, &envelope(0));
         let snap = wabidb_header_cache_snapshot(session);
         assert_eq!(snap.len(), 1);
         assert_eq!(snap[0]["payload"], json!("p0"));
     }
 
     #[test]
+    fn header_cache_keeps_streams_separate_per_sender() {
+        // Mic + screen-share audio are two opus streams from ONE user: the
+        // screen stream's headers must never evict the mic's (the key is
+        // stream-qualified — see the caller in media_reactions_signaling).
+        let session = "hdr-c3";
+        for (stream, seq) in [("mic", 0u64), ("mic", 1), ("screen", 0), ("screen", 1)] {
+            let envelope = json!({"sessionId": session, "userId": "2",
+                                   "kind": "audio", "source": stream,
+                                   "seq": seq, "payload": format!("{stream}-{seq}")});
+            wabidb_header_cache_remember(session, &format!("2:{stream}"), seq, &envelope);
+        }
+        let snap = wabidb_header_cache_snapshot(session);
+        assert_eq!(snap.len(), 4, "both streams keep their two headers");
+        // A screen-stream restart does not touch the mic's headers.
+        let restart = json!({"sessionId": session, "userId": "2",
+                              "kind": "audio", "source": "screen", "seq": 0, "payload": "s-new"});
+        wabidb_header_cache_remember(session, "2:screen", 0, &restart);
+        let snap = wabidb_header_cache_snapshot(session);
+        assert_eq!(snap.len(), 3);
+        assert!(
+            snap.iter().any(|e| e["payload"] == json!("mic-0") && e["seq"] == json!(0)),
+            "mic headers survive the screen stream restart"
+        );
+    }
+
+    #[test]
     fn header_cache_snapshots_multiple_senders_deterministically() {
         let session = "hdr-c2";
-        for (sender, seq) in [("9", 0u64), ("9", 1), ("3", 0), ("3", 1)] {
-            let envelope = json!({"sessionId": session, "userId": sender,
+        for (sender, seq) in [("3:mic", 0u64), ("3:mic", 1), ("9:mic", 0), ("9:mic", 1)] {
+            let envelope = json!({"sessionId": session,
+                                   "userId": sender.split(':').next().unwrap(),
                                    "kind": "audio", "seq": seq, "payload": "x"});
             wabidb_header_cache_remember(session, sender, seq, &envelope);
         }
