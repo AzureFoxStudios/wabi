@@ -865,3 +865,60 @@ media_reactions_signaling never appear. Log pipeline needs attention
    join now waits up to 2×10s → connects on wabidb instead of demoting.
 3. True wabidb outage: chain demotes to p2p and the mesh ACTUALLY builds —
    offers in console, Transport P2P with Participants 2 and live ping.
+
+---
+
+## Round 8 — 2026-09-04: screen-share audio on the wabidb transport
+
+Field-verified gap: on wabidb, `getDisplayMedia({audio:true})` captured the
+system-audio track (and pruned dead ones), but nothing sent it — the mic opus
+encoder only sees the mic stream and the video lane is video-only, so
+"share audio" was silently dropped for every listener. P2P carried it via
+WebRTC track adds; LiveKit via full-stream publish. Wabidb alone was mute.
+
+**Sender** (`wabidbMediaRelay.ts`): a second, independent `OpusRecorder` fed
+an audio-only view of the screen stream (`startScreenAudioCapture`), emitting
+`{kind:'audio', source:'screen', seq}` envelopes with its own seq counter
+(reset per start — header pages land at seq 0/1 for the server cache).
+Started/stopped from the existing `localScreenStream` subscription in
+`callingWabidb` (map lookup so a healed relay is the target); deliberately
+NOT gated by mic mute — sharing a video with sound while muted is normal.
+
+**Receiver** (relay): `source:'screen'` audio rides the existing audio
+pipeline keyed by a composite stream id (`{userId}::screen`) — Round 6's
+per-stream decoder + BOS gating apply unchanged, and the two opus streams
+from one sender never interleave. Skips the speaking-ring feed (screen sound
+is not the sharer talking). Playback through the same session chain, so
+per-call volume and deafen apply; no spatial seat (the chain stays centered).
+
+**Server**: the Round 6 header cache key is now STREAM-qualified
+(`{user_id}:mic` / `{user_id}:screen`) — otherwise a share-with-audio's
+seq-0/1 headers would evict the mic stream's and late joiners would go deaf
+on voices. Caller composes the key; cache structure unchanged. Tested: both
+streams keep two headers each; a screen-stream restart leaves mic headers
+intact.
+
+Compatibility note: a pre-Round-8 receiver (stale client during rolling
+upgrade) routes screen audio into the sharer's single per-user decoder —
+interleaved streams mean garbage audio on that one client while a share with
+audio is live. Same-deploy clients are unaffected; resolves on refresh.
+
+Stereo note: decoded as mono (libopus downmixes stereo opus at
+`decoderChannels:1`) — the playback worklet is mono today; a stereo lane is
+a worklet-channel-count follow-up, not a protocol change.
+
+### Gates
+- `cargo test -p wabi-server --lib --features addons`: 168/0 (new:
+  `header_cache_keeps_streams_separate_per_sender`)
+- `bun run check`: 0 errors; `bun test src/lib`: 253/0 (new: screen-audio
+  envelope source parse)
+
+### Retest (two devices, wabidb transport)
+1. A shares a tab with audio (check "share audio") → B hears game/video
+   sound while A talks (Diag on A: sentEnvelopes climbing faster than
+   mic-only; B hears both streams distinctly, no stutter).
+2. Stop share → screen audio stops, mic unaffected.
+3. B joins LATE while A shares with audio → B hears BOTH voices and screen
+   sound immediately (stream-qualified header replay).
+4. A mutes mic while sharing → screen audio keeps flowing; A deafens → B
+   unaffected, A hears nothing.

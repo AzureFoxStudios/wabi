@@ -205,6 +205,9 @@ export class WabidbMediaRelay {
   private firstDecodedFired = false;
   private localStream: MediaStream | null = null;
   private opusRecorder: OpusRecorder | null = null;
+  /** Screen-share audio encoder — a second, independent opus stream. */
+  private screenOpusRecorder: OpusRecorder | null = null;
+  private screenAudioSeq = 0;
   private audioContext: AudioContext | null = null;
   /** False when the context is the shared call graph's (never close it). */
   private ownsAudioContext = true;
@@ -366,14 +369,21 @@ export class WabidbMediaRelay {
           this.videoLane?.handleRemoteEnvelope(msg);
           return;
         }
+        // Screen-share audio (2026-09-04) is a SECOND opus stream from the
+        // same sender. Key the whole audio path (seq accounting, jitter,
+        // per-stream decoder, BOS gating) by a composite id so the two
+        // streams never interleave; skip the speaking-ring feed — screen
+        // sound is not the sharer talking.
+        const isScreenAudio = env.source === 'screen';
+        const streamKey = isScreenAudio ? `${env.userId}::screen` : env.userId;
         if (env.seq > 0) { // 0 = legacy sender without seq — gaps unmeasurable
-          const last = this.lastSeqByUser.get(env.userId);
+          const last = this.lastSeqByUser.get(streamKey);
           if (last != null && env.seq > last + 1) {
             this.counters.lostPackets += env.seq - last - 1;
           }
-          if (last == null || env.seq > last) this.lastSeqByUser.set(env.userId, env.seq);
+          if (last == null || env.seq > last) this.lastSeqByUser.set(streamKey, env.seq);
         }
-        this.handleIncomingMedia(env.userId, env.payload);
+        this.handleIncomingMedia(streamKey, env.payload, !isScreenAudio);
       };
       this.socket.on('wabidb-media', this.onIncomingMediaHandler);
 
@@ -454,7 +464,63 @@ export class WabidbMediaRelay {
     await this.opusRecorder.start(this.localStream);
   }
 
-  private handleIncomingMedia(fromUserId: string, opusPayload: string): void {
+  // -- Screen-share audio (2026-09-04) --
+  //
+  // A second independent opus stream for system/screen audio captured with
+  // the share. The mic encoder only ever sees the microphone stream and the
+  // video lane is video-only, so without this lane the "share audio" track
+  // was silently dropped on the wabidb transport (P2P carried it via
+  // WebRTC). Deliberately NOT gated by mic mute: sharing a video with sound
+  // while muted is normal usage. The envelope carries source:'screen' so
+  // receivers route it to a separate decoder (composite stream key) instead
+  // of the sharer's voice chain.
+
+  async startScreenAudioCapture(screenStream: MediaStream): Promise<void> {
+    if (!this.isActive) return;
+    await this.stopScreenAudioCapture(); // idempotent restart on re-share
+    const audioOnly = new MediaStream(
+      screenStream.getAudioTracks().filter((t) => t.readyState === 'live' && t.enabled)
+    );
+    if (audioOnly.getAudioTracks().length === 0) return; // share without audio
+    // Header pages at seq 0/1 — the server's stream-qualified header cache
+    // convention (same as startCapture).
+    this.screenAudioSeq = 0;
+    this.screenOpusRecorder = new OpusRecorder({
+      encoderSampleRate: 48000,
+      encoderChannels: 1,
+      streamPages: true,
+      numberOfChannels: 1,
+      encoderPath: new URL('opus-recorder/dist/encoderWorker.min.js', import.meta.url).href,
+    });
+    this.screenOpusRecorder.ondataavailable = (data: ArrayBuffer) => {
+      if (!this.isActive || !this.screenOpusRecorder) return;
+      this.socket.emit('wabidb-media', {
+        sessionId: this.sessionId,
+        userId: this.userId,
+        kind: 'audio',
+        source: 'screen',
+        seq: this.screenAudioSeq++,
+        payload: arrayBufferToBase64(data),
+      });
+      this.counters.sentEnvelopes++;
+      this.counters.sentBytes += data.byteLength;
+    };
+    await this.screenOpusRecorder.start(audioOnly);
+    console.log(`[WabidbMediaRelay] Screen-audio capture started for ${this.sessionId}`);
+  }
+
+  async stopScreenAudioCapture(): Promise<void> {
+    if (!this.screenOpusRecorder) return;
+    const recorder = this.screenOpusRecorder;
+    this.screenOpusRecorder = null;
+    try {
+      recorder.stop();
+    } catch {
+      /* already stopping */
+    }
+  }
+
+  private handleIncomingMedia(fromUserId: string, opusPayload: string, feedActivity = true): void {
     // Decode base64 → Uint8Array. The decoder worker needs a typed array
     // (`new DataView(pages.buffer)`), not a raw ArrayBuffer.
     const bytes = base64ToUint8Array(opusPayload);
@@ -466,7 +532,9 @@ export class WabidbMediaRelay {
     }
     // Speaking-ring feed: notify the host app which user this audio belongs
     // to. The relay owns playback but not UI state; the callback bridges it.
-    this.onRemoteAudioActivity?.(fromUserId);
+    // Screen-share audio passes feedActivity=false — it is not the sharer
+    // talking.
+    if (feedActivity) this.onRemoteAudioActivity?.(fromUserId);
   }
 
   private startPlaybackLoop(): void {
@@ -732,6 +800,7 @@ export class WabidbMediaRelay {
       this.opusRecorder.stop();
       this.opusRecorder = null;
     }
+    void this.stopScreenAudioCapture();
     // Phase 3: tear down every per-user playback chain.
     for (const chain of this.userPlaybackChains.values()) {
       try {

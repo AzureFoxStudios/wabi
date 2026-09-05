@@ -69,6 +69,24 @@ describe('wabidb media envelope — audio compatibility', () => {
 		expect(round!.payload).toBe('Zm9v');
 	});
 
+	test('screen-share audio parses as audio with the screen source preserved', () => {
+		// 2026-09-04: second opus stream from a sharer. Receivers key the
+		// decoder path by a composite id off this source field — dropping it
+		// would interleave the streams into one decoder.
+		const env = parseWabidbMediaEnvelope({
+			sessionId: 's1',
+			userId: 'u1',
+			kind: 'audio',
+			source: 'screen',
+			seq: 3,
+			payload: 'Zm9v'
+		});
+		expect(env).not.toBeNull();
+		expect(env!.kind).toBe('audio');
+		expect(env!.source).toBe('screen');
+		expect(env!.seq).toBe(3);
+	});
+
 	test('inbound handler ignores malformed / non-matching envelopes', () => {
 		expect(parseWabidbMediaEnvelope(null)).toBeNull();
 		expect(parseWabidbMediaEnvelope({ foo: 1 })).toBeNull();

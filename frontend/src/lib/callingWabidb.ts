@@ -565,7 +565,22 @@ async function doConnectWabidbCall(
 				// the wabidb transport. Only react to transitions, never double-start.
 				if (screenShareSub) screenShareSub();
 				screenShareSub = localScreenStream.subscribe((screenStream) => {
-					if (!wabidbTransportActive || !wabidbVideoLaneInst) return;
+					if (!wabidbTransportActive) return;
+					// Screen-share audio lane (2026-09-04): the video lane is
+					// video-only, so the share's audio track gets its own opus
+					// encoder on the relay — otherwise "share audio" is silently
+					// dropped for everyone on this transport. Gated on the relay's
+					// own lifecycle, not mic mute. Map lookup (not the closure's
+					// relay) so a healed/re-created relay is always the target.
+					const relayForAudio = wabidbMediaRelays.get(targetChannelId);
+					if (screenStream) {
+						void relayForAudio?.startScreenAudioCapture?.(screenStream).catch((e) =>
+							console.warn('[Wabidb] screen-audio capture failed:', e)
+						);
+					} else {
+						void relayForAudio?.stopScreenAudioCapture?.().catch(() => {});
+					}
+					if (!wabidbVideoLaneInst) return;
 					// P1: only touch the SCREEN sender — an active camera lane must
 					// keep running while screenshare starts/stops.
 					if (screenStream && !wabidbVideoLaneInst.activeSources.includes('screen')) {

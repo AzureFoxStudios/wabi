@@ -162,10 +162,18 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, _state: SioState, io: S
     payload["senderSocket"] = json!(socket.id.to_string());
 
     // Round 6: cache header envelopes (audio, seq <= 1) for late-joiner
-    // replay — see wabidb_header_cache_remember for the convention.
+    // replay — see wabidb_header_cache_remember for the convention. The key
+    // is STREAM-qualified: screen-share audio is a second opus stream from
+    // the same user and must not evict the mic stream's headers.
     if data.get("kind").and_then(|v| v.as_str()) != Some("video") {
         if let Some(seq) = data.get("seq").and_then(|v| v.as_u64()) {
-            wabidb_header_cache_remember(&session_id, &identity.user_id.to_string(), seq, &payload);
+            let stream = if data.get("source").and_then(|v| v.as_str()) == Some("screen") {
+                "screen"
+            } else {
+                "mic"
+            };
+            let sender_stream = format!("{}:{stream}", identity.user_id);
+            wabidb_header_cache_remember(&session_id, &sender_stream, seq, &payload);
         }
     }
 
