@@ -10,6 +10,9 @@ license = "MIT"
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 
+# "Download project" archive for Lore repos
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 # Socket.IO server
 socketioxide = { version = "0.16", features = ["extensions", "state"] }
 

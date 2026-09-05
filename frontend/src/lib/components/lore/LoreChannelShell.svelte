@@ -35,6 +35,7 @@ import { channels } from '$lib/channelStore';
 		lockLoreFile,
 		unlockLoreFile,
 		deleteLoreFile,
+		downloadLoreProject,
 		reviewLoreBranch,
 		type LoreFileInfo,
 		type LoreRevision,
@@ -467,6 +468,24 @@ import { channels } from '$lib/channelStore';
 			URL.revokeObjectURL(objectUrl);
 		} catch (e) {
 			console.error('Download failed:', e);
+		}
+	}
+
+	let projectDownloading = $state(false);
+
+	/** "Download project": the whole visible working tree as a server-built zip. */
+	async function handleDownloadProject() {
+		const ctx = requireActionContext();
+		if (!ctx || projectDownloading) return;
+		const { token, channelId } = ctx;
+		projectDownloading = true;
+		try {
+			await downloadLoreProject(token, channelId);
+		} catch (e: any) {
+			console.error('[lore] project download failed:', e);
+			showToast(e?.message || 'Project download failed', 'error');
+		} finally {
+			projectDownloading = false;
 		}
 	}
 
@@ -938,6 +957,20 @@ import { channels } from '$lib/channelStore';
 					Editor
 				</button>
 			{/if}
+
+			<button
+				class="btn btn-sm"
+				title="Download the whole project as a .zip (matches the file tree — ignored files excluded)"
+				disabled={projectDownloading}
+				onclick={() => void handleDownloadProject()}
+			>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+					<polyline points="7 10 12 15 17 10"/>
+					<line x1="12" y1="15" x2="12" y2="3"/>
+				</svg>
+				{projectDownloading ? 'Zipping…' : 'Download'}
+			</button>
 
 			<span class="lore-health" class:healthy={health === 'ok'} class:error={health === 'error'}>
 				<span class="health-dot"></span>

@@ -8,7 +8,6 @@
 	import { onMount } from 'svelte';
 	import { currentChannel, channels } from '$lib/socket';
 	import { switchChannel } from '$lib/channelStore';
-	import { get } from 'svelte/store';
 	import { layoutStore } from '$lib/layoutStore';
 	import LoreChannelShell from './lore/LoreChannelShell.svelte';
 	import { getAuthToken } from '$lib/authSession';
@@ -16,8 +15,12 @@
 import { loreArtifactKind } from '$lib/loreArtifactCompare';
 import LoreImageCompare from './lore/LoreImageCompare.svelte';
 
-	let activeChannelId = $derived(get(currentChannel));
-	let allChannels = $derived(get(channels));
+	// Store auto-subscription inside $derived (NOT get(): a one-shot read
+	// froze these at mount — the hub then kept showing one project forever
+	// while the user switched channels, and channels created later never
+	// appeared in the picker. 2026-09-04 "all channels same repo" report).
+	let activeChannelId = $derived($currentChannel);
+	let allChannels = $derived($channels);
 
 	let loreChannels = $derived(allChannels.filter((c) => (c.type as string | undefined) === 'lore'));
 
