@@ -1,7 +1,7 @@
 ---
 name: wabidb-troubleshooting
 description: "Troubleshooting guide for WabiChat deployment and runtime issues, including 502 errors, service health checks, and deployment verification."
-version: 1.0.0
+version: 1.0.1
 author: Hermes
 platforms: [linux, macos, windows, web]
 metadata:
@@ -52,6 +52,10 @@ When encountering a 502 error on wabi.chat:
 ### Calling / media relay: socketioxide `Data<serde_json::Value>` drops binary (2026-08-10)
 
 Symptom: wabidb media relay calls appear connected (transport badge shows WABIDB, sessions join) but NO audio flows in either direction. Root cause: the client emitted `socket.emit('wabidb-media', {sessionId, userId, payload: ArrayBuffer})` — socket.io-client turns the ArrayBuffer into a `{"_placeholder":true,"num":0}` placeholder + binary attachment, and socketioxide's `Data<Value>` (serde_json::Value) extractor does NOT substitute the placeholder: the handler is never called (silent deserialization skip). Proven empirically: a relay test with socketioxide 0.16 + socket.io-client showed string payloads relay intact while ArrayBuffer payloads never reached the handler. Fix (cdf9d53): payload is base64 string end-to-end (`arrayBufferToBase64` send / `base64ToUint8Array` receive in `wabidbMediaRelay.ts`), mirroring `callingStorefwd.ts` `audioBase64`. The opus decoder worker also requires a `Uint8Array` (it calls `new DataView(pages.buffer)`; a raw ArrayBuffer has no `.buffer`). Diagnostic: "connected but silent" calls + no server-side `on_wabidb_media` log lines = binary-drop; if you ever see the server receive a wabidb-media payload that is an ARRAY of numbers, the client sent binary and serde_json converted it. Do not reintroduce raw ArrayBuffer payloads on this path.
+
+### Calling dies ~15 min in with `createSession failed: 401` while presence stays alive (2026-09-04)
+
+Symptom: calls work, then go silent — console shows `POST /api/calls/sessions → 401` (and usually `layout`/`theme`/`turn-credentials` 401s alongside), `wabidb swap reconnect failed`, yet `voice-channel-state` keeps flowing and rosters look alive. Root cause: access tokens live 15 min (`api/auth.rs` `Duration::minutes(15)`), refresh tokens 30 days — and the call HTTP layer (`wabidbCallConnection.ts`) used raw `fetch` with NO refresh path (the shared `fetchWithTimeout` wrapper in `api/utils.ts` has one; the call path bypassed it). So the first expiry after join killed every relay (re)connect while the socket.io connection — authenticated once at handshake — sailed on. Presence alive + media dead is the signature. Fix (86b7e94): all `WabiDbCallState` HTTP goes through `authedFetch` — 401 → `tryRefresh()` once (stampede-guarded, shared with the socket layer) → retry with the live token. Diagnostic: if 401s self-heal after one refresh in the log, recovery worked; if they repeat with no recovery, the tab holds no valid refresh token (predates refresh issuance, or rotation rejected it) — re-login fresh on that tab is the only fix, no code will save it. Test tabs should always re-login fresh before a calling session so each holds a fresh refresh-token pair.
 
 ### Cloudflare-Related Issues
 <!-- (existing content unchanged) -->

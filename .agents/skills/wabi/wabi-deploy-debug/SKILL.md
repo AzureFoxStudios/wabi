@@ -1,7 +1,7 @@
 ---
 name: wabi-deploy-debug
 description: Wabi production deployment and runtime debugging. Covers the Rust wabi-server binary (rust_embed static frontend), the SvelteKit build-mode mismatch (adapter-static SPA vs adapter-node SSR and why the Rust server needs index.html), Cloudflare/caddy/cloudflared tunnel WebSockets, WabiDB data-dir locks, and the selfhostability check. Use when a Wabi deploy will not boot, the login page is blank or stuck on "Starting Wabi"/"Work Offline", socket.io WS fails through Cloudflare, wabi-server restart-loops with "engine already running", or the user asks whether Wabi is still selfhostable or hardwired to wabi.chat.
-version: 1.0.2
+version: 1.0.3
 author: Hermes Agent
 license: MIT
 metadata:

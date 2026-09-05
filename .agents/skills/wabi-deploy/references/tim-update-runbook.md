@@ -64,6 +64,7 @@ curl -fsS -I --max-time 20 https://wabi.chat/ || true
 
 Host health is authoritative. CF 502 with healthy local origin means tunnel/DNS problem, not binary.
 UI deploys: confirm `/` returns HTML and hashed CSS (e.g. `assets/0.*.css`) changed vs prior deploy; hard refresh / private window for SW cache.
+Calls deploys: hard-refresh ALL test devices and confirm the entry-chunk hash in console sources matches live (`curl -s https://wabi.chat/ | grep -oE 'entry/start\.[A-Za-z0-9_-]+\.js'`) BEFORE testing. A stale page's mid-call lazy `import()` 404s against the new binary (`error loading dynamically imported module: .../chunks/<old-hash>.js`) and kills the fallback/heal chain — a stale client cannot judge new calling code. See `wabi-deploy-debug` `references/cf-stale-js-chunk-and-diagnostic-runtime.md`.
 
 ## 4. Optional: CF-less first (cutover / proof)
 
