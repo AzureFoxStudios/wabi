@@ -2,11 +2,11 @@
 //!
 //! Per Council Review #1 §2.3 and the endstate doc §15.4 invariant 4 ("Clients
 //! deduplicate by event ID and recover by snapshot/resume"), a read that
-//! follows a successful write MUST see the write. No torn reads.
+//! follows a successful write MUST see the write. Ordinary concurrent reads
+//! are not snapshot-isolated and may observe a later commit during application.
 //!
-//! The barrier enforces this: when a write commits, the sequencer pushes
-//! the new commit_seq into the system. A read at commit_seq N blocks until
-//! the projection dispatcher has applied at least N.
+//! A read at commit_seq N blocks until the projection dispatcher has applied
+//! the whole command at N and every earlier committed command.
 //!
 //! ## Components
 //!
@@ -29,8 +29,8 @@
 //!   immediately sees the new value (no waiting for the next update).
 //! - Updates are coalesced (rapid updates don't queue up).
 
-use crate::error::{ErrorCategory, Result, WabiError};
 use crate::engine::locks::ProjectionState;
+use crate::error::{ErrorCategory, Result, WabiError};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -53,27 +53,14 @@ pub const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 /// the watermark) and a watch channel (the notification mechanism).
 #[derive(Debug)]
 pub struct LinearizabilityBarrier {
-    /// The watch sender. The dispatcher holds this and updates it.
-    /// Reads clone the receiver.
-    tx: watch::Sender<u64>,
-    /// A keep-alive receiver. `watch::Sender::send` returns Err if there
-    /// are no receivers, so we keep one around for the lifetime of the
-    /// barrier. This is dropped when the barrier is dropped, at which
-    /// point the channel naturally closes.
-    _keep_alive: watch::Receiver<u64>,
-    /// Back-reference to the projection state, for fresh reads.
+    /// The projection state owns both the watermark and its notifications.
     state: Arc<ProjectionState>,
 }
 
 impl LinearizabilityBarrier {
     /// Create a new barrier bound to the given projection state.
     pub fn new(state: Arc<ProjectionState>) -> Self {
-        let (tx, rx) = watch::channel(state.applied_commit_seq());
-        Self {
-            tx,
-            _keep_alive: rx,
-            state,
-        }
+        Self { state }
     }
 
     /// The current applied_commit_seq watermark. Cheap; no await.
@@ -85,26 +72,18 @@ impl LinearizabilityBarrier {
     /// each successful apply. Coalesces: rapid calls only the latest
     /// value is observed by readers.
     ///
-    /// Updates both the underlying `ProjectionState::applied_commit_seq`
-    /// AND the watch channel. The two are kept in sync so callers can
-    /// use either the sync `current()` method or the async `wait_for()`
-    /// method without divergence.
+    /// ProjectionState owns one watch-backed watermark, shared by all barriers.
+    /// Live advancement belongs to the dispatcher; replay may advance after
+    /// rebuilding the complete committed prefix. Never advance on log fsync.
     pub fn advance(&self, new_watermark: u64) -> Result<()> {
-        // Update the underlying state first. This is the source of truth.
         self.state.set_applied_commit_seq(new_watermark);
-        // Then notify waiters. watch::send only stores if the value differs.
-        self.tx
-            .send(new_watermark)
-            .map_err(|e| WabiError::InternalInvariantViolated {
-                invariant: format!("barrier watch channel closed: {e}"),
-            })?;
         Ok(())
     }
 
     /// Get a clone of the watch receiver. The caller can `borrow_and_update`
     /// to wait for changes without holding the borrow.
     pub fn subscribe(&self) -> watch::Receiver<u64> {
-        self.tx.subscribe()
+        self.state.subscribe_applied()
     }
 
     /// Block until the projection's `applied_commit_seq` is at least `seq`,
@@ -128,7 +107,7 @@ impl LinearizabilityBarrier {
         // we loop because a changed() call may return a value that's
         // still < seq (e.g., the watermark advanced from N to N+2 in
         // one step, and we needed N+5).
-        let mut rx = self.tx.subscribe();
+        let mut rx = self.subscribe();
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
             // current is re-checked each iteration in case the watermark
@@ -172,7 +151,6 @@ impl LinearizabilityBarrier {
     /// task than the barrier itself).
     pub fn advance_handle(&self) -> BarrierAdvanceHandle {
         BarrierAdvanceHandle {
-            tx: self.tx.clone(),
             state: Arc::clone(&self.state),
         }
     }
@@ -184,22 +162,15 @@ impl LinearizabilityBarrier {
 /// to test code.
 #[derive(Clone)]
 pub struct BarrierAdvanceHandle {
-    tx: watch::Sender<u64>,
     state: Arc<ProjectionState>,
 }
 
 impl BarrierAdvanceHandle {
     /// Advance the watermark. Same semantics as `LinearizabilityBarrier::advance`.
-    /// Updates both the underlying state AND the watch channel so callers
-    /// using either the sync `current()` method or the async `wait_for()`
-    /// method see consistent values.
+    /// Uses the same watch-backed state as every reader and waiter.
     pub fn advance(&self, new_watermark: u64) -> Result<()> {
         self.state.set_applied_commit_seq(new_watermark);
-        self.tx.send(new_watermark).map_err(|e| {
-            WabiError::InternalInvariantViolated {
-                invariant: format!("barrier watch channel closed: {e}"),
-            }
-        })
+        Ok(())
     }
 }
 
@@ -350,32 +321,35 @@ mod tests {
         let state = Arc::new(ProjectionState::new());
         let barrier = Arc::new(LinearizabilityBarrier::new(Arc::clone(&state)));
         let table = Arc::new(crate::projections::handler::DispatchTable::new(vec![]).unwrap());
-        let handle = crate::engine::locks::spawn_projection_dispatcher(Arc::clone(&state), table, Some(16), None, None).unwrap();
+        let handle = crate::engine::locks::spawn_projection_dispatcher(
+            Arc::clone(&state),
+            table,
+            Some(16),
+            None,
+            None,
+        )
+        .unwrap();
 
         for i in 1..=5u64 {
-            // Manually advance the barrier; in production the dispatcher
-            // does this after each apply. This is a smoke test that the
-            // pattern works.
             handle
                 .sender
-                .send(DispatchItem {
-                    commit_seq: i,
-                    event_type: "test".into(),
-                    stream_id: format!("stream_{i}").into(),
-                    payload: vec![],
-                })
+                .send(
+                    DispatchItem {
+                        commit_seq: i,
+                        event_type: "test".into(),
+                        stream_id: format!("stream_{i}").into(),
+                        payload: vec![],
+                    }
+                    .into(),
+                )
                 .await
                 .unwrap();
-            barrier.advance(i).unwrap();
         }
+        barrier.wait_for_default(5).await.unwrap();
         drop(handle.sender);
 
         // Wait for the dispatcher to catch up.
-        let _ = tokio::time::timeout(
-            Duration::from_secs(1),
-            handle.handle.unwrap(),
-        )
-        .await;
+        let _ = tokio::time::timeout(Duration::from_secs(1), handle.handle.unwrap()).await;
 
         // The watermark should be at 5.
         assert_eq!(barrier.current(), 5);

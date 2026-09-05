@@ -265,14 +265,24 @@ mod cors_tests {
 }
 
 /// Health check endpoint
-async fn health_check() -> impl IntoResponse {
-    Json(serde_json::json!({
-        "status": "ok",
-        "service": "wabi-server",
-        "role": "authority",
-        "version": env!("CARGO_PKG_VERSION"),
-        "timestamp": chrono::Utc::now().to_rfc3339()
-    }))
+async fn health_check(
+    axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::state::AppState>>,
+) -> impl IntoResponse {
+    let healthy = state.wdb.is_healthy();
+    (
+        if healthy {
+            axum::http::StatusCode::OK
+        } else {
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        },
+        Json(serde_json::json!({
+            "status": if healthy { "ok" } else { "degraded" },
+            "service": "wabi-server",
+            "role": "authority",
+            "version": env!("CARGO_PKG_VERSION"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        })),
+    )
 }
 
 /// Liveness probe — process is up and can respond.
@@ -287,6 +297,13 @@ async fn liveness_check() -> impl IntoResponse {
 async fn readiness_check(
     axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::state::AppState>>,
 ) -> axum::response::Response {
+    if !state.wdb.is_healthy() {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "status": "degraded", "engine": "not_ready" })),
+        )
+            .into_response();
+    }
     match state.wdb.list_users().await {
         Ok(_) => (
             axum::http::StatusCode::OK,

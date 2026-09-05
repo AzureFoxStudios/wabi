@@ -12,3 +12,5 @@ pub mod property_tests;
 pub mod replay_test;
 #[cfg(test)]
 pub mod send_message_flow;
+#[cfg(test)]
+pub mod write_completion;

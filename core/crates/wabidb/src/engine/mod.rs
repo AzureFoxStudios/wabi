@@ -214,6 +214,8 @@ impl WabiDbEngine {
         let lock_path = data_dir.join(".lock");
         let pid = std::process::id();
         acquire_lock_file(&lock_path, pid, config.test_boot_wallclock_override).await?;
+        // Failed open (including replay failure) must release our own lock.
+        let mut opening_lock = OpeningLock(Some(lock_path.clone()));
         fsync_dir(data_dir).await?;
 
         // 3. Load the bootstrap key
@@ -327,7 +329,6 @@ impl WabiDbEngine {
 
         // 10. Spawn the sequencer task
         let data_dir_clone = data_dir.clone();
-        let barrier_clone = Arc::clone(&barrier);
         let key_registry_for_engine = Arc::clone(&key_registry);
         let sequencer_handle = tokio::spawn(async move {
             crate::sequencer::run(
@@ -335,7 +336,6 @@ impl WabiDbEngine {
                 key_registry,
                 batcher,
                 dispatcher_tx,
-                barrier_clone,
                 cmd_rx,
                 data_dir_clone,
                 recovered_high_seq,
@@ -401,6 +401,7 @@ impl WabiDbEngine {
 
         tracing::info!("WabiDbEngine opened at {}", data_dir.display());
 
+        opening_lock.0.take(); // ownership transfers to the engine's Drop
         Ok(Self {
             data_dir: data_dir.clone(),
             bootstrap_key,
@@ -596,6 +597,13 @@ impl WabiDbEngine {
     /// A reference to the projection state, for read queries.
     pub fn projection_state(&self) -> &Arc<ProjectionState> {
         &self.projection_state
+    }
+
+    /// Ready to accept writes and serve projections without a known apply gap.
+    pub fn is_healthy(&self) -> bool {
+        self.projection_state.is_healthy()
+            && self.sequencer.as_ref().is_some_and(|s| !s.sender().is_closed())
+            && self._sequencer_handle.as_ref().is_some_and(|h| !h.is_finished())
     }
 
     /// A reference to the linearizability barrier.
@@ -820,6 +828,19 @@ fn update_manifest_high_seq(data_dir: &std::path::Path, high: u64) {
         if let Ok(bytes) = serde_json::to_vec_pretty(&value) {
             if let Err(e) = std::fs::write(&path, bytes) {
                 tracing::warn!("manifest highest_commit_seq update failed: {e}");
+            }
+        }
+    }
+}
+
+struct OpeningLock(Option<PathBuf>);
+
+impl Drop for OpeningLock {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(&path);
+            if let Ok(mut locks) = held_locks().lock() {
+                locks.remove(&path);
             }
         }
     }

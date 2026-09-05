@@ -46,7 +46,7 @@ pub struct CommandCommit {
     pub events: Vec<EventToWrite>,
     /// Whether this is an essential command (`send_message`, `set_presence`).
     /// Non-essential commands are rejected with `EngineBusy` when the
-    /// projection dispatcher's mpsc channel is full.
+    /// command admission queue is full, before any durable write.
     pub essential: bool,
     /// Channel to send the outcome (or error) back to the caller.
     pub response_tx: oneshot::Sender<Result<CommandOutcome>>,

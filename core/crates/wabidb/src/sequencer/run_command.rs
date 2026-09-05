@@ -10,7 +10,7 @@ use crate::sequencer::types::{CommandCommit, CommandOutcome};
 ///
 /// Wraps the mpsc sender to the sequencer task and the idempotency table.
 /// Callers use [`run_command`] to submit a command and await its durable
-/// outcome.
+/// and applied outcome.
 #[derive(Debug)]
 pub struct CommitSequencer {
     cmd_tx: mpsc::Sender<CommandCommit>,
@@ -37,7 +37,7 @@ impl CommitSequencer {
     }
 }
 
-/// Submit a command to the sequencer and await the durable outcome.
+/// Submit a command and await both durability and projection application.
 ///
 /// This is the public entry point for all write operations. It:
 ///
@@ -48,7 +48,7 @@ impl CommitSequencer {
 /// 2. Sends the command through the mpsc channel to the sequencer task.
 ///
 /// 3. Awaits the oneshot response (the sequencer sends back the
-///    [`CommandOutcome`] once the commit is durable).
+///    [`CommandOutcome`] once the commit is durable and fully applied).
 ///
 /// # Errors
 ///
@@ -87,17 +87,30 @@ pub async fn run_command(
     };
 
     // 3. Send to the sequencer task.
-    sequencer.cmd_tx.send(cmd).await.map_err(|_| {
-        WabiError::InternalInvariantViolated {
-            invariant: "sequencer command channel closed".into(),
-        }
-    })?;
+    if cmd.essential {
+        sequencer
+            .cmd_tx
+            .send(cmd)
+            .await
+            .map_err(|_| WabiError::InternalInvariantViolated {
+                invariant: "sequencer command channel closed".into(),
+            })?;
+    } else {
+        sequencer.cmd_tx.try_send(cmd).map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => WabiError::EngineBusy {
+                retry_after_ms: 100,
+            },
+            mpsc::error::TrySendError::Closed(_) => WabiError::InternalInvariantViolated {
+                invariant: "sequencer command channel closed".into(),
+            },
+        })?;
+    }
 
     // 4. Await the sequencer's response.
-    let outcome = rx.await.map_err(|_| {
-        WabiError::InternalInvariantViolated {
-            invariant: "sequencer response channel closed".into(),
-        }
+    let outcome = rx.await.map_err(|_| WabiError::InternalInvariantViolated {
+        invariant:
+            "sequencer stopped before acknowledgment; command may be durable, do not blindly retry"
+                .into(),
     })?;
 
     // 5. On success, record the idempotency entry.
@@ -127,7 +140,13 @@ pub async fn run_command(
 mod tests {
     use super::*;
 
-    fn dummy_cmd(user_id: u64, key: Option<&str>) -> (CommandCommit, tokio::sync::oneshot::Receiver<Result<CommandOutcome>>) {
+    fn dummy_cmd(
+        user_id: u64,
+        key: Option<&str>,
+    ) -> (
+        CommandCommit,
+        tokio::sync::oneshot::Receiver<Result<CommandOutcome>>,
+    ) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let cmd = CommandCommit {
             caller_user_id: user_id,
@@ -163,6 +182,25 @@ mod tests {
         assert_eq!(result.unwrap().commit_seq, 42);
 
         handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn optional_work_is_rejected_at_admission_before_it_can_be_written() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let sequencer = CommitSequencer::new(tx);
+        let (filler, _) = dummy_cmd(1, None);
+        sequencer.sender().try_send(filler).unwrap();
+        let (mut command, _) = dummy_cmd(2, None);
+        command.essential = false;
+        assert!(matches!(
+            run_command(command, &sequencer).await,
+            Err(WabiError::EngineBusy { .. })
+        ));
+        assert_eq!(rx.recv().await.unwrap().caller_user_id, 1);
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
     }
 
     #[tokio::test]

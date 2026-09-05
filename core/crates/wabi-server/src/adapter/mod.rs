@@ -44,6 +44,10 @@ pub struct WdbAdapter {
 
 #[allow(dead_code)]
 impl WdbAdapter {
+    pub fn is_healthy(&self) -> bool {
+        self.engine.is_healthy()
+    }
+
     /// Engine config with the bootstrap key resolved the server way:
     /// `WABIDB_ROOT_KEY` env > persisted `<data_dir>/root_key` >
     /// generated + persisted (see `crate::secrets::resolve_root_key`).

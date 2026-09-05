@@ -12,13 +12,14 @@
 //!    per-stream segments and the commit index.
 //!
 //! 2. `spawn_projection_dispatcher`: spawns a long-lived `tokio` task that consumes
-//!    `CommitIndexEntry` records from a bounded mpsc channel and applies them
+//!    `DispatchCommit` batches from a bounded mpsc channel and applies them
 //!    to the projection state. The sequencer pushes; the dispatcher pulls.
 //!    A full channel causes the sequencer to backpressure.
 //!
 //! 3. [`ProjectionState`]: a `HashMap<index_name, SkipMap<K, V>>` plus an
-//!    `applied_commit_seq: Arc<AtomicU64>` watermark. Reads are lock-free
-//!    via `crossbeam-skiplist`. Writes are CAS-based, no global lock.
+//!    watch-backed applied watermark. Index access uses an outer RwLock;
+//!    SkipMap operations are lock-free internally. A separate application lock
+//!    serializes whole-commit application with checkpoints, not ordinary reads.
 //!
 //! ## Lock ordering (deadlock avoidance)
 //!
@@ -27,9 +28,9 @@
 //! 1. Single sequencer permit. No code outside the sequencer task may hold
 //!    a sequencer permit. Verified by the `pub(crate)` visibility on
 //!    `SequencerPermit`.
-//! 2. No nested projection locks. Each projection handler updates exactly
-//!    one `SkipMap`. Cross-projection updates (rare) are routed through the
-//!    dispatcher with two events, not a single transaction.
+//! 2. Acquire the application lock before index locks. Handlers may update
+//!    primary and secondary indexes, but must release index locks before
+//!    accessing another index. Never call save_snapshot from a handler.
 //! 3. No holding projection locks across `.await` points. Projection
 //!    handlers are sync. The dispatcher awaits on the mpsc receive, then
 //!    runs sync handler code, then sends the next watermark update.
@@ -41,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
@@ -86,14 +87,6 @@ impl SequencerPermit {
 /// block on `send().await` — desired backpressure.
 pub const DEFAULT_DISPATCHER_CHANNEL_DEPTH: usize = 1024;
 
-/// A long-lived task that consumes `CommitIndexEntry` records from an mpsc
-/// channel and applies them to the projection state.
-///
-/// The dispatcher is the only writer of the projection state. The sequencer
-/// is the only writer of the dispatcher channel. The pattern: sequencer
-/// pushes after each successful commit-index append; dispatcher pulls,
-/// applies, advances the `applied_commit_seq` watermark.
-
 /// A single item the dispatcher processes. The `commit_seq` is the
 /// monotonic ordering key; `event_type` and `event_payload` describe what
 /// to apply to the projection state.
@@ -112,6 +105,25 @@ pub struct DispatchItem {
     pub payload: Vec<u8>,
 }
 
+/// One durable command. Application and checkpoint watermarks advance only
+/// after every event succeeds. This is an in-memory protocol, not a disk format.
+#[derive(Debug)]
+pub struct DispatchCommit {
+    pub commit_seq: u64,
+    pub events: Vec<DispatchItem>,
+    pub applied_tx: tokio::sync::oneshot::Sender<Result<()>>,
+}
+
+impl From<DispatchItem> for DispatchCommit {
+    fn from(event: DispatchItem) -> Self {
+        Self {
+            commit_seq: event.commit_seq,
+            events: vec![event],
+            applied_tx: tokio::sync::oneshot::channel().0,
+        }
+    }
+}
+
 /// The projection state: per-index `SkipMap`s plus a watermark.
 ///
 /// The `indexes` field is wrapped in `RwLock` so the dispatcher can insert
@@ -120,13 +132,16 @@ pub struct DispatchItem {
 /// serializes the rare first-insert path.
 #[derive(Debug)]
 pub struct ProjectionState {
+    /// Serializes whole-commit application with snapshots (not ordinary reads).
+    application: RwLock<()>,
+    apply_failed: AtomicBool,
     /// The per-index lock-free skip lists, keyed by index name (e.g.
     /// "messages", "channel_members", "dm_message_recipients").
     indexes: RwLock<HashMap<String, SkipMap<Vec<u8>, Vec<u8>>>>,
-    /// The `commit_seq` of the most recently applied event. Reads with a
+    /// The `commit_seq` of the most recently fully applied command. Reads with a
     /// `commit_seq > this` must wait for the dispatcher to catch up.
-    applied_commit_seq: Arc<AtomicU64>,
-    /// Count of dispatched events, used for periodic checkpointing.
+    applied_commit_seq: tokio::sync::watch::Sender<u64>,
+    /// Count of fully applied commands, used for periodic checkpointing.
     dispatch_count: AtomicU64,
 }
 
@@ -137,8 +152,10 @@ impl ProjectionState {
     /// than pre-creating empty skip maps for every possible index name.
     pub fn new() -> Self {
         Self {
+            application: RwLock::new(()),
+            apply_failed: AtomicBool::new(false),
             indexes: RwLock::new(HashMap::new()),
-            applied_commit_seq: Arc::new(AtomicU64::new(0)),
+            applied_commit_seq: tokio::sync::watch::channel(0).0,
             dispatch_count: AtomicU64::new(0),
         }
     }
@@ -146,7 +163,15 @@ impl ProjectionState {
     /// The current `applied_commit_seq` watermark. Reads compare against
     /// this to decide whether to wait for the dispatcher.
     pub fn applied_commit_seq(&self) -> u64 {
-        self.applied_commit_seq.load(Ordering::Acquire)
+        *self.applied_commit_seq.borrow()
+    }
+
+    pub(crate) fn subscribe_applied(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.applied_commit_seq.subscribe()
+    }
+
+    pub fn is_healthy(&self) -> bool {
+        !self.apply_failed.load(Ordering::Acquire) && !self.application.is_poisoned()
     }
 
     /// Insert a key-value pair into a named index. Used by the dispatcher.
@@ -288,9 +313,14 @@ impl ProjectionState {
     /// this guard, replay to a high watermark followed by a write at a
     /// lower seq would regress the linearizability barrier.
     pub(crate) fn advance_watermark(&self, new_watermark: u64) {
-        let _ = self
-            .applied_commit_seq
-            .fetch_max(new_watermark, Ordering::AcqRel);
+        self.applied_commit_seq.send_if_modified(|current| {
+            if new_watermark > *current {
+                *current = new_watermark;
+                true
+            } else {
+                false
+            }
+        });
     }
 
     /// Remove a single entry from a named index. Returns `true` if the
@@ -351,14 +381,12 @@ impl ProjectionState {
 
     /// Set the `applied_commit_seq` watermark. Used by the
     /// `LinearizabilityBarrier` (which is the public API for advancing).
-    /// Internally delegates to the atomic store.
+    /// Notifies every barrier bound to this state.
     ///
     /// Monotonic: same guarantee as [`Self::advance_watermark`] — the
     /// watermark can only move forward.
     pub fn set_applied_commit_seq(&self, new_watermark: u64) {
-        let _ = self
-            .applied_commit_seq
-            .fetch_max(new_watermark, Ordering::AcqRel);
+        self.advance_watermark(new_watermark);
     }
 }
 
@@ -415,6 +443,17 @@ impl ProjectionState {
     /// Keys and values are hex-encoded for compact JSON representation.
     /// The watermark is stored alongside the data.
     pub fn save_snapshot(&self, data_dir: &Path) -> Result<()> {
+        let _application =
+            self.application
+                .write()
+                .map_err(|_| WabiError::InternalInvariantViolated {
+                    invariant: "cannot snapshot a failed projection application".into(),
+                })?;
+        if !self.is_healthy() {
+            return Err(WabiError::InternalInvariantViolated {
+                invariant: "cannot snapshot partial state after projection failure".into(),
+            });
+        }
         let path = Self::snapshot_path(data_dir);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -425,14 +464,9 @@ impl ProjectionState {
             })?;
         }
 
-        // Watermark FIRST, rows SECOND. Reading the watermark after copying
-        // the rows could OVER-claim coverage: an event applied between the
-        // row copy and the watermark read is absent from the copied rows but
-        // counted as applied, so replay would skip it forever — observed in
-        // production as a deleted channel resurrecting after a restart
-        // (zombie channels). Under-claiming is safe: replay re-applies
-        // events already reflected in the rows, and every projection applies
-        // as an idempotent keyed upsert/remove.
+        // The application lock makes rows and watermark one commit boundary.
+        // Watermark-first alone is insufficient for multi-event commands:
+        // checkpointing a partial commit can replay non-idempotent effects twice.
         let watermark = self.applied_commit_seq();
 
         let indexes = self
@@ -466,12 +500,19 @@ impl ProjectionState {
                 invariant: format!("snapshot serialize: {e}"),
             })?;
 
-        std::fs::write(&path, &json).map_err(|e| {
-            WabiError::Io(std::io::Error::new(
-                e.kind(),
-                format!("snapshot write: {e}"),
-            ))
-        })?;
+        // Never truncate the last good checkpoint in place. Application and
+        // snapshot writers share the lock above, so this temp path has one owner.
+        use std::io::Write;
+        let temp_path = path.with_extension("json.tmp");
+        let mut file = std::fs::File::create(&temp_path)?;
+        file.write_all(json.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temp_path, &path)?;
+        #[cfg(unix)]
+        if let Some(parent) = path.parent() {
+            std::fs::File::open(parent)?.sync_all()?;
+        }
 
         Ok(())
     }
@@ -521,15 +562,15 @@ impl ProjectionState {
     /// Increment the dispatch counter and save a checkpoint snapshot if the
     /// counter has reached the next interval boundary.
     ///
-    /// This is called from the dispatcher loop after every applied event.
+    /// This is called from the dispatcher loop after every complete commit.
     /// The snapshot is saved synchronously; errors are logged but not
     /// propagated (the dispatcher must not crash due to a checkpoint failure).
     pub fn checkpoint_if_due(&self, data_dir: &Path, interval: u64) {
         if interval == 0 {
             return;
         }
-        let count = self.dispatch_count.fetch_add(1, Ordering::Relaxed);
-        if count % interval == 0 && count > 0 {
+        let count = self.dispatch_count.fetch_add(1, Ordering::Relaxed) + 1;
+        if count % interval == 0 {
             if let Err(e) = self.save_snapshot(data_dir) {
                 tracing::error!("checkpoint snapshot failed: {e}");
             }
@@ -541,7 +582,7 @@ impl ProjectionState {
 pub struct DispatcherHandle {
     /// The sender end. Cloned to give multiple producers (e.g. the
     /// sequencer pushes here, future readers can also push if needed).
-    pub sender: mpsc::Sender<DispatchItem>,
+    pub sender: mpsc::Sender<DispatchCommit>,
     /// Handle to the dispatcher task. Take this to await graceful shutdown.
     pub handle: Option<JoinHandle<()>>,
 }
@@ -552,7 +593,7 @@ pub struct DispatcherHandle {
 /// `channel_depth` defaults to `DEFAULT_DISPATCHER_CHANNEL_DEPTH`.
 ///
 /// If `checkpoint_interval` is `Some(n)`, the dispatcher will write a
-/// snapshot file every `n` applied events. The snapshot is saved to
+/// snapshot file every `n` fully applied commits. The snapshot is saved to
 /// `data_dir/projections/snapshot.json`. Pass `None` (or 0) to disable.
 pub fn spawn_projection_dispatcher(
     state: Arc<ProjectionState>,
@@ -562,7 +603,7 @@ pub fn spawn_projection_dispatcher(
     checkpoint_interval: Option<u64>,
 ) -> Result<DispatcherHandle> {
     let depth = channel_depth.unwrap_or(DEFAULT_DISPATCHER_CHANNEL_DEPTH);
-    let (tx, rx) = mpsc::channel::<DispatchItem>(depth);
+    let (tx, rx) = mpsc::channel::<DispatchCommit>(depth);
 
     let state_clone = Arc::clone(&state);
     let interval = checkpoint_interval.unwrap_or(0);
@@ -576,39 +617,58 @@ pub fn spawn_projection_dispatcher(
     })
 }
 
-/// The dispatcher's main loop. Receives items, applies them, advances the
-/// watermark. Exits when the channel closes (sender dropped).
+/// Receives whole commits, applies all events, advances the watermark and
+/// acknowledges application. Any handler failure halts the applied prefix.
 ///
 /// If `checkpoint_data_dir` is `Some`, a snapshot is written every
-/// `checkpoint_interval` events for faster restart.
+/// `checkpoint_interval` complete commits for faster restart.
 async fn run_dispatcher(
-    mut receiver: mpsc::Receiver<DispatchItem>,
+    mut receiver: mpsc::Receiver<DispatchCommit>,
     state: Arc<ProjectionState>,
     table: Arc<DispatchTable>,
     checkpoint_data_dir: Option<std::path::PathBuf>,
     checkpoint_interval: u64,
 ) {
-    while let Some(item) = receiver.recv().await {
-        if let Some(handler) = table.get(&item.event_type) {
-            let event = DurableEvent {
-                commit_seq: item.commit_seq,
-                stream_id: item.stream_id.clone(),
-                event_type: item.event_type.clone(),
-                payload: item.payload.clone(),
-            };
-            if let Err(e) = handler.apply(&event, &state) {
-                tracing::error!("projection handler error for {}: {e}", item.event_type);
+    while let Some(commit) = receiver.recv().await {
+        // Synchronous handlers never hold this lock across an await.
+        let application = state
+            .application
+            .write()
+            .expect("projection application lock poisoned");
+        for item in commit.events {
+            if let Some(handler) = table.get(&item.event_type) {
+                let event = DurableEvent {
+                    commit_seq: item.commit_seq,
+                    stream_id: item.stream_id.clone(),
+                    event_type: item.event_type.clone(),
+                    payload: item.payload.clone(),
+                };
+                if let Err(e) = handler.apply(&event, &state) {
+                    state.apply_failed.store(true, Ordering::Release);
+                    let invariant = format!(
+                        "durable commit {} projection {} failed: {e}; engine halted, repair required before retry",
+                        commit.commit_seq, item.event_type
+                    );
+                    let error = WabiError::InternalInvariantViolated { invariant };
+                    tracing::error!("{error}");
+                    // The durable log cannot be rolled back. Do not acknowledge
+                    // success, checkpoint partial state, or advance past this hole.
+                    let _ = commit.applied_tx.send(Err(error));
+                    return;
+                }
+            } else {
+                // Fallback: insert into generic "events" index for unregistered
+                // event types (forward-compatible with older dispatch items).
+                let key = item.event_type.as_bytes().to_vec();
+                let value = item.payload.clone();
+                state.insert("events", key, value, item.commit_seq);
             }
-        } else {
-            // Fallback: insert into generic "events" index for unregistered
-            // event types (forward-compatible with older dispatch items).
-            let key = item.event_type.as_bytes().to_vec();
-            let value = item.payload.clone();
-            state.insert("events", key, value, item.commit_seq);
         }
-        // The watermark is the highest commit_seq we've applied. Since the
-        // mpsc preserves order, this is monotonically increasing.
-        state.advance_watermark(item.commit_seq);
+        state.advance_watermark(commit.commit_seq);
+        drop(application);
+
+        // Losing the caller does not cancel a durable commit's application.
+        let _ = commit.applied_tx.send(Ok(()));
 
         // Periodic checkpoint snapshot.
         if let Some(ref data_dir) = checkpoint_data_dir {
@@ -671,12 +731,7 @@ mod tests {
                 while !stop.load(std::sync::atomic::Ordering::Relaxed) {
                     n += 1;
                     let key = format!("zombie-{n}");
-                    state.insert(
-                        "channels",
-                        key.as_bytes().to_vec(),
-                        b"active".to_vec(),
-                        n,
-                    );
+                    state.insert("channels", key.as_bytes().to_vec(), b"active".to_vec(), n);
                     state.set_applied_commit_seq(n);
                     state.remove("channels", key.as_bytes());
                     state.set_applied_commit_seq(n + 1);
@@ -693,9 +748,7 @@ mod tests {
             if state.save_snapshot(dir.path()).is_err() {
                 continue;
             }
-            if let Ok(Some((restored, watermark))) =
-                ProjectionState::load_snapshot(dir.path())
-            {
+            if let Ok(Some((restored, watermark))) = ProjectionState::load_snapshot(dir.path()) {
                 let indexes = restored.indexes.read().unwrap();
                 if let Some(map) = indexes.get("channels") {
                     for entry in map.iter() {
@@ -815,12 +868,15 @@ mod tests {
         for i in 1..=5 {
             handle
                 .sender
-                .send(DispatchItem {
-                    commit_seq: i,
-                    event_type: format!("evt{i}"),
-                    stream_id: format!("stream_{i}").into(),
-                    payload: format!("payload{i}").into_bytes(),
-                })
+                .send(
+                    DispatchItem {
+                        commit_seq: i,
+                        event_type: format!("evt{i}"),
+                        stream_id: format!("stream_{i}").into(),
+                        payload: format!("payload{i}").into_bytes(),
+                    }
+                    .into(),
+                )
                 .await
                 .unwrap();
         }
@@ -878,12 +934,15 @@ mod tests {
         let writer = tokio::spawn(async move {
             for i in 1..=100u64 {
                 sender
-                    .send(DispatchItem {
-                        commit_seq: i,
-                        event_type: format!("write{i}"),
-                        stream_id: format!("writer_{i}").into(),
-                        payload: vec![],
-                    })
+                    .send(
+                        DispatchItem {
+                            commit_seq: i,
+                            event_type: format!("write{i}"),
+                            stream_id: format!("writer_{i}").into(),
+                            payload: vec![],
+                        }
+                        .into(),
+                    )
                     .await
                     .unwrap();
             }
@@ -939,12 +998,15 @@ mod tests {
 
         handle
             .sender
-            .send(DispatchItem {
-                commit_seq: 1,
-                event_type: "message_created".into(),
-                stream_id: "ch_msg".into(),
-                payload,
-            })
+            .send(
+                DispatchItem {
+                    commit_seq: 1,
+                    event_type: "message_created".into(),
+                    stream_id: "ch_msg".into(),
+                    payload,
+                }
+                .into(),
+            )
             .await
             .unwrap();
 

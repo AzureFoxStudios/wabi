@@ -9,18 +9,17 @@
 //!
 //! Each `.wseg` record's encrypted payload is a JSON-serialized
 //! `ReplayEnvelope { event_type, stream_id, payload }`. Records written before
-//! the envelope change lack this structure; they are silently skipped when
-//! deserialization fails.
+//! the envelope change lack this structure. If an indexed post-snapshot
+//! record cannot be decoded or applied, startup fails rather than losing it.
 //!
 //! # Commit index filtering (Council Review #1 §2.2, Option B)
 //!
 //! Records whose `commit_seq` has no entry in the global commit index are
 //! orphans (writes that crashed before the index append). They are skipped:
-//! the commit index is the source of truth for which commits exist. If the
-//! index is missing or empty while segments exist, replay falls back to
-//! applying everything (least-data-loss) and logs a warning.
+//! the commit index is the source of truth for which commits exist, including
+//! when it is empty. Unindexed bytes must never become a successful write.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::Path;
 
 use tokio::sync::Mutex;
@@ -58,19 +57,33 @@ pub async fn replay_projections(
     snapshot_watermark: u64,
 ) -> Result<u64> {
     let streams_dir = data_dir.join("streams");
-    if !tokio::fs::try_exists(&streams_dir).await.unwrap_or(false) {
-        return Ok(snapshot_watermark);
-    }
-
     // --- Load the committed seq set (Option B orphan filter) ---
     let commit_index_dir = data_dir.join("global").join("commit-index");
-    let committed: HashSet<u64> =
+    let committed: HashMap<_, _> =
         crate::commit_index::batcher::read_all_entries(&commit_index_dir)
-            .map(|entries| entries.into_iter().map(|e| e.commit_seq).collect())
-            .unwrap_or_default();
-    let have_index = !committed.is_empty();
+            .map(|entries| entries.into_iter().map(|e| (e.commit_seq, e)).collect())?;
+    let applied_seq = committed
+        .keys()
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .max(snapshot_watermark);
+    if !tokio::fs::try_exists(&streams_dir).await? {
+        if committed
+            .values()
+            .any(|e| e.commit_seq > snapshot_watermark && !e.event_refs.is_empty())
+        {
+            return Err(crate::error::WabiError::Corrupt {
+                location: "streams directory".into(),
+                detail: "not all indexed events could be recovered; streams directory missing"
+                    .into(),
+            });
+        }
+        barrier.advance(applied_seq)?;
+        return Ok(applied_seq);
+    }
 
-    let mut highest_seq = snapshot_watermark;
+    let mut highest_seq = applied_seq;
     let mut orphan_skipped: u64 = 0;
     let mut decrypt_skipped: u64 = 0;
     let mut replayed: u64 = 0;
@@ -84,7 +97,8 @@ pub async fn replay_projections(
     // wabi.chat 2026-08-27). The sequencer assigns globally unique,
     // totally ordered commit_seqs; sorting restores exactly the order the
     // live dispatcher applied.
-    let mut collected: Vec<DurableEvent> = Vec::new();
+    let mut collected: Vec<(usize, DurableEvent)> = Vec::new();
+    let mut recovered_events: HashMap<u64, std::collections::HashSet<usize>> = HashMap::new();
     let mut kind_reader = tokio::fs::read_dir(&streams_dir).await?;
 
     while let Some(kind_entry) = kind_reader.next_entry().await? {
@@ -144,7 +158,10 @@ pub async fn replay_projections(
                 let mut reader = match SegmentReader::open(&seg_path).await {
                     Ok(r) => r,
                     Err(e) => {
-                        tracing::warn!("replay: skipping unreadable segment {}: {e}", seg_path.display());
+                        tracing::warn!(
+                            "replay: skipping unreadable segment {}: {e}",
+                            seg_path.display()
+                        );
                         continue;
                     }
                 };
@@ -152,7 +169,10 @@ pub async fn replay_projections(
                 let records = match reader.read_records().await {
                     Ok(r) => r,
                     Err(e) => {
-                        tracing::warn!("replay: skipping corrupt segment {}: {e}", seg_path.display());
+                        tracing::warn!(
+                            "replay: skipping corrupt segment {}: {e}",
+                            seg_path.display()
+                        );
                         continue;
                     }
                 };
@@ -172,10 +192,10 @@ pub async fn replay_projections(
 
                     // Option B: records absent from the commit index are
                     // orphans of partially-committed commands — skip them.
-                    if have_index && !committed.contains(&commit_seq) {
+                    let Some(entry) = committed.get(&commit_seq) else {
                         orphan_skipped += 1;
                         continue;
-                    }
+                    };
 
                     let header_bytes = rec.header.encode();
 
@@ -194,7 +214,12 @@ pub async fn replay_projections(
                     };
 
                     // Decrypt.
-                    let env_bytes = match decrypt_record(&key, commit_seq, &header_bytes, &rec.payload) {
+                    let env_bytes = match decrypt_record(
+                        &key,
+                        commit_seq,
+                        &header_bytes,
+                        &rec.payload,
+                    ) {
                         Ok(b) => b,
                         Err(e) => {
                             decrypt_skipped += 1;
@@ -206,19 +231,55 @@ pub async fn replay_projections(
                     };
 
                     // Deserialize the replay envelope.
-                    // Failure here means an old-format record (pre-envelope) —
-                    // silently skip to maintain forward compatibility.
+                    // Indexed decode failures are rejected by the completeness
+                    // check below; old records need an explicit migration.
                     let envelope: ReplayEnvelope = match serde_json::from_slice(&env_bytes) {
                         Ok(e) => e,
                         Err(_) => continue,
                     };
 
-                    collected.push(DurableEvent {
-                        commit_seq,
-                        stream_id: envelope.stream_id,
-                        event_type: envelope.event_type,
-                        payload: envelope.payload,
-                    });
+                    // Preserve the command's event order across streams.
+                    // Sorting by seq alone leaves ties in filesystem order.
+                    let segment_id = seg_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .and_then(|s| s.parse::<u64>().ok());
+                    // Legacy writers cache by stream ID, not (kind, ID).
+                    // Workspace/chat can share an ID with different kinds;
+                    // match the physical record identity, not the directory kind.
+                    let ordinal = entry
+                        .event_refs
+                        .iter()
+                        .position(|r| {
+                            r.stream_id_hash == rec.header.stream_id_hash
+                                && Some(r.segment_id) == segment_id
+                                && u64::from(r.offset) == rec.offset
+                                && r.length as usize == rec.header.total_size()
+                        })
+                        .ok_or_else(|| crate::error::WabiError::Corrupt {
+                            location: format!("commit {commit_seq}"),
+                            detail: "segment record not referenced by its commit index entry"
+                                .into(),
+                        })?;
+                    if !recovered_events
+                        .entry(commit_seq)
+                        .or_default()
+                        .insert(ordinal)
+                    {
+                        return Err(crate::error::WabiError::Corrupt {
+                            location: format!("commit {commit_seq} event {ordinal}"),
+                            detail: "duplicate indexed event during replay".into(),
+                        });
+                    }
+                    collected.push((
+                        ordinal,
+                        DurableEvent {
+                            commit_seq,
+                            stream_id: envelope.stream_id,
+                            event_type: envelope.event_type,
+                            payload: envelope.payload,
+                        },
+                    ));
                 }
             }
         }
@@ -226,29 +287,50 @@ pub async fn replay_projections(
 
     // Global total order (see `collected` above): sort by commit_seq, then
     // apply. DurableEvent derives nothing that orders it, so sort by field.
-    collected.sort_by_key(|e| e.commit_seq);
-    for event in &collected {
+    // Never report readiness after silently losing part of a durable commit.
+    for entry in committed
+        .values()
+        .filter(|e| e.commit_seq > snapshot_watermark)
+    {
+        if recovered_events
+            .get(&entry.commit_seq)
+            .map(|events| events.len())
+            .unwrap_or(0)
+            != entry.event_refs.len()
+        {
+            return Err(crate::error::WabiError::Corrupt {
+                location: format!("commit {}", entry.commit_seq),
+                detail: "not all indexed events could be recovered; repair required before startup"
+                    .into(),
+            });
+        }
+    }
+    collected.sort_by_key(|(ordinal, event)| (event.commit_seq, *ordinal));
+    for (_, event) in &collected {
         if let Some(handler) = dispatch_table.get(&event.event_type) {
-            if let Err(e) = handler.apply(event, projection_state) {
-                tracing::error!(
-                    "replay: handler error for {} seq={}: {e}",
-                    event.event_type,
-                    event.commit_seq
-                );
-            }
+            handler.apply(event, projection_state).map_err(|e| {
+                crate::error::WabiError::Corrupt {
+                    location: format!(
+                        "projection {} at commit {}",
+                        event.event_type, event.commit_seq
+                    ),
+                    detail: format!("replay failed: {e}; repair required before startup"),
+                }
+            })?;
+        } else {
+            // Match the live dispatcher's forward-compatible fallback.
+            projection_state.insert(
+                "events",
+                event.event_type.as_bytes().to_vec(),
+                event.payload.clone(),
+                event.commit_seq,
+            );
         }
         replayed += 1;
     }
 
-    if highest_seq > 0 {
-        barrier.advance(highest_seq)?;
-    }
-
-    if !have_index {
-        tracing::warn!(
-            "replay: commit index empty/missing; applied all segment records without orphan filtering"
-        );
-    }
+    // Nonce allocation includes orphan sequences; application progress does not.
+    barrier.advance(applied_seq)?;
     if orphan_skipped > 0 || decrypt_skipped > 0 {
         tracing::warn!(
             "replay: complete. applied={replayed} orphan_skipped={orphan_skipped} decrypt_skipped={decrypt_skipped} highest_seq={highest_seq}"
@@ -262,14 +344,14 @@ pub async fn replay_projections(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::locks::ProjectionState;
-    use crate::engine::WabiDbConfig;
     use crate::crypto::bootstrap::BootstrapSource;
     use crate::crypto::stream_key_registry::StreamKeyRegistry;
+    use crate::engine::locks::ProjectionState;
+    use crate::engine::WabiDbConfig;
+    use crate::format::record::RecordKind;
     use crate::projections::barrier::LinearizabilityBarrier;
     use crate::projections::handler::{DispatchTable, Projection};
     use crate::sequencer::types::{CommandCommit, EventToWrite};
-    use crate::format::record::RecordKind;
     use std::sync::{Arc, Mutex};
 
     /// Records the commit_seq of every event a replay applies.

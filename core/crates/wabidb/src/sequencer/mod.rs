@@ -11,7 +11,8 @@
 //! 2. **Burned-seq never reused (§2.4):** a `commit_seq` assigned to a command
 //!    whose writes fail is never reused.
 //! 3. **Durability-await (§2.3):** `run_command` does not return `Ok` until the
-//!    batch containing its `commit_seq` is fsync'd.
+//!    batch containing its `commit_seq` is fsync'd AND every projection event
+//!    in that command has applied successfully.
 
 pub mod event_envelope;
 pub mod run_command;
@@ -28,10 +29,9 @@ use crate::commit_index::batcher::BatcherHandle;
 use crate::commit_index::record::{CommitIndexEntry, StreamRef};
 use crate::crypto::aes_gcm_record::{encrypt_record, TAG_LEN};
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
-use crate::engine::locks::{DispatchItem, SequencerPermit};
+use crate::engine::locks::{DispatchCommit, DispatchItem, SequencerPermit};
 use crate::error::{Result, WabiError};
 use crate::format::record::RecordHeader;
-use crate::projections::barrier::LinearizabilityBarrier;
 pub use crate::sequencer::types::ReplayEnvelope;
 use crate::stream_log::segment_writer::SegmentWriter;
 
@@ -163,30 +163,29 @@ struct WriterEntry {
 ///    command into a window (up to [`GROUP_COMMIT_WINDOW`]), submits all of
 ///    their index entries, and issues ONE durability-await per window — so
 ///    N concurrent commands collapse to ≤1 fsync per window instead of N.
-/// 6. Advance the [`LinearizabilityBarrier`] so readers see the new data.
-/// 7. Send a [`DispatchItem`] to the projection dispatcher. If the
-///    dispatcher's channel is full and the command is non-essential, reject
-///    with `EngineBusy` instead of blocking.
+/// 6. Send one [`DispatchCommit`] containing all command events, in order.
+/// 7. Await successful application of the whole commit. The dispatcher advances
+///    the applied watermark only after all events succeed.
 /// 8. Send the result back via `response_tx`.
 ///
 /// # Ordering / durability contract
 ///
 /// Commands are finalized strictly in commit_seq order after the window's
 /// fsync completes, and no `response_tx` is resolved before the fsync that
-/// covers that command's index entry (ack-after-durable). Per-event failures
-/// (unknown stream key, dispatcher busy) still burn their commit_seq and are
-/// reported through the command's `response_tx`; the loop continues.
+/// covers that command's index entry AND the dispatcher acknowledges application.
+/// Preparation failures burn their sequence and may leave unindexed orphans.
+/// A post-durability application failure halts the writer: it is not a rollback
+/// or a safe-to-retry busy response. Other commands in the window may be durable.
 ///
 /// # Errors
 ///
-/// The function returns an error only if the batcher future exits or the
-/// command channel closes unexpectedly.
+/// Batcher failures or failed/lost projection acknowledgments halt the loop.
+/// Closing the command channel normally drains admitted work, then exits.
 pub async fn run(
     _permit: SequencerPermit,
     key_registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>>,
     batcher: BatcherHandle,
-    dispatcher_tx: mpsc::Sender<DispatchItem>,
-    barrier: Arc<LinearizabilityBarrier>,
+    dispatcher_tx: mpsc::Sender<DispatchCommit>,
     mut command_rx: mpsc::Receiver<CommandCommit>,
     data_dir: PathBuf,
     initial_commit_seq: u64,
@@ -255,16 +254,30 @@ pub async fn run(
         }
 
         // ---- Stage B: finalize in commit order ----------------------------
-        for prepared in prepared {
+        let mut prepared = prepared.into_iter();
+        while let Some(current) = prepared.next() {
             let result = finalize_command(
-                &barrier,
                 &dispatcher_tx,
-                &prepared.command,
-                prepared.commit_seq,
-                prepared.timestamp_micros,
+                &current.command,
+                current.commit_seq,
+                current.timestamp_micros,
             )
             .await;
-            let _ = prepared.command.response_tx.send(result);
+            let failure = result.as_ref().err().map(ToString::to_string);
+            let _ = current.command.response_tx.send(result);
+            if let Some(invariant) = failure {
+                // No later commit may overtake a durable but unapplied one.
+                for pending in prepared {
+                    let pending_error = WabiError::InternalInvariantViolated {
+                        invariant: format!(
+                            "durable commit {} not applied because commit {} failed; engine halted, repair required before retry",
+                            pending.commit_seq, current.commit_seq
+                        ),
+                    };
+                    let _ = pending.command.response_tx.send(Err(pending_error));
+                }
+                return Err(WabiError::InternalInvariantViolated { invariant });
+            }
         }
     }
 
@@ -286,8 +299,8 @@ pub async fn run(
 const GROUP_COMMIT_WINDOW: usize = 32;
 
 /// A command whose index entry has been submitted to the batcher but whose
-/// durability-await has not yet completed. Finalization (barrier advance,
-/// projection dispatch, ack) happens after the window's shared flush.
+/// durability-await has not yet completed. Finalization (projection application,
+/// watermark advance, ack) happens after the window's shared flush.
 struct PreparedCommand {
     commit_seq: u64,
     timestamp_micros: i64,
@@ -303,6 +316,19 @@ async fn prepare_command(
     commit_seq: u64,
     timestamp_micros: i64,
 ) -> Result<()> {
+    // The current encrypted record format uses commit_seq as the nonce for
+    // each stream key. Two events in the same stream within one command
+    // would reuse that (key, nonce). Reject before writing any bytes.
+    let mut streams = std::collections::HashSet::new();
+    for event in &command.events {
+        if !streams.insert(&event.stream_id) {
+            return Err(WabiError::Validation {
+                command: command.command_name.clone(),
+                reason: "a command may write at most one event per stream (nonce uniqueness)"
+                    .into(),
+            });
+        }
+    }
     // --- 1. Encrypt and write each event to its stream segment ------------
     let mut event_refs: Vec<StreamRef> = Vec::with_capacity(command.events.len());
     let mut payload_hashes: Vec<[u8; 32]> = Vec::with_capacity(command.events.len());
@@ -427,58 +453,54 @@ async fn prepare_command(
     Ok(())
 }
 
-/// Post-fsync finalization for one prepared command: advance the
-/// linearizability barrier, dispatch to projections, and produce the ack.
+/// Post-fsync finalization: dispatch a whole command, await application,
+/// and produce the ack. The dispatcher owns the applied watermark.
 /// Runs strictly in commit_seq order after the window's fsync completes.
 async fn finalize_command(
-    barrier: &LinearizabilityBarrier,
-    dispatcher_tx: &mpsc::Sender<DispatchItem>,
+    dispatcher_tx: &mpsc::Sender<DispatchCommit>,
     command: &CommandCommit,
     commit_seq: u64,
     timestamp_micros: i64,
 ) -> Result<CommandOutcome> {
-    // --- 3. Advance the linearizability barrier ---------------------------
     // Boundary 3: crash after the commit index is fsynced but before the
     // projection is updated (tests durability-await correctness).
     crash_point("crash_after_index_fsync");
-    barrier.advance(commit_seq)?;
 
     // --- 4. Send to the projection dispatcher ----------------------------
-    for event in &command.events {
-        let dispatch_item = DispatchItem {
+    let (applied_tx, applied_rx) = tokio::sync::oneshot::channel();
+    let events = command
+        .events
+        .iter()
+        .map(|event| DispatchItem {
             commit_seq,
             event_type: event.event_type.clone(),
             stream_id: event.stream_id.clone(),
             payload: event.plaintext.clone(),
-        };
+        })
+        .collect();
+    // Every command here is durable, regardless of priority. Backpressure
+    // must wait; EngineBusy is only safe BEFORE admission to the sequencer.
+    dispatcher_tx
+        .send(DispatchCommit {
+            commit_seq,
+            events,
+            applied_tx,
+        })
+        .await
+        .map_err(|_| WabiError::InternalInvariantViolated {
+            invariant: format!(
+                "durable commit {commit_seq} could not reach projection dispatcher; engine halted"
+            ),
+        })?;
+    applied_rx
+        .await
+        .map_err(|_| WabiError::InternalInvariantViolated {
+            invariant: format!(
+                "durable commit {commit_seq} lost projection acknowledgment; engine halted"
+            ),
+        })??;
 
-        if command.essential {
-            // Essential commands block until the dispatcher has room.
-            dispatcher_tx.send(dispatch_item).await.map_err(|_| {
-                WabiError::InternalInvariantViolated {
-                    invariant: "dispatcher channel closed".into(),
-                }
-            })?;
-        } else {
-            // Non-essential: try without blocking. If the channel is full,
-            // reject with EngineBusy (degraded mode per wabidb-97).
-            match dispatcher_tx.try_send(dispatch_item) {
-                Ok(()) => {}
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    return Err(WabiError::EngineBusy {
-                        retry_after_ms: 100,
-                    });
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    return Err(WabiError::InternalInvariantViolated {
-                        invariant: "dispatcher channel closed".into(),
-                    });
-                }
-            }
-        }
-    }
-
-    // Boundary 4: crash after the projection dispatcher receives the event
+    // Boundary 4: crash after the projection dispatcher applies the commit
     // but before `Ok` is sent back to the caller (tests idempotency replay).
     crash_point("crash_after_projection_update");
 
@@ -557,6 +579,19 @@ mod tests {
     use tokio::sync::{oneshot, Semaphore};
 
     use crate::engine::locks::ProjectionState;
+    use crate::projections::barrier::LinearizabilityBarrier;
+
+    fn test_dispatcher() -> mpsc::Sender<DispatchCommit> {
+        crate::engine::locks::spawn_projection_dispatcher(
+            Arc::new(ProjectionState::new()),
+            Arc::new(crate::projections::handler::DispatchTable::new(vec![]).unwrap()),
+            Some(16),
+            None,
+            None,
+        )
+        .unwrap()
+        .sender
+    }
     /// Build a simple command for testing.
     fn make_cmd(
         seq_prefix: u64,
@@ -605,11 +640,7 @@ mod tests {
         tokio::spawn(batcher_fut);
 
         // Create dispatcher.
-        let (dispatcher_tx, _dispatcher_rx) = mpsc::channel::<DispatchItem>(1024);
-
-        // Create barrier.
-        let state = Arc::new(ProjectionState::new());
-        let barrier = Arc::new(LinearizabilityBarrier::new(state));
+        let dispatcher_tx = test_dispatcher();
 
         // Build command channel.
         let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(1024);
@@ -622,7 +653,6 @@ mod tests {
                 key_registry,
                 batcher,
                 dispatcher_tx,
-                barrier,
                 cmd_rx,
                 data_dir,
                 0,
@@ -646,6 +676,26 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
+    async fn completion_waits_for_projection_application() {
+        let state = Arc::new(ProjectionState::new());
+        let barrier = Arc::new(LinearizabilityBarrier::new(state));
+        let (dispatcher_tx, mut dispatcher_rx) = mpsc::channel(1);
+        let (cmd, _rx) = make_cmd(1, true, "ch_delayed", 1, b"not visible yet");
+        let completion = finalize_command(&dispatcher_tx, &cmd, 1, 1);
+        tokio::pin!(completion);
+
+        tokio::select! {
+            biased;
+            result = &mut completion => panic!("acknowledged before application: {result:?}"),
+            item = dispatcher_rx.recv() => {
+                assert_eq!(barrier.current(), 0, "dispatch is not application");
+                item.unwrap().applied_tx.send(Ok(())).unwrap();
+            }
+        }
+        assert_eq!(completion.await.unwrap().commit_seq, 1);
+    }
+
+    #[tokio::test]
     async fn happy_path() {
         let dir = tempfile::tempdir().unwrap();
         let registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>> =
@@ -665,6 +715,62 @@ mod tests {
         let outcome = rx.await.unwrap().unwrap();
         assert_eq!(outcome.commit_seq, 1);
         assert!(outcome.timestamp_micros > 0);
+    }
+
+    #[tokio::test]
+    async fn failed_application_stops_a_durable_group_without_dispatching_later_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
+            .create_stream("group", [42; 32])
+            .unwrap();
+        let index_dir = dir.path().join("global/commit-index");
+        tokio::fs::create_dir_all(&index_dir).await.unwrap();
+        let (batcher, batcher_task) =
+            crate::commit_index::batcher::new_batcher(index_dir.clone(), None, None);
+        tokio::spawn(batcher_task);
+        let permit = SequencerPermit::acquire(&Arc::new(Semaphore::new(1)))
+            .await
+            .unwrap();
+        let (dispatch_tx, mut dispatch_rx) = mpsc::channel::<DispatchCommit>(1);
+        let (tx, rx) = mpsc::channel(2);
+        let (first, first_ack) = make_cmd(1, true, "group", 6, b"first");
+        let (later, later_ack) = make_cmd(2, true, "group", 6, b"later");
+        tx.try_send(first).unwrap();
+        tx.try_send(later).unwrap();
+        let sequencer = tokio::spawn(run(
+            permit,
+            registry,
+            batcher,
+            dispatch_tx,
+            rx,
+            dir.path().into(),
+            0,
+        ));
+        let batch = dispatch_rx.recv().await.unwrap();
+        assert_eq!(batch.commit_seq, 1);
+        let entries = crate::commit_index::batcher::read_all_entries(&index_dir).unwrap();
+        assert_eq!(
+            entries.iter().map(|e| e.commit_seq).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        batch
+            .applied_tx
+            .send(Err(WabiError::InternalInvariantViolated {
+                invariant: "injected apply failure".into(),
+            }))
+            .unwrap();
+        assert!(first_ack.await.unwrap().is_err());
+        let error = later_ack.await.unwrap().unwrap_err();
+        assert!(
+            error.to_string().contains("durable commit 2 not applied"),
+            "{error}"
+        );
+        assert!(sequencer.await.unwrap().is_err());
+        assert!(dispatch_rx.recv().await.is_none());
+        assert!(tx.is_closed());
     }
 
     // -----------------------------------------------------------------------
@@ -777,9 +883,7 @@ mod tests {
         );
         tokio::spawn(batcher_fut);
 
-        let (dispatcher_tx, _dispatcher_rx) = mpsc::channel::<DispatchItem>(16);
-        let state = Arc::new(ProjectionState::new());
-        let barrier = Arc::new(LinearizabilityBarrier::new(state));
+        let dispatcher_tx = test_dispatcher();
 
         let (cmd, rx) = make_cmd(1, true, "ch_seed", 1, b"after restart");
         let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(16);
@@ -792,7 +896,6 @@ mod tests {
                 registry,
                 batcher,
                 dispatcher_tx,
-                barrier,
                 cmd_rx,
                 dir.path().to_path_buf(),
                 100,
@@ -837,9 +940,7 @@ mod tests {
         );
         tokio::spawn(batcher_fut);
 
-        let (dispatcher_tx, _dispatcher_rx) = mpsc::channel::<DispatchItem>(1024);
-        let state = Arc::new(ProjectionState::new());
-        let barrier = Arc::new(LinearizabilityBarrier::new(state));
+        let dispatcher_tx = test_dispatcher();
 
         let n = 24u64;
         let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(256);
@@ -850,7 +951,6 @@ mod tests {
                 registry,
                 batcher,
                 dispatcher_tx,
-                barrier,
                 cmd_rx,
                 dir.path().to_path_buf(),
                 0,
@@ -958,19 +1058,22 @@ mod tests {
             .unwrap();
 
         // Create dispatcher with a tiny channel that we fill.
-        let (dispatcher_tx, _rx) = mpsc::channel::<DispatchItem>(1);
+        let (dispatcher_tx, mut dispatch_rx) = mpsc::channel::<DispatchCommit>(1);
 
         // Fill the channel.
         dispatcher_tx
-            .try_send(DispatchItem {
-                commit_seq: 0,
-                event_type: "filler".into(),
-                stream_id: "filler".into(),
-                payload: vec![],
-            })
+            .try_send(
+                DispatchItem {
+                    commit_seq: 0,
+                    event_type: "filler".into(),
+                    stream_id: "filler".into(),
+                    payload: vec![],
+                }
+                .into(),
+            )
             .unwrap();
 
-        // The channel is now full. Non-essential command should get EngineBusy.
+        // A durable non-essential command must wait, never return EngineBusy.
         let sem = Arc::new(Semaphore::new(1));
         let permit = SequencerPermit::acquire(&sem).await.unwrap();
 
@@ -983,32 +1086,44 @@ mod tests {
         );
         tokio::spawn(batcher_fut);
 
-        let state = Arc::new(ProjectionState::new());
-        let barrier = Arc::new(LinearizabilityBarrier::new(state));
-
         let (cmd, rx) = make_cmd(1, false, "ch_bp", 1, b"non-essential");
         let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(16);
         cmd_tx.send(cmd).await.unwrap();
         drop(cmd_tx);
 
-        let sequencer_result = run(
+        let sequencer = run(
             permit,
             registry,
             batcher,
             dispatcher_tx,
-            barrier,
             cmd_rx,
             dir.path().to_path_buf(),
             0,
-        )
-        .await;
-        assert!(sequencer_result.is_ok());
-
-        let outcome = rx.await.unwrap();
-        assert!(
-            matches!(outcome, Err(WabiError::EngineBusy { .. })),
-            "expected EngineBusy for non-essential command with full dispatcher, got {outcome:?}"
         );
+        tokio::pin!(sequencer);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut sequencer)
+                .await
+                .is_err()
+        );
+        // The command is already indexed but is still waiting for capacity.
+        assert_eq!(
+            crate::commit_index::batcher::read_all_entries(&dir.path().join("global/commit-index"))
+                .unwrap()
+                .len(),
+            1
+        );
+        dispatch_rx.recv().await.unwrap(); // release the filler slot
+        tokio::select! {
+            biased;
+            result = &mut sequencer => panic!("finished without application: {result:?}"),
+            commit = dispatch_rx.recv() => {
+                commit.unwrap().applied_tx.send(Ok(())).unwrap();
+            }
+        }
+        sequencer.await.unwrap();
+
+        assert_eq!(rx.await.unwrap().unwrap().commit_seq, 1);
     }
 
     // -----------------------------------------------------------------------
@@ -1029,7 +1144,7 @@ mod tests {
         // Use a channel with enough capacity (essential commands must not be
         // rejected). We send to a slow receiver to verify the essential path
         // doesn't return EngineBusy.
-        let (dispatcher_tx, _dispatcher_rx) = mpsc::channel::<DispatchItem>(16);
+        let dispatcher_tx = test_dispatcher();
 
         let sem = Arc::new(Semaphore::new(1));
         let permit = SequencerPermit::acquire(&sem).await.unwrap();
@@ -1043,9 +1158,6 @@ mod tests {
         );
         tokio::spawn(batcher_fut);
 
-        let state = Arc::new(ProjectionState::new());
-        let barrier = Arc::new(LinearizabilityBarrier::new(state));
-
         let (cmd, rx) = make_cmd(1, true, "ch_ess", 1, b"essential");
         let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(16);
         cmd_tx.send(cmd).await.unwrap();
@@ -1057,7 +1169,6 @@ mod tests {
                 registry,
                 batcher,
                 dispatcher_tx,
-                barrier,
                 cmd_rx,
                 dir.path().to_path_buf(),
                 0,
@@ -1099,9 +1210,7 @@ mod tests {
         );
         tokio::spawn(batcher_fut);
 
-        let (dispatcher_tx, _dispatcher_rx) = mpsc::channel::<DispatchItem>(16);
-        let state = Arc::new(ProjectionState::new());
-        let barrier = Arc::new(LinearizabilityBarrier::new(state));
+        let dispatcher_tx = test_dispatcher();
 
         let (cmd, rx) = make_cmd(1, true, "ch_durable", 1, b"data");
         let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(16);
@@ -1113,7 +1222,6 @@ mod tests {
             registry,
             batcher,
             dispatcher_tx,
-            barrier,
             cmd_rx,
             dir.path().to_path_buf(),
             0,

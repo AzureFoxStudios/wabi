@@ -135,21 +135,13 @@ async fn create_album(
         .wdb
         .create_album(&payload.scope_type, &payload.scope_id, &payload.name, auth.user_id as u64)
         .await?;
-    let mut album = None;
-    for _ in 0..20 {
-        album = state
-            .wdb
-            .get_album(&payload.scope_type, &payload.scope_id, &album_id)
-            .await?;
-        if album.is_some() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-    let album = album.ok_or_else(|| wabidb::error::WabiError::Validation {
-        command: "create_album".into(),
-        reason: "album was created but projection was not ready".into(),
-    })?;
+    let album = state
+        .wdb
+        .get_album(&payload.scope_type, &payload.scope_id, &album_id)
+        .await?
+        .ok_or_else(|| wabidb::error::WabiError::InternalInvariantViolated {
+            invariant: "created album missing after projection acknowledgment".into(),
+        })?;
     Ok(Json(json!({ "album": album_json(&album, 0, Vec::new()) })))
 }
 

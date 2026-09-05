@@ -1,10 +1,10 @@
 ---
 name: wabidb-core-capabilities
 description: "Fact-checked reference for WabiDB's event-store architecture and API."
-version: 0.3.0
-author: Hermes + review
-platforms: [linux, macos, windows]
 metadata:
+  version: 0.3.0
+  author: Hermes + review
+  platforms: [linux, macos, windows]
   hermes:
     tags: [WabiDB, Architecture, EventStore, Storage]
 ---
@@ -54,22 +54,22 @@ WabiDB is not a key-value store. Clients submit structured `CommandCommit` messa
 2. **Segment writes**: Each event is encrypted (AES-256-GCM) and appended to the owning stream's `.wseg` file.
 3. **Commit index**: A `CommitIndexEntry` is built with all stream references and submitted to the batcher for fsync.
 4. **Durability-await**: The batcher group-flushes and the caller waits for fsync.
-5. **Barrier advance**: A linearizability barrier makes the commit visible to subsequent reads.
-6. **Projection dispatch**: The entry is sent to `spawn_projection_dispatcher()` to update materialized views.
-7. **Response**: The outcome (including the assigned `commit_seq`) is returned via a oneshot channel.
+5. **Whole-command dispatch**: Send a `DispatchCommit` and await all its projection handlers, in event order.
+6. **Application acknowledgment**: Only the dispatcher advances the shared watch-backed barrier, once per fully applied commit. A failed handler halts the prefix and writer; it cannot roll back the durable log.
+7. **Response**: Return the outcome only after durability AND application. Optional work can be rejected as busy at command admission, never after fsync. Reads after success need no projection polling; ordinary concurrent reads are not snapshot-isolated.
 
 ### Storage
 
 - **Segment files** (`.wseg`): Append-only, max ~64 MiB each, named `00000001.wseg` etc. Each record: 48-byte `RecordHeader` + variable payload + 16-byte padding. Magic `b"WABI"`, CRC32C on header and payload.
 - **Commit index** (`.widx`): Global ordering log, batcher with configurable batch size/age. Contains `StreamRef` entries mapping each event to its segment location.
-- **Snapshots** (`.wsnap`): Point-in-time serialized projection state for fast recovery.
+- **Engine checkpoints** (`projections/snapshot.json`): Whole-commit JSON+hex snapshots, synchronized with application and atomically replaced after fsync. Binary `.wsnap` support is separate, not the engine checkpoint path.
 - **Blobs** (`.bin` + `.meta`): BLAKE3-addressed large binary data.
 - **Manifest**: `storage-manifest.json` tracking schema version, commit watermark, per-stream metadata.
 
 ### Security
 
 - **Per-stream keys**: Each stream has a unique 32-byte key registered via `register_stream_key()`.
-- **AES-256-GCM**: Event payloads encrypted with `commit_seq` as nonce.
+- **AES-256-GCM**: Event payloads encrypted with `commit_seq` as nonce; reject duplicate streams within one command before writing to avoid nonce reuse. Replay skips orphans even with an empty index, but their sequences still seed future nonce allocation.
 - **Key exchange**: Double ratchet protocol with X3DH initial handshake.
 - **Key destruction**: Cryptographic deletion for retention compliance.
 
@@ -184,14 +184,14 @@ Each benchmark populates 10k records across 100 groups. Run with `cargo bench -p
 - **No SQL**: WabiDB does not support SQL queries, MVCC, bloom filters, or WAL.
 - **Single-threaded sequencer**: All writes go through one sequencer permit — write throughput is bounded by single-core commit processing.
 - **Projections are in-memory**: Rebuilt from snapshots + commit journal on restart. Large datasets may have slow recovery.
-- **Batcher restarts from widx_number=0**: After an unclean shutdown, stale `.widx` files on disk can conflict with the new batcher's `create_new(true)` call. Tests work around this by cleaning the commit-index directory between sessions.
-- **DB-CHANGE governance (user standing rule, 2026-07-18)**: Any work that touches WabiDB domain types (`core/crates/wabidb/src/domain/mod.rs`), `ChannelKind`, migrations, or projections MUST (1) document the change in the relevant plan doc BEFORE implementing, (2) flag the user for sign-off before altering domain types — do NOT silently edit schema, and (3) after landing, update WabiDB docs + skills (`wabidb-core-capabilities`, `wabidb-store-trait`, `wabidb-projection-system`). Embed a `⚠ DB CHANGE` marker in any kanban card body that may alter schema. Known gaps when extending surfaces (forum/wiki/gallery): the wiki revision model and a Gallery `ChannelKind` variant are NOT yet present and require migration + doc + skill updates, not just new API routes.
+- **Recovery must use the existing log**: Never clean the commit index to make a restart test pass. Startup must recover every indexed post-snapshot event in `(commit_seq, event_ref ordinal)` order or refuse readiness. Handler failures cannot be logged and skipped. Failed open releases its own engine lock.
+- **DB-change policy**: Per AGENTS.md, implement + document + update relevant skills autonomously for domain/projection/ChannelKind changes. Preserve postcard compatibility; this policy does not authorize pushes or deployment.
 - **Live-channel keying (2026-07-18): do NOT add a `live` `ChannelKind`/`Channel` domain field.** A struct-field change to the `Channel` domain type risks the **postcard replay-break** class of bug — old events fail to decode on replay (this is exactly what broke Tim's accounts). Instead key Live behavior off the EXISTING in-memory `channel_auto_delete_label` map using the sentinel string `"live"` (already used for timed-retention labels). The backend `update-channel-settings` handler already accepts `autoDeleteAfter: "live"`. Verified Live Rooms backend (in-memory reaper + per-message TTL + count cap + `message-deleted` emit + `live-buffer-snapshot`) lives in `wabi-server`; port recipe in `software-development/wabi-frontend-polish` → `references/live-rooms-architecture-and-port-recipe.md`.
 
 ## Verification
 
 Confirm understanding by tracing through the commit path:
 
-1. Find `process_command()` in `src/sequencer/mod.rs`
-2. Walk from `commit_seq` assignment → segment writes → batcher submit → barrier advance → dispatcher → response
-3. Identify each of the 5 `crash_point!()` calls and describe what state is durable at each point
+1. Find `run`, `prepare_command`, and `finalize_command` in `src/sequencer/mod.rs`.
+2. Trace assignment → segment fsync → index group fsync → whole-command apply → barrier/ack → response.
+3. Run `tests::write_completion` with `--features test-harness` for actual subprocess recovery at all five `crash_point()` boundaries. See `wabidb-transaction-system` for guarantee limits and the 2026-09-05 plan for evidence.
