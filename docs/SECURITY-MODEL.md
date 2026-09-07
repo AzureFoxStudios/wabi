@@ -113,8 +113,12 @@ separate and does not promise a full offline conversation history.
 
 Combined local engine/server, headful browser, Tauri/static frontend and packaged
 runtime checks have passed; an isolated copy of Tim's database also reached
-readiness twice with the candidate. **Authorized deployment is still pending.**
-Server and client must ship together. Persisted call
+readiness twice with the candidate. The paired server/web client was pushed and
+deployed to Tim on 2026-09-08 (Bangkok), with live executable/asset hashes,
+readiness, anonymous API rejection, Lore and public headful login verified.
+See the membership work record for release and backup details. Existing browser
+tabs need a reload; bundled native clients need a matching client build, which
+is not supplied by a server swap. Persisted call
 participants remain account-level; same-membership explicit leave/rejoin races,
 general multi-device P2P and direct-call reconnect are not claimed solved.
 Album reorder/featured endpoints and group avatar upload still return

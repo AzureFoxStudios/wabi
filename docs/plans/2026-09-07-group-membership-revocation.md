@@ -1093,3 +1093,57 @@ safe semantic rollback. Keep a second consistent cutover-time backup, preserve
 any newer data before recovery, and never casually restore an old snapshot over
 new accepted writes. Existing browser tabs must reload the paired client; older
 bundled native clients are not upgraded by a server binary swap.
+
+## Completed objective and live release (2026-09-08 Bangkok)
+
+Implementation pushed to `origin/main` as
+`0fdef72f53ff84b12b04dd2bfd4c0438641ca1e9`. It includes the earlier channel,
+call-state and Lore security work on which this group lifecycle depends.
+Upstream call-panel changes through `d63c897a` were integrated and verified.
+The four unrelated UI planning/scouting documents remain untracked and unchanged.
+
+Tim cutover started at **2026-09-07 21:54:03 UTC** (04:54:03 Bangkok); the new
+container process started at **21:54:07 UTC**. A second consistent backup was
+taken under `release-group-20260908.5spRGE/cutover` immediately before the swap.
+The existing container/configuration was retained; only its bind-mounted binary
+was replaced. No remote source sync, tunnel/coturn restart, package installation,
+key rotation, user-account probe or conversation-data deletion occurred.
+Old binary and retired stale locks are recoverable in that private directory.
+
+Post-deploy evidence:
+
+- Live `/proc/1/exe` and `/wabi-server` both hash to the exact tested artifact
+  `02b14de921290711044a20171d062ffd4b0fbcbee7df5207f3729e6dad1c1993`.
+- Tim's server is healthy; origin and public health pass from Tim. Ronin's public
+  `/health`, `/livez`, `/readyz`, `/metrics` return 200. Anonymous channel and
+  admin dead-letter requests return 401. Setup remains claimed; no real account
+  credential was used or inferred from historical notes.
+- Lore remains enabled. All 21 referenced public immutable assets match the
+  candidate's SHA-256 manifest. Public HTML remains `no-cache`; branding is
+  preserved. Public Engine.IO polling handshake succeeds.
+- Headful Chromium loaded the actual public login with no page errors, including
+  a 390px viewport capture. This is unauthenticated live smoke, not live-user
+  login, a physical phone, native WebView, TURN or two-device calling proof.
+- Captured runtime file logs since cutover: 80 lines, one ready banner, **zero
+  ERROR/panic/engine-already-running entries** in the initial post-deploy sample.
+- `/tmp/wabi-group-swap.log`, `/tmp/wabi-group-public-verified.log` retain command
+  results. Backups are mode 0700; captured runtime environment is mode 0600.
+  The network-isolated preflight container is stopped and retained, not running
+  as a hidden second service. Local test/browser/build processes have exited.
+
+This completes the scoped durable group membership/account-wide revocation goal:
+commands, projection/replay, server admission/eviction, stale client/queue/media
+ownership and the legacy managed archive boundary have implementation and
+regression evidence, followed by the authorized paired deployment. It does **not**
+certify all of Wabi as launch-ready. Native installer/physical Android/two-device
+media remain manual verification work; existing browser tabs should reload and
+older bundled Tauri apps require a matching client build for the new behavior.
+
+Separate high-value next objective: message persistence failure currently can be
+logged while a live/accepted event is still emitted (`socketio/messages.rs`).
+That honest-acknowledgment invariant should be investigated and completed as its
+own objective, not buried in or claimed fixed by this group release. Other known
+limits (same-membership account-level call leave/rejoin races, generalized
+multi-device P2P/direct-call reconnect, incomplete optional endpoints, independent
+admin/session audit and historical secret exposure remediation) remain as stated
+in the security model and earlier work records.
