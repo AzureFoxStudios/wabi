@@ -9,6 +9,7 @@
 		groupCallRingingTargets,
 		isInCall,
 		channelCallPanelOpen,
+		channelCallPanelSessionId,
 		activeVoiceChannel,
 		activeGroupCall,
 		isMuted,
@@ -181,9 +182,24 @@
 
 	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
-	$: showDockedBar = $isInCall && callViewportMode === 'docked' && $callMode !== 'channel';
-	$: showCallShell = $isInCall && callViewportMode !== 'docked';
-	$: showHatchToggle = $isInCall && callViewportMode !== 'docked';
+	// Stage targeting (2026-09-07): the panel shows the session the user
+	// clicked from the roster, falling back to the focused session. Lets a
+	// BACKGROUND channel call be viewed without changing transmit focus.
+	$: stageSession = (() => {
+		const targeted = $channelCallPanelSessionId;
+		if (targeted) {
+			const session = $callSessions.get(targeted);
+			if (session) return session;
+		}
+		return $focusedCallSessionId ? $callSessions.get($focusedCallSessionId) : null;
+	})();
+	$: hasChannelStage = Boolean(stageSession && stageSession.kind === 'channel');
+	// Channel stage counts as a live surface even when the legacy isInCall
+	// flag is false (listen-only joins never set it).
+	$: callSurfaceLive = $isInCall || hasChannelStage;
+	$: showDockedBar = callSurfaceLive && callViewportMode === 'docked' && $callMode !== 'channel';
+	$: showCallShell = callSurfaceLive && callViewportMode !== 'docked';
+	$: showHatchToggle = callSurfaceLive && callViewportMode !== 'docked';
 	// Resolve the real channel name — joinVoiceChannel stores the raw id in
 	// activeVoiceChannel, so look the display name up in the channel list.
 	$: activeVoiceChannelName =
@@ -435,13 +451,13 @@
 	// transition docks it in when the store flips true while in-call. Leaving
 	// the call auto-dissolves it via the teardown paths. The sidebar's
 	// openChannelCallPanel click remains user intent and keeps working.
-	$: if ($isInCall && $channelCallPanelOpen && callViewportMode === 'docked') {
+	$: if (callSurfaceLive && $channelCallPanelOpen && callViewportMode === 'docked') {
 		callViewportMode = 'embedded';
 	}
 
 	// Auto-dock when the user navigates away from the voice channel to a text channel
 	$: {
-		if (wasChannelPanelOpen && !$channelCallPanelOpen && $isInCall && $callMode === 'channel' && callViewportMode !== 'docked') {
+		if (wasChannelPanelOpen && !$channelCallPanelOpen && callSurfaceLive && $callMode === 'channel' && callViewportMode !== 'docked') {
 			callViewportMode = 'docked';
 		}
 		wasChannelPanelOpen = $channelCallPanelOpen;
@@ -1105,11 +1121,11 @@
 				<CallRecordingPanel recordingState={$callRecordingState} {recordingPresenceCopy} {recordingPillText} />
 			{/if}
 			<div class="call-stage" bind:this={callStageElement}>
-				{#if $callMode === 'channel' && $focusedCallSessionId && $callSessions.get($focusedCallSessionId)}
-					<!-- Phase 3: the focused channel stage — avatar chips, video/screen
-					     tiles, and the draggable spatial seat map. -->
+				{#if hasChannelStage && stageSession}
+					<!-- Phase 3 + 2026-09-07 stage targeting: the clicked session's
+					     stage — avatar chips, video/screen tiles, spatial seats. -->
 					<CallStage
-						session={$callSessions.get($focusedCallSessionId)}
+						session={stageSession}
 						spatialEnabled={spatialAudioActive}
 					/>
 				{:else}

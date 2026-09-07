@@ -54,7 +54,7 @@ import {
 import { prefetchTurnCredentials } from './turnConfig';
 import { getSocket } from './socketConnection';
 import { playCallActionSound, type CallSoundOptions } from './callSounds';
-import { callSessionManager, callSessions } from './callSessionManager';
+import { callSessionManager, callSessions, focusedCallSessionId } from './callSessionManager';
 import { registerPeerAudioReceiver, releasePeerAudioReceivers } from './peerAudioPlayback';
 import { channels as channelListStore } from './channelStore';
 import { detachSession as detachSessionAudioChain, detachAllSessions as detachAllSessionAudioChains, setGraphOutputMuted } from './callAudioGraph';
@@ -144,6 +144,7 @@ export {
 	activeCallSessionId,
 	callMode,
 	channelCallPanelOpen,
+	channelCallPanelSessionId,
 	voiceChannelNotice,
 	audioProcessingRuntimeStatus,
 	callTransportState,
@@ -173,6 +174,7 @@ import {
 	activeCallSessionId,
 	callMode,
 	channelCallPanelOpen,
+	channelCallPanelSessionId,
 	voiceChannelNotice,
 	audioProcessingRuntimeStatus,
 	callTransportState,
@@ -2939,6 +2941,29 @@ export function closeChannelCallPanel(): void {
 
 export function toggleChannelCallPanel(): void {
 	channelCallPanelOpen.update((open) => !open);
+}
+
+/**
+ * Toggle the embedded call panel for a SPECIFIC session (2026-09-07 stage
+ * targeting). The clicked session's stage renders in the panel WITHOUT
+ * becoming the transmit focus — that stays on the focused session (the
+ * "Speak here" model). Clicking the already-shown session folds the panel
+ * away; clicking a different one retargets in place; a dead id falls back
+ * to the focused session at render time (CallModal).
+ */
+export function toggleChannelCallPanelFor(sessionId?: string): void {
+	const open = get(channelCallPanelOpen);
+	if (open) {
+		const target = get(channelCallPanelSessionId);
+		const showing = target ?? get(focusedCallSessionId);
+		// Clicked the call the panel already shows → fold it away.
+		if (!sessionId || sessionId === showing) {
+			channelCallPanelOpen.set(false);
+			return;
+		}
+	}
+	channelCallPanelSessionId.set(sessionId ?? null);
+	channelCallPanelOpen.set(true);
 }
 
 export function setVoiceTransmitRoutingMode(mode: 'primary' | 'all-listening'): void {

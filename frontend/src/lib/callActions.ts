@@ -5,6 +5,7 @@ export {
 	openChannelCallPanel,
 	closeChannelCallPanel,
 	toggleChannelCallPanel,
+	toggleChannelCallPanelFor,
 	setVoiceTransmitRoutingMode,
 	refreshLocalAudioMuteState,
 	addVoiceChannelListen,

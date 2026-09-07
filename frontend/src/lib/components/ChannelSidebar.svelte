@@ -38,7 +38,7 @@
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import {
 		activeVoiceChannel as callActiveVoiceChannel,
-		toggleChannelCallPanel,
+		toggleChannelCallPanelFor,
 		callMode,
 		channelCallPanelOpen,
 		listeningVoiceChannels,
@@ -392,7 +392,7 @@
 	// panel in place — feeds + controls without leaving the channel, and
 	// without touching transmit focus. The full Voice dashboard stays
 	// reachable via the workspace pill.
-	async function handleVoiceChannelClick(id: string, e?: MouseEvent) { (e?.currentTarget as HTMLElement | null)?.blur?.(); if (isConnectedToVoice(id)) { toggleChannelCallPanel(); dispatch('close'); return; } if (runtimeActiveVoiceChannelId) { subscribeVoiceChannel(id); return; } try { await joinVoiceChannel(id); } catch (e) { console.error('Failed to join voice channel:', e); } }
+	async function handleVoiceChannelClick(id: string, e?: MouseEvent) { (e?.currentTarget as HTMLElement | null)?.blur?.(); if (isConnectedToVoice(id)) { toggleChannelCallPanelFor(id); dispatch('close'); return; } if (runtimeActiveVoiceChannelId) { subscribeVoiceChannel(id); return; } try { await joinVoiceChannel(id); } catch (e) { console.error('Failed to join voice channel:', e); } }
 	function handleToggleListenChannel(id: string) { if (isPrimaryVoiceChannel(id)) return; isConnectedToVoice(id) ? unsubscribeVoiceChannel(id) : subscribeVoiceChannel(id); }
 	function handleTransmitModeChange(e: Event) {
 		const mode = (e.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';

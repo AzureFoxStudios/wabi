@@ -21,7 +21,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import { voiceViewOpen, openVoiceView } from '$lib/voiceView';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
-	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo } from '$lib/calling';
+	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
 import { _ } from '$lib/i18n';
@@ -136,17 +136,19 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: if (showSettings && !SettingsCmp) void import('./Settings.svelte').then((m) => (SettingsCmp = m.default));
 	$: if (showCallDebugPanel && !CallDebugPanelCmp) void import('./CallDebugPanel.svelte').then((m) => (CallDebugPanelCmp = m.default));
 	// CallModal renders whenever any call surface could be visible.
-	// Discord-style call surfaces (2026-08-27 report): joining a CHANNEL call
-	// must not throw a translucent modal over the chat — channel calls live in
-	// the sidebar roster + Calls panel + Voice view. The modal layer stays for
-	// DM rings/streams and group-call rings.
+	// 2026-08-27: joining a CHANNEL call must not throw a translucent modal
+	// over the chat. 2026-09-07 (Round 9 view contract): the channel call's
+	// EMBEDDED panel lives in this layer too — the sidebar's second click
+	// flips channelCallPanelOpen, so channel calls load the modal again
+	// (excluding them here is why the second click rendered nothing).
 	$: callUiActive = Boolean(
 		$incomingCall ||
 			$outgoingCall ||
 			$activeGroupCall ||
 			$groupCallRingingTargets?.length ||
 			$activeCalls?.length ||
-			($isInCall && $callMode !== 'channel')
+			$isInCall ||
+			$channelCallPanelOpen
 	);
 	$: if (callUiActive && !CallModalCmp) void import('./CallModal.svelte').then((m) => (CallModalCmp = m.default));
 

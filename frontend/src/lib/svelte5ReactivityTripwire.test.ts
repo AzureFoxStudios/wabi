@@ -175,7 +175,7 @@ describe('svelte5 reactivity contract — calling sidebar', () => {
 		);
 		const fnMatch = source.match(/async function handleVoiceChannelClick[\s\S]{0,600}/);
 		expect(fnMatch).not.toBeNull();
-		expect(fnMatch![0]).toContain('toggleChannelCallPanel()');
+		expect(fnMatch![0]).toContain('toggleChannelCallPanelFor(id)');
 		expect(fnMatch![0]).not.toContain('openVoiceView()');
 		expect(fnMatch![0]).not.toContain('focusCall(id)');
 	});
