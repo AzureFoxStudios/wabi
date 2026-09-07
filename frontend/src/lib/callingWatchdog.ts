@@ -116,7 +116,9 @@ class TransportWatchdog {
 		if (!opts || this.state !== 'demoting') return;
 
 		// Did the underlying client's own retry heal it during grace?
-		if (await this.probe()) {
+		const recovered = await this.probe();
+		if (this.opts !== opts) return;
+		if (recovered) {
 			this.emit('monitoring');
 			callTransportState.update((st) => ({ ...st, reason: 'reconnected', checkedAt: Date.now() }));
 			return;
@@ -128,8 +130,10 @@ class TransportWatchdog {
 		const next = chain[idx + 1];
 		try {
 			await opts.disconnectCurrent?.();
+			if (this.opts !== opts) return;
 			if (!next) throw new Error('no further fallback');
 			await opts.connect(next);
+			if (this.opts !== opts) return;
 			this.current = next;
 			callTransportState.update((st) => ({
 				...st,
@@ -147,6 +151,7 @@ class TransportWatchdog {
 				this.timer = setInterval(() => void this.tryPromote(), probeMs);
 			}
 		} catch (error) {
+			if (this.opts !== opts) return;
 			console.error('[Watchdog] Demotion failed — no usable transport:', error);
 			callTransportState.update((st) => ({
 				...st,
@@ -161,10 +166,15 @@ class TransportWatchdog {
 		const opts = this.opts;
 		if (!opts || this.state !== 'demoted' || this.current === this.primary) return;
 		try {
-			if (!(await this.probe())) return;
 			if (opts.autoPromoteOk && !opts.autoPromoteOk()) return; // stay demoted; user can switch manually
+			// Probe by establishing the candidate: a healthy /ws control socket
+			// is not evidence of a joined media room. One attempt at a time.
+			this.emit('promoting');
 			await opts.connect(this.primary);
-			await opts.disconnectCurrent?.();
+			if (this.opts !== opts) return;
+			// disconnectCurrent belongs to the ORIGINAL failed primary. It
+			// must never tear down the just-created replacement. The media
+			// owner selects peer reception after playback readiness evidence.
 			this.current = this.primary;
 			callTransportState.update((st) => ({
 				...st,
@@ -177,14 +187,16 @@ class TransportWatchdog {
 			if (this.timer !== null) clearInterval(this.timer);
 			this.timer = null;
 		} catch (error) {
+			if (this.opts !== opts) return;
+			this.emit('demoted');
 			// Primary still not ready; keep probing quietly.
 			console.debug('[Watchdog] Promotion attempt failed:', error);
 		}
 	}
 
 	/**
-	 * Health probe. The wabidb client exposes isConnected; other transports
-	 * report healthy by default unless a future adapter says otherwise.
+	 * Health probe supplied by the media-room owner. Missing evidence is
+	 * unhealthy; the /ws control connection alone cannot establish readiness.
 	 */
 	private async probe(): Promise<boolean> {
 		const opts = this.opts;

@@ -78,9 +78,7 @@ async function buildWithViteJsApi() {
 			build: {
 				rollupOptions: {
 					output: {
-						manualChunks: {
-							codemirror: CODEMIRROR_MODULES
-						}
+						manualChunks: id => CODEMIRROR_MODULES.some(name => id.includes(`/node_modules/${name}/`)) ? 'codemirror' : undefined
 					}
 				}
 			}
@@ -131,7 +129,7 @@ async function buildStandaloneEditor() {
 				build: {
 				outDir,
 				emptyOutDir: false,
-				target: 'ES2021',
+					target: 'es2021',
 				cssCodeSplit: false,
 				lib: {
 					entry: join(appRoot, 'src/lib/editor/CodeMirrorEditor.svelte'),

@@ -46,6 +46,7 @@ in-process event-sourced engine **WabiDB**. Philosophy: *no spying, no bloat, ju
 - [plans/](plans/) — dated build plans. **Convention:** domain/projection/ChannelKind changes
   must append to the active plan doc here (repo policy, see `AGENTS.md`).
 - [WabiDB write completion](plans/2026-09-05-wabidb-write-completion.md) — durability/application acknowledgments, whole-commit checkpoints, recovery evidence, and remaining guarantee limits.
+- [Audio-flow integrity](plans/2026-09-06-audio-flow-integrity.md) — shared microphone ownership, P2P/relay handover, codec/playback regressions, desktop compatibility and verification limits.
 - [research/](research/) and [proposals/](proposals/) — explorations and designs not yet committed to.
 - [audits/](audits/) — recent actionable audits.
 

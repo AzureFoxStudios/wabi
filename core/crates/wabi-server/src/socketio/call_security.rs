@@ -89,6 +89,7 @@ pub fn media_rate_forget(socket_id: &str) {
 /// decoder that never receives live pages is harmless and short-lived.
 const HEADER_CACHE_MAX_SESSIONS: usize = 128;
 const HEADER_CACHE_PER_SENDER: usize = 2;
+const HEADER_CACHE_MAX_STREAMS: usize = 512;
 
 type HeaderCache = HashMap<String, HashMap<String, Vec<Value>>>;
 
@@ -119,6 +120,11 @@ pub fn wabidb_header_cache_remember(session_id: &str, sender: &str, seq: u64, en
         }
     }
     let senders = cache.entry(session_id.to_string()).or_default();
+    if senders.len() >= HEADER_CACHE_MAX_STREAMS && !senders.contains_key(sender) {
+        if let Some(victim) = senders.keys().next().cloned() {
+            senders.remove(&victim);
+        }
+    }
     let entry = senders.entry(sender.to_string()).or_default();
     if seq == 0 {
         entry.clear();
@@ -126,6 +132,20 @@ pub fn wabidb_header_cache_remember(session_id: &str, sender: &str, seq: u64, en
     if entry.len() < HEADER_CACHE_PER_SENDER {
         entry.push(envelope.clone());
     }
+}
+
+/// Headers belong to a connection, not an account. A disconnected device's
+/// headers must not create ghost decoders in every subsequent late joiner.
+pub fn wabidb_header_cache_forget_socket(socket_id: &str) {
+    let mut cache = wabidb_header_cache().write().expect("header cache lock");
+    cache.retain(|_, senders| {
+        senders.retain(|_, envelopes| {
+            !envelopes.iter().any(|e| {
+                e.get("senderSocket").and_then(Value::as_str) == Some(socket_id)
+            })
+        });
+        !senders.is_empty()
+    });
 }
 
 /// Snapshot every cached header envelope for a session, senders ordered by
@@ -637,6 +657,26 @@ mod call_security_tests {
             snap.iter().any(|e| e["payload"] == json!("mic-0") && e["seq"] == json!(0)),
             "mic headers survive the screen stream restart"
         );
+    }
+
+    #[test]
+    fn header_cache_isolates_same_account_devices_and_forgets_only_departed_socket() {
+        let session = "hdr-device-isolation";
+        for device in ["device-a", "device-b"] {
+            for source in ["mic", "screen"] {
+                for seq in 0..2 {
+                    let envelope = json!({ "sessionId": session, "userId": "2", "senderSocket": device, "source": source, "seq": seq, "payload": "header" });
+                    wabidb_header_cache_remember(session, &format!("2:{device}:{source}"), seq, &envelope);
+                }
+            }
+        }
+        assert_eq!(wabidb_header_cache_snapshot(session).len(), 8);
+        wabidb_header_cache_forget_socket("device-a");
+        let remaining = wabidb_header_cache_snapshot(session);
+        assert_eq!(remaining.len(), 4);
+        assert!(remaining.iter().all(|e| e["senderSocket"] == "device-b"));
+        wabidb_header_cache_forget_socket("device-b");
+        assert!(wabidb_header_cache_snapshot(session).is_empty());
     }
 
     #[test]

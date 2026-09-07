@@ -96,4 +96,33 @@ describe('transport watchdog', () => {
 		transportWatchdog.stop();
 		expect(transportWatchdog.status).toBe('stopped');
 	});
+
+	test('promotion never reuses the old primary teardown on the new primary', async () => {
+		let alive = false;
+		let retired = 0;
+		(globalThis as any).__wabidbProbePrimary = () => alive;
+		transportWatchdog.start({ mode: 'auto', active: 'wabidb', graceMs: 1, probeIntervalMs: 10,
+			disconnectCurrent: async () => { retired++; },
+			connect: async transport => { if (transport === 'p2p') alive = true; }
+		});
+		transportWatchdog.handleDisconnect();
+		await new Promise(r => setTimeout(r, 40));
+		expect(transportWatchdog.riding).toBe('wabidb');
+		expect(retired).toBe(1);
+		transportWatchdog.stop();
+	});
+
+	test('stop during asynchronous connect cannot resurrect the watchdog', async () => {
+		let complete!: () => void;
+		(globalThis as any).__wabidbProbePrimary = () => false;
+		transportWatchdog.start({ mode: 'auto', active: 'wabidb', graceMs: 1, probeIntervalMs: 10,
+			connect: () => new Promise<void>(r => { complete = r; })
+		});
+		transportWatchdog.handleDisconnect();
+		await new Promise(r => setTimeout(r, 10));
+		transportWatchdog.stop(); complete();
+		await new Promise(r => setTimeout(r, 5));
+		expect(transportWatchdog.status).toBe('stopped');
+		transportWatchdog.stop();
+	});
 });
