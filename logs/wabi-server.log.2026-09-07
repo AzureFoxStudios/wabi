@@ -1,0 +1,55 @@
+2026-09-07T02:18:53.701334Z  INFO 🚀 Wabi Node v0.1.0
+2026-09-07T02:18:53.701668Z  INFO 📡 Starting server on 127.0.0.1:39003
+2026-09-07T02:18:53.796208Z  INFO [blacklist] Created empty blacklist file at /tmp/wabi-smoke3/data/blacklist.txt
+2026-09-07T02:18:53.796340Z  WARN subscription bridge: SocketIo handle not available, retrying in 1s
+2026-09-07T02:18:53.797513Z  WARN [live-reaper] SocketIo handle not available, skipping tick
+2026-09-07T02:18:53.803077Z  INFO ✅ Server ready
+2026-09-07T02:18:53.803098Z  INFO 🌐 Frontend: http://localhost:39003
+2026-09-07T02:18:53.803102Z  INFO 🔌 API: http://localhost:39003/api
+2026-09-07T02:18:53.803105Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-09-07T02:18:54.457517Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-09-07T02:18:54.457595Z  INFO [bot:hermes] ready: user-1
+2026-09-07T02:18:58.709618Z DEBUG request: started processing request method=GET uri=/ version=HTTP/1.1
+2026-09-07T02:18:58.710791Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/ version=HTTP/1.1
+2026-09-07T02:18:58.730527Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-09-07T02:18:58.730768Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-09-07T02:18:58.751337Z DEBUG request: started processing request method=GET uri=/ version=HTTP/1.1
+2026-09-07T02:18:58.751530Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/ version=HTTP/1.1
+2026-09-07T02:18:58.770132Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-09-07T02:18:58.770252Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-09-07T02:18:58.773334Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-09-07T02:18:58.775046Z  INFO Server shut down gracefully
+2026-09-07T04:40:32.991249Z  INFO 🚀 Wabi Node v0.1.0
+2026-09-07T04:40:32.991649Z  INFO 📡 Starting server on 127.0.0.1:39004
+2026-09-07T04:40:33.051199Z  INFO [blacklist] Created empty blacklist file at /tmp/wabi-smoke4/data/blacklist.txt
+2026-09-07T04:40:33.051518Z  WARN subscription bridge: SocketIo handle not available, retrying in 1s
+2026-09-07T04:40:33.051597Z  WARN [live-reaper] SocketIo handle not available, skipping tick
+2026-09-07T04:40:33.062522Z  INFO ✅ Server ready
+2026-09-07T04:40:33.062555Z  INFO 🌐 Frontend: http://localhost:39004
+2026-09-07T04:40:33.062560Z  INFO 🔌 API: http://localhost:39004/api
+2026-09-07T04:40:33.062564Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-09-07T04:40:33.714955Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-09-07T04:40:33.714980Z  INFO [bot:hermes] ready: user-1
+2026-09-07T04:40:38.005123Z DEBUG request: started processing request method=GET uri=/ version=HTTP/1.1
+2026-09-07T04:40:38.006436Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/ version=HTTP/1.1
+2026-09-07T04:40:38.024158Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-09-07T04:40:38.024361Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-09-07T04:40:38.028065Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-09-07T04:40:38.029612Z  INFO Server shut down gracefully
+2026-09-07T05:01:08.449746Z  INFO 🚀 Wabi Node v0.1.0
+2026-09-07T05:01:08.450133Z  INFO 📡 Starting server on 127.0.0.1:39005
+2026-09-07T05:01:08.476012Z  INFO [blacklist] Created empty blacklist file at /tmp/wabi-smoke5/data/blacklist.txt
+2026-09-07T05:01:08.476291Z  WARN subscription bridge: SocketIo handle not available, retrying in 1s
+2026-09-07T05:01:08.477439Z  WARN [live-reaper] SocketIo handle not available, skipping tick
+2026-09-07T05:01:08.484791Z  INFO ✅ Server ready
+2026-09-07T05:01:08.484814Z  INFO 🌐 Frontend: http://localhost:39005
+2026-09-07T05:01:08.484817Z  INFO 🔌 API: http://localhost:39005/api
+2026-09-07T05:01:08.484820Z  INFO 🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)
+2026-09-07T05:01:09.129473Z  INFO [bot:hermes] registered hermes-bot account (id=1)
+2026-09-07T05:01:09.129500Z  INFO [bot:hermes] ready: user-1
+2026-09-07T05:01:13.457525Z DEBUG request: started processing request method=GET uri=/ version=HTTP/1.1
+2026-09-07T05:01:13.459267Z DEBUG request: finished processing request latency=1 ms status=200 method=GET uri=/ version=HTTP/1.1
+2026-09-07T05:01:13.485708Z DEBUG request: started processing request method=GET uri=/health version=HTTP/1.1
+2026-09-07T05:01:13.485922Z DEBUG request: finished processing request latency=0 ms status=200 method=GET uri=/health version=HTTP/1.1
+2026-09-07T05:01:13.489843Z  INFO Received SIGTERM, starting graceful shutdown...
+2026-09-07T05:01:13.492278Z  INFO Server shut down gracefully

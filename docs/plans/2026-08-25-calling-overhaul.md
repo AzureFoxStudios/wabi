@@ -977,3 +977,26 @@ Round 6 sketch). Single-call behavior — the common case — is exact.
 ### Gates
 - `bun run check`: 0 errors; `bun test src/lib`: 285/0 (contract test
   rewritten for the new shape); `STATIC_BUILD=1` clean.
+
+### Round 9a — 2026-09-07: the second click rendered nothing (CallModal was unmounted)
+
+Field report on the Round 9 deploy: "2nd click just does nothing". Root
+cause: the boot-perf rework (`d4d7081`) had lazily UNMOUNTED CallModal from
+MainLayout and deliberately excluded channel calls from its load gate
+(`($isInCall && $callMode !== 'channel')` — correct while the second click
+went to the Voice view, fatal once Round 9 re-pointed it at the panel).
+`channelCallPanelOpen` flipped; nothing existed to render it.
+
+Fixes:
+- MainLayout loads CallModal for `$isInCall || $channelCallPanelOpen` (lazy,
+  boot path untouched).
+- Stage targeting (the deferred Round 6 sketch): `channelCallPanelSessionId`
+  + `toggleChannelCallPanelFor(sessionId)` — the sidebar's second click
+  targets the CLICKED session; CallModal renders that session's CallStage,
+  falling back to the focused session. Viewing a background call never
+  changes transmit focus; clicking the shown session folds the panel.
+- CallModal gates are session-model aware (`callSurfaceLive = isInCall ||
+  hasChannelStage`): the panel now works for listen-only joins too, which
+  never set isInCall.
+
+Deploy-safety: none of this shipped in Round 9's binary — needs a deploy.
