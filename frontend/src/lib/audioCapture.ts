@@ -13,6 +13,7 @@ import {
 	type DspAudioPipeline
 } from './callingTypes';
 import { buildRTCConfig } from './turnConfig';
+import { AudioCaptureOwner } from './audioCaptureOwner';
 import {
 	getAudioCaptureConstraints,
 	getStoredAudioProcessingMode,
@@ -23,7 +24,7 @@ import {
 	type AudioProcessingMode
 } from './mediaRuntime';
 
-let activeAudioCaptureSession: LocalAudioCaptureSession | null = null;
+const captureOwner = new AudioCaptureOwner(createAudioCaptureSession, disposeAudioCaptureSession);
 let speakingAudioContext: AudioContext | null = null;
 
 export function getRTCConfig(): RTCConfiguration {
@@ -89,54 +90,76 @@ export function resolveEffectiveAudioProcessingMode(
 
 function createDspAudioPipeline(sourceStream: MediaStream): DspAudioPipeline {
 	const context = new AudioContext({ sampleRate: 48000 });
-	const sourceNode = context.createMediaStreamSource(sourceStream);
-	const highPass = context.createBiquadFilter();
-	highPass.type = 'highpass';
-	highPass.frequency.value = 90;
-	highPass.Q.value = 0.8;
+	try {
+		const sourceNode = context.createMediaStreamSource(sourceStream);
+		const highPass = context.createBiquadFilter();
+		highPass.type = 'highpass';
+		highPass.frequency.value = 90;
+		highPass.Q.value = 0.8;
 
-	const notch = context.createBiquadFilter();
-	notch.type = 'notch';
-	notch.frequency.value = 60;
-	notch.Q.value = 10;
+		const notch = context.createBiquadFilter();
+		notch.type = 'notch';
+		notch.frequency.value = 60;
+		notch.Q.value = 10;
 
-	const lowPass = context.createBiquadFilter();
-	lowPass.type = 'lowpass';
-	lowPass.frequency.value = 11000;
-	lowPass.Q.value = 0.7;
+		const lowPass = context.createBiquadFilter();
+		lowPass.type = 'lowpass';
+		lowPass.frequency.value = 11000;
+		lowPass.Q.value = 0.7;
 
-	const compressor = context.createDynamicsCompressor();
-	compressor.threshold.value = -24;
-	compressor.knee.value = 20;
-	compressor.ratio.value = 3;
-	compressor.attack.value = 0.003;
-	compressor.release.value = 0.18;
+		const compressor = context.createDynamicsCompressor();
+		compressor.threshold.value = -24;
+		compressor.knee.value = 20;
+		compressor.ratio.value = 3;
+		compressor.attack.value = 0.003;
+		compressor.release.value = 0.18;
 
-	const destination = context.createMediaStreamDestination();
-	sourceNode.connect(highPass);
-	highPass.connect(notch);
-	notch.connect(lowPass);
-	lowPass.connect(compressor);
-	compressor.connect(destination);
+		const destination = context.createMediaStreamDestination();
+		sourceNode.connect(highPass);
+		highPass.connect(notch);
+		notch.connect(lowPass);
+		lowPass.connect(compressor);
+		compressor.connect(destination);
 
-	const outputTrack = destination.stream.getAudioTracks()[0];
-	if (!outputTrack) {
-		throw new Error('DSP pipeline did not produce an audio track');
+		const outputTrack = destination.stream.getAudioTracks()[0];
+		if (!outputTrack) {
+			throw new Error('DSP pipeline did not produce an audio track');
+		}
+
+		const pipeline: DspAudioPipeline = {
+			context,
+			sourceNode,
+			highPass,
+			lowPass,
+			notch,
+			compressor,
+			destination,
+			outputTrack
+		};
+		// This context is separate from the playback graph. Resuming only the
+		// latter leaves a DSP microphone silently suspended after autoplay blocks.
+		const resume = () => { if (context.state === 'suspended') void context.resume().catch(() => undefined); };
+		resume();
+		if (typeof document !== 'undefined') {
+			document.addEventListener('pointerdown', resume, { passive: true });
+			document.addEventListener('keydown', resume);
+			dspResumeCleanup.set(pipeline, () => {
+				document.removeEventListener('pointerdown', resume);
+				document.removeEventListener('keydown', resume);
+			});
+		}
+		return pipeline;
+	} catch (error) {
+		void context.close().catch(() => undefined);
+		throw error;
 	}
-
-	return {
-		context,
-		sourceNode,
-		highPass,
-		lowPass,
-		notch,
-		compressor,
-		destination,
-		outputTrack
-	};
 }
 
+const dspResumeCleanup = new WeakMap<DspAudioPipeline, () => void>();
+
 function disposeDspAudioPipeline(pipeline: DspAudioPipeline): void {
+	dspResumeCleanup.get(pipeline)?.();
+	dspResumeCleanup.delete(pipeline);
 	try {
 		pipeline.sourceNode.disconnect();
 		pipeline.highPass.disconnect();
@@ -172,9 +195,14 @@ export function disposeAudioCaptureSession(session: LocalAudioCaptureSession): v
 }
 
 export function clearActiveAudioCaptureSession(): void {
-	if (!activeAudioCaptureSession) return;
-	disposeAudioCaptureSession(activeAudioCaptureSession);
-	activeAudioCaptureSession = null;
+	captureOwner.clear();
+}
+
+export function prepareActiveAudioCaptureSession(
+	commit: (session: LocalAudioCaptureSession) => void,
+	replace = false
+): Promise<LocalAudioCaptureSession> {
+	return replace ? captureOwner.replace(commit) : captureOwner.ensure(commit);
 }
 
 export async function createAudioCaptureSession(): Promise<LocalAudioCaptureSession> {
@@ -182,13 +210,13 @@ export async function createAudioCaptureSession(): Promise<LocalAudioCaptureSess
 	const sourceStream = await requestAudioSourceStream(mode);
 
 	if (mode === 'dsp') {
-		const pipeline = createDspAudioPipeline(sourceStream);
-		return {
-			sourceStream,
-			outputTrack: pipeline.outputTrack,
-			mode,
-			pipeline
-		};
+		try {
+			const pipeline = createDspAudioPipeline(sourceStream);
+			return { sourceStream, outputTrack: pipeline.outputTrack, mode, pipeline };
+		} catch (error) {
+			sourceStream.getTracks().forEach(track => track.stop());
+			throw error;
+		}
 	}
 
 	const outputTrack = sourceStream.getAudioTracks()[0];
@@ -371,9 +399,5 @@ export function ensureSpeakingAudioContext(): AudioContext | null {
 }
 
 export function getActiveAudioCaptureSession(): LocalAudioCaptureSession | null {
-	return activeAudioCaptureSession;
-}
-
-export function setActiveAudioCaptureSession(session: LocalAudioCaptureSession | null): void {
-	activeAudioCaptureSession = session;
+	return captureOwner.current;
 }

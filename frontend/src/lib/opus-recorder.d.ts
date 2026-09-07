@@ -1,7 +1,11 @@
 declare module 'opus-recorder' {
   interface OpusRecorderConfig {
     encoderSampleRate?: number;
-    encoderChannels?: number;
+    sourceNode?: MediaStreamAudioSourceNode;
+    bufferLength?: number;
+    encoderFrameSize?: number;
+    maxFramesPerPage?: number;
+    monitorGain?: number;
     streamPages?: boolean;
     numberOfChannels?: number;
     resampleQuality?: number;
@@ -14,11 +18,14 @@ declare module 'opus-recorder' {
 
   export default class OpusRecorder {
     constructor(config?: OpusRecorderConfig);
-    ondataavailable?: (data: ArrayBuffer) => void;
+    ondataavailable?: (data: Uint8Array) => void;
     onpause?: () => void;
     onstop?: () => void;
-    start(stream: MediaStream): Promise<void>;
-    stop(): void;
+    /** Constructor's asynchronous encoder/worklet initialization. */
+    initialize: Promise<void>;
+    start(): Promise<void>;
+    stop(): Promise<void>;
+    close(): Promise<void>;
     pause(): void;
     resume(): void;
   }

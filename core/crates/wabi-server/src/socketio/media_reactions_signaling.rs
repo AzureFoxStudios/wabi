@@ -54,6 +54,12 @@ async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _i
             for envelope in wabidb_header_cache_snapshot(&session_id) {
                 let _ = socket.emit("wabidb-media", &envelope);
             }
+            // Capture starts only after authorization and header replay.
+            // Echo a correlation id so a stale join cannot complete a newer
+            // reconnect attempt on the same deterministic session key.
+            let _ = socket.emit("wabidb-call-joined", &json!({
+                "sessionId": session_id, "requestId": data.get("requestId")
+            }));
         }
         Err(reason) => {
             warn!(
@@ -62,7 +68,7 @@ async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _i
             );
             let _ = socket.emit(
                 "wabidb-call-denied",
-                &json!({ "sessionId": session_id, "reason": reason }),
+                &json!({ "sessionId": session_id, "reason": reason, "requestId": data.get("requestId") }),
             );
         }
     }
@@ -172,7 +178,7 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, _state: SioState, io: S
             } else {
                 "mic"
             };
-            let sender_stream = format!("{}:{stream}", identity.user_id);
+            let sender_stream = format!("{}:{}:{stream}", identity.user_id, socket.id);
             wabidb_header_cache_remember(&session_id, &sender_stream, seq, &payload);
         }
     }

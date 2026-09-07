@@ -4,6 +4,7 @@ import {
 	getScreenShareQualityProfile
 } from './mediaRuntime';
 import type { PeerConnectionState, SenderMediaKind, VideoSource } from './callingTypes';
+import { addPeerMicrophone, gatePeerMicrophone } from './peerMicrophone';
 
 export type ConnectionKeyType = 'call' | 'screen';
 
@@ -186,7 +187,9 @@ export async function addOptimizedTrack(
 		track.contentHint = source === 'screen-share' ? 'detail' : 'motion';
 	}
 
-	const sender = pc.addTrack(track, stream);
+	const sender = track.kind === 'audio' && source !== 'screen-share'
+		? addPeerMicrophone(pc, track, stream)
+		: pc.addTrack(track, stream);
 	await optimizeSender(sender, pc, track.kind as SenderMediaKind, source);
 }
 
@@ -194,18 +197,5 @@ export async function setPeerAudioSendEnabled(
 	pc: RTCPeerConnection,
 	enabled: boolean
 ): Promise<void> {
-	const audioSenders = pc.getSenders().filter((sender) => sender.track?.kind === 'audio');
-	await Promise.all(audioSenders.map(async (sender) => {
-		try {
-			const params = sender.getParameters();
-			if (!params.encodings || params.encodings.length === 0) {
-				params.encodings = [{ active: enabled }];
-			} else {
-				params.encodings = params.encodings.map((encoding) => ({ ...encoding, active: enabled }));
-			}
-			await sender.setParameters(params);
-		} catch (error) {
-			console.warn('[WebRTC] Could not adjust peer audio sender parameters:', error);
-		}
-	}));
+	gatePeerMicrophone(pc, enabled);
 }

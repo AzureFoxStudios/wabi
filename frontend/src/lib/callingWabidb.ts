@@ -12,6 +12,7 @@ import {
 	callTransportState,
 	localStream,
 	voiceTransmitMode,
+	isMuted,
 	isSharing,
 	localScreenStream
 } from './callingStateStores';
@@ -26,6 +27,8 @@ import {
 	resumeCallAudioGraph
 } from './callAudioGraph';
 import type { WabidbVideoLaneDiagnostics } from './wabidbVideoLane';
+import { joinRelayRoom } from './relayRoom';
+import { selectRelayAudio } from './peerAudioPlayback';
 
 // WO-1/WO-2 smoke remediation: diagnostics for CallModal's Diag overlay.
 // The relay Map is double-indexed (channel key AND graph id) — dedupe by
@@ -90,10 +93,11 @@ import { WabidbVideoLane } from './wabidbVideoLane';
 // ============================================================================
 
 let wabidbCallState: WabiDbCallState | null = null;
-// wabidbMediaRelay will be created in a follow-up card. For now we keep the
-// existing wabidbMediaRelay imported lazily so the call flow doesn't break
-// while the websocket media path is being migrated.
+// Lazily loaded media relays, indexed by legacy channel key and graph id.
 const wabidbMediaRelays = new Map<string, any>();
+// Direct calls have no voice-channel routing target. Their legacy map key
+// is the peer id, which must never be mistaken for a listen-only channel.
+const relayTransmitTargets = new WeakMap<object, string | undefined>();
 
 // Round 6 (2026-09-03): autoplay policies keep the shared AudioContext
 // suspended until a user gesture. While any relay is live, the first
@@ -117,6 +121,8 @@ function releaseAudioGestureResumeIfIdle(): void {
 	audioGestureResumeListener = null;
 }
 const sessionIds = new Map<string, string>();
+const sessionControllers = new Map<string, AbortController>();
+const roomJoins = new Map<string, Promise<void>>();
 let sessionId: string | null = null;
 let channelId: string | null = null;
 let currentUserId: number | null = null;
@@ -194,7 +200,24 @@ function teardownWabidbVideoLane(): void {
 	wabidbTransportActive = false;
 }
 
+function syncScreenAudioCapture(screenStream: MediaStream | null): void {
+	// Screen sound has exactly the same destination as screen video. Do not
+	// broadcast it into every listen-only channel or retain a captured relay
+	// instance across reconnects.
+	for (const [key, sid] of sessionIds) {
+		if (sid !== wabidbActiveSessionId) continue;
+		const relay = wabidbMediaRelays.get(key);
+		const pending = screenStream
+			? relay?.startScreenAudioCapture(screenStream)
+			: relay?.stopScreenAudioCapture();
+		void pending?.catch((error: Error) => console.error('[Wabidb] screen audio failed:', error));
+		break;
+	}
+}
+
 export async function disconnectWabidbCall(): Promise<void> {
+	for (const controller of sessionControllers.values()) controller.abort();
+	sessionControllers.clear();
 	for (const relay of wabidbMediaRelays.values()) {
 		try { relay.stop?.(); } catch (_) {}
 	}
@@ -221,6 +244,8 @@ export async function disconnectWabidbCall(): Promise<void> {
 }
 
 export async function disconnectWabidbChannel(targetChannelId: string): Promise<void> {
+	sessionControllers.get(targetChannelId)?.abort();
+	sessionControllers.delete(targetChannelId);
 	const relay = wabidbMediaRelays.get(targetChannelId);
 	if (relay) {
 		try { relay.stop?.(); } catch (_) {}
@@ -235,6 +260,7 @@ export async function disconnectWabidbChannel(targetChannelId: string): Promise<
 		}
 	}
 	const targetSessionId = sessionIds.get(targetChannelId);
+	if (targetSessionId === wabidbActiveSessionId) teardownWabidbVideoLane();
 	if (targetSessionId && wabidbCallState) {
 		try { await wabidbCallState.leaveSession(targetSessionId, currentUserId ?? 0, ''); } catch (_) {}
 	}
@@ -255,13 +281,20 @@ export async function disconnectWabidbChannel(targetChannelId: string): Promise<
  * `opusRecorder === null` forever (Round 6).
  */
 export async function syncWabidbCapture(
-	shouldCapture: (channelId: string) => boolean
+	shouldCapture: (channelId?: string) => boolean
 ): Promise<void> {
+	const seen = new Set<unknown>();
+	const pending: Promise<void>[] = [];
 	for (const [channelId, relay] of wabidbMediaRelays.entries()) {
-		try {
-			await relay.setCapture?.(shouldCapture(channelId));
-		} catch (_) {}
+		if (seen.has(relay)) continue; // graph-id aliases are not other channels
+		seen.add(relay);
+		// Invoke all gates synchronously: one initializing encoder must never
+		// delay muting a different relay.
+		pending.push(relay.setCapture(shouldCapture(relayTransmitTargets.get(relay))).catch((error: Error) => {
+			console.error('[Wabidb] microphone routing failed:', error);
+		}));
 	}
+	await Promise.all(pending);
 }
 
 /**
@@ -287,10 +320,24 @@ export function rejoinWabidbCallRooms(): void {
 	const socket = getSocket();
 	if (!socket?.connected) return;
 	for (const [channelId, sessionId] of sessionIds.entries()) {
-		socket.emit('join-wabidb-call', { sessionId, channelId });
+		const relay = wabidbMediaRelays.get(channelId);
+		if (!relay || roomJoins.has(channelId)) continue;
+		void relay.setRoomReady(false);
+		const join = joinRelayRoom(socket, sessionId, channelId, sessionControllers.get(channelId)?.signal)
+			.then(async () => {
+				if (wabidbMediaRelays.get(channelId) !== relay) return;
+				await relay.setRoomReady(true);
+			})
+			.catch((error) => {
+				if (wabidbMediaRelays.get(channelId) !== relay) return;
+				console.error('[Wabidb] media room rejoin failed:', error);
+				transportWatchdog.handleDisconnect();
+			})
+			.finally(() => { if (roomJoins.get(channelId) === join) roomJoins.delete(channelId); });
+		roomJoins.set(channelId, join);
 	}
 	if (sessionIds.size > 0) {
-		console.log(`[Wabidb] re-joined ${sessionIds.size} media room(s) after reconnect`);
+		console.log(`[Wabidb] requesting authorization for ${sessionIds.size} media room(s) after reconnect`);
 	}
 }
 
@@ -316,7 +363,8 @@ export function setWabidbSpatialPosition(
 // T3: health probe consumed by callingWatchdog via a global hook (avoids a
 // circular import watchdog -> wabidb -> watchdog).
 (globalThis as any).__wabidbProbePrimary = (transport: string) =>
-	transport === 'wabidb' ? Boolean(wabidbCallState?.isConnected) : false;
+	transport === 'wabidb' && activeWatchdogSessionId != null
+		? Boolean(wabidbMediaRelays.get(activeWatchdogSessionId)?.isRoomReady()) : false;
 
 const defaultWabidbServer = import.meta.env.VITE_WABI_SERVER_URL ?? '';
 
@@ -358,20 +406,22 @@ export async function connectWabidbCall(
 	peerUserId?: string,
 	listenOnly = false,
 ): Promise<void> {
-	if (wabidbMediaRelays.has(targetChannelId)) {
-		return;
-	}
 	const inflight = wabidbConnectInflight.get(targetChannelId);
 	if (inflight) {
 		await inflight;
 		return;
 	}
-	const run = doConnectWabidbCall(socket, targetChannelId, localDisplayName, serverUrl, peerUserId, listenOnly);
+	if (wabidbMediaRelays.has(targetChannelId)) return;
+	const controller = new AbortController();
+	sessionControllers.set(targetChannelId, controller);
+	const run = doConnectWabidbCall(socket, targetChannelId, localDisplayName, serverUrl, peerUserId, listenOnly, controller.signal);
 	wabidbConnectInflight.set(targetChannelId, run);
 	try {
 		await run;
 	} finally {
 		wabidbConnectInflight.delete(targetChannelId);
+		if (!wabidbMediaRelays.has(targetChannelId) && sessionControllers.get(targetChannelId) === controller) sessionControllers.delete(targetChannelId);
+		releaseAudioGestureResumeIfIdle();
 	}
 }
 
@@ -382,6 +432,7 @@ async function doConnectWabidbCall(
 	serverUrl: string = defaultWabidbServer,
 	peerUserId?: string,
 	listenOnly = false,
+	signal?: AbortSignal,
 ): Promise<void> {
 	if (wabidbMediaRelays.has(targetChannelId)) {
 		return;
@@ -460,6 +511,7 @@ async function doConnectWabidbCall(
 		}
 
 		await wabidbCallState.createSession(newSessionId, targetChannelId, 'audio-call', currentUserId ?? 0, 100);
+		signal?.throwIfAborted();
 
 		// Join the session so the participant appears in the roster. Guarded:
 		// a failure here must not break the audio relay that follows.
@@ -475,6 +527,7 @@ async function doConnectWabidbCall(
 		// caller and callee rendezvous on the same wabidb session.
 		try {
 			const { WabidbMediaRelay } = await import('./wabidbMediaRelay');
+			signal?.throwIfAborted();
 			const { directCallSessionId } = await import('./callSessionTypes');
 			// Phase 2: the relay's audio chain id matches the CallSessionManager
 			// session id (channelId for channels/groups, direct:{peer} for DMs)
@@ -492,27 +545,26 @@ async function doConnectWabidbCall(
 						notifyRelayAudioActivity(fromUserId)
 					);
 				},
-				// Single-transport rule, proof-gated: only retire a redundant
-				// p2p mesh once this relay has DECODED real inbound voices.
-				// Closing on start alone killed working p2p audio while the
-				// relay was still warming up (or one-sided) — the "heard noise
-				// for a second then silence" report. Until this fires, both
-				// paths may briefly coexist; the mesh side stays muted by no
-				// extra action needed once the relay takes over playback.
-				onFirstDecodedAudio: () => {
-					console.log(`[Wabidb] relay proved inbound audio for ${targetChannelId} — retiring p2p mesh`);
-					void import('./calling_impl_core').then(({ closeChannelP2PMesh }) => {
-						try { closeChannelP2PMesh(targetChannelId); } catch { /* best-effort */ }
-					}).catch(() => {});
+				// Receive-only proof selects microphone playback, never tears
+				// down a bidirectional PC (which also carries our mic/camera).
+				onRemoteAudioReady: (fromUserId: string) => {
+					if (wabidbMediaRelays.get(targetChannelId) !== relay || getStoredCallTransportMode() === 'p2p-only') return;
+					selectRelayAudio(relay, audioSessionId, fromUserId, true);
+				},
+				onRemoteAudioUnavailable: (fromUserId: string) => {
+					if (relay) selectRelayAudio(relay, audioSessionId, fromUserId, false);
 				},
 				...(isDirectCall
 					? { kind: 'dm' as const, peerStableUserId: peerUserId }
 					: {}),
 				// "All listening channels" broadcast captures into every
 				// subscribed channel session, not just the primary one.
-				capture: !listenOnly || get(voiceTransmitMode) === 'all-listening',
+				capture: !get(isMuted) && (!listenOnly || get(voiceTransmitMode) === 'all-listening'),
 			});
+			ensureAudioGestureResume();
 			await relay.start(stream);
+			signal?.throwIfAborted();
+			relayTransmitTargets.set(relay, isDirectCall ? undefined : targetChannelId);
 			wabidbMediaRelays.set(targetChannelId, relay);
 			ensureAudioGestureResume();
 			// Phase 3: also index by the graph/session id (direct:{peer} for
@@ -523,6 +575,7 @@ async function doConnectWabidbCall(
 			}
 		} catch (e) {
 			console.warn('[Wabidb] Media relay start failed:', e);
+			relay?.stop();
 			relay = null;
 		}
 		// A wabidb attempt without a live receive relay is a failed attempt:
@@ -534,6 +587,15 @@ async function doConnectWabidbCall(
 			throw new Error('Wabidb media relay failed to start');
 		}
 		relay = wabidbMediaRelays.get(targetChannelId);
+		sessionIds.set(targetChannelId, newSessionId);
+		await joinRelayRoom(socket, newSessionId, targetChannelId, signal);
+		signal?.throwIfAborted();
+		// Read CURRENT intent after all async setup, not the mute/routing
+		// snapshot from before permissions/HTTP/room authorization completed.
+		const { shouldSendAudioToChannel } = await import('./calling_impl_core');
+		await relay.setCapture(shouldSendAudioToChannel(relayTransmitTargets.get(relay)));
+		await relay.setRoomReady(true);
+		signal?.throwIfAborted();
 
 		// Attach the video lane (camera + screenshare) to the relay so inbound
 		// video envelopes are routed to it. The lane owns its own outbound emit
@@ -572,14 +634,7 @@ async function doConnectWabidbCall(
 					// dropped for everyone on this transport. Gated on the relay's
 					// own lifecycle, not mic mute. Map lookup (not the closure's
 					// relay) so a healed/re-created relay is always the target.
-					const relayForAudio = wabidbMediaRelays.get(targetChannelId);
-					if (screenStream) {
-						void relayForAudio?.startScreenAudioCapture?.(screenStream).catch((e) =>
-							console.warn('[Wabidb] screen-audio capture failed:', e)
-						);
-					} else {
-						void relayForAudio?.stopScreenAudioCapture?.().catch(() => {});
-					}
+					syncScreenAudioCapture(screenStream);
 					if (!wabidbVideoLaneInst) return;
 					// P1: only touch the SCREEN sender — an active camera lane must
 					// keep running while screenshare starts/stops.
@@ -599,8 +654,8 @@ async function doConnectWabidbCall(
 		// lane is created once; without this attach, a SECOND concurrent
 		// channel's relay dropped every inbound video envelope (round 5).
 		relay?.attachVideoLane(wabidbVideoLaneInst ?? null);
+		syncScreenAudioCapture(get(localScreenStream));
 
-		socket.emit('join-wabidb-call', { sessionId: newSessionId, channelId: targetChannelId });
 		// Phase 1 hardening: on denial, onWabidbCallDenied feeds the transport
 		// watchdog so the fallback chain demotes to the next link (p2p)
 		// instead of leaving the user silently deaf. off-then-on keeps the
@@ -609,11 +664,8 @@ async function doConnectWabidbCall(
 		socket.on('wabidb-call-denied', onWabidbCallDenied);
 		sessionIds.set(targetChannelId, newSessionId);
 
-		// NOTE: no mesh close here by design. Single-transport convergence
-		// happens via the relay's onFirstDecodedAudio callback (proof-gated):
-		// the redundant p2p mesh retires only after this relay demonstrably
-		// decodes inbound voices. Closing on start alone killed working p2p
-		// audio during relay warmup — never close unproven.
+		// Room membership is control readiness, not bidirectional media proof.
+		// Per-peer worklet rendering selects reception without closing a PC.
 
 		connectionState.set('connected');
 		callTransportState.update((state) => ({

@@ -922,3 +922,19 @@ a worklet-channel-count follow-up, not a protocol change.
    sound immediately (stream-qualified header replay).
 4. A mutes mic while sharing → screen audio keeps flowing; A deafens → B
    unaffected, A hears nothing.
+
+## 2026-09-06 — audio integrity corrections to rounds 5–8
+
+The [audio-flow integrity work record](2026-09-06-audio-flow-integrity.md)
+supersedes the prior implementation-complete claims for capture/playback and
+relay handover. Inspection of the installed codec found `start(stream)` did
+not select that stream; actual playback and streaming decode also had gaps.
+The revised paths borrow explicit mic/display tracks, wait for room
+authorization, isolate device/source decoders and gate on worklet rendering.
+
+Header cache keys now include account **and socket and source**. Stereo worker
+outputs are explicitly downmixed, not controlled by an unsupported
+`decoderChannels` setting. Receive-only proof selects a participant's incoming
+audio path; it no longer closes a bidirectional P2P mesh. Native builds use the
+actual root `src-tauri/` and its CSP. See the work record for tested behavior,
+compatibility requirements, and still-unverified release conditions.

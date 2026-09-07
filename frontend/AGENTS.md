@@ -1,13 +1,14 @@
 # Wabi Frontend — Polish Plan & Reference
 
-Frontend for Wabi. Svelte 5 + SvelteKit + plain CSS. Ships as both a web build and a **Tauri desktop app** (`src-tauri/`). This file is the durable reference for the full-site visual polish pass — read it instead of re-deriving.
+Frontend for Wabi. Svelte 5 + SvelteKit + plain CSS. Ships as both a web build and a **Tauri desktop app** (repository-root `src-tauri/`, i.e. `../src-tauri/` from here). This file is the durable reference for the full-site visual polish pass — read it instead of re-deriving.
 
 ## Verification (run from `/var/home/Ronin/wabi/frontend`)
 
 - Typecheck: `bun run check` — `svelte-kit sync && svelte-check`
-- Web build: `bun run build` (vite build)
+- Web build for the server: `bun run build:static` (adapter-static; required for Rust embed)
 - Tauri build: `bun run build:tauri` — runs `scripts/build-tauri.mjs` (vite build with `TAURI_ENV_PLATFORM` set). Alias for full native bundle: `bun run tauri-build` (needs Rust + system deps, e.g. webkit2gtk on Linux; run on the target OS, not cross-compiled).
 - Headless Chromium crashes on Wabi — visual checks happen in a real browser / Tauri window by the user.
+- Audio regression: `bun test src/lib`; `node scripts/audio-browser-smoke.mjs` launches an isolated **headful** synthetic media test under the root desktop CSP (no real microphone/speaker use). It does not substitute for two-device or native-webview verification. See `../docs/plans/2026-09-06-audio-flow-integrity.md`.
 - UI/CSS changes are platform-agnostic. Typecheck + web build cover UI work; Tauri build is only needed when build config or `src-tauri/` changes. Tauri code paths are `src-tauri/` and `lib/tauri-*.ts` — they use the same design tokens, don't break them.
 
 ## Design language

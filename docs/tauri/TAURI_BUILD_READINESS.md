@@ -1,67 +1,55 @@
-# Tauri Build Readiness (Linux / macOS / Windows)
+# Tauri build readiness
 
-## What was validated
+Updated 2026-09-06. This supersedes the older environment-specific packaging
+report. See [audio-flow integrity](../plans/2026-09-06-audio-flow-integrity.md)
+for the audio changes and exact verification limits.
 
-- Ran a full `npm run tauri-build` from `frontend/` to simulate production packaging.
-- Ran `npx tauri info` to detect host/tooling prerequisite gaps.
-- Reviewed Tauri config and Rust crate setup in `frontend/src-tauri`.
+## Current source of truth
 
-## Current status summary
+The native crate and configuration are at repository-root `src-tauri/`, not
+`frontend/src-tauri/`. The root config points to `../frontend/build`; its
+pre-build command runs `cd frontend && bun run build:tauri`. The desktop
+frontend build includes the standalone editor asset check, not just the SPA.
 
-- **Tauri app wiring is present** (Rust entrypoint, handlers, capabilities, per-OS icon config).
-- **Frontend build step succeeds** under Tauri (`vite build` + static adapter output).
-- **Linux bundle currently fails** in this environment due to missing native GTK/GLib development libraries (`glib-2.0.pc` not found).
-- **Cross-platform hardening updates made**:
-  - `identifier` changed from `com.wabi.app` to `com.wabi.desktop` to avoid macOS `.app` naming conflicts.
-  - `beforeBuildCommand` / `beforeDevCommand` changed from `bun ...` to `npm run ...` to reduce machine-specific Bun dependency during Tauri builds.
+The native bundle requires a real, target-specific Tailcat sidecar matching
+`bundle.externalBin`. Do not fake or silently remove it to report a successful
+package. The native Rust commands currently do not implement a separate audio
+capture/DSP engine; calls use the shared frontend through the platform webview.
 
-## Expected issues by platform
+## Checks completed in this workspace
 
-### Linux
+- Static web frontend build and desktop frontend build succeeded.
+- Frontend typecheck completed with zero errors; existing warnings remain.
+- Headful Chromium exercised real codec workers/WASM, AudioWorklet playback,
+  local WebRTC media, mute/device replacement, receive handover and DSP resume
+  under the actual desktop CSP, using synthetic sources and silent output.
+- Normal `cargo check --manifest-path src-tauri/Cargo.toml --locked --offline`
+  succeeded after fetching the pinned genuine Tailcat v0.4.0 sidecar with the
+  repository's script. The archive checksum matched the published GitHub
+  release digest (recorded in the audio work record). Earlier code-only checks
+  excluded this sidecar requirement; the final normal check does not.
+- The full native release command successfully linked
+  `src-tauri/target/release/wabi-desktop`. Debian packaging then failed at
+  appindicator discovery: runtime libraries exist on this Bazzite host, but
+  their pkg-config development metadata is missing. The tray feature was not
+  disabled. No installer was produced or installed.
+- Native-window audio verification was not completed; other platforms remain
+  unverified. The exact commands and limits are in the audio work record.
 
-Likely failure classes:
+The checked-in CSP allows `script-src 'self' 'wasm-unsafe-eval'` and
+`worker-src 'self' blob:` for the installed codec. It does not enable general
+`unsafe-eval`. Chromium CSP verification is not proof of WebKitGTK, WebView2,
+or WKWebView compatibility.
 
-1. Missing WebKitGTK/GLib/native build deps (confirmed here).
-2. Missing `pkg-config` paths when libraries are installed in nonstandard locations.
+## Remaining release gates
 
-Typical packages (Ubuntu/Debian) that should be present for Tauri v2 desktop builds:
+Fetch the pinned sidecar and run the full native build on each supported OS.
+Linux needs WebKitGTK/GTK and related development packages; macOS needs Xcode
+tooling and signing/notarization for distribution; Windows needs MSVC/SDK
+tooling and its own bundle/signing verification.
 
-- `libwebkit2gtk-4.1-dev`
-- `libgtk-3-dev`
-- `libglib2.0-dev`
-- `librsvg2-dev`
-- `patchelf`
-
-### macOS
-
-Likely failure classes:
-
-1. Missing Xcode Command Line Tools.
-2. Apple signing/notarization requirements for distributable builds.
-3. Bundle identifier format issues (now mitigated by moving away from `.app` suffix).
-
-### Windows
-
-Likely failure classes:
-
-1. Missing Visual Studio Build Tools (MSVC toolchain).
-2. Missing Windows SDK.
-3. Code signing requirements for smooth install reputation/trust.
-
-## Additional observations
-
-- `npx tauri info` reported `@tauri-apps/plugin-shell` JavaScript package as not installed while Rust plugin is enabled. This is not always a build blocker, but can become a runtime/dev issue if frontend code imports the JS plugin helpers.
-- CSP is intentionally permissive in script/style policy (`unsafe-inline`/`unsafe-eval`) and may need tightening before hardened desktop distribution.
-
-## Suggested CI matrix
-
-Add/maintain CI jobs that run at minimum:
-
-- `npm ci`
-- `npm run build`
-- `npm run tauri-build` (or `cargo check` in `src-tauri`) on:
-  - `ubuntu-latest`
-  - `macos-latest`
-  - `windows-latest`
-
-and explicitly install platform prerequisites before the Linux/macOS jobs.
+Use real native windows to verify microphone permission, preferred-device
+selection, physical audibility, mute/deafen, screen sound, DSP mode changes,
+reconnect, and teardown. Also verify two authenticated Wabi clients across a
+network boundary. Local synthetic ICE and a passing frontend build do not
+establish those guarantees.

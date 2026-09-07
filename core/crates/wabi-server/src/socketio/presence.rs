@@ -637,6 +637,7 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     // Calling security cleanup (2026-08-25 Phase 1): drop the media rate
     // bucket and every DM call-signaling link this user held.
     media_rate_forget(&socket_id);
+    wabidb_header_cache_forget_socket(&socket_id);
     dm_link_clear_user(&get_my_stable_id(&socket, &state.app.config.jwt_secret));
 
     // Recording transparency cleanup (2026-08-27 round 5): a disconnected
@@ -973,4 +974,3 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
         let _ = socket.emit("live-buffer-snapshot", &snap);
     }
 }
-
