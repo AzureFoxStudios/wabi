@@ -75,6 +75,18 @@ export function sessionBadge(session: CallSession): CallSessionBadge {
 	return session.focus;
 }
 
+/**
+ * Plain-language badge/button copy (2026-09-07): the internal terms leaked
+ * into the UI ("focused"/"background"/"silenced" meant nothing to users).
+ * The focused session is where you SPEAK; the rest are listening (or fully
+ * muted). `focused` renders no badge at all.
+ */
+export function sessionBadgeLabel(badge: CallSessionBadge): string {
+	if (badge === 'background') return 'Listening';
+	if (badge === 'silenced') return 'Muted';
+	return '';
+}
+
 export interface RegisterCallSessionInput {
 	id: string;
 	channelId?: string | null;

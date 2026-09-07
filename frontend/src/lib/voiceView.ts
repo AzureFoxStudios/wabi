@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { currentChannel } from './socket';
 import { mobileTabQueue } from './mobileTabQueue';
 import { READER_ADDON_ID } from './readerWorkspace';
 import { MODEL_VIEWPORT_ADDON_ID } from './modelViewportTab';
@@ -38,3 +39,19 @@ export function openVoiceView(): void {
 export function closeVoiceView(): void {
 	voiceViewOpen.set(false);
 }
+
+// Un-stick (2026-09-07): selecting ANY other channel exits the voice
+// dashboard. The view resolver rendered 'voice' for every channel while the
+// flag stayed up, so clicking around felt like the view was stuck. The
+// dashboard is opened from a channel, not tied to one — navigation wins.
+let voiceViewOpenNow = false;
+voiceViewOpen.subscribe((open) => {
+	voiceViewOpenNow = open;
+});
+let lastChannelKey: string | null = null;
+currentChannel.subscribe((channelKey) => {
+	if (voiceViewOpenNow && lastChannelKey !== null && channelKey !== lastChannelKey) {
+		voiceViewOpen.set(false);
+	}
+	lastChannelKey = channelKey;
+});
