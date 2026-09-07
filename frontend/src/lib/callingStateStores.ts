@@ -68,6 +68,13 @@ export const activeCallSessionId = writable<string | null>(null);
 
 export const callMode = writable<'direct' | 'channel' | 'group' | null>(null);
 export const channelCallPanelOpen = writable(false);
+/**
+ * Which session the embedded call panel shows (2026-09-07 stage targeting):
+ * the clicked session from the sidebar's second click, or null = follow the
+ * focused session. Lets a BACKGROUND call be viewed without changing the
+ * transmit focus. Dead ids fall back to the focused session at render time.
+ */
+export const channelCallPanelSessionId = writable<string | null>(null);
 export const voiceChannelNotice = writable<{ id: number; text: string } | null>(null);
 
 // ============================================================================
