@@ -88,6 +88,9 @@ data/state-plane-schema-version.json
 data/state-plane-shadow.offset
 data/.plugin-storage/
 data/jwt_secret
+data/root_key
+data/revocations.json
+data/upload_registry.json
 data/jwt_secret.old
 data/admin_policies.json
 data/server_owner.json
