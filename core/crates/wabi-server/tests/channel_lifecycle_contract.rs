@@ -174,7 +174,7 @@ async fn group_channel_lives_under_its_caller_assigned_id() {
     let group_id = "group-1234";
     state
         .wdb
-        .upsert_group(group_id, "the crew", "group", Some(&["user-1".to_string(), "user-2".to_string()]), None, None)
+        .create_group(group_id, "the crew", 1, &[1, 2])
         .await
         .unwrap();
 

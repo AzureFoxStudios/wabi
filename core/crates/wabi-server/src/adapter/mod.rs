@@ -33,6 +33,8 @@ use wabidb::error::{Result, WabiError};
 use wabidb::format::record::RecordKind;
 use wabidb::sequencer::types::{CommandCommit, EventToWrite};
 
+mod group_commands;
+
 /// Adapter from the WabiClient method shape to wabidb commands.
 ///
 /// Holds an `Arc<WabiDbEngine>` and implements the `WabiStore` trait, which
@@ -90,6 +92,21 @@ impl WdbAdapter {
     /// Reference to the underlying engine (for advanced callers).
     pub fn engine(&self) -> &WabiDbEngine {
         &*self.engine
+    }
+
+    /// Tail lookup for durable call signal allocation. Only the current call's
+    /// highest key is decoded, not its entire signaling history on every write.
+    pub fn last_call_signal(&self, session_id: &str) -> Result<Option<wabidb::domain::CallSignal>> {
+        use wabidb::projections::call_signals;
+        let mut result = Ok(None);
+        self.engine.projection_state().prefix_scan_reverse(call_signals::INDEX_NAME, format!("{session_id}:").as_bytes(), |key, value| {
+            let key = String::from_utf8_lossy(key);
+            if key.rsplit_once(':').is_some_and(|(id, _)| id == session_id) {
+                result = call_signals::decode_value(value).map(Some);
+                false
+            } else { true }
+        });
+        result
     }
 
     // ============================================================
@@ -762,17 +779,9 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn list_channel_members(&self, channel_id: &str) -> Result<Vec<ChannelMember>> {
-        use wabidb::projections::channel_members::decode_record;
-        let state = self.engine.projection_state();
-        let mut out: Vec<ChannelMember> = Vec::new();
-        state.for_each("channel_members", |_key, value| {
-            if let Ok(record) = decode_record(value) {
-                if record.channel_id == channel_id {
-                    out.push(ChannelMember::from(record));
-                }
-            }
-        });
-        Ok(out)
+        use wabidb::projections::channel_members::ChannelMembersProjection;
+        Ok(ChannelMembersProjection::list_members(&self.engine.projection_state(), channel_id)?
+            .into_iter().map(ChannelMember::from).collect())
     }
 
     async fn list_reactions(&self, message_id: &str) -> Result<Vec<Reaction>> {
@@ -911,42 +920,13 @@ impl WabiStore for WdbAdapter {
         Ok(channel_id.to_string())
     }
 
-    async fn upsert_group(
-        &self,
-        channel_id: &str,
-        name: &str,
-        _kind: &str,
-        members: Option<&[String]>,
-        _avatar: Option<&str>,
-        _description: Option<&str>,
-    ) -> Result<String> {
-        let payload = serde_json::json!({
-            "channel_id": channel_id,
-            "name": name,
-            "channel_kind": wabidb::domain::ChannelKind::GroupDm as u8,
-            "owner_user_id": 0,
-            "created_at_micros": now_micros(),
-        });
-        self.run(
-            0,
-            "upsert_group",
-            channel_id.into(),
-            "channel_created",
-            6,
-            Self::payload_json(&payload)?,
-            true,
-            None,
-        )
-        .await?;
-        if let Some(member_ids) = members {
-            for m in member_ids.iter() {
-                let user_id = m.trim_start_matches("user-").parse::<u64>().unwrap_or(0);
-                if user_id > 0 {
-                    self.add_channel_member(channel_id, user_id, wabidb::domain::MemberRole::Member).await?;
-                }
-            }
-        }
-        Ok(channel_id.to_string())
+    async fn create_group(&self, channel_id: &str, name: &str, owner_user_id: u64, members: &[u64]) -> Result<u64> {
+        self.create_group_command(channel_id, name, owner_user_id, members).await
+    }
+
+    async fn change_group_membership(&self, actor_user_id: u64, channel_id: &str,
+        add: Option<u64>, remove: Option<u64>, owner_user_id: u64) -> Result<u64> {
+        self.change_group_membership_command(actor_user_id, channel_id, add, remove, owner_user_id).await
     }
 
     async fn get_channels_raw(
@@ -1781,6 +1761,15 @@ impl WabiStore for WdbAdapter {
         .map(|o| o.commit_seq)
     }
 
+    async fn list_channel_call_sessions(&self, channel_id: &str) -> Result<Vec<wabidb::domain::CallSession>> {
+        use wabidb::projections::call_sessions;
+        let rows = self.engine.projection_state().with_index(call_sessions::INDEX_NAME, |index| {
+            index.iter().map(|entry| call_sessions::decode_value(entry.value()))
+                .collect::<Result<Vec<_>>>()
+        })?;
+        Ok(rows.into_iter().filter(|s| s.channel_id == channel_id).collect())
+    }
+
     async fn get_call_session(
         &self,
         session_id: &str,
@@ -1828,10 +1817,11 @@ impl WabiStore for WdbAdapter {
     ) -> Result<Vec<wabidb::domain::CallSignal>> {
         use wabidb::projections::call_signals;
         let mut signals = Vec::new();
-        self.engine.projection_state().for_each(call_signals::INDEX_NAME, |k, v| {
+        let mut decode_error = None;
+        self.engine.projection_state().prefix_scan(call_signals::INDEX_NAME, format!("{session_id}:").as_bytes(), |k, v| {
             // Key format: "<session_id>:<20-digit-zero-padded-signal_id>"
             let key = String::from_utf8_lossy(k);
-            let Some((stored_session, id_str)) = key.split_once(':') else {
+            let Some((stored_session, id_str)) = key.rsplit_once(':') else {
                 return;
             };
             if stored_session != session_id {
@@ -1845,10 +1835,11 @@ impl WabiStore for WdbAdapter {
             }
             match call_signals::decode_value(v) {
                 Ok(sig) => signals.push(sig),
-                Err(_) => {}
+                Err(e) => decode_error = Some(e),
             }
         });
         signals.sort_by_key(|s| s.signal_id);
+        if let Some(error) = decode_error { return Err(error); }
         Ok(signals)
     }
 

@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
@@ -45,7 +44,6 @@ pub struct AppState {
     /// yet dyn-compatible (its async fns need a Send bound for `dyn Trait`).
     /// Can switch to `Arc<dyn WabiStore>` once the trait gets the fix.
     pub wdb: Arc<WdbAdapter>,
-    pub ws_tx: broadcast::Sender<Arc<crate::websocket::WsMessage>>,
     #[allow(dead_code)]
     pub channels: RwLock<ChannelManager>,
     pub session_messages: SessionMessages,
@@ -101,16 +99,16 @@ pub struct AppState {
     /// Lore addon service for version-controlled binary storage
     #[cfg(feature = "wabi-lore")]
     pub lore_service: RwLock<Option<Arc<crate::lore::LoreService>>>,
-    /// Monotonic per-process counter for call signal ids.
-    /// Not durable across restarts; clients replay since-signal_id after reconnect.
-    pub call_signal_counter: Arc<AtomicU64>,
-    /// Per-connection call-session subscription sets. conn_id -> set of session_ids.
-    pub call_session_subscriptions: Arc<Mutex<HashMap<u64, HashSet<String>>>>,
+    /// Orders private-membership transitions against socket admission, snapshots
+    /// and persisted call consent. Always acquire BEFORE call/voice/group locks.
+    /// Socket dispatch owns read guards; group lifecycle commands own writers.
+    /// Helpers called inside either boundary must not acquire it recursively.
+    pub membership_gate: Arc<RwLock<()>>,
+    /// Serialize each call's authorize/read/write/push boundary.
+    pub call_session_locks: crate::call_access::SessionLocks,
     /// Channel that internal call-session handlers push (session_id, WsMessage) to.
     /// WebSocket connections subscribe and filter by their own session set.
     pub call_session_push: broadcast::Sender<(String, Arc<crate::websocket::WsMessage>)>,
-    /// Monotonic connection id counter for WebSocket connections.
-    pub ws_conn_id_counter: Arc<Mutex<u64>>,
     /// Steam addon server-side cache (60s TTL per steam id). Opt-in; only
     /// populated when STEAM_API_KEY is configured. See api/steam.rs.
     pub steam_cache: Arc<Mutex<crate::api::steam::SteamCache>>,
@@ -251,7 +249,6 @@ impl AppState {
     /// `<data_dir>/wabidb/`. WDB is fully decommissioned — no WDB
     /// initialization, no compat shim.
     pub async fn new(config: ServerConfig) -> anyhow::Result<Self> {
-        let (ws_tx, _) = broadcast::channel(1000);
         let owner_user_id = RwLock::new(None);
         let node_registry = NodeRegistry::new_persistent(
             config.node_id.clone(),
@@ -319,7 +316,6 @@ impl AppState {
         Ok(Self {
             config,
             wdb,
-            ws_tx,
             channels: RwLock::new(ChannelManager {
                 channel_broadcasts: std::collections::HashMap::new(),
             }),
@@ -348,9 +344,8 @@ impl AppState {
             mesh_service: RwLock::new(None),
             #[cfg(feature = "wabi-lore")]
             lore_service: RwLock::new(None),
-            call_signal_counter: Arc::new(AtomicU64::new(0)),
-            call_session_subscriptions: Arc::new(Mutex::new(HashMap::new())),
-            ws_conn_id_counter: Arc::new(Mutex::new(0)),
+            membership_gate: Default::default(),
+            call_session_locks: Default::default(),
             call_session_push: {
                 let (tx, _) = broadcast::channel(1024);
                 tx

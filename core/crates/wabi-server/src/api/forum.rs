@@ -28,6 +28,7 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
             "/{channel_id}/threads/{thread_id}/posts/{post_id}/solution",
             axum::routing::post(mark_solution),
         )
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel))
         .with_state(state)
 }
 
@@ -94,6 +95,9 @@ async fn create_post(
     Path((channel_id, thread_id)): Path<(String, String)>,
     Json(payload): Json<CreatePostPayload>,
 ) -> Result<Json<Value>, AppError> {
+    state.wdb.get_forum_post(&channel_id, &thread_id, &thread_id).await?
+        .filter(|post| !post.is_deleted && post.is_thread_starter)
+        .ok_or_else(|| AppError::NotFound("forum thread not found".into()))?;
     let post_id = state
         .wdb
         .create_forum_post(
@@ -127,6 +131,9 @@ async fn update_post(
     Path((channel_id, thread_id, post_id)): Path<(String, String, String)>,
     Json(payload): Json<UpdatePostPayload>,
 ) -> Result<Json<Value>, AppError> {
+    state.wdb.get_forum_post(&channel_id, &thread_id, &post_id).await?
+        .filter(|post| !post.is_deleted)
+        .ok_or_else(|| AppError::NotFound("forum post not found".into()))?;
     state
         .wdb
         .update_forum_post(

@@ -11,7 +11,7 @@
 	} from '$lib/api/lore';
 
 	/** W6b: External-tool Connect — server-minted tokens + wabi-sync quick start. */
-	let { channelKey, repoId, repoName, onclose }: {
+	let { channelKey, repoName, onclose }: {
 		channelKey: string;
 		repoId: number | null;
 		repoName: string | null;
@@ -19,103 +19,160 @@
 	} = $props();
 
 	let serverUrl = $state(getServerUrl());
-	let repoIdText = $state('');
-	let channelId = $state<number | null>(null);
+	let channelId = $derived(parseLoreChannelId(channelKey));
+	let repoIdText = $derived(channelId != null ? `ch_${channelId.toString(16)}` : '');
 	let token = $state('');
+	let mintedTokenId = $state('');
 	let tokenScopes = $state<'read' | 'write'>('write');
 	let tokenJustMinted = $state(false);
 	let minting = $state(false);
 	let mintError = $state<string | null>(null);
 	let tokens = $state<LoreConnectTokenInfo[]>([]);
+	let listLoading = $state(false);
+	let listError = $state<string | null>(null);
+	let revokeError = $state<string | null>(null);
+	let revokeNotice = $state('');
+	let revoking = $state('');
 	let copied = $state('');
 	let showToken = $state(false);
+	let panel: HTMLDivElement;
+	let copyTimer: ReturnType<typeof setTimeout> | undefined;
+	type RequestOwner = { channel: number; active: boolean; listSequence: number };
+	let requestOwner: RequestOwner | null = null;
 
-	onMount(() => {
-		channelId = parseLoreChannelId(channelKey) ?? repoId;
-		repoIdText = channelId != null ? String(channelId) : '';
-		void refreshTokens();
+	$effect(() => {
+		const id = channelId;
+		token = ''; mintedTokenId = ''; tokenJustMinted = false; showToken = false;
+		tokens = []; listError = null; mintError = null; revokeError = null; revokeNotice = '';
+		minting = false; revoking = ''; copied = ''; listLoading = false;
+		const owner = id == null ? null : { channel: id, active: true, listSequence: 0 };
+		requestOwner = owner;
+		if (owner) void refreshTokens(owner);
+		else listError = 'Open a connected channel to manage its tokens.';
+		return () => {
+			if (owner) owner.active = false;
+			requestOwner = null;
+			clearTimeout(copyTimer);
+		};
 	});
 
-	async function refreshTokens() {
+	async function refreshTokens(owner = requestOwner) {
+		if (!owner?.active) return;
+		const sequence = ++owner.listSequence;
 		const t = getAuthToken();
-		if (!t || channelId == null) return;
+		listError = null;
+		if (!t) { listError = 'Sign in to manage connect tokens.'; return; }
+		listLoading = true;
 		try {
-			tokens = await listLoreConnectTokens(t, channelId);
-		} catch {
-			tokens = [];
+			const result = await listLoreConnectTokens(t, owner.channel);
+			if (owner.active && sequence === owner.listSequence) tokens = result;
+		} catch (error) {
+			if (owner.active && sequence === owner.listSequence) {
+				listError = error instanceof Error ? error.message : 'Failed to load connect tokens';
+			}
+		} finally {
+			if (owner.active && sequence === owner.listSequence) listLoading = false;
 		}
 	}
 
 	async function mintToken() {
+		const owner = requestOwner;
+		if (minting || revoking) return;
 		const t = getAuthToken();
-		if (!t || channelId == null) {
+		if (!t || !owner?.active) {
 			mintError = 'Sign in and open a connected channel first.';
 			return;
 		}
 		minting = true;
 		mintError = null;
 		try {
-			const result = await mintLoreConnectToken(t, channelId, tokenScopes);
+			const result = await mintLoreConnectToken(t, owner.channel, tokenScopes);
+			if (!owner.active) return;
 			token = result.token;
+			mintedTokenId = result.tokenHash ?? result.tokenHashPrefix;
 			tokenJustMinted = true;
 			showToken = true;
-			void refreshTokens();
+			void refreshTokens(owner);
 		} catch (e) {
-			mintError = e instanceof Error ? e.message : 'Failed to mint token';
+			if (owner.active) mintError = e instanceof Error ? e.message : 'Failed to mint token';
 		} finally {
-			minting = false;
+			if (owner.active) minting = false;
 		}
 	}
 
-	async function revokeToken(hashPrefix: string) {
+	function tokenId(t: LoreConnectTokenInfo) { return t.tokenHash ?? t.tokenHashPrefix; }
+
+	async function revokeToken(id: string) {
+		const owner = requestOwner;
+		if (revoking || minting) return;
 		const t = getAuthToken();
-		if (!t || channelId == null) return;
+		revokeError = null; revokeNotice = '';
+		if (!t || !owner?.active) { revokeError = 'Sign in to revoke this token.'; return; }
+		revoking = id;
+		// Invalidate older list requests so a late response cannot resurrect
+		// the revoked row while the authoritative refresh is still pending.
+		++owner.listSequence;
+		listLoading = false;
 		try {
-			await revokeLoreConnectToken(t, channelId, hashPrefix);
-			void refreshTokens();
-		} catch {
-			// The list refresh will reflect reality.
+			await revokeLoreConnectToken(t, owner.channel, id);
+			if (!owner.active) return;
+			tokens = tokens.filter(t => tokenId(t) !== id);
+			if (mintedTokenId === id) { token = ''; mintedTokenId = ''; tokenJustMinted = false; showToken = false; }
+			revokeNotice = 'Token revoked. Tools using it can no longer connect.';
+			void refreshTokens(owner);
+		} catch (error) {
+			if (owner.active) revokeError = error instanceof Error ? error.message : 'Failed to revoke token';
+		} finally {
+			if (owner.active) revoking = '';
 		}
 	}
 
 	/** wabi-sync commands tailored to this channel + server. */
+	function shellArg(value: string) { return `'${value.replaceAll("'", "'\\''")}'`; }
 	let syncCommands = $derived.by(() => {
 		const id = channelId != null ? `ch_${channelId.toString(16)}` : 'ch_…';
 		return [
-			{ label: '1. Save your token', code: `wabi-sync login ${serverUrl}` },
-			{ label: '2. Link a folder', code: `wabi-sync link ${id} ~/code/${repoName || 'my-project'}` },
+			{ label: '1. Save your token', code: `wabi-sync login ${shellArg(serverUrl)}` },
+			{ label: '2. Link a folder', code: `wabi-sync link ${id} ~/code/${shellArg(repoName || 'my-project')}` },
 			{ label: '3. Keep it running', code: `wabi-sync watch` }
 		];
 	});
 
 	async function copyText(text: string, label: string): Promise<void> {
+		const owner = requestOwner;
 		try {
 			await navigator.clipboard.writeText(text);
-			copied = label;
-			setTimeout(() => {
-				if (copied === label) copied = '';
-			}, 1500);
 		} catch {
 			// Fallback for non-secure contexts.
+			if (!owner?.active) return;
 			const ta = document.createElement('textarea');
 			ta.value = text;
 			ta.style.position = 'fixed';
 			ta.style.opacity = '0';
 			document.body.appendChild(ta);
 			ta.select();
-			document.execCommand('copy');
+			const success = document.execCommand('copy');
 			ta.remove();
-			copied = label;
-			setTimeout(() => {
-				if (copied === label) copied = '';
-			}, 1500);
+			if (!success) return;
 		}
+		if (!owner?.active) return;
+		copied = label;
+		clearTimeout(copyTimer);
+		copyTimer = setTimeout(() => { copied = ''; }, 1500);
 	}
 
 	function handleBackdropKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			onclose();
+		} else if (event.key === 'Tab') {
+			const controls = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)')];
+			const first = controls[0], last = controls.at(-1);
+			if (event.shiftKey && (document.activeElement === first || document.activeElement === panel)) {
+				event.preventDefault(); last?.focus();
+			} else if (!event.shiftKey && document.activeElement === last) {
+				event.preventDefault(); first?.focus();
+			}
 		}
 	}
 
@@ -124,8 +181,14 @@
 	}
 
 	onMount(() => {
+		const previousFocus = document.activeElement as HTMLElement | null;
+		panel.focus();
 		window.addEventListener('keydown', handleBackdropKeydown);
-		return () => window.removeEventListener('keydown', handleBackdropKeydown);
+		return () => {
+			window.removeEventListener('keydown', handleBackdropKeydown);
+			clearTimeout(copyTimer);
+			previousFocus?.focus();
+		};
 	});
 </script>
 
@@ -135,6 +198,7 @@
 	onclick={handleBackdropClick}
 >
 	<div
+		bind:this={panel}
 		class="lore-connect-panel"
 		role="dialog"
 		aria-modal="true"
@@ -172,14 +236,15 @@
 				</div>
 
 				<div class="lore-connect-field">
-					<label for="lore-connect-repo" class="lore-connect-label">Repo ID</label>
+					<label for="lore-connect-repo" class="lore-connect-label">Channel ID</label>
 					<div class="lore-connect-input-row">
 						<input
 							id="lore-connect-repo"
 							class="lore-input lore-connect-input"
 							type="text"
 							placeholder={repoName ? `Repo: ${repoName}` : 'repo id'}
-							bind:value={repoIdText}
+							value={repoIdText}
+							readonly
 						/>
 						<button class="lore-btn lore-btn-sm" onclick={() => copyText(repoIdText, 'repo')}>
 							{copied === 'repo' ? 'Copied' : 'Copy'}
@@ -188,21 +253,22 @@
 				</div>
 
 				<div class="lore-connect-field">
-					<span class="lore-connect-label">Connect token (server-minted)</span>
+					<label for="lore-connect-token" class="lore-connect-label">Connect token (server-minted)</label>
 					<div class="lore-connect-input-row">
 						<input
+							id="lore-connect-token"
 							class="lore-input lore-connect-input lore-connect-token"
 							type={showToken ? 'text' : 'password'}
 							value={token}
 							placeholder="Mint a token to connect external tools"
 							readonly
 						/>
-						<select class="lore-input" bind:value={tokenScopes} title="Token scope">
+						<select class="lore-input" bind:value={tokenScopes} aria-label="Token scope" disabled={minting}>
 							<option value="write">read+write</option>
 							<option value="read">read-only</option>
 						</select>
-						<button class="lore-btn lore-btn-sm" onclick={mintToken} disabled={minting}>
-							{minting ? '…' : 'Mint'}
+						<button class="lore-btn lore-btn-sm" onclick={mintToken} disabled={minting || !!revoking || channelId == null}>
+							{minting ? 'Minting…' : 'Mint'}
 						</button>
 						<button class="lore-btn lore-btn-sm" onclick={() => copyText(token, 'token')} disabled={!token}>
 							{copied === 'token' ? 'Copied' : 'Copy'}
@@ -217,27 +283,34 @@
 						Scopes apply to the Lore API only and inherit your channel access.
 					</p>
 					{#if mintError}
-						<p class="lore-connect-hint lore-connect-error">{mintError}</p>
+						<p role="alert" class="lore-connect-hint lore-connect-error">{mintError}</p>
 					{/if}
 				</div>
 
-				{#if tokens.length > 0}
 					<div class="lore-connect-field">
-						<span class="lore-connect-label">Active tokens ({tokens.length})</span>
+						<span class="lore-connect-label">Connect tokens ({tokens.length})</span>
+						{#if listLoading}<p role="status" class="lore-connect-hint">Loading tokens…</p>{/if}
+						{#if listError}
+							<p role="alert" class="lore-connect-hint lore-connect-error">{listError}</p>
+							<button class="lore-btn lore-btn-sm" disabled={listLoading || !!revoking || minting || channelId == null} onclick={() => refreshTokens()}>Retry loading tokens</button>
+						{:else if !listLoading && tokens.length === 0}
+							<p class="lore-connect-hint">No connect tokens.</p>
+						{/if}
+						{#if revokeError}<p role="alert" class="lore-connect-hint lore-connect-error">{revokeError}</p>{/if}
+						{#if revokeNotice}<p role="status" class="lore-connect-hint">{revokeNotice}</p>{/if}
 						<div class="lore-connect-token-list">
-							{#each tokens as t (t.tokenHashPrefix)}
+							{#each tokens as t (tokenId(t))}
 								<div class="lore-connect-token-row">
 									<code>{t.tokenHashPrefix}…</code>
 									<span class="lore-connect-token-scope">{t.scopes}</span>
 									<span class="lore-connect-token-scope">user {t.userId}</span>
-									<button class="lore-btn lore-btn-sm lore-btn-danger" onclick={() => revokeToken(t.tokenHashPrefix)}>
-										Revoke
+									<button class="lore-btn lore-btn-sm lore-btn-danger" disabled={!!revoking || minting} aria-label={`Revoke token ${t.tokenHashPrefix}`} onclick={() => revokeToken(tokenId(t))}>
+										{revoking === tokenId(t) ? 'Revoking…' : 'Revoke'}
 									</button>
 								</div>
 							{/each}
 						</div>
 					</div>
-				{/if}
 			</section>
 
 			<section class="lore-connect-section">
@@ -278,6 +351,7 @@
 
 	.lore-connect-panel {
 		width: min(720px, 100%);
+		color: var(--text-heading, #e0e0ff);
 		max-height: 85vh;
 		display: flex;
 		flex-direction: column;
@@ -445,34 +519,6 @@
 		font-size: 13px;
 	}
 
-	.lore-connect-lang-tabs {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-	}
-
-	.lore-connect-lang-tab {
-		padding: 4px 10px;
-		border: 1px solid var(--border-color, #2a2a3e);
-		border-radius: 6px;
-		background: var(--background-secondary-color, #16162a);
-		color: var(--text-muted-color, #888);
-		font-size: 12px;
-		cursor: pointer;
-		transition: border-color 0.15s, color 0.15s, background 0.15s;
-	}
-
-	.lore-connect-lang-tab:hover {
-		color: var(--text-primary-color, #eee);
-		border-color: var(--accent-primary-color);
-	}
-
-	.lore-connect-lang-tab.active {
-		background: var(--accent-primary-color);
-		color: var(--text-on-danger);
-		border-color: var(--accent-primary-color);
-	}
-
 	.lore-connect-code {
 		margin: 0;
 		padding: 14px;
@@ -525,5 +571,11 @@
 
 	.lore-input:focus {
 		border-color: var(--accent-primary-color);
+	}
+
+	@media (max-width: 600px) {
+		.lore-connect-input-row, .lore-connect-token-row { flex-wrap: wrap; }
+		.lore-connect-input, .lore-connect-cmd-code { flex-basis: 100%; }
+		.lore-connect-cmd-code { min-width: 0; }
 	}
 </style>

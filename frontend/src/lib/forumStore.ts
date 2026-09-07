@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { getAuthToken } from '$lib/authSession';
+import { fetchChannel } from './api/channelAccess';
 import { getServerUrl } from '$lib/serverUrl';
 import { users, type User } from '$lib/socket';
 
@@ -62,7 +63,7 @@ export async function loadThreads(channelId: string): Promise<void> {
 	forumError.set(null);
 
 	try {
-		const res = await fetch(`${apiBase()}/${encodeURIComponent(channelId)}/threads`, {
+		const res = await fetchChannel(channelId, `${apiBase()}/${encodeURIComponent(channelId)}/threads`, {
 			headers: headers(),
 		});
 		if (!res.ok) throw new Error(`Failed to load threads: ${res.statusText}`);
@@ -95,7 +96,7 @@ export async function loadThreads(channelId: string): Promise<void> {
 
 export async function loadPosts(channelId: string, threadId: string): Promise<void> {
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(threadId)}/posts`,
 			{ headers: headers() }
 		);
@@ -136,7 +137,7 @@ export async function createThread(
 	category?: string
 ): Promise<ForumPost | null> {
 	try {
-		const res = await fetch(`${apiBase()}/${encodeURIComponent(channelId)}/threads`, {
+		const res = await fetchChannel(channelId, `${apiBase()}/${encodeURIComponent(channelId)}/threads`, {
 			method: 'POST',
 			headers: headers(),
 			body: JSON.stringify({ title, body, tags, category }),
@@ -158,7 +159,7 @@ export async function createPost(
 	tags?: string[]
 ): Promise<ForumPost | null> {
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(threadId)}/posts`,
 			{
 				method: 'POST',
@@ -188,7 +189,7 @@ export async function votePost(
 	direction: 'up' | 'down'
 ): Promise<ForumPost | null> {
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(threadId)}/posts/${encodeURIComponent(postId)}/vote`,
 			{
 				method: 'POST',
@@ -212,7 +213,7 @@ export async function markSolution(
 	postId: string
 ): Promise<ForumPost | null> {
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(threadId)}/posts/${encodeURIComponent(postId)}/solution`,
 			{
 				method: 'POST',
@@ -239,7 +240,7 @@ export async function updateForumPost(
 		const current =
 			get(forumThreads).find((t) => t.post_id === postId) ||
 			(get(forumPostsByThread).get(threadId) || []).find((p) => p.post_id === postId);
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(threadId)}/posts/${encodeURIComponent(postId)}`,
 			{
 				method: 'PUT',

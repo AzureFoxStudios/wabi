@@ -512,6 +512,16 @@
     }
   },
   "storage": {
+    "archiveBoundary": {
+      "title": "Los archivos locales de chat no están disponibles",
+      "explanation": "Esta versión no guarda un archivo del historial para consultar sin conexión. El historial del servidor sigue la política de retención de cada canal.",
+      "preserved": "Los archivos locales antiguos no pueden vincularse con certeza a una cuenta. Se conservan intactos en este dispositivo, pero no se cargan, exportan ni asignan a tu sesión actual. Los archivos que ya exportaste no cambian.",
+      "native": "Esta versión de escritorio no admite el guardado automático de archivos de chat nativos. La cola de salida compartida está disponible tanto en el navegador como en el escritorio.",
+      "queueExplanation": "La cola conserva las acciones de salida compatibles; no es una copia de tus conversaciones sin conexión. Los cambios de miembros de grupos y las llamadas requieren conexión.",
+      "queueUnavailable": "La cola de salida aún no está disponible. Actualízala cuando la aplicación termine de conectarse.",
+      "retryMarked": "Las acciones fallidas compatibles se marcaron para reintentar. El envío requiere conexión; las acciones con resultado incierto o acceso revocado no pueden reintentarse.",
+      "refresh": "Actualizar cola"
+    },
     "tauri": {
       "title": "Almacenamiento de escritorio Tauri",
       "subtitle": "Tus datos se guardan en archivos sidecar organizados que puedes administrar, respaldar y exportar.",

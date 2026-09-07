@@ -5,7 +5,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { chatStorage } from '$lib/storage';
+import { localSettings } from '$lib/storage';
 import {
 	serializeInt32Array,
 	deserializeInt32Array,
@@ -14,7 +14,7 @@ import {
 	serializeTypedArrays,
 	deserializeTypedArrays,
 } from '$lib/typed-array-utils';
-import { isRunningInTauri } from '$lib/tauri-storage';
+import { isTauriRuntime as isRunningInTauri } from '$lib/tauri-platform';
 import type { BurnChartDataPoint } from './types';
 
 /**
@@ -65,7 +65,7 @@ export async function saveBurndownChart(
 			),
 		}));
 
-		await chatStorage.setSetting(`burndown_${projectId}`, serialized);
+		await localSettings.setSetting(`burndown_${projectId}`, serialized);
 	}
 }
 
@@ -90,7 +90,7 @@ export async function loadBurndownChart(projectId: string): Promise<BurnChartDat
 			remainingPoints: point.remaining_points,
 		}));
 	} else {
-		const serialized = await chatStorage.getSetting(`burndown_${projectId}`);
+		const serialized = await localSettings.getSetting(`burndown_${projectId}`);
 		if (!serialized) return [];
 
 		return serialized.map(
@@ -122,7 +122,7 @@ export async function saveReminders(eventId: string, minutes: Int32Array): Promi
 		});
 	} else {
 		// Web: Store in IndexedDB
-		await chatStorage.setSetting(`reminders_${eventId}`, serializeInt32Array(minutes));
+		await localSettings.setSetting(`reminders_${eventId}`, serializeInt32Array(minutes));
 	}
 }
 
@@ -135,7 +135,7 @@ export async function loadReminders(eventId: string): Promise<Int32Array | null>
 		const minutes = data[eventId] || null;
 		return minutes ? new Int32Array(minutes) : null;
 	} else {
-		const serialized = await chatStorage.getSetting(`reminders_${eventId}`);
+		const serialized = await localSettings.getSetting(`reminders_${eventId}`);
 		return deserializeInt32Array(serialized);
 	}
 }
@@ -147,7 +147,7 @@ export async function deleteReminders(eventId: string): Promise<void> {
 	if (isRunningInTauri()) {
 		await invoke('delete_reminders', { eventId });
 	} else {
-		await chatStorage.setSetting(`reminders_${eventId}`, null);
+		await localSettings.setSetting(`reminders_${eventId}`, null);
 	}
 }
 
@@ -161,10 +161,10 @@ export async function saveCancelledDates(
 	if (isRunningInTauri()) {
 		// Note: Tauri doesn't handle BigInt64 directly, so convert to strings
 		const serialized = Array.from(dates).map(d => d.toString());
-		await chatStorage.setSetting(`cancelled_${eventId}`, serialized);
+		await localSettings.setSetting(`cancelled_${eventId}`, serialized);
 	} else {
 		// Web: Store serialized
-		await chatStorage.setSetting(
+		await localSettings.setSetting(
 			`cancelled_${eventId}`,
 			serializeBigInt64Array(dates)
 		);
@@ -175,7 +175,7 @@ export async function saveCancelledDates(
  * Load cancelled dates
  */
 export async function loadCancelledDates(eventId: string): Promise<BigInt64Array | null> {
-	const serialized = await chatStorage.getSetting(`cancelled_${eventId}`);
+	const serialized = await localSettings.getSetting(`cancelled_${eventId}`);
 	return deserializeBigInt64Array(serialized);
 }
 

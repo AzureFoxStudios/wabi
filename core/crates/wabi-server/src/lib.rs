@@ -11,6 +11,8 @@ pub mod blacklist;
 pub mod blobs;
 pub mod bot_delivery;
 pub mod bot_registry;
+pub mod channel_access;
+pub mod call_access;
 pub mod config;
 pub mod error;
 pub mod helper_api;

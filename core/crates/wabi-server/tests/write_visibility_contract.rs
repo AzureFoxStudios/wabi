@@ -109,12 +109,14 @@ async fn successful_call_http_writes_publish_current_session_and_roster() {
     .unwrap();
     let app = build_app_router(state.clone());
     let mut pushes = state.call_session_push.subscribe();
+    let call_channel = state.wdb.create_channel("voice", wabidb::domain::ChannelKind::Voice, user_id, false).await.unwrap();
+    state.wdb.add_channel_member(&call_channel, user_id, wabidb::domain::MemberRole::Member).await.unwrap();
     post(
         &app,
         &token,
         "/api/calls/sessions",
         json!({
-            "session_id": "visibility", "channel_id": "ch_test", "call_type": "audio-call",
+            "session_id": "visibility", "channel_id": call_channel, "call_type": "audio-call",
             "max_participants": 10, "transport": "wabidb"
         }),
     )
@@ -162,12 +164,15 @@ async fn successful_call_http_writes_publish_current_session_and_roster() {
         matches!(message.as_ref(), WsMessage::CallSessionChanged { session } if !session.active)
     );
     // The album route used to compensate for the same race with 20 polls.
+    // Albums now require a real authorized parent, not an arbitrary scope ID.
+    let album_channel = state.wdb.create_channel("albums", wabidb::domain::ChannelKind::Text, user_id, false).await.unwrap();
+    state.wdb.add_channel_member(&album_channel, user_id, wabidb::domain::MemberRole::Member).await.unwrap();
     let album = post(
         &app,
         &token,
         "/api/albums",
         json!({
-            "name": "immediately visible", "scope_type": "channel", "scope_id": "ch_test"
+            "name": "immediately visible", "scope_type": "channel", "scope_id": album_channel
         }),
     )
     .await;

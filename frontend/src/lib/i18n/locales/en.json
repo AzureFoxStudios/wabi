@@ -512,6 +512,16 @@
     }
   },
   "storage": {
+    "archiveBoundary": {
+      "title": "Local chat archives are unavailable",
+      "explanation": "This version does not save an offline chat-history archive. Server history follows each channel's retention setting.",
+      "preserved": "Older local archives cannot be matched reliably to an account. They remain untouched on this device, but are not loaded, exported, or assigned to your current login. Files you previously exported are unchanged.",
+      "native": "Native chat-file autosave is not supported in this desktop build. The shared outbound queue below is available in both browser and desktop clients.",
+      "queueExplanation": "The queue retains eligible outgoing actions; it is not an offline copy of your conversations. Group membership changes and call joins require a live connection.",
+      "queueUnavailable": "The outbound queue is not available yet. Refresh after the app finishes connecting.",
+      "retryMarked": "Eligible failed actions were marked for retry. Sending requires a connection; uncertain or revoked actions cannot be retried.",
+      "refresh": "Refresh queue"
+    },
     "tauri": {
       "title": "Tauri Desktop Storage",
       "subtitle": "Your data is stored in organized sidecar files that you can manage, backup, and export.",

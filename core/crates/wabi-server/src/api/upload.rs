@@ -427,143 +427,15 @@ async fn complete_upload(
 }
 
 /// Upload group avatar — POST /api/upload/group-avatar
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GroupAvatarResponse {
-    url: String,
-}
-
-/// Handler for group avatar upload.
-/// Accepts a multipart form with a `file` field and `channelId`.
-/// Saves the file, persists the avatar URL to WDB, then broadcasts
-/// `group-avatar-updated` to all connected clients.
+/// Group avatars have no durable model yet. Never rewrite a group's owner,
+/// kind or name via the former compatibility upsert, or create an orphan upload.
 async fn upload_group_avatar(
-    auth: AuthUser,
-    State(state): State<Arc<AppState>>,
-    mut multipart: axum::extract::Multipart,
-) -> Result<Json<GroupAvatarResponse>> {
-    use tokio::io::AsyncWriteExt;
-
-    // WS-3e: guests cannot upload group avatars.
-    if auth.is_guest {
-        return Err(anyhow::anyhow!("Guests cannot upload group avatars").into());
-    }
-
-    let mut file_data: Vec<u8> = Vec::new();
-    let mut filename = "avatar".to_string();
-    let mut channel_id: Option<String> = None;
-
-    // Extract fields from multipart
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?
-    {
-        let name = field.name().unwrap_or("").to_string();
-        match name.as_str() {
-            "file" => {
-                filename = field.file_name().unwrap_or("avatar").to_string();
-                file_data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e))?
-                    .to_vec();
-            }
-            "channelId" | "channel_id" => {
-                if let Ok(text) = field.text().await {
-                    channel_id = Some(text);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let channel_id = channel_id.ok_or_else(|| anyhow::anyhow!("channel_id is required"))?;
-
-    // WS-3e: require channel membership to upload group avatar.
-    let is_member = state
-        .wdb
-        .list_channels(Some(auth.user_id as u64))
-        .await
-        .map_err(|e| anyhow::anyhow!("wdb list_channels: {e}"))?
-        .iter()
-        .any(|c| c.channel_id == channel_id);
-    let is_owner = state.is_owner(auth.user_id).await;
-    let is_admin = state.is_admin(auth.user_id).await;
-    if !is_owner && !is_admin && !is_member {
-        return Err(anyhow::anyhow!("Not a member of this channel").into());
-    }
-
-    if file_data.is_empty() {
-        return Err(anyhow::anyhow!("No file data provided").into());
-    }
-
-    // Determine extension from filename
-    let ext = std::path::Path::new(&filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{}", e))
-        .unwrap_or_else(|| ".png".to_string());
-
-    // Write file to uploads dir with UUID name
-    let uuid_name = Uuid::new_v4().to_string();
-    let final_name = format!("{}{}", uuid_name, ext);
-    let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
-
-    let mut file = File::create(&final_path).await?;
-    file.write_all(&file_data).await?;
-    file.flush().await?;
-    drop(file);
-
-    let avatar_url = format!("/uploads/{}", final_name);
-    tracing::info!(
-        "Group avatar uploaded: {} ({} bytes) for channel {} -> {:?}",
-        filename,
-        file_data.len(),
-        channel_id,
-        final_path
-    );
-
-    state
-        .upload_registry
-        .record(
-            &final_name,
-            &filename,
-            Some(channel_id.clone()),
-            Some(auth.user_id),
-            UploadKind::Avatar,
-            file_data.len() as u64,
-        )
-        .await;
-
-    // Persist avatar URL to WDB
-    if let Err(e) = state
-        .wdb
-        .upsert_group(&channel_id, "", "group", None, Some(&avatar_url), None)
-        .await
-    {
-        tracing::warn!(
-            "[upload] group avatar: failed to persist avatar for {}: {}",
-            channel_id,
-            e
-        );
-    }
-
-    // Broadcast update to all connected clients via SocketIo
-    if let Some(io) = state.sio.read().await.clone() {
-        let _ = io
-            .broadcast()
-            .emit(
-                "group-avatar-updated",
-                &serde_json::json!({
-                    "channelId": channel_id,
-                    "avatar": avatar_url,
-                }),
-            )
-            .await;
-    }
-
-    Ok(Json(GroupAvatarResponse { url: avatar_url }))
+    _auth: AuthUser,
+) -> (axum::http::StatusCode, Json<serde_json::Value>) {
+    (axum::http::StatusCode::NOT_IMPLEMENTED, Json(serde_json::json!({
+        "error": "Group avatars are not yet supported; nothing was changed",
+        "code": "NOT_IMPLEMENTED"
+    })))
 }
 
 /// POST /api/upload (mounted at "/" inside the `/upload` router)

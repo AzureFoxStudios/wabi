@@ -58,6 +58,14 @@ export interface ScreenShare {
 	userId: string;
 	username: string;
 	stream: MediaStream;
+	channelId?: string;
+}
+
+/** Local capture/signaling lease. This is not a server authorization grant. */
+export interface CallMediaScope {
+	channelId?: string;
+	peerUserId?: string;
+	current: () => boolean;
 }
 
 export type ConnectionLifecycleState =
@@ -93,6 +101,7 @@ export interface PeerConnectionState {
 	username: string;
 	channelId?: string;
 	lifecycleState: ConnectionLifecycleState;
+	mediaRequestId?: string;
 	iceCandidateQueue: RTCIceCandidateInit[];
 	hasRemoteDescription: boolean;
 }

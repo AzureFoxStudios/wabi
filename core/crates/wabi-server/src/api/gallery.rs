@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use serde_json::{json, Value};
 
-use crate::auth_extractor::{AuthUser, OptionalAuthUser};
+use crate::auth_extractor::AuthUser;
 use crate::error::AppError;
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
@@ -24,11 +24,11 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
             "/{channel_id}/works/{work_id}/feedback/{feedback_id}",
             axum::routing::delete(delete_feedback),
         )
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel))
         .with_state(state)
 }
 
 async fn list_works(
-    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path(channel_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
@@ -75,7 +75,6 @@ async fn upload_work(
 }
 
 async fn get_work(
-    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path((channel_id, work_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
@@ -102,6 +101,9 @@ async fn edit_work(
     Path((channel_id, work_id)): Path<(String, String)>,
     Json(payload): Json<EditWorkPayload>,
 ) -> Result<Json<Value>, AppError> {
+    state.wdb.get_gallery_work(&channel_id, &work_id).await?
+        .filter(|work| !work.is_deleted)
+        .ok_or_else(|| AppError::NotFound("gallery work not found".into()))?;
     state
         .wdb
         .edit_gallery_work(
@@ -135,7 +137,6 @@ async fn delete_work(
 }
 
 async fn list_feedback(
-    _auth: OptionalAuthUser,
     State(state): State<Arc<AppState>>,
     Path((channel_id, work_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
@@ -157,6 +158,9 @@ async fn add_feedback(
     Path((channel_id, work_id)): Path<(String, String)>,
     Json(payload): Json<AddFeedbackPayload>,
 ) -> Result<Json<Value>, AppError> {
+    state.wdb.get_gallery_work(&channel_id, &work_id).await?
+        .filter(|work| !work.is_deleted)
+        .ok_or_else(|| AppError::NotFound("gallery work not found".into()))?;
     let feedback_id = state
         .wdb
         .add_gallery_feedback(

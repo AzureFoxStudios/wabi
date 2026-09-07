@@ -1,4 +1,5 @@
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
+import { fetchChannel } from './channelAccess';
 
 export type MediaAlbumScopeType = 'channel' | 'dm';
 
@@ -101,7 +102,7 @@ export async function listMediaAlbums(
 		scopeId,
 		limit: String(limit)
 	});
-	const res = await fetchWithTimeout(`${getApiBase()}/api/albums?${params.toString()}`, {
+	const res = await fetchChannel(scopeId, `${getApiBase()}/api/albums?${params.toString()}`, {
 		method: 'GET',
 		headers: {
 			Authorization: `Bearer ${token}`
@@ -126,7 +127,7 @@ export async function createMediaAlbum(
 	token: string,
 	payload: { scopeType: MediaAlbumScopeType; scopeId: string; name: string }
 ): Promise<MediaAlbum> {
-	const res = await fetchWithTimeout(`${getApiBase()}/api/albums`, {
+	const res = await fetchChannel(payload.scopeId, `${getApiBase()}/api/albums`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,

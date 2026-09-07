@@ -3,7 +3,6 @@
 	import { _ as t, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { channelMessages, currentUser, getSocket, updateProfile } from '$lib/socket';
 	import type { Message } from '$lib/socket';
-	import { chatStorage } from '$lib/storage';
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { uploadProfilePictureFile } from '$lib/profilePictureUpload';
@@ -242,7 +241,6 @@
 			const result = await response.json();
 
 			if (result.success) {
-				await chatStorage.clearAllHistory();
 				channelMessages.update((msgs) => {
 					const cleared: Record<string, Message[]> = {};
 					for (const key of Object.keys(msgs)) {

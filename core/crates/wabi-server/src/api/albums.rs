@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use crate::auth_extractor::{AuthUser, OptionalAuthUser};
+use crate::auth_extractor::AuthUser;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
@@ -46,6 +46,39 @@ fn item_json(item: &wabidb::domain::AlbumItem) -> Value {
 
 fn preview_items(items: &[wabidb::domain::AlbumItem]) -> Vec<Value> {
     items.iter().take(4).map(item_json).collect()
+}
+
+async fn require_scope(state: &AppState, auth: &AuthUser, scope_type: &str, scope_id: &str) -> Result<()> {
+    if !matches!(scope_type, "channel" | "dm") {
+        return Err(AppError::BadRequest("Unknown album scope".into()));
+    }
+    // The channel's persisted kind decides privacy, not the caller's scopeType.
+    crate::channel_access::require_access(state, auth.user_id, scope_id).await?;
+    Ok(())
+}
+
+async fn authorized_album(state: &AppState, auth: &AuthUser, album_id: &str) -> Result<wabidb::domain::Album> {
+    // IDs are globally sequence-assigned, but the index is scope-keyed. Resolve
+    // the stored parent before accessing items or accepting any mutations.
+    let proj = state.wdb.engine().projection_state();
+    let mut found = None;
+    let mut failure = None;
+    proj.for_each("albums", |_key, value| {
+        match wabidb::projections::albums::decode_record(value) {
+            Ok(r) if r.album_id == album_id && !r.is_deleted => {
+                if found.is_some() {
+                    failure = Some(AppError::Internal("Duplicate album ID".into()));
+                }
+                found = Some(wabidb::domain::Album::from(r));
+            }
+            Ok(_) => (),
+            Err(e) => failure = Some(e.into()),
+        }
+    });
+    if let Some(e) = failure { return Err(e); }
+    let album = found.ok_or_else(|| AppError::NotFound("Album not found".into()))?;
+    require_scope(state, auth, &album.scope_type, &album.scope_id).await?;
+    Ok(album)
 }
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -110,17 +143,18 @@ struct SetFeaturedPayload {
 }
 
 async fn list_albums(
-    _auth: OptionalAuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListAlbumsQuery>,
 ) -> Result<Json<Value>> {
+    require_scope(&state, &auth, &query.scope_type, &query.scope_id).await?;
     let albums = state.wdb.list_albums(&query.scope_type, &query.scope_id).await?;
     let mut albums: Vec<wabidb::domain::Album> = albums;
     albums.sort_by(|a, b| b.updated_at_micros.cmp(&a.updated_at_micros));
     albums.truncate(query.limit as usize);
     let mut result: Vec<Value> = Vec::with_capacity(albums.len());
     for album in &albums {
-        let items = state.wdb.list_items(&album.album_id).await.unwrap_or_default();
+        let items = state.wdb.list_items(&album.album_id).await?;
         result.push(album_json(album, items.len(), preview_items(&items)));
     }
     Ok(Json(json!({ "albums": result })))
@@ -131,6 +165,7 @@ async fn create_album(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateAlbumPayload>,
 ) -> Result<Json<Value>> {
+    require_scope(&state, &auth, &payload.scope_type, &payload.scope_id).await?;
     let album_id = state
         .wdb
         .create_album(&payload.scope_type, &payload.scope_id, &payload.name, auth.user_id as u64)
@@ -146,64 +181,35 @@ async fn create_album(
 }
 
 async fn get_album(
-    _auth: OptionalAuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<Json<Value>> {
-    use wabidb::projections::albums;
-    let proj = state.wdb.engine().projection_state();
-    let mut found: Option<wabidb::domain::Album> = None;
-    proj.for_each("albums", |_key, value| {
-        if found.is_some() {
-            return;
-        }
-        if let Ok(r) = albums::decode_record(value) {
-            if r.album_id == album_id {
-                found = Some(wabidb::domain::Album::from(r));
-            }
-        }
-    });
-    match found {
-        Some(album) => {
-            let items = state.wdb.list_items(&album.album_id).await.unwrap_or_default();
-            Ok(Json(json!({ "album": album_json(&album, items.len(), preview_items(&items)) })))
-        }
-        None => Ok(Json(json!({ "error": "Album not found" }))),
-    }
+    let album = authorized_album(&state, &auth, &album_id).await?;
+    let items = state.wdb.list_items(&album.album_id).await?;
+    Ok(Json(json!({ "album": album_json(&album, items.len(), preview_items(&items)) })))
 }
 
 async fn delete_album(
-    _auth: AuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<StatusCode> {
-    use wabidb::projections::albums;
-    let proj = state.wdb.engine().projection_state();
-    let mut scope: Option<(String, String)> = None;
-    proj.for_each("albums", |_key, value| {
-        if scope.is_some() {
-            return;
-        }
-        if let Ok(r) = albums::decode_record(value) {
-            if r.album_id == album_id && !r.is_deleted {
-                scope = Some((r.scope_type, r.scope_id));
-            }
-        }
-    });
-    if let Some((scope_type, scope_id)) = scope {
-        state
-            .wdb
-            .delete_album(&scope_type, &scope_id, &album_id, 0)
-            .await?;
+    let album = authorized_album(&state, &auth, &album_id).await?;
+    if album.owner_user_id != auth.user_id as u64 && !state.is_admin(auth.user_id).await
+        && !state.has_role(auth.user_id, "Moderator").await {
+        return Err(AppError::Forbidden("Only the album owner or an administrator can delete it".into()));
     }
+    state.wdb.delete_album(&album.scope_type, &album.scope_id, &album_id, auth.user_id as u64).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_items(
-    _auth: OptionalAuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<Json<Value>> {
+    let album = authorized_album(&state, &auth, &album_id).await?;
     let items = state.wdb.list_items(&album_id).await?;
     let sorted = {
         let mut s = items;
@@ -211,6 +217,7 @@ async fn list_items(
         s
     };
     Ok(Json(json!({
+        "album": album_json(&album, sorted.len(), preview_items(&sorted)),
         "items": sorted.iter().map(item_json).collect::<Vec<_>>()
     })))
 }
@@ -221,6 +228,7 @@ async fn add_item(
     Path(album_id): Path<String>,
     Json(payload): Json<AddItemPayload>,
 ) -> Result<Json<Value>> {
+    authorized_album(&state, &auth, &album_id).await?;
     let item_id = state
         .wdb
         .add_item(
@@ -231,50 +239,45 @@ async fn add_item(
             auth.user_id as u64,
         )
         .await?;
-    let item = wabidb::domain::AlbumItem {
-        item_id,
-        album_id,
-        url: payload.attachment_url,
-        name: payload.attachment_name,
-        size: payload.attachment_size,
-        mime: payload.attachment_mime,
-        caption: payload.caption,
-        sort_order: 0,
-        created_at_micros: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_micros() as i64)
-            .unwrap_or(0),
-        is_deleted: false,
-    };
+    let item = state.wdb.list_items(&album_id).await?.into_iter().find(|i| i.item_id == item_id)
+        .ok_or_else(|| AppError::Internal("Item missing after projection acknowledgment".into()))?;
     Ok(Json(json!({ "item": item_json(&item) })))
 }
 
 async fn delete_item(
-    _auth: AuthUser,
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     Path((album_id, item_id)): Path<(String, String)>,
 ) -> Result<StatusCode> {
-    state.wdb.delete_item(&album_id, &item_id, 0).await?;
+    authorized_album(&state, &auth, &album_id).await?;
+    if !state.wdb.list_items(&album_id).await?.iter().any(|i| i.item_id == item_id) {
+        return Err(AppError::NotFound("Album item not found".into()));
+    }
+    state.wdb.delete_item(&album_id, &item_id, auth.user_id as u64).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn reorder_items(
-    State(_state): State<Arc<AppState>>,
-    Path(_album_id): Path<String>,
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    Path(album_id): Path<String>,
     Json(_payload): Json<ReorderItemsPayload>,
-) -> Result<Json<Value>> {
+) -> Result<(StatusCode, Json<Value>)> {
+    authorized_album(&state, &auth, &album_id).await?;
     // v1: reorder_items is not yet implemented through WabiDB.
     // The projection handles sort_order; a future card can add a
     // dedicated reorder event type.
-    Ok(Json(json!({ "items": [] })))
+    Ok((StatusCode::NOT_IMPLEMENTED, Json(json!({ "error": "Album reordering is not yet supported" }))))
 }
 
 async fn set_featured(
-    State(_state): State<Arc<AppState>>,
-    Path(_album_id): Path<String>,
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    Path(album_id): Path<String>,
     Json(_payload): Json<SetFeaturedPayload>,
-) -> Result<Json<Value>> {
+) -> Result<(StatusCode, Json<Value>)> {
+    authorized_album(&state, &auth, &album_id).await?;
     // v1: set_featured is not yet persisted in the albums projection.
     // A future card can add is_featured to AlbumRecord.
-    Ok(Json(json!({ "album": serde_json::Value::Null })))
+    Ok((StatusCode::NOT_IMPLEMENTED, Json(json!({ "error": "Featured albums are not yet supported" }))))
 }

@@ -42,6 +42,7 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
     axum::Router::new()
         .route("/{channel_id}/pages", axum::routing::get(list_pages).post(create_page))
         .route("/{channel_id}/pages/{page_id}", axum::routing::get(get_page).put(update_page).delete(delete_page))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel))
         .with_state(state)
 }
 ```
@@ -91,13 +92,57 @@ Two extractors in `auth_extractor.rs`:
 
 | Extractor | Accepts | When to Use |
 |-----------|---------|-------------|
-| `AuthUser` | `Authorization: Bearer <token>` | Write endpoints (create, update, delete) |
-| `OptionalAuthUser` | Optional Bearer token | Read endpoints that personalize results |
+| `AuthUser` | Account JWT or `Bot <token>` | Authenticated reads AND writes; also enforce resource access |
+| `OptionalAuthUser` | Optional account credential | Deliberately public resources with optional personalization only |
 
 `AuthUser` has `user_id: i64` and `username: String`.
 
-**Read (public)**: no auth extractor
-**Write (auth required)**: `auth: AuthUser` in the handler signature
+Do not infer public access from GET/read-only semantics. Channel-content routers
+(wiki/forum/gallery/incidents) install `channel_access::require_channel` as a
+route layer: every route must have `{channel_id}`. The state-only read handler
+example above is safe only behind that guard. For body IDs or different path
+shapes, use `AuthUser` plus `channel_access::require_access` before any read,
+cache insertion, write or push. Albums resolve their persisted scope first.
+Both Dm and GroupDm are membership-only even for owners/admins; never infer
+membership from ID spelling or restore an empty-membership DM fallback.
+Discovery/self-join of ordinary channels is a separate policy, not content auth.
+Check nested IDs against their actual parent before mutations: several adapter
+compatibility update methods can upsert missing IDs. Test with a permitted
+channel path and another channel's record ID, not only with anonymous requests.
+
+Regression gate: `cargo test -p wabi-server --features addons --test channel_access_contract`
+(real Axum + WabiDB + Engine.IO polling, including private event fanout).
+
+Lore external-tool tokens are explicitly **not account credentials**. Only
+`api/lore_auth.rs`'s `LoreReadUser`, `LoreWriteUser`, and optional signed-download
+variant accept `wblore_…`. They enforce the token's exact channel, current
+membership, active registered principal, scope and revocation floors. Keep
+account `AuthUser` on token-management, repo-management and code-execution
+handlers. Existing role gates still apply after extraction. A new endpoint
+must deliberately opt into a scoped extractor; never restore the generic
+AuthUser fallback or rely on a method-only middleware guard.
+
+Regression gate: `cargo test -p wabi-server --features addons --test lore_credential_contract`.
+
+Persisted call create/join/leave accept an optional canonical decimal-string
+`membership_revision` query fence. Check it under the existing membership read
+gate and session lock before mutation, even for an otherwise idempotent request.
+The browser pins it across auth retries so delayed writes cannot join/leave a
+re-added member's new call. It does not replace resource authorization; omission
+retains legacy scope checks. Do not encode this ephemeral request precondition
+into postcard call records. `call_state_contract` covers stale create/join/leave.
+
+Socket.IO group consent is ephemeral `account -> admitted socket IDs` in
+`GroupCallParticipants`, with account-deduplicated counts. Sender device
+admission gates group relay/signaling/recording; disconnect/leave retires that
+device, membership removal retires every account device. Do not restore an
+account-only set or let a sibling disconnect clear the calling device's consent.
+Non-ringing `call-initiate { rejoin: true, membershipRevision }` requires the
+original revision under the membership gate, even when rebuilding empty runtime
+state. The client must readmit before rebuilding media on a new socket object.
+No postcard record changes are involved; `channel_access_contract` covers
+unadmitted-device denial, overlapping reconnect, quiet readmission and stale
+revision rejection.
 
 ```rust
 async fn create_page(

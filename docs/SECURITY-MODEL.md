@@ -8,6 +8,128 @@
 
 ---
 
+## Launch review caveat (2026-09-07)
+
+This document describes individual mechanisms, not a completed launch security
+audit. The [channel-access pass](plans/2026-09-07-channel-access-boundary.md)
+closes the reproduced anonymous workspace/history reads, unauthorized writes,
+DM self-join, group-DM admin override and selected socket-content bypasses.
+Independent admin/session helpers still require further audit; the bounded
+group-membership lifecycle work and verification are described below.
+The [call admission](plans/2026-09-07-call-admission-boundary.md)
+and [call-state authorization](plans/2026-09-07-call-state-authorization.md) passes
+cover the corresponding voice/relay and REST/raw-WebSocket boundaries locally.
+The historical remediation sections
+below do not prove that every entry point is protected.
+
+The current [Lore credential-boundary work](plans/2026-09-07-lore-credential-boundary.md)
+separates external-tool tokens from account authentication, binds them to one
+channel and scope, enforces revocation/current membership, and repairs the
+membership projection's ignored removal events (including affected snapshots).
+See [Lore connect tokens](addons/lore.md#84c-connect-tokens-server-minted) for
+the exact allowed operations. This is a bounded improvement, not an overall
+security sign-off.
+
+Raw `/ws` now accepts only authenticated, authorized call subscriptions, not
+client-controlled broadcasts. It rejects refresh/tool/step-up credentials, checks
+revocation/expiry while idle, rechecks resource access on delivery and filters
+targeted signaling. General account bearer extraction shares the access-token
+type/revocation check; independent legacy admin/Socket.IO extractors still need
+their own audit. Frontend refresh requests are server-scoped and guarded against
+logout/account-change races. Old `wabi_refresh_token:default` credentials have no
+provable server binding and are not reused; affected sessions require a fresh login
+when their current access expires. This is an intentional upgrade compatibility
+boundary, not an automatic migration of an unknown issuer's token.
+
+Removing tracked instance secrets from the current tree does not remove them
+from Git history. Before launch, the operator must assess exposure and arrange
+safe credential/key remediation. Do not rotate WabiDB's root key casually:
+existing data requires its key for recovery.
+
+### Channel-content boundary
+
+`channel_access.rs` is shared by REST content and Socket.IO channel helpers.
+Channel existence and persisted `channel_members` determine access; DM-like
+ID strings cannot create membership. Both `Dm` and `GroupDm` have no server
+owner/admin override. Ordinary channels retain the existing admin override;
+there is no persisted ordinary-channel private/min-role policy today.
+
+- Authenticated channel discovery lists ordinary channels and only the caller's
+  conversations. Discovery does not grant content access. Self-join is available
+  only for ordinary channels; joining an existing conversation is idempotent for
+  its existing members, forbidden to outsiders.
+- History, reactions, wiki, forum, gallery, incidents, albums and whiteboard
+  data require account authentication and resource access. Content router guards
+  protect reads and writes; albums resolve the stored parent before item access.
+  Nested updates cannot manufacture missing wiki/forum/gallery IDs.
+- Socket init filters conversations and supplies persisted member IDs. Group
+  creation/DM deletion events target participant user rooms. Join/history/message,
+  sync-newer, edit/delete/pin/reaction/typing checks use the same channel policy;
+  message mutations also validate the message's actual channel.
+- The browser/Tauri client waits for membership acknowledgment before joining
+  its socket room or loading wiki/forum/gallery feedback/album scopes. In-flight
+  joins are coalesced, not cached as durable authorization. Failed or stale
+  requests do not turn into successful joins.
+
+Group creation/add/kick/leave now have a server-owned lifecycle: one durable
+membership/ownership command, then account-wide chat/whiteboard/relay eviction
+and correlated `group-operation-result`. Only the current group owner may add
+or kick; any current registered member may leave. Owner succession and last-member
+retirement are durable. Instance administrators do not override private access.
+Commands require a UUID request ID and mutations require the expected membership
+revision; an old queued intent cannot silently apply to a changed roster.
+Admission and mutation share `AppState.membership_gate`; raw call subscriptions
+receive versioned revocation and old persisted call participation is retired.
+See the [membership work record](plans/2026-09-07-group-membership-revocation.md).
+
+The shared browser/Tauri client now awaits correlated group command results,
+fences stale snapshots/HTTP joins by account/server and membership lifecycle,
+clears removed groups' in-memory views, and prevents unsafe offline intent replay.
+Headful production-module/UI and IndexedDB checks cover these behaviors.
+
+Group-call start/answer now await server admission before capture; removal
+cancels the local owner and fences late initial capture, peer setup and relay
+completion. Background listening sessions are preserved. Current clients pin
+persisted call create/join/leave requests to a membership revision, and raw-call
+revocation retires cached rows and subscription identities. Headful race checks
+cover these paths, but are not physical/native-device verification.
+
+Camera toggles and screen pickers now retain cancellable call scope. Group/voice
+socket replacement retires old transports before readmission; group readmission
+pins the original membership revision. Device-owned group admission prevents an
+unadmitted sibling connection from inheriting call consent or evicting another
+admitted device. Headful tests cover late permissions, move/kick teardown and
+repeated reconnects; these are not physical/native-device or LiveKit certification.
+
+The obsolete local archive and native chat-sidecar paths are retired, not a new
+parallel persistence system. There was no active incoming-message archive writer,
+and the old records did not identify their account. The current app does not
+read/export/migrate/trim those records, including after removal or login changes.
+They remain on the device for explicit recovery; this is **not secure erasure**
+or recall of already delivered content. Files previously exported are unchanged.
+Only existing server-scoped Planner settings remain reachable through `storage.ts`;
+that utility is not a new account-private Planner store. The outbound queue remains
+separate and does not promise a full offline conversation history.
+
+Combined local engine/server, headful browser, Tauri/static frontend and packaged
+runtime checks have passed; an isolated copy of Tim's database also reached
+readiness twice with the candidate. **Authorized deployment is still pending.**
+Server and client must ship together. Persisted call
+participants remain account-level; same-membership explicit leave/rejoin races,
+general multi-device P2P and direct-call reconnect are not claimed solved.
+Album reorder/featured endpoints and group avatar upload still return
+501/NOT_IMPLEMENTED, not fake success. Low-level out-of-band WabiDB membership
+writes are not a live group lifecycle API: use the admitted group command path
+for room/consent eviction. Already delivered content cannot be recalled.
+
+This is not per-author moderation parity or a guarantee about every transport:
+voice/call admission, legacy socket expiry, server-wide metadata operations,
+and unrelated REST modules are not covered by this pass. Upload URLs retain
+their documented capability-URL behavior. Lore capabilities retain their
+separate, stricter opt-in boundary.
+
+---
+
 ## 1. Threat model
 
 The owner account is the root of trust for a wabi server. If it is taken over,

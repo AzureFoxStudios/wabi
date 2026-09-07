@@ -1,10 +1,10 @@
 ---
 name: wabi-frontend-architecture
 description: "Wabi frontend architecture patterns: surface routing, layout shell, right-panel system, and how mature standalone modules are isolated and merged into the main app. Use when refactoring the SvelteKit frontend, integrating standalone routes like `/business` into the main workspace, or renaming/resurfacing modules without duplicating state."
-version: 1.0.0
-author: Hermes Agent
 license: MIT
 metadata:
+  version: 1.0.0
+  author: Hermes Agent
   hermes:
     tags: [wabi, frontend, sveltekit, architecture, routing, surfaces]
 ---
@@ -33,7 +33,7 @@ When a user reports several frontend problems at once, do not bundle implementat
 
 **Media regression rule:** trace file picker → preview → classification/MIME → upload endpoint → attachment record → renderer. Browser MIME may be empty or unreliable, so filename fallback is required for previews/gallery filtering. Do not classify `audio/webm` by `.webm` alone; recorded WebM audio needs an audio-aware extension/MIME path and must not enter video compression. Use proper media MIME values in `<source>` elements, not `audio/<extension>` or `video/<extension>` strings.
 
-**Async projection rule:** when an API command commits an event and immediately reads its projection (albums, wiki, or similar WabiDB surfaces), expect eventual consistency. Use the authenticated actor ID, wait/retry briefly for the projection, and return a truthful readiness error if it still is not visible. Normalize snake_case wire responses and microsecond timestamps at the API boundary before rendering them; otherwise UI labels such as `Updated unknown` and empty galleries mask a data-contract bug.
+**Projection acknowledgment rule:** WabiStore adapter commands now wait for whole-command projection application (2026-09-05 write-completion work). Do not add handler polling to compensate for a missing post-write projection: investigate event/dispatch/completion instead, and report invariant failure truthfully. Normalize snake_case wire responses and microsecond timestamps at the API boundary before rendering them; otherwise UI labels such as `Updated unknown` and empty galleries mask a data-contract bug.
 
 For profile media, distinguish the three concepts explicitly in both code and UI: **profile picture/avatar** (the circular identity image), **profile banner** (wide background), and **avatar overlay/frame** (decorative layer). Never infer the upload's purpose from placement alone. Verify each upload's endpoint and persistence path separately; a localStorage or optimistic in-memory fallback is not durable server persistence.
 
@@ -142,6 +142,15 @@ Standalone modules often persist to `localStorage` (snapshot JSON). Valid for sm
 
 ## DM channels require explicit `joinChannel()` at every open path (2026-08-07)
 
+**2026-09-07 membership boundary:** retain the shared `channelStore.joinChannel`
+entry point: it first awaits `api/channelAccess.ensureChannelMembership`, then
+emits only on the same socket generation (preserving Socket.IO buffering before
+the initial handshake). Wiki/forum/gallery
+feedback and album-scope loads use `fetchChannel` so content cannot race the
+membership acknowledgment. Coordination coalesces in-flight requests only;
+never cache permission indefinitely, self-join DMs on the server, or hide a
+403 as an empty workspace. Keep multiple DM/workspace surfaces independent.
+
 DM/group channels do NOT auto-join the socket room on creation or selection. The server echoes messages via `io.to(channel_id).emit("message", ...)`, which only reaches clients **joined to that room**. If the client never calls `joinChannel(channelId)`, sent messages appear optimistically but the server echo is never received — the message "disappears" from the view.
 
 **Every DM open path must call `joinChannel(channelId)` after the layout state change:**
@@ -168,17 +177,18 @@ In Svelte 5 runes components, ALL event handlers use the new `on` prefix (not `o
 - `onkeydown` (not `on:keydown`)
 - `oninput` (not `on:input`)
 
-**CRITICAL EXCEPTION:** `<svelte:window>` and `<svelte:document>` still use the OLD `on:` syntax:
+The same Svelte 5 event attributes also work on `<svelte:window>` and `<svelte:document>`:
 ```svelte
-<svelte:window on:keydown={handler} />  <!-- CORRECT — svelte:window is special -->
+<svelte:window onkeydown={handler} />
 <div onclick={handler}>  <!-- CORRECT — regular elements use new syntax -->
 ```
 
 **Modifier syntax:** use `onclick={(e) => e.stopPropagation()}` (not `onclick|stopPropagation` which is a TypeScript error — `"onclick|stopPropagation"` is not a valid property name).
 
-**Why this matters:** `svelte-check` emits deprecation warnings for `on:click` on regular elements, and `onclick|stopPropagation` produces a hard TS error. OpenCode workers (deepseek-v4-flash-free) default to `on:click` since most training data is Svelte 4. If dispatching frontend work, the prompt must explicitly state: "Use Svelte 5 `onclick` syntax (not `on:click`), except `<svelte:window>` which still uses `on:keydown`."
-
-Observed 2026-08-07: Reader P1 worker produced 11 `on:click`/`on:change`/`on:scroll` instances + converted `<svelte:window on:keydown>` to `onkeydown` (which is wrong). All had to be fixed in-session.
+Use Svelte 5 event attributes consistently in new/runes components. The older
+advice that `svelte:window` requires `on:` was incorrect; CreateGroupModal's
+`onkeydown` is compiled and headful-browser verified. Do not add modifier syntax
+to event attributes or mix incompatible handler styles.
 
 ## Registering a NEW right-dock workspace panel (2026-08-08)
 
@@ -234,6 +244,88 @@ Mobile is ONE SPA, two skins (no separate site). The shell branch happens on `<h
 **Peer-wipe hazard:** these files were wiped TWICE by the concurrent peer session (untracked new files + `app.html`/`styles.css` edits revert silently). Before trusting a mobile build, verify: `ls frontend/src/lib/pwa/` (expect 5 files incl. `mobileShell.ts`), `frontend/src/styles/components/mobile-shell.css` exists, `app.html` has the `data-shell` script, `styles.css` imports `mobile-shell.css`. Ship proof in deployed bundle: `dataset.shell` in `index.html`, `data-keyboard-open` + `mobile-nav-bar` in the hashed CSS, `shell.mobile.browse` in a JS chunk.
 
 ## References
+
+### Durable group client lifecycle (2026-09-08)
+
+- Local `Channel` extends the generated protocol with explicit `ownerId` and
+  decimal-string `membershipRevision`. Never infer owner from members[0], use
+  floating-point revisions, or edit generated protocol files.
+- `groupOperation.ts` waits for a correlated `group-operation-result`.
+  `groupOperations.ts` coalesces duplicate requests on the same socket and retains
+  uncertain creation IDs for explicit retry. Disconnect/destroy rejects pending
+  work before removing listeners. Emitting/queueing is not successful membership.
+- `groupMembership.ts` fences stale work by server/account, membership epoch and
+  runtime realm generation. A newer explicit re-add permits new work but never
+  revives an old lease. Capture before HTTP/import awaits and check on resumption.
+- SocketManager filters old socket callbacks and removed-group content, applies
+  versioned init/incrementals and tombstones, and refreshes selected group objects.
+  `groupClientState.ts` clears only the removed group's stores/navigation; it must
+  not close an unrelated center-stage DM or clear an unrelated voice roster.
+- GroupSettingsPanel/CreateGroupModal use Svelte 5 runes, server-confirmed pending/
+  error states and the offline registered-user directory. Async callbacks must
+  tolerate the panel/props disappearing BEFORE the removal receipt resolves.
+  Group avatars remain unsupported; do not show a working uploader.
+- Group calls have a cancellable owner in `calling_impl_core.ts`, retained from
+  start/answer through teardown. Admission acknowledgements precede capture;
+  participant events cannot create an unrequested call. Preserve that owner
+  across awaits and use `revokeGroupCall`, not the global call teardown, for
+  removal. Background listen-only sessions are capture consumers too. Relay
+  ownership must be retired before HTTP leave awaits; never let an old catch or
+  finalizer delete a replacement. `audio-browser-smoke.mjs` includes real-capture/
+  peer/relay race harnesses with generated media and fixture network boundaries.
+- Video lanes and preview stores are session-owned too. Use session-indexed
+  video stores (CallSessionManager IDs), not the flattened user-keyed legacy
+  store, for call surfaces. Screen capture has an explicit destination and
+  correlated server admission; never restore the first-relay subscription or
+  the union-of-all-calls screen audience. Keep early ICE parking with captured
+  scope/share identity (`callingIce.ts`), and retain P2P video when WebCodecs is
+  unavailable. See `docs/architecture/CALLING_TRANSPORT_ARCHITECTURE.md` for the
+  paired client/server wire change and verification boundaries.
+- Run `node scripts/group-membership-browser-smoke.mjs` for production-module/UI
+  wiring with fixture network peers and real IndexedDB under desktop CSP. The
+  active membership plan records remaining call teardown/archive work; this UI
+  checkpoint alone is not deployment readiness.
+
+### Call reconnection ownership (2026-09-08)
+
+SocketManager replaces the Socket.IO object. Notify `callSocketLifecycle` before
+removing listeners, and readmit only after authoritative init. A room join on a
+new socket cannot heal an old relay. Group/voice owners retire transports locally
+without a delayed durable leave, then build new transports after correlated
+admission; preserve capture, mute and per-session controls. Group readmission
+pins the original membership revision and never rings new members. Do not mutate
+an old call owner's socket or revive media from a roster/queue echo. The headful
+`audio-browser-smoke.mjs /__call_reconnect` route covers these races; the no-argument
+script runs the complete media regression set.
+Sidebar listen/unlisten wrappers must use these call owners too, not raw
+presence emits. Explicit listening is a join option; offline unlisten cancels
+local intent even without a socket. Legacy voice queue rows cannot be replayed
+over readmission, and manual Join during recovery coalesces with its owner.
+
+Forced voice moves use that same readmission path: retire source media before
+awaits, transfer socket ownership and primary/listener intent, and cancel earlier
+destination work. Never restore the separate relay-only move implementation.
+Forced kicks use scoped leave; the last capture consumer cancels pending
+permission as well as live tracks. An ended microphone is reacquired only after
+fresh admission. Use each call's returned fallback outcome for its transport
+label, not the shared diagnostic another concurrent session can overwrite.
+The `/__voice_ownership` headful route covers moves, kicks and permission races.
+Initial join failure uses that scoped leave too: deleting a session from the
+model alone left a real unanswered P2P connection open after timeout. Retire the
+failed attempt's socket mapping so later moderator events cannot revive it.
+
+Channel panel viewing is independent of transmit focus. Keep upstream second-click
+toggle semantics, but Hang up must leave the displayed session (also while
+offline), not a global foreground call. Closing is not leaving. Badge media must
+be indexed by channel/session, not flattened by account. `/__call_panel` mounts
+the actual CallModal and VoiceChannelList; the no-argument media runner includes
+eight routes. Member lists are siblings of their channel headers, not children;
+test selectors must follow the real DOM before diagnosing badge failures.
+
+Identity stores live in the import-light `presenceIdentity.ts`; presenceStore
+re-exports the same instances. Derived lookup stores must not obtain `users`
+through the socket/command barrel: that circular dependency caused an actual
+browser initialization failure when obsolete reconnect code was removed.
 
 - `references/business-module-isolation.md` — `/business` standalone surface layout, stores, views, and peer components.
 - `references/routing-surface-pattern.md` — `+page.svelte`, `LayoutRouter.svelte`, `MainLayout.svelte`, and `RightPanel.svelte` routing relationships.

@@ -9,6 +9,7 @@ use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tracing::{info, warn};
 
+use super::lore_auth::{LoreReadUser, LoreWriteUser, OptionalLoreReadUser, TokenScope};
 use crate::auth_extractor::{AuthUser, OptionalAuthUser};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
@@ -169,7 +170,7 @@ async fn can_asset_write_lore(state: &AppState, user_id: i64) -> bool {
 ///   developer      → view, stage, commit, approve, lock
 ///   artist         → view, stage, lock
 ///   viewer/member  → view
-/// `may_write_lore` (connect-token scope) remains an orthogonal transport gate.
+/// LoreWriteUser enforces connect-token scope independently of these role gates.
 pub(crate) async fn can_lore(state: &AppState, user_id: i64, capability: &str) -> bool {
     const OWNER_ADMIN_CAPS: [&str; 7] = [
         "lore.view",
@@ -257,46 +258,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/repos/{channel_id}/mirror", axum::routing::post(register_mirror).get(get_mirror_config).delete(remove_mirror))
         .route("/repos/{channel_id}/mirror/run", axum::routing::post(run_mirror))
         .route("/repos/{channel_id}/mirror/configs", axum::routing::get(list_mirror_configs))
-        // Lore connect tokens carry scopes; mutating requests require "write".
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            lore_scope_guard,
-        ))
         .with_state(state)
-}
-
-/// Middleware: read-only lore connect tokens (`Bearer wblore_…` minted with
-/// scope "read") may perform GET/HEAD/OPTIONS only. Full user JWTs, bots,
-/// and unauthenticated requests pass through untouched — handler-level auth
-/// and role gates still apply.
-async fn lore_scope_guard(
-    State(state): State<Arc<AppState>>,
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    let method = req.method().clone();
-    if matches!(
-        method,
-        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
-    ) {
-        return next.run(req).await;
-    }
-    use axum::extract::FromRequestParts;
-    let (mut parts, body) = req.into_parts();
-    let auth = AuthUser::from_request_parts(&mut parts, &state).await;
-    let req = axum::extract::Request::from_parts(parts, body);
-    match auth {
-        Ok(auth) if auth.may_write_lore() => next.run(req).await,
-        Ok(_) => (
-            axum::http::StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "error": "this connect token is read-only",
-                "type": "ReadOnlyToken",
-            })),
-        )
-            .into_response(),
-        Err(_) => next.run(req).await,
-    }
 }
 
 async fn ensure_channel_member(
@@ -421,7 +383,7 @@ async fn link_repo(
 
 async fn get_repo(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path(channel_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -1031,7 +993,7 @@ struct SnapshotPayload {
 
 async fn snapshot(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreWriteUser(auth): LoreWriteUser,
     Path(channel_id): Path<i64>,
     Json(payload): Json<SnapshotPayload>,
 ) -> Result<axum::response::Response> {
@@ -1094,7 +1056,7 @@ struct ListFilesQuery {
 
 async fn list_files(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path(channel_id): Path<i64>,
     Query(query): Query<ListFilesQuery>,
 ) -> Result<Json<serde_json::Value>> {
@@ -1152,7 +1114,7 @@ fn build_repo_zip(
 /// not a real working tree.
 async fn repo_archive(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path(channel_id): Path<i64>,
 ) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -1203,7 +1165,7 @@ async fn repo_archive(
 /// the head lore revision.
 async fn repo_manifest(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path(channel_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -1236,7 +1198,7 @@ struct ChangesQuery {
 /// change feed. `since` is the commit_seq of the last change the client saw.
 async fn repo_changes(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path(channel_id): Path<i64>,
     Query(query): Query<ChangesQuery>,
 ) -> Result<Json<serde_json::Value>> {
@@ -1288,11 +1250,25 @@ async fn mint_connect_token(
     if !can_asset_write_lore(&state, auth.user_id).await {
         return Err(AppError::Forbidden("Connect tokens require at least Artist role".into()));
     }
-    // Normalize scopes: anything containing "write" gets read+write; else read.
-    let scopes = match payload.scopes.as_deref() {
-        Some(s) if s.to_ascii_lowercase().contains("write") => "read,write",
-        _ => "read",
-    };
+    let scopes = TokenScope::parse(payload.scopes.as_deref().unwrap_or("read"))
+        .ok_or_else(|| AppError::BadRequest("scope must be read or write".into()))?
+        .as_str();
+    if auth.is_guest || auth.is_bot {
+        return Err(AppError::Forbidden(
+            "connect tokens require a registered account".into(),
+        ));
+    }
+    let channel = format!("ch_{channel_id:x}");
+    if state.wdb.get_channel(&channel).await?.is_none() {
+        return Err(AppError::NotFound("channel not found".into()));
+    }
+    let user = state.wdb.get_user(auth.user_id as u64).await?
+        .ok_or_else(|| AppError::Unauthorized("account no longer exists".into()))?;
+    if !user.is_active || user.password_hash.is_empty() {
+        return Err(AppError::Forbidden(
+            "connect tokens require an active registered account".into(),
+        ));
+    }
 
     use rand::Rng;
     let secret: [u8; 32] = rand::thread_rng().gen();
@@ -1308,6 +1284,7 @@ async fn mint_connect_token(
     Ok(Json(serde_json::json!({
         // Plaintext — shown once, never stored.
         "token": token,
+        "tokenHash": token_hash,
         "tokenHashPrefix": &token_hash[..12],
         "scopes": scopes,
         "channelId": channel_id,
@@ -1321,18 +1298,17 @@ async fn list_connect_tokens(
     Path(channel_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
-    if !can_asset_write_lore(&state, auth.user_id).await {
-        return Err(AppError::Forbidden("Connect token management requires at least Artist role".into()));
-    }
+    let can_manage_others = state.is_admin(auth.user_id).await;
     let tokens = state
         .wdb
         .list_lore_tokens(channel_id)
-        .await
-        .unwrap_or_default();
+        .await?;
     let tokens: Vec<serde_json::Value> = tokens
         .into_iter()
+        .filter(|t| t.user_id == auth.user_id || can_manage_others)
         .map(|t| {
             serde_json::json!({
+                "tokenHash": t.token_hash,
                 "tokenHashPrefix": &t.token_hash[..t.token_hash.len().min(12)],
                 "scopes": t.scopes,
                 "userId": t.user_id,
@@ -1350,18 +1326,32 @@ async fn revoke_connect_token(
     Path((channel_id, token_hash)): Path<(i64, String)>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
-    if !can_asset_write_lore(&state, auth.user_id).await {
-        return Err(AppError::Forbidden("Connect token management requires at least Artist role".into()));
+    // Older Connect panels send a 12-hex prefix; new clients use the full hash.
+    // Resolve only within this channel and this user's authority.
+    // A prefix collision must never revoke an arbitrary credential.
+    if !matches!(token_hash.len(), 12 | 64)
+        || !token_hash.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Err(AppError::BadRequest("invalid connect token identifier".into()));
     }
-    // Only revoke tokens that belong to this channel.
-    match state.wdb.lore_get_token(&token_hash).await? {
-        Some(record) if record.channel_id == channel_id => {
-            state.wdb.lore_revoke_token(&token_hash, auth.user_id).await?;
-            info!(channel_id, user_id = auth.user_id, "Lore connect token revoked");
-            Ok(Json(serde_json::json!({ "status": "ok" })))
-        }
-        _ => Err(AppError::NotFound("No such token for this channel".into())),
-    }
+    let can_manage_others = state.is_admin(auth.user_id).await;
+    let matches: Vec<_> = state.wdb.list_lore_tokens(channel_id).await?
+        .into_iter()
+        .filter(|t| {
+            (t.user_id == auth.user_id || can_manage_others)
+                && t.token_hash.starts_with(&token_hash)
+        })
+        .collect();
+    let record = match matches.as_slice() {
+        [] => return Err(AppError::NotFound("No such token for this channel".into())),
+        [record] => record,
+        _ => return Err(AppError::Conflict(
+            "ambiguous token prefix; use the full token hash".into(),
+        )),
+    };
+    state.wdb.lore_revoke_token(&record.token_hash, auth.user_id).await?;
+    info!(channel_id, user_id = auth.user_id, "Lore connect token revoked");
+    Ok(Json(serde_json::json!({ "status": "ok" })))
 }
 
 /// SHA-256 hex of arbitrary bytes (token hashing at mint + auth time).
@@ -1383,7 +1373,7 @@ struct UploadQuery {
 
 async fn upload_file(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreWriteUser(auth): LoreWriteUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<UploadQuery>,
     headers: axum::http::HeaderMap,
@@ -1746,7 +1736,7 @@ fn cache_path(channel_id: i64, path: &str, revision: Option<&str>) -> std::path:
 
 async fn download_file(
     State(state): State<Arc<AppState>>,
-    auth: OptionalAuthUser,
+    auth: OptionalLoreReadUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<DownloadQuery>,
     headers: axum::http::HeaderMap,
@@ -1872,7 +1862,7 @@ struct DeleteFilePayload {
 
 async fn delete_file(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreWriteUser(auth): LoreWriteUser,
     Path((channel_id, path)): Path<(i64, String)>,
     headers: axum::http::HeaderMap,
     Json(payload): Json<DeleteFilePayload>,
@@ -1941,7 +1931,7 @@ async fn delete_file(
 
 async fn lock_file(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreWriteUser(auth): LoreWriteUser,
     Path((channel_id, path)): Path<(i64, String)>,
 ) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -1960,7 +1950,7 @@ async fn lock_file(
 
 async fn unlock_file(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreWriteUser(auth): LoreWriteUser,
     Path((channel_id, path)): Path<(i64, String)>,
 ) -> Result<axum::response::Response> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -1981,7 +1971,7 @@ async fn unlock_file(
 
 async fn repo_history(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path(channel_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -2023,7 +2013,7 @@ async fn repo_history(
 
 async fn file_level_history(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path((channel_id, path)): Path<(i64, String)>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
@@ -2067,7 +2057,7 @@ struct DiffQuery {
 
 async fn file_diff(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<DiffQuery>,
 ) -> Result<axum::response::Response> {
@@ -2082,7 +2072,7 @@ async fn file_diff(
 
 async fn list_branches(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    LoreReadUser(auth): LoreReadUser,
     Path(channel_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;

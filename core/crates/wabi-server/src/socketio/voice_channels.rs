@@ -14,15 +14,17 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let epoch = advance_voice_intent(&socket, &channel_id, false);
+    let Some(identity) = require_call_channel(&socket, &state, &channel_id,
+        wabidb::domain::ChannelKind::Voice, "voice-channel-error", data.get("requestId")).await else { return; };
+    let user_id_num = identity.user_id;
 
     // Check if user is muted on this voice channel
     if user_id_num > 0 {
         if let Ok(true) = state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
             warn!("[sio] user {} muted in voice channel {}", user_id_num, channel_id);
             warn!("[sio] on_voice_channel_join called: channel_id={}, user_id_num={}", channel_id, user_id_num);
-            let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "error": "You are muted in this channel" }));
+            let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "You are muted in this channel" }));
             warn!("[sio] on_voice_channel_join: user {} muted, returning", user_id_num);
             return;
         }
@@ -78,12 +80,16 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
 
     let current_members: Vec<Value> = {
         let mut voice = state.voice_channels.write().await;
+        if !voice_intent_current(&socket, &channel_id, false, epoch) { return; }
         let members = voice.entry(channel_id.clone()).or_default();
         members.retain(|p| p.socket_id != socket.id.to_string());
         members.push(participant.clone());
         members.iter().map(voice_participant_to_view).collect()
     };
 
+    let _ = socket.emit("voice-channel-admitted", &json!({
+        "channelId": channel_id, "requestId": data.get("requestId"), "listeningOnly": false,
+    }));
     let _ = socket.emit(
         "voice-channel-state",
         &json!({
@@ -127,8 +133,10 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let epoch = advance_voice_intent(&socket, &channel_id, true);
+    let Some(identity) = require_call_channel(&socket, &state, &channel_id,
+        wabidb::domain::ChannelKind::Voice, "voice-channel-error", data.get("requestId")).await else { return; };
+    let user_id_num = identity.user_id;
 
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
@@ -160,6 +168,7 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
 
     let current_members: Vec<Value> = {
         let mut voice = state.voice_channels.write().await;
+        if !voice_intent_current(&socket, &channel_id, true, epoch) { return; }
         let members = voice.entry(channel_id.clone()).or_default();
         // If this socket is already a primary (transmitting) participant in the
         // channel, do NOT demote it to a listen-only participant.
@@ -183,6 +192,9 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
         members.iter().map(voice_participant_to_view).collect()
     };
 
+    let _ = socket.emit("voice-channel-admitted", &json!({
+        "channelId": channel_id, "requestId": data.get("requestId"), "listeningOnly": true,
+    }));
     // Broadcast the full roster so every client (including the subscriber)
     // sees the updated member list with the listen-only participant.
     let _ = io
@@ -203,6 +215,7 @@ async fn on_voice_channel_unsubscribe(socket: SocketRef, data: Value, state: Sio
         None => return,
     };
 
+    advance_voice_intent(&socket, &channel_id, true);
     let identity = resolve_sio_identity(&socket);
     let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     let _stable_id = if user_id_num > 0 {
@@ -261,6 +274,7 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
         None => return,
     };
 
+    advance_voice_intent(&socket, &channel_id, false);
     let identity = resolve_sio_identity(&socket);
     let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
     let stable_id = if user_id_num > 0 {
@@ -269,7 +283,7 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
         socket.id.to_string()
     };
 
-    {
+    let removed = {
         let mut voice = state.voice_channels.write().await;
         if let Some(members) = voice.get_mut(&channel_id) {
             // Only remove a primary (transmitting) participant on `leave`.
@@ -282,8 +296,11 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
             if is_primary {
                 members.retain(|p| p.socket_id != socket.id.to_string());
             }
-        }
-    }
+            is_primary
+        } else { false }
+    };
+    // A stale primary leave must not announce that a surviving listener left.
+    if !removed { return; }
 
     let _ = io
         .emit(
@@ -453,8 +470,9 @@ async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, 
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = require_call_channel(&socket, &state, &channel_id,
+        wabidb::domain::ChannelKind::Voice, "voice-channel-kick-error", None).await else { return; };
+    let my_user_id = identity.user_id;
     if my_user_id <= 0 {
         let _ = socket.emit(
             "voice-channel-kick-error",
@@ -484,6 +502,14 @@ async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, 
                 .cloned()
                 .collect();
             members.retain(|p| p.stable_id != target_user_id);
+            // Revoke receive AND send rights under the roster lock used by
+            // relay admission. Client teardown is advisory, not authority.
+            for target in io.sockets().into_iter().filter(|s| removed.iter().any(|p| p.socket_id == s.id.to_string())) {
+                advance_voice_intent(&target, &channel_id, false);
+                advance_voice_intent(&target, &channel_id, true);
+                target.leave(format!("wabidb-call-channel:{channel_id}"));
+                wabidb_header_cache_forget_session_socket(&format!("channel:{channel_id}"), &target.id.to_string());
+            }
             removed
         } else {
             Vec::new()
@@ -495,17 +521,16 @@ async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, 
     }
 
     // Tell the kicked client(s) to tear down their media session.
-    for p in &removed {
-        let _ = io
-            .to(p.socket_id.clone())
-            .emit(
+    for target in io.sockets().into_iter().filter(|s| removed.iter().any(|p| p.socket_id == s.id.to_string())) {
+        // A socket ID is not automatically a room in socketioxide. Address
+        // the connection directly; do not rely on a coincidentally joined room.
+        let _ = target.emit(
                 "voice-self-kicked",
                 &json!({
                     "channelId": channel_id,
                     "userId":    target_user_id,
                 }),
-            )
-            .await;
+            );
     }
 
     // Broadcast the removal like the disconnect cleanup does, then a fresh
@@ -553,4 +578,3 @@ async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, 
 // ---------------------------------------------------------------------------
 // Call lifecycle handlers
 // ---------------------------------------------------------------------------
-

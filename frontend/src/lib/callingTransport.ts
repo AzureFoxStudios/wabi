@@ -24,11 +24,13 @@ import {
  */
 export async function resolveActiveTransport(
 	channelId?: string,
-	kind: 'channel' | 'group' | 'direct' = channelId ? 'channel' : 'direct'
+	kind: 'channel' | 'group' | 'direct' = channelId ? 'channel' : 'direct',
+	stillWanted?: () => boolean
 ): Promise<EffectiveCallTransport> {
 	void kind;
 	const plan = await resolveCallTransportPlan();
 	const runtime = await syncMediaRuntimeFromServer().catch(() => null);
+	if (stillWanted && !stillWanted()) throw new DOMException('Call transport selection cancelled', 'AbortError');
 	const sfuProvider = runtime?.media?.sfu?.provider === 'livekit' ? 'livekit' : plan.sfuProvider;
 	const livekitReady = Boolean(
 		sfuProvider === 'livekit' &&

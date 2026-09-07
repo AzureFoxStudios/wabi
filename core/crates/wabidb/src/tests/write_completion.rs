@@ -324,6 +324,197 @@ async fn restart_preserves_event_order_within_a_multi_stream_commit() {
     );
 }
 
+fn member_write(channel: &str, uid: u64, removed: bool) -> EventToWrite {
+    use crate::projections::channel_members::{encode_record, ChannelMemberRecord};
+    EventToWrite {
+        stream_id: format!("channel_members:{channel}"),
+        stream_kind: 1,
+        event_type: if removed {
+            "channel_member_removed"
+        } else {
+            "channel_member_added"
+        }
+        .into(),
+        record_kind: RecordKind::Event,
+        plaintext: encode_record(&ChannelMemberRecord {
+            channel_id: channel.into(),
+            user_id: uid,
+            joined_at_micros: 123,
+            role: 0,
+            nick: None,
+        }),
+    }
+}
+
+#[tokio::test]
+async fn membership_removal_survives_snapshot_and_full_replay() {
+    use crate::projections::channel_members::ChannelMembersProjection as Members;
+    for replay in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+        engine
+            .get_or_create_stream_key("channel_members:ch_a")
+            .await
+            .unwrap();
+        for removed in [false, true, true] {
+            engine
+                .run_command(command(vec![member_write("ch_a", 1, removed)]))
+                .await
+                .unwrap();
+            assert_eq!(
+                Members::get_member(engine.projection_state(), "ch_a", 1)
+                    .unwrap()
+                    .is_none(),
+                removed
+            );
+        }
+        drop(engine);
+        if replay {
+            ProjectionState::remove_snapshot(dir.path());
+        }
+        let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+        assert!(Members::get_member(engine.projection_state(), "ch_a", 1)
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[tokio::test]
+async fn legacy_membership_snapshot_repair_preserves_rejoins_cascades_and_unrelated_state() {
+    use crate::projections::channel_members::{encode_key, ChannelMembersProjection as Members};
+    for rejoin_after_snapshot in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+        for stream in [
+            "channel_members:ch_a",
+            "channel_members:ch_b",
+            "users",
+            "legacy",
+        ] {
+            engine.get_or_create_stream_key(stream).await.unwrap();
+        }
+        for (ch, uid, removed) in [
+            ("ch_a", 1, false),
+            ("ch_a", 2, false),
+            ("ch_b", 1, false),
+            ("ch_a", 1, true),
+            ("ch_b", 1, true),
+            ("ch_b", 1, false),
+        ] {
+            engine
+                .run_command(command(vec![member_write(ch, uid, removed)]))
+                .await
+                .unwrap();
+        }
+        let mut deletion = write(
+            "users",
+            &postcard::to_allocvec(&crate::domain::UserDeleted { user_id: 2 }).unwrap(),
+        );
+        deletion.event_type = "user_deleted".into();
+        engine.run_command(command(vec![deletion])).await.unwrap();
+        engine
+            .run_command(command(vec![write("legacy", b"snapshot-only-data")]))
+            .await
+            .unwrap();
+        let state = engine.projection_state();
+        // Reproduce the old dispatcher's exact snapshot: ignored removals left
+        // stale membership plus one fallback row containing the LAST removal.
+        state.insert(
+            "channel_members",
+            encode_key("ch_a", 1),
+            member_write("ch_a", 1, false).plaintext,
+            1,
+        );
+        state.insert(
+            "events",
+            b"channel_member_removed".to_vec(),
+            member_write("ch_b", 1, true).plaintext,
+            1,
+        );
+        state.save_snapshot(dir.path()).unwrap();
+        let checkpoint = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
+        if rejoin_after_snapshot {
+            engine
+                .run_command(command(vec![member_write("ch_a", 1, false)]))
+                .await
+                .unwrap();
+        }
+        drop(engine);
+        std::fs::write(ProjectionState::snapshot_path(dir.path()), checkpoint).unwrap();
+        // Unrelated pre-snapshot history can be absent (e.g. retention); this
+        // must not turn a targeted permissions repair into a full DB rebuild.
+        std::fs::remove_file(dir.path().join("streams/other/legacy/events/00000001.wseg")).unwrap();
+        for _ in 0..2 {
+            let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+            let state = engine.projection_state();
+            assert_eq!(
+                Members::get_member(state, "ch_a", 1).unwrap().is_some(),
+                rejoin_after_snapshot
+            );
+            assert!(
+                Members::get_member(state, "ch_b", 1).unwrap().is_some(),
+                "pre-snapshot rejoin must win"
+            );
+            assert!(
+                Members::get_member(state, "ch_a", 2).unwrap().is_none(),
+                "do not undo user_deleted cascade"
+            );
+            assert!(state.get("events", b"channel_member_removed").is_none());
+            assert_eq!(
+                state.get("events", b"probe"),
+                Some(b"snapshot-only-data".to_vec())
+            );
+            drop(engine);
+        }
+    }
+}
+
+#[tokio::test]
+async fn legacy_membership_repair_fails_closed_with_missing_history_and_preserves_snapshot() {
+    use crate::projections::channel_members::encode_key;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+    engine
+        .get_or_create_stream_key("channel_members:ch_a")
+        .await
+        .unwrap();
+    for removed in [false, true] {
+        engine
+            .run_command(command(vec![member_write("ch_a", 1, removed)]))
+            .await
+            .unwrap();
+    }
+    engine.projection_state().insert(
+        "channel_members",
+        encode_key("ch_a", 1),
+        member_write("ch_a", 1, false).plaintext,
+        1,
+    );
+    engine.projection_state().insert(
+        "events",
+        b"channel_member_removed".to_vec(),
+        member_write("ch_a", 1, true).plaintext,
+        1,
+    );
+    drop(engine);
+    let checkpoint = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
+    std::fs::remove_file(
+        dir.path()
+            .join("streams/channel/channel_members:ch_a/events/00000001.wseg"),
+    )
+    .unwrap();
+    let error = WabiDbEngine::open(config_at(dir.path())).await.unwrap_err();
+    assert!(
+        error.to_string().contains("not all indexed events"),
+        "{error}"
+    );
+    assert_eq!(
+        std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap(),
+        checkpoint
+    );
+    assert!(!dir.path().join(".lock").exists());
+}
+
 #[tokio::test]
 async fn missing_indexed_event_refuses_startup_instead_of_restoring_partial_commit() {
     let dir = tempfile::tempdir().unwrap();

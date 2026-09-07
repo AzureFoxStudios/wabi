@@ -53,6 +53,14 @@ export class SQLiteBackend implements WabiDB {
 		throw new Error('SQLite backend is not yet implemented in v1');
 	}
 
+	markFailed(_actionId: string, _error: string, _retryable?: boolean): Promise<void> {
+		throw new Error('SQLite backend is not yet implemented in v1');
+	}
+
+	claimMessage(_actionId: string): Promise<boolean> {
+		throw new Error('SQLite backend is not yet implemented in v1');
+	}
+
 	retryFailed(): Promise<void> {
 		throw new Error('SQLite backend is not yet implemented in v1');
 	}

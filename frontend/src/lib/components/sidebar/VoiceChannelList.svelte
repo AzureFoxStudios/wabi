@@ -1,14 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { derived } from 'svelte/store';
 	import { slide, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { longpress } from '$lib/actions/longpress';
 	import type { Channel } from '$lib/socket';
 	import { currentUser, voiceChannelMembers, channelUnreadCounts, socket, getSocket } from '$lib/socket';
-	import { isMuted as callMuted, isDeafened as callDeafened, isLocalSpeaking, speakingUsers, voiceTransmitMode, listeningVoiceChannels, toggleMute, toggleDeafen, endCall, localScreenStream, screenShares } from '$lib/calling';
-	import { wabidbRemoteVideoStreams } from '$lib/wabidbVideoLane';
+	import { isMuted as callMuted, isDeafened as callDeafened, isLocalSpeaking, speakingUsers, voiceTransmitMode, listeningVoiceChannels, toggleMute, toggleDeafen, endCall } from '$lib/calling';
+	import { buildChannelMediaSharers, type ChannelMediaSharers } from '$lib/voiceMediaRoster';
+	import { wabidbRemoteVideoSessions } from '$lib/wabidbVideoLane';
+	import { screenShares } from '$lib/callingStateStores';
 	import { voiceCallRecordingParticipants } from '$lib/callRecordingPresence';
 	import { formatBadge, formatVoiceDuration as formatVoiceDurationLabel, formatVoiceOccupancy, getVoiceOccupancyTitle } from './channelSidebarHelpers';
+
+	const voiceMediaByChannel = derived([wabidbRemoteVideoSessions, screenShares],
+		([sessions, shares]) => buildChannelMediaSharers(sessions, shares));
 
 	export let voiceChannels: Channel[];
 	export let allVoiceChannels: Channel[];
@@ -93,8 +99,7 @@
 			currentDbUserId: number | null;
 			selfLocallySpeaking: boolean;
 			presenceSince: Map<string, number>;
-			screenIds: Set<string>;
-			cameraIds: Set<string>;
+			mediaByChannel: ChannelMediaSharers;
 		}
 	): VoiceRow {
 		const members = ctx.membersMap[channelId] || [];
@@ -149,8 +154,8 @@
 			recordingIds,
 			recordingCount: recordingParticipants.length,
 			memberPresence,
-			screenIds: ctx.screenIds,
-			cameraIds: ctx.cameraIds
+			screenIds: ctx.mediaByChannel.get(channelId)?.screenIds ?? new Set(),
+			cameraIds: ctx.mediaByChannel.get(channelId)?.cameraIds ?? new Set()
 		};
 	}
 
@@ -170,24 +175,6 @@
 
 	$: selfLocallySpeaking = $isLocalSpeaking && !$callMuted && !$callDeafened;
 
-	// Who is sharing what, normalized to stable `user-N` ids (2026-09-07
-	// Discord-model roster): wabidb lane streams key `${owner}:screen|camera`,
-	// P2P screen shares carry raw userIds. Feeds the per-member badges so the
-	// channel roster shows who's on camera / sharing a screen without opening
-	// the call panel.
-	$: mediaSharers = (() => {
-		const normalize = (id: string): string => (/^\d+$/.test(id) ? `user-${id}` : id);
-		const screenIds = new Set<string>();
-		const cameraIds = new Set<string>();
-		for (const key of $wabidbRemoteVideoStreams.keys()) {
-			const owner = key.replace(/:(camera|screen)$/, '');
-			if (key.endsWith(':screen')) screenIds.add(normalize(owner));
-			else if (key.endsWith(':camera')) cameraIds.add(normalize(owner));
-		}
-		for (const share of $screenShares) screenIds.add(normalize(share.userId));
-		return { screenIds, cameraIds };
-	})();
-
 	$: voiceRowsById = (() => {
 		const map = new Map<string, VoiceRow>();
 		const ctx = {
@@ -201,8 +188,7 @@
 			currentDbUserId: $currentUser?.dbUserId ?? null,
 			selfLocallySpeaking,
 			presenceSince: voicePresenceSince,
-			screenIds: mediaSharers.screenIds,
-			cameraIds: mediaSharers.cameraIds
+			mediaByChannel: $voiceMediaByChannel
 		};
 		for (const channel of collectRowChannels()) {
 			map.set(channel.id, buildVoiceRow(channel.id, ctx));

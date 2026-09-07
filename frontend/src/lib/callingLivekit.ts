@@ -38,6 +38,7 @@ export function initLivekitDeps(d: LivekitDeps): void {
 
 let livekitRoom: Room | null = null;
 let livekitChannelId: string | null = null;
+let livekitGeneration = 0;
 const livekitParticipantMedia = new Map<string, {
 	username: string;
 	audioTrack: MediaStreamTrack | null;
@@ -202,6 +203,7 @@ export function resolveVoiceParticipantLabel(userId: string): string | null {
 // ============================================================================
 
 export async function disconnectLivekitSfu(options: { preserveCallState?: boolean } = {}): Promise<void> {
+	livekitGeneration++;
 	const { preserveCallState = false } = options;
 	const channelId = livekitChannelId;
 	if (channelId) {
@@ -214,11 +216,6 @@ export async function disconnectLivekitSfu(options: { preserveCallState?: boolea
 	if (!room) {
 		sfuMediaActive.set(false);
 		return;
-	}
-	try {
-		await room.disconnect();
-	} catch {
-		// no-op
 	}
 	if (!preserveCallState) {
 		// Only clear SFU-related call state; preserve P2P calls.
@@ -242,14 +239,24 @@ export async function disconnectLivekitSfu(options: { preserveCallState?: boolea
 		};
 	});
 	deps!.syncSpatialAudioGraph();
+	try { await room.disconnect(); } catch { /* local ownership is already retired */ }
 }
 
-export async function connectLivekitSfu(channelId: string, localDisplayName: string): Promise<void> {
+export async function connectLivekitSfu(channelId: string, localDisplayName: string, signal?: AbortSignal): Promise<void> {
+	signal?.throwIfAborted();
   if (livekitRoom && livekitChannelId === channelId && get(sfuMediaActive)) {
 		return;
   }
+	if (livekitRoom && livekitChannelId !== channelId) throw new Error('LiveKit is already owned by another call');
   await disconnectLivekitSfu();
+	signal?.throwIfAborted();
+	const generation = ++livekitGeneration;
+	const check = () => {
+		signal?.throwIfAborted();
+		if (generation !== livekitGeneration) throw new DOMException('LiveKit call superseded', 'AbortError');
+	};
   const tokenResponse = await createLivekitAccessToken(channelId, localDisplayName);
+	check();
 	console.log(
 		`[Calling] LiveKit target: ${tokenResponse.source === 'relay' ? tokenResponse.relayName || `relay ${tokenResponse.relayId}` : 'origin'} (${tokenResponse.url})`
 	);
@@ -257,7 +264,13 @@ export async function connectLivekitSfu(channelId: string, localDisplayName: str
 		dynacast: true,
 		stopLocalTrackOnUnpublish: false
 	});
+	livekitRoom = room;
+	livekitChannelId = channelId;
+	const abort = () => { if (livekitRoom === room) void disconnectLivekitSfu(); };
+	signal?.addEventListener('abort', abort, { once: true });
+	try {
 	room.on(RoomEvent.TrackSubscribed, (remoteTrack, publication, participant) => {
+		if (livekitRoom !== room) return;
 		upsertLivekitTrack(
 			participant.identity,
 			participant.name || participant.identity,
@@ -266,13 +279,16 @@ export async function connectLivekitSfu(channelId: string, localDisplayName: str
 		);
 });
 	room.on(RoomEvent.TrackUnsubscribed, (_remoteTrack, publication, participant) => {
+		if (livekitRoom !== room) return;
 		removeLivekitTrack(participant.identity, publication.source);
 	});
 	room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+		if (livekitRoom !== room) return;
 		livekitParticipantMedia.delete(participant.identity);
 		rebuildLivekitRemoteStores();
 	});
 	room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+		if (livekitRoom !== room) return;
 		const activeIds = new Set(speakers.map((speaker) => speaker.identity));
 		for (const identity of livekitParticipantMedia.keys()) {
 			setLivekitParticipantSpeaking(identity, activeIds.has(identity));
@@ -287,12 +303,15 @@ export async function connectLivekitSfu(channelId: string, localDisplayName: str
   await room.connect(tokenResponse.url, tokenResponse.token, {
       autoSubscribe: true
   });
+	check();
   if (tokenResponse?.token) {
     scheduleLivekitTokenRefresh(channelId, localDisplayName, tokenResponse.token);
   }
 	await room.localParticipant.setMicrophoneEnabled(deps!.shouldSendAudioToChannel(channelId));
+	check();
 	if (!get(isVideoOff)) {
 		await room.localParticipant.setCameraEnabled(true);
+		check();
 	}
 	livekitRoom = room;
 	livekitChannelId = channelId;
@@ -305,4 +324,9 @@ export async function connectLivekitSfu(channelId: string, localDisplayName: str
 		reason: 'livekit_connected',
 		gatewayMediaPlaneStatus: 'ready'
 	}));
+	} catch (error) {
+		if (livekitRoom === room) await disconnectLivekitSfu();
+		else { try { await room.disconnect(); } catch {} }
+		throw error;
+	} finally { signal?.removeEventListener('abort', abort); }
 }

@@ -537,6 +537,8 @@ export async function getLoreChanges(
 }
 
 export interface LoreConnectTokenInfo {
+	/** Exact revocation identifier. Optional for older servers. Not a bearer secret. */
+	tokenHash?: string;
 	tokenHashPrefix: string;
 	scopes: string;
 	userId: number;
@@ -548,7 +550,7 @@ export async function mintLoreConnectToken(
 	token: string,
 	channelId: number,
 	scopes: 'read' | 'write'
-): Promise<{ token: string; tokenHashPrefix: string; scopes: string }> {
+): Promise<{ token: string; tokenHash?: string; tokenHashPrefix: string; scopes: string }> {
 	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/connect-tokens`), {
 		method: 'POST',
 		headers: {
@@ -561,7 +563,11 @@ export async function mintLoreConnectToken(
 		const err = await res.json().catch(() => ({}));
 		throw new Error((err as any).error || 'Failed to mint connect token');
 	}
-	return await res.json();
+	const payload = await res.json();
+	if (typeof payload?.token !== 'string' || !payload.token.startsWith('wblore_') || typeof payload.tokenHashPrefix !== 'string') {
+		throw new Error('The server returned an invalid token response. Check the token list before minting again.');
+	}
+	return payload;
 }
 
 export async function listLoreConnectTokens(
@@ -571,9 +577,19 @@ export async function listLoreConnectTokens(
 	const res = await fetchWithTimeout(loreUrl(`/repos/${channelId}/connect-tokens`), {
 		headers: { Authorization: `Bearer ${token}` }
 	});
-	if (!res.ok) return [];
-	const payload = (await res.json()) as { tokens?: LoreConnectTokenInfo[] };
-	return payload.tokens ?? [];
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({}));
+		throw loreError(err.error || 'Failed to load connect tokens', res.status);
+	}
+	const payload = await res.json();
+	if (!Array.isArray(payload?.tokens) || !payload.tokens.every((entry: unknown) => {
+		if (!entry || typeof entry !== 'object') return false;
+		const t = entry as LoreConnectTokenInfo;
+		return typeof t.tokenHashPrefix === 'string' && typeof t.scopes === 'string'
+			&& typeof t.userId === 'number' && typeof t.createdAtMicros === 'number'
+			&& (t.tokenHash === undefined || typeof t.tokenHash === 'string');
+	})) throw new Error('The server returned an invalid token list.');
+	return payload.tokens;
 }
 
 export async function revokeLoreConnectToken(

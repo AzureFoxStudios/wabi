@@ -204,6 +204,7 @@ import {
 } from './calling_impl';
 
 // Phase 3 — spatial seat stage API
+export { captureIncomingMediaScope, screenShareTargetsCurrent, rejectScreenShare } from './calling_impl_core';
 export {
 	applySpatialSeat,
 	applySpatialSeatToAudio,

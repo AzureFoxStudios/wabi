@@ -103,7 +103,7 @@ export class CallSessionManager {
 			// Prefer a connected session over one still joining; break ties by
 			// recency. Same-millisecond joins resolve to insertion order.
 			const successor = [...next.values()]
-				.filter((s) => s.lifecycle === 'connected' || s.lifecycle === 'joining')
+				.filter((s) => s.lifecycle === 'connected' || s.lifecycle === 'joining' || s.lifecycle === 'reconnecting')
 				.sort((a, b) => {
 					const aLive = a.lifecycle === 'connected' ? 1 : 0;
 					const bLive = b.lifecycle === 'connected' ? 1 : 0;

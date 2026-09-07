@@ -1,115 +1,125 @@
 ---
 name: wabidb-client-offline
-description: "Client-side WabiDB offline persistence layer (frontend/src/lib/wabidb): outbound queue, scope registry, ALL emit sites wired for offline, SQLite stub retired. Use when touching the frontend WabiDB client, StorageSettings Offline & Storage UI, or any outbound action path."
-version: 1.1.0
-author: Hermes
-platforms: [linux, macos, windows, web]
+description: "Client-side WabiDB offline queue and scope registry in frontend/src/lib/wabidb. Use when changing outbound queueing, reconnect replay, group intent cancellation, IndexedDB queue transactions, or Offline & Storage settings."
 metadata:
+  version: 1.2.0
+  author: Hermes
+  platforms: [linux, macos, windows, web]
   hermes:
     tags: [WabiDB, Frontend, Offline, IndexedDB, SvelteKit, Queue]
 ---
 
 # WabiDB Client Offline Layer
 
-The client-side WabiDB abstraction lives in `frontend/src/lib/wabidb/`. It is a v1
-client-only surface (web uses IndexedDB only; SQLite stub has been retired). It provides
-offline scopes, a comprehensive outbound action queue, and a settings UI. This skill
-documents the verified state as of 2026-07-25 (after commits `e75fac5`, `a836cac`, `310a359`).
+This is the shared browser/Tauri **client queue**, not the Rust event-sourced
+engine. Source-verified 2026-09-08. The IndexedDB outbound queue is real, but
+`WabiDBImpl.put/get/delete/query` are still scaffolds. Do not claim complete
+offline projections or that every emit is safely queued. The SQLite backend
+file exists, throws unsupported errors and is not selected by default.
 
-## When to Use
+## Ownership and files
 
-- Editing anything under `frontend/src/lib/wabidb/`
-- Wiring a new outbound action through the offline queue
-- Building/debugging the "Offline & Storage" screen in `StorageSettings.svelte`
-- Any "queued action silently never sends" or "queue throws DataError" bug report
+- `types.ts`: client interface, scopes and JSON/structured-cloned QueuedAction.
+- `index.ts`: `openWabiDB/getWabiDB` singleton and delegation.
+- `queue/manager.ts`: scoped enqueue, status changes, durable message claims.
+- `queue/db.ts`: IndexedDB `wabi-queue/outbound_queue`, keyPath `key`.
+- `queue/groupPolicy.ts`: online-only membership and stale group intent policy.
+- `drain.ts`: serialized draining, connection/authority rechecks, message receipt
+  handling. Do not reintroduce parallel drains or emit-then-success for messages.
+- `scopes/registry.ts`: localStorage scope descriptors/preferences.
+- `StorageSettings.svelte`: queue counts, retry and scope UI.
+- `../storage.ts` / `../storageDb.ts`: settings-only access for existing
+  server-scoped Planner preferences. No current incoming-message archive pipeline.
 
-## File Map (verified present)
+## Group intent is versioned, not blindly replayable
 
-| File | Purpose |
-|------|---------|
-| `types.ts` | `WabiDB` interface, `OfflineScopeDescriptor`, `QueuedAction`, `QueueFilter`, `ScopeStatus`, `StorageReport` |
-| `index.ts` | `WabiDBImpl` singleton + `openWabiDB()` / `getWabiDB()` factory |
-| `scopes/registry.ts` | Scope registration, enable/disable, CoreChat + System bootstrap (localStorage-backed) |
-| `scopes/corechat.ts`, `scopes/system.ts` | Scope descriptors (CoreChat opt-in; System always-on) |
-| `queue/manager.ts` | `QueueManager` — enqueue/listQueue/markSynced/retryFailed + `markSyncedByClientId` |
-| `queue/db.ts` | `QueueDB` — dedicated `outbound_queue` IndexedDB store (`wabi-queue` DB) |
-| `backend/detect.ts` | Always returns `'indexeddb'` in v1 |
-| `backend/sqlite.ts` | **DELETED** — was a dead stub (never selected, all methods threw) |
-| `migration/legacy.ts` | Empty scaffold |
-| `drain.ts` | `drainOutboundQueue()` — replays ALL pending actions on reconnect |
-| `actions.ts` | `DRY_RUN`, `SEND_MESSAGE`, `EDIT_MESSAGE`, `DELETE_MESSAGE`, etc. (25 action type constants) |
+Group create/add/kick/leave are **online-only commands** handled by
+`groupOperations.ts` and `groupOperation.ts`. They wait for the correlated
+application result, not an emit receipt. Old queued membership/avatar actions
+are permanently failed for review; `retryFailed` must not re-enable them.
 
-## Completed Work (commits)
+New queue entries capture `authority.realm` (normalized server + JWT subject)
+before storage awaits. Group content also captures the exact string
+`membershipRevision` from `groupMembership.ts`. This is a local stale-work
+fence, NEVER server authorization. Another realm's entries defer. Group content
+waits for authoritative init and requires the same revision; missing legacy
+context, removal, or remove/re-add invalidates it. Do not stamp authority during
+drain: that would silently adopt another account's old intent.
 
-| Commit | What |
-|--------|------|
-| `e75fac5` | Fix keyPath bug, enforce 10k cap, build Offline & Storage UI |
-| `a836cac` | Wire `sendMessage` through the queue (offline enqueue + drain) |
-| `310a359` | **Full finish**: retire SQLite stub, wire ALL remaining emit sites (edit, delete, pin, reaction, profile, role, group, emoji, DM, channel) through the queue |
+Group mutation helpers and all clients must ship with the versioned backend.
+See `docs/plans/2026-09-07-group-membership-revocation.md` for the actual contract
+and actual verification/release status.
 
-## Lifecycle & Wiring (verified)
+## Legacy archives are quarantined, not migrated
 
-- `+layout.svelte` `onMount`: `await openWabiDB()`; at boot and on window `'online'`,
-  calls `db.retryFailed()` then `drainOutboundQueue()`. Removes the listener onDestroy.
-- `StorageSettings.svelte`: renders the "Offline & Storage" section — scope list
-  (always/opt-in/off badges + enable/disable), queue pending/failed/synced counts,
-  Retry button, usage row. Uses `offline.*` i18n keys (en + es).
-- `socketConnectionCore.ts`:
-  - `'connect'` handler fires `drainOutboundQueue()` (fire-and-forget)
-  - `'message-accepted'` handler calls `db.markSyncedByClientId(payload.clientMessageId)`
-- `messageStore.ts` `sendMessage()`: if offline, enqueues and marks optimistic message
-  `failed` with `deliveryError: 'Queued — will send when online'`. Returns without emitting.
-- **All other emit sites now wired similarly** (presenceStore, channelStore, messageReactions,
-  socket.ts, and 6 component files).
+The old ChatStorage implementations, delayed archive cache, archive export UI and
+Tauri chat-sidecar bootstrap were retired after a headful regression exported a
+removed group's unowned archive. Neither native entry point registered the
+sidecar commands, and no current inbound caller populated those archives. Do not
+restore a fake history/autosave toggle or build a parallel store to satisfy an
+obsolete roadmap.
 
-## Outbound Queue Action Types (25 total)
+Old `wabi-chat-db` and server-scoped database `messages` stores stay untouched:
+their account ownership cannot be proven, so the app must not load/export them,
+adopt them for the current login, trim or delete them automatically. No purge of
+unowned user data is claimed. `LocalSettings` opens only `settings`; the directory
+barrel re-exports the same singleton. Existing Planner preferences remain
+server-scoped, not newly account-private. Settings writes acknowledge transaction
+completion; request success followed by abort is a failure.
 
-From `actions.ts`:
-- `SEND_MESSAGE`, `EDIT_MESSAGE`, `DELETE_MESSAGE`, `TOGGLE_PIN`
-- `ADD_REACTION`, `REMOVE_REACTION`
-- `VOICE_CHANNEL_SUBSCRIBE`, `VOICE_CHANNEL_LEAVE`, `SET_VOICE_TRANSMIT_MODE`
-- `ASSIGN_ROLE`, `REMOVE_ROLE`, `BAN_USER`
-- `CREATE_GROUP`, `LEAVE_GROUP`, `KICK_GROUP_MEMBER`, `ADD_GROUP_MEMBER`, `UPDATE_GROUP_AVATAR`
-- `PIN_CHANNEL`, `UNPIN_CHANNEL`
-- `UPDATE_PROFILE`, `DELETE_DM`
-- `MESSAGE` (for ForwardDialog/ShareToChannelModal/LiveChannelView)
-- `DELETE_EMOJI`, `DELETE_EMOJI_ROLE_RULE`, `CLEAR_CHANNEL_MESSAGES`
-- `DRY_RUN` (internal)
+New managed chat history would need an explicit ingestion contract, server/account
+ownership, membership-incarnation fences on persisted reads/writes/exports, and
+an authorized legacy recovery design. The supported outbound queue is not that
+history. `StorageSettings.svelte` says so, displays real queue results/errors and
+does not render the scaffold usage estimate as measured storage. Its translation
+keys live under `storage.offline`, not the nonexistent root `offline` namespace.
+Run `node scripts/storage-boundary-browser-smoke.mjs` for real IndexedDB + Settings
+coverage in browser and simulated native modes; it does not prove native WebView.
 
-## Outbound Queue Data Model
+Call recovery is **not** owned by this optional queue. SocketManager notifies
+call owners after authoritative init; owners await device/voice admission and
+rebuild relays on the new socket object. Do not restore the old post-drain
+`rejoinWabidbCallRooms` hook or infer roster completion from emit ordering.
+Voice join/subscribe/leave/unsubscribe and transmit-mode actions are also
+ephemeral call intent: new enqueue rejects them; legacy rows fail permanently
+with a voice-specific reason. Sidebar subscriptions go through the call owner,
+and local unsubscribe still works between socket objects. A queued old leave
+must not race a fresh readmission; recovery republishes current routing mode.
 
-`QueuedAction = { id, type, scopeId, status: 'pending'|'synced'|'failed', createdAt, payload, retriedAt?, error? }`.
-The record persists to IndexedDB with an explicit `key: \`${scopeId}:${id}\`` field
-(CRITICAL — see pitfalls). `payload` for each action type contains exactly what's needed to
-re-emit (e.g., `send-message` → `{ channelId, text, type, clientMessageId, ...options }`).
+## Queue persistence and acknowledgements
 
-## Pitfalls (load-bearing — costs real debugging time)
+Records contain `id/type/scopeId/status/createdAt/payload` plus optional
+`retriedAt/error/retryable/authority/attemptedAt`. These are client IndexedDB
+records, not Rust postcard records. Preserve `key: scopeId + ':' + id` on every
+write: passing a separate put argument does not satisfy an inline keyPath.
 
-### 1. IndexedDB keyPath MUST match a real record field (BIT US)
-`queue/db.ts` creates the store `{ keyPath: 'key' }`. IndexedDB then IGNORES the
-explicit key passed to `store.put(value, key)` and instead reads `value.key`.
-If the record has no `key` field, every `put()` throws `DataError`. The fix
-(committed in `e75fac5`): `QueueManager._serialize()` stamps `key: \`${scopeId}:${id}\`` onto
-the record. If you ever add a new queued-action type, ensure its serialized record carries `key`.
+Resolve writes on **transaction completion**, not request success.
+`QueueDB.updateAction` does read-modify-write in a single transaction;
+`claimMessage` uses it so concurrent tabs cannot both send one queued message.
+Persist `attemptedAt` BEFORE emit, then recheck the socket and group access.
+A crash/lost reply may leave an uncertain attempt. Never automatically replay it:
+the server currently echoes clientMessageId but does not use it as a durable
+deduplication key.
 
-### 2. MAX_QUEUE_SIZE (10k) is enforced by count, not just age (BIT US)
-`enqueue()` prunes by AGE (30d, `MAX_QUEUE_AGE_MS`) then, if still over the cap,
-calls `QueueDB.trimToSize(MAX_QUEUE_SIZE - 1)` which deletes the oldest records by
-`createdAt` (FIFO). Without this, >10k recent items would bypass the cap. Do not
-"optimize" by removing trimToSize — it is the only real bound.
+A queued chat message becomes synced only after `message-accepted`, via the
+concrete `getWabiDB().markSyncedByClientId` method. A timeout/uncertain prior
+attempt becomes non-retryable failed; a late valid receipt can still confirm an
+attempt. Atomic status updates prevent a late timeout overwriting synced.
+This proves a server receipt, not independently verified durable message
+persistence: the server's separate message-send failure contract needs review.
+Non-message legacy dispatches still use their existing emit completion behavior;
+do not generalize membership/message guarantees to all action types.
 
-### 3. markSyncedByClientId is on the concrete class, NOT the WabiDB interface
-`WabiDBImpl.markSyncedByClientId()` exists; the `WabiDB` interface does NOT declare it.
-This is deliberate: adding it to the interface would force edits to the (deleted) SQLite stub.
-Callers use `getWabiDB()` which returns `WabiDBImpl | null`, so the method is accessible.
+Preserve the 10k queue cap: prune by age first, then trim oldest records if still
+full. Preserve non-retryable failures. Do not retry an attempted message merely
+because the user pressed the general Retry button.
 
 ## Verification
 
-- `npm run check`: 2 pre-existing errors (VoiceChannelList 'announcement', LoreChannel string|number), 90 warnings — no new errors
-- SQLite stub deleted: `ls frontend/src/lib/wabidb/backend/` shows only `detect.ts`, `index.ts`
-- All emit sites now have offline handling: grep for `sock.emit` or `socket.emit` returns only read-only fetches (mark-as-read, load-history) or wired emit blocks
-
-## Related
-
-- `wabidb-core-capabilities` — server-side engine (event store, projections, sequencer)
-- Plan docs: `docs/plans/2026-07-25-wabidb-client-finish.md`, `docs/plans/2026-07-25-wabidb-client-send-offline.md`, `docs/plans/2026-07-25-wabidb-client-full-finish.md`
+- `bun test src/lib` for pure policy/receipt tests and existing frontend regressions.
+- `node scripts/group-membership-browser-smoke.mjs`: real headful Chromium,
+  production UI/socket/state helpers, scoped auth, actual IndexedDB transactions,
+  desktop CSP; controlled HTTP/socket peer (not live users).
+- Run broader calling/browser checks when changing shared imports or reconnect
+  ordering. Build static web and Tauri frontend as appropriate; neither proves a
+  native WebView or physical microphone/device test.

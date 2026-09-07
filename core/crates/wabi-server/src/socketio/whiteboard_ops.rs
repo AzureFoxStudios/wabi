@@ -377,11 +377,8 @@ async fn on_whiteboard_cursor(socket: SocketRef, data: Value, state: SioState, i
         return;
     }
 
-    // Cursors are ephemeral: drop silently if the socket is not authenticated.
-    let user_id = authenticated_user_id(&socket, &state);
-    if user_id <= 0 {
-        return;
-    }
+    let Some(identity) = require_socket_channel(&socket, &state, &board_to_channel_id(&board_id), "whiteboard:error").await else { return; };
+    let user_id = identity.user_id;
 
     let username = data.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let color = data.get("color").and_then(|v| v.as_str()).unwrap_or("").to_string();

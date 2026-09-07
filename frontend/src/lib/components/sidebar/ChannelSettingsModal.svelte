@@ -50,17 +50,15 @@ import { get } from 'svelte/store';
 		sock.emit('clear-channel-messages', { channelId: channel.id });
 	}
 
-	/** Clear this channel's history only on this browser (IndexedDB/local cache). */
+	/** Clear this channel's in-memory view; unowned legacy archives are untouched. */
 	async function clearLocalMessagesOnly(): Promise<void> {
 		if (channel.type === 'dm') return;
 		const confirmed = window.confirm(
-			`Clear local cache for #${channel.name} on this device only?\n\nOther members keep their history. Server history is unchanged.`
+			`Clear the loaded messages for #${channel.name} on this device?\n\nServer history is unchanged and may load again when you reopen the channel. Legacy archives and exported files are not deleted.`
 		);
 		if (!confirmed) return;
 		try {
-			const { chatStorage } = await import('$lib/storage');
 			const { channelMessages } = await import('$lib/socket');
-			await chatStorage.clearChannelMessages(channel.id);
 			channelMessages.update((state) => ({ ...state, [channel.id]: [] }));
 		} catch (err) {
 			console.warn('[channel-settings] local clear failed', err);

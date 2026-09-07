@@ -14,6 +14,8 @@ export interface WabiDB {
 	enqueue(action: Omit<QueuedAction, 'id' | 'status' | 'createdAt'>): Promise<string>;
 	listQueue(filter?: QueueFilter): Promise<QueuedAction[]>;
 	markSynced(actionId: string): Promise<void>;
+	markFailed(actionId: string, error: string, retryable?: boolean): Promise<void>;
+	claimMessage(actionId: string): Promise<boolean>;
 	retryFailed(): Promise<void>;
 	getUsage(): Promise<StorageReport>;
 	estimateDownload(scopeId: string, items: string[]): Promise<number>;
@@ -66,6 +68,12 @@ export interface QueuedAction {
 	createdAt: number;
 	retriedAt?: number;
 	error?: string;
+	/** False for revoked/unscoped legacy intent; retry cannot grant new authority. */
+	retryable?: boolean;
+	/** Local cancellation scope, never proof of server authorization. */
+	authority?: { realm: string; membershipRevision?: string };
+	/** A durable send attempt is never automatically repeated without server idempotency. */
+	attemptedAt?: number;
 }
 
 export interface QueueFilter {

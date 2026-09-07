@@ -1,7 +1,8 @@
 /**
  * Single in-memory AES key holder for at-rest storage encryption.
- * Both legacy (storageDb) and storage/ (indexeddb) wrappers must use this
- * so enable on one path arms the other.
+ * Kept for explicit encryption utilities and format regression tests. The
+ * retired chat archive paths no longer read or write encrypted archives;
+ * setting a key here does not enable an offline message archive.
  */
 let encryptionKey: CryptoKey | null = null;
 

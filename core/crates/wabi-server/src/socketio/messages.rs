@@ -380,12 +380,14 @@ async fn on_delete_message(socket: SocketRef, cmd: Value, state: SioState, io: S
     };
 
     // Auth check — must have a real user account (not guest)
-    let identity = resolve_sio_identity(&socket);
-    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    let username = identity.as_ref().map(|i| i.username.clone()).unwrap_or_default();
-    let is_private_conversation = channel_id.starts_with("dm_")
-        || channel_id.starts_with("dm-")
-        || channel_id.starts_with("group-");
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "delete-error").await else { return; };
+    if !message_in_channel(&state, &channel_id, &message_id).await {
+        let _ = socket.emit("delete-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
+        return;
+    }
+    let user_id = identity.user_id;
+    let username = identity.username;
+    let is_private_conversation = matches!(state.app.wdb.get_channel_kind(&channel_id).await.as_deref(), Some("dm" | "group"));
     let can_moderate_messages = if user_id > 0 && !is_private_conversation {
         state.app.is_admin(user_id).await || state.app.has_role(user_id, "Moderator").await
     } else {
@@ -475,10 +477,9 @@ async fn on_clear_channel_messages(socket: SocketRef, cmd: Value, state: SioStat
         None => return,
     };
 
-    // Never touch DM conversations. DM message stores are keyed by "dm_<a>_<b>"
-    // and live in a separate projection; clearing them is out of scope and would
-    // silently wipe private conversations.
-    if channel_id.starts_with("dm_") || channel_id.starts_with("dm-") {
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "clear-channel-error").await else { return; };
+    // Private conversations are not server-moderated channels, whatever their ID.
+    if matches!(state.app.wdb.get_channel_kind(&channel_id).await.as_deref(), Some("dm" | "group")) {
         let _ = socket.emit(
             "clear-channel-error",
             &json!({ "channelId": channel_id, "error": "Cannot clear messages in a DM conversation" }),
@@ -486,8 +487,7 @@ async fn on_clear_channel_messages(socket: SocketRef, cmd: Value, state: SioStat
         return;
     }
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let user_id = identity.user_id;
 
     if user_id <= 0 {
         let _ = socket.emit(
@@ -532,9 +532,8 @@ async fn on_typing(socket: SocketRef, data: Value, state: SioState) {
         Some(id) => id.to_string(),
         None => return,
     };
-    let username = resolve_sio_identity(&socket)
-        .map(|i| i.username)
-        .unwrap_or_default();
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "typing-error").await else { return; };
+    let username = identity.username;
     let _ = socket
         .broadcast()
         .to(channel_id.clone())

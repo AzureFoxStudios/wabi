@@ -220,7 +220,37 @@ pub struct VoiceParticipant {
 #[allow(dead_code)]
 pub type VoiceChannels = Arc<RwLock<HashMap<String, Vec<VoiceParticipant>>>>;
 
-/// State for an active group/DM-group call.
+/// Ephemeral call consent is device-owned. Account membership is durable in
+/// WabiDB, but another logged-in device must not borrow this socket's consent,
+/// and an old socket disconnect must not remove its replacement's admission.
+#[derive(Clone, Debug, Default)]
+pub struct GroupCallParticipants(HashMap<String, HashSet<String>>);
+
+impl GroupCallParticipants {
+    pub fn join(&mut self, account: &str, socket: &str) {
+        self.0.entry(account.to_string()).or_default().insert(socket.to_string());
+    }
+    pub fn contains(&self, account: &str) -> bool { self.0.contains_key(account) }
+    pub fn contains_socket(&self, account: &str, socket: &str) -> bool {
+        self.0.get(account).is_some_and(|sockets| sockets.contains(socket))
+    }
+    pub fn len(&self) -> usize { self.0.len() }
+    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub fn iter(&self) -> impl Iterator<Item = &String> { self.0.keys() }
+    /// Membership removal deliberately revokes ALL of the account's devices.
+    pub fn remove(&mut self, account: &str) -> bool { self.0.remove(account).is_some() }
+    /// Returns the departing account and whether its last admitted device left.
+    pub fn leave_socket(&mut self, socket: &str) -> Option<(String, bool)> {
+        let account = self.0.iter().find(|(_, sockets)| sockets.contains(socket))?.0.clone();
+        let sockets = self.0.get_mut(&account).expect("account found above");
+        sockets.remove(socket);
+        let last = sockets.is_empty();
+        if last { self.0.remove(&account); }
+        Some((account, last))
+    }
+}
+
+/// State for an active group/DM-group call. Not a postcard-encoded record.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct GroupCallSession {
@@ -232,7 +262,7 @@ pub struct GroupCallSession {
     pub has_ever_established: bool,
     pub last_invite_sender_id: String,
     pub invited_participants: HashSet<String>,
-    pub connected_participants: HashSet<String>,
+    pub connected_participants: GroupCallParticipants,
 }
 
 /// channel_id → GroupCallSession.
@@ -542,57 +572,36 @@ pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<So
     })
 }
 
-/// Channel access check for non-DM channels. Owner → admin → membership.
-/// Mirrors the proven pattern in `socketio/whiteboard_ops.rs`.
+/// Same persisted channel boundary as REST. In particular GroupDm does not
+/// inherit the ordinary-channel owner/admin override.
 pub async fn can_access_channel(state: &SioState, user_id: i64, channel_id: &str) -> bool {
-    if *state.app.owner_user_id.read().await == Some(user_id) {
-        return true;
-    }
-    if state.app.is_admin(user_id).await {
-        return true;
-    }
-    if let Ok(channels) = state.app.wdb.list_channels(Some(user_id as u64)).await {
-        for ch in &channels {
-            if ch.channel_id == channel_id {
-                return true;
-            }
-        }
-    }
-    false
+    crate::channel_access::require_access(&state.app, user_id, channel_id).await.is_ok()
 }
 
-/// DM-channel access check. Only the two participants may access. No
-/// admin/owner override — admins must not silently read DMs. Prefers the
-/// persisted members list; falls back to parsing `dm-user-{a}-user-{b}`.
-/// Unknown/parse-failure ⇒ deny.
+/// Kept as a compatibility entry point for existing DM call sites. The shared
+/// policy handles BOTH conversation kinds and never parses IDs as authority.
 pub async fn can_access_dm(state: &SioState, user_id: i64, channel_id: &str) -> bool {
-    let my_stable_id = format!("user-{}", user_id);
+    can_access_channel(state, user_id, channel_id).await
+}
 
-    // Prefer the persisted members list from the channel row.
-    // Point lookup (t_6bbbc52a) — but members live in the separate
-    // channel_members index, so query it directly instead of scanning all rows.
-    if let Ok(members) = state.app.wdb.list_channel_members(channel_id).await {
-        if !members.is_empty() {
-            for m in &members {
-                if format!("user-{}", m.user_id) == my_stable_id {
-                    return true;
-                }
-            }
-            return false;
-        }
+async fn require_socket_channel(socket: &SocketRef, state: &SioState, channel_id: &str, error_event: &str) -> Option<SocketIdentity> {
+    let identity = resolve_identity(socket, state).await?;
+    if !can_access_channel(state, identity.user_id, channel_id).await {
+        let _ = socket.emit(error_event, &json!({"channelId": channel_id, "error": "Channel access denied"}));
+        return None;
     }
+    Some(identity)
+}
 
-    // Fall back to parsing dm-user-{a}-user-{b}.
-    if let Some(rest) = channel_id.strip_prefix("dm-user-") {
-        let parts: Vec<&str> = rest.split("-user-").collect();
-        if parts.len() == 2 {
-            if let (Ok(a), Ok(b)) = (parts[0].parse::<i64>(), parts[1].parse::<i64>()) {
-                return user_id == a || user_id == b;
-            }
-        }
+/// Channel IDs supplied alongside nested message IDs are not authority. Check
+/// the durable message's parent even for administrators and original authors.
+async fn message_in_channel(state: &SioState, channel_id: &str, message_id: &str) -> bool {
+    match state.app.wdb.get_message_typed(message_id).await {
+        Ok(Some(message)) => message.channel_id == channel_id && !message.is_deleted,
+        Ok(None) => state.app.session_messages.read().await.get(channel_id)
+            .is_some_and(|messages| messages.iter().any(|m| m.get("id").and_then(Value::as_str) == Some(message_id))),
+        Err(_) => false,
     }
-
-    false
 }
 
 /// True if the socket's bearer token has been revoked (password change on
@@ -908,12 +917,12 @@ mod tests {
                 has_ever_established: false,
                 last_invite_sender_id: "user-1".to_string(),
                 invited_participants: invited,
-                connected_participants: HashSet::new(),
+                connected_participants: GroupCallParticipants::default(),
             },
         );
         // Active session — should survive
-        let mut connected = HashSet::new();
-        connected.insert("user-2".to_string());
+        let mut connected = GroupCallParticipants::default();
+        connected.join("user-2", "sock-2");
         groups.write().await.insert(
             "ch-active".to_string(),
             GroupCallSession {
@@ -923,7 +932,7 @@ mod tests {
                 is_video_call: false,
                 has_ever_established: true,
                 last_invite_sender_id: "user-2".to_string(),
-                invited_participants: connected.clone(),
+                invited_participants: HashSet::from(["user-2".to_string()]),
                 connected_participants: connected,
             },
         );

@@ -1,6 +1,6 @@
-import { browser } from '$app/environment';
-import { getAuthToken, setAuthToken } from '../authSession';
-import { getApiBase } from './utils';
+const browser: boolean = typeof window !== 'undefined' && typeof document !== 'undefined';
+import { getAuthToken, setAuthToken, clearAuthToken } from '../authSession';
+import { getServerUrl, normalizeServerUrl } from '../serverUrl';
 
 // Refresh tokens are stored server-scoped, session-scoped (cleared when the
 // tab closes), mirroring the access-token storage convention in authSession.ts.
@@ -15,16 +15,7 @@ function normalize(value: string | null | undefined): string | null {
 function scopeKey(serverUrl?: string | null): string {
 	// Reuse the same scope derivation as authSession so the refresh token
 	// lives next to its sibling access token.
-	const base = (() => {
-		try {
-			const raw = serverUrl || '';
-			const trimmed = raw.trim();
-			if (trimmed) return trimmed.replace(/\/+$/, '').toLowerCase();
-		} catch {
-			/* ignore */
-		}
-		return 'default';
-	})();
+	const base = normalizeServerUrl(serverUrl || getServerUrl()) || 'ssr_default';
 	return `${REFRESH_TOKEN_KEY_PREFIX}${encodeURIComponent(base)}`;
 }
 
@@ -64,32 +55,43 @@ export function clearRefreshToken(serverUrl?: string | null): void {
  * handlers. Concurrent expired requests wait on this instead of each firing
  * their own refresh (which would burn the single-use refresh token N times).
  */
-let inFlight: Promise<boolean> | null = null;
+const inFlight = new Map<string, Promise<boolean>>();
 
 /**
  * Exchange the stored refresh token for a fresh access+refresh pair.
  * Returns true on success. Never throws — a false means "re-authenticate".
  */
 export async function tryRefresh(serverUrl?: string | null): Promise<boolean> {
-	if (inFlight) return inFlight;
-
-	inFlight = (async () => {
-		const refreshToken = getRefreshToken(serverUrl);
-		if (!refreshToken) return false;
-
+	const base = normalizeServerUrl(serverUrl || getServerUrl());
+	if (!browser || !base) return false;
+	const existing = inFlight.get(base);
+	if (existing) return existing;
+	// Resolve and capture the server/account before yielding. Never send a token
+	// to whichever server happens to be selected when the request resumes.
+	const refreshToken = getRefreshToken(base);
+	const accessBefore = getAuthToken(base);
+	if (!refreshToken || !accessBefore) return false;
+	const stillCurrent = () => getAuthToken(base) === accessBefore && getRefreshToken(base) === refreshToken;
+	const pending = Promise.resolve().then(async () => {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 15000);
 		try {
-			const res = await fetch(`${getApiBase()}/api/auth/refresh`, {
+			if (!stillCurrent()) return false;
+			const res = await fetch(`${base}/api/auth/refresh`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
+				signal: controller.signal,
 				body: JSON.stringify({ refreshToken })
 			});
 
 			// 401 here means the refresh token itself is expired/revoked/reused.
 			// Surface as "needs login" — do NOT recurse into another refresh.
 			if (!res.ok) {
-				clearRefreshToken(serverUrl);
-				setAuthToken(null, serverUrl);
+				if ((res.status === 401 || res.status === 403) && stillCurrent()) {
+					clearRefreshToken(base);
+					clearAuthToken(base);
+				}
 				return false;
 			}
 
@@ -102,19 +104,20 @@ export async function tryRefresh(serverUrl?: string | null): Promise<boolean> {
 			if (!data) return false;
 
 			const newAccess = data.accessToken || data.token;
-			if (!newAccess) return false;
+			if (!newAccess || !stillCurrent()) return false;
 
-			setAuthToken(newAccess, serverUrl);
+			setAuthToken(newAccess, base);
 			// Rotate: a fresh refresh token comes back; if absent, keep the old.
-			if (data.refreshToken) setRefreshToken(data.refreshToken, serverUrl);
+			if (data.refreshToken) setRefreshToken(data.refreshToken, base);
 			return true;
 		} catch {
 			// Network failure — don't clear tokens; caller can retry later.
 			return false;
 		} finally {
-			inFlight = null;
+			clearTimeout(timeout);
+			inFlight.delete(base);
 		}
-	})();
-
-	return inFlight;
+	});
+	inFlight.set(base, pending);
+	return pending;
 }

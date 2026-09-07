@@ -10,10 +10,10 @@
 	 */
 	import { onDestroy } from 'svelte';
 	import {
-		wabidbRemoteVideoStreams,
-		wabidbLocalVideoActive,
-		wabidbLocalPreviewStreams
-	} from '$lib/wabidbVideoLane';
+		selectedRemoteVideo as wabidbRemoteVideoStreams,
+		selectedLocalVideoActive as wabidbLocalVideoActive,
+		selectedLocalVideo as wabidbLocalPreviewStreams
+	} from '$lib/callingVideoState';
 	import { isInCall, callMode, openChannelCallPanel } from '$lib/calling';
 
 	interface StripTile {

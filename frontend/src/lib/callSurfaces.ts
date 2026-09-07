@@ -11,6 +11,7 @@ import {
 import { sessionBadge, type CallSession } from './callSessionTypes';
 import { confirmLeaveWhileRecording } from './callRecording';
 import { getSocket } from './socketConnection';
+import { revokeGroupCall } from './calling_impl_core';
 import {
 	joinVoiceChannel,
 	leaveVoiceChannel,
@@ -33,21 +34,28 @@ export function joinVoice(channelId: string): void {
 	);
 }
 
-export function leaveCall(session: CallSession): void {
+export function leaveCall(session: CallSession): boolean {
+	if (callSessionManager.get(session.id)?.joinedAt !== session.joinedAt) return false;
 	const socket = getSocket();
-	if (!socket) return;
 	// Recording leave-guard (2026-08-27): leaving must never silently kill an
 	// active recording — confirm first, then stop+save via the guard.
-	if (!confirmLeaveWhileRecording()) return;
+	if (!confirmLeaveWhileRecording()) return false;
 	if (session.kind === 'channel') {
 		void leaveVoiceChannel(socket, session.channelId ?? session.id);
-		return;
+		return true;
 	}
+	if (session.kind === 'group' && !socket?.connected) {
+		revokeGroupCall(session.channelId ?? session.id);
+		return true;
+	}
+	if (!socket) return false;
 	// DM / group calls end through the call lifecycle.
 	try {
 		endCall(socket);
+		return true;
 	} catch (err) {
 		console.warn('[VoiceView] endCall failed:', err);
+		return false;
 	}
 }
 

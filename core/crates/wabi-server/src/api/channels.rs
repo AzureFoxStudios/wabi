@@ -1,8 +1,8 @@
 //! Channel routes
 //!
-//! GET    /api/channels      — list all channels (public)
+//! GET    /api/channels      — authenticated discovery (private conversations filtered)
 //! POST   /api/channels      — create channel (admin only)
-//! GET    /api/channels/{id} — get single channel (public)
+//! GET    /api/channels/{id} — authenticated discovery; conversations require membership
 //! DELETE /api/channels/{id} — delete channel (admin only)
 
 use axum::{
@@ -94,12 +94,8 @@ struct ChannelResponse {
     asset_storage: bool,
 }
 
-async fn list_channels(State(state): State<Arc<AppState>>) -> Result<Json<ChannelListResponse>> {
-    let mut channels = state
-        .wdb
-        .list_channels(None)
-        .await
-        .map_err(|e| AppError::Internal(format!("wdb list_channels: {e}")))?
+async fn list_channels(State(state): State<Arc<AppState>>, auth: AuthUser) -> Result<Json<ChannelListResponse>> {
+    let mut channels = crate::channel_access::discoverable_channels(&state, auth.user_id).await?
         .into_iter()
         .map(channel_to_response)
         .collect::<Vec<_>>();
@@ -110,6 +106,7 @@ async fn list_channels(State(state): State<Arc<AppState>>) -> Result<Json<Channe
 
 async fn get_channel(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<ChannelResponse>> {
     let channel = state
@@ -118,6 +115,9 @@ async fn get_channel(
         .await
         .map_err(|e| AppError::Internal(format!("wdb get_channel: {e}")))?
         .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
+    if crate::channel_access::is_conversation(channel.channel_kind) {
+        crate::channel_access::require_access(&state, auth.user_id, &id).await?;
+    }
     Ok(Json(channel_to_response(channel)))
 }
 
@@ -204,6 +204,9 @@ async fn create_channel(
         _ => wabidb::domain::ChannelKind::Text,
     };
     let is_lore = matches!(channel_kind, wabidb::domain::ChannelKind::Lore);
+    if crate::channel_access::is_conversation(channel_kind) {
+        return Err(AppError::BadRequest("Use the conversation creation flow to select participants".into()));
+    }
     let asset_storage = wants_asset_storage || is_lore;
 
     // The WDB engine assigns the channel_id (returns a "ch_{:x}" id
@@ -386,6 +389,7 @@ async fn update_channel(
     if !state.is_admin(auth.user_id).await {
         return Err(AppError::Unauthorized("only admins can update channels".into()));
     }
+    crate::channel_access::require_access(&state, auth.user_id, &id).await?;
     let mut patch = serde_json::Map::new();
     if let Some(name) = req.name {
         patch.insert("name".to_string(), serde_json::Value::String(name));
@@ -436,6 +440,14 @@ async fn delete_channel(
                 deleted_ids.push(channel.channel_id.clone());
                 changed = true;
             }
+        }
+    }
+    // Category cascades must not become an alternate way to mutate private
+    // conversations or broadcast their IDs to the whole server.
+    for channel in all_channels.iter().filter(|c| deleted_ids.contains(&c.channel_id)) {
+        if crate::channel_access::is_conversation(channel.channel_kind) {
+            crate::channel_access::require_access(&state, auth.user_id, &channel.channel_id).await?;
+            return Err(AppError::BadRequest("Delete conversations through their dedicated flow".into()));
         }
     }
     if query.preserve_children {
@@ -521,17 +533,16 @@ async fn join_channel(
         .map_err(|e| AppError::Internal(format!("wdb get_channel: {e}")))?
         .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
 
-    // Already a member? Check via list_channels (which filters by membership).
-    let already_member = state
-        .wdb
-        .list_channels(Some(user_id as u64))
-        .await
-        .map_err(|e| AppError::Internal(format!("wdb list_channels: {e}")))?
-        .iter()
-        .any(|c| c.channel_id == id);
+    let already_member = crate::channel_access::is_member(&state, user_id, &id).await?;
 
     if already_member {
         return Ok(Json(serde_json::json!({ "joined": true, "channelId": id })));
+    }
+
+    // Public discovery/self-join must never be an invitation into a private
+    // conversation, including seq-assigned IDs and server administrators.
+    if crate::channel_access::is_conversation(channel.channel_kind) {
+        return Err(AppError::Forbidden("Conversation membership required".into()));
     }
 
     // Check min_role gate (case-insensitive). Owners always pass.
@@ -545,15 +556,9 @@ async fn join_channel(
     };
 
     // Fetch min_role from the channel raw row.
-    let channels_raw = state.wdb.get_channels_raw().await.unwrap_or_default();
-    let min_role = channels_raw
-        .iter()
-        .find(|ch| {
-            ch.get("channel_id")
-                .or_else(|| ch.get("id"))
-                .and_then(|v| v.as_str())
-                == Some(&id)
-        })
+    let channel_raw = state.wdb.get_channel_raw(&id).await?;
+    let min_role = channel_raw
+        .as_ref()
         .and_then(|ch| ch.get("min_role").and_then(|v| v.as_str()));
 
     if let Some(min_role_str) = min_role {
@@ -580,8 +585,10 @@ async fn join_channel(
 
 async fn list_channel_reactions(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Path(channel_id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>> {
+    crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     let messages = state
         .wdb
         .list_messages_typed(&channel_id, 100)

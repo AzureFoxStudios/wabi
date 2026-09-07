@@ -17,6 +17,10 @@ import { getWabiDB } from '$lib/wabidb';
 import type { User, UserBadge } from './socket-types';
 import type { WhiteboardPresenceUser } from './whiteboard/boardTypes';
 import { FALLBACK_BADGE_CATALOG } from './badges';
+import { performGroupOperation } from './groupOperations';
+import { groupMembership } from './groupAccess';
+import { users, serverMembers, currentUser } from './presenceIdentity';
+export { users, serverMembers, currentUser } from './presenceIdentity';
 
 // ============================================================================
 // TYPES
@@ -51,9 +55,6 @@ export interface RoleDefinition {
 // STORES
 // ============================================================================
 
-export const users = writable<User[]>([]);
-export const serverMembers = writable<User[]>([]);
-export const currentUser = writable<User | null>(null);
 export const activeVoiceChannel = writable<string | null>(null);
 export const voiceChannelMembers = writable<Record<string, VoiceChannelParticipant[]>>({});
 export const roleDefinitions = writable<RoleDefinition[]>([]);
@@ -86,38 +87,25 @@ export function clearWhiteboardPresence(channelId: string): void {
 
 export async function subscribeVoiceChannel(channelId: string): Promise<void> {
 	const sock = getSocket();
-	if (!sock) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'voice-channel-subscribe', payload: { channelId } });
-		return;
-	}
-	sock.emit('voice-channel-subscribe', { channelId });
+	if (!sock?.connected) throw new Error('Listening requires an active server connection');
+	const socketId = sock.id;
+	const { joinVoiceChannel } = await import('./calling_impl_core');
+	if (getSocket() !== sock || sock.id !== socketId || !sock.connected) throw new Error('Connection changed before voice subscription');
+	await joinVoiceChannel(sock, channelId, { listenOnly: true });
 }
 
 export async function unsubscribeVoiceChannel(channelId: string): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'voice-channel-leave', payload: { channelId } });
-		return;
-	}
-	sock.emit('voice-channel-unsubscribe', { channelId });
+	const realm = groupMembership.realm();
+	const { leaveVoiceChannel } = await import('./calling_impl_core');
+	if (groupMembership.realm() !== realm) return;
+	// Local leave must work while SocketManager is between socket objects.
+	await leaveVoiceChannel(getSocket(), channelId);
 }
 
 export async function setVoiceTransmitMode(mode: 'primary' | 'all-listening'): Promise<void> {
 	const sock = getSocket();
-	if (!sock) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'set-voice-transmit-mode', payload: { mode } });
-		return;
-	}
-	sock.emit('set-voice-transmit-mode', { mode });
+	// Recovery sends current local intent after admission, not an old queue item.
+	if (sock?.connected) sock.emit('set-voice-transmit-mode', { mode });
 }
 
 // ============================================================================
@@ -199,63 +187,23 @@ export async function banUser(userId: string | number, reason?: string): Promise
 // ============================================================================
 
 export async function createGroup(groupName: string, userIds: string[]): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'create-group', payload: { groupName, userIds } });
-		return;
-	}
-	sock.emit('create-group', { groupName, userIds });
+	await performGroupOperation('create', { groupName, userIds });
 }
 
 export async function leaveGroup(groupId: string): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'leave-group', payload: { channelId: groupId } });
-		return;
-	}
-	sock.emit('leave-group', { channelId: groupId });
+	await performGroupOperation('leave', { channelId: groupId });
 }
 
 export async function kickGroupMember(groupId: string, userId: string): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'kick-group-member', payload: { channelId: groupId, targetUserId: userId } });
-		return;
-	}
-	sock.emit('kick-group-member', { channelId: groupId, targetUserId: userId });
+	await performGroupOperation('kick', { channelId: groupId, targetUserId: userId });
 }
 
 export async function addGroupMember(groupId: string, userId: string): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'add-group-member', payload: { channelId: groupId, userId } });
-		return;
-	}
-	sock.emit('add-group-member', { channelId: groupId, userId });
+	await performGroupOperation('add', { channelId: groupId, userId });
 }
 
-export async function updateGroupAvatar(groupId: string, avatarUrl: string): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'update-group-avatar', payload: { channelId: groupId, avatarUrl } });
-		return;
-	}
-	sock.emit('update-group-avatar', { channelId: groupId, avatarUrl });
+export async function updateGroupAvatar(_groupId: string, _avatarUrl: string): Promise<void> {
+	throw new Error('Group avatar uploads are not supported yet');
 }
 
 // ============================================================================
@@ -380,4 +328,3 @@ export function _setUserBadges(dbUserId: number, badges: UserBadge[]): void {
 		current && current.dbUserId === dbUserId ? { ...current, badges } : current
 	);
 }
-

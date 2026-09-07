@@ -10,7 +10,8 @@
 	 * Replaces CallParticipantGrid for channel mode only; DM calls keep the
 	 * legacy grid this pass.
 	 */
-	import { wabidbRemoteVideoStreams, wabidbLocalPreviewStreams } from '$lib/wabidbVideoLane';
+	import { wabidbRemoteVideoSessions, wabidbLocalPreviewSessions } from '$lib/wabidbVideoLane';
+	import { localScreenShareSessionId } from '$lib/callingStateStores';
 	import { voiceChannelMembers } from '$lib/presenceStore';
 	import { applySpatialSeat, applySpatialSeatToAudio, clearSpatialSeat, localScreenStream, screenShares } from '$lib/calling';
 	import { computeSpatialPosition, loadSpatialSeats, sortByUserId } from '$lib/callingSpatialRuntime';
@@ -48,15 +49,16 @@
 			: session.participants.map((p) => ({ ...p, isSpeaking: false, avatarUrl: null as string | null }))
 	);
 
-	// Remote video for THIS call's users only — the wabidb video lane's
-	// stream store is global across calls, so filter by participant ids.
+	// A participant may be present in several calls with different feeds.
+	let sessionVideo = $derived($wabidbRemoteVideoSessions.get(session.id) ?? new Map<string, MediaStream>());
+	let localPreviews = $derived($wabidbLocalPreviewSessions.get(session.id));
 	let videoEntries = $derived(
-		[...$wabidbRemoteVideoStreams.entries()].filter(([key]) =>
+		[...sessionVideo.entries()].filter(([key]) =>
 			participants.some((p) => key === `${p.userId}:camera` || key === `${p.userId}:screen`)
 		)
 	);
 	let cameraEntries = $derived(videoEntries.filter(([key]) => !key.endsWith(':screen')));
-	let localCamera = $derived($wabidbLocalPreviewStreams.get('camera') ?? null);
+	let localCamera = $derived(localPreviews?.get('camera') ?? null);
 
 	// Screen tiles span BOTH transports (round 5): wabidb `:screen` streams,
 	// P2P `screenShares` (invisible here after "Swap to P2P" before), and the
@@ -70,10 +72,10 @@
 		return names;
 	});
 	let localScreenPreview = $derived(
-		$wabidbLocalPreviewStreams.get('screen') ?? $localScreenStream ?? null
+		localPreviews?.get('screen') ?? ($localScreenShareSessionId === session.id ? $localScreenStream : null)
 	);
 	let mergedScreenEntries = $derived(
-		mergeScreenShareEntries($wabidbRemoteVideoStreams, $screenShares, localScreenPreview, displayNames)
+		mergeScreenShareEntries(sessionVideo, $screenShares.filter(share => (share.channelId ?? null) === session.channelId), localScreenPreview, displayNames)
 	);
 	let participantIds = $derived(new Set(participants.map((p) => p.userId)));
 	let screenEntries = $derived(

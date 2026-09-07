@@ -79,6 +79,16 @@ describe('CallSessionManager', () => {
 		expect(callSessionManager.list()).toHaveLength(0);
 	});
 
+	it('offline leave hands focus to retained reconnecting intent without claiming media ready', () => {
+		callSessionManager.register({ id: 'voice', kind: 'channel' });
+		callSessionManager.register({ id: 'group', kind: 'group' });
+		callSessionManager.markReconnecting('voice');
+		callSessionManager.markReconnecting('group');
+		callSessionManager.unregister('voice');
+		expect(get(focusedCallSessionId)).toBe('group');
+		expect(callSessionManager.get('group')?.lifecycle).toBe('reconnecting');
+	});
+
 	it('DM and group sessions coexist with channel sessions under one model', () => {
 		callSessionManager.register({ id: 'ch-1', channelId: 'ch-1', kind: 'channel' });
 		const dm = callSessionManager.register({ id: 'dm:user-1:user-2', kind: 'direct', name: 'Alice' });

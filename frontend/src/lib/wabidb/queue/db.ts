@@ -43,7 +43,8 @@ export class QueueDB {
 			const tx = this.db!.transaction([QUEUE_STORE], 'readwrite');
 			const store = tx.objectStore(QUEUE_STORE);
 			const req = store.put(value);
-			req.onsuccess = () => resolve();
+			tx.oncomplete = () => resolve();
+			tx.onabort = () => reject(tx.error || new Error('Queue transaction aborted'));
 			req.onerror = () => reject(req.error);
 		});
 	}
@@ -58,6 +59,26 @@ export class QueueDB {
 			const req = store.get(key);
 			req.onsuccess = () => resolve(req.result);
 			req.onerror = () => reject(req.error);
+		});
+	}
+
+	/** Atomic across tabs as well as callers. Resolve only after transaction
+	 * commit; a request's onsuccess alone does not prove the claim persisted. */
+	async updateAction(key: string, update: (current: QueuedAction) => QueuedAction | null): Promise<boolean> {
+		await this.init();
+		if (!browser || !this.db) return false;
+		return new Promise((resolve, reject) => {
+			const tx = this.db!.transaction([QUEUE_STORE], 'readwrite');
+			const store = tx.objectStore(QUEUE_STORE);
+			let changed = false;
+			tx.oncomplete = () => resolve(changed);
+			tx.onabort = () => reject(tx.error || new Error('Queue transaction aborted'));
+			const request = store.get(key);
+			request.onsuccess = () => {
+				if (!request.result) return;
+				const next = update(request.result);
+				if (next) { store.put({ ...next, key }); changed = true; }
+			};
 		});
 	}
 

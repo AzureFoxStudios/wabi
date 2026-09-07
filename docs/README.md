@@ -47,6 +47,11 @@ in-process event-sourced engine **WabiDB**. Philosophy: *no spying, no bloat, ju
   must append to the active plan doc here (repo policy, see `AGENTS.md`).
 - [WabiDB write completion](plans/2026-09-05-wabidb-write-completion.md) — durability/application acknowledgments, whole-commit checkpoints, recovery evidence, and remaining guarantee limits.
 - [Audio-flow integrity](plans/2026-09-06-audio-flow-integrity.md) — shared microphone ownership, P2P/relay handover, codec/playback regressions, desktop compatibility and verification limits.
+- [Call-state authorization and recovery](plans/2026-09-07-call-state-authorization.md) — authenticated REST/raw-WebSocket scope, immutable ownership, restart-safe signal cursors and browser/Tauri credential renewal.
+- [Lore credential boundary](plans/2026-09-07-lore-credential-boundary.md) — scoped tool credentials, reliable token revocation, membership-removal recovery, and outstanding launch security blockers.
+- [Channel access boundary](plans/2026-09-07-channel-access-boundary.md) — REST/socket content authorization, private-conversation discovery, acknowledged client joins and honest unsupported operations.
+- [Call admission boundary](plans/2026-09-07-call-admission-boundary.md) — connection-owned voice consent, acknowledged voice/group admission and server-side relay eviction; remaining launch security gates.
+- [Group membership and revocation](plans/2026-09-07-group-membership-revocation.md) — active work on atomic group persistence, ownership, account-wide eviction and reconnect/client reconciliation.
 - [research/](research/) and [proposals/](proposals/) — explorations and designs not yet committed to.
 - [audits/](audits/) — recent actionable audits.
 

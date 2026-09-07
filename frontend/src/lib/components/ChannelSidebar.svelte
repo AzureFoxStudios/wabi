@@ -35,6 +35,7 @@
 		reorderChannels
 	} from '$lib/socket';
 	import { createChannel, deleteChannel as deleteChannelWithOptions } from '$lib/channelStore';
+	import { showToast } from '$lib/toast';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import {
 		activeVoiceChannel as callActiveVoiceChannel,
@@ -392,14 +393,33 @@
 	// panel in place — feeds + controls without leaving the channel, and
 	// without touching transmit focus. The full Voice dashboard stays
 	// reachable via the workspace pill.
-	async function handleVoiceChannelClick(id: string, e?: MouseEvent) { (e?.currentTarget as HTMLElement | null)?.blur?.(); if (isConnectedToVoice(id)) { toggleChannelCallPanelFor(id); dispatch('close'); return; } if (runtimeActiveVoiceChannelId) { subscribeVoiceChannel(id); return; } try { await joinVoiceChannel(id); } catch (e) { console.error('Failed to join voice channel:', e); } }
-	function handleToggleListenChannel(id: string) { if (isPrimaryVoiceChannel(id)) return; isConnectedToVoice(id) ? unsubscribeVoiceChannel(id) : subscribeVoiceChannel(id); }
+	async function handleVoiceChannelClick(id: string, e?: MouseEvent) {
+		(e?.currentTarget as HTMLElement | null)?.blur?.();
+		if (isConnectedToVoice(id)) { toggleChannelCallPanelFor(id); dispatch('close'); return; }
+		try {
+			if (runtimeActiveVoiceChannelId) await subscribeVoiceChannel(id);
+			else await joinVoiceChannel(id);
+		} catch (error) { showToast(error instanceof Error ? error.message : 'Could not join voice channel', 'error'); }
+	}
+	async function handleToggleListenChannel(id: string) {
+		if (isPrimaryVoiceChannel(id)) return;
+		try {
+			if (isConnectedToVoice(id)) await unsubscribeVoiceChannel(id);
+			else await subscribeVoiceChannel(id);
+		} catch (error) { showToast(error instanceof Error ? error.message : 'Could not update voice subscription', 'error'); }
+	}
 	function handleTransmitModeChange(e: Event) {
 		const mode = (e.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
 		setVoiceTransmitRoutingMode(mode);
 		setVoiceTransmitMode(mode);
 	}
-	async function handleLeaveVoice() { if (!confirmLeaveWhileRecording()) return; if (primaryVoiceChannelId) { await leaveVoiceChannel(primaryVoiceChannelId); return; } for (const id of connectedVoiceChannelIds) unsubscribeVoiceChannel(id); }
+	async function handleLeaveVoice() {
+		if (!confirmLeaveWhileRecording()) return;
+		try {
+			if (primaryVoiceChannelId) await leaveVoiceChannel(primaryVoiceChannelId);
+			else for (const id of connectedVoiceChannelIds) await unsubscribeVoiceChannel(id);
+		} catch (error) { showToast(error instanceof Error ? error.message : 'Could not leave voice channel', 'error'); }
+	}
 	function hasBreakoutRooms(id: string) { return (breakoutChannelsByParent[id] || []).length > 0; }
 	let showBreakoutModal = false;
 	let breakoutTargetChannel: Channel | null = null;

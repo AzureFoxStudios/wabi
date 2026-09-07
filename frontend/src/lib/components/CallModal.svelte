@@ -17,9 +17,7 @@
 		isVideoOff,
 		isLocalSpeaking,
 		activeCalls,
-		screenShares,
 		isSharing,
-		localScreenStream,
 		callMode,
 		answerCall,
 		cancelOutgoingCall,
@@ -44,10 +42,12 @@
 		callOfflineNotice
 	} from '$lib/calling';
 	import {
-		wabidbRemoteVideoStreams,
-		wabidbLocalPreviewStreams,
-		wabidbLocalVideoActive
-	} from '$lib/wabidbVideoLane';
+		selectedRemoteVideo as wabidbRemoteVideoStreams,
+		selectedLocalVideo as wabidbLocalPreviewStreams,
+		selectedLocalVideoActive as wabidbLocalVideoActive,
+		selectedScreenShares as screenShares,
+		selectedLocalScreenStream as localScreenStream
+	} from '$lib/callingVideoState';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import {
@@ -98,6 +98,7 @@
 	import CallParticipantGrid from './CallParticipantGrid.svelte';
 	import CallStage from './CallStage.svelte';
 	import { callSessions, focusedCallSessionId } from '$lib/callSessionManager';
+	import { leaveCall as leaveViewedCall } from '$lib/callSurfaces';
 	import CallControls from './CallControls.svelte';
 	import CallRecordingPanel from './CallRecordingPanel.svelte';
 	import IncomingCallModal from './IncomingCallModal.svelte';
@@ -457,7 +458,7 @@
 
 	// Auto-dock when the user navigates away from the voice channel to a text channel
 	$: {
-		if (wasChannelPanelOpen && !$channelCallPanelOpen && callSurfaceLive && $callMode === 'channel' && callViewportMode !== 'docked') {
+		if (wasChannelPanelOpen && !$channelCallPanelOpen && callSurfaceLive && callViewportMode !== 'docked') {
 			callViewportMode = 'docked';
 		}
 		wasChannelPanelOpen = $channelCallPanelOpen;
@@ -540,12 +541,16 @@
 	}
 
 	function handleEndCall() {
-		const sock = $socket || getSocket();
-		if (!sock) return;
-		// Recording leave-guard: confirm before ending a call that is being
-		// recorded (2026-08-27 report: leaving silently cut recordings).
-		if (!confirmLeaveWhileRecording()) return;
-		endCall(sock);
+		if (stageSession) {
+			// Viewing a background call is not a request to hang up the
+			// foreground group/direct call. The shared action retains the
+			// recording guard and supports offline voice-intent cancellation.
+			if (!leaveViewedCall(stageSession)) return;
+		} else {
+			const sock = $socket || getSocket();
+			if (!sock || !confirmLeaveWhileRecording()) return;
+			endCall(sock);
+		}
 		hatchOpen = false;
 		pinnedTileIds = [];
 	}
@@ -1305,4 +1310,3 @@
 	on:close={closeRingingMenu}
 	on:select={closeRingingMenu}
 />
-
