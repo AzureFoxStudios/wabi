@@ -5,7 +5,8 @@
 	import { longpress } from '$lib/actions/longpress';
 	import type { Channel } from '$lib/socket';
 	import { currentUser, voiceChannelMembers, channelUnreadCounts, socket, getSocket } from '$lib/socket';
-	import { isMuted as callMuted, isDeafened as callDeafened, isLocalSpeaking, speakingUsers, voiceTransmitMode, listeningVoiceChannels, toggleMute, toggleDeafen, endCall } from '$lib/calling';
+	import { isMuted as callMuted, isDeafened as callDeafened, isLocalSpeaking, speakingUsers, voiceTransmitMode, listeningVoiceChannels, toggleMute, toggleDeafen, endCall, localScreenStream, screenShares } from '$lib/calling';
+	import { wabidbRemoteVideoStreams } from '$lib/wabidbVideoLane';
 	import { voiceCallRecordingParticipants } from '$lib/callRecordingPresence';
 	import { formatBadge, formatVoiceDuration as formatVoiceDurationLabel, formatVoiceOccupancy, getVoiceOccupancyTitle } from './channelSidebarHelpers';
 
@@ -74,6 +75,9 @@
 		recordingIds: Set<string>;
 		recordingCount: number;
 		memberPresence: Map<string, number | null>;
+		/** Members currently sharing a screen / camera (stable `user-N` ids). */
+		screenIds: Set<string>;
+		cameraIds: Set<string>;
 	}
 
 	function buildVoiceRow(
@@ -89,6 +93,8 @@
 			currentDbUserId: number | null;
 			selfLocallySpeaking: boolean;
 			presenceSince: Map<string, number>;
+			screenIds: Set<string>;
+			cameraIds: Set<string>;
 		}
 	): VoiceRow {
 		const members = ctx.membersMap[channelId] || [];
@@ -142,7 +148,9 @@
 			speakingIds,
 			recordingIds,
 			recordingCount: recordingParticipants.length,
-			memberPresence
+			memberPresence,
+			screenIds: ctx.screenIds,
+			cameraIds: ctx.cameraIds
 		};
 	}
 
@@ -162,6 +170,24 @@
 
 	$: selfLocallySpeaking = $isLocalSpeaking && !$callMuted && !$callDeafened;
 
+	// Who is sharing what, normalized to stable `user-N` ids (2026-09-07
+	// Discord-model roster): wabidb lane streams key `${owner}:screen|camera`,
+	// P2P screen shares carry raw userIds. Feeds the per-member badges so the
+	// channel roster shows who's on camera / sharing a screen without opening
+	// the call panel.
+	$: mediaSharers = (() => {
+		const normalize = (id: string): string => (/^\d+$/.test(id) ? `user-${id}` : id);
+		const screenIds = new Set<string>();
+		const cameraIds = new Set<string>();
+		for (const key of $wabidbRemoteVideoStreams.keys()) {
+			const owner = key.replace(/:(camera|screen)$/, '');
+			if (key.endsWith(':screen')) screenIds.add(normalize(owner));
+			else if (key.endsWith(':camera')) cameraIds.add(normalize(owner));
+		}
+		for (const share of $screenShares) screenIds.add(normalize(share.userId));
+		return { screenIds, cameraIds };
+	})();
+
 	$: voiceRowsById = (() => {
 		const map = new Map<string, VoiceRow>();
 		const ctx = {
@@ -174,7 +200,9 @@
 			currentUserId: $currentUser?.id ?? null,
 			currentDbUserId: $currentUser?.dbUserId ?? null,
 			selfLocallySpeaking,
-			presenceSince: voicePresenceSince
+			presenceSince: voicePresenceSince,
+			screenIds: mediaSharers.screenIds,
+			cameraIds: mediaSharers.cameraIds
 		};
 		for (const channel of collectRowChannels()) {
 			map.set(channel.id, buildVoiceRow(channel.id, ctx));
@@ -356,6 +384,12 @@
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
 					<span class="voice-member-name">{member.username || member.userId}</span>
+					{#if row.screenIds.has(member.userId)}
+						<svg class="voice-share-badge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="sharing screen"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+					{/if}
+					{#if row.cameraIds.has(member.userId)}
+						<svg class="voice-share-badge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="camera on"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+					{/if}
 					{#if row.recordingIds.has(member.userId)}
 						<span class="voice-recording-tag member">REC</span>
 					{/if}
@@ -454,6 +488,12 @@
 							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={brow.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}
 						<span class="voice-member-name">{member.username || member.userId}</span>
+						{#if brow.screenIds.has(member.userId)}
+							<svg class="voice-share-badge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="sharing screen"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+						{/if}
+						{#if brow.cameraIds.has(member.userId)}
+							<svg class="voice-share-badge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="camera on"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+						{/if}
 						{#if brow.recordingIds.has(member.userId)}
 							<span class="voice-recording-tag member">REC</span>
 						{/if}

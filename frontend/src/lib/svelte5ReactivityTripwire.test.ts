@@ -160,21 +160,24 @@ describe('svelte5 reactivity contract — calling sidebar', () => {
 		expect(hits.some((h) => h.store === 'helper:getMembers')).toBe(true);
 	});
 
-	test('click contract: 1st click joins in place, 2nd click opens the focused call view', () => {
+	test('click contract: 1st click joins in place, 2nd click toggles the embedded call panel', () => {
 		// Guarded as behavior (peer sessions have reverted this line before).
-		// 2026-08-27 product decision (Discord model): joining must NOT force a
-		// call surface over the chat; the SECOND click on a connected channel
-		// opens the Voice view focused on that call. The old contract
-		// (openChannelCallPanel → translucent CallModal) is retired.
+		// 2026-08-27: joining must NOT force a call surface over the chat.
+		// 2026-09-07 view contract (field report: "call view is super king"):
+		// the SECOND click on a connected channel toggles the EMBEDDED call
+		// panel in place — feeds + controls without leaving the channel and
+		// without touching transmit focus. The full-screen Voice dashboard
+		// (openVoiceView) is NOT the second-click target; it stays reachable
+		// via the workspace pill and closes on channel navigation.
 		const source = readFileSync(
 			join(here, 'components/ChannelSidebar.svelte'),
 			'utf8'
 		);
 		const fnMatch = source.match(/async function handleVoiceChannelClick[\s\S]{0,600}/);
 		expect(fnMatch).not.toBeNull();
-		expect(fnMatch![0]).toContain('openVoiceView()');
-		expect(fnMatch![0]).toContain('focusCall(id)');
-		expect(fnMatch![0]).not.toContain('openChannelCallPanel');
+		expect(fnMatch![0]).toContain('toggleChannelCallPanel()');
+		expect(fnMatch![0]).not.toContain('openVoiceView()');
+		expect(fnMatch![0]).not.toContain('focusCall(id)');
 	});
 
 	// Self-check 2 (inline mode): raw store reads DO appear inside untrack

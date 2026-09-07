@@ -6,7 +6,7 @@
 	 * Mute All / Deafen All / Camera Off / Leave All.
 	 */
 	import { callSessions, focusedCallSessionId, callSessionManager } from '$lib/callSessionManager';
-	import { sessionBadge } from '$lib/callSessionTypes';
+	import { sessionBadge, sessionBadgeLabel } from '$lib/callSessionTypes';
 	import { voiceChannelMembers } from '$lib/presenceStore';
 	import { channels } from '$lib/channelStore';
 	import { wabidbRemoteVideoStreams } from '$lib/wabidbVideoLane';
@@ -161,9 +161,9 @@
 				<article class="vv-card" class:focused={badge === 'focused'} class:silenced={badge === 'silenced'}>
 					<div class="vv-card-head">
 						<span class="vv-card-name">{displayName(session)}</span>
-						{#if badge !== 'focused'}
-							<span class="vv-badge" data-badge={badge}>{badge}</span>
-						{/if}
+					{#if badge !== 'focused'}
+						<span class="vv-badge" data-badge={badge}>{sessionBadgeLabel(badge)}</span>
+					{/if}
 						<span class="vv-transport" title={`Transport: ${session.transport ?? session.lifecycle}`}>
 							{session.transport ? session.transport.toUpperCase() : session.lifecycle}
 						</span>
@@ -236,9 +236,9 @@
 								{/if}
 							</button>
 							{#if badge !== 'focused'}
-								<button type="button" onclick={() => focusCall(session.id)} title="Focus this call">
+								<button type="button" onclick={() => focusCall(session.id)} title="Make this the call your mic transmits to">
 									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-									Focus
+									Speak here
 								</button>
 							{/if}
 							<button type="button" class="danger" onclick={() => leaveCall(session)} title="Leave this call">Hang up</button>

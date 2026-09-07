@@ -938,3 +938,42 @@ outputs are explicitly downmixed, not controlled by an unsupported
 audio path; it no longer closes a bidirectional P2P mesh. Native builds use the
 actual root `src-tauri/` and its CSP. See the work record for tested behavior,
 compatibility requirements, and still-unverified release conditions.
+
+---
+
+## Round 9 — 2026-09-07: Discord-model call view (deferred UX batch, audio now proven)
+
+Field report after the Round 8 deploy: audio works, but "call view is super
+king" — the second click on a connected channel hijacked the whole screen
+with the Voice dashboard, and there was no in-channel view of who is sharing
+what. This is the UX batch deferred out of Round 6, now landed:
+
+1. **2nd click toggles the embedded call panel in place.**
+   `handleVoiceChannelClick` no longer opens the full-screen Voice view or
+   moves transmit focus (`openVoiceView()`/`focusCall(id)` removed) — it
+   flips `channelCallPanelOpen`, which the CallModal already promotes to the
+   embedded call shell (CallStage: video/screen tiles = the sneak peek,
+   fullscreen + minimize toggles, mic/camera/screenshare controls). The
+   dashboard stays reachable via the workspace pill. The pinned contract
+   test (svelte5ReactivityTripwire) now guards this exact shape.
+2. **Roster shows who is sharing what.** VoiceChannelList member rows
+   (main + breakout) carry screen/camera icons, derived from the wabidb
+   lane's remote stream map + P2P `screenShares`, normalized to stable
+   `user-N` ids. Channel-agnostic by design: the member is in THIS roster,
+   so the channel context is implicit.
+3. **Voice dashboard un-stick.** Selecting any other channel now exits the
+   voice view (`voiceView.ts` watches `currentChannel`) — the view resolver
+   used to keep rendering 'voice' no matter what you clicked.
+4. **Copy rename** (UI only, internal focus model unchanged): "Focus" →
+   "Speak here" (VoiceView button + CallsPanel icon title); badges
+   focused/background/silenced → no badge / "Listening" / "Muted"
+   (`sessionBadgeLabel`).
+
+Known limit (follow-up): with MULTIPLE concurrent calls the embedded panel
+renders the FOCUSED session's stage — the clicked session does not override
+it yet (needs the `channelCallPanelSessionId` stage-targeting store from the
+Round 6 sketch). Single-call behavior — the common case — is exact.
+
+### Gates
+- `bun run check`: 0 errors; `bun test src/lib`: 285/0 (contract test
+  rewritten for the new shape); `STATIC_BUILD=1` clean.

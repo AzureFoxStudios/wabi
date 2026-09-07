@@ -37,6 +37,16 @@
 		padding: 0.05rem 0.34rem;
 	}
 
+	/* Screen/camera share badges in the voice roster (2026-09-07 Discord
+	   model): a small icon after the member name showing who is sharing. */
+	.voice-share-badge {
+		width: 0.85rem;
+		height: 0.85rem;
+		flex-shrink: 0;
+		margin-left: 0.15rem;
+		color: var(--color-success, #22c55e);
+	}
+
 
 	.thread-list {
 		margin: -0.05rem 0 0.2rem 1.35rem;
