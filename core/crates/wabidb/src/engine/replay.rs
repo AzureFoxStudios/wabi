@@ -56,6 +56,8 @@ pub async fn replay_projections(
     barrier: &LinearizabilityBarrier,
     snapshot_watermark: u64,
 ) -> Result<u64> {
+    let mut membership_repair =
+        super::membership_repair::MembershipRepair::from_snapshot(projection_state)?;
     let streams_dir = data_dir.join("streams");
     // --- Load the committed seq set (Option B orphan filter) ---
     let commit_index_dir = data_dir.join("global").join("commit-index");
@@ -69,15 +71,22 @@ pub async fn replay_projections(
         .unwrap_or(0)
         .max(snapshot_watermark);
     if !tokio::fs::try_exists(&streams_dir).await? {
-        if committed
-            .values()
-            .any(|e| e.commit_seq > snapshot_watermark && !e.event_refs.is_empty())
-        {
+        if committed.values().any(|e| {
+            e.event_refs.iter().any(|r| {
+                e.commit_seq > snapshot_watermark
+                    || membership_repair
+                        .as_ref()
+                        .is_some_and(|repair| repair.includes(&r.stream_id_hash))
+            })
+        }) {
             return Err(crate::error::WabiError::Corrupt {
                 location: "streams directory".into(),
                 detail: "not all indexed events could be recovered; streams directory missing"
                     .into(),
             });
+        }
+        if let Some(repair) = membership_repair {
+            repair.finish(projection_state)?;
         }
         barrier.advance(applied_seq)?;
         return Ok(applied_seq);
@@ -185,8 +194,14 @@ pub async fn replay_projections(
                     // must never be reused by a restarted sequencer.
                     highest_seq = highest_seq.max(commit_seq);
 
-                    // Skip records that are already reflected in the snapshot.
-                    if commit_seq <= snapshot_watermark {
+                    // Old snapshots could acknowledge but ignore removals.
+                    // Recover only their membership streams; unrelated legacy
+                    // records remain covered by the snapshot, as before.
+                    if commit_seq <= snapshot_watermark
+                        && !membership_repair
+                            .as_ref()
+                            .is_some_and(|repair| repair.includes(&rec.header.stream_id_hash))
+                    {
                         continue;
                     }
 
@@ -288,15 +303,22 @@ pub async fn replay_projections(
     // Global total order (see `collected` above): sort by commit_seq, then
     // apply. DurableEvent derives nothing that orders it, so sort by field.
     // Never report readiness after silently losing part of a durable commit.
-    for entry in committed
-        .values()
-        .filter(|e| e.commit_seq > snapshot_watermark)
-    {
+    for entry in committed.values() {
+        let expected = entry
+            .event_refs
+            .iter()
+            .filter(|r| {
+                entry.commit_seq > snapshot_watermark
+                    || membership_repair
+                        .as_ref()
+                        .is_some_and(|repair| repair.includes(&r.stream_id_hash))
+            })
+            .count();
         if recovered_events
             .get(&entry.commit_seq)
             .map(|events| events.len())
             .unwrap_or(0)
-            != entry.event_refs.len()
+            != expected
         {
             return Err(crate::error::WabiError::Corrupt {
                 location: format!("commit {}", entry.commit_seq),
@@ -306,7 +328,19 @@ pub async fn replay_projections(
         }
     }
     collected.sort_by_key(|(ordinal, event)| (event.commit_seq, *ordinal));
-    for (_, event) in &collected {
+    if let Some(mut repair) = membership_repair.take() {
+        for (_, event) in collected
+            .iter()
+            .filter(|(_, e)| e.commit_seq <= snapshot_watermark)
+        {
+            repair.observe(event)?;
+        }
+        repair.finish(projection_state)?;
+    }
+    for (_, event) in collected
+        .iter()
+        .filter(|(_, e)| e.commit_seq > snapshot_watermark)
+    {
         if let Some(handler) = dispatch_table.get(&event.event_type) {
             handler.apply(event, projection_state).map_err(|e| {
                 crate::error::WabiError::Corrupt {

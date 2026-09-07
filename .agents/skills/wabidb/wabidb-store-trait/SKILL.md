@@ -143,6 +143,34 @@ The `self.run()` method:
 
 ### Event Types By Domain
 
+Group commands use `create_group` and `change_group_membership`, not the old
+`upsert_group` (removed because it erased ownership/name and ignored avatars).
+The real adapter's `group_commands.rs` submits channel metadata plus one
+`channel_members_changed` delta in a single essential CommandCommit and delivers
+subscription events only after application. Default trait implementations return
+an explicit unsupported error, never fake success. Callers own authorization and
+serialization; these low-level adapter methods do not independently grant access.
+Existing Channel/ChannelMemberRecord layouts are unchanged. See the active
+group-membership plan and projection skill for new-event/revision compatibility.
+
+Removal also appends existing `call_participant_left` JSON events (kind 6) for
+the account's live participant rows in ALL calls scoped to the group, including
+ended calls. Last-member leave retires remaining call rows and ends active
+sessions in the same command. `list_channel_call_sessions` is the typed read for
+this: the adapter scans/decode-checks `call_sessions` and filters by channel;
+there is no new secondary index or silent corrupt-row fallback. Re-add never
+revives old call consent. Group IDs with an existing membership revision cannot
+be recreated after deletion. Empty deltas are rejected; the low-level command
+supports an atomic add/remove pair, while admitted socket operations select one.
+
+Application ordering: Socket.IO dispatch holds `AppState.membership_gate`'s
+reader through authorization/admission/publication; group commands own its
+writer through durable commit, all-device room/roster eviction, and notification.
+REST calls use a route-level reader. Acquire the membership gate BEFORE any
+call-session or voice/group-roster lock; helpers must not acquire it recursively.
+Raw WS releases these guards before bounded network writes and uses versioned
+revocation notifications to cancel old subscriptions without erasing later ones.
+
 | Adapter Method | Event Type | stream_kind |
 |----------------|-----------|------------|
 | send_message | message_created | 0 |

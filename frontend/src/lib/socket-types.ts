@@ -162,6 +162,9 @@ export interface Channel extends Omit<ProtocolChannelView, ChannelOptionalProtoc
   isBreakout?: Exclude<ProtocolChannelView['isBreakout'], null>;
   breakoutIndex?: Exclude<ProtocolChannelView['breakoutIndex'], null>;
   members?: Exclude<ProtocolChannelView['members'], null>;
+  /** Server-authoritative group owner and lossless WabiDB membership revision. */
+  ownerId?: string;
+  membershipRevision?: string;
   otherUser?: User;
   memberUsers?: User[];
   avatar?: ProtocolChannelView['avatar'];

@@ -22,7 +22,7 @@ fn now_micros() -> i64 {
 async fn on_join(socket: SocketRef, username: String, state: SioState, io: SocketIo) {
     // Handshake-validated identity is already in extensions. If missing,
     // the socket was not authenticated at connect time.
-    let Some(identity) = resolve_sio_identity(&socket) else {
+    let Some(identity) = resolve_identity(&socket, &state).await else {
         let _ = socket.emit("auth-required", &json!({ "reason": "authentication required" }));
         return;
     };
@@ -124,15 +124,36 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         views
     };
 
-    let mut channels: Vec<Value> = state
-        .app
-        .wdb
-        .get_channels_raw()
-        .await
-        .unwrap_or_default()
-        .iter()
-        .map(row_to_channel_view)
-        .collect();
+    let visible = match crate::channel_access::discoverable_channels(&state.app, user_id_num).await {
+        Ok(channels) => channels,
+        Err(error) => {
+            warn!("[sio] channel discovery failed: {error}");
+            let _ = socket.emit("join-error", &json!({"error": "Failed to load channels"}));
+            return;
+        }
+    };
+    let mut channels = Vec::with_capacity(visible.len());
+    for channel in visible {
+        if channel.channel_kind == wabidb::domain::ChannelKind::GroupDm {
+            match group_snapshot(&state, &channel.channel_id).await {
+                Ok(snapshot) => channels.push(snapshot),
+                Err(_) => {
+                    let _ = socket.emit("join-error", &json!({"error":"Failed to load group membership"}));
+                    return;
+                }
+            }
+            continue;
+        }
+        if let Ok(Some(mut row)) = state.app.wdb.get_channel_raw(&channel.channel_id).await {
+            // Private membership must survive reconnect; the raw channel row
+            // intentionally doesn't duplicate the channel_members projection.
+            if crate::channel_access::is_conversation(channel.channel_kind) {
+                let Ok(members) = state.app.wdb.list_channel_members(&channel.channel_id).await else { continue };
+                row.insert("members".into(), json!(members.iter().map(|m| format!("user-{}", m.user_id)).collect::<Vec<_>>()));
+            }
+            channels.push(row_to_channel_view(&row));
+        }
+    }
     // Mark breakout rooms so clients can group them under their parent —
     // the flag lives in-memory (state.breakout_rooms), not on the channel row.
     merge_breakout_flags(&state, &mut channels).await;
@@ -638,7 +659,11 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     // bucket and every DM call-signaling link this user held.
     media_rate_forget(&socket_id);
     wabidb_header_cache_forget_socket(&socket_id);
-    dm_link_clear_user(&get_my_stable_id(&socket, &state.app.config.jwt_secret));
+    let departed_stable = get_my_stable_id(&socket, &state.app.config.jwt_secret);
+    let account_still_connected = io.sockets().iter().any(|other|
+        other.id != socket.id && other.connected()
+            && get_my_stable_id(other, &state.app.config.jwt_secret) == departed_stable);
+    if !account_still_connected { dm_link_clear_user(&departed_stable); }
 
     // Recording transparency cleanup (2026-08-27 round 5): a disconnected
     // recorder stops recording — tell the members of every channel they
@@ -659,7 +684,7 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
         connected.remove(&socket_id)
     };
 
-    if let Some(user) = &departed {
+    if let Some(user) = departed.as_ref().filter(|_| !account_still_connected) {
         let _ = io
             .emit(
                 "user-left",
@@ -759,18 +784,16 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     }
 
     // Clean up group call sessions
-    let departed_stable = departed
-        .as_ref()
-        .map(|u| u.stable_id.clone())
-        .unwrap_or_else(|| socket_id.clone());
     let group_call_lefts: Vec<(String, Vec<String>)> = {
         let mut sessions = state.group_call_sessions.write().await;
         let mut lefts = Vec::new();
         let mut to_remove = Vec::new();
 
         for (channel_id, session) in sessions.iter_mut() {
-            let was_in = session.connected_participants.remove(&departed_stable)
-                || session.invited_participants.remove(&departed_stable);
+            let last_device_left = session.connected_participants.leave_socket(&socket_id)
+                .is_some_and(|(_, last)| last);
+            let invitation_left = !account_still_connected && session.invited_participants.remove(&departed_stable);
+            let was_in = last_device_left || invitation_left;
             if !was_in {
                 continue;
             }
@@ -797,7 +820,8 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
                     &json!({
                         "channelId": channel_id,
                         "stableUserId": departed_stable,
-                        "userId": socket_id
+                        "userId": departed_stable,
+                        "socketId": socket_id
                     }),
                 )
                 .await;
@@ -805,9 +829,9 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     }
 
     // Broadcast call-ended so DM call partners can clean up
-    let _ = io
-        .emit("call-ended", &json!({ "userId": departed_stable }))
-        .await;
+    if !account_still_connected {
+        let _ = io.emit("call-ended", &json!({ "userId": departed_stable })).await;
+    }
 }
 
 #[allow(dead_code)]

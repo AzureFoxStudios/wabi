@@ -1,116 +1,63 @@
 <script lang="ts">
-	import { users, currentUser, kickGroupMember, addGroupMember, leaveGroup, updateGroupAvatar } from '$lib/socket';
-	import { layoutStore } from '$lib/layoutStore';
-	import { getServerUrl } from '$lib/serverUrl';
-	import { getAuthToken } from '$lib/authSession';
+	import { users, serverMembers, currentUser, kickGroupMember, addGroupMember, leaveGroup } from '$lib/socket';
+	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import GroupAvatar from './GroupAvatar.svelte';
 	import type { Channel, User } from '$lib/socket';
 
-	export let channel: Channel;
+	let { channel }: { channel: Channel } = $props();
+	let showAddMember = $state(false);
+	let addSearchQuery = $state('');
+	let busy = $state(false);
+	let operationError = $state('');
+	let myStableId = $derived($currentUser ? getDmDirectoryKey($currentUser) : null);
+	let isOwner = $derived(Boolean(myStableId && channel.ownerId === myStableId));
+	let directory = $derived(buildDmDirectoryUsers({
+		onlineUsers: $users, serverMembers: $serverMembers, currentUser: null
+	}));
+	let memberRecords = $derived((channel.members || []).map((stableId): User => {
+		return directory.find(user => getDmDirectoryKey(user) === stableId) ||
+			(channel.memberUsers || []).find(user => getDmDirectoryKey(user) === stableId) ||
+			{ id: stableId, username: stableId.startsWith('user-') ? `User ${stableId.slice(5)}` : stableId,
+			  color: 'var(--text-muted)', status: 'offline' };
+	}));
+	let addableUsers = $derived(buildDmDirectoryUsers({
+		onlineUsers: $users, serverMembers: $serverMembers, currentUser: $currentUser, searchQuery: addSearchQuery
+	}).filter(user => /^user-[1-9][0-9]*$/.test(getDmDirectoryKey(user)) &&
+		!channel.members?.includes(getDmDirectoryKey(user))));
 
-	let showAddMember = false;
-	let addSearchQuery = '';
-	let avatarUploading = false;
-	let avatarInput: HTMLInputElement;
-
-	$: myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
-	$: memberRecords = (channel.members || []).map((stableId) => {
-		const fromChannel = (channel.memberUsers || []).find((member) => {
-			const memberStableId = member.dbUserId ? `user-${member.dbUserId}` : member.id;
-			return memberStableId === stableId;
-		});
-		if (fromChannel) return fromChannel;
-
-		const fromOnlineUsers = $users.find((user) => {
-			const userStableId = user.dbUserId ? `user-${user.dbUserId}` : user.id;
-			return userStableId === stableId;
-		});
-		if (fromOnlineUsers) return fromOnlineUsers;
-
-		const fallbackName = stableId.startsWith('user-') ? `User ${stableId.slice(5)}` : stableId;
-		return {
-			id: stableId,
-			username: fallbackName,
-			color: '#888888',
-			status: 'offline' as const
-		};
-	});
-	$: isOwner = channel.members && myStableId ? isUserOwner(myStableId) : false;
-
-	function isUserOwner(stableId: string): boolean {
-		// The owner is the creator — the first member or whoever has "owner" role
-		// For simplicity, check if this user's stable ID is the first in the members list
-		// or use the created_by field (not available client-side, so use first member heuristic)
-		return channel.members?.[0] === stableId || false;
-	}
-
-	$: addableUsers = $users.filter(u => {
-		if (u.id === $currentUser?.id) return false;
-		const uStableId = u.dbUserId ? `user-${u.dbUserId}` : u.id;
-		if (channel.members?.includes(uStableId)) return false;
-		if (addSearchQuery) {
-			return u.username.toLowerCase().includes(addSearchQuery.toLowerCase());
-		}
-		return true;
-	});
-
-	function handleKick(memberUser: User) {
-		const stableId = memberUser.dbUserId ? `user-${memberUser.dbUserId}` : memberUser.id;
-		kickGroupMember(channel.id, stableId);
-	}
-
-	function handleAdd(user: User) {
-		const stableId = user.dbUserId ? `user-${user.dbUserId}` : user.id;
-		addGroupMember(channel.id, stableId);
-		showAddMember = false;
-		addSearchQuery = '';
-	}
-
-	function handleLeave() {
-		leaveGroup(channel.id);
-		layoutStore.closeDM();
-	}
-
-	async function handleAvatarUpload(e: Event) {
-		const input = e.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file) return;
-
-		avatarUploading = true;
+	async function perform(work: () => Promise<void>, after?: () => void) {
+		if (busy) return;
+		const id = channel.id;
+		busy = true;
+		operationError = '';
 		try {
-			const formData = new FormData();
-			formData.append('avatar', file);
-			formData.append('channelId', channel.id);
-
-			const token = getAuthToken();
-			const serverUrl = getServerUrl();
-			const res = await fetch(`${serverUrl}/api/upload-group-avatar`, {
-				method: 'POST',
-				headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
-				credentials: 'include',
-				body: formData
-			});
-
-			const data = await res.json();
-			if (data.success) {
-				updateGroupAvatar(channel.id, data.avatarUrl);
-			}
-		} catch (err) {
-			console.error('Group avatar upload failed:', err);
-		} finally {
-			avatarUploading = false;
-		}
+			await work();
+			if (channel?.id === id) after?.();
+		} catch (error) {
+			if (channel?.id === id) operationError = error instanceof Error ? error.message : 'Could not confirm the group change';
+		} finally { busy = false; }
 	}
-
+	function handleKick(member: User) {
+		return perform(() => kickGroupMember(channel.id, getDmDirectoryKey(member)));
+	}
+	function handleAdd(user: User) {
+		return perform(() => addGroupMember(channel.id, getDmDirectoryKey(user)), () => {
+			showAddMember = false;
+			addSearchQuery = '';
+		});
+	}
+	function handleLeave() {
+		// The authoritative removal closes only this group's selected surfaces.
+		return perform(() => leaveGroup(channel.id));
+	}
 	function isMemberCurrentUser(member: User): boolean {
-		if (!$currentUser) return false;
-		if (member.id === $currentUser.id) return true;
-		if ($currentUser.dbUserId && member.dbUserId === $currentUser.dbUserId) return true;
-		return false;
+		return getDmDirectoryKey(member) === myStableId;
 	}
 </script>
 
-<div class="group-settings">
+<div class="group-settings" aria-busy={busy}>
+	{#if operationError}<p class="operation-error" role="alert">{operationError}</p>{/if}
+	{#if busy}<p role="status">Waiting for server confirmation…</p>{/if}
 	<div class="settings-section avatar-section">
 		<div class="avatar-display">
 			<GroupAvatar {channel} size={64} />
@@ -118,16 +65,7 @@
 		<h3 class="group-name">{channel.name}</h3>
 		<span class="member-count">{channel.members?.length || 0} members</span>
 		{#if isOwner}
-			<input
-				type="file"
-				accept="image/png,image/jpeg,image/gif,image/webp"
-				bind:this={avatarInput}
-				on:change={handleAvatarUpload}
-				style="display: none;"
-			/>
-			<button class="change-avatar-btn" on:click={() => avatarInput.click()} disabled={avatarUploading}>
-				{avatarUploading ? 'Uploading...' : 'Change Avatar'}
-			</button>
+			<p class="avatar-note">Custom group avatars are not available yet.</p>
 		{/if}
 	</div>
 
@@ -135,24 +73,24 @@
 		<div class="section-header">
 			<h4>Members</h4>
 			{#if isOwner}
-				<button class="add-member-btn" on:click={() => { showAddMember = !showAddMember; }}>
+				<button class="add-member-btn" disabled={busy} onclick={() => { showAddMember = !showAddMember; }}>
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 					Add
 				</button>
 			{/if}
 		</div>
 
-		{#if showAddMember}
+		{#if showAddMember && isOwner}
 			<div class="add-member-panel">
 				<input
 					type="text"
 					class="add-search"
-					placeholder="Search users..."
+					placeholder="Search users..." aria-label="Search group invitees" disabled={busy}
 					bind:value={addSearchQuery}
 				/>
 				<div class="add-user-list">
 					{#each addableUsers.slice(0, 10) as user (user.id)}
-						<button class="add-user-item" on:click={() => handleAdd(user)}>
+						<button class="add-user-item" disabled={busy} onclick={() => handleAdd(user)}>
 							{#if user.profilePicture}
 								<img src={user.profilePicture} alt={user.username} class="add-user-avatar" />
 							{:else}
@@ -183,7 +121,7 @@
 					</div>
 					<div class="member-info">
 						<span class="member-name">{member.username}</span>
-						{#if channel.members?.[0] === (member.dbUserId ? `user-${member.dbUserId}` : member.id)}
+						{#if channel.ownerId === getDmDirectoryKey(member)}
 							<span class="role-badge owner">Owner</span>
 						{/if}
 						{#if isMemberCurrentUser(member)}
@@ -191,7 +129,7 @@
 						{/if}
 					</div>
 					{#if isOwner && !isMemberCurrentUser(member)}
-						<button class="kick-btn" on:click={() => handleKick(member)} title="Remove from group">
+						<button class="kick-btn" disabled={busy} aria-label={`Remove ${member.username} from group`} onclick={() => handleKick(member)} title="Remove from group">
 							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 						</button>
 					{/if}
@@ -201,7 +139,7 @@
 	</div>
 
 	<div class="settings-section leave-section">
-		<button class="leave-btn" on:click={handleLeave}>
+		<button class="leave-btn" disabled={busy} onclick={handleLeave}>
 			Leave Group
 		</button>
 	</div>
@@ -246,19 +184,10 @@
 		color: var(--text-secondary);
 	}
 
-	.change-avatar-btn {
-		padding: 0.375rem 0.75rem;
-		background: var(--bg-hover);
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		color: var(--text-primary);
-		font-size: 0.8rem;
-		cursor: pointer;
-	}
-
-	.change-avatar-btn:hover:not(:disabled) {
-		background: var(--bg-primary);
-	}
+	.avatar-note { color: var(--text-muted); font-size: var(--text-sm, 0.8125rem); text-align: center; }
+	.operation-error { color: var(--color-danger, #f44336); overflow-wrap: anywhere; }
+	button:disabled { opacity: 0.5; cursor: default; }
+	button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 
 	.section-header {
 		display: flex;
@@ -277,6 +206,7 @@
 	}
 
 	.add-member-btn {
+		min-height: 44px;
 		display: flex;
 		align-items: center;
 		gap: 0.25rem;
@@ -318,6 +248,7 @@
 	}
 
 	.add-user-item {
+		min-height: 44px;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
@@ -443,8 +374,8 @@
 
 	.kick-btn {
 		flex-shrink: 0;
-		width: 22px;
-		height: 22px;
+		width: 44px;
+		height: 44px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -453,11 +384,12 @@
 		color: var(--text-secondary);
 		cursor: pointer;
 		border-radius: 4px;
-		opacity: 0;
+		opacity: 0.7;
 		transition: opacity 0.15s;
 	}
 
-	.member-item:hover .kick-btn {
+	.member-item:hover .kick-btn,
+	.kick-btn:focus-visible {
 		opacity: 1;
 	}
 
@@ -480,7 +412,7 @@
 		font-size: 0.85rem;
 		font-weight: 500;
 		cursor: pointer;
-		transition: all 0.15s;
+		transition: background-color 0.15s;
 	}
 
 	.leave-btn:hover {

@@ -1,237 +1,228 @@
-#![allow(dead_code)]
-//! WebSocket service for real-time communication
-//!
-//! Handles:
-//! - WebSocket connections
-//! - Message broadcasting
-//! - Typing indicators
-//! - Presence updates
-
+//! Authenticated, resource-scoped call-state subscriptions. Chat and media use
+//! Socket.IO; this socket never accepts client-originated broadcast payloads.
+use crate::{
+    auth_extractor::{authenticate_access_token, AuthUser},
+    call_access::*,
+    state::AppState,
+};
 use axum::{
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::State,
+    extract::{
+        ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
     response::IntoResponse,
     routing::get,
     Router,
 };
-use futures::{sink::SinkExt, stream::StreamExt};
-use std::sync::Arc;
-use tokio::sync::broadcast;
-use tracing::{info, warn};
+use serde_json::{json, Value};
+use std::{collections::HashMap, sync::Arc, time::Duration};
+use tokio::{
+    sync::broadcast,
+    time::{timeout, Instant},
+};
+use wabidb::engine::wabi_store::WabiStore;
 
-use crate::state::AppState;
-
-/// Message types for WebSocket communication
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type")]
 pub enum WsMessage {
-    /// Client → Server: Join a channel
-    #[serde(rename = "join")]
-    Join { channel_id: i64 },
-
-    /// Client → Server: Send a message
-    #[serde(rename = "message")]
-    Message {
-        channel_id: i64,
-        content: String,
-        message_type: Option<String>,
-    },
-
-    /// Client → Server: Typing indicator
-    #[serde(rename = "typing")]
-    Typing { channel_id: i64 },
-
-    /// Server → Client: New message received
-    #[serde(rename = "message-received")]
-    MessageReceived {
-        id: i64,
-        channel_id: i64,
-        user_id: i64,
-        content: String,
-        message_type: String,
-        created_at: i64,
-    },
-
-    /// Server → Client: User is typing
-    #[serde(rename = "user-typing")]
-    UserTyping {
-        channel_id: i64,
-        user_id: i64,
-        username: String,
-    },
-
-    /// Server → Client: Error
-    #[serde(rename = "error")]
-    Error { message: String },
-
-    /// Client -> Server: Subscribe to a call session for live updates.
-    #[serde(rename = "subscribe_call")]
-    SubscribeCall { session_id: String },
-
-    /// Client -> Server: Unsubscribe from a call session.
-    #[serde(rename = "unsubscribe_call")]
-    UnsubscribeCall { session_id: String },
-
-    /// Server -> Client: Call session state changed.
     #[serde(rename = "call_session_changed")]
-    CallSessionChanged { session: wabidb::domain::CallSession },
-
-    /// Server -> Client: Call participants list changed.
+    CallSessionChanged {
+        session: wabidb::domain::CallSession,
+    },
     #[serde(rename = "call_participant_changed")]
     CallParticipantChanged {
         session_id: String,
         participants: Vec<wabidb::domain::CallParticipant>,
     },
-
-    /// Server -> Client: A new call signal was emitted.
     #[serde(rename = "call_signal_emitted")]
     CallSignalEmitted { signal: wabidb::domain::CallSignal },
+    /// Internal control push, translated to subscription_error for the affected
+    /// account only. Versioning prevents an old removal from cancelling a later
+    /// explicit subscription after re-add.
+    CallAccessRevoked { user_id: u64, membership_revision: u64 },
+}
+#[derive(serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+enum Incoming {
+    Authenticate {
+        token: String,
+    },
+    SubscribeCall {
+        session_id: String,
+        #[serde(default)]
+        since: u64,
+    },
+    UnsubscribeCall {
+        session_id: String,
+    },
 }
 
-/// WebSocket connection state
-pub struct WebSocketState {
-    /// Broadcast channel for messages
-    pub tx: broadcast::Sender<Arc<WsMessage>>,
-}
-
-impl WebSocketState {
-    pub fn new() -> Self {
-        let (tx, _) = broadcast::channel(1000);
-        Self { tx }
-    }
-}
-
-impl Default for WebSocketState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Create WebSocket router
 pub fn ws_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/", get(ws_handler))
-        .with_state(state)
+    Router::new().route("/", get(ws_handler)).with_state(state)
 }
-
-/// Handle WebSocket upgrade
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+    ws.max_message_size(16 * 1024)
+        .max_frame_size(16 * 1024)
+        .on_upgrade(|socket| handle_socket(socket, state))
+}
+async fn send(socket: &mut WebSocket, value: Value) -> bool {
+    matches!(
+        timeout(
+            Duration::from_secs(5),
+            socket.send(Message::Text(value.to_string().into()))
+        )
+        .await,
+        Ok(Ok(()))
+    )
+}
+async fn close(socket: &mut WebSocket, code: u16, reason: &'static str) {
+    let _ = timeout(
+        Duration::from_secs(5),
+        socket.send(Message::Close(Some(CloseFrame {
+            code,
+            reason: reason.into(),
+        }))),
+    )
+    .await;
+}
+async fn authenticate(state: &AppState, token: &str) -> Option<AuthUser> {
+    let auth = authenticate_access_token(state, token).await.ok()?;
+    // No leeway on a long-lived connection: the browser renews before expiry.
+    if auth.exp <= chrono::Utc::now().timestamp() {
+        return None;
+    }
+    require_principal(state, auth.user_id).await.ok()?;
+    Some(auth)
+}
+async fn reject_auth(socket: &mut WebSocket) {
+    send(
+        socket,
+        json!({"type":"authentication_error","message":"Valid account access token required"}),
+    )
+    .await;
+    close(socket, 4401, "Authentication required").await;
 }
 
-/// Handle individual WebSocket connection
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
-    
-    let (mut sender, mut receiver) = socket.split();
-
-    // Assign a unique connection id.
-    let conn_id = {
-        let mut counter = state.ws_conn_id_counter.lock().await;
-        let id = *counter;
-        *counter += 1;
-        id
-    };
-    {
-        let mut subs = state.call_session_subscriptions.lock().await;
-        subs.insert(conn_id, std::collections::HashSet::new());
-    }
-
-    info!("New WebSocket connection (conn_id={})", conn_id);
-
-    // Spawn task to handle incoming messages
-    let tx = state.ws_tx.clone();
-    let call_subs = state.call_session_subscriptions.clone();
-    let recv_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = receiver.next().await {
-            if let Message::Text(text) = msg {
-                match serde_json::from_str::<WsMessage>(&text) {
-                    Ok(WsMessage::SubscribeCall { session_id }) => {
-let mut map = call_subs.lock().await;
-                            if let Some(set) = map.get_mut(&conn_id) {
-                                set.insert(session_id);
-                            }
-                    }
-                    Ok(WsMessage::UnsubscribeCall { session_id }) => {
-let mut map = call_subs.lock().await;
-                            if let Some(set) = map.get_mut(&conn_id) {
-                                set.remove(&session_id);
-                            }
-                    }
-                    Ok(ws_msg) => {
-                        info!("Received WS message: {:?}", ws_msg);
-                        let _ = tx.send(Arc::new(ws_msg));
-                    }
-                    Err(e) => {
-                        warn!("Failed to parse WebSocket message: {}", e);
-                    }
+async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
+    // One owner, no orphaned reader/writer tasks or global connection registry.
+    let mut pushes = state.call_session_push.subscribe();
+    let mut subscriptions = HashMap::<String, u64>::new();
+    let mut credential: Option<String> = None;
+    let mut principal: Option<i64> = None;
+    let opened = Instant::now();
+    let mut last_pong = Instant::now();
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    let mut last_ping = Instant::now();
+    loop {
+        tokio::select! {
+            _ = tick.tick() => {
+                if credential.is_none() {
+                    if opened.elapsed() >= Duration::from_secs(5) { reject_auth(&mut socket).await; break; }
+                    continue;
+                }
+                if authenticate(&state, credential.as_deref().unwrap()).await.is_none() { reject_auth(&mut socket).await; break; }
+                if last_pong.elapsed() > Duration::from_secs(45) { close(&mut socket, 1001, "Heartbeat timeout").await; break; }
+                if last_ping.elapsed() >= Duration::from_secs(15) {
+                    if !matches!(timeout(Duration::from_secs(5), socket.send(Message::Ping(Vec::new().into()))).await, Ok(Ok(()))) { break; }
+                    last_ping = Instant::now();
                 }
             }
-        }
-    });
-
-    // Spawn single outgoing task that multiplexes broadcast + call-push.
-    let mut broadcast_rx = state.ws_tx.subscribe();
-    let mut call_push_rx = state.call_session_push.subscribe();
-    let call_subs_for_outgoing = state.call_session_subscriptions.clone();
-    let outgoing_task = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                biased;
-                msg = broadcast_rx.recv() => {
-                    match msg {
-                        Ok(msg) => {
-                            let json = match serde_json::to_string(&*msg) {
-                                Ok(j) => j,
-                                Err(_) => continue,
-                            };
-                            if sender.send(Message::Text(json.into())).await.is_err() {
-                                break;
-                            }
-                        }
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(_) => break,
-                    }
+            incoming = socket.recv() => {
+                let Some(Ok(message)) = incoming else { break; };
+                let text = match message {
+                    Message::Text(text) => text,
+                    Message::Pong(_) => { last_pong = Instant::now(); continue; }
+                    Message::Ping(_) => continue, // Axum automatically queues the pong.
+                    Message::Close(_) => break,
+                    _ => { close(&mut socket, 1003, "Text control messages only").await; break; }
+                };
+                let request = serde_json::from_str::<Incoming>(&text);
+                if let Ok(Incoming::Authenticate { token }) = request {
+                    let Some(auth) = authenticate(&state, &token).await else { reject_auth(&mut socket).await; break; };
+                    if principal.is_some_and(|uid| uid != auth.user_id) { reject_auth(&mut socket).await; break; }
+                    principal = Some(auth.user_id); credential = Some(token);
+                    if !send(&mut socket, json!({"type":"authenticated","user_id":auth.user_id,"expires_at":auth.exp})).await { break; }
+                    continue;
                 }
-                push = call_push_rx.recv() => {
-                    match push {
-                        Ok((session_id, msg)) => {
-                            let is_subscribed = {
-                                let map = call_subs_for_outgoing.lock().await;
-                                map.get(&conn_id)
-                                    .map(|set| set.contains(&session_id))
-                                    .unwrap_or(false)
-                            };
-                            if !is_subscribed { continue; }
-                            let json = match serde_json::to_string(&*msg) {
-                                Ok(j) => j,
-                                Err(_) => continue,
-                            };
-                            if sender.send(Message::Text(json.into())).await.is_err() {
-                                break;
-                            }
+                let Some(auth) = (match credential.as_deref() { Some(token) => authenticate(&state, token).await, None => None }) else { reject_auth(&mut socket).await; break; };
+                match request {
+                    Ok(Incoming::SubscribeCall { session_id, since }) => {
+                        let membership = state.membership_gate.read().await;
+                        let _guard = state.call_session_locks.lock(&session_id).await;
+                        let session = require_session(&state, auth.user_id, &session_id).await;
+                        if session.is_err() || (!subscriptions.contains_key(&session_id) && subscriptions.len() >= 64) {
+                            subscriptions.remove(&session_id);
+                            drop(_guard);
+                            drop(membership);
+                            if !send(&mut socket, json!({"type":"subscription_error","session_id":session_id,"message":"Call unavailable or subscription limit reached"})).await { break; }
+                            continue;
                         }
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(_) => break,
+                        let session = session.unwrap();
+                        let Ok(participants) = state.wdb.get_call_participants(&session_id).await else { break; };
+                        let signals = if require_participant(&state, &session, auth.user_id as u64).await.is_ok() {
+                            let Ok(signals) = state.wdb.get_call_signals(&session_id, since).await else { break; };
+                            signals.into_iter().filter(|s| s.created_at_micros >= session.started_at_micros && signal_visible(s, auth.user_id as u64)).collect::<Vec<_>>()
+                        } else { vec![] };
+                        let Ok(revision) = wabidb::projections::channel_members::ChannelMembersProjection::revision(
+                            &state.wdb.engine().projection_state(), &session.channel_id,
+                        ) else { break; };
+                        subscriptions.insert(session_id.clone(), revision);
+                        // Network backpressure must never hold a call's write lock.
+                        drop(_guard);
+                        drop(membership);
+                        if !send(&mut socket, json!({"type":"call_snapshot","session_id":session_id,"session":session,"participants":participants,"signals":signals,"membership_revision":revision.to_string()})).await { break; }
                     }
+                    Ok(Incoming::UnsubscribeCall { session_id }) => { subscriptions.remove(&session_id); }
+                    _ => if !send(&mut socket, json!({"type":"error","message":"Unsupported client message"})).await { break; },
                 }
             }
+            push = pushes.recv() => {
+                let (id, message) = match push {
+                    Ok(push) => push,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        // Never silently pretend a lossy subscription is current.
+                        if !send(&mut socket, json!({"type":"resync_required"})).await { break; }
+                        subscriptions.clear(); continue;
+                    }
+                    Err(_) => break,
+                };
+                let Some(subscribed_revision) = subscriptions.get(&id).copied() else { continue; };
+                let Some(auth) = (match credential.as_deref() { Some(token) => authenticate(&state, token).await, None => None }) else { reject_auth(&mut socket).await; break; };
+                if let WsMessage::CallAccessRevoked { user_id, membership_revision } = &*message {
+                    if *user_id == auth.user_id as u64 && subscribed_revision <= *membership_revision {
+                        subscriptions.remove(&id);
+                        if !send(&mut socket, json!({"type":"subscription_error","session_id":id,"message":"Group membership revoked","membership_revision":membership_revision.to_string()})).await { break; }
+                    }
+                    continue;
+                }
+                let membership = state.membership_gate.read().await;
+                let _guard = state.call_session_locks.lock(&id).await;
+                let Ok(session) = require_session(&state, auth.user_id, &id).await else {
+                    subscriptions.remove(&id);
+                    drop(_guard);
+                    drop(membership);
+                    if !send(&mut socket, json!({"type":"subscription_error","session_id":id,"message":"Call access lost"})).await { break; }
+                    continue;
+                };
+                let value = match &*message {
+                    WsMessage::CallSignalEmitted { signal } => {
+                        if signal.created_at_micros < session.started_at_micros || !signal_visible(signal, auth.user_id as u64)
+                            || require_participant(&state, &session, auth.user_id as u64).await.is_err() { continue; }
+                        json!(&*message)
+                    }
+                    // Read current snapshots so pre-subscription queued pushes
+                    // cannot regress the snapshot just sent during subscribe.
+                    WsMessage::CallSessionChanged { .. } => json!(WsMessage::CallSessionChanged { session }),
+                    WsMessage::CallParticipantChanged { .. } => {
+                        let Ok(participants) = state.wdb.get_call_participants(&id).await else { break; };
+                        json!(WsMessage::CallParticipantChanged { session_id:id, participants })
+                    }
+                    WsMessage::CallAccessRevoked { .. } => unreachable!("control pushes handled above"),
+                };
+                drop(_guard);
+                drop(membership);
+                if !send(&mut socket, value).await { break; }
+            }
         }
-    });
-    // Wait for the recv task to end, then abort the other two.
-    let _recv_abort = recv_task.abort_handle();
-    let outgoing_abort = outgoing_task.abort_handle();
-// removed stray let
-
-    let result = recv_task.await;
-    match result {
-        Ok(_) => info!("WS recv task ended normally"),
-        Err(e) if e.is_panic() => warn!("WS recv task PANICKED: {:?}", e),
-        Err(e) => warn!("WS recv task cancelled/error: {}", e),
     }
-    outgoing_abort.abort();
-
-    // Clean up subscription state.
-    state.call_session_subscriptions.lock().await.remove(&conn_id);
-
-    info!("WebSocket connection closed (conn_id={})", conn_id);
 }

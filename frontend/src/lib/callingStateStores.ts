@@ -38,6 +38,8 @@ export const isLocalSpeaking = writable(false);
 
 export const localStream = writable<MediaStream | null>(null);
 export const localScreenStream = writable<MediaStream | null>(null);
+/** Session owning the preview; a background call must not display it. */
+export const localScreenShareSessionId = writable<string | null>(null);
 
 export const connectionState = writable<ConnectionLifecycleState>('idle');
 export const speakingUsers = writable<Set<string>>(new Set());

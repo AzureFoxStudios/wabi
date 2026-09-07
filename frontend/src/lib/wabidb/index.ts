@@ -67,6 +67,12 @@ class WabiDBImpl implements WabiDB {
 		return this.queue.markSynced(actionId);
 	}
 
+	async markFailed(actionId: string, error: string, retryable = true): Promise<void> {
+		return this.queue.markFailed(actionId, error, retryable);
+	}
+
+	async claimMessage(actionId: string): Promise<boolean> { return this.queue.claimMessage(actionId); }
+
 	async markSyncedByClientId(clientMessageId: string): Promise<void> {
 		return this.queue.markSyncedByClientId(clientMessageId);
 	}

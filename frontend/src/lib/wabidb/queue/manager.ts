@@ -1,5 +1,7 @@
 import type { QueuedAction, QueueFilter } from '../types';
 import { QueueDB } from './db';
+import { groupMembership } from '$lib/groupAccess';
+import { GROUP_QUEUE_ACTIONS, CALL_QUEUE_ACTIONS } from './groupPolicy';
 
 const MAX_QUEUE_SIZE = 10000;
 const MAX_FAILED_AGE_MS = 24 * 60 * 60 * 1000;
@@ -13,6 +15,16 @@ export class QueueManager {
 	}
 
 	async enqueue(action: Omit<QueuedAction, 'id' | 'status' | 'createdAt'>): Promise<string> {
+		if (GROUP_QUEUE_ACTIONS.has(action.type)) throw new Error('Group membership changes require a live server confirmation');
+		if (CALL_QUEUE_ACTIONS.has(action.type)) throw new Error('Voice actions belong to the current call, not the offline queue');
+		const realm = groupMembership.realm();
+		const channelId = (action.payload as { channelId?: unknown } | null)?.channelId;
+		const revision = typeof channelId === 'string' && groupMembership.tracks(channelId)
+			? groupMembership.revision(channelId) : undefined;
+		if (revision === null) throw new Error('You no longer have access to this group');
+		// Capture BEFORE any IndexedDB await. A later re-add is not permission
+		// to replay something composed in the previous membership lifecycle.
+		action = { ...action, authority: realm ? { realm, membershipRevision: revision } : undefined };
 		const id = crypto.randomUUID();
 		const record = this._serialize(action, id);
 		const key = `${action.scopeId}:${id}`;
@@ -46,12 +58,28 @@ export class QueueManager {
 		for (const item of all) {
 			if (!this._isQueuedAction(item)) continue;
 			if (item.id === actionId) {
-				const updated = { ...item, status: 'synced' as const };
 				const key = `${item.scopeId}:${item.id}`;
-				await this.db.put(key, updated);
+				await this.db.updateAction(key, current => ({ ...current, status: 'synced', error: undefined }));
 				return;
 			}
 		}
+	}
+
+	async markFailed(actionId: string, error: string, retryable = true): Promise<void> {
+		const all = await this.db.getAll();
+		for (const item of all) {
+			if (!this._isQueuedAction(item) || item.id !== actionId) continue;
+			await this.db.updateAction(`${item.scopeId}:${item.id}`, current => current.status === 'synced' ? null :
+				({ ...current, status: 'failed', error, retryable }));
+			return;
+		}
+	}
+
+	async claimMessage(actionId: string): Promise<boolean> {
+		const item = (await this.listQueue()).find(action => action.id === actionId);
+		if (!item) return false;
+		return this.db.updateAction(`${item.scopeId}:${item.id}`, current =>
+			current.status !== 'pending' || current.attemptedAt !== undefined ? null : { ...current, attemptedAt: Date.now() });
 	}
 
 	async markSyncedByClientId(clientMessageId: string): Promise<void> {
@@ -61,9 +89,9 @@ export class QueueManager {
 			if (item.status === 'synced') continue;
 			const payload = item.payload as any;
 			if (payload?.clientMessageId === clientMessageId) {
-				const updated = { ...item, status: 'synced' as const };
 				const key = `${item.scopeId}:${item.id}`;
-				await this.db.put(key, updated);
+				await this.db.updateAction(key, current => current.retryable === false && !current.attemptedAt ? null :
+					({ ...current, status: 'synced', error: undefined }));
 				return;
 			}
 		}
@@ -75,13 +103,13 @@ export class QueueManager {
 
 		for (const item of all) {
 			if (!this._isQueuedAction(item)) continue;
-			if (item.status === 'failed') {
+			if (item.status === 'failed' && item.retryable !== false) {
 				const age = now - (item.retriedAt ?? item.createdAt);
 				if (age > MAX_FAILED_AGE_MS) continue;
 
-				const updated = { ...item, status: 'pending' as const, retriedAt: now, error: undefined };
 				const key = `${item.scopeId}:${item.id}`;
-				await this.db.put(key, updated);
+				await this.db.updateAction(key, current => current.status !== 'failed' || current.retryable === false || current.attemptedAt !== undefined ? null :
+					({ ...current, status: 'pending', retriedAt: now, error: undefined }));
 			}
 		}
 	}

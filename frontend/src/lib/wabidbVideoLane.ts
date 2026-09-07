@@ -307,7 +307,7 @@ const BANDWIDTH_CEIL_BYTES_PER_SEC: Record<WabidbVideoSource, number> = {
 // Feature detection
 // ============================================================================
 
-function hasWebCodecs(): boolean {
+export function hasWebCodecs(): boolean {
   return (
     typeof globalThis !== 'undefined' &&
     !!(globalThis as any).VideoEncoder &&
@@ -362,6 +362,12 @@ async function selectVideoConfig(
  * videoStreamKey()/toStableUserKey() — never raw envelope ids.
  */
 export const wabidbRemoteVideoStreams = writable<Map<string, MediaStream>>(new Map());
+/** Session-aware views. The flattened store above remains for legacy surfaces;
+ * ownership below ensures removing one call never clears another's same-user
+ * feed. Decoders themselves are never shared between sessions. */
+export const wabidbRemoteVideoSessions = writable<Map<string, Map<string, MediaStream>>>(new Map());
+const remoteOwners = new Map<object, { sessionId: string; streams: Map<string, MediaStream> }>();
+const legacyRemoteOwner = {};
 
 /** Whether the LOCAL user currently has any active wabidb outbound video. */
 export const wabidbLocalVideoActive = writable<boolean>(false);
@@ -371,14 +377,38 @@ export const wabidbLocalVideoActive = writable<boolean>(false);
  * is live ('camera' and/or 'screen').
  */
 export const wabidbLocalPreviewStreams = writable<Map<WabidbVideoSource, MediaStream>>(new Map());
+export const wabidbLocalPreviewSessions = writable<Map<string, Map<WabidbVideoSource, MediaStream>>>(new Map());
+const localOwners = new Map<WabidbVideoLane, Map<WabidbVideoSource, MediaStream>>();
 
-export function setWabidbRemoteVideoStream(streamKey: string, stream: MediaStream | null): void {
-  wabidbRemoteVideoStreams.update((m) => {
-    const next = new Map(m);
-    if (stream) next.set(streamKey, stream);
-    else next.delete(streamKey);
-    return next;
-  });
+export function setWabidbRemoteVideoStream(streamKey: string, stream: MediaStream | null,
+  owner: object = legacyRemoteOwner, sessionId = ''): void {
+  const entry = remoteOwners.get(owner) ?? { sessionId, streams: new Map<string, MediaStream>() };
+  if (stream) entry.streams.set(streamKey, stream); else entry.streams.delete(streamKey);
+  if (entry.streams.size) remoteOwners.set(owner, entry); else remoteOwners.delete(owner);
+  const all = new Map<string, MediaStream>();
+  const sessions = new Map<string, Map<string, MediaStream>>();
+  for (const entry of remoteOwners.values()) {
+    const session = sessions.get(entry.sessionId) ?? new Map<string, MediaStream>();
+    for (const [key, value] of entry.streams) { all.set(key, value); session.set(key, value); }
+    sessions.set(entry.sessionId, session);
+  }
+  wabidbRemoteVideoSessions.set(sessions);
+  wabidbRemoteVideoStreams.set(all);
+}
+
+function setLocalPreview(owner: WabidbVideoLane, source: WabidbVideoSource, stream: MediaStream | null): void {
+  const entry = localOwners.get(owner) ?? new Map<WabidbVideoSource, MediaStream>();
+  if (stream) entry.set(source, stream); else entry.delete(source);
+  if (entry.size) localOwners.set(owner, entry); else localOwners.delete(owner);
+  const all = new Map<WabidbVideoSource, MediaStream>();
+  const sessions = new Map<string, Map<WabidbVideoSource, MediaStream>>();
+  for (const [lane, entry] of localOwners) {
+    sessions.set(lane.viewSessionId, new Map(entry));
+    for (const [key, value] of entry) all.set(key, value);
+  }
+  wabidbLocalPreviewSessions.set(sessions);
+  wabidbLocalPreviewStreams.set(all);
+  wabidbLocalVideoActive.set(all.size > 0);
 }
 
 // ============================================================================
@@ -387,9 +417,13 @@ export function setWabidbRemoteVideoStream(streamKey: string, stream: MediaStrea
 
 export interface WabidbVideoLaneConfig {
   sessionId: string;
+  /** CallSessionManager id; wire session ids remain unchanged. */
+  viewSessionId?: string;
   userId: string;
   socket: any; // Socket.IO client
   onError?: (err: Error) => void;
+  /** Synchronous room/lifetime gate, checked for EVERY outbound frame. */
+  canSend?: () => boolean;
 }
 
 /**
@@ -416,6 +450,7 @@ class LaneSender {
   private lastKeyFrameAt = 0;
   private forceKeyFrame = false;
   private active = false;
+  private stopped = false;
 
   // bandwidth guard
   private sentBytesLog: { t: number; n: number }[] = [];
@@ -444,10 +479,18 @@ class LaneSender {
     return this.active;
   }
 
+  owns(stream: MediaStream): boolean { return this.sourceStream === stream; }
+
   async start(stream: MediaStream): Promise<void> {
     if (this.active) return;
+    this.sourceStream = stream; // own it even while codec/play awaits
+    const check = () => {
+      if (this.stopped) throw new DOMException('Video sender stopped', 'AbortError');
+    };
+    check();
     const step = this.ladder[0];
     const selected = await selectVideoConfig(step.width, step.height, step.fps);
+    check();
     if (!selected) {
       throw new Error('No supported video codec for WebCodecs encoder');
     }
@@ -471,6 +514,7 @@ class LaneSender {
       this.videoEl.muted = true;
       this.videoEl.playsInline = true;
       await this.videoEl.play().catch(() => undefined);
+      check();
 
       this.canvas = document.createElement('canvas');
       this.canvas.width = step.width;
@@ -478,7 +522,6 @@ class LaneSender {
       this.canvasCtx = this.canvas.getContext('2d');
     }
 
-    this.sourceStream = stream;
     this.frameSeq = 0;
     this.lastKeyFrameAt = 0;
     this.forceKeyFrame = true;
@@ -492,6 +535,7 @@ class LaneSender {
 
     const captureFrame = () => {
       if (!this.active || !this.videoEl || !this.canvas || !this.canvasCtx) return;
+      if (!this.lane.canSend()) return;
       const now = performance.now();
       // Periodic keyframe (~2s) for seekability / late joiners, plus forced
       // keyframes after an encoder reconfigure.
@@ -550,6 +594,7 @@ class LaneSender {
   }
 
   private onEncodedChunk(chunk: any): void {
+    if (!this.active || this.stopped || !this.lane.canSend()) return;
     try {
       const buffer = new Uint8Array(chunk.byteLength);
       chunk.copyTo(buffer);
@@ -613,7 +658,7 @@ class LaneSender {
     // Reconfigure encoder at the new resolution/fps; force a keyframe after.
     const reselect = async () => {
       const selected = await selectVideoConfig(step.width, step.height, step.fps);
-      if (!selected) return;
+      if (!selected || this.stopped || !this.active) return;
       this.codec = selected.codec;
       this.encoderConfig = selected.config;
       try {
@@ -627,6 +672,7 @@ class LaneSender {
   }
 
   stop(): void {
+    this.stopped = true;
     this.active = false;
     if (this.rvfcHandle != null && this.videoEl) {
       try {
@@ -670,15 +716,19 @@ export interface WabidbVideoLaneDiagnostics {
 }
 
 export class WabidbVideoLane {
+  readonly viewSessionId: string;
   readonly sessionId: string;
   readonly userId: string;
   readonly socket: any;
   readonly onError?: (err: Error) => void;
+  private closed = false;
+  private sendAllowed: () => boolean;
 
   // Per-source outbound senders. P1: camera and screen run CONCURRENTLY as
   // independent encoder pipelines (the pre-P1 lane had a single `active`
   // flag, so whichever source started second silently lost).
   private senders = new Map<WabidbVideoSource, LaneSender>();
+  private pendingSenders = new Map<WabidbVideoSource, Promise<void>>();
   private emitSeq = 0;
 
   /** WO-2 counters (senders keyed by source; receiver totals). */
@@ -698,10 +748,14 @@ export class WabidbVideoLane {
 
   constructor(cfg: WabidbVideoLaneConfig) {
     this.sessionId = cfg.sessionId;
+    this.viewSessionId = cfg.viewSessionId ?? cfg.sessionId;
     this.userId = cfg.userId;
     this.socket = cfg.socket;
     this.onError = cfg.onError;
+    this.sendAllowed = cfg.canSend ?? (() => true);
   }
+
+  canSend(): boolean { return !this.closed && this.sendAllowed(); }
 
   get isActive(): boolean {
     return this.senders.size > 0;
@@ -716,43 +770,49 @@ export class WabidbVideoLane {
   // --------------------------------------------------------------------------
 
   async startLocalVideo(source: WabidbVideoSource, stream: MediaStream): Promise<void> {
+    if (this.closed) {
+      stream.getTracks().forEach(track => track.stop());
+      throw new DOMException('Video lane closed', 'AbortError');
+    }
     if (!hasWebCodecs()) {
+      stream.getTracks().forEach(track => track.stop());
       const err = new Error('WebCodecs not available in this browser — video lane disabled');
       this.onError?.(err);
       throw err;
     }
-    if (this.senders.get(source)?.isActive) return; // already live for this source
-
+    if (this.senders.get(source)?.owns(stream)) {
+      await this.pendingSenders.get(source);
+      return;
+    }
+    // Replacement retires the old sender before any await, including a sender
+    // still selecting a codec. An old finally may not remove its replacement.
+    this.stopLocalVideoSource(source);
     const sender = new LaneSender(source, this);
+    this.senders.set(source, sender);
+    const pending = sender.start(stream);
+    this.pendingSenders.set(source, pending);
     try {
-      await sender.start(stream);
+      await pending;
+      if (this.closed || this.senders.get(source) !== sender) throw new DOMException('Video sender superseded', 'AbortError');
+      setLocalPreview(this, source, stream);
     } catch (err) {
+      sender.stop();
+      if (this.senders.get(source) === sender) this.senders.delete(source);
       this.onError?.(err instanceof Error ? err : new Error(String(err)));
       throw err;
+    } finally {
+      if (this.pendingSenders.get(source) === pending) this.pendingSenders.delete(source);
     }
-    this.senders.set(source, sender);
-    wabidbLocalPreviewStreams.update((m) => {
-      const next = new Map(m);
-      next.set(source, stream);
-      return next;
-    });
-    wabidbLocalVideoActive.set(true);
   }
 
   /** Stop exactly one outbound feed; the other keeps running. */
   stopLocalVideoSource(source: WabidbVideoSource): void {
     const sender = this.senders.get(source);
     if (!sender) return;
-    sender.stop();
     this.senders.delete(source);
-    wabidbLocalPreviewStreams.update((m) => {
-      const next = new Map(m);
-      next.delete(source);
-      return next;
-    });
-    if (this.senders.size === 0) {
-      wabidbLocalVideoActive.set(false);
-    }
+    this.pendingSenders.delete(source);
+    sender.stop();
+    setLocalPreview(this, source, null);
   }
 
   /** Compatibility: stop every outbound feed. */
@@ -774,7 +834,7 @@ export class WabidbVideoLane {
   /** Called by WabidbMediaRelay for every inbound `wabidb-media` message. */
   handleRemoteEnvelope(raw: any): void {
     const env = parseWabidbMediaEnvelope(raw);
-    if (!env || env.kind !== 'video') return;
+    if (this.closed || !env || env.kind !== 'video' || env.sessionId !== this.sessionId) return;
     // Socket-scoped self-filter (WO-1c) — the relay's handler already applied
     // its own check; this mirrors it so same-account two-device video flows
     // (userId equality is only a fallback for older servers).
@@ -799,7 +859,10 @@ export class WabidbVideoLane {
     if (!decoder) {
       const VD = (globalThis as any).VideoDecoder;
       decoder = new VD({
-        output: (vf: any) => this.onDecodedFrame(streamKey, vf),
+        output: (vf: any) => {
+          if (this.closed || this.decoders.get(streamKey) !== decoder) { vf.close(); return; }
+          this.onDecodedFrame(streamKey, vf);
+        },
         error: (e: any) => this.onError?.(e instanceof Error ? e : new Error(String(e)))
       });
       this.decoders.set(streamKey, decoder);
@@ -866,7 +929,7 @@ export class WabidbVideoLane {
       }
       if (stream) {
         this.remoteStreams.set(streamKey, stream);
-        setWabidbRemoteVideoStream(streamKey, stream);
+        setWabidbRemoteVideoStream(streamKey, stream, this, this.viewSessionId);
       }
     }
   }
@@ -899,10 +962,11 @@ export class WabidbVideoLane {
       stream.getTracks().forEach((t) => t.stop());
       this.remoteStreams.delete(streamKey);
     }
-    setWabidbRemoteVideoStream(streamKey, null);
+    setWabidbRemoteVideoStream(streamKey, null, this, this.viewSessionId);
   }
 
   stopAll(): void {
+    this.closed = true;
     this.stopLocalVideo();
     for (const streamKey of Array.from(this.decoders.keys())) {
       this.teardownRemoteStream(streamKey);

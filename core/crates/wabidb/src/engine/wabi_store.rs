@@ -369,20 +369,29 @@ pub trait WabiStore: Send + Sync {
         Ok(())
     }
 
-    /// WDB-compat: upsert a group. No direct WDB equivalent (groups
-    /// map to channels with `ChannelKind::GroupDm` plus a
-    /// `add_channel_member` per member). For v1 this is a no-op
-    /// returning a deterministic placeholder.
-    async fn upsert_group(
+    /// Commit a new private group, its owner and complete membership together.
+    /// Callers must serialize group commands and authorize the actual actor.
+    async fn create_group(
         &self,
         _channel_id: &str,
         _name: &str,
-        _kind: &str,
-        _members: Option<&[String]>,
-        _avatar: Option<&str>,
-        _description: Option<&str>,
-    ) -> Result<String> {
-        Ok(format!("group_{}", _channel_id))
+        _owner_user_id: u64,
+        _members: &[u64],
+    ) -> Result<u64> {
+        Err(crate::error::WabiError::Validation {
+            command: "create_group".into(), reason: "store does not implement group commands".into(),
+        })
+    }
+
+    /// Apply an authorized membership delta and owner succession in one command.
+    /// Empty final membership retires the channel. Returns the applied revision.
+    async fn change_group_membership(
+        &self, _actor_user_id: u64, _channel_id: &str,
+        _add: Option<u64>, _remove: Option<u64>, _owner_user_id: u64,
+    ) -> Result<u64> {
+        Err(crate::error::WabiError::Validation {
+            command: "change_group_membership".into(), reason: "store does not implement group commands".into(),
+        })
     }
 
     // --- subscription bridge ---
@@ -475,6 +484,15 @@ pub trait WabiStore: Send + Sync {
         _signal_id: u64,
     ) -> Result<u64> {
         Ok(0)
+    }
+
+    /// List a channel's calls, including ended sessions: revoked participants must not regain historic
+    /// consent if the account is subsequently re-added to a conversation.
+    async fn list_channel_call_sessions(&self, _channel_id: &str) -> Result<Vec<CallSession>> {
+        Err(crate::error::WabiError::Validation {
+            command: "list_channel_call_sessions".into(),
+            reason: "not supported by this store".into(),
+        })
     }
 
     /// Look up a call session by id.

@@ -83,15 +83,23 @@ export async function connectWithFallback(opts: {
 	mode: string;
 	surface: CallSurface;
 	expectedParticipants?: number;
+	/** Cancellation is not a transport failure and must never select a fallback. */
+	stillWanted?: () => boolean;
 	connect: (transport: EffectiveCallTransport) => Promise<void>;
 }): Promise<ConnectOutcome> {
 	const chain = effectiveChain(opts.mode, opts.surface, opts.expectedParticipants ?? 1);
 	const attempts: TransportAttempt[] = [];
+	const check = () => {
+		if (opts.stillWanted && !opts.stillWanted()) throw new DOMException('Call ended during transport setup', 'AbortError');
+	};
+	check();
 
 	for (let i = 0; i < chain.length; i++) {
 		const transport = chain[i];
 		try {
+			check();
 			await opts.connect(transport);
+			check();
 			attempts.push({ transport, ok: true });
 			const demoted = i > 0;
 			callTransportState.update((state) => ({
@@ -107,6 +115,8 @@ export async function connectWithFallback(opts: {
 			}
 			return { active: transport, attempts, demoted };
 		} catch (error) {
+			check();
+			if (error instanceof DOMException && error.name === 'AbortError') throw error;
 			attempts.push({ transport, ok: false, error });
 			console.warn(`[Calling] ${opts.surface} connect via ${transport} failed:`, error);
 			callTransportState.update((state) => ({

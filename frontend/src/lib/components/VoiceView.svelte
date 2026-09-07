@@ -9,7 +9,7 @@
 	import { sessionBadge, sessionBadgeLabel } from '$lib/callSessionTypes';
 	import { voiceChannelMembers } from '$lib/presenceStore';
 	import { channels } from '$lib/channelStore';
-	import { wabidbRemoteVideoStreams } from '$lib/wabidbVideoLane';
+	import { wabidbRemoteVideoSessions } from '$lib/wabidbVideoLane';
 	import {
 		joinVoice,
 		leaveCall,
@@ -111,7 +111,7 @@
 		const session = $callSessions.get(sessionId);
 		if (!session) return [];
 		const ids = new Set(session.participants.map((p) => p.userId));
-		const entries = [...$wabidbRemoteVideoStreams.entries()].filter(([key]) => {
+		const entries = [...($wabidbRemoteVideoSessions.get(sessionId) ?? new Map<string, MediaStream>()).entries()].filter(([key]) => {
 			const owner = key.replace(/:(camera|screen)$/, '');
 			return ids.has(owner);
 		});
@@ -119,6 +119,7 @@
 		// screenShares store, not the wabidb lane — fold them in by owner. The
 		// wabidb entry wins on dedupe, so keys never collide.
 		for (const share of $screenShares) {
+			if ((share.channelId ?? null) !== session.channelId) continue;
 			const owner = /^\d+$/.test(share.userId) ? `user-${share.userId}` : share.userId;
 			if (!ids.has(owner)) continue;
 			if (entries.some(([key]) => key === `${owner}:screen`)) continue;

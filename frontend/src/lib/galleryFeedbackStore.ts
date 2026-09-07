@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { getAuthToken } from '$lib/authSession';
+import { fetchChannel } from './api/channelAccess';
 import { getServerUrl } from '$lib/serverUrl';
 import { users, type User } from '$lib/socket';
 
@@ -40,7 +41,7 @@ export async function loadFeedback(channelId: string, workId: string): Promise<v
 	feedbackLoading.set(true);
 	feedbackError.set(null);
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${galleryApiBase()}/${encodeURIComponent(channelId)}/works/${encodeURIComponent(workId)}/feedback`,
 			{ headers: headers() }
 		);
@@ -83,7 +84,7 @@ export async function addFeedback(
 ): Promise<string | null> {
 	if (!channelId || !workId) return null;
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${galleryApiBase()}/${encodeURIComponent(channelId)}/works/${encodeURIComponent(workId)}/feedback`,
 			{
 				method: 'POST',
@@ -105,7 +106,7 @@ export async function addFeedback(
 export async function deleteFeedback(channelId: string, workId: string, feedbackId: string): Promise<boolean> {
 	if (!channelId || !workId || !feedbackId) return false;
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${galleryApiBase()}/${encodeURIComponent(channelId)}/works/${encodeURIComponent(workId)}/feedback/${encodeURIComponent(feedbackId)}`,
 			{ method: 'DELETE', headers: headers() }
 		);

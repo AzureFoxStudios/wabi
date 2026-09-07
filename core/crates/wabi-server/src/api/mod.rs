@@ -21,6 +21,8 @@ pub mod mesh;
 pub mod tailcat;
 #[cfg(feature = "wabi-lore")]
 pub mod lore;
+#[cfg(feature = "wabi-lore")]
+mod lore_auth;
 pub mod messages;
 pub mod nodes;
 pub mod payments;

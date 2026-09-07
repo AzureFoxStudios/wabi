@@ -24,9 +24,22 @@ async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _i
     // Guests are rejected: they have no attested id to stamp on envelopes.
     let my_stable = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let my_socket = socket.id.to_string();
-    let verdict = {
-        let voice = state.voice_channels.read().await;
-        let groups = state.group_call_sessions.read().await;
+    // Revalidate durable access as well as live consent. Keep the roster read
+    // guards through room insertion: a concurrent kick cannot remove consent
+    // between this check and joining the room again.
+    // For direct calls the frontend's channelId is a UI/peer key, not a
+    // persisted channel. Their deterministic two-principal session key is
+    // validated below; never interpret that legacy hint as channel authority.
+    let access = if let Some(channel_id) = channel_id.as_ref().filter(|_| !session_id.starts_with("dm:")) {
+        match resolve_identity(&socket, &state).await {
+            Some(identity) => matches!(crate::channel_access::require_access(&state.app, identity.user_id, channel_id).await,
+                Ok(channel) if matches!(channel.channel_kind, wabidb::domain::ChannelKind::Voice | wabidb::domain::ChannelKind::GroupDm)),
+            None => false,
+        }
+    } else { resolve_identity(&socket, &state).await.is_some() };
+    let voice = state.voice_channels.read().await;
+    let groups = state.group_call_sessions.read().await;
+    let verdict = if !access { Err("call channel access denied") } else {
         authorize_wabidb_session_join(
             &my_stable,
             &my_socket,
@@ -89,16 +102,18 @@ async fn leave_wabidb_channel_room_if_unrostered(
     state: &SioState,
     channel_id: &str,
 ) {
-    let still_member = {
-        let voice = state.voice_channels.read().await;
-        voice
+    let voice = state.voice_channels.read().await;
+    let groups = state.group_call_sessions.read().await;
+    let still_member = voice
             .get(channel_id)
             .map(|members| members.iter().any(|p| p.socket_id == socket.id.to_string()))
             .unwrap_or(false)
-    };
+        || groups.get(channel_id).is_some_and(|group| group.connected_participants.contains_socket(
+            &get_my_stable_id(socket, &state.app.config.jwt_secret), &socket.id.to_string()));
     if !still_member {
         let room = format!("wabidb-call-channel:{}", channel_id);
         let _ = socket.leave(room.clone());
+        wabidb_header_cache_forget_session_socket(&format!("channel:{channel_id}"), &socket.id.to_string());
         info!(
             "[sio] Socket {} left wabiDB media room {} (unrostered)",
             socket.id, room
@@ -124,7 +139,7 @@ fn dm_media_room_key(my_id: &str, peer_id: &str) -> String {
 }
 
 #[allow(dead_code)]
-async fn on_wabidb_media(socket: SocketRef, data: Value, _state: SioState, io: SocketIo) {
+async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     // SEC-1: unauthenticated sockets may not relay media at all.
     let Some(identity) = resolve_sio_identity(&socket) else {
         warn!(
@@ -139,6 +154,12 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, _state: SioState, io: S
     };
 
     let room_id = format!("wabidb-call-{}", session_id);
+    // Serialize the short relay/cache enqueue with roster removal. A packet
+    // already in flight before a kick must not restore evicted header state.
+    let voice = state.voice_channels.read().await;
+    let groups = state.group_call_sessions.read().await;
+    if authorize_wabidb_session_join(&format!("user-{}", identity.user_id),
+        &socket.id.to_string(), &session_id, session_id.strip_prefix("channel:"), &voice, &groups).is_err() { return; }
     // Room membership is the authorization proof: only sockets that passed
     // join-wabidb-call's checks for THIS session are in the room.
     if !socket.rooms().iter().any(|r| r.as_ref() == room_id.as_str()) {
@@ -206,8 +227,12 @@ async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, 
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "reaction-error").await else { return; };
+    if !message_in_channel(&state, &channel_id, &message_id).await {
+        let _ = socket.emit("reaction-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
+        return;
+    }
+    let user_id_num = identity.user_id;
 
     if user_id_num <= 0 {
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Guests cannot react" }));
@@ -268,8 +293,12 @@ async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioStat
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "reaction-error").await else { return; };
+    if !message_in_channel(&state, &channel_id, &message_id).await {
+        let _ = socket.emit("reaction-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
+        return;
+    }
+    let user_id_num = identity.user_id;
 
     if user_id_num <= 0 {
         return;
@@ -317,26 +346,53 @@ async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioStat
 // Layer factory
 // ---------------------------------------------------------------------------
 
-/// SEC-3: resolve whether `socket` may send peer signaling to `target_id`
-/// (a socket id or stable id). Requires a call relationship: shared voice
-/// channel, shared group call session, or an active DM call link.
-async fn signaling_consent(state: &SioState, socket: &SocketRef, target_id: &str) -> bool {
-    let my_stable = get_my_stable_id(socket, &state.app.config.jwt_secret);
-    let my_socket = socket.id.to_string();
-    let target_stable = {
+
+/// Signaling belongs to one call, not the union of all calls an account has
+/// joined. The wiring holds membership_gate across this check and forwarding.
+/// Request revisions are ephemeral preconditions, never persisted codec fields.
+async fn scoped_signaling_consent(
+    state: &SioState, socket: &SocketRef, target: Option<&str>, data: &Value,
+) -> bool {
+    let Some(identity) = resolve_identity(socket, state).await else { return false; };
+    let sender = format!("user-{}", identity.user_id);
+    let socket_id = socket.id.to_string();
+    let target_stable = if let Some(target) = target {
         let connected = state.connected_users.read().await;
-        connected.get(target_id).map(|u| u.stable_id.clone())
+        Some(connected.get(target).map(|u| u.stable_id.clone()).unwrap_or_else(|| target.to_string()))
+    } else { None };
+    let Some(channel) = data.get("channelId").filter(|v| !v.is_null()) else {
+        // Channel-less signaling is direct-call signaling. Sharing a background
+        // voice channel does not authorize a different (or unspecified) call.
+        return target_stable.as_deref().is_some_and(|peer| dm_link_exists(&sender, peer));
     };
-    let voice = state.voice_channels.read().await;
-    let groups = state.group_call_sessions.read().await;
-    signaling_consent_allowed(
-        &my_stable,
-        &my_socket,
-        target_id,
-        &voice,
-        &groups,
-        target_stable.as_deref(),
-    )
+    let Some(channel) = channel.as_str().filter(|id| !id.is_empty()) else { return false; };
+    let Ok(record) = crate::channel_access::require_access(&state.app, identity.user_id, channel).await else { return false; };
+    if let Some(expected) = data.get("membershipRevision").filter(|v| !v.is_null()) {
+        let Ok(actual) = group_revision(state, channel) else { return false; };
+        if expected.as_str() != Some(actual.to_string().as_str()) { return false; }
+    }
+    match record.channel_kind {
+        wabidb::domain::ChannelKind::Voice => {
+            let voice = state.voice_channels.read().await;
+            voice.get(channel).is_some_and(|members| {
+                members.iter().any(|p| p.socket_id == socket_id && p.stable_id == sender)
+                    && target.is_none_or(|target| members.iter().any(|p| p.socket_id == target || p.stable_id == target))
+            })
+        }
+        wabidb::domain::ChannelKind::GroupDm => {
+            if let Some(peer) = target_stable.as_deref() {
+                let Some(uid) = peer.strip_prefix("user-").and_then(|s| s.parse::<i64>().ok()) else { return false; };
+                if crate::channel_access::require_access(&state.app, uid, channel).await.is_err() { return false; }
+            }
+            let groups = state.group_call_sessions.read().await;
+            groups.get(channel).is_some_and(|s| s.connected_participants.contains_socket(&sender, &socket_id)
+                && target_stable.as_ref().is_none_or(|peer| {
+                    if target == Some(peer.as_str()) { s.connected_participants.contains(peer) }
+                    else { s.connected_participants.contains_socket(peer, target.unwrap_or("")) }
+                }))
+        }
+        _ => false,
+    }
 }
 
 #[allow(dead_code)]
@@ -367,58 +423,9 @@ async fn on_call_offer(socket: SocketRef, data: Value, state: SioState, io: Sock
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    if let Some(ref channel_id) = channel_id_opt {
-        // Point lookup (t_6bbbc52a): no full channel-table scan per signal.
-        let ch_type = state
-            .app
-            .wdb
-            .get_channel_kind(channel_id)
-            .await
-            .unwrap_or_default();
-
-        {
-                if ch_type == "voice" {
-                    let voice = state.voice_channels.read().await;
-                    let members = voice.get(channel_id);
-                    let sender_in = members
-                        .map(|m| m.iter().any(|p| p.socket_id == socket.id.to_string()))
-                        .unwrap_or(false);
-                    let target_in = members
-                        .map(|m| {
-                            m.iter()
-                                .any(|p| p.socket_id == target_id || p.stable_id == target_id)
-                        })
-                        .unwrap_or(false);
-                    if !sender_in || !target_in {
-                        return;
-                    }
-                } else if ch_type == "group" {
-                    let sessions = state.group_call_sessions.read().await;
-                    let session = match sessions.get(channel_id) {
-                        Some(s) => s,
-                        None => return,
-                    };
-                    if !session.connected_participants.contains(&my_stable_id)
-                        || !session.connected_participants.contains(&target_id)
-                    {
-                        return;
-                    }
-                } else {
-                    return;
-                }
-        }
-    } else {
-        // SEC-3: channel-less offers are direct-call SDP — require an active
-        // call relationship instead of blindly routing to any socket.
-        if !signaling_consent(&state, &socket, &target_id).await {
-            warn!(
-                "[sio] call-offer consent denied: socket {} ({}) -> {}",
-                socket.id, my_stable_id, target_id
-            );
-            return;
-        }
+    if !scoped_signaling_consent(&state, &socket, Some(&target_id), &data).await {
+        return;
     }
-
     let _ = io
         .to(target_id)
         .emit(
@@ -434,11 +441,14 @@ async fn on_call_offer(socket: SocketRef, data: Value, state: SioState, io: Sock
 }
 
 #[allow(dead_code)]
-async fn on_start_screen_share(socket: SocketRef, state: SioState, io: SocketIo) {
+async fn on_start_screen_share(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let sender_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     // SEC-4: scope to users with a call relationship with the sender — the
     // old global broadcast leaked who is sharing to every connected user.
-    let (username, audience) = screen_share_audience(&socket, &state).await;
+    let Some((username, audience)) = scoped_screen_share_audience(&socket, &state, &data).await else {
+        let _ = socket.emit("screen-share-error", &json!({"requestId": data["requestId"], "channelId": data["channelId"], "error": "Screen share call access denied"}));
+        return;
+    };
 
     let targets: Vec<Value> = audience
         .iter()
@@ -450,7 +460,7 @@ async fn on_start_screen_share(socket: SocketRef, state: SioState, io: SocketIo)
         })
         .collect();
 
-    let _ = socket.emit("screen-share-targets", &json!({ "targets": targets }));
+    let _ = socket.emit("screen-share-targets", &json!({ "targets": targets, "channelId": data["channelId"], "requestId": data["requestId"] }));
 
     let mut rooms: Vec<String> = audience.iter().map(|(id, _)| id.clone()).collect();
     rooms.push(sender_id.clone());
@@ -462,15 +472,17 @@ async fn on_start_screen_share(socket: SocketRef, state: SioState, io: SocketIo)
                 "senderId": sender_id,
                 "userId": sender_id,
                 "username": username,
+                "channelId": data["channelId"],
+                "requestId": data["requestId"],
             }),
         )
         .await;
 }
 
 #[allow(dead_code)]
-async fn on_stop_screen_share(socket: SocketRef, state: SioState, io: SocketIo) {
+async fn on_stop_screen_share(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let sender_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
-    let (_, audience) = screen_share_audience(&socket, &state).await;
+    let Some((_, audience)) = scoped_screen_share_audience(&socket, &state, &data).await else { return; };
 
     let mut rooms: Vec<String> = audience.iter().map(|(id, _)| id.clone()).collect();
     rooms.push(sender_id.clone());
@@ -481,12 +493,27 @@ async fn on_stop_screen_share(socket: SocketRef, state: SioState, io: SocketIo) 
             &json!({
                 "senderId": sender_id,
                 "userId": sender_id,
+                "channelId": data["channelId"],
+                "requestId": data["requestId"],
             }),
         )
         .await;
 }
 
-/// Users the sender may notify about a screen share: everyone sharing a
+async fn scoped_screen_share_audience(socket: &SocketRef, state: &SioState, data: &Value) -> Option<(String, Vec<(String, String)>)> {
+    let direct_target = data.get("targetUserId").and_then(Value::as_str);
+    if !scoped_signaling_consent(state, socket, direct_target, data).await { return None; }
+    let (username, candidates) = screen_share_audience(socket, state).await;
+    let mut audience = Vec::new();
+    let mut seen = HashSet::new();
+    for (peer, name) in candidates {
+        if direct_target.is_some_and(|target| target != peer) || !seen.insert(peer.clone()) { continue; }
+        if scoped_signaling_consent(state, socket, Some(&peer), data).await { audience.push((peer, name)); }
+    }
+    Some((username, audience))
+}
+
+/// Recording presence's legacy audience: everyone sharing a
 /// voice channel, group call session, or DM call link with them.
 async fn screen_share_audience(
     socket: &SocketRef,
@@ -588,7 +615,7 @@ async fn on_call_recording_set_active(
             let groups = state.group_call_sessions.read().await;
             let is_member = groups
                 .get(group_id)
-                .map(|s| s.connected_participants.contains(&stable_id))
+                .map(|s| s.connected_participants.contains_socket(&stable_id, &socket.id.to_string()))
                 .unwrap_or(false);
             drop(groups);
             if !is_member {
@@ -687,7 +714,7 @@ async fn recording_presence_departure_rooms(
                 }
             }
             if let Some(session) = groups.get(channel_id) {
-                for stable_id in &session.connected_participants {
+                for stable_id in session.connected_participants.iter() {
                     rooms.push(stable_id.clone());
                 }
             }
@@ -720,7 +747,7 @@ async fn on_webrtc_offer(socket: SocketRef, data: Value, state: SioState, io: So
 
     // SEC-3: unsolicited SDP at arbitrary sockets is refused — the peers
     // must share a call relationship.
-    if !signaling_consent(&state, &socket, &target_id).await {
+    if !scoped_signaling_consent(&state, &socket, Some(&target_id), &data).await {
         warn!(
             "[sio] webrtc-offer consent denied: socket {} ({}) -> {}",
             socket.id, sender_id, target_id
@@ -735,6 +762,8 @@ async fn on_webrtc_offer(socket: SocketRef, data: Value, state: SioState, io: So
             &json!({
                 "offer": offer,
                 "senderId": sender_id,
+                "channelId": data["channelId"],
+                "requestId": data["requestId"],
                 "username": username,
             }),
         )
@@ -754,7 +783,7 @@ async fn on_webrtc_answer(socket: SocketRef, data: Value, state: SioState, io: S
     };
 
     // SEC-3: answers are only valid within an established call relationship.
-    if !signaling_consent(&state, &socket, &target_id).await {
+    if !scoped_signaling_consent(&state, &socket, Some(&target_id), &data).await {
         warn!(
             "[sio] webrtc-answer consent denied: socket {} ({}) -> {}",
             socket.id, sender_id, target_id
@@ -769,6 +798,8 @@ async fn on_webrtc_answer(socket: SocketRef, data: Value, state: SioState, io: S
             &json!({
                 "answer": answer,
                 "senderId": sender_id,
+                "channelId": data["channelId"],
+                "requestId": data["requestId"],
             }),
         )
         .await;
@@ -787,7 +818,7 @@ async fn on_webrtc_ice_candidate(socket: SocketRef, data: Value, state: SioState
     };
 
     // SEC-3: ICE candidates only flow within an established call relationship.
-    if !signaling_consent(&state, &socket, &target_id).await {
+    if !scoped_signaling_consent(&state, &socket, Some(&target_id), &data).await {
         warn!(
             "[sio] webrtc-ice-candidate consent denied: socket {} ({}) -> {}",
             socket.id, sender_id, target_id
@@ -802,6 +833,8 @@ async fn on_webrtc_ice_candidate(socket: SocketRef, data: Value, state: SioState
             &json!({
                 "candidate": candidate,
                 "senderId": sender_id,
+                "channelId": data["channelId"],
+                "requestId": data["requestId"],
             }),
         )
         .await;

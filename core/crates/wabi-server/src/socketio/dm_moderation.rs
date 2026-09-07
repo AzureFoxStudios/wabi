@@ -14,11 +14,11 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let my_user_id = identity.user_id;
 
     // Auth check — guests cannot create DMs
-    if my_user_id <= 0 {
+    if my_user_id <= 0 || identity.is_guest {
         let _ = socket.emit("dm-error", &json!({ "error": "Guests cannot create DMs" }));
         return;
     }
@@ -30,6 +30,10 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         Ok(id) => id,
         Err(_) => return, // Invalid targetUserId format
     };
+    if parsed_target_user_id <= 0 || !matches!(state.app.wdb.get_user(parsed_target_user_id as u64).await, Ok(Some(user)) if user.is_active && !user.password_hash.is_empty()) {
+        let _ = socket.emit("dm-error", &json!({"error": "Target must be an active registered user"}));
+        return;
+    }
 
     let my_stable_id = format!("user-{}", my_user_id);
     let target_stable_id = format!("user-{}", parsed_target_user_id);
@@ -116,91 +120,6 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         .await;
 }
 
-#[allow(dead_code)]
-async fn on_create_group(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
-    let group_name = match data.get("groupName").and_then(|v| v.as_str()).map(str::trim) {
-        Some(name) if !name.is_empty() => name.to_string(),
-        _ => {
-            let _ = socket.emit("group-error", &json!({ "error": "Group name is required" }));
-            return;
-        }
-    };
-
-    let requested_members = match data.get("userIds").and_then(|v| v.as_array()) {
-        Some(ids) => ids,
-        None => {
-            let _ = socket.emit("group-error", &json!({ "error": "At least one member is required" }));
-            return;
-        }
-    };
-
-    let identity = resolve_sio_identity(&socket);
-    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-
-    // Auth check — guests cannot create persistent group DMs.
-    if my_user_id <= 0 {
-        let _ = socket.emit("group-error", &json!({ "error": "Guests cannot create groups" }));
-        return;
-    }
-
-    let my_stable_id = format!("user-{}", my_user_id);
-    let mut members = vec![my_stable_id];
-    for member in requested_members.iter().filter_map(|v| v.as_str()) {
-        let member = member.trim();
-        if member.is_empty() {
-            continue;
-        }
-        let stable_id = if let Some(numeric) = member.strip_prefix("user-") {
-            if numeric.parse::<i64>().is_ok() {
-                format!("user-{}", numeric)
-            } else {
-                continue;
-            }
-        } else if member.parse::<i64>().is_ok() {
-            format!("user-{}", member)
-        } else {
-            member.to_string()
-        };
-        if !members.iter().any(|existing| existing == &stable_id) {
-            members.push(stable_id);
-        }
-    }
-
-    if members.len() < 2 {
-        let _ = socket.emit("group-error", &json!({ "error": "At least one other member is required" }));
-        return;
-    }
-
-    let channel_id = format!("group-{}", uuid::Uuid::new_v4());
-
-    if let Err(e) = state
-        .app
-        .wdb
-        .upsert_group(&channel_id, &group_name, "group", Some(&members), None, None)
-        .await
-    {
-        warn!("[sio] create-group: failed to create channel {}: {}", channel_id, e);
-        let _ = socket.emit("group-error", &json!({ "error": "Failed to create group", "channelId": channel_id }));
-        return;
-    }
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    let channel = json!({
-        "id": channel_id,
-        "name": group_name,
-        "type": "group",
-        "createdAt": now,
-        "members": members,
-        "minRole": "member",
-    });
-    let payload = json!({ "channel": channel, "channelId": channel_id });
-
-    let _ = socket.emit("group-created", &payload);
-    let _ = io.broadcast().emit("group-channel-added", &payload).await;
-}
 
 #[allow(dead_code)]
 async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
@@ -209,28 +128,30 @@ async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         None => return,
     };
 
-    if !channel_id.starts_with("dm-") {
+    if state.app.wdb.get_channel_kind(&channel_id).await.as_deref() != Some("dm") {
         let _ = socket.emit("dm-error", &json!({ "error": "Not a DM channel", "channelId": channel_id }));
         return;
     }
 
     // Auth check
-    let identity = resolve_sio_identity(&socket);
-    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if my_user_id <= 0 {
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "dm-error").await else { return; };
+    let my_user_id = identity.user_id;
+    if my_user_id <= 0 || identity.is_guest {
         let _ = socket.emit("dm-error", &json!({ "error": "Guests cannot delete DMs", "channelId": channel_id }));
         return;
     }
 
-    // Persist deletion to WDB
-    if let Err(e) = state.app.wdb.delete_dm_channel(&channel_id).await {
+    let Ok(members) = state.app.wdb.list_channel_members(&channel_id).await else { return; };
+    // Persist deletion to WDB before notifying participants.
+    if let Err(e) = state.app.wdb.delete_channel(&channel_id, my_user_id as u64).await {
         warn!("[sio] delete-dm: failed to delete channel {}: {}", channel_id, e);
         let _ = socket.emit("dm-error", &json!({ "error": "Failed to delete DM", "channelId": channel_id }));
         return;
     }
 
     let _ = socket.emit("dm-deleted", &json!({ "channelId": channel_id }));
-    let _ = io.broadcast().emit("dm-deleted", &json!({ "channelId": channel_id })).await;
+    let recipients: Vec<String> = members.iter().map(|m| format!("user-{}", m.user_id)).collect();
+    let _ = io.to(recipients).emit("dm-deleted", &json!({ "channelId": channel_id })).await;
 }
 
 #[allow(dead_code)]
@@ -294,4 +215,3 @@ async fn on_ban_user(socket: SocketRef, data: Value, state: SioState, io: Socket
         )
         .await;
 }
-

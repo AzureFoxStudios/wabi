@@ -88,6 +88,7 @@ All read operations hold only a read lock. `insert` and `remove` hold a write lo
 ```rust
 pub trait Projection: Send + Sync {
     fn event_type(&self) -> &str;
+    fn event_types(&self) -> Vec<&str> { vec![self.event_type()] }
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()>;
 }
 ```
@@ -109,7 +110,7 @@ ProjectionRegistration {
 }
 ```
 
-Each registration declares the event types it handles, the handler instance, the SkipMap index name, and the record type for schema tracking.
+Each registration declares the event types it handles, the handler instance, the SkipMap index name, and the record type for schema tracking. **Actual dispatch uses the handler's `event_types()`**, not the metadata array: update both when adding an event. Test a real engine command, not just `handler.apply()`.
 
 ## Record Encoding
 
@@ -182,7 +183,7 @@ pub fn compact(state: &ProjectionState) -> usize {
 |-------|---------|-------------|
 | messages | MessagesProjection | message_created, message_edited, message_deleted |
 | reactions | ReactionsProjection | reaction_added |
-| channel_members | ChannelMembersProjection | channel_member_added |
+| channel_members | ChannelMembersProjection | channel_member_added, channel_member_removed |
 | users | UsersProjection | user_registered |
 | emotes | EmotesProjection | emote_upserted |
 | webhooks | WebhooksProjection | webhook_upserted |
@@ -207,6 +208,62 @@ pub fn compact(state: &ProjectionState) -> usize {
 ### UsersProjection — full-roster query (2026-08-06)
 
 `users` index is NOT just a single-user lookup. `UsersProjection::list(state, filter)` with `UsersFilter::default()` returns EVERY user row — registered accounts, guests, and bots — each with profile fields. This is the canonical "who exists on this server" read: `WdbAdapter::list_users()` (in `wabi-server/src/adapter/mod.rs`) feeds the socket `init` payload's `serverMembers`, which the frontend renders as the People panel's greyed-out "Offline — N" section (`offlineUsers = serverMembers − online`). Guest discriminator = empty `password_hash` (same check `auth.rs::handle_login` uses), exposed on the wire as `is_registered` (UserView). If `serverMembers` is empty, the offline roster silently vanishes — always route roster reads through `list_users()`, never a hardcoded `Vec::new()` stub.
+
+### Membership removal and old snapshots (2026-09-07)
+
+`channel_member_removed` uses the **existing, unchanged** postcard
+`ChannelMemberRecord` payload. Its handler removes `(channel_id, user_id)` from
+`channel_members`; an absent row is an idempotent no-op, malformed bytes fail.
+`remove_channel_member().await` must make membership queries stop authorizing
+the user before returning. Rejoins remain ordinary later add events.
+
+Old snapshots acknowledged removals without applying them. Their generic
+`events["channel_member_removed"]` fallback row marks affected snapshots.
+`engine/membership_repair.rs`, called by replay, recovers the committed
+pre-checkpoint history of the affected membership streams, applies each pair's
+last add/remove decision, and removes only stale memberships. It does NOT
+reinsert old adds (which could undo `user_deleted`) or rebuild unrelated indexes.
+Post-checkpoint events then apply normally, so later rejoins win. Only a
+successful repair clears the marker; missing indexed history fails startup
+without overwriting the checkpoint. Do not delete a snapshot to bypass this
+failure: restore/repair the required history with the operator.
+
+Regression entrypoints: the membership cases in `tests::write_completion` and
+wabi-server's `lore_credential_contract`. No record fields, index keys, or
+postcard codecs changed. Details: `docs/plans/2026-09-07-lore-credential-boundary.md`.
+
+### Atomic group membership (2026-09-07, in progress)
+
+`channel_members_changed` is a new JSON delta (`channel_id`, `upserts` of
+unchanged ChannelMemberRecord fields, `removals` of user IDs). It validates all
+rows, unique/disjoint IDs and the `channel_members:{id}` stream before mutation.
+It permits one membership event per group command without violating the
+one-event-per-stream AES-GCM nonce constraint. Old add/remove postcard events
+remain supported. The legacy snapshot repair recognizes the batch's final
+add/remove decisions too; it still never reinserts old rows.
+
+All membership event forms also write `channel_membership_versions`, keyed by
+channel ID with an eight-byte LE commit sequence. Old checkpoints missing this
+index use revision 0 until the next membership event; no permission is inferred
+from that baseline. Membership list queries now propagate corrupt records rather
+than silently dropping a possible group owner. Channel updates support the
+existing JSON `owner_user_id` field for durable succession. Server admission must
+serialize authorization, mutations, room eviction and publication; the projection
+does not provide application-level read-modify-write isolation.
+
+Group removal includes existing call-participant leave events in that same
+commit; last-member leave also ends associated active sessions. No new call
+record fields or event codecs. Only the removed account's live participant rows
+are retired while a group remains. Ended-session rows are included so re-add and
+restart do not restore historical consent. `group_membership_contract` covers
+checkpoint/replay, unrelated-call preservation and fail-closed corrupt call
+indexes. The server's membership gate coordinates these reads against REST call
+creation/join; the database projection application lock is NOT an admission lock.
+
+See `docs/plans/2026-09-07-group-membership-revocation.md` and server
+`group_membership_contract` for current implementation/verification status.
+New batch events require the updated binary: do not assume an old binary can
+replay them safely as a data-preserving rollback.
 
 ## How to Add a New Projection
 

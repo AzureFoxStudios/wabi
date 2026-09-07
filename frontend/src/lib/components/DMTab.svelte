@@ -3,6 +3,7 @@
 	import { channels, channelMessages, currentUser, users, serverMembers, createDM, deleteDM, leaveGroup, socket, joinChannel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { brandName } from '$lib/branding';
+	import { showToast } from '$lib/toast';
 	import { NOTES_DM_ID } from '$lib/layoutStore';
 	import { startCall, startGroupCall, type GroupCallRingingTarget } from '$lib/calling';
 	import { longpress } from '$lib/actions/longpress';
@@ -200,9 +201,12 @@
 		showNewDM = true;
 	}
 
-	function handleDeleteOrLeave(channel: Channel) {
+	async function handleDeleteOrLeave(channel: Channel) {
 		if (channel.type === 'group') {
-			leaveGroup(channel.id);
+			try { await leaveGroup(channel.id); }
+			catch (error) { showToast(error instanceof Error ? error.message : 'Could not confirm leaving the group', 'error'); }
+			// group-removed owns the targeted surface cleanup, never this click.
+			return;
 		} else {
 			deleteDM(channel.id);
 		}

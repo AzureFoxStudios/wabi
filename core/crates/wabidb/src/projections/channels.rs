@@ -234,6 +234,9 @@ impl ChannelProjection {
             return Ok(());
         }
         let mut channel = existing.unwrap_or_else(|| Channel::new(&channel_id, "", 0));
+        if let Some(owner) = patch.get("owner_user_id").and_then(|v| v.as_u64()) {
+            channel.owner_user_id = owner;
+        }
         if let Some(name) = patch.get("name").and_then(|v| v.as_str()) {
             // Never blank a channel name to empty — an empty string here
             // would turn the channel into a nameless "#" row.

@@ -1,6 +1,10 @@
 import { get } from 'svelte/store';
 import { releasePeerMicrophones, replacePeerMicrophone } from './peerMicrophone';
 import { waitForPeerConnection } from './peerConnectionReady';
+import { requestVoiceAdmission, requestGroupCallAnswer, requestGroupCallStart, requestGroupCallReadmission } from './voiceAdmission';
+import { registerCallSocketOwner } from './callSocketLifecycle';
+import { captureGroupAccess, groupMembership } from './groupAccess';
+import { ensureChannelMembership } from './api/channelAccess';
 import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
@@ -25,9 +29,11 @@ export {
 	createScreenShareOffer,
 	handleScreenShareOffer,
 	handleScreenShareAnswer,
-	handleScreenShareIceCandidate
+	handleScreenShareIceCandidate,
+	screenShareTargetsCurrent,
+	rejectScreenShare
 } from './callingScreenShare';
-import { initScreenShareDeps } from './callingScreenShare';
+import { initScreenShareDeps, cancelChannelScreenShare } from './callingScreenShare';
 import { connectWithFallback, MESH_MAX_PARTICIPANTS, type CallSurface } from './callingFallback';
 import { voiceChannelMembers, _updateVoiceChannelMember, _removeVoiceChannelMember } from './presenceStore';
 import { getStoredDbUserId, getStoredUsername } from './authSession';
@@ -100,7 +106,8 @@ import {
 	type GroupCallRingingTarget,
 	type CallConnectionDiagnostics,
 	type ConnectionLifecycleState,
-	type PeerConnectionState
+	type PeerConnectionState,
+	type CallMediaScope
 } from './callingTypes';
 export type {
 	Call,
@@ -237,6 +244,161 @@ function groupCallSessionKey(channelId: string): string {
 	return `group:${channelId}`;
 }
 
+// A group call has one local owner from the user's click through teardown.
+// Membership revisions are not enough: remove -> re-add must not revive an
+// older permission request, peer negotiation, or transport fallback.
+type GroupCallRun = {
+	channelId: string; socket: Socket; socketId: string | undefined;
+	controller: AbortController; access: () => boolean;
+	ready: Promise<void>; prepared: () => void; rejectReady: (error: unknown) => void;
+	operation: Promise<MediaStream>; entering?: Promise<void>;
+	established: boolean; cameraTracks: Set<MediaStreamTrack>; disconnected: () => void;
+	suspended: boolean; membershipRevision: string; name: string; localName: string;
+};
+let groupCallRun: GroupCallRun | null = null;
+
+function groupRunCurrent(run: GroupCallRun): boolean {
+	return groupCallRun === run && !run.suspended && !run.controller.signal.aborted && run.access() &&
+		run.socket.connected && run.socket.id === run.socketId;
+}
+function checkGroupRun(run: GroupCallRun): void {
+	if (!groupRunCurrent(run) || !run.socket.connected || run.socket.id !== run.socketId) {
+		throw new DOMException('Group call cancelled or connection changed', 'AbortError');
+	}
+}
+
+/** Synchronous local revocation. Network cleanup must not own local state
+ * after an await; a newly admitted call may already exist by then. */
+export function revokeGroupCall(channelId: string): void {
+	cancelChannelScreenShare(channelId);
+	const run = groupCallRun?.channelId === channelId ? groupCallRun : null;
+	const ownsView = get(activeGroupCall)?.id === channelId || get(outgoingCall)?.channelId === channelId;
+	if (run) {
+		groupCallRun = null;
+		run.socket.off('disconnect', run.disconnected);
+		run.controller.abort();
+		run.rejectReady(new DOMException('Group call ended', 'AbortError'));
+	}
+	const peers = new Set(callSessionManager.get(channelId)?.participants.map(p => p.userId) ?? []);
+	for (const state of peerConnections.values()) if (state.channelId === channelId) peers.add(state.targetId);
+	for (const [key, state] of peerConnections) {
+		if (state.channelId === channelId || (ownsView && state.type !== 'call' && !state.channelId && peers.has(state.targetId))) cleanupPeerConnection(key);
+	}
+	callSessionManager.unregister(channelId);
+	detachSessionAudioChain(channelId);
+	void disconnectWabidbChannel(channelId);
+	if (getLivekitChannelId() === channelId) void disconnectLivekitSfu();
+	if (get(incomingCall)?.channelId === channelId) incomingCall.set(null);
+	if (!run && !ownsView) return;
+	if (ownsView) {
+		activeGroupCall.set(null);
+		if (get(activeCallSessionId) === groupCallSessionKey(channelId)) activeCallSessionId.set(null);
+		if (get(outgoingCall)?.channelId === channelId) outgoingCall.set(null);
+		groupCallRingingTargets.set([]);
+	}
+	for (const track of run?.cameraTracks ?? []) { get(localStream)?.removeTrack(track); track.stop(); }
+	isVideoOff.set(!get(localStream)?.getVideoTracks().some(track => track.readyState === 'live'));
+	const otherConsumers = Boolean(activeVoiceChannelId || get(listeningVoiceChannels).length || pendingVoiceJoins.size ||
+		get(activeCallSessionId) || callSessionManager.list().length);
+	if (!otherConsumers) {
+		get(localStream)?.getTracks().forEach(track => track.stop());
+		localStream.set(null);
+		clearActiveAudioCaptureSession(); // disposes even a late getUserMedia result
+		stopLocalSpeakingMonitor(); stopAudioMonitoring('local'); stopPerformanceGuard();
+		isLocalSpeaking.set(false);
+		isInCall.set(false); callMode.set(null); channelCallPanelOpen.set(false);
+		connectionState.set('idle'); stopCallDiagnosticsPolling('idle');
+	} else if (!get(activeCallSessionId)) {
+		callMode.set('channel');
+		isInCall.set(Boolean(activeVoiceChannelId || get(listeningVoiceChannels).length || callSessionManager.list().length));
+		connectionState.set(callSessionManager.list().some(s => s.lifecycle === 'connected') ? 'connected' : 'connecting');
+	}
+	syncSpatialAudioGraph();
+	void syncLocalAudioState();
+}
+
+groupMembership.onRevoked(({ channelId }) => revokeGroupCall(channelId));
+groupMembership.onContextChanged(() => {
+	const id = groupCallRun?.channelId ?? get(activeGroupCall)?.id;
+	if (id) revokeGroupCall(id);
+});
+
+function retireChannelMedia(channelId: string, notifyServer = false): void {
+	cancelChannelScreenShare(channelId);
+	for (const [key, peer] of peerConnections) if (peer.channelId === channelId) cleanupPeerConnection(key);
+	// Synchronous local retirement before rebuilding on another socket. Do NOT
+	// send a delayed account-level REST leave across a transient disconnect.
+	void disconnectWabidbChannel(channelId, { notifyServer });
+	if (getLivekitChannelId() === channelId) void disconnectLivekitSfu({ preserveCallState: true });
+	callSessionManager.markReconnecting(channelId);
+}
+
+function suspendGroupCall(socket: Socket): void {
+	const run = groupCallRun;
+	if (!run || run.socket !== socket || run.suspended) return;
+	if (!run.established) { revokeGroupCall(run.channelId); return; }
+	run.suspended = true;
+	run.controller.abort();
+	run.rejectReady(new DOMException('Call connection interrupted', 'AbortError'));
+	socket.off('disconnect', run.disconnected);
+	retireChannelMedia(run.channelId);
+	connectionState.set('reconnecting');
+}
+
+async function resumeGroupCall(socket: Socket): Promise<void> {
+	const previous = groupCallRun;
+	if (!previous?.suspended || !socket.connected || !groupMembership.ready()) return;
+	if (!previous.access() || groupMembership.revision(previous.channelId) !== previous.membershipRevision) {
+		revokeGroupCall(previous.channelId);
+		callOfflineNotice.set('Group membership changed while disconnected. Join the call again.');
+		return;
+	}
+	let prepared!: () => void, rejectReady!: (error: unknown) => void;
+	const ready = new Promise<void>((resolve, reject) => { prepared = resolve; rejectReady = reject; });
+	void ready.catch(() => {});
+	// Fresh identity: mutating the old owner's socket would authorize its late
+	// awaits against the new connection. Camera/mute/focus are retained intent.
+	const run: GroupCallRun = {
+		...previous, socket, socketId: socket.id, controller: new AbortController(),
+		access: captureGroupAccess(previous.channelId), suspended: false,
+		ready, prepared, rejectReady, entering: undefined,
+		disconnected: () => suspendGroupCall(socket)
+	};
+	groupCallRun = run;
+	socket.on('disconnect', run.disconnected);
+	run.entering = (async () => {
+		await requestGroupCallReadmission(socket, run.channelId, run.membershipRevision, ensureChannelMembership, run.controller.signal);
+		checkGroupRun(run);
+		await ensureLocalAudioStream();
+		checkGroupRun(run);
+		run.prepared();
+		await enterEstablishedGroupCall(run.channelId, run.name, run.localName,
+			{ playJoinSound: false, socket, run });
+		checkGroupRun(run);
+		callOfflineNotice.set(null);
+	})();
+	run.operation = run.entering.then(() => {
+		checkGroupRun(run);
+		const stream = get(localStream);
+		if (!stream) throw new Error('Microphone capture ended during reconnect');
+		return stream;
+	});
+	void run.operation.catch(() => {});
+	try { await run.entering; }
+	catch (error) {
+		run.rejectReady(error);
+		if (groupCallRun !== run || run.suspended) return;
+		if (socket.connected && socket.id === run.socketId && run.access()) socket.emit('group-call-leave', { channelId: run.channelId });
+		revokeGroupCall(run.channelId);
+		callOfflineNotice.set(error instanceof Error ? error.message : 'Group call could not reconnect');
+	}
+}
+
+registerCallSocketOwner({
+	disconnected: socket => { suspendGroupCall(socket); suspendVoiceCalls(socket); },
+	initialized: async socket => { await Promise.all([resumeGroupCall(socket), resumeVoiceCalls(socket)]); }
+});
+
 initLivekitDeps({
 	shouldSendAudioToChannel,
 	syncSpatialAudioGraph: () => syncSpatialAudioGraph(),
@@ -247,8 +409,38 @@ initScreenShareDeps({
 	cleanupPeerConnection,
 	createPeerConnection,
 	addTrackWithOptimizations,
+	captureScope: captureCallMediaScope,
+	receiveScope: captureIncomingMediaScope,
 	syncSpatialAudioGraph: () => syncSpatialAudioGraph()
 });
+
+export function captureCallMediaScope(): CallMediaScope | null {
+	const run = groupCallRun;
+	if (get(activeGroupCall)) {
+		if (!run || !run.established || !groupRunCurrent(run)) return null;
+		return { channelId: run.channelId, current: () => groupRunCurrent(run) };
+	}
+	const direct = get(activeCallSessionId);
+	if (direct?.startsWith('direct:')) return {
+		peerUserId: direct.slice('direct:'.length),
+		current: () => get(activeCallSessionId) === direct && !get(activeGroupCall)
+	};
+	const channel = activeVoiceChannelId;
+	return channel ? { channelId: channel, current: () => activeVoiceChannelId === channel && !get(activeCallSessionId) } : null;
+}
+
+export function captureIncomingMediaScope(channelId: string | undefined, peerId: string): CallMediaScope | null {
+	if (channelId && groupMembership.tracks(channelId)) {
+		const run = groupCallRun;
+		if (!run || run.channelId !== channelId || !groupRunCurrent(run)) return null;
+		return { channelId, current: () => groupRunCurrent(run) };
+	}
+	if (channelId) return get(listeningVoiceChannels).includes(channelId)
+		? { channelId, current: () => get(listeningVoiceChannels).includes(channelId) } : null;
+	const direct = directCallSessionKey(peerId);
+	return get(activeCallSessionId) === direct
+		? { peerUserId: peerId, current: () => get(activeCallSessionId) === direct } : null;
+}
 configureLivekitTokenRefresh(async (channelId, displayName) => {
 	if (get(activeVoiceChannel)?.id !== channelId) return;
 	if (getLivekitRoom() && getLivekitChannelId() === channelId) {
@@ -338,7 +530,8 @@ function createPeerConnection(
 	targetId: string,
 	username: string,
 	type: PeerConnectionState['type'],
-	socket: Socket
+	socket: Socket,
+	metadata: Pick<PeerConnectionState, 'channelId' | 'mediaRequestId'> = {}
 ): RTCPeerConnection {
 	const key = getConnectionKey(targetId, keyTypeFromPCType(type));
 
@@ -355,6 +548,7 @@ function createPeerConnection(
 	const pc = new RTCPeerConnection(getRTCConfig());
 
 	const state: PeerConnectionState = {
+		...metadata,
 		pc,
 		type,
 		targetId,
@@ -419,12 +613,16 @@ function createPeerConnection(
 
 	// ICE candidate handler
 	pc.onicecandidate = (event) => {
-		if (peerConnections.get(key) !== state) return;
+		if (peerConnections.get(key) !== state || !socket.connected ||
+			(state.channelId && !groupMembership.acceptsContent(state.channelId))) return;
 		if (event.candidate) {
 			const eventName = type === 'call' ? 'call-ice-candidate' : 'webrtc-ice-candidate';
 			socket.emit(eventName, {
 				candidate: event.candidate,
-				targetId
+				targetId,
+				channelId: state.channelId,
+				membershipRevision: state.channelId ? groupMembership.revision(state.channelId) : undefined,
+				requestId: state.mediaRequestId
 			});
 		}
 	};
@@ -464,7 +662,7 @@ function createPeerConnection(
 		if (type === 'call') {
 			addRemoteCallStream(targetId, username, stream);
 		} else if (type === 'screen-share-inbound') {
-			addRemoteScreenShare(targetId, username, stream);
+			addRemoteScreenShare(targetId, username, stream, state.channelId);
 		}
 	};
 
@@ -476,8 +674,21 @@ async function addTrackWithOptimizations(pc: RTCPeerConnection, track: MediaStre
 	await addOptimizedTrack(pc, track, stream, isScreenShareTrack ? 'screen-share' : 'camera');
 }
 
+function cameraBelongsToPeer(channelId: string | undefined, peerId: string): boolean {
+	// An accepted group's initial offer can arrive while its relay preparation
+	// is still finishing. Capture was already authorized, but UI controls stay
+	// disabled until establishment; do not suppress that initial camera track.
+	if (channelId && groupCallRun?.channelId === channelId) {
+		return !get(isVideoOff) && get(activeGroupCall)?.id === channelId && groupRunCurrent(groupCallRun);
+	}
+	const scope = captureCallMediaScope();
+	return !get(isVideoOff) && !!scope?.current() &&
+		(channelId ? scope.channelId === channelId : scope.peerUserId === peerId);
+}
+
 function shouldTransmitToChannel(channelId?: string): boolean {
 	if (!channelId) return true;
+	if (!groupMembership.acceptsContent(channelId)) return false;
 	if (get(voiceTransmitMode) === 'all-listening') return true;
 	// While a DM/group call is active, the primary voice channel becomes
 	// listen-only (TeamSpeak style): audio goes to the call, not the channel.
@@ -532,9 +743,12 @@ async function syncLocalAudioState(): Promise<void> {
 
 async function renegotiateCallConnection(state: PeerConnectionState, socket: Socket): Promise<void> {
 	if (state.type !== 'call') return;
+	const key = getConnectionKey(state.targetId, 'call');
+	const access = state.channelId ? captureGroupAccess(state.channelId) : () => true;
 
 	const offer = await state.pc.createOffer();
 	await state.pc.setLocalDescription(offer);
+	if (peerConnections.get(key) !== state || !access() || !socket.connected) return;
 
 	socket.emit('call-offer', {
 		offer,
@@ -592,6 +806,7 @@ function rememberVoiceParticipantLabel(userId: string, username?: string | null)
 
 
 function finalizeLocalCallEndState(): void {
+	if (groupCallRun) revokeGroupCall(groupCallRun.channelId);
 	// Phase 2: full call teardown ends every session and audio chain.
 	callSessionManager.leaveAll();
 	detachAllSessionAudioChains();
@@ -772,12 +987,13 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 	syncSpatialAudioGraph();
 }
 
-function addRemoteScreenShare(userId: string, username: string, stream: MediaStream): void {
+function addRemoteScreenShare(userId: string, username: string, stream: MediaStream, channelId?: string): void {
 	screenShares.update(shares => {
 		const existingIndex = shares.findIndex(s => s.userId === userId);
 
 		const newShare: ScreenShare = {
 			userId,
+			channelId,
 			username: username || 'Unknown',
 			stream
 		};
@@ -1174,7 +1390,125 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 	return stream;
 }
 
-export async function joinVoiceChannel(socket: Socket, channelId: string) {
+const pendingVoiceJoins = new Map<string, { socket: Socket; controller: AbortController; promise: Promise<MediaStream | null>; listenOnly: boolean }>();
+const voiceSocketOwners = new Map<string, Socket>();
+type VoiceRecovery = {
+	socket: Socket; joinedAt: number; realm: string | null; controller: AbortController; suspended: boolean;
+	operation?: Promise<MediaStream | null>;
+};
+const voiceRecoveries = new Map<string, VoiceRecovery>();
+
+function suspendVoiceCalls(socket: Socket): void {
+	for (const pending of pendingVoiceJoins.values()) if (pending.socket === socket) pending.controller.abort();
+	for (const session of callSessionManager.list()) {
+		if (session.kind !== 'channel' || voiceSocketOwners.get(session.id) !== socket || pendingVoiceJoins.has(session.id)) continue;
+		const previous = voiceRecoveries.get(session.id);
+		if (previous?.socket === socket && previous.suspended) continue;
+		previous?.controller.abort();
+		voiceRecoveries.set(session.id, { socket, joinedAt: session.joinedAt,
+			realm: groupMembership.realm(), controller: new AbortController(), suspended: true });
+		retireChannelMedia(session.id);
+	}
+}
+
+async function resumeVoiceCalls(socket: Socket): Promise<void> {
+	if (groupMembership.realm() && !groupMembership.ready()) return;
+	await Promise.all([...voiceRecoveries].map(([id, previous]) =>
+		readmitVoiceSession(socket, id, previous).catch(() => null)));
+}
+
+/** One admission/transport path for reconnect and server-forced moves. */
+function readmitVoiceSession(socket: Socket, id: string, previous: VoiceRecovery): Promise<MediaStream | null> {
+	if (voiceRecoveries.get(id) !== previous || !previous.suspended || !socket.connected) return Promise.resolve(null);
+	if (callSessionManager.get(id)?.joinedAt !== previous.joinedAt ||
+		!get(listeningVoiceChannels).includes(id) || groupMembership.realm() !== previous.realm) {
+		if (voiceRecoveries.get(id) === previous) voiceRecoveries.delete(id);
+		return Promise.resolve(null);
+	}
+	const run: VoiceRecovery = { ...previous, socket, controller: new AbortController(), suspended: false, operation: undefined };
+	voiceRecoveries.set(id, run);
+	voiceSocketOwners.set(id, socket);
+	const socketId = socket.id;
+	const wanted = () => voiceRecoveries.get(id) === run && !run.controller.signal.aborted &&
+		socket.connected && socket.id === socketId && groupMembership.realm() === run.realm &&
+		callSessionManager.get(id)?.joinedAt === run.joinedAt && get(listeningVoiceChannels).includes(id);
+	const check = () => { if (!wanted()) throw new DOMException('Voice recovery superseded', 'AbortError'); };
+	const listenOnly = activeVoiceChannelId !== id;
+	run.operation = (async () => {
+		try {
+			await requestVoiceAdmission(socket, id, listenOnly, ensureChannelMembership, run.controller.signal);
+			check();
+			await ensureLocalAudioStream();
+			check();
+			socket.emit('set-voice-transmit-mode', { mode: get(voiceTransmitMode) });
+			const transport = await resolveActiveTransport(id, 'channel', wanted);
+			check();
+			const outcome = await connectWithFallback({
+				mode: transport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(),
+				surface: 'channel', stillWanted: wanted,
+				expectedParticipants: Math.max(get(voiceChannelMembers)[id]?.length ?? 1, 1),
+				connect: async candidate => {
+					check();
+					if (candidate === 'wabidb') await connectWabidbCall(socket, id, `${brandName} User`, undefined, undefined, listenOnly);
+					else if (candidate === 'sfu') await connectLivekitSfu(id, `${brandName} User`, run.controller.signal);
+					else await reEstablishChannelP2P(socket, id, { stillWanted: wanted });
+				}
+			});
+			check();
+			const effective = outcome.active;
+			if (effective !== 'p2p' || hasConnectedChannelPeer(id)) callSessionManager.markConnected(id, effective);
+			await syncLocalAudioState();
+			check();
+			return get(localStream);
+		} catch (error) {
+			if (wanted()) {
+				await handleForcedVoiceLeave(socket, id);
+				pushVoiceChannelNotice(`Voice connection failed: ${error instanceof Error ? error.message : 'admission unavailable'}`);
+			}
+			throw error;
+		} finally {
+			if (voiceRecoveries.get(id) === run) voiceRecoveries.delete(id);
+		}
+	})();
+	return run.operation;
+}
+
+export function joinVoiceChannel(socket: Socket, channelId: string, options: { listenOnly?: boolean } = {}): Promise<MediaStream | null> {
+	const recovery = voiceRecoveries.get(channelId);
+	if (recovery?.socket === socket && !recovery.suspended && recovery.operation) return recovery.operation;
+	if (recovery) {
+		recovery.controller.abort();
+		voiceRecoveries.delete(channelId);
+	}
+	const pending = pendingVoiceJoins.get(channelId);
+	if (pending?.socket === socket) return pending.promise;
+	if (pending) {
+		pending.controller.abort();
+		// Let old-attempt cleanup finish before a replacement can own media.
+		return pending.promise.catch(() => null).then(() => joinVoiceChannel(socket, channelId, options));
+	}
+	const controller = new AbortController();
+	const promise = joinVoiceChannelAttempt(socket, channelId, controller.signal, options.listenOnly).finally(() => {
+		if (pendingVoiceJoins.get(channelId)?.controller === controller) pendingVoiceJoins.delete(channelId);
+	});
+	pendingVoiceJoins.set(channelId, { socket, controller, promise,
+		listenOnly: Boolean(options.listenOnly || get(activeCallSessionId) || (activeVoiceChannelId && activeVoiceChannelId !== channelId)) });
+	return promise;
+}
+
+function cancelVoiceJoin(socket: Socket | null, channelId: string): void {
+	const pending = pendingVoiceJoins.get(channelId);
+	if (pending && (!socket || pending.socket === socket)) pending.controller.abort();
+	const recovery = voiceRecoveries.get(channelId);
+	if (recovery && (!socket || recovery.socket === socket)) {
+		recovery.controller.abort();
+		voiceRecoveries.delete(channelId);
+	}
+}
+
+async function joinVoiceChannelAttempt(socket: Socket, channelId: string, signal: AbortSignal, forceListen = false) {
+	const socketId = socket.id;
+	const wanted = () => !signal.aborted && socket.connected && socket.id === socketId;
 	if (!socket.connected) {
 		callOfflineNotice.set(`No connection to server. Calls require an active connection to the ${brandName} server.`);
 		throw new Error(`No connection to server. Calls require an active connection to the ${brandName} server.`);
@@ -1187,8 +1521,14 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		listeningVoiceChannels.update((channels) => (
 			channels.includes(channelId) ? channels : [...channels, channelId]
 		));
-		socket.emit('voice-channel-join', { channelId });
-		socket.emit('voice-channel-subscribe', { channelId });
+		try {
+			await requestVoiceAdmission(socket, channelId, false, ensureChannelMembership, signal);
+			voiceSocketOwners.set(channelId, socket);
+		} catch (error) {
+			await handleForcedVoiceLeave(socket, channelId);
+			if (!signal.aborted) handleMediaError(error as Error, 'starting');
+			throw error;
+		}
 		// Heal the media layer: teardown paths can remove the wabidb relay
 		// while these stores still say "connected" — silent one-way/no audio.
 		// connectWabidbCall is a no-op when the relay is healthy, rebuilds it
@@ -1202,15 +1542,22 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 
 	// Joining a voice channel while a DM/group call is active keeps the call
 	// running and makes the channel listen-only (TeamSpeak-style).
-	const alreadyInCall = Boolean(get(activeCallSessionId));
+	const alreadyInCall = Boolean(get(activeCallSessionId)) || forceListen;
 	const hasPrimaryVoiceChannel = Boolean(activeVoiceChannelId);
 
 	try {
+		// Admission precedes microphone permission, optimistic UI and all media
+		// routes. Socket.IO handlers are async: emit order is not completion.
+		await requestVoiceAdmission(socket, channelId, alreadyInCall || hasPrimaryVoiceChannel, ensureChannelMembership, signal);
+		voiceSocketOwners.set(channelId, socket);
 		await prefetchTurnCredentials().catch((err) => {
 			console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
 		});
-		const activeTransport = await resolveActiveTransport(channelId);
+		signal.throwIfAborted();
+		const activeTransport = await resolveActiveTransport(channelId, 'channel', wanted);
+		signal.throwIfAborted();
 		const stream = await ensureLocalAudioStream();
+		signal.throwIfAborted();
 		const listenOnly = alreadyInCall || hasPrimaryVoiceChannel;
 		if (!listenOnly) {
 			activeVoiceChannelId = channelId;
@@ -1227,6 +1574,8 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		listeningVoiceChannels.update((channels) => (
 			channels.includes(channelId) ? channels : [...channels, channelId]
 		));
+		isInCall.set(true);
+		if (!get(activeCallSessionId)) callMode.set('channel');
 		// Phase 5: optimistic self-membership — the chip renders on click,
 		// before the server roster echo (Discord-style fluidity). The echo's
 		// voice-channel-state upsert is idempotent over this entry.
@@ -1241,15 +1590,8 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			incomingCall.set(null);
 		}
 		pushVoiceChannelNotice(`Joined voice: ${resolveVoiceChannelDisplayName(channelId)}`);
-		// Presence BEFORE transport: the server's wabidb room authorization
-		// (Phase 1 hardening) checks the voice roster, so the join/subscribe
-		// must land before join-wabidb-call or the relay join is denied.
-		if (listenOnly) {
-			socket.emit('voice-channel-subscribe', { channelId });
-		} else {
-			socket.emit('voice-channel-join', { channelId });
-			socket.emit('voice-channel-subscribe', { channelId });
-		}
+		// Presence was acknowledged before acquiring capture. Both relay and
+		// P2P can now rely on this connection's server-owned roster slot.
 		// Phase 2: the session model is the source of truth for connected
 		// calls — register optimistically (lifecycle 'joining') so the UI can
 		// render the chip before transport setup finishes.
@@ -1265,13 +1607,14 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		// T2: declarative fallback chain — previously a wabidb failure here was
 		// caught + logged with NO fallback (user silently deaf).
 		const rosterSize = get(voiceChannelMembers)[channelId]?.length ?? 1;
-		await connectWithFallback({
+		const outcome = await connectWithFallback({
 			mode: activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(),
 			surface: 'channel' as CallSurface,
+			stillWanted: wanted,
 			expectedParticipants: Math.max(rosterSize, 1),
 			connect: async (transport) => {
 				if (transport === 'sfu') {
-					await connectLivekitSfu(channelId, `${brandName} User`);
+					await connectLivekitSfu(channelId, `${brandName} User`, signal);
 				} else if (transport === 'wabidb') {
 					await connectWabidbCall(socket, channelId, `${brandName} User`, undefined, undefined, listenOnly);
 				} else {
@@ -1281,13 +1624,14 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 					// call that LOOKS connected and is completely deaf
 					// (2026-09-03 "nada" report). Same mesh path the watchdog
 					// demote uses; forceTransport: 'p2p' bypasses the resolver.
-					await reEstablishChannelP2P(socket, channelId);
+					await reEstablishChannelP2P(socket, channelId, { stillWanted: wanted });
 				}
 			}
 		});
-		// Record the transport the chain ACTUALLY landed on (the plan may have
-		// demoted mid-connect; callTransportState holds the runtime truth).
-		const effectiveTransport = get(callTransportState).activeTransport;
+		// The shared transport diagnostic can change while another session
+		// connects. This session owns the result of its own fallback chain.
+		const effectiveTransport = outcome.active;
+		signal.throwIfAborted();
 		if (effectiveTransport !== 'p2p' || hasConnectedChannelPeer(channelId)) {
 			callSessionManager.markConnected(channelId, effectiveTransport);
 		}
@@ -1303,73 +1647,52 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		return stream;
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
-		// Phase 2: the optimistic session registration must not outlive a
-		// failed join — drop it (and its audio chain slot).
-		callSessionManager.markFailed(channelId);
-		callSessionManager.unregister(channelId);
-		detachSessionAudioChain(channelId);
-		// Do not leave the sidebar/center-stage state claiming that we are
-		// connected when transport setup failed after the local state was set.
-		// Without this rollback a failed join can leave the channel highlighted,
-		// suppress a later join attempt, and make the voice view appear connected
-		// while no media transport exists.
-		if (activeVoiceChannelId === channelId) {
-			activeVoiceChannelId = null;
-			listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
-			activeVoiceChannel.set(null);
-		}
-		// Phase 5: the optimistic self-chip must not survive a failed join —
-		// the server never confirmed membership. Presence emits already went
-		// out (Phase 1 ordering), so mirror them to keep every roster honest.
-		// (listenOnly is try-scoped; recompute from the same outer conditions.)
-		const failedSelfDbId = getStoredDbUserId();
-		if (failedSelfDbId) {
-			_removeVoiceChannelMember(channelId, `user-${failedSelfDbId}`);
-		}
-		const wasListenOnly = alreadyInCall || hasPrimaryVoiceChannel;
-		socket.emit(wasListenOnly ? 'voice-channel-unsubscribe' : 'voice-channel-leave', { channelId });
-		if (!wasListenOnly) {
-			socket.emit('voice-channel-unsubscribe', { channelId });
-		}
-		void disconnectLivekitSfu();
-		handleMediaError(error as DOMException, 'starting');
-		if (!get(activeCallSessionId)) {
-			isInCall.set(false);
-		}
+		// A server move can retire this attempt without awaiting a permission
+		// dialog. Its late catch must not erase a subsequent visit to this ID.
+		if (pendingVoiceJoins.get(channelId)?.controller.signal !== signal) throw error;
+		const cancelled = signal.aborted;
+		const selfDbId = getStoredDbUserId();
+		if (selfDbId) _removeVoiceChannelMember(channelId, `user-${selfDbId}`);
+		// A failed setup still owns peers and possibly screen/capture work.
+		// Reuse scoped leave rather than maintaining a second partial teardown.
+		await leaveVoiceChannel(socket, channelId, {
+			notifyServer: socket.id === socketId,
+			notice: `Voice connection failed: ${error instanceof Error ? error.message : 'setup unavailable'}`
+		});
+		if (!cancelled) handleMediaError(error as DOMException, 'starting');
 		throw error;
 	}
 }
 
-export async function leaveVoiceChannel(socket: Socket, channelId: string) {
-	if (activeVoiceChannelId !== channelId) {
-		// Listening-only channel: only unsubscribe, do NOT emit the
-		// primary `voice-channel-leave` (that would remove the socket
-		// from whatever primary channel it's transmitting on).
+export async function leaveVoiceChannel(socket: Socket | null, channelId: string,
+	options: { notifyServer?: boolean; notice?: string } = {}) {
+	cancelVoiceJoin(socket, channelId);
+	voiceSocketOwners.delete(channelId);
+	const isPrimary = activeVoiceChannelId === channelId;
+	if (options.notifyServer !== false && socket?.connected) {
+		// Also cancel a primary admission that has not reached local state yet.
+		const pending = pendingVoiceJoins.get(channelId);
+		if (isPrimary || (pending?.socket === socket && !pending.listenOnly)) socket.emit('voice-channel-leave', { channelId });
 		socket.emit('voice-channel-unsubscribe', { channelId });
-		void disconnectWabidbChannel(channelId);
-		listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
-		callSessionManager.unregister(channelId);
-		detachSessionAudioChain(channelId);
-		return;
 	}
-
-	socket.emit('voice-channel-leave', { channelId });
-	socket.emit('voice-channel-unsubscribe', { channelId });
+	cancelChannelScreenShare(channelId);
+	for (const [key, peer] of peerConnections) if (peer.channelId === channelId) cleanupPeerConnection(key);
 	void disconnectWabidbChannel(channelId);
-	// Legacy behavior: leaving the primary clears every listening channel —
-	// mirror that in the session model so it never claims a live session the
-	// legacy layer has already torn down.
-	callSessionManager.leaveAll();
+	if (getLivekitChannelId() === channelId) void disconnectLivekitSfu({ preserveCallState: true });
+	callSessionManager.unregister(channelId);
 	detachSessionAudioChain(channelId);
-	activeVoiceChannelId = null;
-	listeningVoiceChannels.set([]);
-	pushVoiceChannelNotice(`Left voice: ${channelId}`);
+	if (isPrimary) {
+		activeVoiceChannelId = null;
+		activeVoiceChannel.set(null);
+	}
+	listeningVoiceChannels.update(ids => ids.filter(id => id !== channelId));
+	pushVoiceChannelNotice(options.notice ?? `Left voice: ${channelId}`);
 	playCallActionSound('leave', sessionSoundOptionsFor(channelId));
 
-	// Multi-call: leaving the primary voice channel keeps the DM/group call
-	// alive. The shared local stream and transport belong to the call now.
-	if (get(activeCallSessionId)) {
-		activeVoiceChannel.set(null);
+	// One leave owns one session, including the primary. Never erase the
+	// group or other listeners from the graph while their relays keep running.
+	if (get(activeCallSessionId) || groupCallRun || activeVoiceChannelId || get(listeningVoiceChannels).length || callSessionManager.list().length ||
+		[...pendingVoiceJoins].some(([id, run]) => id !== channelId && !run.controller.signal.aborted)) {
 		void syncLocalAudioState();
 		return;
 	}
@@ -1391,7 +1714,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	isSharing.set(false);
 	isMuted.set(false);
 	isDeafened.set(false);
-	isVideoOff.set(false);
+	isVideoOff.set(true);
 	channelCallPanelOpen.set(false);
 	activeVoiceChannel.set(null);
 	activeGroupCall.set(null);
@@ -1444,106 +1767,57 @@ export async function handleForcedVoiceMove(
 	fromChannelId: string,
 	toChannelId: string
 ): Promise<void> {
-	if (!socket || fromChannelId === toChannelId) return;
-
-	const isPrimary = activeVoiceChannelId === fromChannelId;
-	const isListening = get(listeningVoiceChannels).includes(fromChannelId);
-	// Stale roster move for a channel we're not voice-connected to — ignore.
-	if (!isPrimary && !isListening) return;
-
-	await disconnectWabidbChannel(fromChannelId);
-	socket.emit('voice-channel-unsubscribe', { channelId: fromChannelId });
-	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== fromChannelId));
-	callSessionManager.unregister(fromChannelId);
-	detachSessionAudioChain(fromChannelId);
-
-	// While a DM/group call is active the channel stays a listen-only backdrop
-	// (TeamSpeak style) — mirror joinVoiceChannel's listenOnly rule so a forced
-	// move never starts a second capturing relay alongside the call.
-	const captureHere = isPrimary && !get(activeCallSessionId);
-
+	if (!socket.connected || fromChannelId === toChannelId) return;
+	const pending = pendingVoiceJoins.get(fromChannelId);
+	if (voiceSocketOwners.get(fromChannelId) !== socket && pending?.socket !== socket) return;
+	const source = callSessionManager.get(fromChannelId);
+	if (!source && (!pending || pending.controller.signal.aborted)) return;
+	const isPrimary = activeVoiceChannelId === fromChannelId || (pending?.socket === socket && !pending.listenOnly);
+	const destination = callSessionManager.get(toChannelId);
+	const controls = destination ?? source;
+	const transferFocus = source?.focus === 'focused';
+	// The server already moved presence. Retire the source BEFORE awaiting any
+	// HTTP/admission/codec work. Old catches cannot erase a later visit here.
+	cancelVoiceJoin(socket, fromChannelId);
+	pendingVoiceJoins.delete(fromChannelId);
+	voiceSocketOwners.delete(fromChannelId);
+	retireChannelMedia(fromChannelId, true);
+	cancelVoiceJoin(socket, toChannelId);
+	pendingVoiceJoins.delete(toChannelId);
+	if (destination) retireChannelMedia(toChannelId);
 	if (isPrimary) {
 		activeVoiceChannelId = toChannelId;
 		activeVoiceChannel.set({ id: toChannelId, name: resolveVoiceChannelDisplayName(toChannelId) });
 	}
-	listeningVoiceChannels.update((channels) => (
-		channels.includes(toChannelId) ? channels : [...channels, toChannelId]
-	));
-	// Phase 2: the moved-to channel becomes a session immediately; focus
-	// follows the primary (a forced move while listening stays background).
-	callSessionManager.register({
-		id: toChannelId,
-		channelId: toChannelId,
-		kind: 'channel',
-		name: resolveVoiceChannelDisplayName(toChannelId),
-		direction: captureHere ? 'transmit' : 'listen'
-	});
-
-	// Presence BEFORE transport (Phase 1 hardening): the server authorizes
-	// wabidb room joins against the voice roster, so the join/subscribe must
-	// land before the relay connects or the room join is denied.
-	if (isPrimary) {
-		socket.emit('voice-channel-join', { channelId: toChannelId });
-	}
-	socket.emit('voice-channel-subscribe', { channelId: toChannelId });
-
-	if (get(sfuMediaActive)) {
-		await disconnectLivekitSfu();
-		if (captureHere) {
-			await connectLivekitSfu(toChannelId, `${brandName} User`);
-			callSessionManager.markConnected(toChannelId, 'sfu');
-		}
-	} else {
-		try {
-			await connectWabidbCall(socket, toChannelId, `${brandName} User`, undefined, undefined, !captureHere);
-			callSessionManager.markConnected(toChannelId, 'wabidb');
-		} catch (error) {
-			console.error('[Calling] Failed to re-tune wabidb relay after forced move:', error);
-			callSessionManager.markFailed(toChannelId);
-		}
-	}
-
-	if (isPrimary) {
-		callSessionManager.setFocus(toChannelId);
-		// Server-side join resets the roster transmit mode to "primary";
-		// re-assert an active broadcast routing so the roster stays honest.
-		if (get(voiceTransmitMode) === 'all-listening') {
-			socket.emit('set-voice-transmit-mode', { mode: 'all-listening' });
-		}
-		pushVoiceChannelNotice(`Moved to ${toChannelId}`);
-		playCallActionSound('join');
-	}
+	listeningVoiceChannels.update(ids => [...new Set([...ids.filter(id => id !== fromChannelId), toChannelId])]);
+	// Moving intent is visible but NOT a connected/successful transport.
+	const session = callSessionManager.register({ id: toChannelId, channelId: toChannelId,
+		kind: 'channel', name: resolveVoiceChannelDisplayName(toChannelId),
+		direction: controls?.direction ?? (isPrimary ? 'transmit' : 'listen'), volume: controls?.volume });
+	if (controls) callSessionManager.setSessionMuted(toChannelId, controls.muted);
+	if (transferFocus) callSessionManager.setFocus(toChannelId);
+	callSessionManager.unregister(fromChannelId);
+	detachSessionAudioChain(fromChannelId);
+	callSessionManager.markReconnecting(toChannelId);
+	voiceSocketOwners.set(toChannelId, socket);
+	isInCall.set(true);
+	if (!get(activeCallSessionId)) callMode.set('channel');
+	const transfer: VoiceRecovery = { socket, joinedAt: session.joinedAt,
+		realm: groupMembership.realm(), controller: new AbortController(), suspended: true };
+	voiceRecoveries.set(toChannelId, transfer);
+	await readmitVoiceSession(socket, toChannelId, transfer);
+	// A newer move/disconnect may have replaced this operation while it waited.
+	if (voiceSocketOwners.get(toChannelId) !== socket || callSessionManager.get(toChannelId)?.joinedAt !== session.joinedAt) return;
+	pushVoiceChannelNotice(`Moved to ${resolveVoiceChannelDisplayName(toChannelId)}`);
+	playCallActionSound('join', sessionSoundOptionsFor(toChannelId));
 	syncSpatialAudioGraph();
 }
 
 export async function handleForcedVoiceLeave(socket: Socket, channelId: string): Promise<void> {
 	if (!socket || !channelId) return;
-
-	const isPrimary = activeVoiceChannelId === channelId;
-	const isListening = get(listeningVoiceChannels).includes(channelId);
-	// Stale kick for a channel we're not voice-connected to — ignore.
-	if (!isPrimary && !isListening) return;
-
-	await disconnectWabidbChannel(channelId);
-	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
-	// Phase 2.5: the kick must end the session too, or the session model
-	// keeps claiming a call the server just removed us from.
-	callSessionManager.unregister(channelId);
-	detachSessionAudioChain(channelId);
-	if (isPrimary) {
-		activeVoiceChannelId = null;
-		activeVoiceChannel.set(null);
-	}
-	syncSpatialAudioGraph();
-	pushVoiceChannelNotice('You were removed from the voice channel');
-	playCallActionSound('leave', sessionSoundOptionsFor(channelId));
-
-	// If the kicked channel was the active group call, end the call locally
-	// and tell the server we left it.
-	if (get(activeGroupCall)?.id === channelId) {
-		socket.emit('group-call-leave', { channelId });
-		finalizeLocalCallEndState();
-	}
+	if (groupCallRun?.channelId === channelId && groupCallRun.socket === socket) { revokeGroupCall(channelId); return; }
+	if (voiceSocketOwners.get(channelId) !== socket && pendingVoiceJoins.get(channelId)?.socket !== socket) return;
+	await leaveVoiceChannel(socket, channelId, { notifyServer: false, notice: 'You were removed from the voice channel' });
 }
 
 export async function startCall(
@@ -1552,14 +1826,13 @@ export async function startCall(
 	isVideoCall: boolean = false,
 	options: { scope?: ExperimentalWabidbCallScope; displayName?: string } = {}
 ) {
+	if (groupCallRun || get(activeCallSessionId) || get(outgoingCall) || get(incomingCall)) {
+		throw new Error('A call is already active or ringing');
+	}
 	try {
 		if (!socket.connected) {
 			callOfflineNotice.set(`No connection to server. Calls require an active connection to the ${brandName} server.`);
 			throw new Error(`No connection to server. Calls require an active connection to the ${brandName} server.`);
-		}
-
-		if (get(activeCallSessionId) || get(outgoingCall) || get(incomingCall)) {
-			throw new Error('A call is already active or ringing');
 		}
 
 		await prefetchTurnCredentials().catch((err) => {
@@ -1639,13 +1912,11 @@ async function enterEstablishedGroupCall(
 	channelId: string,
 	channelName: string,
 	localDisplayName: string,
-	options: { clearOutgoing?: boolean; playJoinSound?: boolean; socket?: Socket } = {}
+	options: { clearOutgoing?: boolean; playJoinSound?: boolean; socket: Socket; run: GroupCallRun }
 ): Promise<void> {
+	checkGroupRun(options.run);
 	const stream = get(localStream);
-	const alreadyInSameGroupCall =
-		get(isInCall) &&
-		get(callMode) === 'group' &&
-		get(activeGroupCall)?.id === channelId;
+	const alreadyInSameGroupCall = callSessionManager.get(channelId)?.kind === 'group';
 
 	if (!alreadyInSameGroupCall) {
 		isInCall.set(true);
@@ -1685,17 +1956,19 @@ async function enterEstablishedGroupCall(
 		outgoingCall.set(null);
 	}
 
-	const activeTransport = await resolveActiveTransport(channelId, 'group');
+	const activeTransport = await resolveActiveTransport(channelId, 'group', () => groupRunCurrent(options.run));
+	checkGroupRun(options.run);
 	// T2: previously this path logged "will use P2P" on total failure WITHOUT
 	// establishing anything. The executor now walks the whole chain and
 	// surfaces callOfflineNotice on exhaustion.
-	await connectWithFallback({
+	const outcome = await connectWithFallback({
 		mode: activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(),
 		surface: 'group' as CallSurface,
+		stillWanted: () => groupRunCurrent(options.run),
 		expectedParticipants: Math.max(get(groupCallRingingTargets).length + 1, 1),
 		connect: async (transport) => {
 			if (transport === 'sfu') {
-				await connectLivekitSfu(channelId, localDisplayName || `${brandName} User`);
+				await connectLivekitSfu(channelId, localDisplayName || `${brandName} User`, options.run.controller.signal);
 			} else if (transport === 'wabidb' && options.socket) {
 				await connectWabidbCall(options.socket, channelId, localDisplayName || `${brandName} User`);
 			} else if (transport === 'p2p') {
@@ -1703,8 +1976,20 @@ async function enterEstablishedGroupCall(
 			}
 		}
 	});
-	callSessionManager.markConnected(channelId, activeTransport === 'sfu' ? 'sfu' : activeTransport === 'p2p' ? 'p2p' : 'wabidb');
-	callSessionManager.setFocus(channelId);
+	checkGroupRun(options.run);
+	const effectiveTransport = outcome.active;
+	if (effectiveTransport !== 'p2p' || hasConnectedChannelPeer(channelId)) {
+		callSessionManager.markConnected(channelId, effectiveTransport);
+	}
+	if (effectiveTransport === 'wabidb' && !get(isVideoOff) && stream?.getVideoTracks().length) {
+		const { wabidbStartVideo } = await import('./callingWabidb');
+		checkGroupRun(options.run);
+		const camera = new MediaStream(stream.getVideoTracks().map(track => track.clone()));
+		const started = await wabidbStartVideo('camera', camera, channelId, () => groupRunCurrent(options.run));
+		checkGroupRun(options.run);
+		if (!started) pushVoiceChannelNotice('Camera relay unavailable; camera may still connect through P2P');
+	}
+	if (!alreadyInSameGroupCall) callSessionManager.setFocus(channelId);
 }
 
 function removeGroupCallRingingTarget(stableUserId: string): void {
@@ -1716,110 +2001,126 @@ function maybeDismissEmptyPendingGroupCall(): void {
 	if (get(isInCall)) return;
 	if (get(callMode) !== 'group') return;
 	if (get(groupCallRingingTargets).length > 0) return;
-	finalizeLocalCallEndState();
+	const id = groupCallRun?.channelId ?? get(activeGroupCall)?.id;
+	if (id) revokeGroupCall(id);
 }
 
-export async function startGroupCall(
-	socket: Socket,
-	channelId: string,
-	channelName: string,
-	isVideoCall: boolean = false,
+export function startGroupCall(
+	socket: Socket, channelId: string, channelName: string, isVideoCall = false,
 	options: { localDisplayName?: string; invitees?: GroupCallRingingTarget[] } = {}
-) {
-	try {
-		if (!socket.connected) {
-			callOfflineNotice.set(`No connection to server. Calls require an active connection to the ${brandName} server.`);
-			throw new Error(`No connection to server. Calls require an active connection to the ${brandName} server.`);
-		}
+): Promise<MediaStream> {
+	return beginGroupCall(socket, channelId, channelName, isVideoCall, options);
+}
 
-		if (get(activeCallSessionId) || get(outgoingCall) || get(incomingCall)) {
-			throw new Error('A call is already active or ringing');
-		}
-
-		await prefetchTurnCredentials().catch((err) => {
-			console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
-		});
-		const stream = await ensureLocalAudioStream();
-		if (isVideoCall && !stream.getVideoTracks()[0]) {
-			const cameraStream = await requestCameraStream();
-			const cameraTrack = cameraStream.getVideoTracks()[0];
-			if (cameraTrack) {
-				stream.addTrack(cameraTrack);
-			}
-		}
-
-		callMode.set('group');
-		autoOpenChannelCallPanel();
-		// Keep an active primary voice channel as a listen-only backdrop
-		// (TeamSpeak style) instead of tearing it down.
-		if (!activeVoiceChannelId) {
-			activeVoiceChannel.set(null);
-		}
-		activeGroupCall.set({ id: channelId, name: channelName });
-		activeCallSessionId.set(groupCallSessionKey(channelId));
-		groupCallRingingTargets.set(options.invitees || []);
-		isMuted.set(false);
-		isVideoOff.set(!isVideoCall);
-		connectionState.set('signaling');
-		outgoingCall.set({
-			channelId,
-			channelName,
-			username: channelName.trim() || 'Group',
-			isVideoCall,
-			startedAt: Date.now(),
-			scope: 'group',
-			localDisplayName: options.localDisplayName?.trim() || `${brandName} User`
-		});
-
-		const fallbackToP2P = getStoredCallTransportMode() === 'p2p-only';
-		if (!fallbackToP2P) {
-			await markExperimentalWabidbCallAttempt({ targetUserId: channelId, isVideoCall, scope: 'group' });
-			socket.emit('call-initiate', {
-				channelId,
-				isVideoCall,
-				experimental: {
-					label: 'experimental-wabidb-call',
-					route: 'desktop-wabidb',
-					scope: 'group'
-				}
-			});
-		} else {
-			socket.emit('call-initiate', {
-				channelId,
-				isVideoCall
-			});
-		}
-
-		callOfflineNotice.set(null);
-		return stream;
-	} catch (error) {
-		console.error('Error starting group call:', error);
-		callOfflineNotice.set('Could not start the call. Check your connection and try again.');
-		handleMediaError(error as DOMException, 'starting');
-		activeCallSessionId.set(null);
-		activeGroupCall.set(null);
-		outgoingCall.set(null);
-		groupCallRingingTargets.set([]);
-		if (!activeVoiceChannelId) {
-			// Stop tracks before nulling — a bare localStream.set(null) leaks a
-			// live mic (and camera, for video groups) until the next call
-			// (hot-mic leak, 2026-08-27 round 5).
-			const leakedStream = get(localStream);
-			leakedStream?.getTracks().forEach(track => track.stop());
-			localStream.set(null);
-			clearActiveAudioCaptureSession();
-			isInCall.set(false);
-			callMode.set(null);
-		} else {
-			callMode.set('channel');
-		}
-		throw error;
+function beginGroupCall(
+	socket: Socket, channelId: string, channelName: string, isVideoCall: boolean,
+	options: { localDisplayName?: string; invitees?: GroupCallRingingTarget[] }, callerId?: string
+): Promise<MediaStream> {
+	if (groupCallRun?.channelId === channelId && groupCallRun.socket === socket) return groupCallRun.operation;
+	// Guards are outside the attempt's catch: rejecting a second click must
+	// never clean up the call that already owns the microphone.
+	if (!socket.connected) return Promise.reject(new Error('Calls require an active server connection'));
+	if (!groupMembership.ready() || groupMembership.revision(channelId) === null) {
+		return Promise.reject(new Error('Reconnect to refresh group membership before joining a call'));
 	}
+	if (groupCallRun || get(activeCallSessionId) || get(outgoingCall) ||
+		(get(incomingCall) && (!callerId || get(incomingCall)?.channelId !== channelId))) {
+		return Promise.reject(new Error('A call is already active or ringing'));
+	}
+	let access: () => boolean;
+	try { access = captureGroupAccess(channelId); }
+	catch (error) { return Promise.reject(error); }
+	if (!access()) return Promise.reject(new Error('Group call access is no longer available'));
+	let prepared!: () => void;
+	let rejectReady!: (error: unknown) => void;
+	const ready = new Promise<void>((resolve, reject) => { prepared = resolve; rejectReady = reject; });
+	void ready.catch(() => {}); // no peer may be waiting when capture is cancelled
+	const run: GroupCallRun = {
+		channelId, socket, socketId: socket.id, access, controller: new AbortController(),
+		ready, prepared, rejectReady, established: false, cameraTracks: new Set(),
+		operation: null as unknown as Promise<MediaStream>,
+		suspended: false, membershipRevision: groupMembership.revision(channelId) ?? '0',
+		name: channelName, localName: options.localDisplayName?.trim() || `${brandName} User`,
+		disconnected: () => suspendGroupCall(socket)
+	};
+	groupCallRun = run;
+	socket.on('disconnect', run.disconnected);
+	const localDisplayName = options.localDisplayName?.trim() || `${brandName} User`;
+	// The ringing view owns cancellation even while admission is pending.
+	if (!callerId) outgoingCall.set({
+		channelId, channelName, username: channelName.trim() || 'Group', isVideoCall,
+		startedAt: Date.now(), scope: 'group', localDisplayName
+	});
+	run.operation = (async () => {
+		try {
+			let alreadyEstablished = false;
+			if (callerId) await requestGroupCallAnswer(socket, channelId, callerId, isVideoCall, ensureChannelMembership, run.controller.signal);
+			else alreadyEstablished = await requestGroupCallStart(socket, channelId, isVideoCall, ensureChannelMembership, run.controller.signal);
+			checkGroupRun(run);
+			await prefetchTurnCredentials().catch(err => console.warn('[Calling] TURN prefetch failed:', err));
+			checkGroupRun(run);
+			const stream = await ensureLocalAudioStream();
+			checkGroupRun(run);
+			if (isVideoCall && !stream.getVideoTracks()[0]) {
+				const cameraStream = await requestCameraStream();
+				if (!groupRunCurrent(run) || !socket.connected || socket.id !== run.socketId) {
+					cameraStream.getTracks().forEach(track => track.stop());
+					checkGroupRun(run);
+				}
+				for (const track of cameraStream.getVideoTracks()) { run.cameraTracks.add(track); stream.addTrack(track); }
+			}
+			checkGroupRun(run);
+			callMode.set('group');
+			autoOpenChannelCallPanel();
+			activeGroupCall.set({ id: channelId, name: channelName });
+			activeCallSessionId.set(groupCallSessionKey(channelId));
+			groupCallRingingTargets.set(callerId ? [] : options.invitees || []);
+			isVideoOff.set(!isVideoCall);
+			connectionState.set('signaling');
+			run.prepared();
+			if (callerId || alreadyEstablished) {
+				await establishOwnedGroupCall(run, channelName, localDisplayName, true);
+				checkGroupRun(run);
+				if (get(incomingCall)?.channelId === channelId) incomingCall.set(null);
+			}
+			callOfflineNotice.set(null);
+			return stream;
+		} catch (error) {
+			run.rejectReady(error);
+			if (groupCallRun === run) {
+				// Same-connection cleanup only. Never buffer a leave that could
+				// later remove a fresh call after reconnect or re-add.
+				if (socket.connected && socket.id === run.socketId && run.access()) socket.emit('group-call-leave', { channelId });
+				revokeGroupCall(channelId);
+				if (!(error instanceof DOMException && error.name === 'AbortError')) {
+					callOfflineNotice.set(error instanceof Error ? error.message : 'Could not join the group call');
+					handleMediaError(error as DOMException, callerId ? 'answering' : 'starting');
+				}
+			}
+			throw error;
+		}
+	})();
+	return run.operation;
+}
+
+function establishOwnedGroupCall(run: GroupCallRun, name: string, localName: string, clearOutgoing: boolean): Promise<void> {
+	checkGroupRun(run);
+	return run.entering ??= enterEstablishedGroupCall(run.channelId, name, localName,
+		{ clearOutgoing, playJoinSound: true, socket: run.socket, run }).then(() => {
+			checkGroupRun(run);
+			run.established = true;
+		}).catch(error => {
+			if (groupCallRun === run) {
+				if (run.socket.connected && run.socket.id === run.socketId && run.access()) run.socket.emit('group-call-leave', { channelId: run.channelId });
+				revokeGroupCall(run.channelId);
+			}
+			throw error;
+		});
 }
 
 export function beginEstablishedDirectCall(): boolean {
 	const pending = get(outgoingCall);
-	if (!pending) {
+	if (!pending || pending.scope === 'group') {
 		return false;
 	}
 
@@ -1863,6 +2164,9 @@ export async function answerCall(
 	isVideoCall: boolean = false,
 	options: { channelId?: string; channelName?: string; localDisplayName?: string } = {}
 ) {
+	if (options.channelId) return beginGroupCall(socket, options.channelId,
+		options.channelName || options.channelId, isVideoCall, options, callerId);
+	if (groupCallRun) throw new Error('A group call is already active or ringing');
 	try {
 		await prefetchTurnCredentials().catch((err) => {
 			console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
@@ -1876,15 +2180,7 @@ export async function answerCall(
 			}
 		}
 
-		if (options.channelId) {
-			groupCallRingingTargets.set([]);
-			await enterEstablishedGroupCall(
-				options.channelId,
-				options.channelName || options.channelId,
-				options.localDisplayName?.trim() || `${brandName} User`,
-				{ playJoinSound: true, socket }
-			);
-		} else {
+		{
 			const activeTransport = await resolveActiveTransport();
 			isInCall.set(true);
 			callMode.set('direct');
@@ -1947,7 +2243,7 @@ export async function answerCall(
 			callSessionManager.setFocus(directCallSessionKey(callerId));
 		}
 
-		socket.emit('call-answer', {
+		if (!options.channelId) socket.emit('call-answer', {
 			callerId,
 			isVideoCall,
 			channelId: options.channelId
@@ -1983,6 +2279,10 @@ export async function answerCall(
 }
 
 export function rejectCall(socket: Socket, callerId: string, options: { channelId?: string } = {}) {
+	if (options.channelId && groupCallRun?.channelId === options.channelId) {
+		socket.emit('group-call-leave', { channelId: options.channelId });
+		revokeGroupCall(options.channelId);
+	}
 	socket.emit('call-reject', { callerId, channelId: options.channelId });
 	incomingCall.set(null);
 }
@@ -2000,6 +2300,10 @@ export function cancelOutgoingCall(socket: Socket) {
 }
 
 export function handleIncomingCallCancelled(callerId: string, channelId?: string): void {
+	if (channelId && groupCallRun?.channelId === channelId && !groupCallRun.established) {
+		revokeGroupCall(channelId);
+		return;
+	}
 	// Outgoing DM call that was rejected/cancelled/errored by the callee. The
 	// caller holds an outgoingCall (not an incomingCall), so tear the pending
 	// call down and release the local media captured at startCall time.
@@ -2074,7 +2378,7 @@ export function handleVoiceParticipantLeft(userId: string, channelId?: string): 
 		// receiver-side decoders/tiles too (server fires this on leave AND on
 		// socket disconnect). Scoped to channels we actually listen to so a
 		// user leaving one shared channel keeps their tiles in another.
-		wabidbStopRemoteVideo(userId);
+		wabidbStopRemoteVideo(userId, channelId);
 	}
 	const label = resolveVoiceParticipantLabel(userId);
 	if (label) {
@@ -2108,23 +2412,22 @@ export async function handleGroupCallParticipantJoined(
 	socket: Socket,
 	data: { channelId: string; channelName?: string; userId: string; username: string; stableUserId?: string }
 ): Promise<void> {
+	const run = groupCallRun;
+	if (!run || run.socket !== socket || run.channelId !== data.channelId || !groupRunCurrent(run)) return;
+	try { await run.ready; checkGroupRun(run); } catch { return; }
 	const pending = get(outgoingCall);
-	const activeGroup = get(activeGroupCall);
 	const localDisplayName = pending?.localDisplayName || `${brandName} User`;
-	const isSameActiveGroup =
-		get(isInCall) &&
-		get(callMode) === 'group' &&
-		activeGroup?.id === data.channelId;
+	const isSameActiveGroup = run.established;
 	if (data.stableUserId) {
 		removeGroupCallRingingTarget(data.stableUserId);
 	}
 
 	if (!isSameActiveGroup) {
-		await enterEstablishedGroupCall(
-			data.channelId,
+		await establishOwnedGroupCall(
+			run,
 			data.channelName || pending?.channelName || pending?.username || data.channelId,
 			localDisplayName,
-			{ clearOutgoing: pending?.channelId === data.channelId, playJoinSound: true, socket }
+			pending?.channelId === data.channelId
 		);
 	} else {
 		handleVoiceParticipantJoined(data.userId, data.username);
@@ -2134,16 +2437,21 @@ export async function handleGroupCallParticipantJoined(
 		return;
 	}
 
-	await createCallOffer(socket, data.userId, data.username, { channelId: data.channelId });
+	checkGroupRun(run);
+	await createCallOffer(socket, data.userId, data.username, {
+		channelId: data.channelId, forceTransport: 'p2p', stillWanted: () => groupRunCurrent(run)
+	});
 }
 
 export function handleGroupCallParticipantLeft(data: { channelId: string; userId: string }): void {
 	if (get(activeGroupCall)?.id !== data.channelId) {
 		return;
 	}
-	handleVoiceParticipantLeft(data.userId);
-	removeCall(data.userId);
-	removeScreenShare(data.userId);
+	wabidbStopRemoteVideo(data.userId, data.channelId);
+	callSessionManager.removeParticipant(data.channelId, data.userId);
+	for (const [key, state] of peerConnections) {
+		if (state.targetId === data.userId && state.channelId === data.channelId) cleanupPeerConnection(key);
+	}
 }
 
 export function stopGroupCallRingingTarget(socket: Socket, stableUserId: string): void {
@@ -2158,6 +2466,13 @@ export function stopGroupCallRingingTarget(socket: Socket, stableUserId: string)
 }
 
 export function endCall(socket: Socket) {
+	const groupId = groupCallRun?.channelId ?? get(activeGroupCall)?.id;
+	if (groupId) {
+		if (socket.connected) socket.emit('group-call-leave', { channelId: groupId });
+		revokeGroupCall(groupId);
+		playCallActionSound('leave');
+		return;
+	}
 	playCallActionSound('leave');
 	const endingMode = get(callMode);
 	const endingVoiceChannelId = activeVoiceChannelId;
@@ -2315,79 +2630,72 @@ function emitVoiceSelfState(): void {
 	}
 }
 
-export async function toggleVideo(socket?: Socket) {
-	if (getLivekitRoom() && get(sfuMediaActive)) {
-		const nextVideoOff = !get(isVideoOff);
-		await getLivekitRoom()!.localParticipant.setCameraEnabled(!nextVideoOff);
-		isVideoOff.set(nextVideoOff);
-		return;
-	}
+let cameraToggle: { scope: CallMediaScope; promise: Promise<void> } | null = null;
+export function toggleVideo(socket?: Socket): Promise<void> {
+	if (cameraToggle?.scope.current()) return cameraToggle.promise;
+	const scope = captureCallMediaScope();
+	if (!scope?.current()) return Promise.resolve();
+	const groupOwner = groupCallRun;
 	const stream = get(localStream);
-	if (!stream) {
-		return;
-	}
-
-	// wabidb relay transport: there are no peerConnections to renegotiate —
-	// the camera must ride the wabidb video lane instead. Check RUNTIME state
-	// (a live relay) rather than resolveActiveTransport(), which returns 'p2p'
-	// for DM calls even when they connect via wabidb — that gating made the
-	// camera dead on every direct call.
-	try {
-		const { wabidbStartVideo, wabidbStopVideoSource, wabidbTransportLive } = await import('./callingWabidb');
-		if (wabidbTransportLive()) {
-			if (get(isVideoOff)) {
-				const started = await wabidbStartVideo('camera');
-				if (started) isVideoOff.set(false);
+	const matchesPeer = (state: PeerConnectionState) => state.type === 'call' &&
+		(scope.channelId ? state.channelId === scope.channelId : state.targetId === scope.peerUserId && !state.channelId);
+	const promise = (async () => {
+		let captured: MediaStream | null = null;
+		try {
+			const room = getLivekitRoom();
+			if (room && get(sfuMediaActive) && getLivekitChannelId() === scope.channelId) {
+				const off = !get(isVideoOff);
+				await room.localParticipant.setCameraEnabled(!off);
+				if (scope.current() && getLivekitRoom() === room) isVideoOff.set(off);
+				return;
+			}
+			if (!stream) return;
+			const { wabidbStartVideo, wabidbStopVideoSource, wabidbVideoTransportLive } = await import('./callingWabidb');
+			if (!scope.current() || get(localStream) !== stream) return;
+			const destination = scope.channelId ?? scope.peerUserId;
+			if (!get(isVideoOff)) {
+				wabidbStopVideoSource('camera', destination);
+				for (const track of stream.getVideoTracks()) { stream.removeTrack(track); track.stop(); }
+				await Promise.all([...peerConnections.values()].filter(matchesPeer).map(async state => {
+					const sender = state.pc.getSenders().find(sender => sender.track?.kind === 'video');
+					if (sender) await sender.replaceTrack(null);
+				}));
+				if (scope.current()) isVideoOff.set(true);
+				return;
+			}
+			captured = await requestCameraStream();
+			if (!scope.current() || get(localStream) !== stream) {
+				captured.getTracks().forEach(track => track.stop()); return;
+			}
+			const camera = captured.getVideoTracks()[0];
+			if (!camera) throw new Error('Camera did not produce a video track');
+			stream.addTrack(camera);
+			if (groupOwner && groupCallRun === groupOwner) groupOwner.cameraTracks.add(camera);
+			if (wabidbVideoTransportLive(destination)) {
+				const relayStream = new MediaStream([camera.clone()]);
+				if (!await wabidbStartVideo('camera', relayStream, destination, scope.current)) throw new Error('Camera relay could not start');
 			} else {
-				// P1: stop ONLY the camera sender — an active screenshare keeps running.
-				wabidbStopVideoSource('camera');
-				isVideoOff.set(true);
+				await Promise.all([...peerConnections.values()].filter(matchesPeer).map(async state => {
+					if (!scope.current()) return;
+					const sender = state.pc.getSenders().find(sender => sender.track?.kind === 'video');
+					if (sender) await sender.replaceTrack(camera);
+					else await addTrackWithOptimizations(state.pc, camera, stream);
+					if (socket && scope.current()) await renegotiateCallConnection(state, socket);
+				}));
 			}
-			return;
+			if (scope.current()) isVideoOff.set(false);
+			else { stream.removeTrack(camera); camera.stop(); }
+		} catch (error) {
+			if (captured) for (const track of captured.getTracks()) { stream?.removeTrack(track); track.stop(); }
+			if (scope.current()) {
+				console.error('[Calling] Camera toggle failed:', error);
+				handleMediaError(error as DOMException, 'starting');
+			}
 		}
-	} catch (err) {
-		console.error('[Calling] wabidb camera toggle failed:', err);
-	}
-
-	const existingTrack = stream.getVideoTracks()[0];
-	if (existingTrack) {
-		existingTrack.enabled = !existingTrack.enabled;
-		isVideoOff.set(!existingTrack.enabled);
-		return;
-	}
-
-	try {
-		const cameraStream = await requestCameraStream();
-		const cameraTrack = cameraStream.getVideoTracks()[0];
-		if (!cameraTrack) {
-			return;
-		}
-
-		stream.addTrack(cameraTrack);
-
-		const renegotiationTasks: Promise<void>[] = [];
-		peerConnections.forEach(state => {
-			if (state.type !== 'call') return;
-
-			const existingSender = state.pc.getSenders().find(sender => sender.track?.kind === 'video');
-			if (existingSender) {
-				renegotiationTasks.push(existingSender.replaceTrack(cameraTrack));
-				renegotiationTasks.push(optimizeSender(existingSender, state.pc, 'video', 'camera'));
-			} else {
-				renegotiationTasks.push(addTrackWithOptimizations(state.pc, cameraTrack, stream));
-			}
-
-			if (socket) {
-				renegotiationTasks.push(renegotiateCallConnection(state, socket));
-			}
-		});
-
-		await Promise.all(renegotiationTasks);
-		isVideoOff.set(false);
-	} catch (error) {
-		console.error('[WebRTC] Could not enable camera track:', error);
-		handleMediaError(error as DOMException, 'starting');
-	}
+	})();
+	cameraToggle = { scope, promise };
+	void promise.finally(() => { if (cameraToggle?.promise === promise) cameraToggle = null; });
+	return promise;
 }
 
 // ============================================================================
@@ -2400,6 +2708,11 @@ export async function createCallOffer(
 	username: string = '',
 	options?: { channelId?: string; forceTransport?: 'p2p'; stillWanted?: () => boolean }
 ) {
+	const access = options?.channelId ? captureGroupAccess(options.channelId) : () => true;
+	const socketId = socket.id;
+	const wanted = () => access() && socket.connected && socket.id === socketId && (!options?.stillWanted || options.stillWanted());
+	const check = () => { if (!wanted()) throw new DOMException('Call offer cancelled', 'AbortError'); };
+	check();
 	// Check if wabidb relay is the active transport — if so, skip P2P/WebRTC
 	// offer creation entirely and connect the wabidb media relay with the
 	// peer's stable user ID for a deterministic shared session.
@@ -2407,7 +2720,11 @@ export async function createCallOffer(
 	// produce WebRTC offers even while the stored mode still routes to wabidb
 	// (previously the early-return reconnected the dying relay instead).
 	const activeTransport = options?.forceTransport ?? (await resolveActiveTransport(options?.channelId));
+	check();
 	if (activeTransport === 'wabidb') {
+		// Channel/group relays are owned by admission, not by a peer offer.
+		// Using targetId here creates a second, unrelated DM relay.
+		if (options?.channelId) return;
 		try {
 			await connectWabidbCall(
 				socket,
@@ -2420,21 +2737,22 @@ export async function createCallOffer(
 			return;
 		} catch (err) {
 			console.warn('[Calling] wabiDB direct relay failed, falling back to P2P:', err);
-			await disconnectWabidbCall();
+			check();
+			await disconnectWabidbChannel(targetId || 'direct-call');
 		}
 	}
 
 	await prefetchTurnCredentials().catch((err) => {
 		console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
 	});
-	if (options?.stillWanted && !options.stillWanted()) throw new DOMException('Call ended before P2P offer', 'AbortError');
+	check();
 	// Re-check after TURN prefetch: another channel preparation may have
 	// acquired this peer while we awaited credentials.
 	const currentPeer = peerConnections.get(getConnectionKey(targetId, 'call'));
-	if (options?.stillWanted && currentPeer && currentPeer.channelId !== options.channelId && currentPeer.pc.connectionState !== 'closed') {
+	if (currentPeer && currentPeer.channelId !== options?.channelId && currentPeer.pc.connectionState !== 'closed') {
 		throw new Error('P2P peer belongs to another call');
 	}
-	const pc = createPeerConnection(targetId, username, 'call', socket);
+	const pc = createPeerConnection(targetId, username, 'call', socket, { channelId: options?.channelId });
 	const key = getConnectionKey(targetId, 'call');
 	const state = peerConnections.get(key);
 	if (state && options?.channelId) {
@@ -2445,6 +2763,8 @@ export async function createCallOffer(
 		const stream = get(localStream);
 		if (stream) {
 			for (const track of stream.getTracks()) {
+				check();
+				if (track.kind === 'video' && !cameraBelongsToPeer(options?.channelId, targetId)) continue;
 				await addTrackWithOptimizations(pc, track, stream);
 			}
 		}
@@ -2452,7 +2772,7 @@ export async function createCallOffer(
 
 		const offer = await pc.createOffer();
 		await pc.setLocalDescription(offer);
-		if (peerConnections.get(key)?.pc !== pc || (options?.stillWanted && !options.stillWanted())) {
+		if (peerConnections.get(key)?.pc !== pc || !wanted()) {
 			throw new DOMException('P2P offer superseded or call ended', 'AbortError');
 		}
 
@@ -2476,40 +2796,56 @@ export async function handleCallOffer(
 	offer: RTCSessionDescriptionInit,
 	channelId?: string
 ) {
+	const access = channelId ? captureGroupAccess(channelId) : () => true;
+	const run = channelId && groupMembership.tracks(channelId) ? groupCallRun : null;
+	if (channelId && groupMembership.tracks(channelId)) {
+		if (!run || run.channelId !== channelId || !groupRunCurrent(run)) return;
+		try { await run.ready; } catch { return; }
+	}
+	const socketId = socket.id;
+	const wanted = () => access() && socket.connected && socket.id === socketId && (!run || groupRunCurrent(run));
+	if (!wanted()) return;
 	await prefetchTurnCredentials().catch((err) => {
 		console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
 	});
-	const pc = createPeerConnection(senderId, username, 'call', socket);
+	if (!wanted()) return;
+	const existing = peerConnections.get(getConnectionKey(senderId, 'call'));
+	if (existing && existing.channelId !== channelId && existing.pc.connectionState !== 'closed') return;
+	const pc = createPeerConnection(senderId, username, 'call', socket, { channelId });
 	const key = getConnectionKey(senderId, 'call');
 	const offerState = peerConnections.get(key);
 	if (offerState && channelId) {
 		offerState.channelId = channelId;
 	}
 
+	try {
 	const stream = get(localStream);
 	if (stream) {
 		for (const track of stream.getTracks()) {
+			if (!wanted()) throw new DOMException('Call answer cancelled', 'AbortError');
+			if (track.kind === 'video' && !cameraBelongsToPeer(channelId, senderId)) continue;
 			await addTrackWithOptimizations(pc, track, stream);
 		}
 	}
 	await setPeerAudioSendEnabled(pc, shouldSendAudioToChannel(channelId));
 
-	try {
 		await pc.setRemoteDescription(offer);
 
 		// Mark remote description as set and flush queue
-		const state = peerConnections.get(key);
-		if (state) {
-			state.hasRemoteDescription = true;
+		if (!wanted() || peerConnections.get(key) !== offerState) throw new DOMException('Call answer superseded', 'AbortError');
+		if (offerState) {
+			offerState.hasRemoteDescription = true;
 			await flushIceCandidateQueue(key);
 		}
 
 		const answer = await pc.createAnswer();
 		await pc.setLocalDescription(answer);
+		if (peerConnections.get(key)?.pc !== pc || !wanted()) throw new DOMException('Call answer superseded', 'AbortError');
 
 		socket.emit('call-answer-sdp', {
 			answer,
-			targetId: senderId
+			targetId: senderId,
+			channelId
 		});
 	} catch (err) {
 		console.error('[WebRTC] Failed to handle call offer:', err);
@@ -2517,16 +2853,18 @@ export async function handleCallOffer(
 	}
 }
 
-export async function handleCallAnswer(senderId: string, answer: RTCSessionDescriptionInit) {
+export async function handleCallAnswer(senderId: string, answer: RTCSessionDescriptionInit, channelId?: string) {
 	const key = getConnectionKey(senderId, 'call');
 	const state = peerConnections.get(key);
-	if (!state) {
+	const scope = captureIncomingMediaScope(channelId, senderId);
+	if (!state || state.channelId !== channelId || !scope?.current()) {
 		console.warn(`[WebRTC] No peer connection for call answer from ${senderId}`);
 		return;
 	}
 
 	try {
 		await state.pc.setRemoteDescription(answer);
+		if (peerConnections.get(key) !== state || !scope.current()) return;
 		state.hasRemoteDescription = true;
 		await flushIceCandidateQueue(key);
 	} catch (err) {
@@ -2534,9 +2872,11 @@ export async function handleCallAnswer(senderId: string, answer: RTCSessionDescr
 	}
 }
 
-export async function handleCallIceCandidate(senderId: string, candidate: RTCIceCandidateInit) {
+export async function handleCallIceCandidate(senderId: string, candidate: RTCIceCandidateInit, channelId?: string) {
 	const key = getConnectionKey(senderId, 'call');
-	queueIceCandidate(key, candidate);
+	const scope = captureIncomingMediaScope(channelId, senderId);
+	if (scope?.current()) queuePendingIceCandidate(peerConnections, key, candidate,
+		state => scope.current() && state.channelId === channelId);
 }
 
 // ============================================================================
@@ -2547,11 +2887,15 @@ export function removeCall(userId: string) {
 	cleanupPeerConnection(getConnectionKey(userId, 'call'));
 }
 
-export function removeScreenShare(userId: string) {
-	cleanupPeerConnection(getConnectionKey(userId, 'screen'));
+export function removeScreenShare(userId: string, channelId?: string, requestId?: string) {
+	const key = getConnectionKey(userId, 'screen');
+	const state = peerConnections.get(key);
+	if (state && (channelId === undefined || state.channelId === channelId) &&
+		(requestId === undefined || state.mediaRequestId === requestId)) cleanupPeerConnection(key);
 }
 
 export function cleanupAllConnections() {
+	if (groupCallRun) revokeGroupCall(groupCallRun.channelId);
 	// Stop all local media
 	const stream = get(localStream);
 	if (stream) {
@@ -2955,7 +3299,7 @@ export function toggleChannelCallPanelFor(sessionId?: string): void {
 	const open = get(channelCallPanelOpen);
 	if (open) {
 		const target = get(channelCallPanelSessionId);
-		const showing = target ?? get(focusedCallSessionId);
+		const showing = target && callSessionManager.get(target) ? target : get(focusedCallSessionId);
 		// Clicked the call the panel already shows → fold it away.
 		if (!sessionId || sessionId === showing) {
 			channelCallPanelOpen.set(false);
@@ -2975,9 +3319,9 @@ export function refreshLocalAudioMuteState(): void {
 	void syncLocalAudioState();
 }
 
-export function addVoiceChannelListen(socket: Socket, channelId: string): void {
+export async function addVoiceChannelListen(socket: Socket, channelId: string): Promise<void> {
 	if (!channelId) return;
-	socket.emit('voice-channel-subscribe', { channelId });
+	await requestVoiceAdmission(socket, channelId, true, ensureChannelMembership);
 	listeningVoiceChannels.update((channels) => (
 		channels.includes(channelId) ? channels : [...channels, channelId]
 	));
@@ -2985,6 +3329,7 @@ export function addVoiceChannelListen(socket: Socket, channelId: string): void {
 
 export function removeVoiceChannelListen(socket: Socket, channelId: string): void {
 	if (!channelId) return;
+	cancelVoiceJoin(socket, channelId);
 	socket.emit('voice-channel-unsubscribe', { channelId });
 	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
 }

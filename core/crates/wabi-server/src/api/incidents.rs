@@ -20,6 +20,7 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
             "/{channel_id}/{incident_id}/resolve",
             axum::routing::post(resolve_incident),
         )
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel))
         .with_state(state)
 }
 

@@ -101,6 +101,7 @@ wabi-payments-eu = { path = "../../addons/payments-eu/backend", optional = true 
 wabi-payments-us = { path = "../../addons/payments-us/backend", optional = true }
 
 [dev-dependencies]
+tokio-tungstenite = "0.29"
 tempfile = "3"
 tower = { version = "0.5", features = ["util", "timeout"] }
 jsonwebtoken = { version = "11", features = ["rust_crypto"] }

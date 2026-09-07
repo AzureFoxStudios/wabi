@@ -4,6 +4,8 @@ import {
 	WabidbVideoLane,
 	splitFrameIntoChunks,
 	wabidbRemoteVideoStreams,
+	wabidbRemoteVideoSessions,
+	wabidbLocalPreviewStreams,
 	setWabidbRemoteVideoStream
 } from './wabidbVideoLane';
 
@@ -64,6 +66,9 @@ class FakeVideoDecoder {
 }
 
 class FakeVideoEncoder {
+	static instances: FakeVideoEncoder[] = [];
+	output: (chunk: any) => void;
+	constructor(init: { output: (chunk: any) => void }) { this.output = init.output; FakeVideoEncoder.instances.push(this); }
 	static async isConfigSupported(): Promise<{ supported: boolean }> {
 		return { supported: true };
 	}
@@ -136,6 +141,7 @@ beforeAll(() => {
 	(globalThis as any).MediaStreamTrackProcessor = class {};
 	(globalThis as any).document = {
 		createElement: (tag: string) => {
+			if (tag === 'video') return { srcObject: null, play: async () => {} };
 			if (tag !== 'canvas') throw new Error(`unexpected createElement(${tag})`);
 			const canvas = fakeCanvas();
 			createdCanvases.push(canvas);
@@ -178,6 +184,71 @@ function screenEnvelopeFrom(userId: string, seq: number, bytes: Uint8Array) {
 }
 
 describe('wabidb video lane receiver display path', () => {
+	test('session lanes isolate same-user decoding and preserve another session on revocation', async () => {
+		const first = makeLane();
+		const second = new WabidbVideoLane({ sessionId: 'channel:other', userId: '2', socket: { id: 'self', emit() {} } });
+		const envelope = { ...screenEnvelopeFrom('3', 0, new Uint8Array([1]))[0], senderSocket: 'peer' };
+		first.handleRemoteEnvelope(envelope);
+		const firstStream = get(wabidbRemoteVideoStreams).get('user-3:screen');
+		second.handleRemoteEnvelope({ ...envelope, sessionId: 'channel:other' });
+		const secondStream = get(wabidbRemoteVideoStreams).get('user-3:screen');
+		expect(firstStream).not.toBe(secondStream);
+		expect(get(wabidbRemoteVideoSessions).get('channel:c1')?.get('user-3:screen')).toBe(firstStream);
+		first.stopAll();
+		expect(get(wabidbRemoteVideoStreams).get('user-3:screen')).toBe(secondStream);
+		expect(get(wabidbRemoteVideoSessions).has('channel:c1')).toBe(false);
+		const decoded = second.diag.receiver.framesDecoded;
+		second.handleRemoteEnvelope(envelope); // wrong session cannot contaminate a decoder
+		expect(second.diag.receiver.framesDecoded).toBe(decoded);
+		second.stopAll();
+	});
+
+	test('late decoder output is closed, not published after removal or replacement', async () => {
+		const lane = makeLane();
+		const env = { ...screenEnvelopeFrom('3', 0, new Uint8Array([1]))[0], senderSocket: 'peer' };
+		lane.handleRemoteEnvelope(env);
+		const old = FakeVideoDecoder.instances.at(-1)!;
+		lane.stopRemoteUser('3');
+		lane.handleRemoteEnvelope(env);
+		const current = get(wabidbRemoteVideoStreams).get('user-3:screen');
+		const late = new FakeVideoFrame(16, 16); old.output(late);
+		expect(late.closed).toBe(true);
+		expect(get(wabidbRemoteVideoStreams).get('user-3:screen')).toBe(current);
+		const newer = FakeVideoDecoder.instances.at(-1)!;
+		lane.stopAll();
+		const afterStop = new FakeVideoFrame(16, 16); newer.output(afterStop);
+		expect(afterStop.closed).toBe(true);
+		expect(get(wabidbRemoteVideoStreams).has('user-3:screen')).toBe(false);
+	});
+
+	test('stop during codec selection disposes pending capture and cannot resurrect a sender', async () => {
+		const original = FakeVideoEncoder.isConfigSupported;
+		let finish!: (value: { supported: boolean }) => void;
+		FakeVideoEncoder.isConfigSupported = () => new Promise(resolve => { finish = resolve; });
+		const lane = makeLane(); let stopped = 0;
+		const stream = { getTracks: () => [{ stop() { stopped++; } }] } as any;
+		try {
+			const pending = lane.startLocalVideo('camera', stream).catch(error => error);
+			lane.stopAll(); expect(stopped).toBe(1);
+			finish({ supported: true });
+			expect((await pending).name).toBe('AbortError');
+			expect(lane.isActive).toBe(false);
+			expect(get(wabidbLocalPreviewStreams).has('camera')).toBe(false);
+		} finally { FakeVideoEncoder.isConfigSupported = original; lane.stopAll(); }
+	});
+
+	test('encoded output obeys the room gate and cannot emit after stop', async () => {
+		let allowed = true; const sent: any[] = [];
+		const lane = new WabidbVideoLane({ sessionId: 'channel:gate', userId: '2', canSend: () => allowed,
+			socket: { emit: (_event: string, data: any) => sent.push(data) } });
+		const stream = { getTracks: () => [{ stop() {} }] } as any;
+		await lane.startLocalVideo('camera', stream);
+		const encoder = FakeVideoEncoder.instances.at(-1)!;
+		const chunk = { byteLength: 1, type: 'key', copyTo(bytes: Uint8Array) { bytes[0] = 1; } };
+		encoder.output(chunk); expect(sent).toHaveLength(1);
+		allowed = false; encoder.output(chunk); expect(sent).toHaveLength(1);
+		allowed = true; lane.stopAll(); encoder.output(chunk); expect(sent).toHaveLength(1);
+	});
 	test('remote screen frames expose a canvas-captured stream (never an unfed generator)', async () => {
 		const lane = makeLane();
 		const envelopes = screenEnvelopeFrom('3', 0, new Uint8Array([1, 2, 3, 4]));

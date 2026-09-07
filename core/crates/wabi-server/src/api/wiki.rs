@@ -24,6 +24,7 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
             "/{channel_id}/pages/{page_id}/revisions/{revision_id}",
             axum::routing::get(get_revision),
         )
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel))
         .with_state(state)
 }
 
@@ -105,6 +106,11 @@ async fn update_page(
     Path((channel_id, page_id)): Path<(String, String)>,
     Json(payload): Json<UpdatePagePayload>,
 ) -> Result<Json<Value>, AppError> {
+    // The adapter's compatibility update can upsert a missing ID. REST updates
+    // must identify an existing page in this channel, never mint aliases.
+    state.wdb.get_wiki_page(&channel_id, &page_id).await?
+        .filter(|page| !page.is_deleted)
+        .ok_or_else(|| AppError::NotFound("wiki page not found".into()))?;
     state
         .wdb
         .update_wiki_page(

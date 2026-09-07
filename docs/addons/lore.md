@@ -442,14 +442,49 @@ is what makes the web Code view and remote wabi-sync instances refresh live.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/repos/{channel_id}/connect-tokens` | Mint an opaque token (`{scopes: "read" \| "write"}`). Body returns the plaintext **once**; only its SHA-256 is stored (projection `lore_tokens`). |
-| `GET` | `/repos/{channel_id}/connect-tokens` | List active tokens (hash prefixes + scopes). |
-| `DELETE` | `/repos/{channel_id}/connect-tokens/{token_hash}` | Revoke. |
+| `GET` | `/repos/{channel_id}/connect-tokens` | List unrevoked tokens visible to the caller: full `tokenHash` identifiers, display `tokenHashPrefix`, scopes, user ID and creation time. Never plaintext. |
+| `DELETE` | `/repos/{channel_id}/connect-tokens/{token_hash}` | Revoke by exact hash. Legacy 12-hex prefixes work only when unambiguous within the caller's authority and requested channel; collisions return 409. |
 
-Tokens authenticate as `Authorization: Bearer wblore_…` on Lore routes,
-resolve to the minting user (so membership/role gates still apply), and carry
-their scope: read-only tokens get **403** `{"type": "ReadOnlyToken"}` on any
-mutating request. This replaces the old client-side "generate token" button,
-which minted random bytes the server never validated.
+Tokens authenticate as `Authorization: Bearer wblore_…` on explicitly opted-in
+repository-data routes only. They are **not account logins** and cannot be used
+for core account APIs, token creation/listing/revocation, repository lifecycle
+or configuration, editors/script runners/mirrors, branch administration,
+binding/promote/recording operations, or signed-download URL minting (401).
+
+Within the exact channel for which the token was minted:
+
+- `read` allows repository info, listing/manifest/archive, downloads, changes,
+  history/diffs and branch listing.
+- `write` (stored as `read,write`) additionally allows uploads, staging, deletes,
+  locks/unlocks and snapshots. The user's current role still gates each action;
+  an Artist token does not gain Developer commit authority.
+- A valid token aimed at another channel or a read-only token used on an
+  opted-in write route gets 403 with an explanatory `error` string.
+- Revoked/unknown tokens and inactive/deleted/guest principals get 401.
+  User-wide/password-change and global revocation floors apply. Ordinary
+  single-session logout does not revoke all external-tool credentials.
+  Single-token revocations stored under older short-hash session identifiers
+  remain effective after upgrading to full-hash identifiers.
+- Current explicit membership is required even for owner/admin-issued tokens.
+  Removal disables access; a later rejoin can restore it unless the token was
+  separately revoked. Deleted channels deny access.
+
+Mint/list/revoke require an account credential, not a connect token. Minting
+requires an active registered non-bot account, explicit membership and at least
+Artist permissions. Users can list/revoke their own tokens after losing Artist
+permissions; admins can manage others' tokens in channels they can access.
+Minting returns `tokenHash` as well as the legacy prefix and one-time plaintext.
+The list contains persisted unrevoked records, which may already be unusable
+because of role changes or account-wide revocation.
+
+The Connect panel reports loading, list failures and revoke failures separately
+from an empty list, uses full hashes when supported, and discards responses from
+previous channels or closed panels. An explicitly supplied invalid credential
+cannot fall back to anonymous signed-URL access; signed downloads without an
+Authorization header remain supported.
+
+See the [credential-boundary work record](../plans/2026-09-07-lore-credential-boundary.md)
+for contract tests, legacy membership snapshot repair and verification limits.
 
 ### 8.5 Health
 

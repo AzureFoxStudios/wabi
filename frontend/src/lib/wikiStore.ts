@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { getAuthToken } from '$lib/authSession';
+import { fetchChannel } from './api/channelAccess';
 import { getServerUrl } from '$lib/serverUrl';
 import { users, type User } from '$lib/socket';
 
@@ -97,7 +98,7 @@ export async function loadWiki(channelId: string): Promise<void> {
 	wikiError.set(null);
 
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/pages`,
 			{ headers: headers() }
 		);
@@ -118,7 +119,7 @@ export async function loadWiki(channelId: string): Promise<void> {
 export async function loadRevisions(channelId: string, pageId: string): Promise<void> {
 	const requestId = ++revisionRequestId;
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/pages/${encodeURIComponent(pageId)}/revisions`,
 			{ headers: headers() }
 		);
@@ -139,7 +140,7 @@ export async function createWikiPage(
 	data: { title: string; body: string; parentPageId?: string; slug?: string; orderIndex?: number }
 ): Promise<WikiPage | null> {
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/pages`,
 			{
 				method: 'POST',
@@ -163,7 +164,7 @@ export async function updateWikiPage(
 	data: { title?: string; body?: string; parentPageId?: string; slug?: string; orderIndex?: number }
 ): Promise<WikiPage | null> {
 	try {
-		const res = await fetch(
+		const res = await fetchChannel(channelId,
 			`${apiBase()}/${encodeURIComponent(channelId)}/pages/${encodeURIComponent(pageId)}`,
 			{
 				method: 'PUT',

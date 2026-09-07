@@ -217,28 +217,8 @@ async fn can_access_channel(
     _guest_session_id: Option<&str>,
     channel_id: &str,
 ) -> bool {
-    // Owner always has access
     if let Some(uid) = user_id {
-        if *state.owner_user_id.read().await == Some(uid) {
-            return true;
-        }
-        // Admin always has access
-        if state.is_admin(uid).await {
-            return true;
-        }
-    }
-
-    // Check WDB for channel membership. Pass the user id so only channels the
-    // user actually belongs to are returned — listing with None returns every
-    // channel, which never tests membership.
-    if let Some(uid) = user_id {
-        if let Ok(channels) = state.wdb.list_channels(Some(uid as u64)).await {
-            for ch in &channels {
-                if ch.channel_id == channel_id {
-                    return true;
-                }
-            }
-        }
+        return crate::channel_access::require_access(state, uid, channel_id).await.is_ok();
     }
     false
 }

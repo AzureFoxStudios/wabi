@@ -9,6 +9,9 @@
 
 #[allow(dead_code)]
 async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    let rejoining = data.get("rejoin").and_then(Value::as_bool) == Some(true);
+    let group_intent = data.get("channelId").and_then(Value::as_str)
+        .map(|id| advance_voice_intent(&socket, id, false));
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let my_username = {
         let connected = state.connected_users.read().await;
@@ -27,6 +30,22 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
         .and_then(|v| v.as_str())
         .map(String::from)
     {
+        let intent = group_intent.expect("group channel intent");
+        if require_call_channel(&socket, &state, &channel_id,
+            wabidb::domain::ChannelKind::GroupDm, "call-error", data.get("requestId")).await.is_none() { return; }
+        // A reconnect resumes an existing local intent, never a fresh invite.
+        // Pin its original membership epoch: offline remove/re-add must require
+        // a new user action even if the current init includes the account again.
+        if rejoining {
+            let revision = group_revision(&state, &channel_id).ok().map(|r| r.to_string());
+            if revision.is_none() || data.get("membershipRevision").and_then(Value::as_str) != revision.as_deref() {
+                let _ = socket.emit("call-error", &json!({
+                    "channelId": channel_id, "requestId": data.get("requestId"),
+                    "code": "membership_changed", "message": "Group membership changed while disconnected. Join the call again.",
+                }));
+                return;
+            }
+        }
         // Group call — point lookups (t_6bbbc52a): row + members index.
         let channel_opt = state
             .app
@@ -59,6 +78,7 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
                     &json!({
                         "code": "invalid_channel",
                         "message": "Group channel not found",
+                        "channelId": channel_id, "requestId": data.get("requestId"),
                         "targetUserId": channel_id
                     }),
                 );
@@ -66,12 +86,13 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
             }
         };
 
-        if !channel_members.is_empty() && !channel_members.contains(&my_stable_id) {
+        if !channel_members.contains(&my_stable_id) {
             let _ = socket.emit(
                 "call-error",
                 &json!({
                     "code": "not_group_member",
                     "message": "You are not a member of this group",
+                    "channelId": channel_id, "requestId": data.get("requestId"),
                     "targetUserId": channel_id
                 }),
             );
@@ -83,8 +104,9 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
             connected.clone()
         };
 
-        let (invitees, is_video, ch_name) = {
+        let (invitees, existing_connected, is_video, ch_name) = {
             let mut sessions = state.group_call_sessions.write().await;
+            if !voice_intent_current(&socket, &channel_id, false, intent) { return; }
             let session = sessions
                 .entry(channel_id.clone())
                 .or_insert_with(|| GroupCallSession {
@@ -92,10 +114,10 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
                     channel_name: channel_name.clone(),
                     initiator_stable_id: my_stable_id.clone(),
                     is_video_call,
-                    has_ever_established: false,
+                    has_ever_established: rejoining,
                     last_invite_sender_id: socket.id.to_string(),
                     invited_participants: HashSet::new(),
-                    connected_participants: HashSet::new(),
+                    connected_participants: GroupCallParticipants::default(),
                 });
 
             session.channel_name = channel_name.clone();
@@ -106,26 +128,19 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
                 session.is_video_call = is_video_call;
             }
 
+            // Starting an already established group is also an admission.
+            // Existing peers must negotiate with this newly consenting member.
+            let existing_connected: Vec<String> = session.connected_participants.iter()
+                .filter(|id| *id != &my_stable_id).cloned().collect();
             session.invited_participants.remove(&my_stable_id);
-            if !session.connected_participants.contains(&my_stable_id) {
-                session.connected_participants.insert(my_stable_id.clone());
+            {
+                session.connected_participants.join(&my_stable_id, &socket.id.to_string());
                 if session.connected_participants.len() > 1 {
                     session.has_ever_established = true;
                 }
             }
 
-            let invitees: Vec<String> = if channel_members.is_empty() {
-                connected_snapshot
-                    .values()
-                    .filter(|u| {
-                        u.stable_id != my_stable_id
-                            && !session.connected_participants.contains(&u.stable_id)
-                            && !session.invited_participants.contains(&u.stable_id)
-                    })
-                    .map(|u| u.stable_id.clone())
-                    .collect()
-            } else {
-                channel_members
+            let invitees: Vec<String> = if rejoining { Vec::new() } else { channel_members
                     .iter()
                     .filter(|id| {
                         *id != &my_stable_id
@@ -134,10 +149,9 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
                             && is_stable_connected(&connected_snapshot, id)
                     })
                     .cloned()
-                    .collect()
-            };
+                    .collect() };
 
-            if invitees.is_empty()
+            if !rejoining && invitees.is_empty()
                 && session.connected_participants.len() == 1
                 && session.invited_participants.is_empty()
             {
@@ -148,6 +162,7 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
                     &json!({
                         "code": "target_unavailable",
                         "message": "No group members are currently connected",
+                        "channelId": channel_id, "requestId": data.get("requestId"),
                         "targetUserId": channel_id
                     }),
                 );
@@ -163,10 +178,24 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
 
             (
                 invitees,
+                existing_connected,
                 session.is_video_call,
                 session.channel_name.clone(),
             )
         };
+
+        // Consent exists before capture or relay admission. A local emit (or
+        // somebody else's roster notification) is not an acknowledgement.
+        let _ = socket.emit("group-call-started", &json!({
+            "channelId": channel_id, "requestId": data.get("requestId"),
+            "established": !existing_connected.is_empty(),
+        }));
+        for participant in existing_connected {
+            let _ = io.to(participant).emit("group-call-participant-joined", &json!({
+                "channelId": channel_id, "channelName": ch_name,
+                "userId": my_stable_id, "stableUserId": my_stable_id, "username": my_username,
+            })).await;
+        }
 
         for invitee_id in invitees {
             let _ = io
@@ -238,6 +267,8 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
 
 #[allow(dead_code)]
 async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    let group_intent = data.get("channelId").and_then(Value::as_str)
+        .map(|id| advance_voice_intent(&socket, id, false));
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let my_username = {
         let connected = state.connected_users.read().await;
@@ -256,9 +287,14 @@ async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: Soc
         .and_then(|v| v.as_str())
         .map(String::from)
     {
-        // Group call answer
+        let intent = group_intent.expect("group channel intent");
+        if require_call_channel(&socket, &state, &channel_id,
+            wabidb::domain::ChannelKind::GroupDm, "call-error", data.get("requestId")).await.is_none() { return; }
+        // Group call answer. Current membership authorizes joining an existing
+        // group call even without a ringing invite (the UI offers Join call).
         let (existing_connected, ch_name) = {
             let mut sessions = state.group_call_sessions.write().await;
+            if !voice_intent_current(&socket, &channel_id, false, intent) { return; }
             let session = match sessions.get_mut(&channel_id) {
                 Some(s) => s,
                 None => {
@@ -268,6 +304,7 @@ async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: Soc
                         &json!({
                             "code": "caller_unavailable",
                             "message": "Group call is no longer available",
+                            "channelId": channel_id, "requestId": data.get("requestId"),
                             "targetUserId": channel_id
                         }),
                     );
@@ -276,8 +313,8 @@ async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: Soc
             };
 
             session.invited_participants.remove(&my_stable_id);
-            if !session.connected_participants.contains(&my_stable_id) {
-                session.connected_participants.insert(my_stable_id.clone());
+            {
+                session.connected_participants.join(&my_stable_id, &socket.id.to_string());
                 if session.connected_participants.len() > 1 {
                     session.has_ever_established = true;
                 }
@@ -292,6 +329,9 @@ async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: Soc
             (existing, session.channel_name.clone())
         };
 
+        let _ = socket.emit("group-call-admitted", &json!({
+            "channelId": channel_id, "requestId": data.get("requestId"),
+        }));
         for existing_id in existing_connected {
             let _ = io
                 .to(existing_id)
@@ -433,6 +473,7 @@ async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: Soc
         .and_then(|v| v.as_str())
         .map(String::from)
     {
+        advance_voice_intent(&socket, &channel_id, false);
         // Group call cancel (only valid before call is established)
         let invitees_to_cancel = {
             let mut sessions = state.group_call_sessions.write().await;
@@ -441,16 +482,18 @@ async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: Soc
                 None => return,
             };
 
-            if !session.connected_participants.contains(&my_stable_id) {
-                return;
-            }
-            if session.connected_participants.len() > 1 {
+            if !session.connected_participants.contains_socket(&my_stable_id, &socket.id.to_string())
+                || session.has_ever_established || session.connected_participants.len() > 1 {
                 return;
             }
 
-            let invitees: Vec<String> = session.invited_participants.iter().cloned().collect();
-            sessions.remove(&channel_id);
-            invitees
+            let last_device = session.connected_participants.leave_socket(&socket.id.to_string())
+                .is_some_and(|(_, last)| last);
+            if last_device {
+                let invitees: Vec<String> = session.invited_participants.iter().cloned().collect();
+                sessions.remove(&channel_id);
+                invitees
+            } else { Vec::new() }
         };
 
         for invitee_id in invitees_to_cancel {
@@ -459,12 +502,13 @@ async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: Soc
                 .emit(
                     "call-cancelled",
                     &json!({
-                        "userId": socket.id.to_string(),
+                        "userId": my_stable_id,
                         "channelId": channel_id
                     }),
                 )
                 .await;
         }
+        leave_wabidb_channel_room_if_unrostered(&socket, &state, &channel_id).await;
     } else if let Some(target_id) = data
         .get("targetUserId")
         .and_then(|v| v.as_str())
@@ -529,4 +573,3 @@ async fn on_call_end(socket: SocketRef, data: Value, state: SioState, io: Socket
             .await;
     }
 }
-

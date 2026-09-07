@@ -194,8 +194,12 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = require_socket_channel(&socket, state, &channel_id, "channel-settings-error").await else { return; };
+    let caller_id = identity.user_id;
+    if matches!(state.app.wdb.get_channel_kind(&channel_id).await.as_deref(), Some("group" | "dm")) {
+        let _ = socket.emit("channel-settings-error", &json!({"error":"Use the conversation settings flow"}));
+        return;
+    }
     if !state.app.is_admin(caller_id).await {
         warn!("[sio] update-channel-settings: user {} not authorized", caller_id);
         return;

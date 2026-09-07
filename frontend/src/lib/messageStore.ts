@@ -16,6 +16,7 @@ import type { MessageType } from '../../../packages/wabi-protocol/src/generated/
 import { getSocket, connected } from './socketConnection';
 import { getWabiDB } from '$lib/wabidb';
 import { currentUser } from './presenceStore';
+import { groupMembership } from './groupAccess';
 
 // ============================================================================
 // STORES
@@ -169,7 +170,7 @@ export async function sendMessage(
 	type: MessageType = 'text',
 	options: Record<string, unknown> = {}
 ): Promise<SendMessageResult> {
-	if (!channelId) return { ok: false, reason: 'no_channel' };
+	if (!channelId || !groupMembership.acceptsContent(channelId)) return { ok: false, reason: 'no_channel' };
 
 	const trimmed = content.trim();
 	// Non-text types (gif/file/emoji) may have empty text with media in options.

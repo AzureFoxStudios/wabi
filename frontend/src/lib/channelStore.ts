@@ -18,6 +18,9 @@ import { socket, connected } from './socketConnection';
 import { getSocket } from './socketConnection';
 import { getWabiDB } from '$lib/wabidb';
 import { createChannelApi, deleteChannelApi } from './api';
+import { ensureChannelMembership } from './api/channelAccess';
+import { showToast } from './toast';
+import { captureGroupAccess, groupMembership } from './groupAccess';
 
 // ============================================================================
 // STORES
@@ -74,7 +77,23 @@ function updatePinnedChannels(): void {
 export function joinChannel(channelId: string): void {
 	const sock = getSocket();
 	if (!sock || !channelId) return;
-	sock.emit('join-channel', channelId);
+	const socketId = sock.id;
+	let hasAccess: () => boolean;
+	try { hasAccess = captureGroupAccess(channelId); }
+	catch { showToast('You no longer have access to this group', 'error'); return; }
+	// Keep every DM/workspace open path on this shared entry point. A previous
+	// socket's delayed HTTP result must not enqueue a join on its replacement.
+	void ensureChannelMembership(channelId).then(() => {
+		if (hasAccess() && getSocket() === sock && (!socketId || sock.id === socketId)) {
+			// Before the initial connect, Socket.IO buffers this intent. Do not
+			// drop a DM opened while the first handshake is still in flight.
+			sock.emit('join-channel', channelId);
+		}
+	}).catch((error: unknown) => {
+		if (getSocket() === sock && sock.id === socketId) {
+			showToast(error instanceof Error ? error.message : 'Could not open channel', 'error');
+		}
+	});
 }
 
 /** Select a channel in the UI and join its socket room. Always updates
@@ -82,6 +101,7 @@ export function joinChannel(channelId: string): void {
  * when type/list race left the channel briefly unlisted). */
 export function switchChannel(channelId: string): void {
 	if (!channelId) return;
+	if (!groupMembership.acceptsContent(channelId)) return;
 	persistLastChannel(channelId);
 	const currentChannelId = get(currentChannel);
 	if (currentChannelId !== channelId) {

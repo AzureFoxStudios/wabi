@@ -47,10 +47,6 @@ pub struct AuthUser {
     pub exp: i64,
     /// True when authenticated with an opaque `Bot <token>` credential.
     pub is_bot: bool,
-    /// Present when authenticated with a lore connect token
-    /// (`Bearer wblore_…`): "read" or "read,write". Route handlers enforce
-    /// write scope; None means a full user JWT/bot credential.
-    pub lore_scopes: Option<String>,
 }
 
 impl AuthUser {
@@ -66,18 +62,7 @@ impl AuthUser {
             jti: claims.jti,
             exp: claims.exp,
             is_bot: false,
-            lore_scopes: None,
         })
-    }
-
-    /// True when this credential may write lore files. Full user/bot
-    /// credentials rely on the route's role gates; lore tokens must carry
-    /// the explicit write scope.
-    pub fn may_write_lore(&self) -> bool {
-        match &self.lore_scopes {
-            None => true,
-            Some(scopes) => scopes.to_ascii_lowercase().contains("write"),
-        }
     }
 }
 
@@ -94,6 +79,20 @@ pub async fn decode_token(token: &str, jwt_secret: &str) -> Result<JwtClaims, Ap
     decode::<JwtClaims>(token, &key, &validation)
         .map(|data| data.claims)
         .map_err(|e| AppError::Unauthorized(format!("invalid token: {}", e)))
+}
+
+/// Account bearer authentication shared by HTTP and the call-state socket.
+/// Scoped tool, refresh and step-up credentials are not access credentials.
+pub async fn authenticate_access_token(state: &AppState, token: &str) -> Result<AuthUser, AppError> {
+    let claims = decode_token(token, &state.config.jwt_secret).await?;
+    if !matches!(claims.token_type.as_str(), "" | "access") || claims.stepup {
+        return Err(AppError::Unauthorized("Account access token required".into()));
+    }
+    let uid = claims.sub.parse::<i64>().unwrap_or(0);
+    if uid <= 0 || state.is_token_revoked(&claims.jti, uid, claims.iat).await {
+        return Err(AppError::Unauthorized("Invalid or revoked account token".into()));
+    }
+    AuthUser::from_claims(claims)
 }
 
 /// Resolve a `Bot <opaque-token>` credential against the bot registry and
@@ -122,40 +121,6 @@ async fn bot_auth_user(
         jti: String::new(),
         exp: i64::MAX,
         is_bot: true,
-        lore_scopes: None,
-    }))
-}
-
-/// Resolve a `Bearer wblore_…` connect token (server-minted per channel by
-/// the lore API) into the minting user's identity plus its scopes. The
-/// plaintext token is never stored — only its SHA-256, looked up here.
-async fn lore_token_auth_user(
-    app_state: &AppState,
-    token: &str,
-) -> Result<Option<AuthUser>, AppError> {
-    use sha2::{Digest, Sha256};
-    let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
-    let Some(record) = app_state.wdb.lore_get_token(&token_hash).await? else {
-        return Ok(None);
-    };
-    let username = match app_state.wdb.get_user(record.user_id as u64).await {
-        Ok(Some(user)) => user.username,
-        Ok(None) => return Ok(None),
-        Err(e) => {
-            return Err(AppError::Internal(format!(
-                "failed to load lore token owner {0}: {e}",
-                record.user_id
-            )));
-        }
-    };
-    Ok(Some(AuthUser {
-        user_id: record.user_id,
-        username,
-        is_guest: false,
-        jti: format!("lore-token:{}", &token_hash[..token_hash.len().min(12)]),
-        exp: i64::MAX,
-        is_bot: false,
-        lore_scopes: Some(record.scopes),
     }))
 }
 
@@ -198,38 +163,9 @@ where
             AppError::Unauthorized("missing Bearer prefix".into()).into_response()
         })?;
 
-        // Lore connect tokens are opaque (not JWTs) — try JWT first so real
-        // JWTs never hit the token table, then fall back to wblore_ lookup.
-        match decode_token(token, &app_state.config.jwt_secret).await {
-            Ok(claims) => {
-                // Reject refresh tokens — they must never authenticate API calls.
-                if claims.token_type == "refresh" {
-                    return Err(AppError::Unauthorized("refresh token cannot be used for authentication".into()).into_response());
-                }
-                // Reject revoked tokens (single jti, whole user, or pre-epoch).
-                let sub = claims.sub.parse::<i64>().unwrap_or(-1);
-                if app_state
-                    .is_token_revoked(&claims.jti, sub, claims.iat)
-                    .await
-                {
-                    return Err(AppError::Unauthorized("token revoked".into()).into_response());
-                }
-                AuthUser::from_claims(claims).map_err(|e| e.into_response())
-            }
-            Err(jwt_err) => {
-                if token.starts_with("wblore_") {
-                    return match lore_token_auth_user(&app_state, token).await {
-                        Ok(Some(auth)) => Ok(auth),
-                        Ok(None) => Err(AppError::Unauthorized(
-                            "invalid or revoked lore connect token".into(),
-                        )
-                        .into_response()),
-                        Err(e) => Err(e.into_response()),
-                    };
-                }
-                Err(jwt_err.into_response())
-            }
-        }
+        // Account authentication accepts JWTs only here. Scoped external-tool
+        // credentials must opt in through api::lore_auth, never this extractor.
+        authenticate_access_token(&app_state, token).await.map_err(IntoResponse::into_response)
     }
 }
 
@@ -265,34 +201,7 @@ where
             return Ok(OptionalAuthUser(None));
         };
 
-        match decode_token(token, &app_state.config.jwt_secret).await {
-            Ok(claims) => {
-                // Reject refresh tokens — they must never authenticate API calls.
-                if claims.token_type == "refresh" {
-                    return Ok(OptionalAuthUser(None));
-                }
-                let sub = claims.sub.parse::<i64>().unwrap_or(-1);
-                // WS-4b: revocation check for optional auth.
-                if app_state.is_token_revoked(&claims.jti, sub, claims.iat).await {
-                    return Ok(OptionalAuthUser(None));
-                }
-                match AuthUser::from_claims(claims) {
-                    Ok(user) => Ok(OptionalAuthUser(Some(user))),
-                    Err(_) => Ok(OptionalAuthUser(None)),
-                }
-            }
-            Err(_) => {
-                // Lore connect tokens also work for optional-auth routes
-                // (e.g. signed-URL-less downloads).
-                if token.starts_with("wblore_") {
-                    let auth = lore_token_auth_user(&app_state, token)
-                        .await
-                        .unwrap_or(None);
-                    return Ok(OptionalAuthUser(auth));
-                }
-                Ok(OptionalAuthUser(None))
-            }
-        }
+        Ok(OptionalAuthUser(authenticate_access_token(&app_state, token).await.ok()))
     }
 }
 

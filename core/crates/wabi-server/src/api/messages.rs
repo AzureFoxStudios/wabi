@@ -132,8 +132,10 @@ fn message_to_response(m: wabidb::domain::Message, username: String) -> MessageR
 
 async fn get_messages(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Path(channel_id): Path<String>,
 ) -> Result<Json<MessageListResponse>> {
+    crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     let limit: u64 = 100;
     let wdb_messages = state
         .wdb
@@ -182,6 +184,7 @@ async fn send_message(
     auth: AuthUser,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<MessageResponse>> {
+    crate::channel_access::require_access(&state, auth.user_id, &req.channel_id).await?;
     let sender_id = auth.user_id as u64;
     let sender_username = auth.username;
     let message_type = req.message_type.unwrap_or_else(|| "text".into());
@@ -321,4 +324,3 @@ mod tests {
         assert!(find_steam_join_appids("").is_empty());
     }
 }
-

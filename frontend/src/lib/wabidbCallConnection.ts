@@ -12,16 +12,30 @@ import type {
   StateCallParticipantRow,
   StateCallSignalRow,
 } from './wabidbCallTypes';
-import { getAuthToken } from './authSession';
-import { tryRefresh } from './api/authRefresh';
+import { membershipRevision } from './groupMembership';
 
 export interface WabiDbCallConfig {
   serverUrl: string; // e.g. "https://wabi.example.com" (no trailing slash)
-  token?: string; // bearer token from Wabi auth
+}
+
+/** Runtime auth is injected so this transport cannot silently select a different
+ * server/account or fall back to a captured token after logout. */
+export interface CallStateDependencies {
+  getToken: () => string | null;
+  refresh: () => Promise<boolean>;
+  fetch?: typeof fetch;
+  socket?: (url: string) => WebSocket;
 }
 
 export interface CallSubscriptionHandle {
   unsubscribe: () => void;
+}
+
+export interface CallWriteFence { signal?: AbortSignal; membershipRevision?: string; }
+function fencedUrl(url: string, fence?: CallWriteFence): string {
+  if (fence?.membershipRevision === undefined) return url;
+  if (membershipRevision(fence.membershipRevision) === null) throw new Error('Invalid membership revision');
+  return `${url}?membership_revision=${fence.membershipRevision}`;
 }
 
 const RECONNECT_BASE_MS = 1000;
@@ -31,8 +45,15 @@ export class WabiDbCallState {
   private cfg: WabiDbCallConfig;
   private ws: WebSocket | null = null;
   private _isConnected = false;
-  private subscribedSessionIds: Set<string> = new Set();
-  private handles: CallSubscriptionHandle[] = [];
+  private subscriptions = new Map<string, { count: number; revision?: string }>();
+  private sentToken: string | null = null;
+  private signalCursors = new Map<string, number>();
+  private account: string | null = null;
+  private renewalTimer: ReturnType<typeof setTimeout> | null = null;
+  private authTimer: ReturnType<typeof setTimeout> | null = null;
+  private refreshPending: Promise<boolean> | null = null;
+  private authRetried = false;
+  private generation = 0;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private explicitlyClosed = false;
@@ -40,7 +61,6 @@ export class WabiDbCallState {
   // Last-seen row caches (per session id) for state restoration after reconnect.
   private sessionCache: Map<string, StateCallSessionRow> = new Map();
   private participantCache: Map<string, StateCallParticipantRow[]> = new Map();
-  private signalListeners: ((row: StateCallSignalRow) => void)[] = [];
 
   private _onConnect?: () => void;
   private _onDisconnect?: () => void;
@@ -49,8 +69,10 @@ export class WabiDbCallState {
   private _onParticipantChange?: (rows: StateCallParticipantRow[]) => void;
   private _onSignal?: (row: StateCallSignalRow) => void;
 
-  constructor(cfg: WabiDbCallConfig) {
-    this.cfg = cfg;
+  constructor(cfg: WabiDbCallConfig, private deps: CallStateDependencies) {
+    const url = new URL(cfg.serverUrl);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Invalid call server URL');
+    this.cfg = { serverUrl: cfg.serverUrl.replace(/\/+$/, '') };
   }
 
   get isConnected(): boolean {
@@ -58,22 +80,27 @@ export class WabiDbCallState {
   }
 
   connect(): void {
-    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return;
+    if (this.ws || this.reconnectTimer || this.refreshPending) return;
     this.explicitlyClosed = false;
     this.openWebSocket();
   }
 
   disconnect(): void {
     this.explicitlyClosed = true;
+    this.generation++;
+    this.clearAuthTimers();
+    this.settleConnectWaiters(false, new Error('Call-state connection closed'));
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      this.ws.close();
+      const old = this.ws;
       this.ws = null;
+      old.close();
     }
     this._isConnected = false;
+    this.unsubscribeAll();
   }
 
   // --- HTTP writes ---
@@ -86,24 +113,26 @@ export class WabiDbCallState {
 
   private async authedFetch(url: string, init: RequestInit): Promise<Response> {
     const withLiveAuth = (): RequestInit => {
+      init.signal?.throwIfAborted();
       const headers = new Headers(init.headers);
-      const live = getAuthToken();
-      const token = live || this.cfg.token;
-      if (token) headers.set('authorization', `Bearer ${token}`);
+      headers.set('authorization', `Bearer ${this.liveToken()}`);
       return { ...init, headers };
     };
-    let res = await fetch(url, withLiveAuth());
+    const request = this.deps.fetch ?? fetch;
+    let res = await request(url, withLiveAuth());
+    init.signal?.throwIfAborted();
     if (res.status === 401) {
       let refreshed = false;
       try {
-        refreshed = await tryRefresh();
+        refreshed = await this.refresh();
       } catch {
         refreshed = false;
       }
       if (refreshed) {
-        res = await fetch(url, withLiveAuth());
+        res = await request(url, withLiveAuth());
       }
     }
+    init.signal?.throwIfAborted();
     return res;
   }
 
@@ -113,9 +142,11 @@ export class WabiDbCallState {
     callType: string,
     hostUserId: number,
     maxParticipants = 0,
+    fence?: CallWriteFence,
   ): Promise<void> {
-    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions`, {
+    const res = await this.authedFetch(fencedUrl(`${this.cfg.serverUrl}/api/calls/sessions`, fence), {
       method: 'POST',
+      signal: fence?.signal,
       headers: this.headers(),
       body: JSON.stringify({
         session_id: sessionId,
@@ -132,9 +163,11 @@ export class WabiDbCallState {
     sessionId: string,
     _userId: number,
     stableUserId: string,
+    fence?: CallWriteFence,
   ): Promise<void> {
-    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/join`, {
+    const res = await this.authedFetch(fencedUrl(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/join`, fence), {
       method: 'POST',
+      signal: fence?.signal,
       headers: this.headers(),
       body: JSON.stringify({ stable_user_id: stableUserId }),
     });
@@ -145,9 +178,11 @@ export class WabiDbCallState {
     sessionId: string,
     _userId: number,
     _stableUserId: string,
+    fence?: CallWriteFence,
   ): Promise<void> {
-    const res = await this.authedFetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/leave`, {
+    const res = await this.authedFetch(fencedUrl(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/leave`, fence), {
       method: 'POST',
+      signal: fence?.signal,
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`leaveSession failed: ${res.status}`);
@@ -216,33 +251,42 @@ export class WabiDbCallState {
     return data.signals.map(wabidbSignalToRow);
   }
 
-  // --- Subscriptions (no-op stubs for v1: WS push not wired yet) ---
-  // Clients should call getSession/getParticipants/getSignals on demand
-  // (HTTP polling). The interface matches the prior call-state shape.
+  // --- Reference-counted subscriptions, restored from authoritative snapshots ---
 
   subscribeToSession(sessionId: string): CallSubscriptionHandle[] {
-    // Track the subscription locally for clean teardown.
-    this.subscribedSessionIds.add(sessionId);
-
-    // Send the subscribe_call message over WS if connected. If not connected,
-    // openWebSocket() will re-send it on reconnect.
-    this.sendWsMessage({ type: 'subscribe_call', session_id: sessionId });
-
+    const entry = this.subscriptions.get(sessionId) ?? { count: 0 };
+    this.subscriptions.set(sessionId, entry);
+    if (entry.count++ === 0) this.subscribe(sessionId);
+    let active = true;
     const handle: CallSubscriptionHandle = {
       unsubscribe: () => {
-        this.subscribedSessionIds.delete(sessionId);
-        this.sendWsMessage({ type: 'unsubscribe_call', session_id: sessionId });
+        if (!active) return;
+        active = false;
+        if (this.subscriptions.get(sessionId) !== entry) return;
+        if (--entry.count === 0) {
+          this.subscriptions.delete(sessionId);
+          this.clearSession(sessionId);
+          this.sendWsMessage({ type: 'unsubscribe_call', session_id: sessionId });
+        }
       },
     };
-    this.handles.push(handle);
     return [handle];
   }
 
   unsubscribeAll(): void {
-    for (const h of this.handles) {
-      try { h.unsubscribe(); } catch (_) { /* ignore */ }
+    for (const id of this.subscriptions.keys()) {
+      this.sendWsMessage({ type: 'unsubscribe_call', session_id: id });
+      this.clearSession(id);
     }
-    this.handles = [];
+    this.subscriptions.clear();
+  }
+
+  /** Retire the subscription identity as well as cached rows. Old handles and
+   * queued snapshots may not restore a revoked group after re-add. */
+  revokeSession(id: string): void {
+    this.subscriptions.delete(id);
+    this.clearSession(id);
+    this.sendWsMessage({ type: 'unsubscribe_call', session_id: id });
   }
 
   // --- Event handlers ---
@@ -271,7 +315,7 @@ export class WabiDbCallState {
   }
 
   /**
-   * Resolve when the WS is open (immediately if already connected).
+   * Resolve after server authentication acknowledgment, not TCP open.
    * Rejects on WS error/close or after timeoutMs. Safe under overlap: every
    * caller gets its own waiter instead of fighting over one callback slot.
    */
@@ -295,73 +339,176 @@ export class WabiDbCallState {
   onParticipantChange(cb: (rows: StateCallParticipantRow[]) => void): void { this._onParticipantChange = cb; }
   onSignal(cb: (row: StateCallSignalRow) => void): void {
     this._onSignal = cb;
-    this.signalListeners.push(cb);
   }
 
   // --- Internal ---
 
   private headers(): Record<string, string> {
-    const h: Record<string, string> = { 'content-type': 'application/json' };
-    // Prefer the LIVE auth token on every request. The cfg.token captured at
-    // construction goes stale after the 15-minute access-token rotation and
-    // every session call then 401s until a page reload.
-    const live = getAuthToken();
-    const token = live || this.cfg.token;
-    if (token) h['authorization'] = `Bearer ${token}`;
-    return h;
+    return { 'content-type': 'application/json' };
+  }
+
+  private liveToken(): string {
+    const token = this.deps.getToken();
+    if (!token) throw new Error('Call authentication lost');
+    let sub: string;
+    try { sub = String(JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub); }
+    catch { throw new Error('Invalid call account token'); }
+    if (!/^[1-9][0-9]*$/.test(sub) || (this.account !== null && this.account !== sub)) throw new Error('Call account changed');
+    this.account = sub;
+    return token;
+  }
+
+  private refresh(): Promise<boolean> {
+    if (!this.refreshPending) {
+      this.refreshPending = Promise.resolve().then(() => { this.liveToken(); return this.deps.refresh(); })
+        .catch(() => false).finally(() => { this.refreshPending = null; });
+    }
+    return this.refreshPending;
+  }
+
+  private clearAuthTimers(): void {
+    if (this.authTimer) clearTimeout(this.authTimer);
+    if (this.renewalTimer) clearTimeout(this.renewalTimer);
+    this.authTimer = this.renewalTimer = null;
+  }
+
+  private fail(err: Error): void {
+    this.disconnect();
+    this._onDisconnect?.();
+    this._onError?.(err);
+  }
+
+  private authenticate(ws: WebSocket): void {
+    if (this.ws !== ws) return;
+    try {
+      this.sentToken = this.liveToken();
+      ws.send(JSON.stringify({ type: 'authenticate', token: this.sentToken }));
+      if (this.authTimer) clearTimeout(this.authTimer);
+      this.authTimer = setTimeout(() => { if (this.ws === ws) this.fail(new Error('Call authentication timeout')); }, 5000);
+    } catch (err) { this.fail(err as Error); }
+  }
+
+  private scheduleRenewal(ws: WebSocket, expiresAt: number, delay: number): void {
+    this.renewalTimer = setTimeout(async () => {
+      if (this.ws !== ws) return;
+      try {
+        if (this.liveToken() !== this.sentToken) { this.authenticate(ws); return; }
+      } catch (err) { this.fail(err as Error); return; }
+      const refreshed = await this.refresh();
+      if (this.ws !== ws) return;
+      if (refreshed) { this.authenticate(ws); return; }
+      // A transient refresh outage is not loss of a still-valid subscription.
+      // Retry only within its current credential lifetime, never indefinitely.
+      try { this.liveToken(); } catch (err) { this.fail(err as Error); return; }
+      const remaining = expiresAt * 1000 - Date.now();
+      if (remaining <= 0) { this.fail(new Error('Call credential renewal failed')); return; }
+      this.scheduleRenewal(ws, expiresAt, Math.min(5000, remaining));
+    }, delay);
   }
 
   private openWebSocket(): void {
     try {
       const wsUrl = this.cfg.serverUrl.replace(/^http/, 'ws') + '/ws';
-      this.ws = new WebSocket(wsUrl);
+      const generation = ++this.generation;
+      this.liveToken();
+      const ws = (this.deps.socket ?? (url => new WebSocket(url)))(wsUrl);
+      this.ws = ws;
 
-      this.ws.onopen = () => {
-        this._isConnected = true;
-        this.reconnectAttempts = 0;
-        this._onConnect?.();
-        this.settleConnectWaiters(true);
-        // Re-subscribe to any active sessions
-        for (const sessionId of this.subscribedSessionIds) {
-          this.sendWsMessage({ type: 'subscribe_call', session_id: sessionId });
-        }
-      };
+      ws.onopen = () => this.authenticate(ws);
 
-      this.ws.onclose = () => {
+      ws.onclose = async (event) => {
+        if (this.ws !== ws) return;
+        this.ws = null;
+        this.clearAuthTimers();
         this._isConnected = false;
         this._onDisconnect?.();
+        if (event.code === 4401) {
+          if (this.authRetried) { this.fail(new Error('Call authentication rejected')); return; }
+          this.authRetried = true;
+          const refreshed = await this.refresh();
+          if (this.explicitlyClosed || this.generation !== generation || this.ws) return;
+          if (refreshed) this.openWebSocket();
+          else this.fail(new Error('Call authentication requires login'));
+          return;
+        }
         this.settleConnectWaiters(false, new Error('WebSocket closed during handshake'));
         if (!this.explicitlyClosed) this.scheduleReconnect();
       };
 
-      this.ws.onerror = (e) => {
-        const err = new Error(`WebSocket error: ${e}`);
+      ws.onerror = () => {
+        if (this.ws !== ws) return;
+        const err = new Error('Call-state WebSocket error');
         this._onError?.(err);
         this.settleConnectWaiters(false, err);
       };
 
-      this.ws.onmessage = (ev) => {
+      ws.onmessage = (ev) => {
+        if (this.ws !== ws) return;
         try {
           const msg = JSON.parse(ev.data as string);
+          if (msg.type === 'authenticated') {
+            this.liveToken();
+            if (String(msg.user_id) !== this.account || !Number.isFinite(msg.expires_at) || msg.expires_at * 1000 <= Date.now()) throw new Error('Invalid call authentication acknowledgment');
+            this.clearAuthTimers();
+            const wasConnected = this._isConnected;
+            this._isConnected = true;
+            this.authRetried = false;
+            this.reconnectAttempts = 0;
+            this.settleConnectWaiters(true);
+            if (!wasConnected) {
+              this._onConnect?.();
+              for (const id of this.subscriptions.keys()) this.subscribe(id);
+            }
+            this.scheduleRenewal(ws, msg.expires_at, Math.max(1000, msg.expires_at * 1000 - Date.now() - 30000));
+            return;
+          }
+          if (msg.type === 'authentication_error') return; // 4401 drives the single retry.
+          if (!this._isConnected) return;
+          this.liveToken();
           this.handleWsMessage(msg);
         } catch (e) {
-          this._onError?.(new Error(`Bad WS message: ${e}`));
+          this.fail(new Error(`Invalid call-state message: ${e}`));
         }
       };
     } catch (e) {
-      this._onError?.(e as Error);
-      this.scheduleReconnect();
+      this.fail(e as Error);
     }
   }
 
   private sendWsMessage(msg: unknown): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this._isConnected && this.ws && this.ws.readyState === 1) {
       this.ws.send(JSON.stringify(msg));
     }
   }
 
   private handleWsMessage(msg: any): void {
+    if (msg.type === 'resync_required') {
+      for (const id of this.subscriptions.keys()) this.subscribe(id);
+      return;
+    }
+    const id = msg.session_id ?? msg.session?.session_id ?? msg.signal?.session_id;
+    if (!this.subscriptions.has(id)) return;
     switch (msg.type) {
+      case 'subscription_error':
+        {
+          const removed = membershipRevision(msg.membership_revision);
+          const current = this.subscriptions.get(id)?.revision;
+          if (removed && current && BigInt(removed) < BigInt(current)) break;
+        }
+        this.revokeSession(id);
+        this._onError?.(new Error('Call subscription access denied'));
+        break;
+      case 'call_snapshot':
+        {
+          const revision = membershipRevision(msg.membership_revision);
+          const entry = this.subscriptions.get(id)!;
+          if (revision && entry.revision && BigInt(revision) < BigInt(entry.revision)) break;
+          if (revision) entry.revision = revision;
+        }
+        this.handleWsMessage({ type: 'call_session_changed', session: msg.session });
+        this.handleWsMessage({ type: 'call_participant_changed', session_id: id, participants: msg.participants });
+        for (const signal of msg.signals ?? []) this.handleWsMessage({ type: 'call_signal_emitted', signal });
+        break;
       case 'call_session_changed':
         if (msg.session) {
           const row = wabidbSessionToRow(msg.session);
@@ -381,20 +528,32 @@ export class WabiDbCallState {
       case 'call_signal_emitted':
         if (msg.signal) {
           const row = wabidbSignalToRow(msg.signal);
-          for (const cb of this.signalListeners) cb(row);
+          if (row.signalId > (this.signalCursors.get(id) ?? 0)) {
+            this.signalCursors.set(id, row.signalId);
+            this._onSignal?.(row);
+          }
         }
         break;
     }
   }
 
   private scheduleReconnect(): void {
-    if (this.explicitlyClosed) return;
+    if (this.explicitlyClosed || this.reconnectTimer || this.ws) return;
     this.reconnectAttempts++;
     const delay = Math.min(
       RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts - 1),
       RECONNECT_MAX_MS,
     );
-    this.reconnectTimer = setTimeout(() => this.openWebSocket(), delay);
+    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.openWebSocket(); }, delay);
+  }
+
+  private subscribe(id: string): void {
+    this.sendWsMessage({ type: 'subscribe_call', session_id: id, since: this.signalCursors.get(id) ?? 0 });
+  }
+  private clearSession(id: string): void {
+    this.sessionCache.delete(id); this.participantCache.delete(id); this.signalCursors.delete(id);
+    this._onSessionChange?.([...this.sessionCache.values()]);
+    this._onParticipantChange?.([...this.participantCache.values()].flat());
   }
 }
 

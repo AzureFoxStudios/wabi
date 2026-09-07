@@ -13,10 +13,15 @@ import { getAuthToken, getGuestSessionId } from './authSession';
 import { tryRefresh } from './api/authRefresh';
 import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
 import { callSessionManager, backfillCallSessionChannelNames } from './callSessionManager';
+import { callSocketDisconnected, callSocketInitialized } from './callSocketLifecycle';
 import { SocketHeartbeat } from './socketConnectionHeartbeat';
 import { SocketReconnectionManager } from './socketConnectionReconnect';
 import { drainOutboundQueue } from '$lib/wabidb/drain';
 import { getWabiDB } from '$lib/wabidb';
+import { groupMembership, captureGroupAccess } from './groupAccess';
+import { membershipRevision } from './groupMembership';
+import { cancelGroupOperations } from './groupOperations';
+import { updateGroupPanels } from './groupClientState';
 import { applyRemoteRecordingPresence } from './callRecordingPresence';
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
@@ -353,6 +358,9 @@ export class SocketManager {
 		this.typingClearTimers.clear();
 
 		if (!this.socketInstance) return;
+		callSocketDisconnected(this.socketInstance);
+		cancelGroupOperations(this.socketInstance);
+		groupMembership.beginConnection();
 		try {
 			this.socketInstance.removeAllListeners();
 			this.socketInstance.disconnect();
@@ -477,6 +485,7 @@ export class SocketManager {
 		this.boundListeners.clear();
 
 		sock.on('connect', () => {
+			groupMembership.beginConnection();
 			console.log('[SocketManager] Connected, socket.id:', sock.id);
 
 			this.transition('connected');
@@ -509,19 +518,8 @@ export class SocketManager {
 				sock.emit('join', this.username);
 			}
 
-			// Round 6 (2026-09-03): rejoin wabiDB media rooms on EVERY
-			// reconnect. socket.io rooms do not survive a reconnect, and the
-			// only other caller (drainOutboundQueue) is gated on the optional
-			// offline-queue client being initialized — users with the queue
-			// disabled never rejoined, so the server denied 100% of their
-			// media envelopes ("not in room") and relayed calls went silent
-			// after any reconnect. Runs after the rejoin/join emit above so
-			// the server roster is restored before re-authorization.
-			void import('$lib/callingWabidb')
-				.then(({ rejoinWabidbCallRooms }) => rejoinWabidbCallRooms())
-				.catch(() => {
-					/* never block the connect path on the relay module */
-				});
+			// Calls readmit after authoritative init, independently of the
+			// optional outbound queue. Presence emit order is not admission.
 
 			// Fetch server-side custom emotes (merged into the picker store).
 			sock.emit('get-emojis');
@@ -548,6 +546,9 @@ export class SocketManager {
 		});
 
 		sock.on('disconnect', (reason, details) => {
+			callSocketDisconnected(sock);
+			groupMembership.beginConnection();
+			cancelGroupOperations(sock);
 			console.log('[SocketManager] Disconnected:', reason, details);
 
 			this.heartbeat.stop();
@@ -611,14 +612,34 @@ export class SocketManager {
 	}
 
 	private bindStateEventListeners(sock: Socket): void {
-		sock.on('init', (payload: {
+		const realm = groupMembership.realm();
+		const currentConnection = () => this.socketInstance === sock && groupMembership.realm() === realm;
+		// All channel-scoped content enters through this fence. Membership
+		// control events must bypass it so an explicit newer re-add can grant a
+		// fresh lifecycle; a delayed content event cannot do so.
+		const controls = new Set(['group-created', 'group-channel-added', 'group-membership-updated', 'group-removed']);
+		const on = (event: string, listener: (...args: any[]) => void) => sock.on(event, (...args: any[]) => {
+			if (!currentConnection()) return;
+			const id = args[0]?.channelId;
+			if (!controls.has(event) && typeof id === 'string' && !groupMembership.acceptsContent(id)) return;
+			listener(...args);
+		});
+		on('init', (payload: {
 			channels?: Channel[];
 			users?: User[] | Record<string, User>;
 			serverMembers?: User[] | Record<string, User>;
 			roleDefinitions?: unknown[];
 			voiceState?: Record<string, unknown>;
 		}) => {
-			const nextChannels = dedupeByIdKey(normalizeChannelList(payload?.channels));
+			const offered = dedupeByIdKey(normalizeChannelList(payload?.channels));
+			const nextChannels = offered.filter(channel => channel.type !== 'group' || (realm && groupMembership.apply(channel, realm)));
+			if (realm) {
+				const present = new Set(nextChannels.filter(channel => channel.type === 'group').map(channel => channel.id));
+				const known = new Set([...groupMembership.knownGroups(), ...get(channels).filter(channel => channel.type === 'group').map(channel => channel.id)]);
+				for (const id of known) if (!present.has(id)) groupMembership.revoke(id, null, realm);
+				groupMembership.finishInit(realm);
+			}
+			for (const channel of nextChannels) if (channel.type === 'group') updateGroupPanels(channel);
 			channels.set(nextChannels);
 			_updatePinnedChannels();
 			// WO-5: channel sessions register with the raw channel id as a
@@ -645,6 +666,9 @@ export class SocketManager {
 			} else if (nextChannels.length > 0) {
 				persistLastChannel(activeChannel);
 				joinChannel(activeChannel);
+			} else {
+				currentChannel.set('');
+				persistLastChannel('');
 			}
 
 			_setUsers(payload?.users || []);
@@ -691,11 +715,17 @@ export class SocketManager {
 				users: normalizeUserList(payload?.users).length,
 				serverMembers: normalizeUserList(payload?.serverMembers).length
 			});
+			void drainOutboundQueue();
+			void callSocketInitialized(sock);
 		});
 
 		const upsertChannel = (channel: Channel | undefined) => {
 			const normalized = normalizeChannel(channel);
-			if (!normalized?.id) return;
+			if (!normalized?.id || !currentConnection()) return false;
+			if (normalized.type === 'group') {
+				if (!realm || !groupMembership.apply(normalized, realm)) return false;
+				updateGroupPanels(normalized);
+			}
 			channels.update((current) => {
 				const existingIndex = current.findIndex((candidate) => candidate.id === normalized.id);
 				if (existingIndex === -1) return [...current, normalized];
@@ -707,37 +737,48 @@ export class SocketManager {
 			// Late-arriving channel (created after join) can still resolve a
 			// raw-id placeholder on a live call session.
 			backfillCallSessionChannelNames([normalized]);
+			return true;
 		};
 
-		sock.on('dm-created', (payload: { channel?: Channel; channelId?: string }) => {
+		on('dm-created', (payload: { channel?: Channel; channelId?: string }) => {
 			upsertChannel(payload?.channel);
 			const cid = payload?.channel?.id ?? payload?.channelId;
 			if (cid) joinChannel(cid);
 		});
 
-		sock.on('dm-channel-added', (payload: { channel?: Channel; channelId?: string }) => {
+		on('dm-channel-added', (payload: { channel?: Channel; channelId?: string }) => {
 			upsertChannel(payload?.channel);
 			const cid = payload?.channel?.id ?? payload?.channelId;
 			if (cid) joinChannel(cid);
 		});
 
-		sock.on('group-created', (payload: { channel?: Channel; channelId?: string }) => {
-			upsertChannel(payload?.channel);
+		on('group-created', (payload: { channel?: Channel; channelId?: string }) => {
+			if (!upsertChannel(payload?.channel)) return;
 			const cid = payload?.channel?.id ?? payload?.channelId;
 			if (cid) joinChannel(cid);
 		});
 
-		sock.on('group-channel-added', (payload: { channel?: Channel; channelId?: string }) => {
-			upsertChannel(payload?.channel);
+		on('group-channel-added', (payload: { channel?: Channel; channelId?: string }) => {
+			if (!upsertChannel(payload?.channel)) return;
 			const cid = payload?.channel?.id ?? payload?.channelId;
 			if (cid) joinChannel(cid);
 		});
 
-		sock.on('dm-error', (payload: { error?: string; channelId?: string }) => {
+		on('group-membership-updated', (payload: { channel?: Channel }) => { upsertChannel(payload?.channel); });
+		on('group-removed', (payload: { channelId?: string; membershipRevision?: string }) => {
+			if (!realm || typeof payload?.channelId !== 'string' || !payload.channelId || membershipRevision(payload.membershipRevision) === null) return;
+			if (groupMembership.revoke(payload.channelId, payload.membershipRevision!, realm)) {
+				const timer = this.typingClearTimers.get(payload.channelId);
+				if (timer) clearTimeout(timer);
+				this.typingClearTimers.delete(payload.channelId);
+			}
+		});
+
+		on('dm-error', (payload: { error?: string; channelId?: string }) => {
 			console.warn('[socket] dm-error', payload?.channelId, payload?.error);
 		});
 
-		sock.on('dm-deleted', (payload: { channelId?: string }) => {
+		on('dm-deleted', (payload: { channelId?: string }) => {
 			const channelId = payload?.channelId;
 			if (!channelId) return;
 			channels.update((list) => list.filter((channel) => channel.id !== channelId));
@@ -768,7 +809,7 @@ export class SocketManager {
 			}
 		});
 
-		sock.on('channel-messages', (payload: { channelId?: string; messages?: Message[] }) => {
+		on('channel-messages', (payload: { channelId?: string; messages?: Message[] }) => {
 			if (!payload?.channelId) return;
 			const raw = Array.isArray(payload.messages) ? payload.messages : [];
 			const sanitized = dedupeMessagesKeepOrder(raw);
@@ -796,7 +837,7 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('message', (payload: { channelId?: string; message?: Message }) => {
+		on('message', (payload: { channelId?: string; message?: Message }) => {
 			if (!payload?.channelId || !payload.message) return;
 			if (!isRenderableMessage(payload.message)) {
 				console.warn('[socket] Dropping malformed message payload', payload.message);
@@ -819,7 +860,7 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('message-accepted', (payload: {
+		on('message-accepted', (payload: {
 			channelId?: string;
 			messageId?: string;
 			clientMessageId?: string;
@@ -844,26 +885,21 @@ export class SocketManager {
 				db.markSyncedByClientId(payload.clientMessageId).catch(() => {});
 			}
 		});
-		sock.on('message-deleted', (payload: { channelId?: string; messageId?: string }) => {
+		on('message-deleted', (payload: { channelId?: string; messageId?: string }) => {
 			if (!payload?.channelId || !payload.messageId) return;
 			_removeOptimisticMessage(payload.channelId, payload.messageId);
 		});
 
-		sock.on('channel-messages-cleared', (payload: { channelId?: string }) => {
+		on('channel-messages-cleared', (payload: { channelId?: string }) => {
 			if (!payload?.channelId) return;
 			const channelId = payload.channelId;
 			channelMessages.update((state) => ({
 				...state,
 				[channelId]: []
 			}));
-			import('$lib/storage').then(({ chatStorage }) => {
-				chatStorage.clearChannelMessages(channelId).catch((e) =>
-					console.warn('[socket] failed to clear local cache for', channelId, e)
-				);
-			});
 		});
 
-		sock.on('channel-updated', (payload: any) => {
+		on('channel-updated', (payload: any) => {
 			const id = payload?.channelId || payload?.id;
 			if (!id) return;
 			channels.update((list) =>
@@ -887,7 +923,7 @@ export class SocketManager {
 			}
 		});
 
-		sock.on('channel-deleted', (payload: { channelId?: string; channelIds?: string[] }) => {
+		on('channel-deleted', (payload: { channelId?: string; channelIds?: string[] }) => {
 			const deletedId = payload?.channelId;
 			if (!deletedId) return;
 			const all = get(channels);
@@ -916,7 +952,7 @@ export class SocketManager {
 			}
 		});
 
-		sock.on('channels-reordered', (payload: { channels?: { id: string; position?: number; parentId?: string | null }[] }) => {
+		on('channels-reordered', (payload: { channels?: { id: string; position?: number; parentId?: string | null }[] }) => {
 			const reorderList = payload?.channels;
 			if (!Array.isArray(reorderList) || reorderList.length === 0) return;
 			channels.update((list) =>
@@ -934,15 +970,15 @@ export class SocketManager {
 			);
 		});
 
-		sock.on('edit-error', (payload: { messageId?: string; error?: string }) => {
+		on('edit-error', (payload: { messageId?: string; error?: string }) => {
 			console.warn('[socket] edit-error', payload?.messageId, payload?.error);
 		});
 
-		sock.on('delete-error', (payload: { messageId?: string; error?: string }) => {
+		on('delete-error', (payload: { messageId?: string; error?: string }) => {
 			console.warn('[socket] delete-error', payload?.messageId, payload?.error);
 		});
 
-		sock.on('message-edited', (payload: { channelId?: string; messageId?: string; newText?: string }) => {
+		on('message-edited', (payload: { channelId?: string; messageId?: string; newText?: string }) => {
 			if (!payload?.channelId || !payload.messageId || payload.newText === undefined) return;
 			_updateOptimisticMessage(payload.channelId, (message) => message.id === payload.messageId, {
 				text: payload.newText,
@@ -950,14 +986,14 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('message-pinned', (payload: { channelId?: string; messageId?: string; isPinned?: boolean }) => {
+		on('message-pinned', (payload: { channelId?: string; messageId?: string; isPinned?: boolean }) => {
 			if (!payload?.channelId || !payload.messageId || payload.isPinned === undefined) return;
 			_updateOptimisticMessage(payload.channelId, (message) => message.id === payload.messageId, {
 				isPinned: payload.isPinned
 			});
 		});
 
-		sock.on('pin-error', (payload: { messageId?: string; error?: string }) => {
+		on('pin-error', (payload: { messageId?: string; error?: string }) => {
 			console.warn('[socket] pin-error', payload?.messageId, payload?.error);
 		});
 
@@ -979,6 +1015,12 @@ export class SocketManager {
 			'unpin-channel-error',
 			'ban-error',
 			'kick-error',
+			'group-error',
+			'add-member-error',
+			'avatar-error',
+			'join-error',
+			'history-error',
+			'sync-error',
 			'wiki-error',
 			'forum-error',
 			'incident-error'
@@ -987,15 +1029,15 @@ export class SocketManager {
 		}
 
 		// Server-side custom emote list (upload/delete broadcast) -> picker store.
-		sock.on('emojis-list', (serverEmotes: ServerEmote[]) => {
+		on('emojis-list', (serverEmotes: ServerEmote[]) => {
 			mergeServerEmotes(Array.isArray(serverEmotes) ? serverEmotes : []);
 		});
 
-		sock.on('delete-emoji-success', (payload: { name?: string }) => {
+		on('delete-emoji-success', (payload: { name?: string }) => {
 			if (payload?.name) removeServerEmote(payload.name);
 		});
 
-		sock.on('emoji-reaction-added', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
+		on('emoji-reaction-added', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
 			const userIdStr = String(payload.userId);
 			channelMessages.update((state) => {
@@ -1014,7 +1056,7 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('emoji-reaction-removed', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
+		on('emoji-reaction-removed', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
 			const userIdStr = String(payload.userId);
 			channelMessages.update((state) => {
@@ -1037,7 +1079,7 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('typing', (payload: { channelId?: string; usernames?: string[]; userIds?: string[] }) => {
+		on('typing', (payload: { channelId?: string; usernames?: string[]; userIds?: string[] }) => {
 			if (!payload?.channelId) return;
 			const typingUsers = payload.userIds || payload.usernames || [];
 			_setTypingUsers(payload.channelId, typingUsers);
@@ -1050,7 +1092,7 @@ export class SocketManager {
 			}, 3500));
 		});
 
-		sock.on('user-joined', (user: User) => {
+		on('user-joined', (user: User) => {
 			if (!user?.id) return;
 			upsertUser(users, user);
 			upsertUser(serverMembers, user);
@@ -1065,7 +1107,7 @@ export class SocketManager {
 			}
 		});
 
-		sock.on('user-updated', (user: User) => {
+		on('user-updated', (user: User) => {
 			if (!user?.id) return;
 			upsertUser(users, user);
 			upsertUser(serverMembers, user);
@@ -1081,7 +1123,7 @@ export class SocketManager {
 		// Self-selected presence broadcasts (namespace-wide, already masked:
 		// invisible arrives as "offline"). Match by dbUserId when present —
 		// the sender's socket id differs from roster ids.
-		sock.on('presence-changed', (payload: { id?: string; dbUserId?: number; status?: string }) => {
+		on('presence-changed', (payload: { id?: string; dbUserId?: number; status?: string }) => {
 			if (!payload?.status) return;
 			const matches = (u: { id: string; dbUserId?: number | null }): boolean =>
 				(payload.dbUserId != null && u.dbUserId === payload.dbUserId) ||
@@ -1094,7 +1136,7 @@ export class SocketManager {
 			if (me && matches(me)) currentUser.set({ ...me, status: payload.status as User['status'] });
 		});
 
-		sock.on('profile-updated', (user: User) => {
+		on('profile-updated', (user: User) => {
 			if (!user?.id) return;
 			upsertUser(users, user);
 			upsertUser(serverMembers, user);
@@ -1107,7 +1149,7 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('user-left', (payload: { id?: string }) => {
+		on('user-left', (payload: { id?: string }) => {
 			if (!payload?.id) return;
 			users.update((current) => current.filter((user) => user.id !== payload.id));
 			serverMembers.update((current) => current.map((user) =>
@@ -1115,7 +1157,7 @@ export class SocketManager {
 			));
 		});
 
-		sock.on('voice-channel-state', (payload: { channelId?: string; members?: any[] }) => {
+		on('voice-channel-state', (payload: { channelId?: string; members?: any[] }) => {
 			console.log('[voice-channel-state] received:', JSON.stringify(payload));
 			if (!payload?.channelId) return;
 			const members = Array.isArray(payload.members) ? payload.members : [];
@@ -1137,56 +1179,39 @@ export class SocketManager {
 				);
 			}
 			console.log('[voice-channel-state] set members for', payload.channelId, 'count:', members.length);
-			// Self-heal: wabidb /ws can reconnect late after the 10s handshake
-			// timeout cleared sessionIds (nada 2/boo reports: Connected after
-			// timeout but no relay, so rejoinWabidbCallRooms had nothing to emit).
-			// If roster says we are still present but the media relay is dead,
-			// re-create it — has() guard in connectWabidbCall keeps it idempotent.
-			if (payload.channelId && members.length > 0) {
-				const sockId = (sock as any)?.id as string | undefined;
-				const selfEntry = sockId ? members.find((m: any) => m?.socketId === sockId) : null;
-				if (selfEntry) {
-					void import('$lib/callingWabidb').then(({ wabidbTransportLive, rejoinWabidbCallRooms, connectWabidbCall }) => {
-						if (wabidbTransportLive()) return;
-						try { rejoinWabidbCallRooms(); } catch {}
-						if (!wabidbTransportLive()) {
-							const listenOnly = Boolean((selfEntry as any)?.isListeningOnly);
-							void connectWabidbCall(sock, payload.channelId!, 'wabi', undefined, undefined, listenOnly).catch(() => {});
-						}
-					}).catch(() => {});
-				}
-			}
+			// Roster snapshots are observations, not new call intent. The call
+			// owner/watchdog controls transport setup after correlated admission.
 		});
 
 		// The server moved this socket's voice presence (breakout move, moderator
 		// drag, breakout close). Re-tune the local media session — the roster
 		// move alone would leave the wabidb relay on the old channel's session.
-		sock.on('voice-self-moved', (payload: { fromChannelId?: string; toChannelId?: string }) => {
+		on('voice-self-moved', (payload: { fromChannelId?: string; toChannelId?: string }) => {
 			if (!payload?.fromChannelId || !payload?.toChannelId) return;
 			void import('./calling').then(({ handleForcedVoiceMove }) =>
-				handleForcedVoiceMove(sock, payload.fromChannelId!, payload.toChannelId!)
+				currentConnection() ? handleForcedVoiceMove(sock, payload.fromChannelId!, payload.toChannelId!) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle voice move:', error));
 		});
 
-		sock.on('voice-self-kicked', (payload: { channelId?: string; userId?: string }) => {
+		on('voice-self-kicked', (payload: { channelId?: string; userId?: string }) => {
 			if (!payload?.channelId) return;
 			void import('./calling').then(({ handleForcedVoiceLeave }) =>
-				handleForcedVoiceLeave(sock, payload.channelId!)
+				currentConnection() ? handleForcedVoiceLeave(sock, payload.channelId!) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle voice kick:', error));
 		});
 
-		sock.on('breakout-rooms-created', (payload: {
+		on('breakout-rooms-created', (payload: {
 			parentChannelId?: string;
 			rooms?: Array<{ id?: string; name?: string; parentChannelId?: string; breakoutIndex?: number }>;
 		}) => {
 			channels.update((list) => upsertBreakoutRooms(list, payload));
 		});
 
-		sock.on('breakout-rooms-closed', (payload: { rooms?: Array<{ id?: string }> }) => {
+		on('breakout-rooms-closed', (payload: { rooms?: Array<{ id?: string }> }) => {
 			channels.update((list) => removeBreakoutRooms(list, payload?.rooms));
 		});
 
-		sock.on('voice-channel-joined', (payload: { channelId?: string; user?: any }) => {
+		on('voice-channel-joined', (payload: { channelId?: string; user?: any }) => {
 			if (!payload?.channelId || !payload.user?.userId) return;
 			_updateVoiceChannelMember(payload.channelId, payload.user.userId, payload.user);
 			// Phase 2: attributed join sound + session roster update, but only
@@ -1196,27 +1221,27 @@ export class SocketManager {
 			}).catch(() => undefined);
 		});
 
-		sock.on('voice-channel-error', (payload: { channelId?: string; error?: string }) => {
+		on('voice-channel-error', (payload: { channelId?: string; error?: string }) => {
 			if (!payload?.channelId || !payload.error) return;
 			console.warn('[voice-channel-error]', payload.channelId, payload.error);
 		});
 
-		sock.on('voice-user-muted', (payload: { channelId?: string; userId?: string }) => {
+		on('voice-user-muted', (payload: { channelId?: string; userId?: string }) => {
 			if (!payload?.channelId || !payload.userId) return;
 			_updateVoiceChannelMember(payload.channelId, payload.userId, { isMuted: true });
 		});
 
-		sock.on('voice-user-deafened', (payload: { channelId?: string; userId?: string }) => {
+		on('voice-user-deafened', (payload: { channelId?: string; userId?: string }) => {
 			if (!payload?.channelId || !payload.userId) return;
 			_updateVoiceChannelMember(payload.channelId, payload.userId, { isDeafened: true });
 		});
 
-		sock.on('voice-user-undeafened', (payload: { channelId?: string; userId?: string }) => {
+		on('voice-user-undeafened', (payload: { channelId?: string; userId?: string }) => {
 			if (!payload?.channelId || !payload.userId) return;
 			_updateVoiceChannelMember(payload.channelId, payload.userId, { isDeafened: false });
 		});
 
-		sock.on('voice-transmit-mode-updated', (payload: { userId?: string; mode?: 'primary' | 'all-listening' }) => {
+		on('voice-transmit-mode-updated', (payload: { userId?: string; mode?: 'primary' | 'all-listening' }) => {
 			if (!payload?.userId || !payload.mode) return;
 			const mode = payload.mode;
 			voiceChannelMembers.update((byChannel) => {
@@ -1230,43 +1255,48 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('screen-share-targets', (payload: { targets?: Array<{ userId?: string; username?: string }> }) => {
-			void import('./calling').then(({ createScreenShareOffer, isSharing }) => {
-				if (!get(isSharing)) return;
-				// Wabidb transport: the share rides the wabidb video lane; WebRTC
-				// offer creation here would run the SAME share over a second
-				// transport (double encode + socket flood — 2026-08-27 report).
-				void import('./callingWabidb').then(({ wabidbTransportLive }) => {
-					if (wabidbTransportLive()) return;
-					for (const target of payload?.targets ?? []) {
-						if (target?.userId) void createScreenShareOffer(sock, target.userId);
-					}
-				}).catch(() => undefined);
+		on('screen-share-targets', (payload: { channelId?: string; requestId?: string; targets?: Array<{ userId?: string }> }) => {
+			if (!payload.requestId) return; // uncorrelated replies cannot revive another share
+			const access = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
+			void import('./calling').then(({ createScreenShareOffer, screenShareTargetsCurrent }) => {
+				if (!currentConnection() || !access() || !screenShareTargetsCurrent(payload.requestId)) return;
+				for (const target of payload.targets ?? []) {
+					if (target.userId) void createScreenShareOffer(sock, target.userId, payload.requestId);
+				}
 			}).catch((error) => console.warn('[Socket] Failed to create screen share offers:', error));
 		});
 
-		// Remote share notification — the "confirmation" the 2026-08-27 report
-		// found missing: the server has always emitted this event, but no
-		// client listener existed, so a remote sharer's share could connect
-		// (or fail) with zero indication to the audience.
-		sock.on('screen-share-started', (payload: { senderId?: string; userId?: string; username?: string }) => {
-			const sharerId = payload?.senderId || payload?.userId;
+		on('screen-share-error', (payload: { requestId?: string }) => {
+			if (!payload.requestId) return;
+			void import('./calling').then(({ rejectScreenShare }) => {
+				if (currentConnection()) rejectScreenShare(payload.requestId!);
+			}).catch((error) => console.warn('[Socket] Failed to stop refused share:', error));
+		});
+
+		on('screen-share-started', (payload: { senderId?: string; userId?: string; username?: string; channelId?: string }) => {
+			const sharerId = payload.senderId || payload.userId;
 			if (!sharerId) return;
-			void import('./calling').then(({ presentRemoteScreenShare }) =>
-				presentRemoteScreenShare(sharerId, payload?.username)
-			).catch((error) => console.warn('[Socket] Failed to present remote screen share:', error));
+			const access = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
+			void import('./calling').then(({ presentRemoteScreenShare, captureIncomingMediaScope }) => {
+				if (currentConnection() && access() && captureIncomingMediaScope(payload.channelId || undefined, sharerId)?.current()) {
+					presentRemoteScreenShare(sharerId, payload.username);
+				}
+			}).catch((error) => console.warn('[Socket] Failed to present remote screen share:', error));
 		});
 
-		sock.on('screen-share-stopped', (payload: { senderId?: string; userId?: string }) => {
-			const userId = payload?.senderId || payload?.userId;
+		on('screen-share-stopped', (payload: { senderId?: string; userId?: string; channelId?: string; requestId?: string }) => {
+			const userId = payload.senderId || payload.userId;
 			if (!userId) return;
-			void import('./calling').then(({ removeScreenShare }) => removeScreenShare(userId))
-				.catch((error) => console.warn('[Socket] Failed to remove screen share:', error));
+			const access = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
+			void import('./calling').then(({ removeScreenShare, captureIncomingMediaScope }) => {
+				if (currentConnection() && access() && captureIncomingMediaScope(payload.channelId || undefined, userId)?.current()) {
+					removeScreenShare(userId, payload.channelId || undefined, payload.requestId || undefined);
+				}
+			}).catch((error) => console.warn('[Socket] Failed to remove screen share:', error));
 		});
-
 		// Recording transparency (round 5): the server relays per-recorder
 		// deltas — feed them to the presence stores that drive REC badges.
-		sock.on('call-recording-presence-changed', (payload: {
+		on('call-recording-presence-changed', (payload: {
 			active?: boolean;
 			scope?: string;
 			channelIds?: string[];
@@ -1284,31 +1314,34 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('webrtc-offer', (payload: { senderId?: string; username?: string; offer?: RTCSessionDescriptionInit }) => {
+		on('webrtc-offer', (payload: { channelId?: string; requestId?: string; senderId?: string; username?: string; offer?: RTCSessionDescriptionInit }) => {
 			if (!payload?.senderId || !payload.offer) return;
+			const access = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
 			void import('./calling').then(({ handleScreenShareOffer }) =>
-				handleScreenShareOffer(sock, payload.senderId!, payload.username || 'Screen Share', payload.offer!)
+				currentConnection() && access() ? handleScreenShareOffer(sock, payload.senderId!, payload.username || 'Screen Share', payload.offer!, payload.channelId || undefined, payload.requestId || undefined) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle screen share offer:', error));
 		});
 
-		sock.on('webrtc-answer', (payload: { senderId?: string; answer?: RTCSessionDescriptionInit }) => {
+		on('webrtc-answer', (payload: { channelId?: string; requestId?: string; senderId?: string; answer?: RTCSessionDescriptionInit }) => {
 			if (!payload?.senderId || !payload.answer) return;
+			const access = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
 			void import('./calling').then(({ handleScreenShareAnswer }) =>
-				handleScreenShareAnswer(payload.senderId!, payload.answer!)
+				currentConnection() && access() ? handleScreenShareAnswer(payload.senderId!, payload.answer!, payload.channelId || undefined, payload.requestId || undefined) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle screen share answer:', error));
 		});
 
-		sock.on('webrtc-ice-candidate', (payload: { senderId?: string; candidate?: RTCIceCandidateInit }) => {
+		on('webrtc-ice-candidate', (payload: { channelId?: string; requestId?: string; senderId?: string; candidate?: RTCIceCandidateInit }) => {
 			if (!payload?.senderId || !payload.candidate) return;
+			const access = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
 			void import('./calling').then(({ handleScreenShareIceCandidate }) =>
-				handleScreenShareIceCandidate(payload.senderId!, payload.candidate!)
+				currentConnection() && access() ? handleScreenShareIceCandidate(payload.senderId!, payload.candidate!, payload.channelId || undefined, payload.requestId || undefined) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle screen share ICE candidate:', error));
 		});
 
 		// =====================================================================
 		// P2P / DM / Group call signaling
 		// =====================================================================
-		sock.on('call-incoming', (payload: { userId?: string; username?: string; isVideoCall?: boolean; channelId?: string; channelName?: string }) => {
+		on('call-incoming', (payload: { userId?: string; username?: string; isVideoCall?: boolean; channelId?: string; channelName?: string }) => {
 			if (!payload?.userId) return;
 			incomingCall.set({
 				userId: payload.userId,
@@ -1319,7 +1352,7 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('call-accepted', (payload: { userId?: string; username?: string; isVideoCall?: boolean }) => {
+		on('call-accepted', (payload: { userId?: string; username?: string; isVideoCall?: boolean }) => {
 			if (!payload?.userId) return;
 			const pending = get(outgoingCall);
 			const targetId = pending?.targetUserId || payload.userId;
@@ -1334,46 +1367,49 @@ export class SocketManager {
 			}).catch((error) => console.warn('[Socket] Failed to create call offer:', error));
 		});
 
-		sock.on('call-offer', (payload: { offer?: RTCSessionDescriptionInit; senderId?: string; username?: string; channelId?: string }) => {
+		on('call-offer', (payload: { offer?: RTCSessionDescriptionInit; senderId?: string; username?: string; channelId?: string }) => {
 			if (!payload?.senderId || !payload.offer) return;
+			const hasAccess = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
 			void import('./calling').then(({ handleCallOffer }) =>
-				handleCallOffer(sock, payload.senderId!, payload.username || 'User', payload.offer!, payload.channelId)
+				currentConnection() && hasAccess() ? handleCallOffer(sock, payload.senderId!, payload.username || 'User', payload.offer!, payload.channelId) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle call offer:', error));
 		});
 
-		sock.on('call-answer-sdp', (payload: { answer?: RTCSessionDescriptionInit; senderId?: string }) => {
+		on('call-answer-sdp', (payload: { channelId?: string; requestId?: string; answer?: RTCSessionDescriptionInit; senderId?: string }) => {
 			if (!payload?.senderId || !payload.answer) return;
+			const access = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
 			void import('./calling').then(({ handleCallAnswer }) =>
-				handleCallAnswer(payload.senderId!, payload.answer!)
+				currentConnection() && access() ? handleCallAnswer(payload.senderId!, payload.answer!, payload.channelId || undefined) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle call answer:', error));
 		});
 
-		sock.on('call-ice-candidate', (payload: { candidate?: RTCIceCandidateInit; senderId?: string }) => {
+		on('call-ice-candidate', (payload: { channelId?: string; requestId?: string; candidate?: RTCIceCandidateInit; senderId?: string }) => {
 			if (!payload?.senderId || !payload.candidate) return;
+			const access = payload.channelId ? captureGroupAccess(payload.channelId) : () => true;
 			void import('./calling').then(({ handleCallIceCandidate }) =>
-				handleCallIceCandidate(payload.senderId!, payload.candidate!)
+				currentConnection() && access() ? handleCallIceCandidate(payload.senderId!, payload.candidate!, payload.channelId || undefined) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle call ICE candidate:', error));
 		});
 
-		sock.on('call-ended', (payload: { userId?: string }) => {
+		on('call-ended', (payload: { userId?: string }) => {
 			const userId = payload?.userId;
 			if (userId) void import('./calling').then(({ handleRemoteDirectCallEnded }) => handleRemoteDirectCallEnded(userId))
 				.catch((error) => console.warn('[Socket] Failed to handle call ended:', error));
 		});
 
-		sock.on('call-cancelled', (payload: { userId?: string; callerId?: string }) => {
+		on('call-cancelled', (payload: { userId?: string; callerId?: string; channelId?: string }) => {
 			const id = payload?.callerId || payload?.userId || '';
-			void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(id))
+			void import('./calling').then(({ handleIncomingCallCancelled }) => currentConnection() && handleIncomingCallCancelled(id, payload.channelId))
 				.catch((error) => console.warn('[Socket] Failed to handle call cancelled:', error));
 		});
 
-		sock.on('call-rejected', (payload: { userId?: string; callerId?: string }) => {
+		on('call-rejected', (payload: { userId?: string; callerId?: string }) => {
 			const id = payload?.callerId || payload?.userId || '';
 			void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(id))
 				.catch((error) => console.warn('[Socket] Failed to handle call rejected:', error));
 		});
 
-		sock.on('call-error', (payload: { code?: string; message?: string; targetUserId?: string }) => {
+		on('call-error', (payload: { code?: string; message?: string; targetUserId?: string }) => {
 			console.warn('[Socket] call-error:', payload?.code, payload?.message);
 			if (payload?.targetUserId) {
 				void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(payload.targetUserId!))
@@ -1381,34 +1417,37 @@ export class SocketManager {
 			}
 		});
 
-		sock.on('group-call-participant-joined', (payload: { channelId?: string; channelName?: string; userId?: string; username?: string; stableUserId?: string }) => {
+		on('group-call-participant-joined', (payload: { channelId?: string; channelName?: string; userId?: string; username?: string; stableUserId?: string }) => {
 			if (!payload?.channelId || !payload?.userId) return;
+			const hasAccess = captureGroupAccess(payload.channelId);
 			void import('./calling').then(({ handleGroupCallParticipantJoined }) =>
-				handleGroupCallParticipantJoined(sock, {
+				currentConnection() && hasAccess() ? handleGroupCallParticipantJoined(sock, {
 					channelId: payload.channelId!,
 					channelName: payload.channelName,
 					userId: payload.userId!,
 					username: payload.username || 'User',
 					stableUserId: payload.stableUserId
-				})
+				}) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle group participant joined:', error));
 		});
 
-		sock.on('group-call-participant-left', (payload: { channelId?: string; userId?: string }) => {
+		on('group-call-participant-left', (payload: { channelId?: string; userId?: string; stableUserId?: string }) => {
 			if (!payload?.channelId || !payload?.userId) return;
+			const hasAccess = captureGroupAccess(payload.channelId);
 			void import('./calling').then(({ handleGroupCallParticipantLeft }) =>
-				handleGroupCallParticipantLeft({ channelId: payload.channelId!, userId: payload.userId! })
+				currentConnection() && hasAccess() ? handleGroupCallParticipantLeft({ channelId: payload.channelId!, userId: payload.stableUserId || payload.userId! }) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle group participant left:', error));
 		});
 
-		sock.on('group-call-invite-cleared', (payload: { channelId?: string; stableUserId?: string }) => {
+		on('group-call-invite-cleared', (payload: { channelId?: string; stableUserId?: string }) => {
 			if (!payload?.channelId || !payload?.stableUserId) return;
+			const hasAccess = captureGroupAccess(payload.channelId);
 			void import('./calling').then(({ handleGroupCallInviteCleared }) =>
-				handleGroupCallInviteCleared({ channelId: payload.channelId!, stableUserId: payload.stableUserId! })
+				currentConnection() && hasAccess() ? handleGroupCallInviteCleared({ channelId: payload.channelId!, stableUserId: payload.stableUserId! }) : undefined
 			).catch((error) => console.warn('[Socket] Failed to handle group invite cleared:', error));
 		});
 
-		sock.on('p2p-offer', (payload: {
+		on('p2p-offer', (payload: {
 			transferId?: string;
 			senderId?: string;
 			senderUsername?: string;
@@ -1429,7 +1468,7 @@ export class SocketManager {
 			).catch((error) => console.warn('[Socket] Failed to handle P2P offer:', error));
 		});
 
-		sock.on('p2p-answer', (payload: { transferId?: string; senderId?: string; answer?: RTCSessionDescriptionInit }) => {
+		on('p2p-answer', (payload: { transferId?: string; senderId?: string; answer?: RTCSessionDescriptionInit }) => {
 			if (!payload?.transferId || !payload.senderId || !payload.answer) return;
 			void import('./p2pFileTransfer').then(({ handleP2PAnswer }) =>
 				handleP2PAnswer({
@@ -1440,7 +1479,7 @@ export class SocketManager {
 			).catch((error) => console.warn('[Socket] Failed to handle P2P answer:', error));
 		});
 
-		sock.on('p2p-ice-candidate', (payload: { transferId?: string; senderId?: string; candidate?: RTCIceCandidateInit }) => {
+		on('p2p-ice-candidate', (payload: { transferId?: string; senderId?: string; candidate?: RTCIceCandidateInit }) => {
 			if (!payload?.transferId || !payload.senderId || !payload.candidate) return;
 			void import('./p2pFileTransfer').then(({ handleP2PIceCandidate }) =>
 				handleP2PIceCandidate({
@@ -1451,7 +1490,7 @@ export class SocketManager {
 			).catch((error) => console.warn('[Socket] Failed to handle P2P ICE candidate:', error));
 		});
 
-		sock.on('voice-channel-user-joined', (payload: { channelId?: string; userId?: string; socketId?: string; username?: string; profilePicture?: string }) => {
+		on('voice-channel-user-joined', (payload: { channelId?: string; userId?: string; socketId?: string; username?: string; profilePicture?: string }) => {
 			if (!payload?.channelId || !payload.userId) return;
 			_updateVoiceChannelMember(payload.channelId, payload.userId, {
 				userId: payload.userId,
@@ -1464,12 +1503,12 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('voice-channel-left', (payload: { channelId?: string; userId?: string }) => {
+		on('voice-channel-left', (payload: { channelId?: string; userId?: string }) => {
 			if (!payload?.channelId || !payload.userId) return;
 			_removeVoiceChannelMember(payload.channelId, payload.userId);
 		});
 
-		sock.on('voice-channel-user-left', (payload: { channelId?: string; userId?: string }) => {
+		on('voice-channel-user-left', (payload: { channelId?: string; userId?: string }) => {
 			if (!payload?.channelId || !payload.userId) return;
 			_removeVoiceChannelMember(payload.channelId, payload.userId);
 			// Phase 2: attributed leave sound for channels we are connected to.
@@ -1478,16 +1517,16 @@ export class SocketManager {
 			}).catch(() => undefined);
 		});
 
-		sock.on('role-definitions-updated', (payload: { roles?: any[] }) => {
+		on('role-definitions-updated', (payload: { roles?: any[] }) => {
 			_setRoleDefinitions(Array.isArray(payload?.roles) ? payload.roles : []);
 		});
 
-		sock.on('badge-catalog', (payload: { catalog?: unknown } | unknown[]) => {
+		on('badge-catalog', (payload: { catalog?: unknown } | unknown[]) => {
 			const list = Array.isArray(payload) ? payload : (payload as any)?.catalog;
 			if (Array.isArray(list)) _setBadgeCatalog(list as any);
 		});
 
-		sock.on(
+		on(
 			'user-badges-updated',
 			(payload: { dbUserId?: number; badges?: any[] } & { userId?: string }) => {
 				if (!payload || typeof payload.dbUserId !== 'number') return;
@@ -1495,7 +1534,7 @@ export class SocketManager {
 			}
 		);
 
-		sock.on('emoji-reaction-added', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
+		on('emoji-reaction-added', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;
 			const userIdStr = `user-${payload.userId}`;
 			channelMessages.update((state) => {
@@ -1519,7 +1558,7 @@ export class SocketManager {
 			});
 		});
 
-		sock.on('emoji-reaction-removed', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
+		on('emoji-reaction-removed', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;
 			const userIdStr = `user-${payload.userId}`;
 			channelMessages.update((state) => {

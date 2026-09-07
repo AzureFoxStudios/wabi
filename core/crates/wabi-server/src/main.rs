@@ -11,6 +11,8 @@ mod anchor;
 mod api;
 mod app_router;
 mod auth_extractor;
+mod channel_access;
+mod call_access;
 mod blacklist;
 mod blobs;
 mod bot_delivery;

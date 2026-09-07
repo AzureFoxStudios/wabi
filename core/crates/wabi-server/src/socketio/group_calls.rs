@@ -10,6 +10,10 @@ async fn on_group_call_leave(socket: SocketRef, data: Value, state: SioState, io
         None => return,
     };
 
+    // A leave may overtake the access lookup of a start/answer on this
+    // connection. Invalidate that pending admission before waiting on state.
+    advance_voice_intent(&socket, &channel_id, false);
+
     let (was_connected, recipients, pending_cancel) = {
         let mut sessions = state.group_call_sessions.write().await;
         let session = match sessions.get_mut(&channel_id) {
@@ -17,17 +21,18 @@ async fn on_group_call_leave(socket: SocketRef, data: Value, state: SioState, io
             None => return,
         };
 
-        let was_invited = session.invited_participants.remove(&my_stable_id);
-        let was_connected = session.connected_participants.remove(&my_stable_id);
+        let departure = session.connected_participants.leave_socket(&socket.id.to_string());
+        let was_connected = departure.as_ref().is_some_and(|(_, last)| *last);
+        let was_invited = if departure.is_none() { session.invited_participants.remove(&my_stable_id) } else { false };
 
-        if !was_invited && !was_connected {
+        if !was_invited && departure.is_none() {
             return;
         }
 
         let recipients: Vec<String> = session.connected_participants.iter().cloned().collect();
 
         let should_cleanup = session.connected_participants.is_empty()
-            || (session.connected_participants.len() == 1
+            || (was_connected && session.connected_participants.len() == 1
                 && session.invited_participants.is_empty()
                 && !session.has_ever_established);
 
@@ -55,7 +60,8 @@ async fn on_group_call_leave(socket: SocketRef, data: Value, state: SioState, io
                     &json!({
                         "channelId": channel_id,
                         "stableUserId": my_stable_id,
-                        "userId": socket.id.to_string()
+                        "userId": my_stable_id,
+                        "socketId": socket.id.to_string()
                     }),
                 )
                 .await;
@@ -111,7 +117,7 @@ async fn on_group_call_stop_ringing(socket: SocketRef, data: Value, state: SioSt
             None => return,
         };
 
-        if !session.connected_participants.contains(&my_stable_id) {
+        if !session.connected_participants.contains_socket(&my_stable_id, &socket.id.to_string()) {
             return;
         }
         if !session.invited_participants.remove(&target_user_id) {
@@ -157,4 +163,3 @@ async fn on_group_call_stop_ringing(socket: SocketRef, data: Value, state: SioSt
             .await;
     }
 }
-

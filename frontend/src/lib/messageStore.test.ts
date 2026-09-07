@@ -9,6 +9,8 @@ mock.module('./socketConnection', () => ({
 	connected: { subscribe: (fn: (v: boolean) => void) => (fn(true), () => {}) }
 }));
 mock.module('$lib/wabidb', () => ({ getWabiDB: () => null }));
+// This unit suite exercises ordinary-channel state, not browser auth storage.
+mock.module('./groupAccess', () => ({ groupMembership: { acceptsContent: () => true } }));
 mock.module('$app/environment', () => ({ browser: true, dev: false, building: false }));
 
 const { channelMessages, unreadCount, channelUnreadCounts, markChannelAsRead } = await import(

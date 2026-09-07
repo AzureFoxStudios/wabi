@@ -7,6 +7,7 @@
 //! and linearizability barrier.
 
 pub mod locks;
+mod membership_repair;
 pub mod replay;
 pub mod wabi_store;
 
@@ -926,7 +927,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::reactions::Reaction",
         },
         ProjectionRegistration {
-            event_types: &["channel_member_added"],
+            event_types: &["channel_member_added", "channel_member_removed", "channel_members_changed"],
             handler: Arc::new(ChannelMembersProjection),
             index_name: "channel_members",
             record_type_name: "wabidb::projections::channel_members::ChannelMemberRecord",

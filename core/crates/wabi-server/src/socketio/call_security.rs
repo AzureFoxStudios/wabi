@@ -281,6 +281,65 @@ pub fn dm_link_clear_user(stable_id: &str) {
 // WabiDB media room authorization (pure — unit-testable without sockets)
 // ---------------------------------------------------------------------------
 
+/// A live roster is consent, not channel authorization. Check the persisted
+/// resource before creating consent. Private text channels must never enter
+/// the globally visible voice-roster API.
+async fn require_call_channel(
+    socket: &SocketRef, state: &SioState, channel_id: &str,
+    kind: wabidb::domain::ChannelKind, error_event: &str, request_id: Option<&Value>,
+) -> Option<SocketIdentity> {
+    let identity = resolve_identity(socket, state).await;
+    let allowed = if let Some(identity) = &identity {
+        matches!(crate::channel_access::require_access(&state.app, identity.user_id, channel_id).await,
+            Ok(channel) if channel.channel_kind == kind)
+    } else { false };
+    if !allowed {
+        let _ = socket.emit(error_event, &json!({
+            "channelId": channel_id, "targetUserId": channel_id,
+            "error": "Call channel access denied", "message": "Call channel access denied",
+            "code": "call_access_denied", "requestId": request_id,
+        }));
+        return None;
+    }
+    identity
+}
+
+/// Cancel a pending authorization lookup without serializing unrelated calls.
+/// Primary and listener intents are independent (legacy clients send both).
+#[derive(Clone, Default)]
+struct VoiceAdmissionEpochs(Arc<std::sync::Mutex<(u64, HashMap<(String, bool), u64>)>>);
+
+fn advance_voice_intent(socket: &SocketRef, channel: &str, listening: bool) -> u64 {
+    let epochs = socket.extensions.get::<VoiceAdmissionEpochs>().expect("voice epochs installed at connect");
+    let mut epochs = epochs.0.lock().expect("voice epoch lock");
+    epochs.0 += 1;
+    let epoch = epochs.0;
+    // Invalid-channel floods must not allocate unbounded connection state.
+    // Eviction cancels an old pending lookup; the global counter prevents ABA.
+    if epochs.1.len() >= 256 {
+        if let Some(key) = epochs.1.iter().min_by_key(|(_, epoch)| *epoch).map(|(key, _)| key.clone()) {
+            epochs.1.remove(&key);
+        }
+    }
+    epochs.1.insert((channel.to_string(), listening), epoch);
+    epoch
+}
+
+fn voice_intent_current(socket: &SocketRef, channel: &str, listening: bool, epoch: u64) -> bool {
+    socket.connected() && socket.extensions.get::<VoiceAdmissionEpochs>().is_some_and(|epochs|
+        epochs.0.lock().expect("voice epoch lock").1.get(&(channel.to_string(), listening)) == Some(&epoch))
+}
+
+/// Departing one call must not erase headers owned by another active call.
+pub fn wabidb_header_cache_forget_session_socket(session_id: &str, socket_id: &str) {
+    let mut cache = wabidb_header_cache().write().expect("header cache lock");
+    if let Some(senders) = cache.get_mut(session_id) {
+        senders.retain(|_, envelopes| !envelopes.iter().any(|e|
+            e.get("senderSocket").and_then(Value::as_str) == Some(socket_id)));
+        if senders.is_empty() { cache.remove(session_id); }
+    }
+}
+
 /// Authorize joining the `wabidb-call-{session}` relay room.
 ///
 /// Session ids are the deterministic client-side keys (`channel:{id}` /
@@ -327,7 +386,7 @@ pub fn authorize_wabidb_session_join(
             .map(|members| {
                 members
                     .iter()
-                    .any(|p| p.socket_id == my_socket_id || p.stable_id == my_stable_id)
+                    .any(|p| p.socket_id == my_socket_id && p.stable_id == my_stable_id)
             })
             .unwrap_or(false);
         if voice_member {
@@ -335,7 +394,7 @@ pub fn authorize_wabidb_session_join(
         }
         let group_member = group_sessions
             .get(channel_id)
-            .map(|s| s.connected_participants.contains(my_stable_id))
+            .map(|s| s.connected_participants.contains_socket(my_stable_id, my_socket_id))
             .unwrap_or(false);
         if group_member {
             return Ok(());
@@ -364,12 +423,12 @@ pub fn signaling_consent_allowed(
     }
     // Shared voice channel (either id form for both sides).
     let sender_matches = |p: &VoiceParticipant| {
-        p.socket_id == my_socket_id || p.stable_id == my_stable_id
+        p.socket_id == my_socket_id && p.stable_id == my_stable_id
     };
     let target_matches = |p: &VoiceParticipant| {
-        p.socket_id == target_id
-            || p.stable_id == target_id
-            || target_stable_id.is_some_and(|t| p.stable_id == t)
+        // An explicitly addressed device must itself have joined.
+        if target_stable_id.is_some() { p.socket_id == target_id }
+        else { p.socket_id == target_id || p.stable_id == target_id }
     };
     if voice_channels
         .values()
@@ -383,10 +442,11 @@ pub fn signaling_consent_allowed(
         None => vec![target_id],
     };
     if group_sessions.values().any(|s| {
-        s.connected_participants.contains(my_stable_id)
-            && target_forms
-                .iter()
-                .any(|t| s.connected_participants.contains(*t))
+        s.connected_participants.contains_socket(my_stable_id, my_socket_id)
+            && match target_stable_id {
+                Some(account) => s.connected_participants.contains_socket(account, target_id),
+                None => s.connected_participants.contains(target_id),
+            }
     }) {
         return true;
     }
@@ -423,7 +483,7 @@ mod call_security_tests {
             has_ever_established: false,
             last_invite_sender_id: String::new(),
             invited_participants: HashSet::new(),
-            connected_participants: HashSet::new(),
+            connected_participants: GroupCallParticipants::default(),
         }
     }
 
@@ -459,12 +519,32 @@ mod call_security_tests {
     fn group_session_participant_may_join_channel_room() {
         let mut groups = HashMap::new();
         let mut session = empty_group("g-1");
-        session.connected_participants.insert("user-7".to_string());
+        session.connected_participants.join("user-7", "sock-7");
         groups.insert("g-1".to_string(), session);
         assert!(authorize_wabidb_session_join(
             "user-7", "sock-7", "channel:g-1", Some("g-1"), &HashMap::new(), &groups
         )
         .is_ok());
+        assert!(authorize_wabidb_session_join(
+            "user-7", "other-device", "channel:g-1", Some("g-1"), &HashMap::new(), &groups
+        ).is_err(), "another device must have its own call admission");
+    }
+
+    #[test]
+    fn group_participants_have_one_device_owned_source_of_truth() {
+        let mut participants = GroupCallParticipants::default();
+        participants.join("user-1", "old");
+        participants.join("user-1", "new");
+        participants.join("user-2", "peer");
+        assert_eq!(participants.len(), 2);
+        assert_eq!(participants.leave_socket("unadmitted"), None);
+        assert_eq!(participants.leave_socket("old"), Some(("user-1".into(), false)));
+        assert!(participants.contains_socket("user-1", "new"));
+        participants.join("user-1", "third");
+        assert!(participants.remove("user-1"));
+        assert!(!participants.contains_socket("user-1", "new"));
+        assert!(!participants.contains_socket("user-1", "third"));
+        assert!(participants.contains_socket("user-2", "peer"));
     }
 
     #[test]
@@ -534,6 +614,12 @@ mod call_security_tests {
         ));
         // No relationship.
         assert!(!signaling_consent_allowed(
+            "user-1", "unjoined-sibling", "sock-b", &voice, &HashMap::new(), Some("user-2")
+        ));
+        assert!(!signaling_consent_allowed(
+            "user-1", "sock-a", "unjoined-sibling", &voice, &HashMap::new(), Some("user-2")
+        ));
+        assert!(!signaling_consent_allowed(
             "user-9", "sock-z", "user-2", &voice, &HashMap::new(), None
         ));
 
@@ -550,8 +636,8 @@ mod call_security_tests {
         // Group session consent.
         let mut groups = HashMap::new();
         let mut session = empty_group("g-1");
-        session.connected_participants.insert("user-5".to_string());
-        session.connected_participants.insert("user-6".to_string());
+        session.connected_participants.join("user-5", "sock-e");
+        session.connected_participants.join("user-6", "sock-f");
         groups.insert("g-1".to_string(), session);
         assert!(signaling_consent_allowed(
             "user-5", "sock-e", "user-6", &HashMap::new(), &groups, None

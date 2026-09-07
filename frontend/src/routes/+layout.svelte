@@ -3,13 +3,9 @@
 	// Phase 4 boot optimization: katex/prism CSS moved next to their JS usage
 	// in $lib/markdown.ts so they load with the lazy app chunk, not at login.
 	import { onMount, onDestroy } from 'svelte';
-	import { channelMessages, channels } from '$lib/socket';
 	import PureRefViewer from '$lib/components/PureRefViewer.svelte';
 	import SyncLoadingOverlay from '$lib/components/SyncLoadingOverlay.svelte';
-	import { isRunningInTauri, startAutoSaveTauri, type WabiData } from '$lib/tauri-storage';
-	import { migrateTauriData, loadMigratedTauriData } from '$lib/tauri-migration';
-	import { chatStorage } from '$lib/storage';
-	import { get } from 'svelte/store';
+	import { isTauriRuntime as isRunningInTauri } from '$lib/tauri-platform';
 	import { initI18n } from '$lib/i18n';
 	import { isNeutralBrandingEnabled, injectNeutralBranding } from '$lib/components/loginHelpers';
 	import { openWabiDB, getWabiDB } from '$lib/wabidb';
@@ -33,7 +29,6 @@
 	initI18n();
 	startSocketErrorToasts();
 
-let cleanupAutoSave: (() => void) | null = null;
 let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
 let onlineHandler: (() => void) | null = null;
 let cleanupInstallPrompt: (() => void) | null = null;
@@ -133,50 +128,9 @@ function isLocalPreviewHost(): boolean {
 		// NOTE: Socket initialization is handled ONLY by +page.svelte
 		// This prevents duplicate connections when both layout and page mount
 
-		// Initialize Tauri features if running in Tauri
-		if (isRunningInTauri()) {
-			console.log('[Layout] Tauri detected');
-			startupMark('layout:tauri:init:start');
-
-			// Check if user has enabled Tauri storage
-			const tauriStorageEnabled = localStorage.getItem('tauriStorageEnabled') === 'true';
-
-			if (tauriStorageEnabled) {
-				console.log('[Layout] Tauri storage enabled, initializing...');
-
-				// Run migration if needed
-				const migrated = await migrateTauriData();
-				if (migrated) {
-					console.log('[Layout] Data migrated from IndexedDB to Tauri storage');
-					// Load the migrated data to verify
-					await loadMigratedTauriData();
-				}
-
-				// Create a data getter function that collects all current data
-				const getDataFunction = (): WabiData => {
-					// Get all current stores
-					const messages = get(channelMessages);
-					const channelsList = get(channels);
-
-					return {
-						version: '1.0',
-						exported_at: Date.now(),
-						messages,
-						settings: {
-							channels: channelsList,
-							// Add more settings as needed
-						}
-					};
-				};
-
-				// Start auto-save with 30 second interval
-				cleanupAutoSave = startAutoSaveTauri(getDataFunction, 30000);
-			} else {
-				console.log('[Layout] Tauri storage not enabled - skipping auto-save');
-			}
-		startupMark('layout:tauri:init:end');
-		startupMeasure('layout:tauri:init', 'layout:tauri:init:start', 'layout:tauri:init:end');
-	}
+		// Browser and Tauri share the supported outbound queue below. There is
+		// no native chat-sidecar backend; never schedule legacy archive migration
+		// or autosave from the previous account's messages.
 
 		// Initialize WabiDB (client-side offline persistence)
 		try {
@@ -199,10 +153,6 @@ function isLocalPreviewHost(): boolean {
 	});
 
 	onDestroy(() => {
-		// Clean up auto-save on app shutdown
-		if (cleanupAutoSave) {
-			cleanupAutoSave();
-		}
 		if (cleanupInstallPrompt) {
 			cleanupInstallPrompt();
 			cleanupInstallPrompt = null;

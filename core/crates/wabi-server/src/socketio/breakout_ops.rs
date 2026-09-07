@@ -158,6 +158,12 @@ async fn move_voice_participant(
 /// alone leaves the client's wabidb relay on the old channel's session, so
 /// without this the audio never follows the user.
 async fn emit_voice_self_moved(io: &SocketIo, moved: &MovedParticipant, to_channel_id: &str) {
+    if let Some(target) = io.sockets().into_iter().find(|s| s.id.to_string() == moved.participant.socket_id) {
+        // The roster was already moved. Revoke the old relay before asking
+        // the client to retune, even when the client ignores the notification.
+        target.leave(format!("wabidb-call-channel:{}", moved.from_channel_id));
+        wabidb_header_cache_forget_session_socket(&format!("channel:{}", moved.from_channel_id), &moved.participant.socket_id);
+    }
     let _ = io
         .to(moved.participant.socket_id.clone())
         .emit(
@@ -493,6 +499,9 @@ async fn on_move_user_to_voice_channel(socket: SocketRef, data: Value, state: Si
             return;
         }
     };
+
+    if require_call_channel(&socket, &state, &payload.to_channel_id,
+        wabidb::domain::ChannelKind::Voice, "move-user-to-voice-channel-error", None).await.is_none() { return; }
 
     // Permission: dragging yourself is always allowed; moving other members
     // requires at least the Moderator role (mirrors the frontend's

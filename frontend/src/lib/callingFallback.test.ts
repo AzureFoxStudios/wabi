@@ -12,11 +12,22 @@ mock.module('./callingStateStores', () => ({
 	callTransportState: { update: (_fn: any) => {}, set: (_v: any) => {} },
 	callOfflineNotice: { set: (_v: any) => {} }
 }));
-const { FALLBACK_CHAINS, MESH_MAX_PARTICIPANTS, chainForMode, effectiveChain } = await import(
+const { FALLBACK_CHAINS, MESH_MAX_PARTICIPANTS, chainForMode, effectiveChain, connectWithFallback } = await import(
 	'./callingFallback'
 );
 
 describe('transport fallback chains', () => {
+	test('cancellation during either a successful or failed attempt cannot fall back', async () => {
+		for (const fails of [false, true]) {
+			let current = true;
+			const attempted: string[] = [];
+			const result = connectWithFallback({ mode: 'auto', surface: 'group', stillWanted: () => current,
+				connect: async transport => { attempted.push(transport); current = false; if (fails) throw new Error('late failure'); }
+			}).catch(error => error);
+			expect((await result).name).toBe('AbortError');
+			expect(attempted).toEqual(['wabidb']);
+		}
+	});
 	test('every stored mode has a non-empty chain', () => {
 		for (const mode of ['auto', 'wabidb', 'sfu-preferred', 'p2p-only']) {
 			const chain = chainForMode(mode);

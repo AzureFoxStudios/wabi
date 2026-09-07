@@ -1,7 +1,7 @@
 import { derived } from 'svelte/store';
 import type { Readable } from 'svelte/store';
 import type { User, Channel } from './socket-types';
-import { users } from './socket-manager';
+import { users } from './presenceIdentity';
 
 /*
  * userLookupStore.ts

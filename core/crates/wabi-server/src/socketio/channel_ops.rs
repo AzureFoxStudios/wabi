@@ -18,12 +18,8 @@ async fn on_create_thread(socket: SocketRef, data: Value, state: SioState, io: S
         }
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if user_id <= 0 {
-        let _ = socket.emit("create-thread-error", &json!({"error": "Authentication required"}));
-        return;
-    }
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "create-thread-error").await else { return; };
+    let user_id = identity.user_id;
 
     match state.app.wdb.create_forum_thread(&channel_id, &name, user_id as u64, None, None, None).await {
         Ok(thread_id) => {
@@ -52,12 +48,8 @@ async fn on_pin_channel(socket: SocketRef, data: Value, state: SioState, io: Soc
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if user_id <= 0 {
-        let _ = socket.emit("pin-channel-error", &json!({"error": "Authentication required"}));
-        return;
-    }
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "pin-channel-error").await else { return; };
+    let user_id = identity.user_id;
 
     if let Err(e) = state.app.wdb.ingest_event("channel", "pin", &json!({
         "channelId": channel_id,
@@ -69,7 +61,7 @@ async fn on_pin_channel(socket: SocketRef, data: Value, state: SioState, io: Soc
     }
 
     let _ = socket.emit("channel-pinned", &json!({"channelId": channel_id}));
-    let _ = io.broadcast().emit("channel-pinned", &json!({"channelId": channel_id})).await;
+    let _ = io.to(format!("user-{user_id}")).emit("channel-pinned", &json!({"channelId": channel_id})).await;
 }
 
 #[allow(dead_code)]
@@ -79,12 +71,8 @@ async fn on_unpin_channel(socket: SocketRef, data: Value, state: SioState, io: S
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if user_id <= 0 {
-        let _ = socket.emit("unpin-channel-error", &json!({"error": "Authentication required"}));
-        return;
-    }
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "unpin-channel-error").await else { return; };
+    let user_id = identity.user_id;
 
     if let Err(e) = state.app.wdb.ingest_event("channel", "unpin", &json!({
         "channelId": channel_id,
@@ -96,7 +84,7 @@ async fn on_unpin_channel(socket: SocketRef, data: Value, state: SioState, io: S
     }
 
     let _ = socket.emit("channel-unpinned", &json!({"channelId": channel_id}));
-    let _ = io.broadcast().emit("channel-unpinned", &json!({"channelId": channel_id})).await;
+    let _ = io.to(format!("user-{user_id}")).emit("channel-unpinned", &json!({"channelId": channel_id})).await;
 }
 
 #[allow(dead_code)]
@@ -127,6 +115,17 @@ async fn on_reorder_channels(socket: SocketRef, data: Value, state: SioState, io
         return;
     }
 
+    // Shared sidebar ordering must never mutate or expose private group IDs,
+    // including through a client-supplied private parent. Validate the complete
+    // batch before applying any position changes.
+    for entry in channels {
+        for id in [entry.get("id"), entry.get("parentId")].into_iter().flatten().filter_map(Value::as_str) {
+            if !matches!(state.app.wdb.get_channel(id).await, Ok(Some(c)) if !crate::channel_access::is_conversation(c.channel_kind)) {
+                let _ = socket.emit("reorder-channels-error", &json!({"error":"Only shared channels can be reordered"}));
+                return;
+            }
+        }
+    }
     for entry in channels {
         let id = match entry.get("id").and_then(|v| v.as_str()) {
             Some(id) => id.to_string(),

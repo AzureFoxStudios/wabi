@@ -36,6 +36,7 @@ async fn on_sync_newer(socket: SocketRef, data: Value, state: SioState) {
         Some(id) => id.to_string(),
         None => return,
     };
+    if require_socket_channel(&socket, &state, &channel_id, "sync-error").await.is_none() { return; }
     let msgs: Vec<Value> = {
         let session = state.app.session_messages.read().await;
         session.get(&channel_id).cloned().unwrap_or_default()
