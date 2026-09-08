@@ -1,8 +1,9 @@
 # Full frontend polish — 2026-09-08
 
-Status: documented repair pass implemented and verified. The user subsequently
-authorized push and deployment; release progress is recorded below. No native
-installer or real-device test is claimed by this pass.
+Status: documented repair pass deployed; **comprehensive product UX remains open**.
+The user explicitly rejected treating these repairs as full polish. Release and
+historical verification are recorded below. No native installer or real-device
+test is claimed by this pass.
 
 The user explicitly approved completing the September 7 frontend-polish document
 with parallel subagents. Its historical recon-only pause and single-worker budget
@@ -177,3 +178,34 @@ reconstruction. The existing socket path can acknowledge/broadcast after a WDB
 failure, while file payload decoding/history reconstruction can lose ordinary
 attachments after restart. This release does not claim those independent defects
 fixed; its session-memory draft improvements are not server persistence receipts.
+
+### User review: full product UX reopened
+
+The user's hands-on review found this repair pass insufficient: the new dropdown
+workspace picker loses the appeal of the original compact expanding icon bar;
+Admin still does not provide a useful route to server administration or meaningful
+reports/operational information; Whiteboard has redundant text; and Settings and
+Add-ons were not examined deeply enough. Entry/search coverage was real but must
+not be represented as proof of useful completed workflows.
+
+Finish the [message-delivery stretch](2026-09-08-message-delivery.md), then perform
+a thorough task-based UX/UI pass across **all** product surfaces: channels, chat,
+forums, Lore, wiki, whiteboards, right panels, server hub, every Settings/Add-ons
+section, and other reachable workspaces. Trace actions through actual consumers
+and server contracts. Review creation/editing/discovery, permission boundaries,
+loading/empty/error states, navigation and desktop/narrow layouts. Fix and verify
+one coherent area at a time. Unsupported-feature honesty is necessary, but a
+label explaining the absence of functionality is not itself product polish.
+The expanding icon-bar interaction and Admin information architecture require
+reconsideration, not automatic preservation of the previous implementation.
+
+Design exploration requested separately: expandable forum-post entries below
+their parent channel (a sub-channel-like tree). This is **not mandatory
+implementation**. Compare with existing channel folders/tree and right panels;
+evaluate discovery, unread state, bounded nesting, sidebar noise and narrow
+layouts before deciding whether it fits Wabi.
+
+Additional evidence from the delivery full-app regression: Admin sections still
+logged `not_found` for relay roster and donation configuration/audit requests.
+Investigate the actual endpoint, availability and setting-consumer contracts;
+do not count a mounted section or caught console error as a working control.

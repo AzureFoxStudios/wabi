@@ -2,18 +2,14 @@
 
 #[allow(dead_code)]
 async fn on_retry_message(socket: SocketRef, data: Value, _state: SioState, _io: SocketIo) {
-    let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => return,
-    };
-    let message_id = match data.get("messageId").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => return,
-    };
-
-    // Forward the retry back to the caller as an ack — no server-side
-    // retry logic until a message-queue projection exists.
-    let _ = socket.emit("retry-message-ack", &json!({"channelId": channel_id, "messageId": message_id}));
+    // No persisted original command or restart-safe deduplication contract
+    // exists for this legacy action. An echo was never a persistence retry.
+    let _ = socket.emit("retry-message-error", &json!({
+        "channelId": data.get("channelId").and_then(Value::as_str),
+        "messageId": data.get("messageId").and_then(Value::as_str),
+        "code": "unsupported",
+        "error": "Persistence retry is unavailable. Check history before sending again.",
+    }));
 }
 
 #[allow(dead_code)]

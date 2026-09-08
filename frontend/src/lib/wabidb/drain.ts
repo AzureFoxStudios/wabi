@@ -4,13 +4,14 @@ import { getSocket } from '$lib/socketConnection';
 import { connected } from '$lib/socket';
 import { groupQueueDecision, queueRejectionReason } from './queue/groupPolicy';
 import { groupMembership } from '$lib/groupAccess';
-import { _updateOptimisticMessage } from '$lib/messageStore';
-
-const UNCONFIRMED_MESSAGE = 'Delivery not confirmed. This message may have been sent; check the conversation before sending again.';
-const awaitingMessages = new Set<string>();
+import { _updateOptimisticMessage, _trackMessageDelivery } from '$lib/messageStore';
+import { messageDeliveries, UNCONFIRMED_MESSAGE } from '$lib/messageDelivery';
+import { authSessionGeneration } from '$lib/authSession';
+import { getServerUrl } from '$lib/serverUrl';
 function markUnconfirmed(channelId: string, clientMessageId: string, error: string): void {
-	_updateOptimisticMessage(channelId, message => message.clientMessageId === clientMessageId && Boolean(message.deliveryState),
-		{ deliveryState: 'failed', deliveryError: error });
+	_updateOptimisticMessage(channelId, message => message.clientMessageId === clientMessageId && Boolean(message.deliveryState) &&
+		message.deliveryOutcome !== 'rejected',
+		{ deliveryState: 'failed', deliveryError: error, deliveryOutcome: 'unknown' });
 }
 
 const DRAIN_DISPATCH: Record<string, string> = {
@@ -36,8 +37,14 @@ let requested = false;
 export function drainOutboundQueue(): Promise<void> {
 	requested = true;
 	if (!draining) draining = (async () => {
-		do { requested = false; await drainOnce(); } while (requested);
-	})().finally(() => { draining = null; });
+		try {
+			do { requested = false; await drainOnce(); } while (requested);
+		} finally {
+			// Release in the same continuation as the last requested check.
+			// Promise.finally creates a gap where a new request can be lost.
+			draining = null;
+		}
+	})();
 	return draining;
 }
 
@@ -49,7 +56,10 @@ async function drainOnce(): Promise<void> {
 	if (!sock || !get(connected)) return;
 	const socketId = sock.id;
 	const realm = groupMembership.realm();
-	const current = () => getSocket() === sock && sock.connected && sock.id === socketId && groupMembership.realm() === realm;
+	const server = getServerUrl();
+	const generation = authSessionGeneration(server);
+	const current = () => getSocket() === sock && sock.connected && sock.id === socketId && groupMembership.realm() === realm &&
+		authSessionGeneration(server) === generation;
 
 	const pending = (await db.listQueue({ status: 'pending' })).sort(
 		(a, b) => a.createdAt - b.createdAt
@@ -63,17 +73,25 @@ async function drainOnce(): Promise<void> {
 			const reason = queueRejectionReason(action);
 			await db.markFailed(action.id, reason, false);
 			const payload = action.payload as { channelId?: string; clientMessageId?: string } | null;
-			if (payload?.channelId && payload.clientMessageId) markUnconfirmed(payload.channelId, payload.clientMessageId, reason);
+			if (current() && action.authority?.realm === realm && payload?.channelId && payload.clientMessageId) markUnconfirmed(payload.channelId, payload.clientMessageId, reason);
 			continue;
 		}
 		const eventName = DRAIN_DISPATCH[action.type];
 		if (!eventName) continue;
 		if (eventName === 'message') {
 			const payload = action.payload as { channelId?: string; clientMessageId?: string } | null;
-			if (action.attemptedAt !== undefined && awaitingMessages.has(action.id)) continue;
-			if (!payload?.channelId || !payload.clientMessageId || action.attemptedAt !== undefined) {
+			if (action.attemptedAt !== undefined && payload?.channelId && payload.clientMessageId && messageDeliveries.has(sock,
+				{ channelId: payload.channelId, clientMessageId: payload.clientMessageId })) continue;
+			if (!payload?.channelId || !payload.clientMessageId) {
 				await db.markFailed(action.id, UNCONFIRMED_MESSAGE, false);
-				if (payload?.channelId && payload.clientMessageId) markUnconfirmed(payload.channelId, payload.clientMessageId, UNCONFIRMED_MESSAGE);
+				continue;
+			}
+			if (action.attemptedAt !== undefined) {
+				// Another tab or a previous process may have submitted this intent.
+				// Use the same monotonic receipt transaction as the live deadline.
+				await db.settleMessageReceipt(payload.channelId, payload.clientMessageId, realm,
+					{ status: 'failed', error: UNCONFIRMED_MESSAGE, outcome: 'unknown' });
+				if (current()) markUnconfirmed(payload.channelId, payload.clientMessageId, UNCONFIRMED_MESSAGE);
 				continue;
 			}
 			if (!await db.claimMessage(action.id)) continue;
@@ -83,12 +101,12 @@ async function drainOnce(): Promise<void> {
 				await db.markFailed(action.id, 'Not sent: connection or group access changed before sending.', false);
 				continue;
 			}
-			awaitingMessages.add(action.id);
-			setTimeout(() => {
-				awaitingMessages.delete(action.id);
-				void db.markFailed(action.id, UNCONFIRMED_MESSAGE, false).catch(error => console.warn('[queue] Could not record unconfirmed delivery', error));
-				if (current()) markUnconfirmed(payload.channelId!, payload.clientMessageId!, UNCONFIRMED_MESSAGE);
-			}, 15_000);
+			_updateOptimisticMessage(payload.channelId, message => message.clientMessageId === payload.clientMessageId,
+				{ deliveryState: 'sending', deliveryError: undefined });
+			_trackMessageDelivery(sock, payload.channelId, payload.clientMessageId, () => {
+				void db.settleMessageReceipt(payload.channelId!, payload.clientMessageId!, realm,
+					{ status: 'failed', error: UNCONFIRMED_MESSAGE, outcome: 'unknown' }).catch(error => console.warn('[queue] Could not record unconfirmed delivery', error));
+			});
 		}
 		try {
 			sock.emit(eventName, action.payload);
@@ -96,6 +114,9 @@ async function drainOnce(): Promise<void> {
 			// a server acknowledgement. The attempt marker prevents unsafe retry.
 			if (eventName !== 'message') await db.markSynced(action.id);
 		} catch {
+			const payload = action.payload as { channelId?: string; clientMessageId?: string } | null;
+			if (eventName === 'message' && payload?.channelId && payload.clientMessageId) messageDeliveries.unconfirm(sock,
+				{ channelId: payload.channelId, clientMessageId: payload.clientMessageId });
 			break;
 		}
 	}

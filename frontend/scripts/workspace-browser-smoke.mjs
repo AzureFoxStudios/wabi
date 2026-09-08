@@ -14,6 +14,7 @@ import { probePanelPersistence, runPanelPolishChecks } from './panel-polish-chec
 import { runComposerSettingsChecks } from './composer-settings-polish-checks.mjs';
 import { runAdminPolishChecks } from './admin-polish-checks.mjs';
 import { runComposerSendChecks } from './composer-send-polish-checks.mjs';
+import { runMessageDeliveryAppChecks } from './message-delivery-app-checks.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scratch = await mkdtemp('/tmp/wabi-workspace-smoke-');
@@ -65,6 +66,7 @@ try {
 	console.log('PIN PERSISTENCE PROBE', await probePanelPersistence(page));
 	await page.evaluate(async () => (await import('/src/lib/layoutStore.ts')).layoutStore.closeRightPanel());
 	await runComposerSettingsChecks(page);
+	await runMessageDeliveryAppChecks(page);
 	await runComposerSendChecks(page);
 	await runAdminPolishChecks(page, scratch);
 	const anchor = await trigger.boundingBox();

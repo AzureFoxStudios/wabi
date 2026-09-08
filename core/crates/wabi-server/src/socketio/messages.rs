@@ -18,21 +18,47 @@ pub async fn channel_is_live(app: &AppState, channel_id: &str) -> bool {
 
 #[allow(dead_code)]
 async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo) {
-    let channel_id = match cmd.get("channelId").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => {
-            warn!("[sio] message missing channelId");
+    // Correlate every outcome before validation/authentication can reject it.
+    // Legacy clients may omit the nonce; never manufacture a different one.
+    let client_message_id = cmd.get("clientMessageId").and_then(Value::as_str).map(String::from);
+    let channel_id = cmd.get("channelId").and_then(Value::as_str).map(String::from);
+    let fail = |code: &str, outcome: &str, error: &str| {
+        let _ = socket.emit("message-error", &json!({
+            "channelId": channel_id, "clientMessageId": client_message_id,
+            "code": code, "outcome": outcome, "error": error,
+        }));
+    };
+    let channel_id = match channel_id.as_deref() {
+        Some(id) if !id.trim().is_empty() => id.to_string(),
+        _ => {
+            fail("invalid_request", "rejected", "Choose a channel before sending a message.");
             return;
         }
     };
+    if cmd.get("text").is_some_and(|value| !value.is_string())
+        || cmd.get("type").is_some_and(|value| !value.is_string())
+        || cmd.get("clientMessageId").is_some_and(|value| !value.is_string())
+    {
+        fail("invalid_request", "rejected", "The message request is invalid.");
+        return;
+    }
+    let text = cmd.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+    if cmd.get("type").and_then(Value::as_str).unwrap_or("text") == "text" && text.trim().is_empty() {
+        fail("invalid_request", "rejected", "Enter a message before sending.");
+        return;
+    }
 
     // Resolve identity — replaces scattered token plumbing.
     let Some(identity) = resolve_identity(&socket, &state).await else {
-        let _ = socket.emit("message-error", &json!({ "channelId": &channel_id, "error": "authentication required" }));
+        fail("authentication_required", "rejected", "Sign in before sending a message.");
         return;
     };
     let user_id_num = identity.user_id;
     let username = identity.username;
+    if user_id_num <= 0 {
+        fail("authentication_required", "rejected", "Sign in before sending a message.");
+        return;
+    }
 
     // Channel access check: DM rooms require can_access_dm, others can_access_channel.
     // Point lookup (t_6bbbc52a): no full channel-table scan per message.
@@ -47,14 +73,23 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     };
     if !allowed {
         warn!("[sio] user {} denied message to channel {}", user_id_num, channel_id);
-        let _ = socket.emit("message-error", &json!({ "channelId": &channel_id, "error": "access denied" }));
+        fail("access_denied", "rejected", "You do not have access to this channel.");
         return;
     }
 
     // Check if user is muted
-    if let Ok(true) = state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
-        warn!("[sio] user {} muted in channel {}", user_id_num, channel_id);
-        return;
+    match state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
+        Ok(true) => {
+            warn!("[sio] user {} muted in channel {}", user_id_num, channel_id);
+            fail("muted", "rejected", "You are muted in this channel.");
+            return;
+        }
+        Ok(false) => {}
+        Err(error) => {
+            warn!("[sio] could not check message mute: {error}");
+            fail("authorization_unavailable", "rejected", "Channel permissions could not be checked. The message was not sent.");
+            return;
+        }
     }
     let stable_id = format!("user-{}", user_id_num);
 
@@ -66,109 +101,53 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
             .unwrap_or_else(|| "#98D8C8".to_string())
     };
 
-    // Provisional client-facing id for guests / WDB failure; prefer WDB id when persisted
-    // so edit/delete can find the same record (was: socket id vs msg_{seq} mismatch).
-    let mut message_id = new_message_id(&channel_id, &username);
+    // Durable messages use only the committed record's ID. There is no
+    // session-only fallback for a failed durable write.
+    let message_id;
     let timestamp = now_ms();
-    let client_message_id = cmd
-        .get("clientMessageId")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    let text = cmd.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let mut is_spoiler = false;
-    let mut is_live = false;
+    let is_live = channel_is_live(&state.app, &channel_id).await;
 
-    if user_id_num > 0 {
-        is_live = channel_is_live(&state.app, &channel_id).await;
+    let requested_spoiler = cmd
+        .get("isSpoiler")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let channel_force_spoiler = state
+        .app
+        .wdb
+        .get_channel(&channel_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|c| c.force_spoiler)
+        .unwrap_or(false);
+    let is_spoiler = requested_spoiler || channel_force_spoiler;
 
-        let requested_spoiler = cmd
-            .get("isSpoiler")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let channel_force_spoiler = state
+    if is_live {
+        message_id = format!("live_{}", uuid::Uuid::new_v4());
+    } else {
+        let files: Vec<wabidb::projections::messages::FileAttachmentRecord> = cmd
+            .get("files")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        match state
             .app
             .wdb
-            .get_channel(&channel_id)
+            .send_message(&channel_id, user_id_num as u64, &text, is_spoiler, &files)
             .await
-            .ok()
-            .flatten()
-            .map(|c| c.force_spoiler)
-            .unwrap_or(false);
-        is_spoiler = requested_spoiler || channel_force_spoiler;
-
-        if is_live {
-            message_id = format!("live_{}", uuid::Uuid::new_v4());
-        } else {
-            let files: Vec<wabidb::projections::messages::FileAttachmentRecord> = cmd
-                .get("files")
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_default();
-            match state
-                .app
-                .wdb
-                .send_message(&channel_id, user_id_num as u64, &text, is_spoiler, &files)
-                .await
-            {
-                Ok(wdb_id) => {
-                    message_id = wdb_id;
-                }
-                Err(e) => {
-                    warn!("Failed to persist message to WDB: {}", e);
-                }
+        {
+            Ok(wdb_id) => {
+                message_id = wdb_id;
             }
-
-            // Schedule message deletion (default: 24h ephemeral unless channel opts into forever).
-            // - In-memory map: exact timer including sub-day presets
-            // - WDB retention days>0: durable multi-day timer (survives restart)
-            // - WDB retention days==0 with a stored policy: explicit keep-forever opt-in
-            // - No policy / no map: product default 24h (not infinite retention)
-            const DEFAULT_CHANNEL_AUTO_DELETE_MS: u64 = 24 * 60 * 60 * 1000;
-            let mut delete_after_ms: Option<u64> = {
-                state
-                    .app
-                    .channel_auto_delete_ms
-                    .read()
-                    .await
-                    .get(&channel_id)
-                    .copied()
-                    .filter(|ms| *ms > 0)
-            };
-            let mut explicit_forever = false;
-            if delete_after_ms.is_none() {
-                // Label "forever" is set when operator opts into keep-forever.
-                if state
-                    .app
-                    .channel_auto_delete_label
-                    .read()
-                    .await
-                    .get(&channel_id)
-                    .map(|s| s == "forever")
-                    .unwrap_or(false)
-                {
-                    explicit_forever = true;
-                } else if let Ok(Some(policy)) = state.app.wdb.get_channel_retention(&channel_id).await {
-                    if policy.days > 0 {
-                        delete_after_ms = Some(policy.days as u64 * 86_400_000);
-                    } else {
-                        // days == 0 means keep-forever was explicitly configured.
-                        explicit_forever = true;
-                    }
-                }
+            Err(e) => {
+                warn!("Failed to persist message to WDB: {}", e);
+                // A failed acknowledgment can follow durable log writes.
+                // Do not claim rejection or invite an unsafe resend.
+                fail("persistence_unconfirmed", "unknown", "Delivery could not be confirmed. Check history before sending again.");
+                return;
             }
-            if delete_after_ms.is_none() && !explicit_forever {
-                delete_after_ms = Some(DEFAULT_CHANNEL_AUTO_DELETE_MS);
-            }
-            // Message expiry is handled by the durable retention reaper in
-            // main.rs (60s sweep): it reconciles the in-memory map TTL
-            // (channel_auto_delete_ms), the WDB retention policy, and the
-            // product default — deleting persisted rows, cleaning the
-            // session buffer, and broadcasting message-deleted. Per-message
-            // tokio::spawn(sleep(ttl)) timers were removed (perf audit
-            // finding #5): they parked a task + cloned handles per message
-            // for up to 24h, died on restart anyway, and duplicated the
-            // reaper.
         }
     }
+    // The durable retention reaper owns expiry; live messages remain session-only.
 
     // H1b: fire outbound webhook delivery (`message.created`) to every
     // webhook URL registered on this channel. Fire-and-forget so a slow

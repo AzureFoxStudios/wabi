@@ -248,6 +248,13 @@ Mobile is ONE SPA, two skins (no separate site). The shell branch happens on `<h
 
 ### Frontend polish and honest controls (2026-09-08)
 
+- Message-store `sendMessage().ok` is a transport/local-queue handoff, not server
+  acceptance. `MessageDeliveryRow` shows own-message pending/failure status;
+  `messageDelivery.ts` owns the bounded attempt independently of composer mounts.
+  Preserve the client nonce across acceptance, but only match it within the same
+  sender: a peer echo/history snapshot must not replace local pending content.
+  Do not restore the old persistence Retry button; it emitted into a no-op.
+  Follow `wabidb-client-offline` for account-scoped receipts and reconnect races.
 - ChatComposer is runes-based and keyed by account/channel at both Chat and
   DmConversationView mounts. `composerDraftState.ts` holds session-memory drafts,
   including selected File objects, separately for simultaneous center/dock

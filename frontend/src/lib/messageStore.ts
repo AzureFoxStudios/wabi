@@ -17,8 +17,10 @@ import { getSocket, connected } from './socketConnection';
 import { getWabiDB } from '$lib/wabidb';
 import { currentUser } from './presenceStore';
 import { groupMembership } from './groupAccess';
-import { getGuestSessionId, onAuthSessionCleared } from './authSession';
+import { authSessionGeneration, getGuestSessionId, onAuthSessionCleared } from './authSession';
 import { getServerUrl, normalizeServerUrl } from './serverUrl';
+import { messageDeliveries, UNCONFIRMED_MESSAGE } from './messageDelivery';
+import { MESSAGE_QUEUE_OWNERSHIP_ERROR } from './wabidb/queue/groupPolicy';
 
 // ============================================================================
 // STORES
@@ -152,19 +154,13 @@ export function markChannelAsRead(channelId: string): void {
 	unreadCount.update((count) => Math.max(0, count - prior));
 }
 
-export function retryMessagePersistence(channelId: string, messageId: string): void {
-	const sock = getSocket();
-	if (!sock) return;
-	sock.emit('retry-message', { channelId, messageId });
-}
-
 export type SendMessageResult =
 	| { ok: true; clientMessageId: string; queuedOffline?: boolean }
 	| { ok: false; reason: 'no_socket' | 'empty' | 'no_channel' | 'queue_failed' };
 
 /**
- * Send a chat message. Returns a result so the composer can keep the draft
- * when the socket is missing instead of silently clearing the input.
+ * Hand off a chat message to the transport or durable local queue. ok is NOT
+ * server acceptance: the optimistic row owns visible receipt/failure state.
  */
 export async function sendMessage(
 	channelId: string,
@@ -249,44 +245,78 @@ export async function sendMessage(
 		const realm = groupMembership.realm();
 		const lease = groupMembership.tracks(channelId) ? groupMembership.capture(channelId) : null;
 		const server = normalizeServerUrl(getServerUrl());
+		const generation = authSessionGeneration(server);
 		const guest = getGuestSessionId();
 		let sessionCurrent = true;
 		const unsubscribe = onAuthSessionCleared(clearedServer => {
 			if (normalizeServerUrl(clearedServer) === server) sessionCurrent = false;
 		});
-		const canUpdate = () => sessionCurrent && normalizeServerUrl(getServerUrl()) === server &&
+		const canUpdate = () => sessionCurrent && authSessionGeneration(server) === generation && normalizeServerUrl(getServerUrl()) === server &&
 			groupMembership.realm() === realm && getGuestSessionId() === guest && (!lease || groupMembership.current(lease));
 		try {
 			await db.enqueue({
 				scopeId: 'corechat',
 				type: 'send-message',
-				payload: { channelId, text: trimmed, type, clientMessageId, ...options }
+				payload: { ...options, channelId, text: trimmed, type, clientMessageId }
 			});
 			if (canUpdate()) updateOptimisticMessage(
 				channelId,
-				(m) => m.clientMessageId === clientMessageId,
-				{ deliveryState: 'failed', deliveryError: 'Queued — will send when online' }
+				(m) => m.clientMessageId === clientMessageId && m.deliveryState === 'sending' &&
+					!messageDeliveries.has(getSocket() ?? {}, { channelId, clientMessageId }),
+				{ deliveryState: 'queued', deliveryError: undefined }
 			);
+			// Reconnect may have drained before the IndexedDB transaction committed.
+			// Request another serialized pass; a queue handoff is still successful
+			// if dispatch later fails. Recheck the session after the module await.
+			if (canUpdate() && get(connected)) {
+				void import('./wabidb/drain').then(({ drainOutboundQueue }) => {
+					if (canUpdate() && get(connected)) return drainOutboundQueue();
+				}).catch(error => console.warn('[queue] Could not dispatch newly queued message', error));
+			}
 			return { ok: true, clientMessageId, queuedOffline: true };
-		} catch {
+		} catch (error) {
 			if (canUpdate()) updateOptimisticMessage(
 				channelId,
 				(m) => m.clientMessageId === clientMessageId,
-				{ deliveryState: 'failed', deliveryError: 'Not queued — local storage failed. Your draft is still available.' }
+				{ deliveryState: 'failed', deliveryError: error instanceof Error && error.message === MESSAGE_QUEUE_OWNERSHIP_ERROR
+					? 'Not queued — offline messages require a signed-in account. Your draft is still available.'
+					: 'Not queued — local storage failed. Your draft is still available.' }
 			);
 			return { ok: false, reason: 'queue_failed' };
 		} finally { unsubscribe(); }
 	}
 
 	// sock is defined here (guarded above unless offline queue path returned).
-	sock!.emit('message', {
-		channelId,
-		text: trimmed,
-		type,
-		clientMessageId,
-		...options
-	});
+	_trackMessageDelivery(sock!, channelId, clientMessageId);
+	try {
+		sock!.emit('message', { ...options, channelId, text: trimmed, type, clientMessageId });
+	} catch {
+		// A transport exception cannot establish whether bytes reached the server.
+		messageDeliveries.unconfirm(sock!, { channelId, clientMessageId });
+	}
 	return { ok: true, clientMessageId };
+}
+
+/** Shared online/offline attempt lifetime, independent of composer mounts. */
+export function _trackMessageDelivery(sock: object, channelId: string, clientMessageId: string,
+	onUnknown: () => void = () => {}): void {
+	const realm = groupMembership.realm();
+	const lease = groupMembership.tracks(channelId) ? groupMembership.capture(channelId) : null;
+	const server = normalizeServerUrl(getServerUrl());
+	const guest = getGuestSessionId();
+	let sessionCurrent = true;
+	let unsubscribe = () => {};
+	const cancel = messageDeliveries.start(sock, { channelId, clientMessageId }, () => {
+		if (sessionCurrent && normalizeServerUrl(getServerUrl()) === server && groupMembership.realm() === realm &&
+			getGuestSessionId() === guest && (!lease || groupMembership.current(lease))) {
+			updateOptimisticMessage(channelId, m => m.clientMessageId === clientMessageId && m.deliveryState === 'sending',
+				{ deliveryState: 'failed', deliveryError: UNCONFIRMED_MESSAGE, deliveryOutcome: 'unknown' });
+		}
+		onUnknown();
+	}, () => unsubscribe());
+	unsubscribe = onAuthSessionCleared(clearedServer => {
+		if (normalizeServerUrl(clearedServer) === server) { sessionCurrent = false; cancel(); }
+	});
 }
 
 export async function editMessage(channelId: string, messageId: string, newText: string): Promise<void> {

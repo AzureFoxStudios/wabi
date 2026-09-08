@@ -239,7 +239,6 @@ export {
 
 	// Message operations
 	sendMessage,
-	retryMessagePersistence,
 // retryDecryptLoadedDmMessages,
 	editMessage,
 	deleteMessage,

@@ -51,6 +51,15 @@ Each group is a module with a `routes()` → `axum::Router`, declared in `api/mo
 
 Handlers are wired in `socketio/wiring.rs` (e.g. `socket.on("message", on_message)` — the `#[allow(dead_code)]` is lint suppression only, it IS the live handler).
 
+Message success effects follow successful WabiStore completion: a failed durable
+send emits correlated `message-error` with an unknown outcome and returns before
+cache, webhook, acceptance or broadcast. Pre-write validation/access/mute denials
+are rejected; live channels retain intentional no-disk delivery. Clients show
+bounded pending/unknown/rejected states, preserve sender-scoped optimistic nonces,
+and never treat transport emit completion as server acceptance. This does not
+fix the separate attachment/rich-metadata reconstruction gaps; see the
+[delivery contract and limits](../plans/2026-09-08-message-delivery.md).
+
 ## 3. WabiDB engine (`core/crates/wabidb/`)
 
 - **Storage**: append-only event segments `.wseg`, commit index `.widx`, engine checkpoint `projections/snapshot.json` (JSON+hex) under the data dir. Binary `.wsnap` support exists separately but is not the live engine checkpoint path. `WABIDB_ROOT_KEY` (or passphrase) is required at boot for the encryption key.
@@ -113,7 +122,7 @@ Sentinel labels (`"live"`/`"forever"`) live in the in-memory `channel_auto_delet
 - **Layout**: `MainLayout.svelte` with dock (left/right), right panel, resize handles (window listeners are load-bearing — attach in `onMount`, clean up in `onDestroy`), workspaces save/restore.
 - **Restore ownership**: pin/mode/width subscriptions synchronize the saved workspace snapshot. Startup/login/reconnect home-preference refresh must not issue panel-open commands over a restored layout; saved pins and intentionally closed docks win. Explicit registration/Settings home choices are idempotent commands.
 - **Draft and overlay ownership**: runes-based ChatComposer mounts are keyed by identity/channel. Session-memory draft slots preserve text, replies and selected Files through workspace changes; simultaneous center/dock editors remain separate. Explicit logout clears saved drafts even without a mounted editor. An in-flight message-store handoff can settle its own pending draft after remount, but a retired editor cannot send the next chunk or redirect an upload. This is not a persisted chat archive or a claim of server message acknowledgment. Settings/BaseModal share modal focus ownership; Admin entry closes Settings and Back restores the app.
-- **Offline layer** (`src/lib/wabidb/`): IndexedDB-only (`wabi-queue` DB, `outbound_queue` store with explicit `key: \`${scopeId}:${id}\`` — IndexedDB keyPath must match a real record field or `put()` throws `DataError`). 25 outbound action types; 10k cap enforced by count (FIFO trim), not age alone; drain on reconnect; `markSyncedByClientId` is on the concrete class, not the interface (deliberate). `StorageSettings.svelte` renders the Offline & Storage UI.
+- **Offline layer** (`src/lib/wabidb/`): IndexedDB-only (`wabi-queue` DB, `outbound_queue` store with explicit `key: \`${scopeId}:${id}\`` — IndexedDB keyPath must match a real record field or `put()` throws `DataError`). 25 outbound action types; 10k cap enforced by count (FIFO trim), not age alone. Chat enqueue captures account ownership; drain durably claims before emit. Concrete `settleMessageReceipt` matches account/server, channel, client nonce, chat type and attempt marker atomically. Acceptance cannot be downgraded; uncertain attempts and unowned legacy chat are not automatically replayed. Explicit-session generations fence same-account logout/re-login. `StorageSettings.svelte` renders the Offline & Storage UI.
 - **Local history boundary**: the queue is not an offline chat archive; client `put/get/query` remain scaffolds. Legacy chat archives and native chat-sidecar autosave were retired (no active inbound writer and no registered native sidecar commands). Unowned old archive records remain on disk but are never loaded/exported/migrated or automatically deleted. `storage.ts` now exposes only existing server-scoped Planner settings; it does not grant account ownership to old message data. See the [membership work record](../plans/2026-09-07-group-membership-revocation.md).
 - **State**: Svelte stores — `messageStore`, `channelStore`, `presenceStore`, `socketConnectionCore.ts` (reconnect w/ backoff, `ServerUrl` resolution user-configured), `themeStore`, `layoutStore`.
 

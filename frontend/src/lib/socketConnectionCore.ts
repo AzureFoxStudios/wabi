@@ -9,7 +9,7 @@ import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { authStore } from './authStore';
 import { getServerUrl, normalizeServerUrl } from './serverUrl';
-import { getAuthToken, getGuestSessionId } from './authSession';
+import { getAuthToken, getGuestSessionId, authSessionGeneration } from './authSession';
 import { tryRefresh } from './api/authRefresh';
 import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
 import { callSessionManager, backfillCallSessionChannelNames } from './callSessionManager';
@@ -25,6 +25,7 @@ import { updateGroupPanels } from './groupClientState';
 import { applyRemoteRecordingPresence } from './callRecordingPresence';
 import { applyServerRoleUpdate, parseServerRoleUpdate } from './serverRoleUpdates';
 import { isCurrentUserProfile } from './profileIdentity';
+import { messageDeliveries, parseMessageAcceptance, parseMessageFailure, isOwnMessage, isSameMessageIdentity } from './messageDelivery';
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
 import { upsertBreakoutRooms, removeBreakoutRooms } from './breakoutChannels';
@@ -53,24 +54,12 @@ function messageRowKey(message: Message, index = 0): string {
 }
 
 function isSameMessageRow(candidate: Message, incoming: Message): boolean {
-	if (
-		candidate.clientMessageId &&
-		incoming.clientMessageId &&
-		candidate.clientMessageId === incoming.clientMessageId
-	) {
-		return true;
-	}
-	if (candidate.id && incoming.id && candidate.id === incoming.id) {
-		if (
-			candidate.clientMessageId &&
-			incoming.clientMessageId &&
-			candidate.clientMessageId !== incoming.clientMessageId
-		) {
-			return false;
-		}
-		return true;
-	}
-	return false;
+	return isSameMessageIdentity(candidate, incoming);
+}
+
+function scopedMessageCorrelation(message: Message): Message {
+	if (!message || isOwnMessage(message, get(currentUser))) return message;
+	return { ...message, clientMessageId: undefined, clientNonce: undefined };
 }
 
 function mergeMessageRow(candidate: Message, incoming: Message): Message {
@@ -80,7 +69,8 @@ function mergeMessageRow(candidate: Message, incoming: Message): Message {
 		clientMessageId: incoming.clientMessageId || candidate.clientMessageId,
 		id: incoming.id || candidate.id,
 		deliveryState: undefined,
-		deliveryError: undefined
+		deliveryError: undefined,
+		deliveryOutcome: undefined
 	};
 }
 
@@ -360,6 +350,7 @@ export class SocketManager {
 		this.typingClearTimers.clear();
 
 		if (!this.socketInstance) return;
+		messageDeliveries.unconfirm(this.socketInstance);
 		callSocketDisconnected(this.socketInstance);
 		cancelGroupOperations(this.socketInstance);
 		groupMembership.beginConnection();
@@ -548,6 +539,7 @@ export class SocketManager {
 		});
 
 		sock.on('disconnect', (reason, details) => {
+			messageDeliveries.unconfirm(sock);
 			callSocketDisconnected(sock);
 			groupMembership.beginConnection();
 			cancelGroupOperations(sock);
@@ -615,7 +607,10 @@ export class SocketManager {
 
 	private bindStateEventListeners(sock: Socket): void {
 		const realm = groupMembership.realm();
-		const currentConnection = () => this.socketInstance === sock && groupMembership.realm() === realm;
+		const server = getServerUrl();
+		const generation = authSessionGeneration(server);
+		const currentConnection = () => this.socketInstance === sock && groupMembership.realm() === realm &&
+			authSessionGeneration(server) === generation;
 		// All channel-scoped content enters through this fence. Membership
 		// control events must bypass it so an explicit newer re-add can grant a
 		// fresh lifecycle; a delayed content event cannot do so.
@@ -814,7 +809,7 @@ export class SocketManager {
 		on('channel-messages', (payload: { channelId?: string; messages?: Message[] }) => {
 			if (!payload?.channelId) return;
 			const raw = Array.isArray(payload.messages) ? payload.messages : [];
-			const sanitized = dedupeMessagesKeepOrder(raw);
+			const sanitized = dedupeMessagesKeepOrder(raw.map(scopedMessageCorrelation));
 			channelMessages.update((state) => {
 				const channelId = payload.channelId as string;
 				const previous = state[channelId] || [];
@@ -825,7 +820,7 @@ export class SocketManager {
 						.filter((id): id is string => Boolean(id && String(id).trim()))
 				);
 				const pendingLocal = previous.filter((m) => {
-					if (m.deliveryState !== 'sending' && m.deliveryState !== 'failed') return false;
+					if (!m.deliveryState) return false;
 					const mid = String(m.id || '').trim();
 					if (mid && serverIds.has(mid)) return false;
 					if (m.clientMessageId && serverClientIds.has(m.clientMessageId)) return false;
@@ -846,7 +841,7 @@ export class SocketManager {
 				return;
 			}
 			const channelId = payload.channelId;
-			const message = payload.message;
+			const message = scopedMessageCorrelation(payload.message);
 			channelMessages.update((state) => {
 				const existing = state[channelId] || [];
 				const duplicateIndex = existing.findIndex((candidate) =>
@@ -862,30 +857,36 @@ export class SocketManager {
 			});
 		});
 
-		on('message-accepted', (payload: {
-			channelId?: string;
-			messageId?: string;
-			clientMessageId?: string;
-			timestamp?: number;
-		}) => {
-			if (!payload?.channelId || !payload.clientMessageId) return;
+		on('message-accepted', (raw: unknown) => {
+			const payload = parseMessageAcceptance(raw);
+			if (!payload) return;
+			messageDeliveries.settle(sock, payload);
 			const patch: Partial<Message> = {
+				id: payload.messageId,
+				timestamp: payload.timestamp,
 				deliveryState: undefined,
-				deliveryError: undefined
+				deliveryError: undefined,
+				deliveryOutcome: undefined
 			};
-			if (payload.messageId) patch.id = payload.messageId;
-			if (typeof payload.timestamp === 'number' && Number.isFinite(payload.timestamp)) {
-				patch.timestamp = payload.timestamp;
-			}
 			_updateOptimisticMessage(
 				payload.channelId,
-				(message) => message.clientMessageId === payload.clientMessageId,
+				(message) => message.clientMessageId === payload.clientMessageId && isOwnMessage(message, get(currentUser)),
 				patch
 			);
 			const db = getWabiDB();
-			if (db && payload.clientMessageId) {
-				db.markSyncedByClientId(payload.clientMessageId).catch(() => {});
-			}
+			void db?.settleMessageReceipt(payload.channelId, payload.clientMessageId, realm, { status: 'synced' })
+				.catch(error => console.warn('[queue] Could not record message acceptance', error));
+		});
+		on('message-error', (raw: unknown) => {
+			const failure = parseMessageFailure(raw);
+			if (!failure) return;
+			messageDeliveries.settle(sock, failure);
+			_updateOptimisticMessage(failure.channelId,
+				message => message.clientMessageId === failure.clientMessageId && isOwnMessage(message, get(currentUser)) &&
+					Boolean(message.deliveryState) && (message.deliveryOutcome !== 'rejected' || failure.outcome === 'rejected'),
+				{ deliveryState: 'failed', deliveryError: failure.error, deliveryOutcome: failure.outcome });
+			void getWabiDB()?.settleMessageReceipt(failure.channelId, failure.clientMessageId, realm,
+				{ status: 'failed', error: failure.error, outcome: failure.outcome }).catch(error => console.warn('[queue] Could not record message rejection', error));
 		});
 		on('message-deleted', (payload: { channelId?: string; messageId?: string }) => {
 			if (!payload?.channelId || !payload.messageId) return;

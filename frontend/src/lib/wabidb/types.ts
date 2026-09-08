@@ -74,6 +74,8 @@ export interface QueuedAction {
 	authority?: { realm: string; membershipRevision?: string };
 	/** A durable send attempt is never automatically repeated without server idempotency. */
 	attemptedAt?: number;
+	/** A classified rejection is stronger evidence than a missing reply. */
+	deliveryOutcome?: 'rejected' | 'unknown';
 }
 
 export interface QueueFilter {

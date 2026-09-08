@@ -64,8 +64,9 @@ export interface Message extends Omit<ProtocolMessageView, MessageOptionalProtoc
   persistenceState?: 'failed' | 'retrying';
   persistenceError?: string;
   persistenceAttempts?: number;
-  deliveryState?: 'sending' | 'failed';
+  deliveryState?: 'queued' | 'sending' | 'failed';
   deliveryError?: string;
+  deliveryOutcome?: 'rejected' | 'unknown';
   localCard?: {
     kind: 'directions';
     placeId: string;
