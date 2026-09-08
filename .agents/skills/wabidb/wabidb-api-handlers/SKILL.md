@@ -233,11 +233,57 @@ The `?` operator converts `wabidb::error::WabiError` to `AppError` automatically
 
 ### Admin auth (headers-based)
 
-Admin handlers use `admin_auth(&headers, &state)` (Bearer token + role check) or `admin_auth_stepup` (also requires `X-Stepup-Token` from `POST /api/auth/stepup`). Destructive ops like revoke/transfer-ownership use stepup — BUT `reset_user_password` uses plain `admin_auth` because the frontend admin UI sends no stepup token (no frontend stepup flow exists anywhere yet).
+Admin handlers use admin_auth for shared account-access authentication, revocation
+and the owner/admin check; admin_auth_stepup additionally requires X-Stepup-Token.
+Do not introduce a signature-only JWT decoder: refresh, pre-auth, scoped Lore
+and step-up tokens are not account access credentials. Payments handlers share
+this account boundary. Revoke/transfer operations retain step-up. Password reset
+does not claim a newly implemented frontend step-up flow.
 
-### Admin user password reset (2026-08-06)
+### Admin user password reset (2026-09-08)
 
-`POST /api/admin/users/reset-password` — body `{ targetUserId, newPassword, temporary? }`. Pattern: `admin_auth` → validate ≥6 chars → `get_user` (404 if missing, 400 if guest-only/empty hash) → `bcrypt::hash` → `state.wdb.update_user(user_id, UserUpdate { password_hash })` → `state.revoke_user(user_id)` → `{ success: true }`. The frontend called this endpoint for a long time before the backend implemented it (dead-API gap). `POST /api/admin/users/clear-login-lockout` is an honest no-op (no lockout store exists server-side).
+POST /api/admin/users/reset-password takes targetUserId, newPassword and optional
+temporary. Authenticate → reject self/owner/guest targets and temporary:true →
+validate/hash → await WabiDB user update → revoke target credentials.
+The UI offers a permanent reset with confirmation, never a temporary/force-change
+promise. The old clear-login-lockout endpoint is a no-op, not a usable recovery
+action, and is no longer presented in Settings. Revocation file durability is
+separate from the WabiDB password write; do not infer atomicity across them.
+
+### Administrative policy and health contracts (2026-09-08)
+
+Payments access lives in WabiDB at policy:payments_access; Admin and payment
+routes use the same resolver/saver and awaited application. Legacy JSON is a
+fallback only when truly absent; only an authenticated admin may import it.
+Corrupt reads fail closed; explicit empty allowlists never restore permissions.
+See docs/architecture/POLICY_SYSTEM.md for exact migration/envelope rules.
+
+GET /api/admin/stats is admin-only. User/channel/audit read failures return 503,
+not successful zeros. extra.health contains writer/projection status, monotonic
+uptime (fractional seconds), nullable process RSS and string appliedCommitSeq.
+committedSeq is null: no trustworthy durable watermark is exposed. recentAudit
+is a bounded newest-ten summary of existing role/channel-settings events,
+without raw payloads/private conversation names or invented actor/time fields.
+This is not moderation-report intake, host monitoring or an integrity scrub.
+
+Socket.IO broadcast note: SocketIo::emit is async in the pinned socketioxide
+version; dropping its future sends nothing. Await the post-projection broadcast
+and report delivery errors. SocketRef::emit has a different synchronous return
+shape. The real Admin browser badge assign/remove checks caught this distinction
+in badges_ops.rs; compilation and projection tests alone did not.
+Badge mutations use current resolve_identity, not only the cached handshake
+identity. Private error/success receipts echo an optional bounded requestId,
+targetUserId and badgeId; request correlation is not broadcast to other clients.
+The browser confirms the requested badge state through the authoritative update,
+and ignores uncorrelated late errors from legacy callers.
+
+Established sockets deliberately outlive access-token expiry to preserve healthy
+calls. Their shared revocation lookup verifies the original signature/claims
+without checking exp, so expiry cannot hide subject/iat from account/global
+revocation floors. New handshakes still reject expired credentials. Invalid
+claims fail closed. Individual-jti entries still expire from the existing
+revocation store after exp+1h: do not claim indefinite per-token eviction from
+the account/global-floor tests. No serialized record was changed for this fix.
 
 ## ChannelKind Mapping
 

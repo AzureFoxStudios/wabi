@@ -13,6 +13,7 @@ import { chromium } from 'playwright';
 import { probePanelPersistence, runPanelPolishChecks } from './panel-polish-checks.mjs';
 import { runComposerSettingsChecks } from './composer-settings-polish-checks.mjs';
 import { runAdminPolishChecks } from './admin-polish-checks.mjs';
+import { runAdminActionsChecks } from './admin-actions-browser-checks.mjs';
 import { runComposerSendChecks } from './composer-send-polish-checks.mjs';
 import { runMessageDeliveryAppChecks } from './message-delivery-app-checks.mjs';
 
@@ -23,7 +24,7 @@ await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
 const port = listener.address().port;
 await new Promise(resolve => listener.close(resolve));
 const backend = `http://127.0.0.1:${port}`;
-const server = spawn(fileURLToPath(new URL('../../target/release/wabi-server', import.meta.url)),
+const server = spawn(process.env.WABI_SMOKE_SERVER_BINARY || fileURLToPath(new URL('../../target/release/wabi-server', import.meta.url)),
 	['--data-dir', `${scratch}/data`, '--host', '127.0.0.1', '--port', String(port)],
 	{ cwd: scratch, env: { PATH: process.env.PATH, WABI_LOG_DIR: `${scratch}/logs` }, stdio: ['ignore', 'pipe', 'pipe'] });
 const log = createWriteStream(`${scratch}/server.log`, { mode: 0o600 });
@@ -44,6 +45,14 @@ try {
 	});
 	assert.equal(registered.status, 200);
 	const account = await registered.json();
+	const memberResponse = await fetch(backend + '/api/auth/register', {
+		method: 'POST', headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ username: 'admin_member_fixture', password: 'Local-member-only-9825!' }),
+	});
+	assert.equal(memberResponse.status, 200);
+	const member = await memberResponse.json();
+	member.password = 'Local-member-only-9825!';
+	const adminChannels = [];
 	process.env.VITE_SOCKET_URL = backend;
 	process.env.VITE_WABI_LOCAL_MOCK = '0';
 	vite = await createServer({ root, server: { host: '127.0.0.1', port: 0, open: false } });
@@ -68,7 +77,24 @@ try {
 	await runComposerSettingsChecks(page);
 	await runMessageDeliveryAppChecks(page);
 	await runComposerSendChecks(page);
+	// Add navigation fixtures only after the initial text-composer scenarios;
+	// otherwise a newly sorted forum could become their first-login destination.
+	for (const channelType of ['text', 'forum', 'wiki', 'voice']) {
+		const created = await fetch(backend + '/api/channels', {
+			method: 'POST', headers: { Authorization: 'Bearer ' + account.accessToken, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: 'admin_' + channelType + '_fixture', channel_type: channelType })
+		});
+		assert.equal(created.status, 200);
+		adminChannels.push({ ...await created.json(), type: channelType });
+	}
+	// The composer fixtures deliberately retire the account generation while
+	// replacing transports. Start the next scenario with a real fresh SocketManager
+	// rather than expecting retired channel listeners to accept new DM events.
+	await page.reload({ waitUntil: 'networkidle' });
+	await trigger.waitFor({ state: 'visible', timeout: 60000 });
+	await page.evaluate(async () => (await import('/src/lib/layoutStore.ts')).layoutStore.closeRightPanel());
 	await runAdminPolishChecks(page, scratch);
+	await runAdminActionsChecks(page, scratch, { backend, account, member, adminChannels });
 	const anchor = await trigger.boundingBox();
 	const originalTrigger = await trigger.elementHandle();
 	async function choose(label) {

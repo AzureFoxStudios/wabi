@@ -1,16 +1,17 @@
 <script lang="ts">
 	import type { AdminRoleDefinition } from '$lib/adminRoleCatalog';
-	let { roleDefinitions, loading = false, error = '', onRetry }: {
+	let { roleDefinitions, loading = false, error = '', onRetry, onOpenPeople }: {
 		roleDefinitions: AdminRoleDefinition[];
 		loading?: boolean;
 		error?: string;
 		onRetry: () => void;
+		onOpenPeople: () => void;
 	} = $props();
 </script>
 
 <section class="admin-section role-reference" aria-label="Server roles" aria-busy={loading}>
 	<h4>Server roles</h4>
-	<p class="role-introduction">Roles control server access. Assign a member’s role in the Users section.</p>
+	<div class="role-introduction"><p>Roles control server access. Assign a member’s role in People.</p><button class="role-people-action" type="button" onclick={onOpenPeople}>Manage people</button></div>
 	{#if error}
 		<div class="role-feedback" role="alert"><p>{error}</p><button class="admin-btn" onclick={onRetry}>Try again</button></div>
 	{:else if loading && roleDefinitions.length === 0}
@@ -36,6 +37,11 @@
 	.role-reference p { margin: 0; text-wrap: pretty; overflow-wrap: anywhere; }
 	.role-introduction, .role-note { color: var(--text-secondary); line-height: 1.55; }
 	.role-introduction { margin-bottom: var(--space-4) !important; }
+	.role-introduction { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
+	.role-introduction p { flex: 1 1 18rem; }
+	.role-people-action { min-width: 44px; min-height: 44px; padding: 0.6rem 0.85rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text-primary); font: inherit; font-size: 0.875rem; cursor: pointer; }
+	.role-people-action:hover { background: var(--surface-hover); }
+	.role-people-action:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 3px; }
 	.role-catalog { list-style: none; margin: 0; padding: 0; }
 	.role-catalog li { display: grid; gap: var(--space-1); padding: var(--space-3) 0; border-bottom: 1px solid var(--border-subtle); }
 	.role-catalog li:first-child { padding-top: 0; }

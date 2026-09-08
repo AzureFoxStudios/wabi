@@ -9,8 +9,8 @@ use axum::{
 use serde_json::json;
 
 use super::{
-    extract_user_id, get_policy_row, is_admin_user, json_error, upsert_policy,
-    AccountLinkInput, ListQuery, PaymentAccessPolicy, PaymentAccountLink, PaymentDonationConfig,
+    account_user_id, get_policy_row, is_admin_user, json_error, upsert_policy,
+    AccountLinkInput, ListQuery, PaymentAccountLink, PaymentDonationConfig,
     PaymentUserBlock, SaveAccessInput, SaveDonationInput, UserBlockInput, DEFAULT_WORKSPACE_ID,
 };
 use crate::state::AppState;
@@ -20,15 +20,25 @@ pub async fn get_payment_access(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> Response {
-    let policy = match get_policy_row(&state, "policy:payments_access").await {
-        Some(v) => serde_json::from_value::<PaymentAccessPolicy>(v).unwrap_or_default(),
-        None => PaymentAccessPolicy::default(),
+    let auth = super::authenticate_account(&headers, &state).await.ok();
+    // Import is an administrator-owned migration; public/member reads only
+    // resolve the legacy value when no canonical row exists.
+    let import_legacy = match &auth {
+        Some(auth) if !auth.is_guest => state.is_admin(auth.user_id).await,
+        _ => false,
+    };
+    let policy = match super::load_access_policy(&state, import_legacy).await {
+        Ok(policy) => policy,
+        Err(error) => return super::access_unavailable(&error),
     };
     // WS-3: the actor is now computed server-side from the persisted policy
     // and user blocks, matching the frontend PaymentAccessActorStatus contract.
-    let actor = match super::extract_identity(&headers, &state.config.jwt_secret) {
-        Ok((user_id, is_guest)) => super::evaluate_payment_access(&state, user_id, is_guest).await,
-        Err(_) => serde_json::json!({
+    let actor = match auth {
+        Some(auth) => match super::evaluate_payment_access(&state, &policy, auth.user_id, auth.is_guest).await {
+            Ok(actor) => actor,
+            Err(error) => return super::access_unavailable(&error),
+        },
+        None => serde_json::json!({
             "authenticated": false,
             "userId": null,
             "roles": [],
@@ -46,20 +56,20 @@ pub async fn save_payment_access(
     headers: axum::http::HeaderMap,
     Json(input): Json<SaveAccessInput>,
 ) -> Response {
-    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let auth = match super::authenticate_account(&headers, &state).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
     };
-    if !is_admin_user(user_id, &state).await {
+    if auth.is_guest || !is_admin_user(auth.user_id, &state).await {
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
-    let sanitized = sanitize_access_policy(&input.policy);
-    upsert_policy(
-        &state,
-        "policy:payments_access",
-        &serde_json::to_value(&sanitized).unwrap(),
-    )
-    .await;
+    let sanitized = match super::parse_access_policy(&input.policy) {
+        Ok(policy) => policy,
+        Err(message) => return json_error(StatusCode::BAD_REQUEST, message),
+    };
+    if let Err(error) = super::save_access_policy(&state, &sanitized).await {
+        return super::access_unavailable(&error);
+    }
     Json(json!({ "success": true, "policy": sanitized })).into_response()
 }
 
@@ -68,7 +78,7 @@ pub async fn list_account_links(
     headers: axum::http::HeaderMap,
     Query(query): Query<ListQuery>,
 ) -> Response {
-    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let user_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -93,7 +103,7 @@ pub async fn create_account_link(
     headers: axum::http::HeaderMap,
     Json(input): Json<AccountLinkInput>,
 ) -> Response {
-    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let user_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -130,7 +140,7 @@ pub async fn delete_account_link(
     headers: axum::http::HeaderMap,
     Path(plugin_id): Path<String>,
 ) -> Response {
-    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let user_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -149,8 +159,12 @@ pub async fn delete_account_link(
 
 pub async fn get_donation_config(State(state): State<Arc<AppState>>) -> Response {
     let config = match get_policy_row(&state, "policy:payments_donations").await {
-        Some(v) => serde_json::from_value::<PaymentDonationConfig>(v).unwrap_or_default(),
-        None => PaymentDonationConfig::default(),
+        Ok(Some(value)) => match serde_json::from_value::<PaymentDonationConfig>(value) {
+            Ok(config) => config,
+            Err(error) => return super::access_unavailable(&error.into()),
+        },
+        Ok(None) => PaymentDonationConfig::default(),
+        Err(error) => return super::access_unavailable(&error),
     };
     Json(json!({ "success": true, "config": config })).into_response()
 }
@@ -160,7 +174,7 @@ pub async fn save_donation_config(
     headers: axum::http::HeaderMap,
     Json(input): Json<SaveDonationInput>,
 ) -> Response {
-    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let user_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -168,12 +182,14 @@ pub async fn save_donation_config(
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
     let config = sanitize_donation_config(&input.config);
-    upsert_policy(
+    if let Err(error) = upsert_policy(
         &state,
         "policy:payments_donations",
         &serde_json::to_value(&config).unwrap(),
     )
-    .await;
+    .await {
+        return super::access_unavailable(&error);
+    }
     Json(json!({ "success": true, "config": config })).into_response()
 }
 
@@ -182,7 +198,7 @@ pub async fn list_user_blocks(
     headers: axum::http::HeaderMap,
     Query(query): Query<ListQuery>,
 ) -> Response {
-    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let user_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -210,7 +226,7 @@ pub async fn create_user_block(
     headers: axum::http::HeaderMap,
     Json(input): Json<UserBlockInput>,
 ) -> Response {
-    let admin_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let admin_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -246,7 +262,7 @@ pub async fn clear_user_block(
     headers: axum::http::HeaderMap,
     Path(blocked_user_id): Path<i64>,
 ) -> Response {
-    let admin_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let admin_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -264,52 +280,6 @@ pub async fn clear_user_block(
         );
     }
     Json(json!({ "success": true })).into_response()
-}
-
-fn sanitize_access_policy(raw: &serde_json::Value) -> PaymentAccessPolicy {
-    let fallback = PaymentAccessPolicy::default();
-    let obj = match raw.as_object() {
-        Some(o) => o,
-        None => return fallback,
-    };
-
-    let enabled = obj
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(fallback.enabled);
-    let allow_guest = obj
-        .get("allowGuest")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(fallback.allow_guest);
-    let allowed_role_names = obj
-        .get("allowedRoleNames")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            let mut roles: Vec<String> = arr
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.trim().to_lowercase()))
-                .filter(|s| {
-                    !s.is_empty()
-                        && s.len() <= 48
-                        && s.chars()
-                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                })
-                .collect();
-            roles.sort();
-            roles.dedup();
-            if roles.is_empty() {
-                fallback.allowed_role_names.clone()
-            } else {
-                roles
-            }
-        })
-        .unwrap_or_else(|| fallback.allowed_role_names.clone());
-
-    PaymentAccessPolicy {
-        enabled,
-        allow_guest,
-        allowed_role_names,
-    }
 }
 
 fn sanitize_donation_config(raw: &serde_json::Value) -> PaymentDonationConfig {

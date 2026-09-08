@@ -277,9 +277,13 @@ async fn configured_administrator_cannot_be_reported_demoted_while_retaining_acc
         assert_eq!(stats["roleDistribution"].as_array().unwrap().iter().find(|entry| entry["role"] == role).unwrap()["count"], 1);
     }
     let unavailable = stats["extra"]["unavailableMetrics"].as_array().unwrap();
-    for metric in ["totalMessages", "totalEmojis", "mutedUsers", "totalAuditEntries", "openReports", "recentAudit", "topUsers"] {
+    for metric in ["totalMessages", "totalEmojis", "mutedUsers", "openReports", "topUsers"] {
         assert!(unavailable.iter().any(|value| value == metric), "missing {metric} availability");
     }
+    for available in ["totalAuditEntries", "recentAudit"] {
+        assert!(!unavailable.iter().any(|value| value == available));
+    }
+    assert_eq!(stats["overview"]["totalAuditEntries"], 0);
     assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), before);
 }
 
@@ -364,4 +368,252 @@ async fn role_assignment_survives_process_restart() {
     client.emit("join", json!("restarted")).await;
     let init = client.event("init").await;
     assert_eq!(init["users"].as_array().unwrap().iter().find(|user| user["dbUserId"] == member).unwrap()["highestRole"], "admin");
+    let (status, stats) = dashboard(&app, Some(&token(&state, member))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(stats["overview"]["totalAuditEntries"], 1);
+    assert_eq!(stats["recentAudit"][0]["action"], "role_assigned");
+    assert_eq!(stats["recentAudit"][0]["targetUser"], "member");
+    assert!(stats["recentAudit"][0]["createdAt"].is_null());
+}
+
+async fn dashboard(app: &Router, token: Option<&str>) -> (StatusCode, Value) {
+    let mut request = Request::get("/admin/stats");
+    if let Some(token) = token { request = request.header("authorization", format!("Bearer {token}")); }
+    let response = app.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+    let status = response.status();
+    let value = serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap()).unwrap();
+    (status, value)
+}
+
+#[tokio::test]
+async fn dashboard_returns_real_health_and_bounded_sanitized_durable_activity_without_writes() {
+    let dir = tempfile::tempdir().unwrap(); let state = server(dir.path()).await;
+    let (owner, member, _) = seed(&state).await;
+    let public = state.wdb.create_channel("public channel", wabidb::domain::ChannelKind::Text, owner, false).await.unwrap();
+    let private = state.wdb.create_channel("PRIVATE-NAME-CANARY", wabidb::domain::ChannelKind::GroupDm, member, false).await.unwrap();
+    let app = router(&state);
+    // Waiting before the FIRST poll proves this is server lifetime, not a
+    // LazyLock initialized when somebody first opens their Admin dashboard.
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    let before = state.wdb.engine().projection_state().applied_commit_seq();
+    let (status, empty) = dashboard(&app, Some(&token(&state, owner))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(empty["overview"]["totalAuditEntries"], 0);
+    assert!(empty["recentAudit"].as_array().unwrap().is_empty());
+    let health = &empty["extra"]["health"];
+    assert_eq!(health["status"], "ready");
+    assert_eq!(health["writerRunning"], true);
+    assert_eq!(health["projectionHealthy"], true);
+    assert_eq!(health["appliedCommitSeq"], before.to_string());
+    assert!(health["committedSeq"].is_null());
+    assert!(health["uptimeSeconds"].as_f64().unwrap() >= 0.025);
+    assert!(chrono::DateTime::parse_from_rfc3339(health["sampledAt"].as_str().unwrap()).is_ok());
+    assert!(health["processMemoryBytes"].is_null() || health["processMemoryBytes"].as_u64().unwrap() > 0);
+    assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), before);
+
+    for role in ["Admin", "Moderator", "Member"].into_iter().cycle().take(12) {
+        state.wdb.ingest_event("rbac", "assign_role", &json!({"userId":member,
+            "workspaceId":"default-workspace", "role":role, "assignedBy":owner})).await.unwrap();
+    }
+    state.wdb.ingest_event("rbac", "remove_role", &json!({"userId":member,
+        "workspaceId":"default-workspace", "role":"Member"})).await.unwrap();
+    for channel in [&public, &private] {
+        state.wdb.ingest_event("channel", "update_settings", &json!({"row":{
+            "channel_id":channel, "description":"PRIVATE-PAYLOAD-CANARY", "token":"SECRET-TOKEN-CANARY"}})).await.unwrap();
+    }
+    let before_read = state.wdb.engine().projection_state().applied_commit_seq();
+    let (status, stats) = dashboard(&app, Some(&token(&state, owner))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), before_read);
+    assert_eq!(stats["overview"]["totalAuditEntries"], 15);
+    assert_eq!(stats["extra"]["auditCoverage"], json!(["server_roles", "channel_settings"]));
+    let rows = stats["recentAudit"].as_array().unwrap();
+    assert_eq!(rows.len(), 10);
+    assert!(rows.windows(2).all(|pair| pair[0]["id"].as_str().unwrap().parse::<u64>().unwrap()
+        > pair[1]["id"].as_str().unwrap().parse::<u64>().unwrap()));
+    assert!(rows.iter().all(|row| row["createdAt"].is_null()));
+    assert_eq!(rows[0]["action"], "channel_settings_updated");
+    assert!(rows[0]["targetChannel"].is_null());
+    assert_eq!(rows[1]["targetChannel"], "public channel");
+    assert_eq!(rows[2]["action"], "role_removed");
+    assert_eq!(rows[2]["targetUser"], "member");
+    assert!(rows[2]["performedBy"].is_null());
+    assert_eq!(rows[3]["performedBy"], "owner");
+    assert_eq!(rows[3]["targetUser"], "member");
+    assert_eq!(rows[3]["details"], "Assigned Member role");
+    let serialized = stats.to_string();
+    for secret in ["PRIVATE-NAME-CANARY", "PRIVATE-PAYLOAD-CANARY", "SECRET-TOKEN-CANARY", "registered-test-hash", "password_hash", "stream_id"] {
+        assert!(!serialized.contains(secret), "must not expose {secret}");
+    }
+}
+
+#[tokio::test]
+async fn dashboard_is_admin_only_and_read_corruption_is_not_an_empty_server() {
+    let dir = tempfile::tempdir().unwrap(); let state = server(dir.path()).await;
+    let (owner, member, guest) = seed(&state).await; let app = router(&state);
+    assert_eq!(dashboard(&app, None).await.0, StatusCode::UNAUTHORIZED);
+    for user in [member, guest] { assert_eq!(dashboard(&app, Some(&token(&state, user))).await.0, StatusCode::FORBIDDEN); }
+    state.wdb.ingest_event("rbac", "assign_role", &json!({"userId":member,
+        "workspaceId":"default-workspace", "role":"Moderator", "assignedBy":owner})).await.unwrap();
+    assert_eq!(dashboard(&app, Some(&token(&state, member))).await.0, StatusCode::FORBIDDEN);
+    let projection = state.wdb.engine().projection_state();
+    let before = projection.applied_commit_seq();
+    for (index, key) in [
+        ("users", wabidb::projections::users::encode_key(999)),
+        ("channels", b"broken-channel".to_vec()),
+        ("audit_log", u64::MAX.to_be_bytes().to_vec()),
+    ] {
+        projection.insert(index, key.clone(), b"CORRUPTION-CANARY".to_vec(), before);
+        let (status, body) = dashboard(&app, Some(&token(&state, owner))).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{index}: {body}");
+        assert!(body.get("overview").is_none());
+        assert!(!body.to_string().contains("CORRUPTION-CANARY"));
+        projection.remove(index, &key);
+        assert_eq!(dashboard(&app, Some(&token(&state, owner))).await.0, StatusCode::OK);
+    }
+    assert_eq!(projection.applied_commit_seq(), before);
+}
+
+#[tokio::test]
+async fn dashboard_reports_degraded_when_projection_failure_stops_writes_but_reads_work() {
+    use wabidb::{format::record::RecordKind, sequencer::types::{CommandCommit, EventToWrite}};
+    let dir = tempfile::tempdir().unwrap(); let state = server(dir.path()).await;
+    let (owner, _, _) = seed(&state).await; let app = router(&state);
+    let before = state.wdb.engine().projection_state().applied_commit_seq();
+    let engine = state.wdb.engine();
+    engine.get_or_create_stream_key("dashboard-bad-event").await.unwrap();
+    assert!(engine.run_command(CommandCommit {
+        caller_user_id: owner, caller_device_id:"test".into(), command_name:"dashboard-test-invalid".into(),
+        idempotency_key:None, essential:true, response_tx:tokio::sync::oneshot::channel().0,
+        events:vec![EventToWrite { stream_id:"dashboard-bad-event".into(), stream_kind:6,
+            event_type:"user_registered".into(), record_kind:RecordKind::Event, plaintext:vec![] }],
+    }).await.is_err());
+    assert!(state.wdb.list_users().await.is_ok(), "serving old projections alone is not readiness");
+    let (status, stats) = dashboard(&app, Some(&token(&state, owner))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(stats["extra"]["health"]["status"], "degraded");
+    assert_eq!(stats["extra"]["health"]["projectionHealthy"], false);
+    assert_eq!(stats["extra"]["health"]["appliedCommitSeq"], before.to_string());
+    assert!(!state.wdb.is_healthy());
+}
+
+#[tokio::test]
+async fn badges_broadcast_authoritative_changes_and_revoked_admins_cannot_mutate() {
+    let dir = tempfile::tempdir().unwrap(); let state = server(dir.path()).await;
+    let (owner, member, guest) = seed(&state).await; let app = router(&state);
+    let mut assigning_admin = Client::connect(&app, &token(&state, owner)).await;
+    let mut removing_admin = Client::connect(&app, &token(&state, owner)).await;
+    let mut observer = Client::connect(&app, &token(&state, member)).await;
+
+    // Exercise real namespace fanout, not only the sender's synchronous success
+    // receipt. Dropping SocketIo::emit's future would make these reads time out.
+    for (event, badge, expected) in [
+        ("assign-badge", "founder", json!([{"id":"founder","icon":"👑","label":"Founder"}])),
+        ("remove-badge", "founder", json!([])),
+        ("assign-badge", "supporter", json!([{"id":"supporter","icon":"💜","label":"Supporter"}])),
+    ] {
+        let request_id = format!("badge-{event}-{badge}");
+        assigning_admin.emit(event, json!({"targetUserId":member,"badgeId":badge,"requestId":request_id})).await;
+        let update = observer.event("user-badges-updated").await;
+        assert_eq!(update["dbUserId"], member);
+        assert_eq!(update["badges"], expected);
+        assert!(update.get("assignedBy").is_none(), "public badge payload is not an administration audit log");
+        assert!(update.get("requestId").is_none(), "private request correlation is not broadcast");
+        let receipt = assigning_admin.event(&format!("{event}-success")).await;
+        assert_eq!(receipt["requestId"], request_id);
+        assert_eq!(receipt["targetUserId"], member);
+        assert_eq!(receipt["badgeId"], badge);
+        let persisted = state.wdb.list_user_badges(member).await.unwrap();
+        assert_eq!(persisted.len(), expected.as_array().unwrap().len());
+        if let Some(record) = persisted.first() { assert_eq!(record.badge_id, badge); }
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    let guest_token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &JwtClaims {
+        sub: guest.to_string(), username: "guest".into(), is_guest: true,
+        exp: now + 3600, iat: now, jti: uuid::Uuid::new_v4().to_string(), stepup: false, token_type: "access".into(),
+    }, &jsonwebtoken::EncodingKey::from_secret(state.config.jwt_secret.as_bytes())).unwrap();
+    let mut visitor = Client::connect(&app, &guest_token).await;
+    let before = state.wdb.engine().projection_state().applied_commit_seq();
+    for (event, error) in [("assign-badge", "assign-badge-error"), ("remove-badge", "remove-badge-error")] {
+        visitor.emit(event, json!({"targetUserId":member,"badgeId":"supporter","requestId":"guest-request"})).await;
+        let denied = visitor.event(error).await;
+        assert_eq!(denied["error"], "Not authorized");
+        assert_eq!(denied["requestId"], "guest-request");
+        assert_eq!(denied["targetUserId"], member);
+        assert_eq!(denied["badgeId"], "supporter");
+    }
+    assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), before);
+
+    // Both sockets were authenticated before revocation. A cached handshake
+    // identity must not bypass the current account's revocation floor.
+    state.revoke_user(owner as i64).await;
+    assigning_admin.emit("assign-badge", json!({"targetUserId":member,"badgeId":"founder"})).await;
+    assigning_admin.event("auth-revoked").await;
+    removing_admin.emit("remove-badge", json!({"targetUserId":member,"badgeId":"supporter"})).await;
+    removing_admin.event("auth-revoked").await;
+    let retained = state.wdb.list_user_badges(member).await.unwrap();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].badge_id, "supporter");
+    assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), before);
+    // A synchronous round trip on the observer proves no false badge mutation
+    // was broadcast ahead of the revocation rejection.
+    observer.emit("get-badge-catalog", Value::Null).await;
+    observer.event("badge-catalog").await;
+    assert!(!observer.events.iter().any(|event| event[0] == "user-badges-updated"));
+}
+
+#[tokio::test]
+async fn badge_readback_failure_reports_uncertainty_without_empty_broadcast_or_success() {
+    use wabidb::projections::badges::{encode_key, BadgesProjection};
+    let dir = tempfile::tempdir().unwrap(); let state = server(dir.path()).await;
+    let (owner, member, _) = seed(&state).await;
+    state.wdb.ingest_event("badges", "assign_badge", &json!({
+        "userId":member,"badgeId":"supporter","assignedBy":owner,
+    })).await.unwrap();
+    let app = router(&state);
+    let mut admin = Client::connect(&app, &token(&state, owner)).await;
+    let mut observer = Client::connect(&app, &token(&state, member)).await;
+    let projection = state.wdb.engine().projection_state();
+    // Mutate only this temporary fixture's projection. An unrelated corrupt
+    // badge row survives the requested write and makes its full readback fail.
+    let corrupt_key = encode_key(member, "broken-fixture");
+    projection.insert("user_badges", corrupt_key.clone(), b"BADGE-CORRUPTION-CANARY".to_vec(),
+        projection.applied_commit_seq());
+    assert!(state.wdb.list_user_badges(member).await.is_err());
+
+    for (event, assigned) in [("assign-badge", true), ("remove-badge", false)] {
+        let before = projection.applied_commit_seq();
+        let request_id = format!("readback-{event}");
+        admin.emit(event, json!({"targetUserId":member,"badgeId":"founder","requestId":request_id})).await;
+        let error = admin.event(&format!("{event}-error")).await;
+        assert_eq!(error["error"], "Badge change could not be confirmed");
+        assert_eq!(error["requestId"], request_id);
+        assert_eq!(error["targetUserId"], member);
+        assert_eq!(error["badgeId"], "founder");
+        assert!(!error.to_string().contains("BADGE-CORRUPTION-CANARY"));
+        assert_eq!(projection.applied_commit_seq(), before + 1, "write completed before readback failed");
+        assert_eq!(BadgesProjection::get_user_badge(projection, member, "founder").unwrap().is_some(), assigned);
+        assert!(BadgesProjection::get_user_badge(projection, member, "supporter").unwrap().is_some());
+
+        // Ordering barriers inspect the sender and observer, catching both a
+        // fake success receipt and a synthetic empty/partial namespace update.
+        for client in [&mut admin, &mut observer] {
+            client.emit("get-badge-catalog", Value::Null).await;
+            client.event("badge-catalog").await;
+            assert!(!client.events.iter().any(|event| {
+                event[0] == "user-badges-updated" || event[0] == "assign-badge-success" || event[0] == "remove-badge-success"
+            }));
+        }
+    }
+
+    // Removing only the injected row restores normal confirmed publication;
+    // the real retained badge was never deleted as part of error handling.
+    projection.remove("user_badges", &corrupt_key);
+    admin.emit("assign-badge", json!({"targetUserId":member,"badgeId":"founder","requestId":"readback-recovered"})).await;
+    assert_eq!(admin.event("assign-badge-success").await["requestId"], "readback-recovered");
+    let update = observer.event("user-badges-updated").await;
+    assert_eq!(update["badges"].as_array().unwrap().iter().map(|badge| badge["id"].as_str().unwrap()).collect::<Vec<_>>(),
+        vec!["founder", "supporter"]);
+    assert_eq!(state.wdb.list_user_badges(member).await.unwrap().len(), 2);
 }

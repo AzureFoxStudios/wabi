@@ -126,6 +126,39 @@ fn encode_rbac_key(workspace_id: &str, user_id: u64) -> Vec<u8> {
 }
 
 impl AuditProjection {
+    /// Count recorded role/channel-setting events without decoding their payloads.
+    pub fn count(state: &ProjectionState) -> usize {
+        state.index_len("audit_log")
+    }
+
+    /// Read the newest recorded entries in commit order, visiting at most `limit`
+    /// records. Keys are fixed-width big-endian sequences, not textual IDs.
+    /// Historical entries do not record timestamps; never derive time from seq.
+    pub fn recent(state: &ProjectionState, limit: usize) -> Result<Vec<AuditEntry>> {
+        let mut entries = Vec::new();
+        if limit == 0 {
+            return Ok(entries);
+        }
+        let mut failure = None;
+        state.prefix_scan_reverse("audit_log", &[], |key, value| {
+            match serde_json::from_slice::<AuditEntry>(value) {
+                Ok(entry) if key == entry.commit_seq.to_be_bytes() => entries.push(entry),
+                _ => {
+                    failure = Some(crate::error::WabiError::Corrupt {
+                        location: "audit_log".into(),
+                        detail: "invalid audit entry or commit sequence key".into(),
+                    });
+                    return false;
+                }
+            }
+            entries.len() < limit
+        });
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        Ok(entries)
+    }
+
     /// Lookup a user's current role within a workspace, if any.
     pub fn get_role(state: &ProjectionState, workspace_id: &str, user_id: u64) -> Option<String> {
         let key = encode_rbac_key(workspace_id, user_id);
@@ -148,6 +181,41 @@ mod tests {
             event_type: event_type.into(),
             stream_id: stream_id.into(),
             payload: serde_json::to_vec(&payload).unwrap(),
+        }
+    }
+
+    #[test]
+    fn recent_is_bounded_and_orders_numeric_sequences_without_a_full_scan() {
+        let state = ProjectionState::new();
+        assert_eq!(AuditProjection::count(&state), 0);
+        assert!(AuditProjection::recent(&state, 10).unwrap().is_empty());
+        for seq in [1, 7, 8, 9, 15, 16, 17, 255, 256, 257, 4095, 4096] {
+            AuditProjection.apply(&make_event(seq, "role_assigned", "rbac:default",
+                serde_json::json!({"user_id":42,"role":"Member"})), &state).unwrap();
+        }
+        assert_eq!(AuditProjection::count(&state), 12);
+        // An older malformed row outside the selected tail must not be decoded.
+        // This proves the query is bounded, not a full decode/sort/truncate pass.
+        state.insert("audit_log", encode_audit_key(1), b"corrupt old row".to_vec(), 1);
+        let entries = AuditProjection::recent(&state, 10).unwrap();
+        assert_eq!(entries.iter().map(|entry| entry.commit_seq).collect::<Vec<_>>(),
+            vec![4096, 4095, 257, 256, 255, 17, 16, 15, 9, 8]);
+        assert!(AuditProjection::recent(&state, 0).unwrap().is_empty());
+        assert!(AuditProjection::recent(&state, 12).is_err());
+        assert_eq!(AuditProjection::count(&state), 12);
+    }
+
+    #[test]
+    fn recent_rejects_corrupt_or_mismatched_sequence_rows() {
+        for (key, value) in [
+            (encode_audit_key(1), b"not JSON".to_vec()),
+            (encode_audit_key(2), serde_json::to_vec(&AuditEntry { commit_seq: 1,
+                event_type:"role_assigned".into(), stream_id:"rbac:default".into(),
+                payload:serde_json::json!({}) }).unwrap()),
+        ] {
+            let state = ProjectionState::new();
+            state.insert("audit_log", key, value, 2);
+            assert!(matches!(AuditProjection::recent(&state, 10), Err(crate::error::WabiError::Corrupt { .. })));
         }
     }
 

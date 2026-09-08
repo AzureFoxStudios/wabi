@@ -1,284 +1,92 @@
 <script module lang="ts">
-  export interface DashboardStats {
-    overview: {
-      totalUsers: number; onlineUsers: number; bannedUsers: number; mutedUsers: number
-      totalChannels: number; totalRoles: number; totalEmojis: number; totalMessages: number
-      totalAuditEntries: number; openReports: number
-    }
-    roleDistribution: Array<{ role: string; count: number }>
-    statusDistribution: Array<{ status: string; count: number }>
-    recentAudit: Array<AuditEntry>
-    topUsers: Array<TopUser>
-    extra?: { unavailableMetrics?: unknown }
-  }
-
-  interface AuditEntry {
-    id: number; action: string; performedBy: string
-    targetUser: string | null; targetChannel: string | null
-    details: string | null; createdAt: string
-  }
-
-  interface TopUser {
-    username: string; displayName: string | null; role: string
-    messageCount: number; xp: number; status: string
-  }
+	export type { DashboardStats } from '$lib/adminDashboard';
 </script>
 
 <script lang="ts">
-  import Card from './ui/Card.svelte'
-  import RingGauge from './ui/RingGauge.svelte'
-  import RoleBadge from './ui/RoleBadge.svelte'
-  import StatusDot from './ui/StatusDot.svelte'
-  import Skeleton from './ui/Skeleton.svelte'
-  import type { PaymentAccessPolicy } from '$lib/api'
-  import { dashboardMetricValue, dashboardRoleOrder, normalizeDashboardRole, unavailableDashboardMetrics } from '$lib/adminDashboard'
+	import { dashboardRoleOrder, normalizeDashboardRole, unavailableDashboardMetrics, type DashboardStats } from '$lib/adminDashboard';
+	import type { AdminSection } from '$lib/adminNavigation';
+	import ServerHealthSection from './ServerHealthSection.svelte';
+	import RoleBadge from './ui/RoleBadge.svelte';
 
-  let {
-    stats = null,
-    loading = false,
-    paymentPolicy = null,
-    paymentLoading = false,
-  }: {
-    stats?: DashboardStats | null
-    loading?: boolean
-    paymentPolicy?: PaymentAccessPolicy | null
-    paymentLoading?: boolean
-  } = $props()
+	let { stats = null, loading = false, stale = false, onNavigate }: {
+		stats?: DashboardStats | null;
+		loading?: boolean;
+		stale?: boolean;
+		onNavigate: (section: AdminSection) => void;
+	} = $props();
 
-  const statCards = [
-    { key: 'totalUsers' as const, label: 'Users', icon: 'users', color: 'var(--accent-blue, #3498DB)' },
-    { key: 'onlineUsers' as const, label: 'Online', icon: 'online', color: 'var(--accent-green, #4a9e5c)' },
-    { key: 'totalMessages' as const, label: 'Messages', icon: 'messages', color: 'var(--accent, var(--accent-primary-color))' },
-    { key: 'totalChannels' as const, label: 'Channels', icon: 'channels', color: 'var(--accent-purple, #9B59B6)' },
-    { key: 'totalRoles' as const, label: 'Roles in use', icon: 'roles', color: 'var(--accent-yellow, #F39C12)' },
-    { key: 'totalEmojis' as const, label: 'Emojis', icon: 'emojis', color: 'var(--accent, var(--accent-primary-color))' },
-    { key: 'bannedUsers' as const, label: 'Inactive accounts', icon: 'ban', color: 'var(--accent-red, #d71921)' },
-    { key: 'openReports' as const, label: 'Open Reports', icon: 'reports', color: 'var(--accent-red, #d71921)' },
-  ]
-
-  const actionLabels: Record<string, { label: string; color: string }> = {
-    user_ban: { label: 'BAN', color: 'var(--accent-red, #d71921)' },
-    user_kick: { label: 'KICK', color: 'var(--accent-red, #d71921)' },
-    user_mute: { label: 'MUTE', color: 'var(--accent-yellow, #F39C12)' },
-    user_warn: { label: 'WARN', color: 'var(--accent-yellow, #F39C12)' },
-    user_role_change: { label: 'ROLE', color: 'var(--accent-blue, #3498DB)' },
-    channel_create: { label: 'CH+', color: 'var(--accent-green, #4a9e5c)' },
-    channel_delete: { label: 'CH-', color: 'var(--accent-red, #d71921)' },
-    channel_update: { label: 'CH~', color: 'var(--accent-blue, #3498DB)' },
-    message_delete: { label: 'MSG-', color: 'var(--accent-red, #d71921)' },
-    message_pin: { label: 'PIN', color: 'var(--accent-yellow, #F39C12)' },
-    server_update: { label: 'SRV', color: 'var(--accent-purple, #9B59B6)' },
-    invite_create: { label: 'INV+', color: 'var(--accent-green, #4a9e5c)' },
-    invite_delete: { label: 'INV-', color: 'var(--accent-red, #d71921)' },
-    emoji_create: { label: 'EMJ+', color: 'var(--accent-green, #4a9e5c)' },
-    emoji_delete: { label: 'EMJ-', color: 'var(--accent-red, #d71921)' },
-  }
-
-  let unavailable = $derived(unavailableDashboardMetrics(stats?.extra))
-  let sortedRoles = $derived(stats
-    ? stats.roleDistribution.map((entry) => ({ ...entry, role: normalizeDashboardRole(entry.role) }))
-      .sort((a, b) => dashboardRoleOrder(a.role) - dashboardRoleOrder(b.role))
-    : [])
-
-  const ringColors: Record<string, string> = {
-    online: 'var(--accent-green, #4a9e5c)',
-    idle: 'var(--accent-yellow, #F39C12)',
-    dnd: 'var(--accent-red, #d71921)',
-    offline: 'var(--text-disabled, #666)',
-  }
-
-  function roleBarColor(role: string): string {
-    const colors: Record<string, string> = {
-      owner: 'var(--accent-red, #d71921)',
-      admin: 'var(--accent-yellow, #F39C12)',
-      mod: 'var(--accent-blue, #3498DB)',
-      moderator: 'var(--accent-blue, #3498DB)',
-      member: 'var(--accent-green, #4a9e5c)',
-    }
-    return colors[role] ?? '#666'
-  }
-
-  function formatTime(iso: string): string {
-    try {
-      return new Date(iso).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
-    } catch {
-      return ''
-    }
-  }
+	const unavailable = $derived(unavailableDashboardMetrics(stats?.extra));
+	const roles = $derived(stats?.roleDistribution.map(row => ({ ...row, role: normalizeDashboardRole(row.role) }))
+		.sort((a, b) => dashboardRoleOrder(a.role) - dashboardRoleOrder(b.role)) ?? []);
+	const actionLabels: Record<string, string> = {
+		role_assigned: 'Server role assigned',
+		role_removed: 'Server role removed',
+		channel_settings_updated: 'Channel settings updated',
+	};
+	const destinations: Array<{ section: AdminSection; label: string; description: string }> = [
+		{ section: 'users', label: 'Manage people', description: 'Roles, account recovery and conversations' },
+		{ section: 'branding', label: 'Server identity', description: 'Name, artwork and the welcome page' },
+		{ section: 'payments', label: 'Payment access', description: 'Control who can create requests' },
+	];
 </script>
 
-<div class="admin-overview">
-  {#if loading || !stats}
-    <div class="admin-skel-grid">
-      {#each Array(8) as _, i}
-        <Skeleton className="admin-skel-card" />
-      {/each}
-    </div>
-    <div class="admin-skel-row">
-      <Skeleton className="admin-skel-large" />
-      <Skeleton className="admin-skel-medium" />
-    </div>
-  {:else}
-    <!-- Stat Cards -->
-    <div class="admin-stat-grid">
-      {#each statCards as card, i}
-        {@const value = dashboardMetricValue(stats.overview[card.key], card.key, stats.extra)}
-        <Card delay={i * 60}>
-          <div class="admin-stat-card-inner">
-            <div class="admin-stat-card-header">
-              <span class="admin-stat-label">{card.label}</span>
-              <span class="admin-stat-icon" style="color: {card.color}">
-                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  {#if card.icon === 'users' || card.icon === 'online'}
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                  {:else if card.icon === 'messages'}
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                  {:else if card.icon === 'channels'}
-                    <path d="M4 6h16M4 12h16M4 18h16"/>
-                  {:else if card.icon === 'roles'}
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                  {:else if card.icon === 'emojis'}
-                    <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
-                  {:else if card.icon === 'ban'}
-                    <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-                  {:else if card.icon === 'reports'}
-                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                  {/if}
-                </svg>
-              </span>
-            </div>
-            <div class="admin-stat-value" aria-label={value === null ? `${card.label} unavailable` : undefined}>
-              {#if value === null}<span aria-hidden="true">—</span>{:else}{value.toLocaleString()}{/if}
-            </div>
-            {#if value === null}<span class="admin-stat-unavailable">Not available</span>{/if}
-          </div>
-        </Card>
-      {/each}
-    </div>
+<div class="admin-overview admin-home" aria-busy={loading && !stats}>
+	{#if !stats}
+		<div class="admin-home-card admin-snapshot-empty" role="status">
+			<h2>{loading ? 'Reading server status…' : 'No server snapshot'}</h2>
+			<p>{loading ? 'Checking the database and loading the latest recorded changes.' : 'Refresh to try again. Missing data is not a healthy server or an empty server.'}</p>
+		</div>
+	{:else}
+		<div class="admin-summary-grid">
+			<div class="admin-summary"><span>Accounts</span><strong class="admin-stat-value">{stats.overview.totalUsers.toLocaleString()}</strong><small>Including guest accounts</small></div>
+			<div class="admin-summary"><span>Online now</span><strong class="admin-stat-value">{stats.overview.onlineUsers.toLocaleString()}</strong><small>{stale ? 'At the last snapshot' : 'Connected to this server'}</small></div>
+			<div class="admin-summary"><span>Channels</span><strong class="admin-stat-value">{stats.overview.totalChannels.toLocaleString()}</strong><small>Including conversations and folders</small></div>
+		</div>
 
-    <!-- Second row: Ring gauges + Activity -->
-    <div class="admin-overview-row">
-      <Card delay={500} className="admin-ring-card">
-        <span class="admin-section-label">User Status</span>
-        <div class="admin-ring-grid">
-          {#each stats.statusDistribution as s}
-            <RingGauge
-              value={s.count}
-              max={stats.overview.totalUsers}
-              label={s.status}
-              color={ringColors[s.status] ?? 'var(--accent)'}
-            />
-          {/each}
-        </div>
-      </Card>
+		<ServerHealthSection health={stats.extra?.health} {stale} />
 
-      <Card delay={560} className="admin-activity-card">
-        <div class="admin-activity-header">
-          <span class="admin-section-label">Recent Activity</span>
-        </div>
-        <div class="admin-activity-feed">
-          {#if unavailable.has('recentAudit')}
-            <div class="admin-empty-state">Activity history is not available in this dashboard.</div>
-          {:else}
-          {#each stats.recentAudit as entry, i}
-            {@const meta = actionLabels[entry.action] ?? { label: entry.action, color: 'var(--text-secondary)' }}
-            <div class="admin-activity-item" style="animation-delay: {i * 50}ms">
-              <span class="admin-activity-action" style="color: {meta.color}">{meta.label}</span>
-              <span class="admin-activity-desc">
-                <strong>{entry.performedBy}</strong>
-                {#if entry.targetUser}
-                  <span class="admin-activity-arrow">&rarr;</span>
-                  <span>{entry.targetUser}</span>
-                {/if}
-                {#if entry.targetChannel}
-                  <span class="admin-activity-channel">#{entry.targetChannel}</span>
-                {/if}
-              </span>
-              <span class="admin-activity-time">{formatTime(entry.createdAt)}</span>
-            </div>
-          {:else}
-            <div class="admin-empty-state">No recent activity</div>
-          {/each}
-          {/if}
-        </div>
-      </Card>
-    </div>
-
-    <!-- Third row: Role Distribution + Top Users -->
-    <div class="admin-overview-row">
-      <Card delay={620}>
-        <span class="admin-section-label">Role Distribution</span>
-        <div class="admin-role-dist">
-          {#each sortedRoles as r}
-            {@const pct = Math.round((r.count / Math.max(stats.overview.totalUsers, 1)) * 100)}
-            <div class="admin-role-dist-item">
-              <RoleBadge role={r.role} />
-              <div class="admin-role-bar-track">
-                <div class="admin-role-bar-fill" style="width: {pct}%; background: {roleBarColor(r.role)}"></div>
-              </div>
-              <span class="admin-role-bar-count" aria-label={`${r.count} users, ${pct}% of users`}>
-                <span>{r.count}</span>
-                <span class="admin-role-bar-separator" aria-hidden="true">·</span>
-                <span class="admin-role-bar-pct">{pct}%</span>
-              </span>
-            </div>
-          {/each}
-        </div>
-      </Card>
-
-      <Card delay={680}>
-        <span class="admin-section-label">Top Contributors</span>
-        <div class="admin-top-users">
-          {#if unavailable.has('topUsers')}
-            <div class="admin-empty-state">Contributor statistics are not available from this server.</div>
-          {:else}
-          {#each stats.topUsers as u, i}
-            <div class="admin-top-user-item">
-              <span class="admin-top-rank">{i + 1}</span>
-              <div class="admin-top-avatar">{(u.displayName || u.username).charAt(0).toUpperCase()}</div>
-              <div class="admin-top-info">
-                <div class="admin-top-name-row">
-                  <span class="admin-top-name">{u.displayName || u.username}</span>
-                  <StatusDot status={u.status} />
-                  <RoleBadge role={normalizeDashboardRole(u.role)} />
-                </div>
-                <div class="admin-top-metrics">
-                  <span class="admin-top-msgs">{u.messageCount.toLocaleString()} msgs</span>
-                  <span class="admin-top-xp">{u.xp.toLocaleString()} XP</span>
-                </div>
-              </div>
-            </div>
-          {:else}
-            <div class="admin-empty-state">No contributor data yet</div>
-          {/each}
-          {/if}
-        </div>
-      </Card>
-    </div>
-
-    <!-- Fourth row: Payment access summary -->
-    <div class="admin-overview-row">
-      <Card delay={740} className="admin-payment-card">
-        <span class="admin-section-label">Payments Access</span>
-        {#if paymentLoading}
-          <div class="admin-payment-loading">Loading…</div>
-        {:else if paymentPolicy}
-          <div class="admin-payment-status" class:admin-payment-on={paymentPolicy.enabled}>
-            <span class="admin-payment-dot"></span>
-            <span class="admin-payment-state">{paymentPolicy.enabled ? 'Payments enabled' : 'Payments disabled'}</span>
-          </div>
-          <div class="admin-payment-meta">
-            <span class="admin-payment-chip" class:admin-payment-chip-on={paymentPolicy.allowGuest}>
-              {paymentPolicy.allowGuest ? 'Guests allowed' : 'Guests blocked'}
-            </span>
-            <span class="admin-payment-chip">
-              {paymentPolicy.allowedRoleNames.length} role{paymentPolicy.allowedRoleNames.length === 1 ? '' : 's'} allowed
-            </span>
-          </div>
-        {:else}
-          <div class="admin-empty-state">No payment policy loaded</div>
-        {/if}
-      </Card>
-    </div>
-  {/if}
+		<div class="admin-home-columns">
+			<section class="admin-home-card" aria-labelledby="admin-latest-heading">
+				<header class="admin-home-card-header"><h2 id="admin-latest-heading">Latest recorded changes</h2></header>
+				<p class="admin-home-description">Server role and channel settings changes, newest first. This is not a complete moderation log.</p>
+				{#if unavailable.has('recentAudit')}
+					<p class="admin-home-empty">This server version does not provide recorded activity.</p>
+				{:else if !stats.recentAudit.length}
+					<p class="admin-home-empty">No role or channel settings changes have been recorded yet.</p>
+				{:else}
+					<ol class="admin-recorded-activity">
+						{#each stats.recentAudit as entry (entry.id)}
+							<li>
+								<strong>{actionLabels[entry.action] ?? 'Administration change'}</strong>
+								{#if entry.details}<p>{entry.details}</p>{/if}
+								<div class="admin-recorded-meta">
+									<span>{entry.performedBy ? 'By ' + entry.performedBy : 'Actor not recorded'}</span>
+									{#if entry.targetUser}<span>Account: {entry.targetUser}</span>{/if}
+									{#if entry.targetChannel}<span>Channel: {entry.targetChannel}</span>{/if}
+								</div>
+							</li>
+						{/each}
+					</ol>
+				{/if}
+			</section>
+			<div class="admin-home-secondary">
+				<section class="admin-home-card" aria-labelledby="admin-manage-heading">
+					<h2 id="admin-manage-heading">Manage your server</h2>
+					<div class="admin-home-destinations">
+						{#each destinations as destination (destination.section)}
+							<button onclick={() => onNavigate(destination.section)}><strong>{destination.label}</strong><span>{destination.description}</span></button>
+						{/each}
+					</div>
+				</section>
+				<section class="admin-home-card" aria-labelledby="admin-roles-heading">
+					<h2 id="admin-roles-heading">People by role</h2>
+					<ul class="admin-role-summary">
+						{#each roles as row}
+							<li><RoleBadge role={row.role} /><span>{row.count.toLocaleString()}</span></li>
+						{/each}
+					</ul>
+				</section>
+			</div>
+		</div>
+	{/if}
 </div>

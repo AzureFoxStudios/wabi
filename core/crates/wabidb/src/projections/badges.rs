@@ -115,17 +115,25 @@ impl Projection for BadgesProjection {
 }
 
 impl BadgesProjection {
-    /// All badges currently held by a user.
+    /// All badges currently held by a user. An unreadable row fails the entire
+    /// query; a partial list must not masquerade as authoritative badge removal.
     pub fn list_user_badges(
         state: &ProjectionState,
         user_id: u64,
     ) -> Result<Vec<UserBadgeRecord>> {
         let mut out = Vec::new();
+        let mut read_error = None;
         state.prefix_scan("user_badges", &encode_user_prefix(user_id), |_key, value| {
-            if let Ok(record) = decode_record(value) {
-                out.push(record);
+            if read_error.is_none() {
+                match decode_record(value) {
+                    Ok(record) => out.push(record),
+                    Err(error) => read_error = Some(error),
+                }
             }
         });
+        if let Some(error) = read_error {
+            return Err(error);
+        }
         out.sort_by(|a, b| a.badge_id.cmp(&b.badge_id));
         Ok(out)
     }
@@ -236,5 +244,31 @@ mod tests {
         };
         let decoded = decode_record(&encode_record(&r)).unwrap();
         assert_eq!(r, decoded);
+    }
+
+    #[test]
+    fn list_rejects_corrupt_rows_instead_of_returning_partial_badges() {
+        let state = ProjectionState::new();
+        BadgesProjection.apply(&make_event("badge_assigned", 7, "founder"), &state).unwrap();
+        let key = encode_key(7, "broken");
+        state.insert("user_badges", key.clone(), b"CORRUPTION-CANARY".to_vec(), 1);
+        assert!(BadgesProjection::list_user_badges(&state, 7).is_err());
+        assert!(BadgesProjection::get_user_badge(&state, 7, "broken").is_err());
+        assert!(BadgesProjection::list_user_badges(&state, 8).unwrap().is_empty(), "only this user's prefix is read");
+        state.remove("user_badges", &key);
+        let recovered = BadgesProjection::list_user_badges(&state, 7).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].badge_id, "founder");
+    }
+
+    #[test]
+    fn list_preserves_legacy_records_without_assignment_timestamp() {
+        let state = ProjectionState::new();
+        state.insert("user_badges", encode_key(7, "founder"),
+            br#"{"user_id":7,"badge_id":"founder","assigned_by":42}"#.to_vec(), 1);
+        let badges = BadgesProjection::list_user_badges(&state, 7).unwrap();
+        assert_eq!(badges.len(), 1);
+        assert_eq!(badges[0].badge_id, "founder");
+        assert_eq!(badges[0].assigned_at_micros, 0);
     }
 }

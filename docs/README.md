@@ -53,7 +53,7 @@ in-process event-sourced engine **WabiDB**. Philosophy: *no spying, no bloat, ju
 - [Call admission boundary](plans/2026-09-07-call-admission-boundary.md) — connection-owned voice consent, acknowledged voice/group admission and server-side relay eviction; remaining launch security gates.
 - [Group membership and revocation](plans/2026-09-07-group-membership-revocation.md) — active work on atomic group persistence, ownership, account-wide eviction and reconnect/client reconciliation.
 - [Showcase workspace navigation](plans/2026-09-08-showcase-workspace-navigation.md) — shared picker/routing and responsive/keyboard checkpoint; draft follow-through is recorded in Full frontend polish.
-- [Frontend repair pass and reopened UX work](plans/2026-09-08-full-frontend-polish.md) — deployed control/draft/modal/panel repairs; user feedback explicitly reopens comprehensive product UX, not just section reachability.
+- [Frontend repair pass and reopened UX work](plans/2026-09-08-full-frontend-polish.md) — deployed earlier repairs; local authoritative Admin/health/settings work and browser acceptance; comprehensive product UX remains open.
 - [Message-delivery contract](plans/2026-09-08-message-delivery.md) — truthful server outcomes, visible delivery failures and account-scoped queue settlement; verification and remaining rich-message limits.
 - [research/](research/) and [proposals/](proposals/) — explorations and designs not yet committed to.
 - [audits/](audits/) — recent actionable audits.

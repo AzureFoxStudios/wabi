@@ -1,6 +1,8 @@
 import { writable } from 'svelte/store';
 import { getPaymentAccess, type PaymentAccessActorStatus, type PaymentAccessPolicy } from '$lib/api';
-import { getAuthToken } from '$lib/authSession';
+import { authSessionGeneration, getAuthToken, onAuthSessionCleared } from '$lib/authSession';
+import { getServerUrl, normalizeServerUrl } from '../serverUrl';
+import { paymentAccountKey } from './paymentAccessContract';
 
 export type PaymentAccessSnapshot = {
 	loaded: boolean;
@@ -35,23 +37,38 @@ export function resolvePaymentAccessSnapshot(
 		return { loaded: true, policyEnabled: false, canCreate: false, canViewPaymentUi: false };
 	}
 	const policyEnabled = Boolean(policy.enabled);
-	// WS-3: the server-computed actor (persisted policy + payment user blocks)
-	// is authoritative; older servers without an actor field fall back to
-	// policy-only gating.
-	const actorCanCreate = actor?.canCreate ?? policyEnabled;
+	// The current server computes the account gate. Missing actor information
+	// cannot grant creation, and an inconsistent actor cannot defeat disable.
+	const actorCanCreate = actor?.authenticated === true && actor.blocked === false && actor.canCreate === true;
 	return {
 		loaded: true,
 		policyEnabled,
-		canCreate: Boolean(token) && actorCanCreate,
-		canViewPaymentUi: policyEnabled || actorCanCreate
+		canCreate: policyEnabled && policy.allowedRoleNames.length > 0 && Boolean(token) && actorCanCreate,
+		canViewPaymentUi: policyEnabled
 	};
 }
 
-let refreshInFlight: Promise<void> | null = null;
+let refreshInFlight: { context: string; promise: Promise<void> } | null = null;
+let refreshGeneration = 0;
+
+function accessContext(): string {
+	const server = normalizeServerUrl(getServerUrl());
+	return JSON.stringify([server, paymentAccountKey(getAuthToken()), authSessionGeneration(server)]);
+}
+
+onAuthSessionCleared(server => {
+	if (normalizeServerUrl(server) !== normalizeServerUrl(getServerUrl())) return;
+	refreshGeneration += 1;
+	refreshInFlight = null;
+	paymentAccessStore.set({ loaded: false, policyEnabled: false, canCreate: false, canViewPaymentUi: false });
+});
 
 export function refreshPaymentAccess(): Promise<void> {
-	if (refreshInFlight) return refreshInFlight;
-	refreshInFlight = (async () => {
+	const context = accessContext();
+	if (refreshInFlight?.context === context) return refreshInFlight.promise;
+	const generation = ++refreshGeneration;
+	paymentAccessStore.set({ loaded: false, policyEnabled: false, canCreate: false, canViewPaymentUi: false });
+	const promise = (async () => {
 		const token = getAuthToken();
 		let policy: PaymentAccessPolicy | null = null;
 		let actor: PaymentAccessActorStatus | null = null;
@@ -62,8 +79,10 @@ export function refreshPaymentAccess(): Promise<void> {
 		} catch (error) {
 			console.warn('[Payments] Failed to load payment access:', error);
 		}
+		if (generation !== refreshGeneration || context !== accessContext()) return;
 		paymentAccessStore.set(resolvePaymentAccessSnapshot(policy, token, actor));
 		refreshInFlight = null;
 	})();
-	return refreshInFlight;
+	refreshInFlight = { context, promise };
+	return promise;
 }

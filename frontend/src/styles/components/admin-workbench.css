@@ -1,0 +1,82 @@
+/* Scoped to the dedicated workspace; personal Settings keeps its own layout. */
+.admin-workbench .admin-sidebar { width: 220px; }
+.admin-workbench .admin-identity { display: grid; gap: 5px; padding: 18px 20px 12px; }
+.admin-workbench .admin-identity strong { font-size: .95rem; }
+.admin-workbench .admin-identity span { color: var(--text-secondary); font-size: .78rem; }
+.admin-workbench .admin-nav-icon { width: 18px; height: 18px; display: flex; align-items: center; }
+.admin-workbench .admin-nav-icon svg { width: 18px; height: 18px; }
+.admin-workbench .admin-topbar { height: auto; min-height: 90px; padding: 18px 28px; flex-wrap: wrap; gap: 16px; }
+.admin-workbench .admin-heading { min-width: 0; }
+.admin-workbench .admin-heading h1 { margin: 0; font-size: 1.35rem; line-height: 1.3; letter-spacing: -.02em; }
+.admin-workbench .admin-heading p { margin: 6px 0 0; color: var(--text-secondary); font-size: .85rem; line-height: 1.5; }
+.admin-workbench .admin-snapshot-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; color: var(--text-secondary); font-size: .78rem; }
+.admin-workbench .admin-snapshot-controls .stale { color: color-mix(in srgb, var(--text-primary) 70%, var(--text-warning)); }
+.admin-workbench .admin-refresh { min-height: 40px; padding: 8px 14px; border: 1px solid var(--border-default); background: var(--surface-base); color: var(--text-primary); -webkit-text-fill-color: currentColor; border-radius: var(--radius-md); font: inherit; cursor: pointer; }
+.admin-workbench .admin-refresh:hover:not(:disabled) { background: var(--surface-hover); }
+.admin-workbench .admin-refresh:disabled { opacity: .65; cursor: wait; }
+.admin-workbench .admin-content { padding: 24px 28px 40px; }
+.admin-workbench .admin-content-inner { max-width: 1200px; margin: 0 auto; animation: none; }
+.admin-workbench .admin-read-error { max-width: 1200px; margin: 0 auto 20px; padding: 16px 18px; background: var(--accent-warning-soft); border: 1px solid var(--text-warning); border-radius: var(--radius-md); color: var(--text-primary); }
+.admin-workbench .admin-read-error p { margin: 6px 0 0; font-size: .85rem; line-height: 1.55; }
+.admin-workbench button:focus-visible { outline: 2px solid var(--accent-primary-color); outline-offset: 3px; }
+.admin-workbench .admin-home { display: grid; gap: 20px; }
+.admin-workbench .admin-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.admin-workbench .admin-summary { display: grid; gap: 8px; padding: 18px 20px; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-base); }
+.admin-workbench .admin-summary > span { font-size: .85rem; color: var(--text-secondary); }
+.admin-workbench .admin-stat-value { margin: 0; font-size: 28px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.admin-workbench .admin-summary small { font-size: .75rem; line-height: 1.5; color: var(--text-secondary); }
+.admin-workbench .admin-home-card { min-width: 0; padding: 22px; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-base); }
+.admin-workbench .admin-home-card h2 { margin: 0; font-size: 1rem; font-weight: 600; line-height: 1.4; }
+.admin-workbench .admin-home-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.admin-workbench .admin-home-description, .admin-workbench .admin-snapshot-empty p { margin: 10px 0 0; color: var(--text-secondary); font-size: .85rem; line-height: 1.55; text-wrap: pretty; }
+.admin-workbench .admin-health-status { padding: 5px 9px; border-radius: var(--radius-md); color: var(--text-secondary); background: var(--surface-raised); font-size: .75rem; font-weight: 600; }
+.admin-workbench .admin-health-status.ready { color: color-mix(in srgb, var(--text-primary) 70%, var(--text-success)); background: var(--accent-success-soft); }
+.admin-workbench .admin-health-status.degraded { color: color-mix(in srgb, var(--text-primary) 70%, var(--text-danger)); background: var(--accent-danger-soft); }
+.admin-workbench .admin-health-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; margin: 24px 0 0; }
+.admin-workbench .admin-health-metrics dt { color: var(--text-secondary); font-size: .78rem; line-height: 1.5; }
+.admin-workbench .admin-health-metrics dd { margin: 6px 0 0; font-size: 1.1rem; line-height: 1.4; font-weight: 600; font-variant-numeric: tabular-nums; }
+.admin-workbench .admin-health-details { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border-subtle); }
+.admin-workbench .admin-health-details h3 { margin: 0; font-size: .9rem; }
+.admin-workbench .admin-health-details p { margin: 10px 0 0; color: var(--text-secondary); font-size: .85rem; line-height: 1.6; }
+.admin-workbench .admin-health-details code { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.admin-workbench .admin-home-columns { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, 1fr); gap: 20px; align-items: start; }
+.admin-workbench .admin-home-secondary { display: grid; gap: 20px; }
+.admin-workbench .admin-home-empty { margin: 22px 0 0; color: var(--text-secondary); font-size: .85rem; line-height: 1.6; }
+.admin-workbench .admin-recorded-activity { list-style: none; padding: 0; margin: 20px 0 0; }
+.admin-workbench .admin-recorded-activity li { padding: 16px 0; border-top: 1px solid var(--border-subtle); overflow-wrap: anywhere; }
+.admin-workbench .admin-recorded-activity li:last-child { padding-bottom: 0; }
+.admin-workbench .admin-recorded-activity strong { font-size: .9rem; font-weight: 600; }
+.admin-workbench .admin-recorded-activity p { margin: 6px 0 0; color: var(--text-secondary); font-size: .85rem; line-height: 1.5; }
+.admin-workbench .admin-recorded-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--text-secondary); font-size: .75rem; line-height: 1.5; }
+.admin-workbench .admin-home-destinations { display: grid; margin-top: 14px; }
+.admin-workbench .admin-home-destinations button { display: grid; gap: 5px; width: 100%; min-height: 56px; padding: 14px 0; border: 0; border-top: 1px solid var(--border-subtle); border-radius: 0; text-align: left; background: transparent; color: var(--text-primary); -webkit-text-fill-color: currentColor; font: inherit; cursor: pointer; }
+.admin-workbench .admin-home-destinations button:last-child { padding-bottom: 0; }
+.admin-workbench .admin-home-destinations button strong { font-size: .88rem; font-weight: 600; }
+.admin-workbench .admin-home-destinations button span { color: var(--text-secondary); font-size: .78rem; line-height: 1.5; }
+.admin-workbench .admin-home-destinations button:hover strong { color: var(--accent-primary-color); }
+.admin-workbench .admin-role-summary { display: grid; gap: 12px; margin: 20px 0 0; padding: 0; list-style: none; }
+.admin-workbench .admin-role-summary li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-workbench .admin-role-summary li > span { font-size: .85rem; font-variant-numeric: tabular-nums; }
+@media (max-width: 1050px) {
+	.admin-workbench .admin-home-columns { grid-template-columns: 1fr; }
+	.admin-workbench .admin-health-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+	.admin-workbench { flex-direction: column; }
+	.admin-workbench .admin-sidebar { width: 100%; height: auto; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+	.admin-workbench .admin-sidebar-header { padding: 4px 12px; }
+	.admin-workbench .admin-identity { display: none; }
+	.admin-workbench .admin-sidebar-nav { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; padding: 6px 12px; }
+	.admin-workbench .admin-nav-item { flex: 0 0 auto; width: auto; min-height: 44px; }
+	.admin-workbench .admin-nav-icon { display: none; }
+	.admin-workbench .admin-nav-label { display: inline; white-space: nowrap; }
+	.admin-workbench .admin-main { min-height: 0; }
+	.admin-workbench .admin-topbar { padding: 16px; gap: 12px; }
+	.admin-workbench .admin-content { padding: 16px 12px 28px; }
+	.admin-workbench .admin-summary-grid { grid-template-columns: 1fr; gap: 10px; }
+	.admin-workbench .admin-summary { grid-template-columns: 1fr auto; gap: 5px 14px; padding: 14px 16px; }
+	.admin-workbench .admin-summary .admin-stat-value { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+	.admin-workbench .admin-summary small { grid-column: 1; }
+	.admin-workbench .admin-home-card { padding: 18px 16px; }
+	.admin-workbench .admin-refresh { min-height: 44px; }
+}

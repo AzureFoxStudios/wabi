@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use tokio::sync::RwLock;
 
 use crate::api::payments::{
-    extract_user_id, is_admin_user, json_error, PaymentUserBlock,
+    is_admin_user, json_error, PaymentAccessPolicy, PaymentUserBlock,
 };
 use crate::auth_extractor::{verify_stepup_token, AuthUser, STEPUP_HEADER};
 use crate::jobs::JobStatus;
@@ -25,30 +25,6 @@ use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
 // ─── Policy Types ───────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PaymentAccessPolicy {
-    pub enabled: bool,
-    #[serde(rename = "allowGuest")]
-    pub allow_guest: bool,
-    #[serde(rename = "allowedRoleNames")]
-    pub allowed_role_names: Vec<String>,
-}
-
-impl Default for PaymentAccessPolicy {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            allow_guest: false,
-            allowed_role_names: vec![
-                "owner".into(),
-                "admin".into(),
-                "mod".into(),
-                "member".into(),
-            ],
-        }
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuntimeTuningConfig {
@@ -531,36 +507,110 @@ pub struct StatusDistEntry {
 // ─── Policy Storage ─────────────────────────────────────────────────────────
 
 struct PolicyStore {
-    inner: HashMap<String, Value>,
     path: PathBuf,
 }
 
 impl PolicyStore {
     fn load(path: PathBuf) -> Self {
-        let inner = if path.exists() {
-            std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
-        Self { inner, path }
+        Self { path }
     }
 
-    fn save(&self) {
-        if let Ok(s) = serde_json::to_string_pretty(&self.inner) {
-            let _ = std::fs::write(&self.path, s);
+    fn read(&self) -> anyhow::Result<HashMap<String, Value>> {
+        match std::fs::read(&self.path) {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
+            Err(error) => Err(error.into()),
         }
     }
 
-    fn get(&self, key: &str) -> Option<Value> {
-        self.inner.get(key).cloned()
+    fn get(&self, key: &str) -> anyhow::Result<Option<Value>> {
+        Ok(self.read()?.remove(key))
     }
 
-    fn set(&mut self, key: String, value: Value) {
-        self.inner.insert(key, value);
-        self.save();
+    fn set(&mut self, key: String, value: Value) -> anyhow::Result<()> {
+        use std::io::Write;
+        // The same file is read by the public branding endpoints. No cache may
+        // claim a publication that never reached disk, or hide a failed read.
+        let mut next = self.read()?;
+        next.insert(key, value);
+        let bytes = serde_json::to_vec_pretty(&next)?;
+        let parent = self.path.parent().ok_or_else(|| anyhow::anyhow!("Policy path has no parent"))?;
+        #[cfg(unix)]
+        let directory = std::fs::File::open(parent)?;
+        let temporary = parent.join(format!(".admin-policies-{}.tmp", uuid::Uuid::new_v4()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        let outcome = (|| -> anyhow::Result<()> {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&temporary, &self.path)?;
+            #[cfg(unix)]
+            directory.sync_all()?;
+            Ok(())
+        })();
+        if outcome.is_err() {
+            // Only our unique, successfully created temporary file is removed.
+            // A post-rename directory sync failure is an uncertain publication;
+            // never truncate the target or attempt to roll it back.
+            let _ = std::fs::remove_file(&temporary);
+        }
+        outcome
+    }
+}
+
+fn policy_unavailable(error: &anyhow::Error) -> Response {
+    tracing::error!(%error, "admin policy storage unavailable");
+    json_error(StatusCode::SERVICE_UNAVAILABLE, "Server settings could not be read or published. Check the server logs before retrying.")
+}
+
+#[cfg(test)]
+mod policy_storage_tests {
+    use super::*;
+
+    #[test]
+    fn publication_is_visible_to_independent_readers_and_preserves_other_keys() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("admin_policies.json");
+        let mut first = PolicyStore::load(path.clone());
+        let mut other = PolicyStore::load(path.clone());
+        first.set("payments_access".into(), json!({"enabled":false})).unwrap();
+        other.set("frontend_app_metadata".into(), json!({"displayName":"New identity"})).unwrap();
+        assert_eq!(first.get("frontend_app_metadata").unwrap(), Some(json!({"displayName":"New identity"})));
+        assert_eq!(other.get("payments_access").unwrap(), Some(json!({"enabled":false})));
+        assert_eq!(crate::api::public::load_frontend_metadata_policy(directory.path().to_str().unwrap())["displayName"], "New identity");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1, "no temporary-file leftovers");
+    }
+
+    #[test]
+    fn corrupt_policy_is_not_empty_and_publication_never_overwrites_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("admin_policies.json");
+        for bytes in [b"{broken".as_slice(), b"[]".as_slice(), b"null".as_slice()] {
+            std::fs::write(&path, bytes).unwrap();
+            let mut store = PolicyStore::load(path.clone());
+            assert!(store.get("frontend_app_metadata").is_err());
+            assert!(store.set("frontend_app_metadata".into(), json!({"displayName":"Lost"})).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn a_failed_write_has_no_cached_success_and_can_be_retried() {
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("not-created-yet");
+        let mut store = PolicyStore::load(parent.join("admin_policies.json"));
+        assert!(store.set("frontend_app_metadata".into(), json!({"displayName":"Unpublished"})).is_err());
+        assert_eq!(store.get("frontend_app_metadata").unwrap(), None);
+        std::fs::create_dir(&parent).unwrap();
+        store.set("frontend_app_metadata".into(), json!({"displayName":"Published"})).unwrap();
+        assert_eq!(store.get("frontend_app_metadata").unwrap(), Some(json!({"displayName":"Published"})));
     }
 }
 
@@ -763,9 +813,8 @@ struct ResetUserPasswordRequest {
     target_user_id: i64,
     #[serde(rename = "newPassword")]
     new_password: String,
-    // Accepted for frontend compatibility. No must-change-password column
-    // exists on the User row today, so the flag is intentionally not stored.
-    #[allow(dead_code)]
+    // Older clients may send false; true cannot be honored without a real
+    // must-change-password workflow and must not report a temporary reset.
     temporary: Option<bool>,
 }
 
@@ -778,8 +827,29 @@ async fn reset_user_password(
     headers: axum::http::HeaderMap,
     Json(req): Json<ResetUserPasswordRequest>,
 ) -> Response {
-    if let Err(resp) = admin_auth(&headers, &state).await {
-        return resp;
+    let actor_id = match admin_auth(&headers, &state).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if req.target_user_id <= 0 {
+        return json_error(StatusCode::BAD_REQUEST, "A valid target user is required");
+    }
+    if req.target_user_id == actor_id {
+        return json_error(StatusCode::FORBIDDEN, "Use your account password settings to change your own password");
+    }
+    if state.is_owner(req.target_user_id).await {
+        return json_error(StatusCode::FORBIDDEN, "The server owner's password cannot be reset here");
+    }
+    match state.wdb.get_user_role("default-workspace", req.target_user_id as u64).await {
+        Ok(Some(role)) if role == "Owner" => return json_error(StatusCode::FORBIDDEN, "The server owner's password cannot be reset here"),
+        Err(error) => {
+            tracing::error!("Cannot authorize password reset target: {error}");
+            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Account permissions are unavailable; password was not changed");
+        }
+        _ => {}
+    }
+    if req.temporary == Some(true) {
+        return json_error(StatusCode::BAD_REQUEST, "Temporary passwords are not supported; use a permanent password reset");
     }
     if req.new_password.len() < 6 {
         return json_error(
@@ -869,19 +939,11 @@ pub(crate) async fn admin_auth(
     headers: &axum::http::HeaderMap,
     state: &Arc<AppState>,
 ) -> Result<i64, Response> {
-    let user_id = match extract_user_id(headers, &state.config.jwt_secret) {
-        Ok(id) => id,
-        Err(_) => {
-            return Err(json_error(
-                StatusCode::UNAUTHORIZED,
-                "Authentication required",
-            ))
-        }
-    };
-    if !is_admin_user(user_id, state).await {
+    let auth = crate::api::payments::authenticate_account(headers, state).await?;
+    if auth.is_guest || !is_admin_user(auth.user_id, state).await {
         return Err(json_error(StatusCode::FORBIDDEN, "Admin access required"));
     }
-    Ok(user_id)
+    Ok(auth.user_id)
 }
 
 /// Like `admin_auth`, but also requires a valid step-up token in the
@@ -923,9 +985,18 @@ async fn get_policy(
         return json_error(StatusCode::NOT_FOUND, &format!("Unknown policy key: {}", key));
     }
     let defaults = policy_default(&key);
+    if key == "payments_access" {
+        return match crate::api::payments::load_access_policy(&state, true).await {
+            Ok(policy) => Json(json!({ "key": key, "config": policy, "defaults": defaults })).into_response(),
+            Err(error) => crate::api::payments::access_unavailable(&error),
+        };
+    }
     let config: Value = {
         let guard: tokio::sync::RwLockReadGuard<'_, PolicyStore> = store.read().await;
-        guard.get(&key).unwrap_or_else(|| defaults.clone())
+        match guard.get(&key) {
+            Ok(config) => config.unwrap_or_else(|| defaults.clone()),
+            Err(error) => return policy_unavailable(&error),
+        }
     };
     Json(json!({
         "key": key,
@@ -948,6 +1019,16 @@ async fn save_policy(
     if !is_valid_policy_key(&key) {
         return json_error(StatusCode::NOT_FOUND, &format!("Unknown policy key: {}", key));
     }
+    if key == "payments_access" {
+        let policy = match crate::api::payments::parse_access_policy(&input.config) {
+            Ok(policy) => policy,
+            Err(message) => return json_error(StatusCode::BAD_REQUEST, message),
+        };
+        return match crate::api::payments::save_access_policy(&state, &policy).await {
+            Ok(()) => Json(json!({ "config": policy })).into_response(),
+            Err(error) => crate::api::payments::access_unavailable(&error),
+        };
+    }
     let merged: Value = {
         let defaults = policy_default(&key);
         if let Some(obj) = input.config.as_object() {
@@ -962,7 +1043,9 @@ async fn save_policy(
     };
     {
         let mut guard: tokio::sync::RwLockWriteGuard<'_, PolicyStore> = store.write().await;
-        guard.set(key.clone(), merged.clone());
+        if let Err(error) = guard.set(key.clone(), merged.clone()) {
+            return policy_unavailable(&error);
+        }
     }
     Json(json!({ "config": merged })).into_response()
 }
@@ -1043,9 +1126,6 @@ fn read_proc_self_status() -> (u64, u64) {
     (rss * 1024, cpu) // VmRSS is in kB, convert to bytes
 }
 
-static START_TIME: std::sync::LazyLock<std::time::Instant> =
-    std::sync::LazyLock::new(std::time::Instant::now);
-
 async fn get_runtime_guardrails(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -1053,7 +1133,7 @@ async fn get_runtime_guardrails(
     if let Err(resp) = admin_auth(&headers, &state).await {
         return resp;
     }
-    let uptime = START_TIME.elapsed().as_secs();
+    let uptime = state.started_at.elapsed().as_secs();
     let (rss_bytes, cpu_micros) = read_proc_self_status();
 
     let guardrails = RuntimeGuardrailsSnapshot {
@@ -1121,13 +1201,10 @@ async fn create_payment_block(
     headers: axum::http::HeaderMap,
     Json(input): Json<CreateBlockInput>,
 ) -> Response {
-    let admin_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let admin_id = match admin_auth(&headers, &state).await {
         Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+        Err(response) => return response,
     };
-    if !is_admin_user(admin_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
-    }
     let now = chrono::Utc::now().timestamp_millis();
     let block = PaymentUserBlock {
         user_id: input.user_id,
@@ -1153,12 +1230,8 @@ async fn clear_payment_block(
     headers: axum::http::HeaderMap,
     Path(blocked_user_id): Path<i64>,
 ) -> Response {
-    let admin_id = match extract_user_id(&headers, &state.config.jwt_secret) {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
-    };
-    if !is_admin_user(admin_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
+    if let Err(response) = admin_auth(&headers, &state).await {
+        return response;
     }
     if let Err(e) = state
         .wdb
@@ -1175,6 +1248,125 @@ async fn clear_payment_block(
 
 // ─── Dashboard Stats Handler ────────────────────────────────────────────────
 
+/// VmRSS is a Linux measurement in KiB. Missing/unsupported measurements are
+/// unknown, not zero memory use. Keep this separate from legacy Node metrics.
+#[cfg(any(target_os = "linux", test))]
+fn parse_process_memory_bytes(status: &str) -> Option<u64> {
+    let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
+    let mut fields = line.split_whitespace();
+    fields.next()?;
+    let kib = fields.next()?.parse::<u64>().ok()?;
+    if fields.next()? != "kB" || fields.next().is_some() {
+        return None;
+    }
+    kib.checked_mul(1024)
+}
+
+fn process_memory_bytes() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| parse_process_memory_bytes(&status))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+#[cfg(test)]
+mod dashboard_tests {
+    use super::{dashboard_audit_entry, parse_process_memory_bytes};
+
+    #[test]
+    fn process_memory_is_a_measurement_or_unknown_never_an_invented_zero() {
+        assert_eq!(parse_process_memory_bytes("Name:\twabi-server\nVmRSS:\t 12345 kB\n"), Some(12_641_280));
+        assert_eq!(parse_process_memory_bytes("VmRSS: 0 kB"), Some(0));
+        for content in ["", "Name: wabi-server", "VmRSS: unknown kB", "VmRSS: 123 bytes", "VmRSS: 123",
+            "VmRSS: -1 kB", "VmRSS: 18446744073709551615 kB"] {
+            assert_eq!(parse_process_memory_bytes(content), None, "{content}");
+        }
+    }
+
+    #[test]
+    fn legacy_zero_actor_and_unrecognized_role_do_not_invent_identity_or_expose_payloads() {
+        let entry = wabidb::projections::audit::AuditEntry {
+            commit_seq: u64::MAX, event_type: "role_assigned".into(), stream_id: "PRIVATE-STREAM".into(),
+            payload: serde_json::json!({"assigned_by":0,"user_id":7,"role":"SECRET-CANARY"}),
+        };
+        let users = std::collections::HashMap::from([(0, "do not guess this actor"), (7, "target")]);
+        let row = dashboard_audit_entry(entry, &users, &Default::default());
+        assert_eq!(row["id"], u64::MAX.to_string());
+        assert!(row["performedBy"].is_null());
+        assert!(row["createdAt"].is_null());
+        assert_eq!(row["targetUser"], "target");
+        assert_eq!(row["details"], "Assigned server role");
+        assert!(!row.to_string().contains("SECRET-CANARY"));
+        assert!(!row.to_string().contains("PRIVATE-STREAM"));
+    }
+}
+
+fn dashboard_health(state: &AppState) -> Value {
+    let engine = state.wdb.engine();
+    let projection = engine.projection_state();
+    let writer_running = engine.is_writer_running();
+    let projection_healthy = projection.is_healthy();
+    json!({
+        "status": if writer_running && projection_healthy { "ready" } else { "degraded" },
+        "writerRunning": writer_running,
+        "projectionHealthy": projection_healthy,
+        // Strings preserve the full u64 range across the JS boundary. There is
+        // no public durable committed watermark; do not substitute applied seq.
+        "appliedCommitSeq": projection.applied_commit_seq().to_string(),
+        "committedSeq": null,
+        "uptimeSeconds": state.started_at.elapsed().as_secs_f64(),
+        "processMemoryBytes": process_memory_bytes(),
+        "sampledAt": chrono::Utc::now().to_rfc3339(),
+    })
+}
+
+/// The audit index is deliberately not a comprehensive moderation log. Return
+/// only summaries of its known event types, never arbitrary stored payloads,
+/// private conversation names, policy secrets or guessed actors/timestamps.
+fn dashboard_audit_entry(
+    entry: wabidb::projections::audit::AuditEntry,
+    users: &HashMap<u64, &str>,
+    public_channels: &HashMap<&str, &str>,
+) -> Value {
+    let user_name = |key: &str| {
+        entry.payload.get(key).and_then(Value::as_u64)
+            // Legacy ingest used zero when no actor/target ID was recorded.
+            .filter(|id| *id > 0)
+            .and_then(|id| users.get(&id).copied())
+    };
+    let role = match entry.payload.get("role").and_then(Value::as_str)
+        .unwrap_or("").to_ascii_lowercase().as_str()
+    {
+        "owner" => "Owner", "admin" => "Admin", "mod" | "moderator" => "Moderator",
+        "member" => "Member", "guest" => "Guest", _ => "server",
+    };
+    let details = match entry.event_type.as_str() {
+        "role_assigned" => format!("Assigned {role} role"),
+        "role_removed" => "Removed a server role".into(),
+        "channel_settings_updated" => "Updated channel settings".into(),
+        _ => "Recorded an administration change".into(),
+    };
+    let channel = entry.payload.get("channel_id").and_then(Value::as_str)
+        .and_then(|id| public_channels.get(id).copied());
+    json!({
+        "id": entry.commit_seq.to_string(),
+        "action": entry.event_type,
+        "performedBy": user_name("assigned_by"),
+        "targetUser": user_name("user_id"),
+        "targetChannel": channel,
+        "details": details,
+        // Existing AuditEntry has no event timestamp. No persistent codec or
+        // replay changes are needed to display the history already recorded.
+        "createdAt": null,
+    })
+}
+
 async fn get_dashboard_stats(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -1184,7 +1376,13 @@ async fn get_dashboard_stats(
     }
 
     // ── Users: real counts from the user projection ──
-    let users = state.wdb.list_users().await.unwrap_or_default();
+    let users = match state.wdb.list_users().await {
+        Ok(users) => users,
+        Err(error) => {
+            tracing::error!(%error, "admin dashboard user query failed");
+            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Server overview is temporarily unavailable");
+        }
+    };
     let total_users = users.len() as u64;
     let registered_users = users.iter().filter(|u| u.is_registered).count() as u64;
     let bot_users = users.iter().filter(|u| u.is_bot).count() as u64;
@@ -1224,7 +1422,13 @@ async fn get_dashboard_stats(
     role_distribution.sort_by(|a, b| b.count.cmp(&a.count));
 
     // ── Channels: counts by kind from the channel projection ──
-    let channels = state.wdb.list_channels(None).await.unwrap_or_default();
+    let channels = match state.wdb.list_channels(None).await {
+        Ok(channels) => channels,
+        Err(error) => {
+            tracing::error!(%error, "admin dashboard channel query failed");
+            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Server overview is temporarily unavailable");
+        }
+    };
     let total_channels = channels.len() as u64;
     let mut kind_counts: serde_json::Map<String, Value> = serde_json::Map::new();
     for c in &channels {
@@ -1239,24 +1443,40 @@ async fn get_dashboard_stats(
         );
     }
 
-    // Messages: an engine-level COUNT does not exist yet; a full scan per
-    // dashboard poll would be too expensive. Report the channel count under
-    // its honest label and leave total_messages at 0 until the engine grows
-    // a cheap counter.
+    // There is no cheap live-message counter excluding deleted/timed-out data;
+    // raw index length is not that count. Do not scan every message on each
+    // dashboard poll. Keep the legacy numeric slot, explicitly unavailable.
     let total_messages: u64 = 0;
+
+    use wabidb::projections::audit::AuditProjection;
+    let projection = state.wdb.engine().projection_state();
+    let audit = match AuditProjection::recent(projection, 10) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::error!(%error, "admin dashboard activity query failed");
+            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Server overview is temporarily unavailable");
+        }
+    };
+    let user_names = users.iter().map(|user| (user.user_id, user.username.as_str())).collect();
+    let public_channels = channels.iter()
+        .filter(|channel| !matches!(channel.channel_kind,
+            wabidb::domain::ChannelKind::Dm | wabidb::domain::ChannelKind::GroupDm))
+        .map(|channel| (channel.channel_id.as_str(), channel.name.as_str())).collect();
+    let recent_audit = audit.into_iter()
+        .map(|entry| dashboard_audit_entry(entry, &user_names, &public_channels)).collect();
 
     let stats = DashboardStatsResponse {
         overview: StatsOverview {
             total_users,
             online_users,
             banned_users: total_users.saturating_sub(active_users),
-            muted_users: 0, // no mute projection query yet — reported honestly as 0
+            muted_users: 0, // unavailable legacy slot, not a measured zero
             total_channels,
             total_roles: role_distribution.len() as u64,
             total_emojis: 0, // emoji projection not wired to a count yet
             total_messages,
-            total_audit_entries: 0, // audit projection has no count API yet
-            open_reports: 0,        // reports projection not queried yet
+            total_audit_entries: AuditProjection::count(projection) as u64,
+            open_reports: 0, // no moderation report intake/read model exists
         },
         extra: Some(json!({
             "registeredUsers": registered_users,
@@ -1264,15 +1484,17 @@ async fn get_dashboard_stats(
             "activeUsers": active_users,
             "usersSeenLast24h": seen_24h,
             "channelsByKind": kind_counts,
+            "health": dashboard_health(&state),
+            "auditCoverage": ["server_roles", "channel_settings"],
             // Additive read-model metadata: zero/empty placeholders below do
             // not claim real counts or an absence of activity. Old clients
             // keep their response shape; new clients can label these honestly.
             "unavailableMetrics": ["totalMessages", "totalEmojis", "mutedUsers",
-                "totalAuditEntries", "openReports", "recentAudit", "topUsers"],
+                "openReports", "topUsers"],
         })),
         role_distribution,
         status_distribution: vec![StatusDistEntry { status: "online".into(), count: online_users }],
-        recent_audit: Vec::new(),
+        recent_audit,
         top_users: Vec::new(),
     };
     Json(json!(stats)).into_response()
