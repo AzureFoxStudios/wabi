@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { modalFocus } from '$lib/actions/modalFocus';
+	import { layoutStore } from '$lib/layoutStore';
 	import { _ as t, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { channelMessages, currentUser, getSocket, updateProfile } from '$lib/socket';
 	import type { Message } from '$lib/socket';
@@ -111,6 +113,11 @@
 
 	function closeModal(): void {
 		isOpen = false;
+	}
+
+	function openAdminDashboard(): void {
+		closeModal();
+		layoutStore.showAdminCenterStage();
 	}
 
 	function handleLogout(): void {
@@ -272,12 +279,6 @@
 		class="modal-overlay"
 		role="presentation"
 		on:click={closeModal}
-		on:keydown={(event) => {
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				closeModal();
-			}
-		}}
 	>
 		<div
 			class="modal-content"
@@ -285,13 +286,8 @@
 			aria-modal="true"
 			aria-label={$t('settings.title')}
 			tabindex="-1"
+			use:modalFocus={closeModal}
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				if (event.key === 'Escape') {
-					event.preventDefault();
-					closeModal();
-				}
-			}}
 		>
 			<div class="modal-header">
 				<h2>
@@ -375,7 +371,7 @@
 					{:else if activeSettingsTab === 'storage'}
 						<StorageSettings />
 					{:else if activeSettingsTab === 'admin'}
-						<AdminSettingsTab on:openServerDonation={openServerDonation} />
+						<AdminSettingsTab on:openServerDonation={openServerDonation} on:openDashboard={openAdminDashboard} />
 					{:else if activeSettingsTab === 'about'}
 						<AboutSettingsTab />
 					{/if}

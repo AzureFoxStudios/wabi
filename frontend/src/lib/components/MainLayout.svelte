@@ -18,7 +18,9 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
 	import VoiceLiveStrip from '$lib/components/VoiceLiveStrip.svelte';
-	import { voiceViewOpen, openVoiceView } from '$lib/voiceView';
+	import { voiceViewOpen } from '$lib/voiceView';
+	import { activeWorkspaceView, selectWorkspaceView } from '$lib/workspaceNavigationState';
+	import type { WorkspaceViewKey } from './chat/types';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen } from '$lib/calling';
@@ -41,7 +43,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		rememberPeople
 	} from '$lib/peopleTracker';
 	import { getServerUrl } from '$lib/serverUrl';
-	import { openWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { savedServerRailItems } from '$lib/savedServers';
 	// N1: floating QuickScratchpad
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
@@ -50,7 +51,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
 	// activation. Only .svelte components go lazy; utility-module imports
-	// above (stores, constants, openWhiteboardSurface) stay static.
+	// above (stores and navigation) stay static.
 	let ModelViewportTabCmp: typeof import('./ModelViewportTab.svelte').default | null = null;
 	let ReaderTabCmp: typeof import('./ReaderTab.svelte').default | null = null;
 	let MapWorkspaceCmp: typeof import('./MapWorkspace.svelte').default | null = null;
@@ -152,55 +153,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	);
 	$: if (callUiActive && !CallModalCmp) void import('./CallModal.svelte').then((m) => (CallModalCmp = m.default));
 
-	$: workspaceActiveView = (() => {
-		if (isModelViewportTabActive) return 'model' as const;
-		if (isReaderTabActive) return 'reader' as const;
-		if (isMediaAlbumsTabActive) return 'media' as const;
-		if (isMapTabActive) return 'map' as const;
-		if (isPlannerTabActive) return 'planner' as const;
-		if (isNotesTabActive) return 'notes' as const;
-		if ($voiceViewOpen) return 'voice' as const;
-		return 'messages' as const;
-	})();
-
-	function closeAllAddonTabs(): void {
-		mobileTabQueue.closeAddonTab(READER_ADDON_ID);
-		mobileTabQueue.closeAddonTab(MODEL_VIEWPORT_ADDON_ID);
-		mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
-		mobileTabQueue.closeAddonTab(MEDIA_ALBUMS_ADDON_ID);
-		mobileTabQueue.closeAddonTab(PLANNER_ADDON_ID);
-		mobileTabQueue.closeAddonTab(NOTES_ADDON_ID);
-	}
-
-	function handleWorkspaceViewSelect(view: string): void {
-		switch (view) {
-			case 'messages':
-			case 'whiteboard':
-				closeAllAddonTabs();
-				voiceViewOpen.set(false);
-				break;
-			case 'voice':
-				openVoiceView();
-				break;
-			case 'reader':
-				mobileTabQueue.openAddonTab(READER_ADDON_ID);
-				break;
-			case 'model':
-				mobileTabQueue.openAddonTab(MODEL_VIEWPORT_ADDON_ID);
-				break;
-			case 'map':
-				mobileTabQueue.openAddonTab(MAP_ADDON_ID);
-				break;
-			case 'media':
-				mobileTabQueue.openAddonTab(MEDIA_ALBUMS_ADDON_ID);
-				break;
-			case 'planner':
-				mobileTabQueue.openAddonTab(PLANNER_ADDON_ID);
-				break;
-			case 'notes':
-				mobileTabQueue.openAddonTab(NOTES_ADDON_ID);
-				break;
-		}
+	function handleWorkspaceViewSelect(view: WorkspaceViewKey): void {
+		activeView = 'chat';
+		// The picker owns the center only; keep docked DM conversations intact.
+		layoutStore.closeCenterDm();
+		selectWorkspaceView(view);
 	}
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
@@ -615,8 +572,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const channel = get(activeVoiceChannel);
 		if (!channel) return;
 		currentChannel.set(channel.id);
-		openWhiteboardSurface(channel.id);
-		activeView = 'chat';
+		handleWorkspaceViewSelect('whiteboard');
 	}
 
 	function formatDiag(value: number | null, unit = ''): string {
@@ -1166,10 +1122,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<!-- Main Content -->
 	<div class="main-content">
 		<div class="chat-stack">
+			{#if (!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages'}
+				<WorkspaceViewBar activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
+			{/if}
 			<div class="chat-surface">
-				{#if isModelViewportTabActive || isReaderTabActive || isMediaAlbumsTabActive || isMapTabActive || isPlannerTabActive || isNotesTabActive || $voiceViewOpen}
-					<WorkspaceViewBar activeView={workspaceActiveView} onSelectView={handleWorkspaceViewSelect} />
-				{/if}
 				{#if isModelViewportTabActive}
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
@@ -1206,13 +1162,29 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{:else}
 						<div class="lazy-panel-placeholder" aria-busy="true"></div>
 					{/if}
-				{:else if $voiceViewOpen}
+				{:else if $activeWorkspaceView === 'lore'}
+					{#await import('./LoreWorkspace.svelte')}
+						<div class="lazy-panel-placeholder" role="status">Loading Project…</div>
+					{:then module}
+						<svelte:component this={module.default} />
+					{:catch}
+						<p role="alert">Couldn't load Project. Try reloading Wabi.</p>
+					{/await}
+				{:else if $activeWorkspaceView === 'files'}
+					{#await import('./FilesWorkspace.svelte')}
+						<div class="lazy-panel-placeholder" role="status">Loading Files…</div>
+					{:then module}
+						<svelte:component this={module.default} />
+					{:catch}
+						<p role="alert">Couldn't load Files. Try reloading Wabi.</p>
+					{/await}
+				{:else if $activeWorkspaceView === 'voice'}
 					{#if VoiceViewCmp}
 						<svelte:component this={VoiceViewCmp} />
 					{:else}
 						<div class="lazy-panel-placeholder" aria-busy="true"></div>
 					{/if}
-				{:else if $layoutStore.centerDmChannelId || activeView === 'dm'}
+				{:else if ($layoutStore.centerDmChannelId || activeView === 'dm') && $activeWorkspaceView !== 'whiteboard'}
 					<div class="center-dm-layout">
 						<div class="center-dm-list">
 							<DmHub />
@@ -1230,9 +1202,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 							{/if}
 						</div>
 					</div>
-				{:else if activeView === 'following'}
+				{:else if activeView === 'following' && $activeWorkspaceView !== 'whiteboard'}
 					<FollowingFeed on:openChannel={() => (activeView = 'chat')} />
-				{:else if isGalleryChannel}
+				{:else if isGalleryChannel && $activeWorkspaceView !== 'whiteboard'}
 					{#if GalleryChannelCmp}
 						<svelte:component this={GalleryChannelCmp} />
 					{:else}

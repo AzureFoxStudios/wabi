@@ -10,15 +10,16 @@
  * - Role definitions and assignments
  */
 
-import { writable, get } from 'svelte/store';
+import { writable } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
-import { getSocket, connected } from './socketConnection';
-import { getWabiDB } from '$lib/wabidb';
+import { getSocket } from './socketConnection';
 import type { User, UserBadge } from './socket-types';
 import type { WhiteboardPresenceUser } from './whiteboard/boardTypes';
 import { FALLBACK_BADGE_CATALOG } from './badges';
 import { performGroupOperation } from './groupOperations';
 import { groupMembership } from './groupAccess';
+import { socket as socketState } from './socketConnectionState';
+import { requestServerRoleChange } from './serverRoleCommands';
 import { users, serverMembers, currentUser } from './presenceIdentity';
 export { users, serverMembers, currentUser } from './presenceIdentity';
 
@@ -120,30 +121,19 @@ function toNumericUserId(userId: string | number): number | null {
 
 export async function assignRole(userId: string | number, roleId: string): Promise<void> {
 	const sock = getSocket();
-	if (!sock) return;
+	if (!sock?.connected) throw new Error('Reconnect before changing roles.');
 	const targetUserId = toNumericUserId(userId);
-	if (!targetUserId) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'assign-role', payload: { targetUserId, roleName: roleId } });
-		return;
-	}
-	sock.emit('assign-role', { targetUserId, roleName: roleId });
+	if (!targetUserId) throw new Error('Choose a registered member.');
+	const realm = groupMembership.realm();
+	await requestServerRoleChange(sock, targetUserId, roleId, {
+		isCurrent: () => !!realm && groupMembership.realm() === realm && getSocket() === sock,
+		onInvalidated: (cancel) => socketState.subscribe((current) => { if (current !== sock) cancel(); })
+	});
 }
 
 export async function removeUserRole(userId: string | number, roleId: string): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
-	const targetUserId = toNumericUserId(userId);
-	if (!targetUserId) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'remove-role', payload: { targetUserId, roleName: roleId } });
-		return;
-	}
-	sock.emit('remove-role', { targetUserId, roleName: roleId });
+	if (!['admin', 'mod', 'member'].includes(roleId)) throw new Error('Choose a valid member role.');
+	await assignRole(userId, 'member');
 }
 
 /** Assign an assignable badge (server BADGE_CATALOG id). Admin-gated server-side. */
@@ -168,18 +158,9 @@ export async function removeBadge(userId: string | number, badgeId: string): Pro
 // PUBLIC API - User Management
 // ============================================================================
 
-export async function banUser(userId: string | number, reason?: string): Promise<void> {
-	const sock = getSocket();
-	if (!sock) return;
-	const targetUserId = toNumericUserId(userId);
-	if (!targetUserId) return;
-	const db = getWabiDB();
-	const online = get(connected);
-	if (db && !online) {
-		await db.enqueue({ scopeId: 'corechat', type: 'ban-user', payload: { targetUserId, reason } });
-		return;
-	}
-	sock.emit('ban-user', { targetUserId, reason });
+/** Compatibility export only: the server has no durable account-ban command. */
+export async function banUser(_userId: string | number, _reason?: string): Promise<void> {
+	throw new Error('Server-wide bans are not available. No account access was changed.');
 }
 
 // ============================================================================

@@ -9,7 +9,9 @@ mock.module('./socketConnection', () => ({
 }));
 mock.module('$lib/wabidb', () => ({ getWabiDB: () => null }));
 mock.module('./groupAccess', () => ({ groupMembership: { acceptsContent: () => true } }));
-mock.module('$app/environment', () => ({ browser: true, dev: false, building: false }));
+// Store invalidation is DOM-independent. Keep transitive auth/server imports
+// in their real non-browser mode; browser behavior has a separate harness.
+mock.module('$app/environment', () => ({ browser: false, dev: false, building: false }));
 
 const {
 	channelMessages,

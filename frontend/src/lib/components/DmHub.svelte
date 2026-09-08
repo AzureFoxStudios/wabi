@@ -72,7 +72,7 @@
       return channel.name || channel.id;
     }
     const other = otherUserFor(channel);
-    return other?.handle || other?.username || 'Unknown';
+    return other?.handle || other?.username || 'Recipient unavailable';
   }
 
   function conversationAvatar(channel: Channel): string | null {

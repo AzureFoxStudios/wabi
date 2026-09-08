@@ -5,23 +5,20 @@
 
 	type ManagedUserRole = 'member' | 'mod' | 'admin';
 
-	export let sortedUsers: User[];
-	export let searchQuery: string;
-	export let canManageRoles: boolean;
-	export let canManageTargetUser: (user: User) => boolean;
-	export let getRoleLabel: (roleName?: string) => string;
-	export let getManagedUserRole: (user: User) => ManagedUserRole;
-	export let manageableUserRoleOptions: ManagedUserRole[];
-	export let isUserPaymentBlocked: (user: User) => boolean;
-	export let paymentBlockBusyUserId: number | null;
-	export let onSearchInput: (value: string) => void;
-	export let onMessage: (user: User) => void;
-	export let onUserRoleChange: (user: User, role: ManagedUserRole) => void;
-	export let onTogglePaymentBlock: (user: User) => void;
-	// Badge management (optional — surfaces only when wired by the parent).
-	export let badgeCatalog: UserBadge[] = [];
-	export let onAssignBadge: ((user: User, badgeId: string) => void) | null = null;
-	export let onRemoveBadge: ((user: User, badgeId: string) => void) | null = null;
+	let { sortedUsers, searchQuery, canManageRoles, canManageTargetUser, getRoleLabel,
+		getManagedUserRole, manageableUserRoleOptions, isUserPaymentBlocked, paymentBlockBusyUserId,
+		onSearchInput, onMessage, onUserRoleChange, onTogglePaymentBlock, roleBusyUserIds = [],
+		badgeCatalog = [], onAssignBadge = null, onRemoveBadge = null }: {
+		sortedUsers: User[]; searchQuery: string; canManageRoles: boolean;
+		canManageTargetUser: (user: User) => boolean; getRoleLabel: (roleName?: string) => string;
+		getManagedUserRole: (user: User) => ManagedUserRole; manageableUserRoleOptions: ManagedUserRole[];
+		isUserPaymentBlocked: (user: User) => boolean; paymentBlockBusyUserId: number | null;
+		onSearchInput: (value: string) => void; onMessage: (user: User) => void;
+		onUserRoleChange: (user: User, role: ManagedUserRole) => void; onTogglePaymentBlock: (user: User) => void;
+		roleBusyUserIds?: number[]; badgeCatalog?: UserBadge[];
+		onAssignBadge?: ((user: User, badgeId: string) => void) | null;
+		onRemoveBadge?: ((user: User, badgeId: string) => void) | null;
+	} = $props();
 
 	const heldBadges = (user: User): UserBadge[] => user.badges ?? [];
 	const unheldBadges = (user: User): UserBadge[] =>
@@ -30,13 +27,15 @@
 
 <div class="admin-section">
 	<h4>{$_('admin.sections.users')}</h4>
+	<p class="admin-moderation-limit">Server-wide bans are not available in this version. Changing a role does not revoke account access.</p>
 	<div class="admin-search-wrap">
 		<input
 			type="text"
 			class="admin-search"
 			placeholder={$_('admin.placeholders.search_users')}
 			value={searchQuery}
-			on:input={(e) => onSearchInput((e.currentTarget as HTMLInputElement).value)}
+			oninput={(e) => onSearchInput((e.currentTarget as HTMLInputElement).value)}
+			aria-label="Search server members"
 		/>
 	</div>
 	<div class="admin-user-list">
@@ -53,7 +52,7 @@
 					{/if}
 				</div>
 				<div class="admin-actions">
-					<button class="admin-icon-btn" on:click={() => onMessage(user)} title={$_('admin.actions.message')} aria-label={$_('admin.actions.message')}>
+					<button class="admin-icon-btn" onclick={() => onMessage(user)} title={$_('admin.actions.message')} aria-label={$_('admin.actions.message')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
 						</svg>
@@ -63,15 +62,24 @@
 							<span>Role</span>
 							<select
 								class="admin-select admin-user-role-select"
-								value={getManagedUserRole(user)}
-								disabled={!canManageTargetUser(user)}
-								on:change={(event) => onUserRoleChange(user, (event.currentTarget as HTMLSelectElement).value as ManagedUserRole)}
+								value={user.highestRole === 'owner' ? 'owner' : user.isRegistered === false ? 'guest' : getManagedUserRole(user)}
+								disabled={!canManageTargetUser(user) || roleBusyUserIds.includes(user.dbUserId ?? 0)}
+								aria-label={`Role for ${user.username}`}
+								onchange={(event) => {
+									const select = event.currentTarget;
+									const next = select.value as ManagedUserRole;
+									select.value = getManagedUserRole(user);
+									onUserRoleChange(user, next);
+								}}
 							>
+								{#if user.highestRole === 'owner'}<option value="owner">{getRoleLabel('owner')}</option>{/if}
+								{#if user.isRegistered === false}<option value="guest">{getRoleLabel('guest')}</option>{/if}
 								{#each manageableUserRoleOptions as roleName (roleName)}
 									<option value={roleName}>{getRoleLabel(roleName)}</option>
 								{/each}
 							</select>
 						</label>
+						{#if roleBusyUserIds.includes(user.dbUserId ?? 0)}<span role="status">Updating role…</span>{/if}
 						{#if badgeCatalog.length > 0 && onAssignBadge && onRemoveBadge}
 							<div class="admin-badge-control">
 								{#each heldBadges(user) as badge (badge.id)}
@@ -79,7 +87,7 @@
 										class="admin-badge-chip"
 										title={`Remove ${badge.label}`}
 										disabled={!canManageTargetUser(user)}
-										on:click={() => onRemoveBadge(user, badge.id)}
+										onclick={() => onRemoveBadge?.(user, badge.id)}
 									>
 										<span class="admin-badge-chip-icon">{badge.icon}</span>
 										{badge.label}
@@ -91,9 +99,9 @@
 										class="admin-select admin-badge-select"
 										disabled={!canManageTargetUser(user)}
 										value=""
-										on:change={(event) => {
+										onchange={(event) => {
 													const value = (event.currentTarget as HTMLSelectElement).value;
-													if (value) onAssignBadge(user, value);
+													if (value) onAssignBadge?.(user, value);
 													(event.currentTarget as HTMLSelectElement).value = '';
 												}}
 									>
@@ -108,7 +116,7 @@
 						<button
 							class="admin-btn warning admin-pay-toggle"
 							disabled={!canManageTargetUser(user) || !user.dbUserId || paymentBlockBusyUserId === user.dbUserId}
-							on:click={() => onTogglePaymentBlock(user)}
+							onclick={() => onTogglePaymentBlock(user)}
 						>
 							{#if paymentBlockBusyUserId === user.dbUserId}
 								Updating...
@@ -126,3 +134,7 @@
 		{/each}
 	</div>
 </div>
+
+<style>
+	.admin-moderation-limit { margin: 0; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; text-wrap: pretty; }
+</style>

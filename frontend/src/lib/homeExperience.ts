@@ -1,5 +1,7 @@
 import { browser } from '$app/environment';
-import { layoutStore } from '$lib/layoutStore';
+import { get } from 'svelte/store';
+import { activeRightTab, pinnedPanelId, rightPanelMode } from './layoutStoreStates';
+import { openRightPanel } from './layoutStoreRightPanel';
 
 export type HomeExperienceMode = 'community' | 'conversations';
 
@@ -27,10 +29,13 @@ export function setStoredHomeExperienceMode(mode: HomeExperienceMode): void {
 	}
 }
 
+/** Apply an explicit registration/Settings choice, never an automatic refresh. */
 export function applyHomeExperienceMode(mode: HomeExperienceMode): void {
-	if (mode === 'conversations') {
-		layoutStore.showDMsTab();
-		return;
+	const panel = mode === 'conversations' ? 'dms' : 'users';
+	// openRightPanel uses toggle semantics for stub clicks. A preference command
+	// is idempotent: choosing the current mode must not close the pinned panel.
+	if (get(rightPanelMode) !== 'pinned' || get(pinnedPanelId) !== panel) {
+		openRightPanel(panel);
 	}
-	layoutStore.showUsersTab();
+	activeRightTab.set(panel);
 }

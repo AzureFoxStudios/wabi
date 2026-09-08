@@ -1,39 +1,39 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { createEmptyNote, readNotes, writeNotes, sortNotesWithPin, NOTE_COLORS, type LocalNote } from '$lib/notesStore';
 	import { openReaderDocument } from '$lib/readerWorkspace';
 
-	export let storageKey: string;
-	export let title = 'Notes';
-	export let emptyMessage = 'No notes yet.';
-	export let placeholder = 'Write your note...';
-	export let showHeader = true;
-	export let compact = false;
+	let { storageKey, title = 'Notes', emptyMessage = 'No notes yet.', placeholder = 'Write your note…', showHeader = true, compact = false }:
+		{ storageKey: string; title?: string; emptyMessage?: string; placeholder?: string; showHeader?: boolean; compact?: boolean } = $props();
 
-	let view: 'list' | 'editor' = 'list';
-
-	$: if (view === 'editor' && !selectedNote) {
-		view = 'list';
-	}
+	let view = $state<'list' | 'editor'>('list');
 
 	const SIDEBAR_MIN_WIDTH = 0;
 	const SIDEBAR_COLLAPSED_WIDTH = 0;
 	const SPLITTER_WIDTH = 7;
 	const SIDEBAR_REOPEN_WIDTH = 220;
-	const MIN_WORKSPACE_WIDTH = 320;
+	const COMPACT_WORKSPACE_WIDTH = 600;
 
-	let sidebarWidth = 220;
+	let sidebarWidth = $state(220);
 	let isResizingSidebar = false;
 	let resizeStartX = 0;
 	let resizeStartWidth = 220;
-	let workspaceElement: HTMLDivElement | null = null;
-	let workspaceWidth = 0;
+	let workspaceElement = $state<HTMLDivElement | null>(null);
+	let editorElement = $state<HTMLTextAreaElement | null>(null);
+	let workspaceWidth = $state(0);
+	const useCompact = $derived(compact || (workspaceWidth > 0 && workspaceWidth < COMPACT_WORKSPACE_WIDTH));
 
-	let notes: LocalNote[] = [];
-	let selectedNoteId: string | null = null;
+	let notes = $state<LocalNote[]>([]);
+	let selectedNoteId = $state<string | null>(null);
+	const selectedNote = $derived(notes.find((note) => note.id === selectedNoteId) || null);
 
-	$: loadFromStorage(storageKey);
-	$: selectedNote = notes.find((note) => note.id === selectedNoteId) || null;
+	$effect(() => {
+		const key = storageKey;
+		untrack(() => loadFromStorage(key));
+	});
+	$effect(() => {
+		if (view === 'editor' && !selectedNote) view = 'list';
+	});
 
 	function loadFromStorage(key: string) {
 		if (!key) {
@@ -68,9 +68,11 @@
 		view = 'editor';
 	}
 
-	function addNoteAndOpen(): void {
+	async function addNoteAndOpen(): Promise<void> {
 		addNote();
 		view = 'editor';
+		await tick();
+		editorElement?.focus();
 	}
 
 	function updateSelectedText(nextText: string) {
@@ -156,7 +158,7 @@
 		const delta = event.clientX - resizeStartX;
 		const maxSidebarWidth = Math.max(
 			SIDEBAR_MIN_WIDTH,
-			Math.max(workspaceWidth || MIN_WORKSPACE_WIDTH, MIN_WORKSPACE_WIDTH) - SPLITTER_WIDTH
+			workspaceWidth - SPLITTER_WIDTH
 		);
 		const nextWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxSidebarWidth, resizeStartWidth + delta));
 		sidebarWidth = nextWidth <= 26 ? SIDEBAR_COLLAPSED_WIDTH : nextWidth;
@@ -174,7 +176,7 @@
 
 	function recalcWorkspaceWidth(): void {
 		if (!workspaceElement) return;
-		workspaceWidth = Math.max(MIN_WORKSPACE_WIDTH, workspaceElement.clientWidth);
+		workspaceWidth = workspaceElement.clientWidth;
 		const maxSidebarWidth = Math.max(SIDEBAR_MIN_WIDTH, workspaceWidth - SPLITTER_WIDTH);
 		if (sidebarWidth > maxSidebarWidth) {
 			sidebarWidth = maxSidebarWidth;
@@ -183,74 +185,79 @@
 
 	onMount(() => {
 		recalcWorkspaceWidth();
+		const observer = new ResizeObserver(recalcWorkspaceWidth);
+		if (workspaceElement) observer.observe(workspaceElement);
+		return () => {
+			observer.disconnect();
+			handleSidebarResizeStop();
+		};
 	});
 </script>
 
-<svelte:window on:resize={recalcWorkspaceWidth} />
-
-{#if compact}
+<div class="notes-host" bind:this={workspaceElement}>
+{#if useCompact}
 	<div class="notes-workspace notes-compact">
 		{#if view === 'editor' && selectedNote}
 			<div class="notes-editor">
 				<div class="notes-editor-toolbar">
 				<div class="notes-toolbar-leading">
-					<button class="notes-open-sidebar-btn" type="button" on:click={() => (view = 'list')} title="Back to notes" aria-label="Back to notes">
+					<button class="notes-open-sidebar-btn" type="button" onclick={() => (view = 'list')} title="Back to notes" aria-label="Back to notes">
 						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
 					</button>
 					<button
 						class="notes-pin-btn"
 						class:active={selectedNote.pinned}
 						type="button"
-						on:click={togglePinSelected}
+						onclick={togglePinSelected}
 						title={selectedNote.pinned ? 'Unpin note' : 'Pin to top'}
 						aria-label={selectedNote.pinned ? 'Unpin note' : 'Pin to top'}
 						aria-pressed={selectedNote.pinned ? 'true' : 'false'}
 					>
 						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
 					</button>
-					<div class="notes-color-row" role="group" aria-label="Note color">
-						{#each NOTE_COLORS as color}
-							<button
-								class="notes-color-dot"
-								class:active={selectedNote.color === color}
-								type="button"
-								style={`--swatch: ${color}`}
-								on:click={() => updateSelectedColor(selectedNote.color === color ? undefined : color)}
-								title="Set note color"
-								aria-label="Set note color"
-							></button>
-						{/each}
-					</div>
+					<label class="notes-color-picker">
+						<span>Color</span>
+						<select aria-label="Note color" value={selectedNote.color || ''} onchange={(event) => updateSelectedColor(event.currentTarget.value || undefined)}>
+							<option value="">None</option>
+							{#each NOTE_COLORS as color, index}
+								<option value={color}>{['Accent', 'Green', 'Amber', 'Red', 'Purple', 'Neutral'][index]}</option>
+							{/each}
+						</select>
+					</label>
 					<span class="notes-editor-time">Updated {formatTs(selectedNote.updatedAt)}</span>
 				</div>
 					<div class="notes-toolbar-actions">
-						<button class="notes-reader-btn" on:click={openSelectedInReader} title="Open in Reader">
+						<button class="notes-reader-btn" onclick={openSelectedInReader} title="Open in Reader">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 								<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
 								<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 0 4 24V4.5A2.5 2.5 0 0 1 6.5 2z"></path>
 							</svg>
 						</button>
-						<button class="notes-add-btn editor-add" on:click={addNote} title="Create note">
+						<button class="notes-add-btn editor-add" onclick={addNoteAndOpen} title="Create note">
 							<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
 						</button>
-						<button class="notes-delete-btn" on:click={deleteSelected} title="Delete note">
+						<button class="notes-delete-btn" onclick={deleteSelected} title="Delete note">
 							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 						</button>
 					</div>
 				</div>
 				<textarea
+					bind:this={editorElement}
+					aria-label="Note text"
 					class="notes-input"
 					value={selectedNote.text}
-					on:input={(e) => updateSelectedText((e.currentTarget as HTMLTextAreaElement).value)}
+					oninput={(e) => updateSelectedText((e.currentTarget as HTMLTextAreaElement).value)}
 					placeholder={placeholder}
 				></textarea>
 			</div>
 		{:else}
 			<div class="notes-compact-header">
-				<span class="notes-title">{title}</span>
-				<button class="notes-add-btn" on:click={addNoteAndOpen} title="Create note">
+				<h2 class="notes-title">{title}</h2>
+				{#if notes.length > 0}
+				<button class="notes-add-btn" onclick={addNoteAndOpen} title="Create note">
 					<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
 				</button>
+				{/if}
 			</div>
 			<div class="notes-list notes-list-cards">
 				{#each notes as note (note.id)}
@@ -259,7 +266,7 @@
 						class:active={note.id === selectedNoteId}
 						class:has-color={Boolean(note.color)}
 						style={note.color ? `--note-color: ${note.color}` : ''}
-						on:click={() => openNote(note.id)}
+						onclick={() => openNote(note.id)}
 					>
 						<div class="notes-item-top">
 							{#if note.pinned}
@@ -270,7 +277,13 @@
 						<span class="notes-item-preview">{previewText(note)}</span>
 					</button>
 				{:else}
-					<div class="notes-empty">{emptyMessage}</div>
+					<div class="notes-editor-empty">
+						<div class="notes-empty-card">
+							<strong>Your space to think</strong>
+							<span>{emptyMessage}</span>
+							<button class="notes-add-first-btn" onclick={addNoteAndOpen}>Create your first note</button>
+						</div>
+					</div>
 				{/each}
 			</div>
 		{/if}
@@ -280,15 +293,16 @@
 		class="notes-workspace"
 		class:sidebar-collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}
 		style={`grid-template-columns: ${sidebarWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr);`}
-		bind:this={workspaceElement}
 	>
 	<div class="notes-sidebar" class:collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}>
 		{#if showHeader}
 			<div class="notes-header">
-				<span class="notes-title">{title}</span>
-				<button class="notes-add-btn" on:click={addNote} title="Create note">
+				<h2 class="notes-title">{title}</h2>
+				{#if notes.length > 0}
+				<button class="notes-add-btn" onclick={addNoteAndOpen} title="Create note">
 					<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
 				</button>
+				{/if}
 			</div>
 		{/if}
 		<div class="notes-list">
@@ -298,7 +312,7 @@
 					class:active={note.id === selectedNoteId}
 					class:has-color={Boolean(note.color)}
 					style={note.color ? `--note-color: ${note.color}` : ''}
-					on:click={() => selectedNoteId = note.id}
+					onclick={() => openNote(note.id)}
 				>
 					<div class="notes-item-top">
 						{#if note.pinned}
@@ -308,15 +322,13 @@
 					</div>
 					<span class="notes-item-preview">{previewText(note)}</span>
 				</button>
-			{:else}
-				<div class="notes-empty">{emptyMessage}</div>
 			{/each}
 		</div>
 	</div>
 	<button
 		class="notes-sidebar-resizer"
 		type="button"
-		on:mousedown={handleSidebarResizeStart}
+		onmousedown={handleSidebarResizeStart}
 		aria-label="Resize notes list"
 		title="Resize notes list"
 	></button>
@@ -325,7 +337,7 @@
 			<div class="notes-editor-toolbar">
 				<div class="notes-toolbar-leading">
 					{#if sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}
-						<button class="notes-open-sidebar-btn" type="button" on:click={openSidebar} title="Show note list" aria-label="Show note list">
+						<button class="notes-open-sidebar-btn" type="button" onclick={openSidebar} title="Show note list" aria-label="Show note list">
 							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
 						</button>
 					{/if}
@@ -333,67 +345,75 @@
 						class="notes-pin-btn"
 						class:active={selectedNote.pinned}
 						type="button"
-						on:click={togglePinSelected}
+						onclick={togglePinSelected}
 						title={selectedNote.pinned ? 'Unpin note' : 'Pin to top'}
 						aria-label={selectedNote.pinned ? 'Unpin note' : 'Pin to top'}
 						aria-pressed={selectedNote.pinned ? 'true' : 'false'}
 					>
 						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
 					</button>
-					<div class="notes-color-row" role="group" aria-label="Note color">
-						{#each NOTE_COLORS as color}
-							<button
-								class="notes-color-dot"
-								class:active={selectedNote.color === color}
-								type="button"
-								style={`--swatch: ${color}`}
-								on:click={() => updateSelectedColor(selectedNote.color === color ? undefined : color)}
-								title="Set note color"
-								aria-label="Set note color"
-							></button>
-						{/each}
-					</div>
+					<label class="notes-color-picker">
+						<span>Color</span>
+						<select aria-label="Note color" value={selectedNote.color || ''} onchange={(event) => updateSelectedColor(event.currentTarget.value || undefined)}>
+							<option value="">None</option>
+							{#each NOTE_COLORS as color, index}
+								<option value={color}>{['Accent', 'Green', 'Amber', 'Red', 'Purple', 'Neutral'][index]}</option>
+							{/each}
+						</select>
+					</label>
 					<span class="notes-editor-time">Updated {formatTs(selectedNote.updatedAt)}</span>
 				</div>
 				<div class="notes-toolbar-actions">
-					<button class="notes-reader-btn" on:click={openSelectedInReader} title="Open in Reader">
+					<button class="notes-reader-btn" onclick={openSelectedInReader} title="Open in Reader">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 							<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
 							<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 0 4 24V4.5A2.5 2.5 0 0 1 6.5 2z"></path>
 						</svg>
 					</button>
-					<button class="notes-add-btn editor-add" on:click={addNote} title="Create note">
+					<button class="notes-add-btn editor-add" onclick={addNoteAndOpen} title="Create note">
 						<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
 					</button>
-					<button class="notes-delete-btn" on:click={deleteSelected} title="Delete note">
+					<button class="notes-delete-btn" onclick={deleteSelected} title="Delete note">
 						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 					</button>
 				</div>
 			</div>
 			<textarea
+				bind:this={editorElement}
+				aria-label="Note text"
 				class="notes-input"
 				value={selectedNote.text}
-				on:input={(e) => updateSelectedText((e.currentTarget as HTMLTextAreaElement).value)}
+				oninput={(e) => updateSelectedText((e.currentTarget as HTMLTextAreaElement).value)}
 				placeholder={placeholder}
 			></textarea>
 		{:else}
 			<div class="notes-editor-empty">
 				<div class="notes-empty-card">
-					<strong>{emptyMessage}</strong>
-					<span>Start a note and it will open here immediately.</span>
-					<button class="notes-add-first-btn" on:click={addNote}>Create your first note</button>
+					<strong>Your space to think</strong>
+					<span>{emptyMessage}</span>
+					<button class="notes-add-first-btn" onclick={addNoteAndOpen}>Create your first note</button>
 				</div>
 			</div>
 		{/if}
 	</div>
 </div>
 {/if}
+</div>
 
 <style>
+	.notes-host {
+		height: 100%;
+		min-height: 0;
+		min-width: 0;
+		overflow: hidden;
+	}
+
 	.notes-workspace {
 		height: 100%;
 		min-height: 0;
 		display: grid;
+		min-width: 0;
+		grid-template-rows: minmax(0, 1fr);
 	}
 
 	.notes-sidebar {
@@ -401,6 +421,7 @@
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
+		min-width: 0;
 		background: var(--surface-base);
 	}
 
@@ -413,18 +434,17 @@
 	}
 
 	.notes-title {
-		font-size: 0.78rem;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--text-secondary);
+		margin: 0;
+		font-size: var(--font-size-base);
+		color: var(--text-heading);
 		font-weight: 600;
 	}
 
 	.notes-reader-btn,
 	.notes-add-btn {
-		width: 26px;
-		height: 26px;
-		border-radius: 6px;
+		width: 40px;
+		height: 40px;
+		border-radius: var(--radius-md);
 		border: none;
 		background: transparent;
 		color: var(--text-secondary);
@@ -505,23 +525,22 @@
 		text-overflow: ellipsis;
 	}
 
-	.notes-empty {
-		font-size: var(--font-size-sm);
-		color: var(--text-secondary);
-		text-align: center;
-		padding: var(--space-4) var(--space-2);
-	}
-
 	.notes-editor {
 		min-height: 0;
+		min-width: 0;
+		flex: 1;
+		overflow: auto;
 		display: flex;
 		flex-direction: column;
 	}
 
 	.notes-editor-toolbar {
-		height: 38px;
-		padding: 0 0.625rem;
+		min-height: 48px;
+		flex-shrink: 0;
+		padding: 0.25rem 0.5rem;
 		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 0.5rem;
 		align-items: center;
 		justify-content: space-between;
 		border-bottom: 1px solid var(--border-subtle);
@@ -533,6 +552,7 @@
 		align-items: center;
 		gap: 0.35rem;
 		min-width: 0;
+		flex-wrap: wrap;
 	}
 
 	.notes-toolbar-actions {
@@ -542,14 +562,13 @@
 	}
 
 	.editor-add {
-		width: 22px;
-		height: 22px;
-		border-radius: 4px;
+		width: 40px;
+		height: 40px;
 	}
 
 	.notes-open-sidebar-btn {
-		width: 22px;
-		height: 22px;
+		width: 40px;
+		height: 40px;
 		border: none;
 		background: transparent;
 		color: var(--text-secondary);
@@ -568,11 +587,12 @@
 	.notes-editor-time {
 		font-size: 0.72rem;
 		color: var(--text-secondary);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.notes-delete-btn {
-		width: 22px;
-		height: 22px;
+		width: 40px;
+		height: 40px;
 		border-radius: 4px;
 		border: none;
 		background: none;
@@ -590,7 +610,10 @@
 
 	.notes-input {
 		flex: 1;
-		min-height: 0;
+		min-height: 120px;
+		min-width: 0;
+		width: 100%;
+		box-sizing: border-box;
 		border: none;
 		background: var(--surface-app);
 		color: var(--text-heading);
@@ -606,8 +629,8 @@
 
 	/* Pin + color controls (compact + full editor) */
 	.notes-pin-btn {
-		width: 22px;
-		height: 22px;
+		width: 40px;
+		height: 40px;
 		border: none;
 		border-radius: 4px;
 		background: transparent;
@@ -628,30 +651,23 @@
 		color: var(--accent-primary-color);
 	}
 
-	.notes-color-row {
+	.notes-color-picker {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: 0.35rem;
 		flex: none;
+		font-size: var(--font-size-sm);
+		color: var(--text-secondary);
 	}
 
-	.notes-color-dot {
-		width: 14px;
-		height: 14px;
-		border-radius: 50%;
+	.notes-color-picker select {
+		min-height: 40px;
+		border-radius: var(--radius-md);
 		border: 1px solid var(--border-subtle);
-		background: var(--swatch);
-		padding: 0;
-		cursor: pointer;
-		transition: transform 0.1s, box-shadow 0.1s;
-	}
-
-	.notes-color-dot:hover {
-		transform: scale(1.12);
-	}
-
-	.notes-color-dot.active {
-		box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 3px var(--swatch);
+		background: var(--surface-base);
+		color: var(--text-heading);
+		padding: 0.25rem 0.4rem;
+		font: inherit;
 	}
 
 	.notes-item-pin {
@@ -678,7 +694,7 @@
 		gap: 0.55rem;
 		padding: 1.1rem;
 		border: 1px solid var(--border-subtle);
-		border-radius: 14px;
+		border-radius: var(--radius-lg);
 		background: var(--surface-base);
 		text-align: center;
 	}
@@ -686,14 +702,17 @@
 	.notes-empty-card strong {
 		font-size: 0.95rem;
 		color: var(--text-heading);
+		text-wrap: balance;
 	}
 
 	.notes-empty-card span {
 		font-size: 0.8rem;
 		color: var(--text-secondary);
+		text-wrap: pretty;
 	}
 
 	.notes-add-first-btn {
+		min-height: 44px;
 		border: 1px solid var(--border-subtle);
 		background: var(--surface-base);
 		color: var(--text-heading);
@@ -753,24 +772,26 @@
 		border-color: rgba(var(--accent-primary-rgb, 88, 101, 242), 0.4);
 	}
 
-	@media (max-width: 900px) {
-		.notes-workspace {
-			grid-template-columns: 1fr;
-			grid-template-rows: 180px minmax(0, 1fr);
-		}
+	.notes-host button:focus-visible,
+	.notes-host select:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: -2px;
+	}
 
-		.notes-sidebar {
-			border-right: none;
-			border-bottom: 1px solid var(--border-subtle);
-		}
+	.notes-add-first-btn:hover {
+		background: var(--surface-raised);
+	}
 
-		.notes-sidebar-resizer {
-			display: none;
+	@media (pointer: coarse) {
+		.notes-reader-btn, .notes-add-btn, .notes-open-sidebar-btn,
+		.notes-pin-btn, .notes-delete-btn {
+			width: 44px;
+			height: 44px;
 		}
+		.notes-color-picker select { min-height: 44px; }
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.notes-color-dot, .notes-card { transition: none; }
-		.notes-color-dot:hover { transform: none; }
+		.notes-card { transition: none; }
 	}
 </style>

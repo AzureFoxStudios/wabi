@@ -1,5 +1,11 @@
 # Pill compaction & stickiness — layout-stability + persistence lessons (2026-08-21)
 
+**Historical mechanism:** as of 2026-09-08 the workspace bar is a persistent,
+explicit labeled picker in MainLayout; the invisible hover strip below is no
+longer the implementation. Preserve the general stability and per-server
+persistence lessons, but do not restore its opacity/hover CSS. See the skill's
+“Current ownership” section and `docs/plans/2026-09-08-showcase-workspace-navigation.md`.
+
 Session-validated fixes in commits `724a09f` + `7d04cd3` on `wip/combined-handoff-2026-08-18`. Companion to `visual-junk-hunts.md` (Cases 1–3); this file covers Cases 4–5 in depth plus the general rules.
 
 ## Case 4 — view pills slide across header between channels

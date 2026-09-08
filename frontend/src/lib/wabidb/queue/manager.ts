@@ -1,7 +1,7 @@
 import type { QueuedAction, QueueFilter } from '../types';
 import { QueueDB } from './db';
 import { groupMembership } from '$lib/groupAccess';
-import { GROUP_QUEUE_ACTIONS, CALL_QUEUE_ACTIONS } from './groupPolicy';
+import { GROUP_QUEUE_ACTIONS, CALL_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ERROR, BAN_QUEUE_ERROR } from './groupPolicy';
 
 const MAX_QUEUE_SIZE = 10000;
 const MAX_FAILED_AGE_MS = 24 * 60 * 60 * 1000;
@@ -15,8 +15,10 @@ export class QueueManager {
 	}
 
 	async enqueue(action: Omit<QueuedAction, 'id' | 'status' | 'createdAt'>): Promise<string> {
+		if (action.type === 'ban-user') throw new Error(BAN_QUEUE_ERROR);
 		if (GROUP_QUEUE_ACTIONS.has(action.type)) throw new Error('Group membership changes require a live server confirmation');
 		if (CALL_QUEUE_ACTIONS.has(action.type)) throw new Error('Voice actions belong to the current call, not the offline queue');
+		if (ADMIN_ROLE_QUEUE_ACTIONS.has(action.type)) throw new Error(ADMIN_ROLE_QUEUE_ERROR);
 		const realm = groupMembership.realm();
 		const channelId = (action.payload as { channelId?: unknown } | null)?.channelId;
 		const revision = typeof channelId === 'string' && groupMembership.tracks(channelId)
@@ -103,6 +105,11 @@ export class QueueManager {
 
 		for (const item of all) {
 			if (!this._isQueuedAction(item)) continue;
+			if (item.status === 'failed' && item.type === 'ban-user') {
+				await this.db.updateAction(`${item.scopeId}:${item.id}`, current => current.status !== 'failed' ? null :
+					({ ...current, error: BAN_QUEUE_ERROR, retryable: false }));
+				continue;
+			}
 			if (item.status === 'failed' && item.retryable !== false) {
 				const age = now - (item.retriedAt ?? item.createdAt);
 				if (age > MAX_FAILED_AGE_MS) continue;

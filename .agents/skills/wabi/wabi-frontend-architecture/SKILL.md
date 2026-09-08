@@ -101,7 +101,7 @@ This section encodes the tested path from `/business` → main-app `Planner` wor
    - conditionally render `<PlannerWorkspace variant="full" />`
    - register/unregister addon tab in `onMount`/`onDestroy`
 4. Convert `frontend/src/routes/business/+page.svelte` to a lean redirect page: title, noindex, no standalone shell.
-5. Add workspace view entry buttons in `frontend/src/lib/components/chat/ChatHeader.svelte`, not in `ChannelSidebar.svelte` or `ServerRail.svelte`. `ChatHeader` already owns the Messages/Whiteboard/Media/Reader/3D/Map pill bar from `chat/types.ts:WorkspaceViewKey`. Follow that pattern even for center-stage add-ons like Planner. Do NOT add duplicate sidebar buttons for a center-stage workspace; the user notices and will undo it.
+5. Add the workspace to `WorkspaceViewBar.svelte`, `workspaceNavigationState.ts`, and the `MainLayout.svelte` render chain. The persistent center-pane picker owns discovery/navigation; do not duplicate it in ChatHeader, ChannelSidebar, or ServerRail. See the ownership rules below.
 
 ### Surface naming
 
@@ -113,12 +113,13 @@ The user-facing name for the merged business module is **Planner**, not Business
 
 **How the softlock happened:** the view-pill bar (Messages/Whiteboard/Planner/Notes/Media/Reader/3D/Map) lived ONLY inside `ChatHeader.svelte`. When MainLayout renders a full workspace view (`isReaderTabActive` → `<ReaderTab />` etc.) it REPLACES `<Chat />` entirely — taking ChatHeader's pill bar with it. ModelViewportTab/MediaAlbumsTab/MapWorkspace/PlannerWorkspace had ZERO back affordance of their own → softlock.
 
-**The fix — shared `WorkspaceViewBar.svelte`** (`frontend/src/lib/components/WorkspaceViewBar.svelte`):
-- Presentational component (no stores): props `activeView: string`, `onSelectView: (view) => void`, `showReturnToMessages?`. Renders the "Messages" return button + all 8 `.view-open-btn` pills with the exact ChatHeader SVGs.
-- MainLayout mounts it ABOVE the `{#if isModelViewportTabActive ...}` chain, guarded by `{#if isModelViewportTabActive || isReaderTabActive || ...}`, so every full view gets the bar. `handleWorkspaceViewSelect` maps pills → `mobileTabQueue.openAddonTab(ADDON_ID)`; 'messages'/'whiteboard' → `closeAllAddonTabs()` helper (closes all six addon tabs).
-- ChatHeader refactored to use the same component (deletes ~130 duplicated lines). Svelte 5 runes `$props()` + `onclick` are fine in the new component; repo's older components use `export let` + `on:click` — either compiles.
+**Current ownership (2026-09-08):** `MainLayout` mounts one persistent `WorkspaceViewBar` above `.chat-surface`, outside the changing workspace branches. `ChatHeader` only owns channel-specific context/actions. Project and Files also render in the shell, not inside the chat message scroller.
 
-**No fullscreen takeovers** (same session, same principle): the notes "Expand" button used to open a `centerPanelView === 'notes'` stage that replaced the ENTIRE app shell. Ronin: a full-screen stage is wrong — an expand/zoom button should open a **pill in the main channel viewer**, not take over the screen. Fix pattern: register Notes as another `mobileTabQueue` addon tab (mirror `plannerWorkspace.ts` → `notesWorkspace.ts`), add `'notes'` to `WorkspaceViewKey` in `chat/types.ts`, render `<KeepNotesView />` in both Chat.svelte's `selectedWorkspaceView` chain and MainLayout's chat-surface chain, add a Notes pill in ChatHeader, and DELETE the fullscreen stage branch + its CSS. General rule: workspace views live in the chat-surface area (sidebar + right panel stay visible); fullscreen centerPanelView stages are reserved for admin only.
+- `workspaceNavigation.ts` resolves and selects all `WorkspaceViewKey` values using the existing addon queue, voice-view flag, and per-channel whiteboard state. `workspaceNavigationState.ts` wires production stores/IDs. Do not add a parallel persisted view store or a second switch statement.
+- Addon selection wins over remembered channel surfaces. Messages/Whiteboard/Calls select the actual current channel once; they do not close a hardcoded list of addons and repeatedly choose fallbacks. Returning to Messages clears the current board/voice view without erasing other open tabs. Voice navigation must not change media ownership.
+- The labeled picker is explicit (click/tap/keyboard), not hover-revealed. It keeps its trigger mounted, restores focus on selection/Escape, dismisses outside/on window blur, and fits the available center pane. Reserve the Messages-return slot. Do not restore unconditional selection blur or the old invisible icon strip.
+- Full-height workspace roots live below navigation and above the existing call layers. Keep sidebar/docking/customization intact; Notes and other ordinary workspaces must not become fullscreen admin stages.
+- Run `bun test src/lib/workspaceNavigation.test.ts` and, after checks/builds, `node scripts/workspace-browser-smoke.mjs`. The latter uses the full app and an isolated local release server in headful Chromium, never a live account. It needs an existing `target/release/wabi-server`; it does not prove native Tauri or external Lore operation.
 
 **Quick panel light-switch tabs** (same session): the bottom-right QuickResourcesPanel Notes/DM tabs should toggle each other — clicking the ACTIVE tab switches to the OTHER one (`activeTab === 'notes' ? 'dm' : 'notes'`), so flipping between them doesn't require precision-clicking.
 
@@ -244,6 +245,47 @@ Mobile is ONE SPA, two skins (no separate site). The shell branch happens on `<h
 **Peer-wipe hazard:** these files were wiped TWICE by the concurrent peer session (untracked new files + `app.html`/`styles.css` edits revert silently). Before trusting a mobile build, verify: `ls frontend/src/lib/pwa/` (expect 5 files incl. `mobileShell.ts`), `frontend/src/styles/components/mobile-shell.css` exists, `app.html` has the `data-shell` script, `styles.css` imports `mobile-shell.css`. Ship proof in deployed bundle: `dataset.shell` in `index.html`, `data-keyboard-open` + `mobile-nav-bar` in the hashed CSS, `shell.mobile.browse` in a JS chunk.
 
 ## References
+
+### Frontend polish and honest controls (2026-09-08)
+
+- ChatComposer is runes-based and keyed by account/channel at both Chat and
+  DmConversationView mounts. `composerDraftState.ts` holds session-memory drafts,
+  including selected File objects, separately for simultaneous center/dock
+  editors. It never serializes private drafts to localStorage. Revocation clears
+  every surface for that group; realm changes retire old editors. Save before
+  revoking object URLs on teardown. An upload/split send captures its destination
+  before awaits and cannot publish from a retired editor. Do not keep hidden
+  capture components mounted just to preserve text.
+  Preserve native File references outside `$state.snapshot`: it clones Files,
+  breaking identity-based handoff settlement and File-keyed compression metadata.
+  Snapshot mutable plain fields, then shallow-copy the selected File array.
+- Settings and BaseModal use `actions/modalFocus.ts` for initial focus, Tab
+  containment, one-layer Escape and opener restoration. Ancestor/global handlers
+  must honor defaultPrevented. Opening Admin closes Settings; Back restores the
+  app, not a hidden Profile tab.
+- Admin role names are a read-only built-in catalog, not member counts or
+  editable labels. Never implement a display-name command using membership
+  assignment. Role commands require an online server receipt; old queued grants
+  must not replay. See the full-polish plan for the wire and verification status.
+- UI-16's pin test must exercise production layoutStore subscriptions and an
+  acknowledged layout save before reload. Calling syncWorkspaceFromRuntime
+  manually inside a test bypasses the missing wiring it is meant to detect.
+  Startup/login/reconnect home-preference refresh is metadata, not an imperative
+  panel-open command: saved layout (including a closed dock) owns restoration.
+  Only explicit registration/Settings home choices apply the idempotent command.
+- A setting is not functional merely because it writes a preference. Trace a
+  consumer before exposing it; retain actual call/device controls and report
+  unsupported server features instead of emitting into absent handlers.
+- Server-wide Ban is unavailable: the old socket command never persisted or
+  enforced exclusion. Do not restore its menu based on a successful emit or
+  confuse role demotion with account revocation. Role Gates/reaction-role
+  automation and public-channel minimum-role restrictions are also unsupported.
+  Dashboard availability metadata distinguishes unknown counters from real zeroes.
+- Pass reactive inputs across component boundaries explicitly. Stable callbacks
+  closing over search/accordion state do not invalidate legacy child sections;
+  derive callback identities from a captured filter snapshot, not forced remounts.
+
+See `docs/plans/2026-09-08-full-frontend-polish.md` for scope and verification.
 
 ### Durable group client lifecycle (2026-09-08)
 

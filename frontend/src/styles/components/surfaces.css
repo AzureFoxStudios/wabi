@@ -6,13 +6,6 @@
 	overflow: hidden;
 }
 
-.workspace-view-bar {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1);
-	padding: var(--space-1);
-	flex-shrink: 0;
-}
 
 .surface-header {
 	display: flex;

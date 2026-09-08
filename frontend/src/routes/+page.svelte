@@ -267,12 +267,14 @@
 				startupMeasure('page:socket:init:call', 'page:socket:init:start', 'page:socket:init:end');
 				loggedIn = true;
 				syncFollowNotificationPoller(true);
-				applyHomeExperienceMode(getStoredHomeExperienceMode());
+				// Dock restoration owns startup, including an explicitly closed dock.
+				// Home preference refresh is metadata, not a fresh panel command:
+				// applying it here (and again after HTTP) overwrites restored pins.
+				// Accounts without a saved layout use the normal People/default
+				// layout; registration's explicit home choice still seeds their dock.
 				if (savedToken) {
 					scheduleNonCritical(() => {
-						void syncHomeExperienceFromServer(savedToken).then((mode) => {
-							applyHomeExperienceMode(mode);
-						});
+						void syncHomeExperienceFromServer(savedToken);
 					});
 				}
 
@@ -308,7 +310,6 @@
 								loggedIn = true;
 								initSocket(savedUsername, token);
 								syncFollowNotificationPoller(true);
-								applyHomeExperienceMode(getStoredHomeExperienceMode());
 								dismissDocumentBootShell();
 							}
 						}).catch(() => {});
@@ -464,13 +465,13 @@
 
 		const immediateMode = normalizeHomeExperienceMode(homeExperience || getStoredHomeExperienceMode());
 		setStoredHomeExperienceMode(immediateMode);
-		applyHomeExperienceMode(immediateMode);
+		// Only a choice made during registration is a new layout command.
+		// Returning-user login must preserve their restored panel arrangement.
+		if (homeExperience) applyHomeExperienceMode(immediateMode);
 
 		if (isRegistered && token && !homeExperience) {
 			scheduleNonCritical(() => {
-				void syncHomeExperienceFromServer(token).then((mode) => {
-					applyHomeExperienceMode(mode);
-				});
+				void syncHomeExperienceFromServer(token);
 			});
 		}
 

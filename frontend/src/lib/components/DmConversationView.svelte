@@ -29,7 +29,7 @@
   $: messages = channelId ? ($channelMessages[channelId] || []) : [];
   $: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
   $: pinnedMessages = messages.filter((m: Message) => m.isPinned);
-  $: channelDisplayName = isGroup ? (channel?.name || 'Group Message') : (otherUser?.handle || otherUser?.username || 'Direct Message');
+  $: channelDisplayName = isGroup ? (channel?.name || 'Group Message') : (otherUser?.handle || otherUser?.username || 'Recipient unavailable');
 
   let replyingTo: Message | null = null;
   let composerVisible = true;
@@ -75,6 +75,7 @@
       <span class="dm-header-name">{channelDisplayName}</span>
       <div class="dm-header-meta">
         <span class="dm-badge">{isGroup ? 'Group' : 'DM'}</span>
+        {#if !isGroup && !otherUser}<span role="status">Recipient details aren’t available. Reconnect to refresh this conversation.</span>{/if}
       </div>
     </div>
     <div class="dm-header-actions">
@@ -126,10 +127,12 @@
   </div>
 
   <div class="dm-composer">
+    {#key `${context}:${$currentUser?.dbUserId || $currentUser?.id || ''}:${channelId}`}
     <ChatComposer
       bind:this={chatComposer}
       isDMChannel={true}
       channelId={channelId}
+      draftSurface={`dm-${context}`}
       paymentButtonEnabled={false}
       bind:replyingTo
       bind:composerVisible
@@ -137,6 +140,7 @@
       onExecuteCommand={async (_cmd: string) => {}}
       onOpenPaymentSheet={() => {}}
     />
+    {/key}
   </div>
 </div>
 

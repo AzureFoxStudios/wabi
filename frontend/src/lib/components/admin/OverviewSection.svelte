@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
   export interface DashboardStats {
     overview: {
       totalUsers: number; onlineUsers: number; bannedUsers: number; mutedUsers: number
@@ -9,6 +9,7 @@
     statusDistribution: Array<{ status: string; count: number }>
     recentAudit: Array<AuditEntry>
     topUsers: Array<TopUser>
+    extra?: { unavailableMetrics?: unknown }
   }
 
   interface AuditEntry {
@@ -29,22 +30,29 @@
   import RoleBadge from './ui/RoleBadge.svelte'
   import StatusDot from './ui/StatusDot.svelte'
   import Skeleton from './ui/Skeleton.svelte'
-  import AnimatedNumber from './ui/AnimatedNumber.svelte'
   import type { PaymentAccessPolicy } from '$lib/api'
+  import { dashboardMetricValue, dashboardRoleOrder, normalizeDashboardRole, unavailableDashboardMetrics } from '$lib/adminDashboard'
 
-  export let stats: DashboardStats | null = null
-  export let loading = false
-  export let paymentPolicy: PaymentAccessPolicy | null = null
-  export let paymentLoading = false
+  let {
+    stats = null,
+    loading = false,
+    paymentPolicy = null,
+    paymentLoading = false,
+  }: {
+    stats?: DashboardStats | null
+    loading?: boolean
+    paymentPolicy?: PaymentAccessPolicy | null
+    paymentLoading?: boolean
+  } = $props()
 
   const statCards = [
     { key: 'totalUsers' as const, label: 'Users', icon: 'users', color: 'var(--accent-blue, #3498DB)' },
     { key: 'onlineUsers' as const, label: 'Online', icon: 'online', color: 'var(--accent-green, #4a9e5c)' },
     { key: 'totalMessages' as const, label: 'Messages', icon: 'messages', color: 'var(--accent, var(--accent-primary-color))' },
     { key: 'totalChannels' as const, label: 'Channels', icon: 'channels', color: 'var(--accent-purple, #9B59B6)' },
-    { key: 'totalRoles' as const, label: 'Roles', icon: 'roles', color: 'var(--accent-yellow, #F39C12)' },
+    { key: 'totalRoles' as const, label: 'Roles in use', icon: 'roles', color: 'var(--accent-yellow, #F39C12)' },
     { key: 'totalEmojis' as const, label: 'Emojis', icon: 'emojis', color: 'var(--accent, var(--accent-primary-color))' },
-    { key: 'bannedUsers' as const, label: 'Banned', icon: 'ban', color: 'var(--accent-red, #d71921)' },
+    { key: 'bannedUsers' as const, label: 'Inactive accounts', icon: 'ban', color: 'var(--accent-red, #d71921)' },
     { key: 'openReports' as const, label: 'Open Reports', icon: 'reports', color: 'var(--accent-red, #d71921)' },
   ]
 
@@ -66,10 +74,11 @@
     emoji_delete: { label: 'EMJ-', color: 'var(--accent-red, #d71921)' },
   }
 
-  $: roleOrder = ['owner', 'admin', 'mod', 'member', 'guest']
-  $: sortedRoles = stats
-    ? [...stats.roleDistribution].sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role))
-    : []
+  let unavailable = $derived(unavailableDashboardMetrics(stats?.extra))
+  let sortedRoles = $derived(stats
+    ? stats.roleDistribution.map((entry) => ({ ...entry, role: normalizeDashboardRole(entry.role) }))
+      .sort((a, b) => dashboardRoleOrder(a.role) - dashboardRoleOrder(b.role))
+    : [])
 
   const ringColors: Record<string, string> = {
     online: 'var(--accent-green, #4a9e5c)',
@@ -113,12 +122,13 @@
     <!-- Stat Cards -->
     <div class="admin-stat-grid">
       {#each statCards as card, i}
+        {@const value = dashboardMetricValue(stats.overview[card.key], card.key, stats.extra)}
         <Card delay={i * 60}>
           <div class="admin-stat-card-inner">
             <div class="admin-stat-card-header">
               <span class="admin-stat-label">{card.label}</span>
               <span class="admin-stat-icon" style="color: {card.color}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   {#if card.icon === 'users' || card.icon === 'online'}
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
                   {:else if card.icon === 'messages'}
@@ -137,18 +147,10 @@
                 </svg>
               </span>
             </div>
-            <div class="admin-stat-value">
-              <AnimatedNumber value={(stats.overview as any)[card.key]} />
+            <div class="admin-stat-value" aria-label={value === null ? `${card.label} unavailable` : undefined}>
+              {#if value === null}<span aria-hidden="true">—</span>{:else}{value.toLocaleString()}{/if}
             </div>
-            <div class="admin-stat-segbar">
-              {#each Array(12) as _, si}
-                <div
-                  class="admin-seg-segment"
-                  class:admin-seg-active={si < Math.min(Math.ceil(((stats.overview as any)[card.key] / Math.max(stats.overview.totalUsers, 1)) * 12), 12)}
-                  style="animation-delay: {si * 30}ms"
-                />
-              {/each}
-            </div>
+            {#if value === null}<span class="admin-stat-unavailable">Not available</span>{/if}
           </div>
         </Card>
       {/each}
@@ -173,12 +175,11 @@
       <Card delay={560} className="admin-activity-card">
         <div class="admin-activity-header">
           <span class="admin-section-label">Recent Activity</span>
-          <div class="admin-live-indicator">
-            <span class="admin-live-dot" />
-            <span class="admin-live-text">LIVE</span>
-          </div>
         </div>
         <div class="admin-activity-feed">
+          {#if unavailable.has('recentAudit')}
+            <div class="admin-empty-state">Activity history is not available in this dashboard.</div>
+          {:else}
           {#each stats.recentAudit as entry, i}
             {@const meta = actionLabels[entry.action] ?? { label: entry.action, color: 'var(--text-secondary)' }}
             <div class="admin-activity-item" style="animation-delay: {i * 50}ms">
@@ -198,6 +199,7 @@
           {:else}
             <div class="admin-empty-state">No recent activity</div>
           {/each}
+          {/if}
         </div>
       </Card>
     </div>
@@ -212,10 +214,12 @@
             <div class="admin-role-dist-item">
               <RoleBadge role={r.role} />
               <div class="admin-role-bar-track">
-                <div class="admin-role-bar-fill" style="width: {pct}%; background: {roleBarColor(r.role)}" />
+                <div class="admin-role-bar-fill" style="width: {pct}%; background: {roleBarColor(r.role)}"></div>
               </div>
-              <span class="admin-role-bar-count">
-                {r.count}<span class="admin-role-bar-pct"> {pct}%</span>
+              <span class="admin-role-bar-count" aria-label={`${r.count} users, ${pct}% of users`}>
+                <span>{r.count}</span>
+                <span class="admin-role-bar-separator" aria-hidden="true">·</span>
+                <span class="admin-role-bar-pct">{pct}%</span>
               </span>
             </div>
           {/each}
@@ -225,6 +229,9 @@
       <Card delay={680}>
         <span class="admin-section-label">Top Contributors</span>
         <div class="admin-top-users">
+          {#if unavailable.has('topUsers')}
+            <div class="admin-empty-state">Contributor statistics are not available from this server.</div>
+          {:else}
           {#each stats.topUsers as u, i}
             <div class="admin-top-user-item">
               <span class="admin-top-rank">{i + 1}</span>
@@ -233,7 +240,7 @@
                 <div class="admin-top-name-row">
                   <span class="admin-top-name">{u.displayName || u.username}</span>
                   <StatusDot status={u.status} />
-                  <RoleBadge role={u.role} />
+                  <RoleBadge role={normalizeDashboardRole(u.role)} />
                 </div>
                 <div class="admin-top-metrics">
                   <span class="admin-top-msgs">{u.messageCount.toLocaleString()} msgs</span>
@@ -244,6 +251,7 @@
           {:else}
             <div class="admin-empty-state">No contributor data yet</div>
           {/each}
+          {/if}
         </div>
       </Card>
     </div>

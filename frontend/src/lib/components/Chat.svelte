@@ -43,13 +43,12 @@
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { getSearchEngineProvider, openExternalSearch } from '$lib/searchEngineJump';
 	import { isExperimentalWabidbCallEnabled, setExperimentalWabidbCallEnabled } from '$lib/experimentalWabidbCalls';
-	import { MAP_ADDON_ID, focusedMapPlace, openFullMapTab } from '$lib/mapWorkspace';
-	import { MODEL_VIEWPORT_ADDON_ID, modelViewportSelection, openModelViewportSurface } from '$lib/modelViewportTab';
-	import { READER_ADDON_ID, openReaderSurface, readerSelection } from '$lib/readerWorkspace';
-	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
-	import { mobileTabQueue } from '$lib/mobileTabQueue';
+	import { focusedMapPlace, openFullMapTab } from '$lib/mapWorkspace';
+	import { modelViewportSelection, openModelViewportSurface } from '$lib/modelViewportTab';
+	import { openReaderSurface, readerSelection } from '$lib/readerWorkspace';
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
-	import { currentChatSurface, setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
+	import { currentChatSurface } from '$lib/whiteboard/whiteboardSurface';
+	import { activeWorkspaceView } from '$lib/workspaceNavigationState';
 	import { isRoutedChannelType, isTextLikeChannelType } from '$lib/channelTypes';
 	import { isLiveRetention } from '../../../../shared/messageRetention.js';
 	import LiveChannelView from './live/LiveChannelView.svelte';
@@ -63,20 +62,11 @@
 	import ForumChannel from './ForumChannel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 import ReceptionBoard from './ReceptionBoard.svelte';
-import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
-import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
-import { LORE_ADDON_ID } from '$lib/loreWorkspace';
-import { FILES_ADDON_ID } from '$lib/filesWorkspace';
-	import { voiceViewOpen, closeVoiceView } from '$lib/voiceView';
 import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
-import KeepNotesView from './KeepNotesView.svelte';
-import LoreWorkspace from './LoreWorkspace.svelte';
-import FilesWorkspace from './FilesWorkspace.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
 	import { formatTypingUsers, getVisibleTypingUsers } from './chat/typing';
 	import { channelPaneInTransition, channelPaneOutTransition } from './chat/transitions';
-	import type { WorkspaceViewKey } from './chat/types';
 
 	const dispatch = createEventDispatcher();
 	type SendChatMessage = (channelId: string, text: string, type: string, opts?: Record<string, unknown>) => void;
@@ -85,8 +75,6 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	const openExistingDmSignal = dmPanelSignal as unknown as { set(v: { channelId: string; otherUser: User }): void };
 
 	$: chatSurface = $currentChatSurface;
-	const { activeTabId: mobileQueueActiveTabId } = mobileTabQueue;
-	let selectedWorkspaceView: WorkspaceViewKey = 'messages';
 
 	// Project (lore) channels get an explicit Files | Chat toggle. 'files'
 	// is the default landing; Chat restores the normal message stream +
@@ -98,21 +86,6 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	function setProjectChannelMode(mode: 'files' | 'chat'): void {
 		projectChannelMode = mode;
 	}
-	$: selectedWorkspaceView = (() => {
-		if (chatSurface === 'whiteboard') return 'whiteboard' as const;
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) return 'reader' as const;
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) return 'model' as const;
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) return 'map' as const;
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) return 'media' as const;
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID)) return 'planner' as const;
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(NOTES_ADDON_ID)) return 'notes' as const;
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(LORE_ADDON_ID)) return 'lore' as const;
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(FILES_ADDON_ID)) return 'files' as const;
-		// Voice view is a plain boolean surface (no addon tab): report it when
-		// open, but AFTER the addon tabs — MainLayout renders tabs in front of it.
-		if ($voiceViewOpen) return 'voice' as const;
-		return 'messages' as const;
-	})();
 
 	// Scoped per-channel store: re-emits only when THIS channel's array
 	// changes (god-store fix) — other channels' traffic no longer recomputes
@@ -124,7 +97,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	$: channelDisplayName = currentChannelData?.name || $currentChannel;
 	$: channelDescription = currentChannelData?.description?.trim() || '';
 	$: workspaceSurfaceLabel = (() => {
-		switch (selectedWorkspaceView) {
+		switch ($activeWorkspaceView) {
 			case 'whiteboard': return 'Whiteboard';
 			case 'reader': return 'Reader';
 			case 'model': return '3D Viewport';
@@ -136,7 +109,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		}
 	})();
 	$: workspaceHeaderTitle = (() => {
-		switch (selectedWorkspaceView) {
+		switch ($activeWorkspaceView) {
 			case 'reader': return $readerSelection?.title || 'Reader';
 			case 'model': return $modelViewportSelection?.fileName || '3D model';
 			case 'map': return $focusedMapPlace?.name || 'Map';
@@ -145,7 +118,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		}
 	})();
 	$: workspaceHeaderSubtitle = (() => {
-		switch (selectedWorkspaceView) {
+		switch ($activeWorkspaceView) {
 			case 'whiteboard': return channelDescription || 'Shared board for this channel';
 			case 'reader': return `Opened from #${channelDisplayName}`;
 			case 'model': return `Opened from #${channelDisplayName}`;
@@ -390,19 +363,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		await setExperimentalWabidbCallEnabled(next);
 	}
 
-	function returnToMessagesView(): void {
-		closeVoiceView();
-		if (chatSurface !== 'messages') setWhiteboardSurface($currentChannel, 'messages');
-		if ($layoutStore.rightPanelMode !== 'none' && $layoutStore.activeRightTab === 'media') layoutStore.closeRightPanel();
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) mobileTabQueue.closeAddonTab(READER_ADDON_ID);
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) mobileTabQueue.closeAddonTab(MODEL_VIEWPORT_ADDON_ID);
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) mobileTabQueue.closeAddonTab(MEDIA_ALBUMS_ADDON_ID);
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(PLANNER_ADDON_ID)) mobileTabQueue.closeAddonTab(PLANNER_ADDON_ID);
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(NOTES_ADDON_ID)) mobileTabQueue.closeAddonTab(NOTES_ADDON_ID);
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(LORE_ADDON_ID)) mobileTabQueue.closeAddonTab(LORE_ADDON_ID);
-		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(FILES_ADDON_ID)) mobileTabQueue.closeAddonTab(FILES_ADDON_ID);
-	}
+
 </script>
 
 <div
@@ -428,7 +389,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		{workspaceSurfaceLabel}
 		{workspaceHeaderTitle}
 		{workspaceHeaderSubtitle}
-		{selectedWorkspaceView}
+		selectedWorkspaceView={$activeWorkspaceView}
 		currentChannel={$currentChannel}
 		{dmCallTargetUser}
 		{dmDirectCallActive}
@@ -445,7 +406,6 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		{isFullHistorySearchRunning}
 		{fullHistorySearchPagesLoaded}
 		{fullHistorySearchStatus}
-		onReturnToMessages={returnToMessagesView}
 		onStartDMVoiceCall={startDMVoiceCall}
 		onStartDMVideoCall={startDMVideoCall}
 		onToggleExperimentalWabidbCall={toggleExperimentalWabidbCallUi}
@@ -461,7 +421,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 		</div>
 	{/if}
 
-	{#if currentChannelType === 'lore' && selectedWorkspaceView === 'messages' && projectChannelMode === 'files'}
+	{#if currentChannelType === 'lore' && $activeWorkspaceView === 'messages' && projectChannelMode === 'files'}
 		<!-- Project channels ARE their view: the repo workspace is the default
 		     surface, not a teaser card pointing at the server-wide hub.
 		     Single occupant of the center stage — the messages pane below is
@@ -472,7 +432,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	{/if}
 
 	<!-- Project channel mode toggle: Files (repo workspace) | Chat (stream) -->
-	{#if currentChannelType === 'lore' && selectedWorkspaceView === 'messages'}
+	{#if currentChannelType === 'lore' && $activeWorkspaceView === 'messages'}
 		<div class="project-mode-toggle" role="tablist" aria-label="Project channel view">
 			<button
 				type="button"
@@ -501,7 +461,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	<div
 		class="messages"
 		bind:this={chatContainer}
-		class:surface-hidden={chatSurface !== 'messages' || (currentChannelType === 'lore' && selectedWorkspaceView === 'messages' && projectChannelMode === 'files')}
+		class:surface-hidden={chatSurface !== 'messages' || (currentChannelType === 'lore' && $activeWorkspaceView === 'messages' && projectChannelMode === 'files')}
 		on:scroll={(e) => {
 			// Mobile composer auto-hide on scroll
 			if ($isMobile) {
@@ -519,14 +479,6 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	>
 		{#if isLiveChannel}
 			<LiveChannelView channel={currentChannelData} />
-		{:else if selectedWorkspaceView === 'planner'}
-			<PlannerWorkspace />
-		{:else if selectedWorkspaceView === 'notes'}
-			<KeepNotesView />
-		{:else if selectedWorkspaceView === 'lore'}
-			<LoreWorkspace />
-		{:else if selectedWorkspaceView === 'files'}
-			<FilesWorkspace />
 		{:else if currentChannelType === 'gallery'}
 			<GalleryChannel />
 		{:else if currentChannelType === 'forum'}
@@ -569,6 +521,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 	</div>
 
 		{#if channelUsesChatStream && !isLiveChannel && chatSurface === 'messages' && !($isMobile && $isInCall)}
+			{#key `${$currentUser?.dbUserId || $currentUser?.id || ''}:${$currentChannel}`}
 			<ChatComposer
 				bind:this={chatComposer}
 				{isDMChannel}
@@ -580,6 +533,7 @@ import FilesWorkspace from './FilesWorkspace.svelte';
 				onExecuteCommand={executeCommand}
 				onOpenPaymentSheet={openPaymentSheet}
 			/>
+			{/key}
 		{/if}
 	</div>
 

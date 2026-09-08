@@ -155,7 +155,7 @@ async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
 }
 
 #[allow(dead_code)]
-async fn on_ban_user(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+async fn on_ban_user(socket: SocketRef, data: Value, state: SioState, _io: SocketIo) {
     let target_user_id = match data.get("targetUserId").and_then(|v| v.as_i64()) {
         Some(id) => id,
         None => {
@@ -172,46 +172,12 @@ async fn on_ban_user(socket: SocketRef, data: Value, state: SioState, io: Socket
         return;
     }
 
-    // The server owner can never be banned.
-    if state.app.is_owner(target_user_id).await {
-        let _ = socket.emit("ban-error", &json!({ "error": "The server owner cannot be banned" }));
-        return;
-    }
-
-    let reason = data.get("reason").and_then(|v| v.as_str());
-
-    // Disconnect the target if connected, then broadcast
-    let target_stable_id = format!("user-{}", target_user_id);
-    let mut disconnected_socket_id = None;
-
-    {
-        let mut connected = state.connected_users.write().await;
-        for (sid, user) in connected.iter_mut() {
-            if user.stable_id == target_stable_id {
-                disconnected_socket_id = Some(sid.clone());
-                break;
-            }
-        }
-    }
-
-    if let Some(sid) = disconnected_socket_id {
-        // Emit ban to the target socket forcing disconnect
-        let _ = io
-            .to(sid.clone())
-            .emit("ban", &json!({ "reason": reason }))
-            .await;
-    }
-
-    // Broadcast user-banned event
-    let _ = io
-        .broadcast()
-        .emit(
-            "user-banned",
-            &json!({
-                "userId": target_stable_id,
-                "dbUserId": target_user_id,
-                "reason": reason
-            }),
-        )
-        .await;
+    // Keep a rejection for old clients, but never announce an access revocation
+    // that was not persisted or enforced. There is no durable account-ban command.
+    let _ = socket.emit("ban-error", &json!({
+        "code": "unsupported",
+        "error": "Server-wide bans are not available. No account access was changed.",
+        "targetUserId": target_user_id,
+        "requestId": data.get("requestId").and_then(|v| v.as_str()),
+    }));
 }

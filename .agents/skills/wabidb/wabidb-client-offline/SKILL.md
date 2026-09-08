@@ -88,6 +88,24 @@ must not race a fresh readmission; recovery republishes current routing mode.
 
 ## Queue persistence and acknowledgements
 
+Administrative assign-role/remove-role are online-only too. `serverRoleCommands`
+awaits correlated server results and fences socket/realm changes. Enqueue rejects
+these actions, and drain permanently fails old queued grants with a role-specific
+explanation; general Retry must not revive them. Do not replay an administrator's
+obsolete intent after reconnect.
+
+`ban-user` is unsupported, not an offline-capable moderation command. Reject
+new enqueue attempts and retain legacy records as permanently failed with
+`retryable: false`; never emit or silently delete them. A role demotion is not
+a ban, and a socket notification is not evidence of durable exclusion.
+
+Composer drafts are separate session-memory UI state (`composerDraftState.ts`),
+not an incoming archive or outbound queue. They retain text/replies/File objects
+across workspace switches without disk writes; logout/account/server changes and
+group removal retire them. Resumable upload hints use a v2 server/account-scoped
+key; old unowned hints remain untouched and are not adopted. Upload work rechecks
+its captured editor/realm/group before continuing after awaits.
+
 Records contain `id/type/scopeId/status/createdAt/payload` plus optional
 `retriedAt/error/retryable/authority/attemptedAt`. These are client IndexedDB
 records, not Rust postcard records. Preserve `key: scopeId + ':' + id` on every

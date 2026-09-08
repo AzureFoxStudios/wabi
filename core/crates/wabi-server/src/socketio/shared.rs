@@ -37,10 +37,10 @@ pub fn shared_connected_users() -> ConnectedUsers {
         .unwrap_or_else(|| Arc::new(RwLock::new(HashMap::new())))
 }
 
-/// Count of currently-connected socket.io clients (unique sockets, not
-/// unique users — a user with two tabs counts twice).
+/// Count people, not transports: a member with two tabs is online once.
 pub async fn connected_user_count() -> u64 {
-    shared_connected_users().read().await.len() as u64
+    shared_connected_users().read().await.values()
+        .map(|user| &user.stable_id).collect::<std::collections::HashSet<_>>().len() as u64
 }
 
 // ---------------------------------------------------------------------------
@@ -666,6 +666,17 @@ fn highest_role(db_id: Option<i64>, owner_id: Option<i64>) -> &'static str {
     }
 }
 
+/// Snapshot and incremental user views must use the same live RBAC authority
+/// as command authorization, not infer every non-owner account to be Member.
+async fn effective_user_role(state: &SioState, db_id: Option<i64>, is_registered: bool) -> &'static str {
+    let Some(user_id) = db_id.filter(|id| *id > 0) else { return "guest"; };
+    if !is_registered { return "guest"; }
+    if state.app.is_owner(user_id).await { return "owner"; }
+    if state.app.is_admin(user_id).await { return "admin"; }
+    if state.app.has_role(user_id, "Moderator").await { return "mod"; }
+    "member"
+}
+
 /// Used for serverMembers snapshot — all registered users, status unset (offline by default).
 #[allow(dead_code)]
 fn row_to_user_view(row: &HashMap<String, Value>, owner_id: Option<i64>) -> Value {
@@ -687,9 +698,7 @@ fn row_to_user_view(row: &HashMap<String, Value>, owner_id: Option<i64>) -> Valu
 }
 
 #[allow(dead_code)]
-async fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>, state: &SioState) -> Value {
-    let role = highest_role(user.db_user_id, owner_id);
-
+async fn connected_user_to_view(user: &ConnectedUser, _owner_id: Option<i64>, state: &SioState) -> Value {
     let (profile_picture, username_font, bio, is_registered) = if let Some(db_id) = user.db_user_id {
         if db_id > 0 {
             if let Ok(Some(db_user)) = state.app.wdb.get_user(db_id as u64).await {
@@ -709,6 +718,7 @@ async fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>, sta
         (None, None, None, None)
     };
 
+    let role = effective_user_role(state, user.db_user_id, is_registered.unwrap_or(false)).await;
     let (banner_url, overlay_url) = if let Some(db_id) = user.db_user_id {
         let stored = state
             .app

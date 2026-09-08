@@ -17,6 +17,7 @@
 	import { getQuickReactionClickShare, quickReactionTelemetryStore, resetQuickReactionTelemetry } from '$lib/quickReactionTelemetry';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
 	import type { AddonSectionId } from '../addonSettingsRegistry';
+	import ReactionEmojiSelect from '../../emoji/ReactionEmojiSelect.svelte';
 
 	export let localAddonControlMatches: (controlId: string) => boolean;
 	export let isAddonSectionOpen: (section: AddonSectionId) => boolean;
@@ -320,14 +321,9 @@
 					</div>
 				</div>
 				<div class="settings-row-actions">
-					<select class="theme-select" bind:value={quickReactionCustomEmojiIdDraft}>
-						<option value="">Select emoji to add</option>
-						{#each $emojis as emoji (emoji.id)}
-							<option value={emoji.id}>
-								{emoji.displayName || emoji.name} ({emoji.name})
-							</option>
-						{/each}
-					</select>
+					<div class="quick-reaction-picker-field">
+						<ReactionEmojiSelect value={quickReactionCustomEmojiIdDraft} onchange={(id) => quickReactionCustomEmojiIdDraft = id} />
+					</div>
 					<button class="action-btn" on:click={addCustomQuickReactionEmoji} disabled={!quickReactionCustomEmojiIdDraft.trim()}>
 						Add Emoji
 					</button>
@@ -380,3 +376,11 @@
 	{/if}
 </section>
 {/if}
+
+<style>
+	.quick-reaction-picker-field {
+		flex: 1 1 240px;
+		min-width: 0;
+		max-width: 100%;
+	}
+</style>

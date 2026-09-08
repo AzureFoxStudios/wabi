@@ -1,5 +1,7 @@
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
+import { composerDraftRealm } from '$lib/composerDraftState';
+import { captureGroupAccess } from '$lib/groupAccess';
 
 export type UploadVideoCompressionMetadata = {
 	scheme: 'wabi-video-compression-v1';
@@ -49,8 +51,9 @@ function getUploadAuthHeaders(includeJsonContentType = false): Record<string, st
 	return headers;
 }
 
-function getResumeStorageKey(channelId: string, file: File): string {
-	return `upload-resume:${channelId}:${file.name}:${file.size}:${file.lastModified}`;
+function getResumeStorageKey(realm: string | null, channelId: string, file: File): string {
+	// Legacy unowned resume hints are left untouched, never adopted by a login.
+	return `upload-resume:v2:${JSON.stringify([realm, channelId, file.name, file.size, file.lastModified])}`;
 }
 
 export async function uploadFileResumable(
@@ -58,13 +61,29 @@ export async function uploadFileResumable(
 	channelId: string,
 	onProgress: (fileProgressPercent: number) => void,
 	allowPersistentResume = true,
-	videoCompression?: UploadVideoCompressionMetadata
+	videoCompression?: UploadVideoCompressionMetadata,
+	isCurrent: () => boolean = () => true
 ): Promise<UploadFileResumableResult> {
 	const serverUrl = getServerUrl();
-	const resumeKey = getResumeStorageKey(channelId, file);
+	const realm = composerDraftRealm();
+	const groupCurrent = captureGroupAccess(channelId);
+	const assertCurrent = () => {
+		if (!isCurrent() || !groupCurrent() || composerDraftRealm() !== realm || getServerUrl() !== serverUrl) {
+			throw new Error('Upload context changed');
+		}
+	};
+	// Check both sides of every await, before another request can use credentials.
+	const scopedFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+		assertCurrent();
+		const response = await fetch(input, init);
+		assertCurrent();
+		return response;
+	};
+	assertCurrent();
+	const resumeKey = getResumeStorageKey(realm, channelId, file);
 	const previousUploadId = allowPersistentResume ? localStorage.getItem(resumeKey) || undefined : undefined;
 
-	const initResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
+	const initResponse = await scopedFetch(`${serverUrl}/api/upload/resumable/init`, {
 		method: 'POST',
 		headers: getUploadAuthHeaders(true),
 		credentials: 'include',
@@ -82,6 +101,7 @@ export async function uploadFileResumable(
 	}
 
 	const initResult = await initResponse.json();
+	assertCurrent();
 	const uploadId = initResult.uploadId as string;
 	let uploadToken = initResult.uploadToken as string;
 	if (allowPersistentResume) {
@@ -110,7 +130,7 @@ export async function uploadFileResumable(
 		while (!uploadedThisChunk && attempt < RESUMABLE_UPLOAD_MAX_RETRIES) {
 			attempt++;
 			try {
-				const chunkResponse = await fetch(
+				const chunkResponse = await scopedFetch(
 					`${serverUrl}/api/upload/resumable/chunk?uploadId=${encodeURIComponent(uploadId)}&offset=${uploadedBytes}`,
 					{
 						method: 'PUT',
@@ -123,7 +143,7 @@ export async function uploadFileResumable(
 					}
 				);
 				if (chunkResponse.status === 403) {
-					const refreshResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
+					const refreshResponse = await scopedFetch(`${serverUrl}/api/upload/resumable/init`, {
 						method: 'POST',
 						headers: getUploadAuthHeaders(true),
 						credentials: 'include',
@@ -140,6 +160,7 @@ export async function uploadFileResumable(
 						throw new Error(`Upload token refresh failed (${refreshResponse.status})`);
 					}
 					const refresh = await refreshResponse.json();
+					assertCurrent();
 					uploadToken = refresh.uploadToken as string;
 					uploadedBytes = Number(refresh.uploadedBytes || uploadedBytes);
 					onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
@@ -149,6 +170,7 @@ export async function uploadFileResumable(
 
 				if (chunkResponse.status === 409) {
 					const conflict = await chunkResponse.json();
+					assertCurrent();
 					const expectedOffset = Number(conflict.expectedOffset);
 					if (Number.isFinite(expectedOffset) && expectedOffset >= 0) {
 						uploadedBytes = expectedOffset;
@@ -166,6 +188,7 @@ export async function uploadFileResumable(
 				}
 
 				const chunkResult = await chunkResponse.json();
+				assertCurrent();
 				uploadedBytes = Number(chunkResult.uploadedBytes || uploadedBytes);
 				if (chunkResult.uploadToken) {
 					uploadToken = chunkResult.uploadToken as string;
@@ -173,6 +196,7 @@ export async function uploadFileResumable(
 				onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
 				uploadedThisChunk = true;
 			} catch (error) {
+				assertCurrent();
 				if (attempt >= RESUMABLE_UPLOAD_MAX_RETRIES) {
 					throw error;
 				}
@@ -181,7 +205,7 @@ export async function uploadFileResumable(
 		}
 	}
 
-	const completeResponse = await fetch(`${serverUrl}/api/upload/resumable/complete`, {
+	const completeResponse = await scopedFetch(`${serverUrl}/api/upload/resumable/complete`, {
 		method: 'POST',
 		headers: getUploadAuthHeaders(true),
 		credentials: 'include',
@@ -192,6 +216,7 @@ export async function uploadFileResumable(
 	}
 
 	const completeResult = await completeResponse.json();
+	assertCurrent();
 	if (allowPersistentResume) localStorage.removeItem(resumeKey);
 
 	return {

@@ -17,6 +17,8 @@ import { getSocket, connected } from './socketConnection';
 import { getWabiDB } from '$lib/wabidb';
 import { currentUser } from './presenceStore';
 import { groupMembership } from './groupAccess';
+import { getGuestSessionId, onAuthSessionCleared } from './authSession';
+import { getServerUrl, normalizeServerUrl } from './serverUrl';
 
 // ============================================================================
 // STORES
@@ -158,7 +160,7 @@ export function retryMessagePersistence(channelId: string, messageId: string): v
 
 export type SendMessageResult =
 	| { ok: true; clientMessageId: string; queuedOffline?: boolean }
-	| { ok: false; reason: 'no_socket' | 'empty' | 'no_channel' };
+	| { ok: false; reason: 'no_socket' | 'empty' | 'no_channel' | 'queue_failed' };
 
 /**
  * Send a chat message. Returns a result so the composer can keep the draft
@@ -244,17 +246,36 @@ export async function sendMessage(
 	appendOptimisticMessage(channelId, optimisticMessage);
 
 	if (db && !online) {
-		await db.enqueue({
-			scopeId: 'corechat',
-			type: 'send-message',
-			payload: { channelId, text: trimmed, type, clientMessageId, ...options }
+		const realm = groupMembership.realm();
+		const lease = groupMembership.tracks(channelId) ? groupMembership.capture(channelId) : null;
+		const server = normalizeServerUrl(getServerUrl());
+		const guest = getGuestSessionId();
+		let sessionCurrent = true;
+		const unsubscribe = onAuthSessionCleared(clearedServer => {
+			if (normalizeServerUrl(clearedServer) === server) sessionCurrent = false;
 		});
-		updateOptimisticMessage(
-			channelId,
-			(m) => m.clientMessageId === clientMessageId,
-			{ deliveryState: 'failed', deliveryError: 'Queued — will send when online' }
-		);
-		return { ok: true, clientMessageId, queuedOffline: true };
+		const canUpdate = () => sessionCurrent && normalizeServerUrl(getServerUrl()) === server &&
+			groupMembership.realm() === realm && getGuestSessionId() === guest && (!lease || groupMembership.current(lease));
+		try {
+			await db.enqueue({
+				scopeId: 'corechat',
+				type: 'send-message',
+				payload: { channelId, text: trimmed, type, clientMessageId, ...options }
+			});
+			if (canUpdate()) updateOptimisticMessage(
+				channelId,
+				(m) => m.clientMessageId === clientMessageId,
+				{ deliveryState: 'failed', deliveryError: 'Queued — will send when online' }
+			);
+			return { ok: true, clientMessageId, queuedOffline: true };
+		} catch {
+			if (canUpdate()) updateOptimisticMessage(
+				channelId,
+				(m) => m.clientMessageId === clientMessageId,
+				{ deliveryState: 'failed', deliveryError: 'Not queued — local storage failed. Your draft is still available.' }
+			);
+			return { ok: false, reason: 'queue_failed' };
+		} finally { unsubscribe(); }
 	}
 
 	// sock is defined here (guarded above unless offline queue path returned).

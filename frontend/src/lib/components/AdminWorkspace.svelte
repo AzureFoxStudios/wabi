@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-import { get } from 'svelte/store';
-	import { channels, currentUser, assignRole, removeUserRole, badgeCatalog, assignBadge as emitAssignBadge, removeBadge as emitRemoveBadge, type User, updateChannelSettings, sendMessage, channelMessages, connected } from '$lib/socket';
+	import { channels, currentUser, assignRole, badgeCatalog, assignBadge as emitAssignBadge, removeBadge as emitRemoveBadge, type User, connected } from '$lib/socket';
+	import { createAdminRoleCatalog, type AdminRoleDefinition } from '$lib/adminRoleCatalog';
 	import { users, serverMembers } from '$lib/socket';
 	import { getSocket } from '$lib/socket';
-	import { getWabiDB } from '$lib/wabidb';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
 	import { refreshSavedServer, currentSavedServer } from '$lib/savedServers';
@@ -34,8 +33,7 @@ import { get } from 'svelte/store';
 	import AdminHeader from './admin/AdminHeader.svelte';
 	import RoleNamesPanel from './admin/RoleNamesPanel.svelte';
 	import ChannelAccessPanel from './admin/ChannelAccessPanel.svelte';
-	import RoleGatePanel from './admin/RoleGatePanel.svelte';
-	import EmojiRoleRulesPanel from './admin/EmojiRoleRulesPanel.svelte';
+	import RoleGatesUnavailable from './admin/RoleGatesUnavailable.svelte';
 	import PaymentAccessPanel from './admin/PaymentAccessPanel.svelte';
 	import CompressionPanel from './admin/CompressionPanel.svelte';
 	import RuntimeTuningPanel from './admin/RuntimeTuningPanel.svelte';
@@ -55,24 +53,6 @@ import { get } from 'svelte/store';
 		| 'runtime'
 		| 'branding'
 		| 'settings' = 'all';
-
-	type RoleDefinition = {
-		roleName: string;
-		displayName: string;
-		priority: number;
-		color: string | null;
-		isHoisted: boolean;
-	};
-
-	type EmojiRoleRule = {
-		id: number;
-		channelId: string;
-		messageId: string;
-		emojiId: string;
-		roleName: string;
-		removeOnUnreact: boolean;
-		enabled: boolean;
-	};
 
 	type ManagedUserRole = 'member' | 'mod' | 'admin';
 
@@ -104,18 +84,17 @@ import { get } from 'svelte/store';
 	}
 
 	let searchQuery = '';
-	let roleDefinitions: RoleDefinition[] = [];
-	let roleLabelDrafts: Record<string, string> = {};
-	let emojiRoleRules: EmojiRoleRule[] = [];
-	let roleGateChannelId = '';
-	let roleGateTitle = '';
-	let roleGateDescription = '';
-	let roleGatePersist = true;
-	let selectedRuleChannelId = '';
-	let selectedRuleMessageId = '';
-	let selectedRuleEmojiId = '';
-	let selectedRuleRoleName = '';
-	let selectedRuleRemoveOnUnreact = false;
+	let roleBusyUserIds: number[] = [];
+	let roleActionError = '';
+	let roleActionStatus = '';
+	let roleDefinitions: AdminRoleDefinition[] = [];
+	let rolesLoading = true;
+	let rolesError = '';
+	const roleCatalog = createAdminRoleCatalog((state) => {
+		roleDefinitions = state.roles;
+		rolesLoading = state.loading;
+		rolesError = state.error;
+	});
 	let compressionConfig: AdminCompressionConfig | null = null;
 	let compressionMetrics: AdminCompressionMetrics | null = null;
 	let compressionLoading = false;
@@ -168,8 +147,6 @@ import { get } from 'svelte/store';
 
 	$: canManageRoles = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: canModerate = canManageRoles || $currentUser?.highestRole === 'mod';
-	$: channelRoleOptions = roleDefinitions.filter((role) => role.roleName !== 'owner');
-	$: assignableRoleOptions = roleDefinitions.filter((role) => !['owner', 'guest'].includes(role.roleName));
 	$: manageableUserRoleOptions = (roleDefinitions.filter((role) =>
 		['member', 'mod', 'admin'].includes(role.roleName)
 	).map((role) => role.roleName) as ManagedUserRole[]).length > 0
@@ -178,19 +155,6 @@ import { get } from 'svelte/store';
 				.map((role) => role.roleName) as ManagedUserRole[])
 		: (['member', 'mod', 'admin'] as ManagedUserRole[]);
 	$: customChannels = $channels.filter((ch) => ch.type === 'text' || ch.type === 'voice' || ch.type === 'public');
-	$: gateChannels = customChannels.filter((ch) => ch.type === 'text' || ch.type === 'public');
-	$: if (!roleGateChannelId && gateChannels.length > 0) roleGateChannelId = gateChannels[0].id;
-	$: if (!selectedRuleChannelId && gateChannels.length > 0) selectedRuleChannelId = gateChannels[0].id;
-	$: availableRoleGatePosts = (($channelMessages[selectedRuleChannelId] || [])
-		.filter((message) => message.type === 'role_gate')
-		.slice(-40)
-		.reverse());
-	$: if (!selectedRuleMessageId && availableRoleGatePosts.length > 0) {
-		selectedRuleMessageId = availableRoleGatePosts[0].id;
-	}
-	$: if (selectedRuleMessageId && !availableRoleGatePosts.some((message) => message.id === selectedRuleMessageId)) {
-		selectedRuleMessageId = availableRoleGatePosts[0]?.id || '';
-	}
 	// Full server roster: every registered user (serverMembers) merged with the
 	// live online list (users). Online entries win so their live status/fields
 	// are kept. Without serverMembers the admin registry only ever showed users
@@ -255,7 +219,7 @@ import { get } from 'svelte/store';
 	function canManageTargetUser(user: User): boolean {
 		if (!canManageRoles) return false;
 		if (!$currentUser || user.id === $currentUser.id) return false;
-		if (!user.dbUserId) return false;
+		if (!user.dbUserId || user.isRegistered === false) return false;
 		if (user.highestRole === 'owner') return false;
 		return true;
 	}
@@ -282,14 +246,22 @@ import { get } from 'svelte/store';
 		return 'member';
 	}
 
-	function setUserRoleLevel(user: User, nextRole: ManagedUserRole) {
-		if (!canManageTargetUser(user) || !user.dbUserId) return;
+	async function setUserRoleLevel(user: User, nextRole: ManagedUserRole) {
+		if (!canManageTargetUser(user) || !user.dbUserId || roleBusyUserIds.includes(user.dbUserId)) return;
 		const currentRole = getManagedUserRole(user);
 		if (currentRole === nextRole) return;
-		removeUserRole(user.dbUserId, 'admin');
-		removeUserRole(user.dbUserId, 'mod');
-		if (nextRole === 'admin' || nextRole === 'mod') {
-			assignRole(user.dbUserId, nextRole);
+		// The server uses one authoritative role, so replacing it is one command.
+		// Multiple concurrent remove/assign emits can apply in the wrong order.
+		const userId = user.dbUserId;
+		roleBusyUserIds = [...roleBusyUserIds, userId];
+		roleActionError = ''; roleActionStatus = '';
+		try {
+			await assignRole(userId, nextRole);
+			roleActionStatus = `${user.username} is now ${getRoleLabel(nextRole)}.`;
+		} catch (error) {
+			roleActionError = error instanceof Error ? error.message : 'Could not change this member’s role.';
+		} finally {
+			roleBusyUserIds = roleBusyUserIds.filter((id) => id !== userId);
 		}
 	}
 
@@ -301,68 +273,6 @@ import { get } from 'svelte/store';
 	function handleRemoveBadge(user: User, badgeId: string) {
 		if (!canManageTargetUser(user) || !user.dbUserId) return;
 		emitRemoveBadge(user.dbUserId, badgeId);
-	}
-
-	function refreshRoleDrafts() {
-		const next: Record<string, string> = {};
-		for (const role of roleDefinitions) {
-			next[role.roleName] = role.displayName;
-		}
-		roleLabelDrafts = next;
-	}
-
-	function saveRoleDisplayName(roleName: string) {
-		const sock = getSocket();
-		const draft = (roleLabelDrafts[roleName] || '').trim();
-		if (!sock || !draft) return;
-		sock.emit('set-role-display-name', { roleName, displayName: draft });
-	}
-
-	function setChannelMinRole(channelId: string, roleName: string) {
-		if (!canManageRoles) return;
-		updateChannelSettings(channelId, { minRole: roleName });
-	}
-
-	function addEmojiRoleRule() {
-		const sock = getSocket();
-		if (!sock || !canManageRoles) return;
-		if (!selectedRuleChannelId || !selectedRuleMessageId || !selectedRuleEmojiId || !selectedRuleRoleName) return;
-		sock.emit('set-emoji-role-rule', {
-			channelId: selectedRuleChannelId,
-			messageId: selectedRuleMessageId,
-			emojiId: selectedRuleEmojiId,
-			roleName: selectedRuleRoleName,
-			removeOnUnreact: selectedRuleRemoveOnUnreact
-		});
-	}
-
-	async function createRoleGatePost() {
-		if (!canManageRoles) return;
-		if (!roleGateChannelId) return;
-		const title = roleGateTitle.trim();
-		const description = roleGateDescription.trim();
-		if (!title) return;
-		const content = description ? `${title}\n${description}` : title;
-		await sendMessage(roleGateChannelId, content, 'role_gate', { roleGatePersist: roleGatePersist });
-		roleGateTitle = '';
-		roleGateDescription = '';
-		selectedRuleChannelId = roleGateChannelId;
-	}
-
-	function getChannelName(channelId: string): string {
-		return $channels.find((channel) => channel.id === channelId)?.name || channelId;
-	}
-
-	async function deleteEmojiRoleRule(ruleId: number) {
-		const sock = getSocket();
-		if (!sock || !canManageRoles) return;
-		const db = getWabiDB();
-		const online = get(connected);
-		if (db && !online) {
-			await db.enqueue({ scopeId: 'corechat', type: 'delete-emoji-role-rule', payload: { ruleId } });
-			return;
-		}
-		sock.emit('delete-emoji-role-rule', { ruleId });
 	}
 
 	async function refreshCompressionPanel() {
@@ -635,25 +545,12 @@ import { get } from 'svelte/store';
 	}
 
 	onMount(() => {
-		const sock = getSocket();
-		if (!sock) return;
-		const onRoleDefs = (data: { roles: RoleDefinition[] }) => {
-			roleDefinitions = data.roles || [];
-			refreshRoleDrafts();
-			if (!selectedRuleRoleName && roleDefinitions.length > 0) {
-				selectedRuleRoleName = roleDefinitions.find((r) => r.roleName === 'member')?.roleName || roleDefinitions[0].roleName;
-			}
-		};
-		const onEmojiRules = (data: { rules: EmojiRoleRule[] }) => {
-			emojiRoleRules = data.rules || [];
-		};
-		sock.on('role-definitions-updated', onRoleDefs);
-		sock.on('emoji-role-rules-updated', onEmojiRules);
-		sock.emit('get-role-definitions');
-		sock.emit('get-emoji-role-rules');
+		const unsubscribe = connected.subscribe((online) => {
+			roleCatalog.bind(online ? getSocket() : null);
+		});
 		return () => {
-			sock.off('role-definitions-updated', onRoleDefs);
-			sock.off('emoji-role-rules-updated', onEmojiRules);
+			unsubscribe();
+			roleCatalog.dispose();
 		};
 	});
 </script>
@@ -677,55 +574,16 @@ import { get } from 'svelte/store';
 		{#if canManageRoles}
 			<RoleNamesPanel
 				{roleDefinitions}
-				{roleLabelDrafts}
-				{canManageRoles}
-				onDraftChange={(name, val) => roleLabelDrafts[name] = val}
-				onSave={saveRoleDisplayName}
+				loading={rolesLoading}
+				error={rolesError}
+				onRetry={roleCatalog.refresh}
 			/>
 
 			<ChannelAccessPanel
 				customChannels={customChannels as any}
-				channelRoleOptions={channelRoleOptions}
-				{canManageRoles}
-				{getRoleLabel}
-				onChannelMinRoleChange={setChannelMinRole}
 			/>
 
-			<RoleGatePanel
-				{canManageRoles}
-				{roleGateChannelId}
-				{roleGateTitle}
-				{roleGateDescription}
-				{roleGatePersist}
-				gateChannels={gateChannels as any}
-				onChannelChange={(id) => roleGateChannelId = id}
-				onTitleInput={(v) => roleGateTitle = v}
-				onDescriptionInput={(v) => roleGateDescription = v}
-				onPersistChange={(v) => roleGatePersist = v}
-				onCreatePost={createRoleGatePost}
-			/>
-
-			<EmojiRoleRulesPanel
-				{canManageRoles}
-				{emojiRoleRules}
-				{selectedRuleChannelId}
-				{selectedRuleMessageId}
-				{selectedRuleEmojiId}
-				{selectedRuleRoleName}
-				{selectedRuleRemoveOnUnreact}
-				gateChannels={gateChannels as any}
-				{availableRoleGatePosts}
-				assignableRoleOptions={assignableRoleOptions}
-				{getRoleLabel}
-				{getChannelName}
-				onRuleChannelChange={(id) => selectedRuleChannelId = id}
-				onRuleMessageChange={(id) => selectedRuleMessageId = id}
-				onRuleEmojiChange={(id) => selectedRuleEmojiId = id}
-				onRuleRoleChange={(name) => selectedRuleRoleName = name}
-				onRuleRemoveOnUnreactChange={(v) => selectedRuleRemoveOnUnreact = v}
-				onAddRule={addEmojiRoleRule}
-				onDeleteRule={deleteEmojiRoleRule}
-			/>
+			<RoleGatesUnavailable />
 
 			<PaymentAccessPanel
 				{paymentPolicy}
@@ -778,7 +636,10 @@ import { get } from 'svelte/store';
 		/>
 	{/if}
 
+	{#if roleActionError}<p role="alert">{roleActionError}</p>{/if}
+	{#if roleActionStatus}<p role="status">{roleActionStatus}</p>{/if}
 	<AdminUserList
+			{roleBusyUserIds}
 			{sortedUsers}
 			{searchQuery}
 			{canManageRoles}
@@ -798,7 +659,10 @@ import { get } from 'svelte/store';
 		/>
 	</div>
 {:else if section === 'users'}
+	{#if roleActionError}<p role="alert">{roleActionError}</p>{/if}
+	{#if roleActionStatus}<p role="status">{roleActionStatus}</p>{/if}
 	<AdminUserList
+		{roleBusyUserIds}
 		{sortedUsers}
 		{searchQuery}
 		{canManageRoles}
@@ -820,59 +684,20 @@ import { get } from 'svelte/store';
 	{#if canManageRoles}
 		<RoleNamesPanel
 			{roleDefinitions}
-			{roleLabelDrafts}
-			{canManageRoles}
-			onDraftChange={(name, val) => roleLabelDrafts[name] = val}
-			onSave={saveRoleDisplayName}
+			loading={rolesLoading}
+			error={rolesError}
+			onRetry={roleCatalog.refresh}
 		/>
 	{/if}
 {:else if section === 'channels'}
 	{#if canManageRoles}
 		<ChannelAccessPanel
 			customChannels={customChannels as any}
-			channelRoleOptions={channelRoleOptions}
-			{canManageRoles}
-			{getRoleLabel}
-			onChannelMinRoleChange={setChannelMinRole}
 		/>
 	{/if}
 {:else if section === 'gates'}
 	{#if canManageRoles}
-		<RoleGatePanel
-			{canManageRoles}
-			{roleGateChannelId}
-			{roleGateTitle}
-			{roleGateDescription}
-			{roleGatePersist}
-			gateChannels={gateChannels as any}
-			onChannelChange={(id) => roleGateChannelId = id}
-			onTitleInput={(v) => roleGateTitle = v}
-			onDescriptionInput={(v) => roleGateDescription = v}
-			onPersistChange={(v) => roleGatePersist = v}
-			onCreatePost={createRoleGatePost}
-		/>
-
-		<EmojiRoleRulesPanel
-			{canManageRoles}
-			{emojiRoleRules}
-			{selectedRuleChannelId}
-			{selectedRuleMessageId}
-			{selectedRuleEmojiId}
-			{selectedRuleRoleName}
-			{selectedRuleRemoveOnUnreact}
-			gateChannels={gateChannels as any}
-			{availableRoleGatePosts}
-			assignableRoleOptions={assignableRoleOptions}
-			{getRoleLabel}
-			{getChannelName}
-			onRuleChannelChange={(id) => selectedRuleChannelId = id}
-			onRuleMessageChange={(id) => selectedRuleMessageId = id}
-			onRuleEmojiChange={(id) => selectedRuleEmojiId = id}
-			onRuleRoleChange={(name) => selectedRuleRoleName = name}
-			onRuleRemoveOnUnreactChange={(v) => selectedRuleRemoveOnUnreact = v}
-			onAddRule={addEmojiRoleRule}
-			onDeleteRule={deleteEmojiRoleRule}
-		/>
+		<RoleGatesUnavailable />
 	{/if}
 {:else if section === 'payments'}
 	{#if canManageRoles}

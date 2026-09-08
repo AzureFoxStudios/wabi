@@ -460,6 +460,17 @@ pub fn signaling_consent_allowed(
 mod call_security_tests {
     use super::*;
 
+    fn isolated_header_cache() -> std::sync::MutexGuard<'static, ()> {
+        // Unique session ids alone cannot isolate a bounded global cache: the
+        // capacity test evicts sessions that another test is still asserting.
+        // Hold this test-only lock for each complete cache scenario, and reset
+        // its fixture so the capacity test cannot affect a later test either.
+        static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let guard = TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        wabidb_header_cache().write().expect("header cache lock").clear();
+        guard
+    }
+
     fn participant(socket_id: &str, stable_id: &str) -> VoiceParticipant {
         VoiceParticipant {
             socket_id: socket_id.to_string(),
@@ -699,6 +710,7 @@ mod call_security_tests {
 
     #[test]
     fn header_cache_keeps_first_two_and_replaces_on_seq_reset() {
+        let _fixture = isolated_header_cache();
         let session = "hdr-c1";
         let envelope = |seq: u64| {
             json!({"sessionId": session, "userId": "2", "kind": "audio",
@@ -721,6 +733,7 @@ mod call_security_tests {
 
     #[test]
     fn header_cache_keeps_streams_separate_per_sender() {
+        let _fixture = isolated_header_cache();
         // Mic + screen-share audio are two opus streams from ONE user: the
         // screen stream's headers must never evict the mic's (the key is
         // stream-qualified — see the caller in media_reactions_signaling).
@@ -747,6 +760,7 @@ mod call_security_tests {
 
     #[test]
     fn header_cache_isolates_same_account_devices_and_forgets_only_departed_socket() {
+        let _fixture = isolated_header_cache();
         let session = "hdr-device-isolation";
         for device in ["device-a", "device-b"] {
             for source in ["mic", "screen"] {
@@ -767,6 +781,7 @@ mod call_security_tests {
 
     #[test]
     fn header_cache_snapshots_multiple_senders_deterministically() {
+        let _fixture = isolated_header_cache();
         let session = "hdr-c2";
         for (sender, seq) in [("3:mic", 0u64), ("3:mic", 1), ("9:mic", 0), ("9:mic", 1)] {
             let envelope = json!({"sessionId": session,
@@ -787,6 +802,7 @@ mod call_security_tests {
 
     #[test]
     fn header_cache_is_bounded_by_session_cap() {
+        let _fixture = isolated_header_cache();
         for i in 0..(HEADER_CACHE_MAX_SESSIONS + 40) {
             let session = format!("hdr-cap-{i}");
             let envelope = json!({"sessionId": session, "userId": "2",

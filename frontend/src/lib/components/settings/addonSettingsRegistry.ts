@@ -45,12 +45,6 @@ export const LOCAL_ADDON_CONTROL_META: Record<string, LocalAddonControlMeta> = {
 		section: 'utilities',
 		terms: ['translate', 'translation', 'language', 'libretranslate']
 	},
-	line_dm: {
-		label: 'LINE DM',
-		// Finding 22: DM section removed — park under chat until a dedicated panel returns
-		section: 'chat',
-		terms: ['line', 'direct message', 'wallpaper', 'background', 'preset']
-	},
 	chat_aliases: {
 		label: 'ChatAliases',
 		section: 'utilities',
@@ -245,12 +239,6 @@ export const LOCAL_ADDON_CONTROL_META: Record<string, LocalAddonControlMeta> = {
 		label: 'MoreQuickReacts',
 		section: 'media',
 		terms: ['quick reacts', 'reactions', 'emoji shortcuts']
-	},
-	pin_dms: {
-		label: 'PinDMs',
-		// Finding 22: DM section removed
-		section: 'chat',
-		terms: ['pin dms', 'pinned conversations', 'direct messages']
 	}
 };
 

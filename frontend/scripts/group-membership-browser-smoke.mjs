@@ -39,6 +39,10 @@ try {
   });
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__group_membership`);
   await page.waitForFunction(() => !!window.__group);
+  assert.equal(await page.evaluate(() => window.__group.profileIdentityContract()), true);
+  assert.equal(await page.evaluate(() => window.__group.unsupportedBanContract()), true);
+  results.push('unsupported bans have no menu or emit; legacy IndexedDB requests remain retained, failed and non-retryable');
+  results.push('actual SocketManager profile callbacks isolate other accounts, preserve self saves and role events; guest role menu actions are unavailable');
   const receive = (event, payload) => page.evaluate(([event, payload]) => window.__group.receive(event, payload), [event, payload]);
   const sent = event => page.evaluate(event => window.__group.sent().filter(([name]) => name === event).at(-1)?.[1], event);
   const acknowledge = async (event, operation, channel) => {
@@ -105,6 +109,8 @@ try {
   await page.evaluate(async () => {
     await window.__group.legacyQueue('leave-group', 'legacy-leave');
     await window.__group.legacyQueue('voice-channel-leave', 'legacy-voice-leave');
+    await window.__group.legacyQueue('assign-role', 'legacy-admin-grant');
+    await window.__group.legacyQueue('remove-role', 'legacy-admin-removal');
     await window.__group.legacyQueue('send-message', 'legacy-message');
     await window.__group.queue('send-message', 'fresh-draft');
     window.__group.beginInit(); window.__group.clearSent(); await window.__group.drain();
@@ -120,6 +126,11 @@ try {
   assert.equal(queue.find(action => action.id === 'legacy-voice-leave').retryable, false);
   assert.match(queue.find(action => action.id === 'legacy-voice-leave').error, /old voice action/);
   assert.equal((await page.evaluate(() => window.__group.sent())).some(([event]) => event === 'voice-channel-leave'), false);
+  for (const id of ['legacy-admin-grant', 'legacy-admin-removal']) {
+    assert.equal(queue.find(action => action.id === id).retryable, false);
+    assert.match(queue.find(action => action.id === id).error, /role changes require an online administrator/);
+  }
+  assert.equal((await page.evaluate(() => window.__group.sent())).some(([event]) => ['assign-role', 'remove-role'].includes(event)), false);
   assert.equal(queue.find(action => action.id === 'legacy-message').retryable, false);
   await receive('message-accepted', { channelId: 'group-test', clientMessageId: 'fresh-draft', messageId: 'authoritative' });
   // Poll the resolved IndexedDB value, never the truthiness of a Promise.
@@ -140,6 +151,8 @@ try {
   queue = await page.evaluate(() => window.__group.queueState());
   assert.equal(queue.find(action => action.payload.clientMessageId === 'revoked-draft').retryable, false);
   assert.equal(await sent('leave-group'), undefined);
+  assert.equal(await sent('assign-role'), undefined);
+  assert.equal(await sent('remove-role'), undefined);
   results.push('real IndexedDB queues wait for init and message acceptance; legacy/revoked intent cannot be retried');
 
   const claimId = await page.evaluate(() => window.__group.queue('send-message', 'claim-race'));
@@ -167,8 +180,10 @@ try {
   assert.equal(await sent('join-channel'), undefined);
   await page.evaluate(() => {
     window.__oldPacket = window.__group.retainPacket('group-removed', { channelId: 'group-test', membershipRevision: '999' });
-    window.__group.install(); window.__group.init(window.__group.group('10')); window.__oldPacket();
+    window.__oldProfile = window.__group.retainPacket('user-updated', { id: 'user-1', dbUserId: 1, profilePicture: 'stale-avatar' });
+    window.__group.install(); window.__group.init(window.__group.group('10')); window.__oldPacket(); window.__oldProfile();
   });
+  assert.notEqual((await page.evaluate(() => window.__group.currentProfile())).profilePicture, 'stale-avatar');
   assert.ok((await page.evaluate(() => window.__group.state())).channels.some(channel => channel.id === 'group-test'));
   await receive('init', { channels: [{ id: 'general', name: 'General', type: 'text', createdAt: 0 }] });
   assert.ok(!(await page.evaluate(() => window.__group.state())).channels.some(channel => channel.id === 'group-test'));

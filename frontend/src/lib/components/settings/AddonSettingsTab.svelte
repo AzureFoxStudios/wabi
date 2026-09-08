@@ -1,14 +1,6 @@
 <script lang="ts">
-	import {
-		addonControlMatches,
-		LOCAL_ADDON_CONTROL_META,
-		addonSectionHasMatches as registrySectionHasMatches,
-		addonSectionMatchCount as registrySectionMatchCount,
-		countAvailableAddonControls,
-		countVisibleAddonControls,
-		tokenizeAddonSearchQuery,
-		type AddonSectionId
-	} from './addonSettingsRegistry';
+	import type { AddonSectionId } from './addonSettingsRegistry';
+	import { createAddonSettingsView } from './addonSettingsView';
 	import {
 		fetchPluginInventory,
 		pluginBackendAddons,
@@ -30,46 +22,26 @@
 	import UtilitiesSection from './addons/UtilitiesSection.svelte';
 
 	/** Backend-enabled addons from GET /api/addons */
-	let backendAddons: DetectedAddon[] = [];
+	let backendAddons = $state<DetectedAddon[]>([]);
 	/** Bundled frontend allowlist entries reported by inventory */
-	let frontendAddons: DetectedAddon[] = [];
-	let addonsLastDetectedAt = '';
-	let addonsLoading = false;
-	let addonsError = '';
-	let addonSearchQuery = '';
-	let addonSearchTokens: string[] = [];
+	let frontendAddons = $state<DetectedAddon[]>([]);
+	let addonsLastDetectedAt = $state('');
+	let addonsLoading = $state(false);
+	let addonsError = $state('');
+	let addonSearchQuery = $state('');
 	// Finding 22: default to first rendered section (chat). 'dms' was removed.
-	let activeAddonSection: AddonSectionId | null = 'chat';
-	let visibleLocalAddonControlCount = 0;
-	let availableLocalAddonControlCount = 0;
-
-	$: translatorAddonDetected = [...frontendAddons, ...backendAddons].some(
-		(addon) => addon.id === 'translator-assist'
+	let activeAddonSection = $state<AddonSectionId | null>('chat');
+	let translatorAddonDetected = $derived(
+		[...frontendAddons, ...backendAddons].some((addon) => addon.id === 'translator-assist')
 	);
-
-	function localAddonControlAvailable(controlId: string): boolean {
-		if (!LOCAL_ADDON_CONTROL_META[controlId]) return false;
-		return controlId !== 'translator_addon' || translatorAddonDetected;
-	}
-
-	function localAddonControlMatches(controlId: string): boolean {
-		return addonControlMatches(controlId, addonSearchTokens, localAddonControlAvailable);
-	}
-
-	function addonSectionHasMatches(section: AddonSectionId): boolean {
-		return registrySectionHasMatches(section, addonSearchTokens, localAddonControlAvailable);
-	}
-
-	function addonSectionMatchCount(section: AddonSectionId): number {
-		return registrySectionMatchCount(section, addonSearchTokens, localAddonControlAvailable);
-	}
-
-	function isAddonSectionOpen(section: AddonSectionId): boolean {
-		if (addonSearchTokens.length > 0) {
-			return addonSectionHasMatches(section);
-		}
-		return activeAddonSection === section;
-	}
+	let addonView = $derived(
+		createAddonSettingsView(addonSearchQuery, activeAddonSection, translatorAddonDetected)
+	);
+	let localAddonControlMatches = $derived(addonView.localAddonControlMatches);
+	let addonSectionMatchCount = $derived(addonView.addonSectionMatchCount);
+	let isAddonSectionOpen = $derived(addonView.isAddonSectionOpen);
+	let availableLocalAddonControlCount = $derived(addonView.availableLocalAddonControlCount);
+	let visibleLocalAddonControlCount = $derived(addonView.visibleLocalAddonControlCount);
 
 	function toggleAddonSection(section: AddonSectionId): void {
 		activeAddonSection = activeAddonSection === section ? null : section;
@@ -111,12 +83,6 @@
 		void refreshAddonDetection();
 	});
 
-	$: addonSearchTokens = tokenizeAddonSearchQuery(addonSearchQuery);
-	$: availableLocalAddonControlCount = countAvailableAddonControls(localAddonControlAvailable);
-	$: visibleLocalAddonControlCount = countVisibleAddonControls(
-		addonSearchTokens,
-		localAddonControlAvailable
-	);
 </script>
 
 <div class="settings-section">
@@ -165,7 +131,7 @@
 						<button
 							type="button"
 							class="action-btn secondary addon-search-clear"
-							on:click={clearAddonSearchQuery}
+							onclick={clearAddonSearchQuery}
 						>
 							Clear Search
 						</button>
@@ -181,13 +147,13 @@
 					<button
 						type="button"
 						class="action-btn secondary addon-search-clear"
-						on:click={clearAddonSearchQuery}
+						onclick={clearAddonSearchQuery}
 					>
 						Clear Search
 					</button>
 				</div>
-			{:else}
-				<!-- DM-strip 2026-06-16: DmsSection removed. Only Chat + Search addon panels remain. -->
+			{/if}
+				<!-- Keep section instances alive through empty searches so local edits survive. -->
 				<ChatSection
 					{localAddonControlMatches}
 					{isAddonSectionOpen}
@@ -243,7 +209,6 @@
 					{addonSectionMatchCount}
 					{translatorAddonDetected}
 				/>
-			{/if}
 		</div>
 	</div>
 </div>

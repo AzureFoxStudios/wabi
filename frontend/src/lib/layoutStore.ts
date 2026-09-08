@@ -118,9 +118,15 @@ channelSidebarWidth.subscribe(() => {
 	queuePersist();
 	if (!isApplyingLayout) scheduleSyncWorkspace();
 });
-rightPanelWidth.subscribe(() => queuePersist());
-rightPanelMode.subscribe(() => queuePersist());
-pinnedPanelId.subscribe(() => queuePersist());
+// Persist the runtime snapshot, not the workspace left over from the last
+// navigation resize. Peek only changes activeRightTab and must not replace the
+// committed pin; boot/remote restoration must not write itself back as an edit.
+for (const store of [rightPanelWidth, rightPanelMode, pinnedPanelId]) {
+	store.subscribe(() => {
+		queuePersist();
+		if (!isApplyingLayout) scheduleSyncWorkspace();
+	});
+}
 navDock.subscribe(() => {
 	queuePersist();
 	if (!isApplyingLayout) scheduleSyncWorkspace();

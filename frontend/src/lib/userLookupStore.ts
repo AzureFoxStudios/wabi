@@ -2,6 +2,7 @@ import { derived } from 'svelte/store';
 import type { Readable } from 'svelte/store';
 import type { User, Channel } from './socket-types';
 import { users } from './presenceIdentity';
+import { resolveDmOtherUser } from './dmConversations';
 
 /*
  * userLookupStore.ts
@@ -98,20 +99,7 @@ export function getDMOtherUser(
 	currentUser: User | null,
 	lookup: UserLookup
 ): User | null {
-	if (!channel || channel.type !== 'dm') return null;
-	if (channel.otherUser) return channel.otherUser;
-
-	const myStableId = currentUser?.dbUserId ? `user-${currentUser.dbUserId}` : currentUser?.id;
-	const otherStableId = (channel.members || []).find((id: string) => id !== myStableId);
-	if (!otherStableId) return null;
-
-	if (otherStableId.startsWith('user-')) {
-		const dbId = parseInt(otherStableId.substring(5), 10);
-		if (!Number.isNaN(dbId)) {
-			return lookup.byDbId.get(dbId) ?? null;
-		}
-	}
-	return lookup.bySocketId.get(otherStableId) ?? null;
+	return resolveDmOtherUser(channel, currentUser, [...lookup.bySocketId.values(), ...lookup.byDbId.values()]);
 }
 
 export function getCurrentReactionIdentityIds(currentUser: User | null): string[] {

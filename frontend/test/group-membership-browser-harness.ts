@@ -11,7 +11,7 @@ import { setAuthToken, setStoredDbUserId, setStoredUsername } from '../src/lib/a
 import { setConfiguredServerUrl } from '../src/lib/serverUrl';
 import { channels, joinChannel, currentChannel, channelLoadingOlder } from '../src/lib/channelStore';
 import { channelMessages, unreadCount, channelUnreadCounts } from '../src/lib/messageStore';
-import { voiceChannelMembers } from '../src/lib/presenceStore';
+import { voiceChannelMembers, banUser } from '../src/lib/presenceStore';
 import { typingUsers } from '../src/lib/typingStore';
 import { selectedDmChannelId, selectedGroupChannel, centerDmChannelId } from '../src/lib/layoutStoreStates';
 import { groupMembership } from '../src/lib/groupAccess';
@@ -20,6 +20,8 @@ import { QueueDB } from '../src/lib/wabidb/queue/db';
 import { drainOutboundQueue } from '../src/lib/wabidb/drain';
 import { QueueManager } from '../src/lib/wabidb/queue/manager';
 import { registerCallSocketOwner } from '../src/lib/callSocketLifecycle';
+import { currentUser, users, serverMembers } from '../src/lib/presenceIdentity';
+import { buildUserMenuItems } from '../src/lib/components/userListHelpers';
 
 class FixtureSocket {
   id = crypto.randomUUID(); connected = true;
@@ -78,6 +80,84 @@ setStoredDbUserId(1); setStoredUsername('Owner');
 install(); init();
 mount(GroupMembershipHarness, { target: document.querySelector('#harness')! });
 (window as any).__group = {
+	unsupportedBanContract: async () => {
+		const assert = (condition: boolean, message: string) => { if (!condition) throw new Error(message); };
+		const db = getWabiDB() || await openWabiDB();
+		const raw = new QueueDB();
+		const pendingId = `unsupported-ban-pending-${crypto.randomUUID()}`;
+		const failedId = `unsupported-ban-failed-${crypto.randomUUID()}`;
+		const start = fixture.sent.length;
+		try {
+			for (const role of ['owner', 'admin', 'mod', 'member', 'guest']) {
+				const menu = buildUserMenuItems({ contextMenuUser: { ...second, isRegistered: true } as any,
+					currentUser: { ...owner, highestRole: role } as any, rolePriority: { owner: 400, admin: 300, mod: 200, member: 100, guest: 0 },
+					localNicknamesEnabled: false, hasLocalNickname: false, socket: fixture });
+				assert(!menu.some(item => item.id === 'ban-user'), `${role} menu offered an unsupported Ban`);
+			}
+			let apiRejected = false;
+			try { await banUser(2, 'canary'); }
+			catch (error) { apiRejected = error instanceof Error && error.message.includes('No account access was changed'); }
+			assert(apiRejected, 'compatibility Ban API silently succeeded');
+			let enqueueRejected = false;
+			try { await db.enqueue({ type: 'ban-user', scopeId: 'corechat', payload: { targetUserId: 2 } }); }
+			catch (error) { enqueueRejected = error instanceof Error && error.message.includes('bans are not available'); }
+			assert(enqueueRejected, 'unsupported Ban was accepted by the offline queue');
+			for (const [id, status] of [[pendingId, 'pending'], [failedId, 'failed']] as const) {
+				await raw.put(`corechat:${id}`, { id, key: `corechat:${id}`, scopeId: 'corechat', type: 'ban-user', status,
+					payload: { targetUserId: 2 }, createdAt: Date.now() });
+			}
+			await db.retryFailed();
+			const oldFailure = (await db.listQueue()).find(action => action.id === failedId);
+			assert(oldFailure?.status === 'failed' && oldFailure.retryable === false, 'Retry revived an old failed Ban');
+			await drainOutboundQueue();
+			await db.retryFailed();
+			for (const id of [pendingId, failedId]) {
+				const row = (await db.listQueue()).find(action => action.id === id);
+				assert(row?.status === 'failed' && row.retryable === false, 'old Ban was deleted, synced or made retryable');
+				assert(row?.error?.includes('did not revoke account access') === true, 'old Ban had no truthful failure reason');
+			}
+			assert(!fixture.sent.slice(start).some(([event]) => event === 'ban-user'), 'unsupported Ban reached transport');
+			return true;
+		} finally {
+			// These are fixture-created records only, never pre-existing user data.
+			await raw.delete(`corechat:${pendingId}`); await raw.delete(`corechat:${failedId}`);
+		}
+	},
+	profileIdentityContract: () => {
+		const previous = { current: get(currentUser), users: get(users), members: get(serverMembers) };
+		const assert = (condition: boolean, message: string) => { if (!condition) throw new Error(message); };
+		try {
+			const self = { ...owner, id: 'previous-self-transport', roles: ['member'], profilePicture: 'self-avatar', bio: 'self-bio' };
+			currentUser.set(self as any);
+			for (const event of ['user-updated', 'profile-updated']) {
+				fixture.receive(event, { ...second, profilePicture: 'peer-avatar', bio: 'peer-bio' });
+				assert(get(currentUser)?.profilePicture === 'self-avatar', `${event} changed another account's avatar`);
+				assert(get(currentUser)?.bio === 'self-bio', `${event} changed another account's bio`);
+				assert(get(serverMembers).find(user => user.dbUserId === 2)?.profilePicture === 'peer-avatar', `${event} did not update the peer roster`);
+			}
+			fixture.receive('user-updated', { ...owner, profilePicture: 'updated-self', bio: 'updated-bio' });
+			assert(get(currentUser)?.profilePicture === 'updated-self', 'stable self identity did not update across transport IDs');
+			fixture.receive('profile-updated', { ...owner, profilePicture: null, bio: 'own-save' });
+			assert(get(currentUser)?.profilePicture === null && get(currentUser)?.bio === 'own-save', 'own save must still clear/update profile fields');
+			fixture.receive('user-role-updated', { dbUserId: 2, highestRole: 'admin' });
+			assert(get(currentUser)?.highestRole === 'member', 'another role update changed self');
+			fixture.receive('user-role-updated', { dbUserId: 1, highestRole: 'admin' });
+			assert(get(currentUser)?.highestRole === 'admin' && get(currentUser)?.bio === 'own-save', 'own role update must preserve profile fields');
+			currentUser.set({ ...owner, id: fixture.id, dbUserId: undefined } as any);
+			fixture.receive('profile-updated', { ...owner, id: fixture.id, dbUserId: undefined, profilePicture: 'socket-self' });
+			assert(get(currentUser)?.profilePicture === 'socket-self', 'provisional own socket profile did not update');
+			const context = { currentUser: { ...owner, highestRole: 'owner' } as any, rolePriority: { owner: 400, member: 100, guest: 0 },
+				localNicknamesEnabled: false, hasLocalNickname: false, socket: fixture };
+			const guestMenu = buildUserMenuItems({ ...context, contextMenuUser: { ...second, isRegistered: false } as any });
+			const memberMenu = buildUserMenuItems({ ...context, contextMenuUser: { ...second, isRegistered: true } as any });
+			assert(!guestMenu.some(item => ['make-admin', 'make-mod', 'remove-admin', 'remove-mod', 'reset-member'].includes(item.id!)), 'guest menu offered unsupported role changes');
+			assert(memberMenu.some(item => item.id === 'make-admin'), 'registered member role action disappeared');
+			return true;
+		} finally {
+			currentUser.set(previous.current); users.set(previous.users); serverMembers.set(previous.members);
+		}
+	},
+	currentProfile: () => get(currentUser),
   callLifecycle: () => callLifecycle,
   install, init, group, state, seedViews, joinChannel,
   receive: (event: string, payload: any) => fixture.receive(event, payload),

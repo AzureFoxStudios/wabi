@@ -26,62 +26,6 @@
 	}
 
 
-	.workspace-view-actions {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: var(--space-1);
-		border-radius: var(--radius-full);
-		border: 1px solid var(--border-subtle);
-		background: color-mix(in srgb, var(--surface-base) 88%, transparent);
-	}
-
-
-	.view-open-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
-		padding: 0;
-		border-radius: var(--radius-full);
-		border: 1px solid transparent;
-		background: transparent;
-		color: var(--text-secondary);
-		cursor: pointer;
-		transition:
-			width var(--duration-normal) var(--ease-bounce),
-			transform var(--duration-normal) var(--ease-bounce),
-			background-color var(--duration-fast) ease,
-			border-color var(--duration-fast) ease,
-			color var(--duration-fast) ease;
-		transform-origin: center;
-		overflow: hidden;
-	}
-
-
-	.view-open-btn svg {
-		width: 15px;
-		height: 15px;
-	}
-
-
-	.view-open-btn.active {
-		background: color-mix(in srgb, var(--accent-primary-color) 16%, var(--surface-raised));
-		border-color: color-mix(in srgb, var(--accent-primary-color) 38%, transparent);
-		color: var(--text-heading);
-	}
-
-
-	.view-open-btn:hover,
-	.view-open-btn:focus-visible {
-		width: 38px;
-		transform: scale(1.08);
-		border-color: var(--accent-primary-color);
-		background: var(--surface-raised);
-		color: var(--text-heading);
-	}
-
 
 	.channel-mode-placeholder {
 		min-height: 100%;

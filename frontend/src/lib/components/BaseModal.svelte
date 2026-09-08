@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { modalFocus } from '$lib/actions/modalFocus';
 	export let isOpen: boolean = false;
 	export let onClose: () => void;
 	export let variant: 'center' | 'right-panel' | 'full-screen' = 'center';
@@ -11,12 +12,6 @@
 	export let subtitle: string = '';
 	export let headerTag: string = '';
 
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && isOpen) {
-			onClose();
-		}
-	}
-
 	function handleOverlayClick(event: MouseEvent) {
 		if (event.target === event.currentTarget) {
 			onClose();
@@ -24,8 +19,6 @@
 	}
 
 </script>
-
-<svelte:window on:keydown={handleKeydown} />
 
 {#if isOpen}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -38,6 +31,7 @@
 		aria-modal="true"
 		aria-label={title || undefined}
 		tabindex="-1"
+		use:modalFocus={onClose}
 	>
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -129,13 +123,13 @@
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		width: var(--space-8, 32px);
-		height: var(--space-8, 32px);
+		width: 40px;
+		height: 40px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		border-radius: var(--radius-md, 8px);
-		transition: all var(--duration-fast, 150ms);
+		transition: background-color var(--duration-fast, 150ms), color var(--duration-fast, 150ms);
 		padding: 0;
 		z-index: var(--z-dropdown, 200);
 	}
