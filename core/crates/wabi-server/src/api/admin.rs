@@ -1203,7 +1203,18 @@ async fn get_dashboard_stats(
     let mut role_counts: std::collections::HashMap<String, u64> =
         std::collections::HashMap::new();
     for u in &users {
-        let role = state.get_user_highest_role(u.user_id as i64).await;
+        // Match the effective role shown in the Socket.IO roster. A configured
+        // admin is still an admin without an RBAC event; guests are not Members.
+        let user_id = u.user_id as i64;
+        let role = if u.password_hash.is_empty() {
+            "Guest".to_string()
+        } else if state.is_owner(user_id).await {
+            "Owner".to_string()
+        } else if state.is_admin(user_id).await {
+            "Admin".to_string()
+        } else {
+            state.get_user_highest_role(user_id).await
+        };
         *role_counts.entry(role).or_insert(0) += 1;
     }
     let mut role_distribution: Vec<RoleDistEntry> = role_counts
@@ -1253,6 +1264,11 @@ async fn get_dashboard_stats(
             "activeUsers": active_users,
             "usersSeenLast24h": seen_24h,
             "channelsByKind": kind_counts,
+            // Additive read-model metadata: zero/empty placeholders below do
+            // not claim real counts or an absence of activity. Old clients
+            // keep their response shape; new clients can label these honestly.
+            "unavailableMetrics": ["totalMessages", "totalEmojis", "mutedUsers",
+                "totalAuditEntries", "openReports", "recentAudit", "topUsers"],
         })),
         role_distribution,
         status_distribution: vec![StatusDistEntry { status: "online".into(), count: online_users }],

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { isMobile, focusMode } from '$lib/layoutStoreStates';
 	import { currentUser } from '$lib/socket';
@@ -10,6 +10,8 @@
 		type WorkspacePanelManifest
 	} from '$lib/workspacePanels';
 	import { armPeekDismiss, cancelPeekDismiss } from '$lib/rightPeekGestures';
+	import { portal } from '$lib/actions/portal';
+	import { panelActionIndex, positionPanelPopover } from '$lib/panelPopover';
 	import WorkspacePanelIcon from './WorkspacePanelIcon.svelte';
 	import './RightStubStrip.css';
 
@@ -21,6 +23,8 @@
 	let contextMenuRef = $state<HTMLElement | null>(null);
 	let drawerRef = $state<HTMLElement | null>(null);
 	let addStubRef = $state<HTMLButtonElement | null>(null);
+	let contextTrigger: HTMLButtonElement | null = null;
+	const drawerId = $props.id();
 
 	const availablePanels = $derived(
 		$workspacePanelList.filter((panel) => canAccessWorkspacePanel(panel, $currentUser))
@@ -50,15 +54,25 @@
 		}
 	});
 
+	$effect(() => {
+		if (!drawerOpen || !drawerRef) return;
+		positionDrawer();
+		const observer = new ResizeObserver(positionDrawer);
+		observer.observe(drawerRef);
+		return () => observer.disconnect();
+	});
+
 	onMount(() => {
 		function handleKeydown(event: KeyboardEvent) {
-			if (event.key !== 'Escape') return;
+			if (event.defaultPrevented || event.key !== 'Escape') return;
 			if (contextMenu) {
-				hideContextMenu();
+				event.preventDefault();
+				hideContextMenu(true);
 				return;
 			}
 			if (drawerOpen) {
-				closeDrawer();
+				event.preventDefault();
+				closeDrawer(true);
 				return;
 			}
 			layoutStore.closeRightPanel();
@@ -75,11 +89,19 @@
 				closeDrawer();
 			}
 		}
+		function handleWindowBlur() {
+			hideContextMenu();
+			closeDrawer();
+		}
 		document.addEventListener('keydown', handleKeydown);
 		document.addEventListener('click', handleClickOutside);
+		window.addEventListener('resize', positionDrawer);
+		window.addEventListener('blur', handleWindowBlur);
 		return () => {
 			document.removeEventListener('keydown', handleKeydown);
 			document.removeEventListener('click', handleClickOutside);
+			window.removeEventListener('resize', positionDrawer);
+			window.removeEventListener('blur', handleWindowBlur);
 		};
 	});
 
@@ -94,12 +116,12 @@
 	}
 
 	function handleStubLeave(): void {
-		if (contextMenu) return;
+		if (contextMenu || drawerOpen) return;
 		armPeekDismiss();
 	}
 
 	function handleStubBlur(): void {
-		if (contextMenu) return;
+		if (contextMenu || drawerOpen) return;
 		armPeekDismiss();
 	}
 
@@ -110,6 +132,8 @@
 	function handleStubContextMenu(event: MouseEvent, panelId: string): void {
 		event.preventDefault();
 		drawerOpen = false;
+		contextTrigger = event.currentTarget as HTMLButtonElement;
+		cancelPeekDismiss();
 		// Coordinates relative to the strip: the menu is absolute inside the
 		// strip, and the strip may be inside the transformed peek zone (which
 		// would otherwise re-anchor viewport `fixed` children).
@@ -119,36 +143,66 @@
 		contextMenu = { panelId, x, y };
 	}
 
-	function hideContextMenu(): void {
+	function hideContextMenu(restoreFocus = false): void {
 		contextMenu = null;
+		if (restoreFocus) (contextTrigger?.isConnected ? contextTrigger : addStubRef)?.focus();
 	}
 
-	function closeDrawer(): void {
+	function closeDrawer(restoreFocus = false): void {
 		drawerOpen = false;
+		if (restoreFocus) addStubRef?.focus({ preventScroll: true });
 	}
 
-	function toggleDrawer(): void {
+	async function toggleDrawer(): Promise<void> {
 		if (drawerOpen) {
-			closeDrawer();
+			closeDrawer(true);
 			return;
 		}
 		contextMenu = null;
+		cancelPeekDismiss();
 		drawerOpen = true;
+		await tick();
+		if (!drawerOpen) return;
 		positionDrawer();
+		drawerRef?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
 	}
 
 	function positionDrawer(): void {
+		if (!drawerOpen) return;
 		const rect = addStubRef?.getBoundingClientRect();
 		if (!rect) return;
-		const side = $layoutStore.stubSide;
-		const top = Math.min(rect.top - 8, window.innerHeight - 336);
-		const edge = side === 'left' ? 'left' : 'right';
-		drawerStyle = `top: ${Math.max(8, top)}px; ${edge}: 28px;`;
+		const placement = positionPanelPopover(rect,
+			{ width: window.innerWidth, height: window.innerHeight },
+			{ width: drawerRef?.offsetWidth || 260, height: drawerRef?.offsetHeight || 520 },
+			$layoutStore.stubSide);
+		drawerStyle = `top: ${placement.top}px; left: ${placement.left}px; max-width: ${placement.maxWidth}px; max-height: ${placement.maxHeight}px;`;
+	}
+
+	function handleActionKeys(event: KeyboardEvent): void {
+		const root = event.currentTarget as HTMLElement;
+		const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+		const index = panelActionIndex(event.key, buttons.indexOf(document.activeElement as HTMLButtonElement), buttons.length);
+		if (index === null) return;
+		event.preventDefault();
+		buttons[index]?.focus();
+	}
+
+	function handleDrawerFocusOut(event: FocusEvent): void {
+		const next = event.relatedTarget;
+		if (next instanceof Node && (drawerRef?.contains(next) || addStubRef?.contains(next))) return;
+		closeDrawer();
+	}
+
+	function handleAddKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+		event.preventDefault();
+		if (!drawerOpen) void toggleDrawer();
 	}
 
 	function removeStub(panelId: string): void {
 		layoutStore.removeStub(panelId);
 		hideContextMenu();
+		addStubRef?.focus({ preventScroll: true });
 	}
 
 	function moveStub(delta: number): void {
@@ -156,17 +210,17 @@
 		const index = $layoutStore.stubStrip.indexOf(contextMenu.panelId);
 		if (index < 0) return;
 		layoutStore.reorderStub(index, index + delta);
-		hideContextMenu();
+		hideContextMenu(true);
 	}
 
 	function resetStrip(): void {
 		layoutStore.resetStubs();
-		closeDrawer();
+		closeDrawer(true);
 	}
 
 	function toggleSide(): void {
 		layoutStore.setStubSide($layoutStore.stubSide === 'left' ? 'right' : 'left');
-		closeDrawer();
+		closeDrawer(true);
 	}
 
 	function badgeText(panel: WorkspacePanelManifest): string | null {
@@ -196,8 +250,10 @@
 		class:floating={floating}
 		class:side-left={$layoutStore.stubSide === 'left'}
 		class:side-right={$layoutStore.stubSide === 'right'}
-		on:mouseenter={cancelPeekDismiss}
-		on:mouseleave={armPeekDismiss}
+		role="group"
+		aria-label="Panel strip"
+		onmouseenter={cancelPeekDismiss}
+		onmouseleave={handleStubLeave}
 	>
 		{#each stripPanels as panel (panel.id)}
 			<button
@@ -205,12 +261,12 @@
 				class="stub"
 				class:active={isDisplayed(panel.id)}
 				class:pinned={isPinned(panel.id)}
-				on:mouseenter={() => handleStubEnter(panel.id)}
-				on:mouseleave={handleStubLeave}
-				on:focus={() => handleStubFocus(panel.id)}
-				on:blur={handleStubBlur}
-				on:click={() => handleStubClick(panel.id)}
-				on:contextmenu={(event) => handleStubContextMenu(event, panel.id)}
+				onmouseenter={() => handleStubEnter(panel.id)}
+				onmouseleave={handleStubLeave}
+				onfocus={() => handleStubFocus(panel.id)}
+				onblur={handleStubBlur}
+				onclick={() => handleStubClick(panel.id)}
+				oncontextmenu={(event) => handleStubContextMenu(event, panel.id)}
 				aria-label={panel.label}
 				aria-pressed={isPinned(panel.id)}
 				title={panel.label}
@@ -228,10 +284,14 @@
 			type="button"
 			class="stub stub-add"
 			bind:this={addStubRef}
-			on:click={toggleDrawer}
-			on:mouseenter={cancelPeekDismiss}
-			on:mouseleave={handleStubLeave}
+			onclick={toggleDrawer}
+			onkeydown={handleAddKeydown}
+			onmouseenter={cancelPeekDismiss}
+			onmouseleave={handleStubLeave}
 			aria-label="Add or manage panels"
+			aria-haspopup="dialog"
+			aria-expanded={drawerOpen}
+			aria-controls={drawerOpen ? drawerId : undefined}
 			title="Add panels"
 		>
 			<span class="stub-icon" aria-hidden="true">+</span>
@@ -245,14 +305,16 @@
 					: `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`}
 				bind:this={contextMenuRef}
 				role="menu"
+				tabindex="-1"
 				aria-label="Strip options"
-				on:contextmenu|preventDefault
+				oncontextmenu={(event) => event.preventDefault()}
+				onkeydown={handleActionKeys}
 			>
 				<button
 					type="button"
 					class="context-menu-item"
 					role="menuitem"
-					on:click={() => removeStub(contextMenu.panelId)}
+					onclick={() => removeStub(contextMenu.panelId)}
 				>
 					Remove from strip
 				</button>
@@ -261,7 +323,7 @@
 					class="context-menu-item"
 					role="menuitem"
 					disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) <= 0}
-					on:click={() => moveStub(-1)}
+					onclick={() => moveStub(-1)}
 				>
 					Move up
 				</button>
@@ -270,7 +332,7 @@
 					class="context-menu-item"
 					role="menuitem"
 					disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) >= $layoutStore.stubStrip.length - 1}
-					on:click={() => moveStub(1)}
+					onclick={() => moveStub(1)}
 				>
 					Move down
 				</button>
@@ -280,24 +342,28 @@
 
 	{#if drawerOpen}
 		<div
+			id={drawerId}
 			class="panel-drawer stub-drawer"
 			style={drawerStyle}
 			bind:this={drawerRef}
-			role="listbox"
+			use:portal
+			role="dialog"
 			aria-label="Available panels"
 			tabindex="-1"
-			on:click|stopPropagation
+			onkeydown={handleActionKeys}
+			onfocusout={handleDrawerFocusOut}
+			onmouseenter={cancelPeekDismiss}
 		>
+			<div class="panel-drawer-heading">Add panels</div>
 			<div class="panel-drawer-list">
 				{#each drawerPanels as panel (panel.id)}
 					<button
 						type="button"
 						class="panel-drawer-item"
-						role="option"
-						aria-selected={false}
-						on:click={() => {
+						aria-label={`Add ${panel.label} panel`}
+						onclick={() => {
 							layoutStore.addStub(panel.id);
-							closeDrawer();
+							closeDrawer(true);
 						}}
 					>
 						<span class="panel-tab-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
@@ -310,11 +376,11 @@
 				{/if}
 			</div>
 			<div class="panel-drawer-footer">
-				<button type="button" class="panel-drawer-item" on:click={resetStrip}>
+				<button type="button" class="panel-drawer-item" onclick={resetStrip}>
 					Reset to defaults
 				</button>
-				<button type="button" class="panel-drawer-item" on:click={toggleSide}>
-					Stubs on {$layoutStore.stubSide === 'left' ? 'right' : 'left'}
+				<button type="button" class="panel-drawer-item" onclick={toggleSide}>
+					Move panel strip {$layoutStore.stubSide === 'left' ? 'right' : 'left'}
 				</button>
 			</div>
 		</div>

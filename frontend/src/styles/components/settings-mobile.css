@@ -121,7 +121,10 @@
 		}
 
 		.addons-settings-window {
-			max-height: min(52dvh, 760px);
+			/* The Settings content owns mobile scrolling. A capped inner window
+			   clips the filter when its header and accordion exceed half a screen. */
+			max-height: none;
+			flex-shrink: 0;
 		}
 
 		.addons-settings-toolbar {
@@ -129,12 +132,19 @@
 			align-items: stretch;
 		}
 
+		.addons-search-field {
+			/* The desktop 260px flex basis is a width, not a mobile height. */
+			flex: 0 0 auto;
+		}
+
 		.addons-search-meta {
 			align-items: flex-start;
 		}
 
 		.addons-settings-window-body {
-			min-height: 260px;
+			min-height: 0;
+			flex: none;
+			overflow: visible;
 			padding: 0.85rem;
 		}
 

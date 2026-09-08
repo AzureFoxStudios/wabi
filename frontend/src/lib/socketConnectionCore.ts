@@ -23,6 +23,8 @@ import { membershipRevision } from './groupMembership';
 import { cancelGroupOperations } from './groupOperations';
 import { updateGroupPanels } from './groupClientState';
 import { applyRemoteRecordingPresence } from './callRecordingPresence';
+import { applyServerRoleUpdate, parseServerRoleUpdate } from './serverRoleUpdates';
+import { isCurrentUserProfile } from './profileIdentity';
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
 import { upsertBreakoutRooms, removeBreakoutRooms } from './breakoutChannels';
@@ -1107,10 +1109,19 @@ export class SocketManager {
 			}
 		});
 
+		on('user-role-updated', (payload: unknown) => {
+			const update = parseServerRoleUpdate(payload);
+			if (!update) return;
+			users.update((list) => list.map((user) => applyServerRoleUpdate(user, update)));
+			serverMembers.update((list) => list.map((user) => applyServerRoleUpdate(user, update)));
+			currentUser.update((user) => user ? applyServerRoleUpdate(user, update) : user);
+		});
+
 		on('user-updated', (user: User) => {
 			if (!user?.id) return;
 			upsertUser(users, user);
 			upsertUser(serverMembers, user);
+			if (!isCurrentUserProfile(user, get(currentUser), sock.id)) return;
 			_mergeCurrentUserProfile({
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
@@ -1140,6 +1151,7 @@ export class SocketManager {
 			if (!user?.id) return;
 			upsertUser(users, user);
 			upsertUser(serverMembers, user);
+			if (!isCurrentUserProfile(user, get(currentUser), sock.id)) return;
 			_mergeCurrentUserProfile({
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,

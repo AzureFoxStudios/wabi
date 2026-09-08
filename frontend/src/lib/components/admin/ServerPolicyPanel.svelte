@@ -506,6 +506,7 @@
 						type="number"
 						min="1"
 						placeholder="User ID"
+						aria-label="Allowed user ID"
 						bind:value={newAllowedUserId}
 						disabled={!canManageAdmin || accessSaving}
 					/>
@@ -513,6 +514,7 @@
 						class="sp-input sp-input-sm"
 						type="text"
 						placeholder="Username (optional)"
+						aria-label="Allowed username (optional)"
 						bind:value={newAllowedUsername}
 						disabled={!canManageAdmin || accessSaving}
 					/>
@@ -535,11 +537,14 @@
 		display: flex;
 		flex-direction: column;
 		gap: 20px;
+		min-width: 0;
 	}
 	.sp-section {
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
+		min-width: 0;
+		overflow-wrap: anywhere;
 		padding: 16px;
 		background: var(--surface-raised, #302b63);
 		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
@@ -567,7 +572,7 @@
 	}
 	.sp-limit-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
 		gap: 10px;
 	}
 	.sp-limit-row {
@@ -585,6 +590,10 @@
 		color: var(--text-secondary, #b3b3ff);
 	}
 	.sp-input {
+		width: 100%;
+		min-width: 0;
+		min-height: 44px;
+		box-sizing: border-box;
 		background: var(--surface-base, #24243e);
 		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
 		border-radius: var(--radius-sm, 6px);
@@ -602,9 +611,11 @@
 	}
 	.sp-input-sm {
 		flex: 1;
-		min-width: 80px;
+		flex-basis: 120px;
+		min-width: 0;
 	}
 	.sp-toggle {
+		min-height: 44px;
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
@@ -612,6 +623,8 @@
 		color: var(--text-secondary, #b3b3ff);
 	}
 	.sp-btn {
+		min-height: 44px;
+		max-width: 100%;
 		align-self: flex-start;
 		background: var(--accent-primary, #6366f1);
 		color: #fff;
@@ -627,6 +640,7 @@
 		cursor: not-allowed;
 	}
 	.sp-btn-small {
+		min-height: 44px;
 		background: var(--surface-base, #24243e);
 		color: var(--text-secondary, #b3b3ff);
 		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
@@ -653,6 +667,7 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 8px;
+		flex-wrap: wrap;
 		font-size: 0.78rem;
 		color: var(--text-heading, #e0e0ff);
 		padding: 6px 8px;

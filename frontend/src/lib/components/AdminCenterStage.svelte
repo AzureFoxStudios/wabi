@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { fade } from 'svelte/transition'
   // Phase 4 boot optimization: ships with this (lazy) component instead of MainLayout's eager graph.
   import '$lib/../styles/components/admin-center-stage.css';
@@ -61,7 +61,8 @@
 
   async function fetchStats() {
     const token = getAuthToken()
-    if (!token) { statsLoading = false; return }
+    if (!token) { statsLoading = false; statsError = 'Sign in again to view server statistics.'; return }
+    statsLoading = true
     statsError = null
     try {
       const res = await fetch(`${getApiBase()}/api/admin/stats`, {
@@ -100,11 +101,14 @@
     }
   }
 
-  function goBackToChat() {
+  async function goBackToChat() {
     layoutStore.setCenterPanelView('chat')
+    await tick()
+    document.querySelector<HTMLButtonElement>('.workspace-trigger')?.focus()
   }
 
   onMount(() => {
+    document.querySelector<HTMLButtonElement>('.admin-back-btn')?.focus()
     fetchStats()
     fetchPaymentPolicy()
     const interval = setInterval(fetchStats, 30000)
@@ -167,10 +171,6 @@
       {/each}
     </nav>
 
-    <div class="admin-sidebar-footer">
-      <span class="admin-footer-dot" />
-      <span class="admin-footer-text">System Online</span>
-    </div>
   </aside>
 
   <!-- Main -->
@@ -198,10 +198,18 @@
     </header>
 
     <main class="admin-content">
+      {#if statsError && section === 'overview'}
+        <div class="admin-section" role="alert">
+          <p>{statsError}{stats ? '. Showing the last available snapshot.' : ''}</p>
+          <button class="admin-btn" on:click={fetchStats} disabled={statsLoading}>Retry statistics</button>
+        </div>
+      {/if}
       {#key section}
         <div class="admin-content-inner" in:fade={{ duration: 200 }}>
           {#if section === 'overview'}
-            <OverviewSection {stats} loading={statsLoading} paymentPolicy={paymentPolicy} paymentLoading={paymentLoading} />
+            {#if stats || !statsError}
+              <OverviewSection {stats} loading={statsLoading && !stats} paymentPolicy={paymentPolicy} paymentLoading={paymentLoading} />
+            {/if}
           {:else}
             <AdminWorkspace section={section} />
           {/if}

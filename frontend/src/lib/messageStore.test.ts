@@ -11,7 +11,9 @@ mock.module('./socketConnection', () => ({
 mock.module('$lib/wabidb', () => ({ getWabiDB: () => null }));
 // This unit suite exercises ordinary-channel state, not browser auth storage.
 mock.module('./groupAccess', () => ({ groupMembership: { acceptsContent: () => true } }));
-mock.module('$app/environment', () => ({ browser: true, dev: false, building: false }));
+// No DOM is installed in this store-only suite; auth/server imports must not
+// initialize browser storage merely because a socket boundary is stubbed.
+mock.module('$app/environment', () => ({ browser: false, dev: false, building: false }));
 
 const { channelMessages, unreadCount, channelUnreadCounts, markChannelAsRead } = await import(
 	'./messageStore'

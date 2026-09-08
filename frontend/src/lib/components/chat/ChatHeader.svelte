@@ -1,22 +1,11 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
-	import { openVoiceView } from '$lib/voiceView';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
-	import { openFullMapTab } from '$lib/mapWorkspace';
-	import { openModelViewportSurface } from '$lib/modelViewportTab';
-	import { openReaderSurface } from '$lib/readerWorkspace';
-	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
-	import { openPlannerSurface } from '$lib/plannerWorkspace';
-	import { openNotesSurface } from '$lib/notesWorkspace';
-	import { openLoreSurface } from '$lib/loreWorkspace';
-	import { openFilesSurface } from '$lib/filesWorkspace';
 	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
 	import { getLoreBinding, parseLoreChannelId, type LoreChannelBinding } from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
 	import { hasAddonCapability } from '$lib/addonInventory';
-	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
-	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
 	import type { User } from '$lib/socket';
 	import type { WorkspaceViewKey } from './types';
 
@@ -58,7 +47,6 @@
 	export let isFullHistorySearchRunning = false;
 	export let fullHistorySearchPagesLoaded = 0;
 	export let fullHistorySearchStatus = '';
-	export let onReturnToMessages: () => void;
 	export let onStartDMVoiceCall: () => void | Promise<void>;
 	export let onStartDMVideoCall: () => void | Promise<void>;
 	export let onToggleExperimentalWabidbCall: () => void | Promise<void>;
@@ -67,46 +55,6 @@
 	export let onSearchCurrentQueryInBrowser: () => void;
 	export let onToggleFullHistorySearchBackfill: () => void;
 
-	function handleWorkspaceViewSelect(view: string): void {
-		switch (view) {
-			case 'messages':
-				onReturnToMessages();
-				break;
-			case 'voice':
-				// The voice pill lives in this header bar while the messages view
-				// is active — without this case it was a silent no-op (2026-08-27
-					// "can't get to the call view" report).
-				openVoiceView();
-				break;
-			case 'whiteboard':
-				setWhiteboardSurface(currentChannel, 'whiteboard');
-				break;
-			case 'planner':
-				openPlannerSurface();
-				break;
-			case 'notes':
-				openNotesSurface();
-				break;
-			case 'media':
-				openMediaAlbumsSurface();
-				break;
-			case 'reader':
-				openReaderSurface();
-				break;
-			case 'model':
-				openModelViewportSurface();
-				break;
-			case 'map':
-				void openFullMapTab();
-				break;
-			case 'lore':
-				openLoreSurface();
-				break;
-			case 'files':
-				openFilesSurface();
-				break;
-		}
-	}
 </script>
 
 <div class="chat-header" class:dm-channel={isDMChannel}>
@@ -143,9 +91,6 @@
 		{/if}
 	</div>
 	<div class="header-actions">
-		<div class="header-action-group">
-			<WorkspaceViewBar activeView={selectedWorkspaceView} onSelectView={handleWorkspaceViewSelect} />
-		</div>
 		<div class="header-action-group">
 			{#if isDMChannel && dmCallTargetUser}
 				<div class="dm-call-actions">

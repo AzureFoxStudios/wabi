@@ -63,36 +63,67 @@ pub async fn handle_delete_emoji(
 }
 
 #[allow(dead_code)]
-pub async fn handle_get_role_definitions(socket: SocketRef, io: &SocketIo, state: &SioState) {
-    let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();
-    let _ = socket.emit("role-definitions-updated", &json!({ "roles": roles }));
-    let _ = io;
+pub async fn handle_get_role_definitions(socket: SocketRef, _io: &SocketIo, _state: &SioState) {
+    let _ = socket.emit("role-definitions-updated", &server_role_catalog());
+}
+
+/// Server RBAC has fixed roles. WabiStore's channel permission definitions are
+/// a different record, not customizable display labels or a list of assigned roles.
+fn server_role_catalog() -> Value {
+    let roles: Vec<Value> = [
+        ("owner", "Owner", 400, "The server owner. Ownership is protected and managed separately."),
+        ("admin", "Admin", 300, "Manages server settings and member roles."),
+        ("mod", "Moderator", 200, "Moderates conversations using the server's moderation controls."),
+        ("member", "Member", 100, "A registered member, subject to channel access and server policies."),
+        ("guest", "Guest", 0, "An unregistered visitor. Guest access follows server policies and is not an assignable member role."),
+    ].into_iter().map(|(name, label, priority, description)| json!({
+        "roleName": name, "displayName": label, "priority": priority,
+        "description": description, "color": null, "isHoisted": false,
+    })).collect();
+    json!({ "roles": roles, "canRename": false })
+}
+
+fn parse_server_role(value: &str) -> Option<(MemberRole, &'static str)> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "owner" => Some((MemberRole::Owner, "Owner")),
+        "admin" => Some((MemberRole::Admin, "Admin")),
+        "mod" | "moderator" => Some((MemberRole::Moderator, "Moderator")),
+        "member" => Some((MemberRole::Member, "Member")),
+        _ => None,
+    }
+}
+
+async fn publish_server_role(user_id: i64, state: &SioState, io: &SocketIo) {
+    let role = effective_user_role(state, Some(user_id), true).await;
+    let _ = io.emit("user-role-updated", &json!({
+        "dbUserId": user_id, "highestRole": role, "roles": [role],
+    })).await;
 }
 
 #[allow(dead_code)]
 pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
+    let request_id = data.get("requestId").cloned().unwrap_or(Value::Null);
     let target_user_id = data.get("targetUserId").and_then(|v| v.as_i64()).unwrap_or(0);
-    let role_name = data.get("roleName").and_then(|v| v.as_str()).unwrap_or("");
+    let role_input = data.get("roleName").and_then(|v| v.as_str()).unwrap_or("");
 
-    if target_user_id <= 0 || role_name.is_empty() {
-        warn!("[sio] assign-role: invalid params targetUserId={} roleName={}", target_user_id, role_name);
+    let Some((role, role_name)) = parse_server_role(role_input).filter(|_| target_user_id > 0) else {
+        let _ = socket.emit("assign-role-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Choose a valid member role" }));
         return;
-    }
-
-    let identity = resolve_sio_identity(&socket);
-    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if !state.app.is_admin(caller_id).await {
-        warn!("[sio] assign-role: user {} not authorized", caller_id);
-        let _ = socket.emit("assign-role-error", &json!({ "error": "Only admins can assign roles" }));
-        return;
-    }
-
-    let role = match role_name {
-        "Admin" => MemberRole::Admin,
-        "Moderator" => MemberRole::Moderator,
-        "Owner" => MemberRole::Owner,
-        _ => MemberRole::Member,
     };
+
+    let Some(identity) = resolve_identity(&socket, state).await else { return; };
+    let caller_id = identity.user_id;
+    if identity.is_guest || !state.app.is_admin(caller_id).await {
+        warn!("[sio] assign-role: user {} not authorized", caller_id);
+        let _ = socket.emit("assign-role-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Only admins can assign roles" }));
+        return;
+    }
+
+    if !matches!(state.app.wdb.get_user(target_user_id as u64).await,
+        Ok(Some(user)) if !user.password_hash.is_empty() && user.is_active) {
+        let _ = socket.emit("assign-role-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Roles can only be assigned to active registered members" }));
+        return;
+    }
 
     // The server owner is protected: cannot be demoted or reassigned by
     // anyone (including other admins). Only the owner may grant the Owner
@@ -100,7 +131,7 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
     let target_is_owner = state.app.is_owner(target_user_id).await;
     if target_is_owner && role != MemberRole::Owner {
         warn!("[sio] assign-role: refusing to demote server owner {}", target_user_id);
-        let _ = socket.emit("assign-role-error", &json!({ "error": "The server owner's role cannot be changed" }));
+        let _ = socket.emit("assign-role-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "The server owner's role cannot be changed" }));
         return;
     }
     if role == MemberRole::Owner {
@@ -109,17 +140,19 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
         // second owner that the `is_owner` check wouldn't recognize.
         if !state.app.is_owner(caller_id).await || target_user_id != caller_id {
             warn!("[sio] assign-role: illegal Owner assignment by {}", caller_id);
-            let _ = socket.emit("assign-role-error", &json!({ "error": "Ownership transfer is not permitted here" }));
+            let _ = socket.emit("assign-role-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Ownership transfer is not permitted here" }));
             return;
         }
     }
 
-    if let Err(e) = state.app.wdb.upsert_member_role(
-        "", target_user_id as u64, role,
-    ).await {
-        warn!("[sio] assign-role: failed to upsert member role {}: {}", role_name, e);
+    if state.app.config.admin_user_ids.contains(&target_user_id) && role != MemberRole::Admin {
+        let _ = socket.emit("assign-role-error", &json!({ "requestId": request_id, "targetUserId": target_user_id,
+            "error": "This member is a configured administrator. Change the server configuration to remove administrator access." }));
+        return;
     }
 
+    // One authoritative RBAC event. A second write to an empty channel's
+    // membership is unrelated to server roles and can fail independently.
     if let Err(e) = state.app.wdb.ingest_event("rbac", "assign_role", &json!({
         "userId": target_user_id,
         "workspaceId": "default-workspace",
@@ -127,13 +160,12 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
         "assignedBy": caller_id,
     })).await {
         warn!("[sio] assign-role: failed to assign role: {}", e);
-        let _ = socket.emit("assign-role-error", &json!({ "error": "Failed to assign role" }));
+        let _ = socket.emit("assign-role-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Failed to assign role" }));
         return;
     }
 
-    let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();
-    drop(io.emit("role-definitions-updated", &json!({ "roles": roles })));
-    drop(socket.emit("assign-role-success", &json!({ "targetUserId": target_user_id, "role": role_name })));
+    publish_server_role(target_user_id, state, io).await;
+    drop(socket.emit("assign-role-success", &json!({ "requestId": request_id, "targetUserId": target_user_id, "role": role_name })));
 }
 
 pub async fn handle_toggle_reception(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
@@ -156,22 +188,36 @@ pub async fn handle_toggle_reception(socket: SocketRef, data: Value, state: &Sio
 #[allow(dead_code)]
 pub async fn handle_remove_role(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
     let target_user_id = data.get("targetUserId").and_then(|v| v.as_i64()).unwrap_or(0);
-    let role_name = data.get("roleName").and_then(|v| v.as_str()).unwrap_or("");
-
-    if target_user_id <= 0 || role_name.is_empty() {
+    let role_input = data.get("roleName").and_then(|v| v.as_str()).unwrap_or("");
+    let Some((_, role_name)) = parse_server_role(role_input).filter(|_| target_user_id > 0) else {
+        let _ = socket.emit("remove-role-error", &json!({ "targetUserId": target_user_id, "error": "Choose a valid member role" }));
         return;
-    }
+    };
 
-    let identity = resolve_sio_identity(&socket);
-    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if !state.app.is_admin(caller_id).await {
+    let Some(identity) = resolve_identity(&socket, state).await else { return; };
+    let caller_id = identity.user_id;
+    if identity.is_guest || !state.app.is_admin(caller_id).await {
         warn!("[sio] remove-role: user {} not authorized", caller_id);
+        let _ = socket.emit("remove-role-error", &json!({ "error": "Only admins can remove roles" }));
         return;
     }
 
     // The server owner's role can never be removed.
     if state.app.is_owner(target_user_id).await {
         warn!("[sio] remove-role: refusing to remove role from owner {}", target_user_id);
+        let _ = socket.emit("remove-role-error", &json!({ "error": "The server owner's role cannot be changed" }));
+        return;
+    }
+
+    if state.app.config.admin_user_ids.contains(&target_user_id) {
+        let _ = socket.emit("remove-role-error", &json!({ "targetUserId": target_user_id,
+            "error": "This member is a configured administrator. Change the server configuration to remove administrator access." }));
+        return;
+    }
+
+    if !matches!(state.app.wdb.get_user(target_user_id as u64).await,
+        Ok(Some(user)) if !user.password_hash.is_empty() && user.is_active) {
+        let _ = socket.emit("remove-role-error", &json!({ "error": "Choose an active registered member" }));
         return;
     }
 
@@ -181,10 +227,12 @@ pub async fn handle_remove_role(socket: SocketRef, data: Value, state: &SioState
         "role": role_name,
     })).await {
         warn!("[sio] remove-role: failed: {}", e);
+        let _ = socket.emit("remove-role-error", &json!({ "error": "Failed to remove role" }));
+        return;
     }
 
-    let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();
-    drop(io.emit("role-definitions-updated", &json!({ "roles": roles })));
+    publish_server_role(target_user_id, state, io).await;
+    let _ = socket.emit("remove-role-success", &json!({ "targetUserId": target_user_id, "role": "Member" }));
 }
 
 #[allow(dead_code)]
@@ -209,11 +257,19 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
     // Accept flat fields too for older clients.
     let settings = data.get("settings").cloned().unwrap_or_else(|| data.clone());
 
+    // Ordinary channels have no persisted/enforced minimum-role gate. Reject
+    // the entire legacy request before retention or other settings can change.
+    if data.get("minRole").is_some() || settings.get("minRole").is_some() {
+        let _ = socket.emit("channel-settings-error", &json!({
+            "code": "unsupported",
+            "error": "Minimum-role channel restrictions are not available. No channel settings were changed.",
+            "channelId": channel_id,
+        }));
+        return;
+    }
+
     let mut row = serde_json::Map::new();
     row.insert("channel_id".to_string(), json!(channel_id.clone()));
-    if let Some(min_role) = settings.get("minRole").and_then(|v| v.as_str()) {
-        row.insert("min_role".to_string(), json!(min_role));
-    }
     if let Some(name) = settings.get("name").and_then(|v| v.as_str()) {
         row.insert("name".to_string(), json!(name));
     }
@@ -368,33 +424,10 @@ fn parse_retention_label_to_ms(label: &str) -> Option<u64> {
 }
 
 #[allow(dead_code)]
-pub async fn handle_set_role_display_name(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
-    let identity = resolve_sio_identity(&socket);
-    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if !state.app.is_admin(caller_id).await {
-        warn!("[sio] set-role-display-name: user {} not authorized", caller_id);
-        return;
-    }
-
-    let role_name = data.get("roleName").and_then(|v| v.as_str()).unwrap_or("");
-    let _display_name = data.get("displayName").and_then(|v| v.as_str()).unwrap_or("");
-
-    if role_name.is_empty() {
-        return;
-    }
-
-    let role = match role_name {
-        "Admin" => MemberRole::Admin,
-        "Moderator" => MemberRole::Moderator,
-        "Owner" => MemberRole::Owner,
-        _ => MemberRole::Member,
-    };
-    if let Err(e) = state.app.wdb.upsert_member_role(
-        "", caller_id as u64, role,
-    ).await {
-        warn!("[sio] set-role-display-name: failed to update role {}: {}", role_name, e);
-    }
-
-    let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();
-    drop(io.emit("role-definitions-updated", &json!({ "roles": roles })));
+pub async fn handle_set_role_display_name(socket: SocketRef, _data: Value, _state: &SioState, _io: &SocketIo) {
+    // Kept only so old clients receive an honest response. Renaming was never
+    // persisted; the old shim instead changed the caller's channel membership.
+    let _ = socket.emit("set-role-display-name-error", &json!({
+        "error": "Built-in role names are fixed; renaming is not supported", "code": "unsupported",
+    }));
 }

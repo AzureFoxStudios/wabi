@@ -21,6 +21,13 @@ const STORED_USERNAME_KEY_PREFIX = 'wabi_username:';
 const STORED_DB_USER_ID_KEY_PREFIX = 'wabi_db_user_id:';
 
 const hydratedServerScopes = new Set<string>();
+const sessionClearListeners = new Set<(server: string) => void>();
+
+/** Explicit session boundaries also retire memory owned by unmounted surfaces. */
+export function onAuthSessionCleared(listener: (server: string) => void): () => void {
+	sessionClearListeners.add(listener);
+	return () => { sessionClearListeners.delete(listener); };
+}
 
 function normalizeSecret(value: string | null | undefined): string | null {
 	if (!value) return null;
@@ -220,6 +227,11 @@ export function clearAuthSession(serverUrl?: string | null): void {
 	// The refresh token is part of the session: logout must kill it too,
 	// or a 30-day refresh token survives in sessionStorage after "logout".
 	clearRefreshToken(serverUrl);
+	const server = resolveServerScope(serverUrl);
+	for (const listener of sessionClearListeners) {
+		try { listener(server); }
+		catch { console.error('Session memory cleanup failed'); }
+	}
 }
 
 export function copyScopedAuthState(fromServerUrl: string, toServerUrl: string): void {

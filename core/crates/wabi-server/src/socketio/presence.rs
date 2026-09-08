@@ -181,7 +181,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         "serverMembers": server_members,
         "emotes": [],
         "emojis": [],
-        "roleDefinitions": [],
+        "roleDefinitions": server_role_catalog()["roles"],
         "voiceState": voice_state,
         "messagePurgeVersion": 0,
         "session": { "sessionId": socket.id.to_string() },
@@ -297,8 +297,7 @@ async fn build_user_view(
     is_registered: bool,
     profile_media: Option<serde_json::Map<String, Value>>,
 ) -> Value {
-    let owner_id = *state.app.owner_user_id.read().await;
-    let role = highest_role(if db_user_id > 0 { Some(db_user_id) } else { None }, owner_id);
+    let role = effective_user_role(state, Some(db_user_id), is_registered).await;
 
     let stable_id = if db_user_id > 0 {
         format!("user-{}", db_user_id)

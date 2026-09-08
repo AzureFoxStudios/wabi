@@ -40,6 +40,7 @@ export interface UploadOrchestratorContext {
 	albumScopeId: string | null;
 	getCompressionMetadata: (file: File) => UploadVideoCompressionMetadata | undefined;
 	onProgress: (pct: number) => void;
+	isCurrent?: () => boolean;
 }
 
 export interface UploadMessageSpec {
@@ -49,6 +50,8 @@ export interface UploadMessageSpec {
 }
 
 export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise<UploadMessageSpec> {
+	const assertCurrent = () => { if (ctx.isCurrent && !ctx.isCurrent()) throw new Error('Upload context changed'); };
+	assertCurrent();
 	const {
 		files,
 		channelId,
@@ -78,6 +81,7 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 	const uploadedFiles: UploadedFileRecord[] = [];
 
 	for (const file of files) {
+		assertCurrent();
 		let uploadFile = file;
 		let attachmentEncryption: UploadedFileRecord['attachmentEncryption'];
 		let persistentResume = true;
@@ -107,8 +111,10 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 				onProgress(Math.round(overall));
 			},
 			persistentResume,
-			videoCompression
+			videoCompression,
+			ctx.isCurrent
 		);
+		assertCurrent();
 		completedFiles++;
 
 		uploadedFiles.push({
@@ -123,6 +129,7 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 
 	let createdAlbumName: string | null = null;
 	if (createAlbum && authToken && albumScopeType && albumScopeId) {
+		assertCurrent();
 		const finalAlbumName = albumName.trim() || 'Upload';
 		const album = await createMediaAlbum(authToken, {
 			scopeType: albumScopeType,
@@ -130,6 +137,7 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 			name: finalAlbumName
 		});
 		for (const f of uploadedFiles) {
+			assertCurrent();
 			await addMediaAlbumItem(authToken, album.id, {
 				attachmentUrl: f.fileUrl,
 				attachmentName: f.fileName,
@@ -140,6 +148,7 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 		}
 		createdAlbumName = album.name;
 	}
+	assertCurrent();
 
 	if (uploadedFiles.length === 1) {
 		const f = uploadedFiles[0];

@@ -159,16 +159,6 @@ html[data-shell='mobile'] body {
 		letter-spacing: 0.01em;
 	}
 
-	/* Hide dense desktop workspace pill strip overflow — scrollable on phone */
-	.workspace-view-actions {
-		max-width: min(52vw, 220px);
-		overflow-x: auto;
-		-webkit-overflow-scrolling: touch;
-		scrollbar-width: none;
-	}
-	.workspace-view-actions::-webkit-scrollbar {
-		display: none;
-	}
 
 	/* ---- Message list density ---- */
 	.messages {

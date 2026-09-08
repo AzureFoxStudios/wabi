@@ -5,14 +5,12 @@
 		assignRole,
 		channels,
 		currentUser,
-		removeUserRole,
 		roleDefinitions,
 		users,
 		serverMembers,
 		type User
 	} from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
-	import { layoutStore } from '$lib/layoutStore';
 	import {
 		adminClearUserLoginLockout,
 		adminResetUserPassword,
@@ -38,7 +36,7 @@
 		userHasRole
 	} from './admin/adminSettingsHelpers';
 
-	const dispatch = createEventDispatcher<{ openServerDonation: void }>();
+	const dispatch = createEventDispatcher<{ openServerDonation: void; openDashboard: void }>();
 	let uploadLimitConfig: UploadLimitConfig = {
 		perRoleBytes: { new: 10 * MB, trusted: 1024 * MB, moderator: 30 * 1024 * MB, admin: null, owner: null },
 		globalUploadCapBytes: null
@@ -54,6 +52,9 @@
 	let loadingUploadLimits = false;
 	let savingUploadLimits = false;
 	let uploadLimitsLoaded = false;
+	let roleBusyUserIds: number[] = [];
+	let roleActionError = '';
+	let roleActionStatus = '';
 
 	$: roleLabelMap = (() => {
 		const labels: Record<string, string> = { ...fallbackRoleLabels };
@@ -140,9 +141,9 @@
 		}
 	}
 
-	function canManageTargetUser(user: { id: string; dbUserId?: number; highestRole?: string }): boolean {
+	function canManageTargetUser(user: { id: string; dbUserId?: number; highestRole?: string; isRegistered?: boolean | null }): boolean {
 		if (!canManageAdmin) return false;
-		if (!user.dbUserId) return false;
+		if (!user.dbUserId || user.isRegistered === false) return false;
 		if (!$currentUser || user.id === $currentUser.id) return false;
 		if (isProtectedOwner(user)) return false;
 		return true;
@@ -153,20 +154,27 @@
 		return roleLabelMap[roleName] || roleName;
 	}
 
-	function promoteUser(user: { dbUserId?: number }, role: 'admin' | 'mod') {
-		if (!user.dbUserId) return;
-		assignRole(user.dbUserId, role);
+	async function changeUserRole(user: User, role: 'admin' | 'mod' | 'member') {
+		if (!canManageTargetUser(user) || !user.dbUserId || roleBusyUserIds.includes(user.dbUserId)) return;
+		const userId = user.dbUserId;
+		roleBusyUserIds = [...roleBusyUserIds, userId];
+		roleActionError = ''; roleActionStatus = '';
+		try {
+			await assignRole(userId, role);
+			roleActionStatus = `${user.username} is now ${getRoleLabel(role)}.`;
+		} catch (error) {
+			roleActionError = error instanceof Error ? error.message : 'Could not change this member’s role.';
+		} finally {
+			roleBusyUserIds = roleBusyUserIds.filter((id) => id !== userId);
+		}
 	}
 
-	function removeRoleFromUser(user: { dbUserId?: number }, role: 'admin' | 'mod') {
-		if (!user.dbUserId) return;
-		removeUserRole(user.dbUserId, role);
+	function promoteUser(user: User, role: 'admin' | 'mod') {
+		void changeUserRole(user, role);
 	}
 
-	function resetUserToMember(user: { dbUserId?: number }) {
-		if (!user.dbUserId) return;
-		removeUserRole(user.dbUserId, 'admin');
-		removeUserRole(user.dbUserId, 'mod');
+	function resetUserToMember(user: User) {
+		void changeUserRole(user, 'member');
 	}
 
 	async function promptAdminPasswordReset(user: { dbUserId?: number; username: string; id: string; highestRole?: string }) {
@@ -218,7 +226,7 @@
 			<h3>{$t('settings.sections.admin_panel')}</h3>
 			<p class="admin-help">Roles, limits, branding, and community tools. Full dashboard opens in center stage.</p>
 		</div>
-		<button class="admin-open-dashboard-btn" type="button" on:click={() => layoutStore.showAdminCenterStage()}>
+		<button class="admin-open-dashboard-btn" type="button" on:click={() => dispatch('openDashboard')}>
 			<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="3" y="3" width="7" height="7" rx="1" />
 				<rect x="14" y="3" width="7" height="7" rx="1" />
@@ -232,15 +240,18 @@
 	<div class="admin-settings-stack">
 		<section class="admin-block">
 			<h4 class="admin-block-title">People</h4>
+			{#if roleActionError}<p role="alert">{roleActionError}</p>{/if}
+			{#if roleBusyUserIds.length > 0}<p role="status">Updating member role…</p>{/if}
+			{#if roleActionStatus}<p role="status">{roleActionStatus}</p>{/if}
 			<AdminUserList
 				{sortedAdminUsers}
-				{canManageTargetUser}
+				canManageTargetUser={(user) => canManageTargetUser(user) && !roleBusyUserIds.includes(user.dbUserId ?? 0)}
 				{userHasRole}
 				{getRoleLabel}
 				onPromoteAdmin={(u) => promoteUser(u, 'admin')}
-				onRemoveAdmin={(u) => removeRoleFromUser(u, 'admin')}
+				onRemoveAdmin={resetUserToMember}
 				onPromoteMod={(u) => promoteUser(u, 'mod')}
-				onRemoveMod={(u) => removeRoleFromUser(u, 'mod')}
+				onRemoveMod={resetUserToMember}
 				onResetToMember={resetUserToMember}
 				onResetPassword={promptAdminPasswordReset}
 				onClearLockout={clearUserLoginLockout}

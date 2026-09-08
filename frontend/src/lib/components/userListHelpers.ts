@@ -105,23 +105,15 @@ export interface BuildMenuContext {
 }
 
 export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
-	const { contextMenuUser, currentUser, rolePriority, localNicknamesEnabled, hasLocalNickname, socket } = ctx;
+	const { contextMenuUser, currentUser, localNicknamesEnabled, hasLocalNickname } = ctx;
 	if (!contextMenuUser) return [];
 
 	const isSelf = isCurrentUserEntry(contextMenuUser, currentUser);
 	const myRole = currentUser?.highestRole;
 	const canManageRoles = myRole === 'owner' || myRole === 'admin';
-	const canBanUsers = myRole === 'owner' || myRole === 'admin' || myRole === 'mod';
-
-	const canBanContextUser = (): boolean => {
-		if (!contextMenuUser.dbUserId || isSelf || contextMenuUser.highestRole === 'owner') return false;
-		const myPriority = rolePriority[myRole || 'guest'] || 0;
-		const targetPriority = rolePriority[contextMenuUser.highestRole || 'guest'] || 0;
-		return canBanUsers && myPriority > targetPriority;
-	};
 
 	const canManageContextUserRoles = (): boolean => {
-		if (!contextMenuUser.dbUserId || isSelf || !canManageRoles) return false;
+		if (!contextMenuUser.dbUserId || contextMenuUser.isRegistered === false || isSelf || !canManageRoles) return false;
 		return contextMenuUser.highestRole !== 'owner';
 	};
 
@@ -170,11 +162,6 @@ export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
 		else items.push({ id: 'remove-mod', label: 'Remove Moderator', icon: 'settings', danger: true, onSelect: () => {} });
 
 		if (isAdmin || isMod) items.push({ id: 'reset-member', label: 'Reset to Member', icon: 'settings', danger: true, onSelect: () => {} });
-	}
-
-	if (canBanContextUser()) {
-		items.push({ id: 'moderation-divider', type: 'separator' });
-		items.push({ id: 'ban-user', label: 'Ban User', icon: 'trash-2', danger: true, onSelect: () => {} });
 	}
 
 	return items;

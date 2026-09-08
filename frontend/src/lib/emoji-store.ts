@@ -41,13 +41,22 @@ const SEARCH_ALIASES: Record<string, string[]> = {
 	sad: ['cry', 'unhappy', 'upset'],
 	party: ['celebrate', 'celebration', 'fun'],
 	thumbsup: ['approve', 'yes', 'good'],
-	thumbsdown: ['no', 'bad', 'disapprove']
+	thumbsdown: ['no', 'bad', 'disapprove'],
+	'thumbs up': ['thumbsup', 'approve', 'yes', 'good'],
+	'thumbs down': ['thumbsdown', 'no', 'bad', 'disapprove'],
+	smiling: ['smile', 'happy', 'friendly'],
+	grinning: ['grin', 'smile', 'happy'],
+	laughing: ['laugh', 'happy'],
+	hearts: ['heart', 'love', 'like'],
+	crying: ['cry', 'sad', 'unhappy']
 };
 
 export function getEmojiSearchTerms(emoji: Emoji): string[] {
 	const base = [emoji.name, emoji.displayName || '', emoji.category || ''];
-	const aliases = base.flatMap((term) => SEARCH_ALIASES[term.toLowerCase()] || []);
-	return [...new Set([...base, ...aliases].map((term) => term.trim().toLowerCase()).filter(Boolean))];
+	const normalized = base.map((term) => term.toLowerCase().replace(/[_-]+/g, ' '));
+	const aliases = normalized.flatMap((term) => [term, ...term.split(/\s+/)])
+		.flatMap((term) => SEARCH_ALIASES[term] || []);
+	return [...new Set([...base, ...normalized, ...aliases].map((term) => term.trim().toLowerCase()).filter(Boolean))];
 }
 
 /**

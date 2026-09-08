@@ -1078,7 +1078,17 @@
 	.category-chevron {
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		flex: 0 0 16px;
 		transition: transform var(--duration-fast);
+	}
+
+	.category-chevron svg {
+		display: block;
+		width: 16px;
+		height: 16px;
 	}
 
 	.category-toggle[aria-expanded="true"] .category-chevron {

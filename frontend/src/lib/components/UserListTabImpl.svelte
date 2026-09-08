@@ -1,7 +1,8 @@
 <script lang="ts">
 	import './UserListTabImpl.css';
 	import { get } from 'svelte/store';
-	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, assignRole, removeUserRole, banUser, roleDefinitions } from '$lib/socket';
+	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, assignRole, roleDefinitions } from '$lib/socket';
+	import { showToast } from '$lib/toast';
 	import { layoutStore } from '$lib/layoutStore';
 	import type { User } from '$lib/socket';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
@@ -195,32 +196,24 @@
 		await startDMCall($socket, contextMenuUser, true);
 	}
 
-	function handleBanContextUser(): void {
-		if (!contextMenuUser?.dbUserId) return;
-		const confirmBan = window.confirm(`Ban ${contextMenuUser.username}? They will lose access until manually re-enabled.`);
-		if (!confirmBan) return;
-		const reasonInput = window.prompt('Ban reason (optional):', '') || '';
-		banUser(contextMenuUser.dbUserId, reasonInput);
+	async function handleAssignContextRole(roleName: 'admin' | 'mod' | 'member') {
+		const target = contextMenuUser;
+		if (!target?.dbUserId) return;
 		closeContextMenu();
+		try {
+			await assignRole(target.dbUserId, roleName);
+			showToast(`Role updated for ${target.username}.`, 'info');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Could not change this member’s role.', 'error');
+		}
 	}
 
-	function handleAssignContextRole(roleName: 'admin' | 'mod') {
-		if (!contextMenuUser?.dbUserId) return;
-		assignRole(contextMenuUser.dbUserId, roleName);
-		closeContextMenu();
-	}
-
-	function handleRemoveContextRole(roleName: 'admin' | 'mod') {
-		if (!contextMenuUser?.dbUserId) return;
-		removeUserRole(contextMenuUser.dbUserId, roleName);
-		closeContextMenu();
+	function handleRemoveContextRole(_roleName: 'admin' | 'mod') {
+		void handleAssignContextRole('member');
 	}
 
 	function handleResetContextUserToMember() {
-		if (!contextMenuUser?.dbUserId) return;
-		removeUserRole(contextMenuUser.dbUserId, 'admin');
-		removeUserRole(contextMenuUser.dbUserId, 'mod');
-		closeContextMenu();
+		void handleAssignContextRole('member');
 	}
 
 	function buildMenuCtx(): BuildMenuContext {
@@ -247,8 +240,7 @@
 			'remove-admin': () => handleRemoveContextRole('admin'),
 			'make-mod': () => handleAssignContextRole('mod'),
 			'remove-mod': () => handleRemoveContextRole('mod'),
-			'reset-member': handleResetContextUserToMember,
-			'ban-user': handleBanContextUser
+			'reset-member': handleResetContextUserToMember
 		};
 		if (handlers[item.id]) return { ...item, onSelect: handlers[item.id] };
 		return item;

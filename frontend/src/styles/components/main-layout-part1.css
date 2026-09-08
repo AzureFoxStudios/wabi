@@ -49,6 +49,9 @@
 .chat-surface {
 	flex: 1;
 	min-height: 0;
+	min-width: 0;
+	/* Workspace roots get the height remaining below navigation and above calls. */
+	overflow: hidden;
 }
 
 .server-rail-container {

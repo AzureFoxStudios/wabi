@@ -96,7 +96,8 @@ export function resolveDmOtherUser(
 	serverMembers: User[] = []
 ): User | null {
 	if (!channel || channel.type !== 'dm') return null;
-	const candidates = [...serverMembers, ...onlineUsers];
+	// Socket snapshots may carry offline participants before the directory loads.
+	const candidates = [...serverMembers, ...onlineUsers, ...(channel.memberUsers || [])];
 
 	if (channel.otherUser && !findKnownEquivalentUser(channel.otherUser, currentUser ? [currentUser] : [])) {
 		const known = findKnownEquivalentUser(channel.otherUser, candidates);

@@ -44,6 +44,22 @@ async function run() {
 	try {
 		component = mount(AudioSettingsTab, { target });
 		await until(() => target.querySelectorAll('#mic-device-select option').length === 3, 'settings device list renders');
+		const switches = [...target.querySelectorAll<HTMLButtonElement>('button[role="switch"]')];
+		assert(switches.length === 4, 'only the four effective switches remain');
+		assert(switches.every(button => Boolean(button.getAttribute('aria-label')) && ['true', 'false'].includes(button.getAttribute('aria-checked') ?? '')), 'all switches expose their names and state');
+		assert(![...target.querySelectorAll('.setting-label')].some(node => ['Sound Effects', 'Microphone', 'Camera', 'wabiDB Call Relay'].includes(node.textContent ?? '')), 'obsolete no-op permission/sound/relay switches are not offered');
+		const spatial = target.querySelector<HTMLButtonElement>('button[aria-label="Spatial audio"]')!;
+		spatial.closest('details')!.open = true;
+		const wasEnabled = spatial.getAttribute('aria-checked');
+		spatial.click();
+		await until(() => spatial.getAttribute('aria-checked') !== wasEnabled, 'spatial switch publishes updated checked state');
+		assert(target.querySelector<HTMLSelectElement>('#spatial-audio-mode')!.disabled === (spatial.getAttribute('aria-checked') === 'false'), 'dependent spatial settings follow the real switch');
+		spatial.click();
+		await until(() => spatial.getAttribute('aria-checked') === wasEnabled, 'spatial preference restored');
+		assert(target.querySelector<HTMLButtonElement>('button[aria-label="SRT gateway"]')!.disabled, 'web runtime retains the native gateway capability gate');
+		assert(!target.querySelector('#desktop-helper-name'), 'desktop helper controls remain desktop-only');
+		assert(target.querySelector<HTMLInputElement>('input#spatial-strength')?.labels?.length === 1, 'spatial range has a real label');
+		results.push('settings: truthful controls, named switches, dependent state and native gates');
 		const select = target.querySelector<HTMLSelectElement>('#mic-device-select')!;
 		select.value = 'mic-b'; select.dispatchEvent(new Event('change', { bubbles: true }));
 		await until(() => (window as any).__settingsApplyCount === 1, 'device selector requests active-call replacement');

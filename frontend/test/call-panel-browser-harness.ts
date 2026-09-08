@@ -1,6 +1,7 @@
 // Production panel, sidebar roster, call owners and media stores. Server and
 // capture inputs are fixtures; no live accounts, microphone or speaker output.
-import { openVoiceView, voiceViewOpen } from '../src/lib/voiceView';
+import { voiceViewOpen } from '../src/lib/voiceView';
+import { selectWorkspaceView } from '../src/lib/workspaceNavigationState';
 import { mount, unmount, tick } from 'svelte';
 import { get } from 'svelte/store';
 import CallModal from '../src/lib/components/CallModal.svelte';
@@ -83,12 +84,17 @@ async function run() {
     groupMembership.apply({ id: 'group-panel', name: 'Group', type: 'group', createdAt: 0,
       ownerId: 'user-1', members: ['user-1', 'user-2'], membershipRevision: '1' }, realm);
     groupMembership.finishInit(realm);
-    currentChannel.set('voice-a'); openVoiceView(); currentChannel.set('voice-b');
+    currentChannel.set('voice-a'); selectWorkspaceView('voice'); currentChannel.set('voice-b');
     assert(!get(voiceViewOpen), 'channel navigation closes the Voice dashboard');
     await joinVoiceChannel(socket as any, 'voice-a');
     await joinVoiceChannel(socket as any, 'voice-b', { listenOnly: true });
     await startGroupCall(socket as any, 'group-panel', 'Group');
     const sharedCapture = get(localStream);
+    for (const view of ['planner', 'files', 'whiteboard', 'voice', 'messages'] as const) {
+      selectWorkspaceView(view);
+      assert(get(localStream) === sharedCapture && callSessionManager.list().length === 3 &&
+        get(focusedCallSessionId) === 'group-panel', 'workspace navigation preserves all calls, capture and transmit focus');
+    }
     const member = { userId: 'user-2', username: 'Same peer', isSpeaking: false, isMuted: false, isDeafened: false };
     voiceChannelMembers.set({ 'voice-a': [member], 'voice-b': [member] });
     setWabidbRemoteVideoStream('user-2:camera', cameraA, ownerA, 'voice-a');
