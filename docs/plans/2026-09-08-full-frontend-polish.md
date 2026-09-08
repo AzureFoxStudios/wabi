@@ -487,3 +487,30 @@ Logs: `/tmp/wabi-admin-{ui-unit,ux-check,tauri,static,server-final,wabidb-final,
 The user subsequently authorized push, deployment and updating the native Wabi
 repository in Wabi Lore. Delivery is a separate gate below; local acceptance
 does not claim those external operations have already completed.
+
+#### Admin delivery — 2026-09-08
+
+Pushed `d7e11fd4fc265ea91cc21b1ac37cb6f558ba40ca` to `origin/main` and deployed
+the exact accepted binary above at 08:16:53 UTC. Both the container mount and
+running `/proc/1/exe` match its SHA-256. The existing Fedora runtime image,
+WabiDB keys, Lore mounts, uploads and HTTP/2 tunnel were retained.
+
+Stopped-server backups precede replay and cutover; both engine lock files were
+moved recoverably only after the writer was stopped. The isolated, networkless
+candidate replay retained the existing owner and enabled Lore without replay
+errors. Origin, proxy and public readiness, anonymous API denial, Engine.IO
+handshake, no-cache HTML and all 21 root-referenced asset hashes passed.
+Headful public login-page rendering passed at desktop/mobile sizes, without
+creating test accounts. This public check did not exercise a physical microphone
+or install a native desktop bundle.
+
+Recovery/evidence: Tim's private `release-admin-20260908.MRqmS0R7` directory and
+Ron's `/tmp/wabi-admin-release-brO9bU9q`, with
+`/tmp/wabi-admin-{backup,preflight,swap,public}.log`. Private release environment
+and container-inspect files contain secrets; do not publish them.
+
+The requested Wabi-on-Wabi Lore refresh is prepared but not yet committed.
+The user additionally requested checking STUN/TURN during deployment; findings
+and the bounded follow-up are in
+[TURN runtime delivery](2026-09-08-turn-runtime-delivery.md). This does not close
+the remaining whole-product UX work.

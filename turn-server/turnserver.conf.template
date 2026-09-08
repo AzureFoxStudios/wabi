@@ -1,8 +1,12 @@
 listening-port=3478
 relay-threads=8
+# Match the UDP range published by docker-compose.yml and the Dockerfile.
+# Allocating outside this range can succeed while every relayed packet fails.
+min-port=49160
+max-port=49200
 external-ip=${TURN_EXTERNAL_IP}
 realm=${TURN_REALM}
+use-auth-secret
 static-auth-secret=${TURN_HMAC_KEY}
-oauth
 log-file=/var/log/turnserver/turn.log
 no-stdout-log

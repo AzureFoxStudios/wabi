@@ -1,229 +1,77 @@
-/**
- * Centralized TURN Server Configuration
- *
- * This module provides a unified configuration for TURN/STUN servers
- * used in WebRTC connections for voice/video calling and screen sharing.
- *
- * Configuration is loaded from environment variables (VITE_* prefixed).
- */
+/** Runtime self-hosted STUN/TURN, with an explicit build-time compatibility fallback. */
 import { browser } from '$app/environment';
-import { getServerUrl } from './serverUrl';
-import { getAuthToken } from './authSession';
-import { getPreferredTurnRelayId } from './relaySelector';
-import type { TurnCredentialPayload, TurnCredentialsResponse } from '../../../shared/mediaContracts';
+import { activeServerUrl, getServerUrl, normalizeServerUrl } from './serverUrl';
+import { authSessionGeneration, getAuthToken, getStoredDbUserId, onAuthSessionCleared } from './authSession';
+import { accountTokenSubject } from './apiRequest';
+import { fetchWithTimeout } from './api/utils';
+import { getPreferredTurnRelayId, selectedTurnRelay } from './relaySelector';
+import { createTurnCredentialSource, readTurnEndpoint, stunUrl, turnUrls, type TurnEndpoint } from './turnCredentials';
 
-interface TurnServerConfig {
-	urls: string[];
-	username: string;
-	credential: string;
+interface TurnServerConfig { urls: string[]; username: string; credential: string }
+
+const runtimeTurn = createTurnCredentialSource({
+	context: () => {
+		if (!browser) return null;
+		const server = normalizeServerUrl(getServerUrl());
+		const token = server ? getAuthToken(server) : null;
+		if (!server || !token) return null;
+		const subject = accountTokenSubject(token);
+		return { server, token, generation: authSessionGeneration(server),
+			account: JSON.stringify([getStoredDbUserId(server), subject ?? token]),
+			preferredRelayId: getPreferredTurnRelayId() };
+	},
+	request: (url, token, signal) => fetchWithTimeout(url, {
+		method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal, timeoutMs: 5000,
+	}),
+});
+
+let observing = false;
+function observeSelection() {
+	if (!browser || observing) return;
+	observing = true;
+	// Observe selection transitions, including A→B→A while a request is pending.
+	// No call/peer state is changed; already-created peers own their RTCConfiguration.
+	// Start on first use, not while the calling module graph is still initializing.
+	const offServer = activeServerUrl.subscribe(() => runtimeTurn.reconcile());
+	const offRelay = selectedTurnRelay.subscribe(() => runtimeTurn.reconcile());
+	const offSession = onAuthSessionCleared(() => runtimeTurn.reconcile());
+	import.meta.hot?.dispose(() => { offServer(); offRelay(); offSession(); runtimeTurn.invalidate(); });
 }
 
-type CachedTurnCredentials = Omit<TurnCredentialPayload, 'port'> & {
-	port: string;
-};
-
-const TURN_REFRESH_SKEW_SECONDS = 30;
-let cachedTurnCredentials: CachedTurnCredentials | null = null;
-let inFlightTurnFetch: Promise<void> | null = null;
-
-function buildTurnUrls(server: string, port: string, useTurns: boolean): string[] {
-	const protocol = useTurns ? 'turns' : 'turn';
-	return [
-		`${protocol}:${server}:${port}`,
-		`${protocol}:${server}:${port}?transport=udp`,
-		`${protocol}:${server}:${port}?transport=tcp`
-	];
-}
-
-function hasValidCachedTurnCredentials(): boolean {
-	if (!cachedTurnCredentials) return false;
-	const preferredRelayId = getPreferredTurnRelayId();
-	const cachedRelayId = cachedTurnCredentials.relayId ?? null;
-	if ((preferredRelayId ?? null) !== cachedRelayId) {
-		return false;
-	}
-	const now = Math.floor(Date.now() / 1000);
-	return cachedTurnCredentials.expiresAt - now > TURN_REFRESH_SKEW_SECONDS;
-}
-
-function getStaticTurnFallback(): TurnServerConfig | null {
-	const server = import.meta.env.VITE_TURN_SERVER;
-	const port = import.meta.env.VITE_TURN_PORT || '3478';
-	const username = import.meta.env.VITE_TURN_USERNAME;
-	const password = import.meta.env.VITE_TURN_PASSWORD;
+function staticEndpoint(): TurnEndpoint | null {
 	const useTurns = import.meta.env.VITE_USE_TURNS === 'true';
-
-	if (!server || !username || !password) {
-		return null;
-	}
-
-	return {
-		urls: buildTurnUrls(server, port, useTurns),
-		username,
-		credential: password
-	};
+	return readTurnEndpoint(import.meta.env.VITE_TURN_SERVER, import.meta.env.VITE_TURN_PORT || (useTurns ? '5349' : '3478'), useTurns);
 }
 
-async function fetchEphemeralTurnCredentials(): Promise<void> {
-	if (!browser) return;
+export function prefetchTurnCredentials(): Promise<void> { observeSelection(); return runtimeTurn.prefetch(); }
 
-	const token = getAuthToken();
-	if (!token) return;
-
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 5000);
-	try {
-		const turnRelayId = getPreferredTurnRelayId();
-		const turnCredentialsUrl = new URL(`${getServerUrl()}/api/media/turn-credentials`);
-		if (turnRelayId) {
-			turnCredentialsUrl.searchParams.set('relayId', String(turnRelayId));
-		}
-
-		const response = await fetch(turnCredentialsUrl.toString(), {
-			method: 'GET',
-			headers: {
-				Authorization: `Bearer ${token}`
-			},
-			credentials: 'include',
-			signal: controller.signal
-		});
-
-		if (!response.ok) {
-			// 400 = the server explicitly answers "TURN not enabled" — the normal
-			// state on deployments without the TURN profile, not a fault worth a
-			// console warning (wabi.chat log noise, 2026-08-27).
-			if (response.status !== 401 && response.status !== 503 && response.status !== 400) {
-				console.warn(`[TURN Config] TURN credential endpoint returned ${response.status}`);
-			}
-			return;
-		}
-
-		const payload = (await response.json()) as Partial<TurnCredentialsResponse>;
-		const turn = payload?.turn;
-		if (!turn) return;
-
-		const server = typeof turn.server === 'string' ? turn.server : import.meta.env.VITE_TURN_SERVER;
-		const port = turn.port ? String(turn.port) : (import.meta.env.VITE_TURN_PORT || '3478');
-		const useTurns = typeof turn.useTurns === 'boolean' ? turn.useTurns : import.meta.env.VITE_USE_TURNS === 'true';
-		const username = typeof turn.username === 'string' ? turn.username : '';
-		const credential = typeof turn.credential === 'string' ? turn.credential : '';
-		const expiresAt = typeof turn.expiresAt === 'number' ? turn.expiresAt : 0;
-
-		if (!server || !username || !credential || !expiresAt) {
-			return;
-		}
-
-		cachedTurnCredentials = {
-			server,
-			port,
-			realm: typeof turn.realm === 'string' ? turn.realm : null,
-			useTurns,
-			username,
-			credential,
-			expiresAt,
-			relayId: typeof turn.relayId === 'number' ? turn.relayId : null,
-			relayName: typeof turn.relayName === 'string' ? turn.relayName : null,
-			source: turn.source === 'relay' ? 'relay' : 'origin'
-		};
-	} catch (error) {
-		console.warn('[TURN Config] Failed to fetch ephemeral TURN credentials, using fallback if available', error);
-	} finally {
-		clearTimeout(timeout);
-	}
-}
-
-export async function prefetchTurnCredentials(): Promise<void> {
-	if (hasValidCachedTurnCredentials()) return;
-	if (!inFlightTurnFetch) {
-		inFlightTurnFetch = fetchEphemeralTurnCredentials().finally(() => {
-			inFlightTurnFetch = null;
-		});
-	}
-	await inFlightTurnFetch;
-}
-
-/**
- * Builds TURN server configuration from environment variables
- * Supports both TURN (port 3478) and TURNS (port 5349 with TLS)
- *
- * @returns TURN server configuration object or null if not configured
- */
 export function getTurnConfig(): TurnServerConfig | null {
-	if (hasValidCachedTurnCredentials() && cachedTurnCredentials) {
-		console.log(
-			`[TURN Config] Using ${cachedTurnCredentials.source === 'relay' ? 'relay' : 'origin'} TURN server${cachedTurnCredentials.relayName ? ` (${cachedTurnCredentials.relayName})` : ''}`
-		);
-		return {
-			urls: buildTurnUrls(cachedTurnCredentials.server, cachedTurnCredentials.port, cachedTurnCredentials.useTurns),
-			username: cachedTurnCredentials.username,
-			credential: cachedTurnCredentials.credential
-		};
-	}
-
-	const fallback = getStaticTurnFallback();
-	if (fallback) {
-		console.warn('[TURN Config] Using static TURN credentials fallback');
-		return fallback;
-	}
-
-	console.warn('[TURN Config] TURN server not configured and no ephemeral credentials available');
-	return null;
+	observeSelection();
+	const runtime = runtimeTurn.get();
+	if (runtime) return { urls: turnUrls(runtime), username: runtime.username, credential: runtime.credential };
+	const endpoint = staticEndpoint();
+	const username = import.meta.env.VITE_TURN_USERNAME;
+	const credential = import.meta.env.VITE_TURN_PASSWORD;
+	return endpoint && username?.trim() && credential?.trim() ? { urls: turnUrls(endpoint), username, credential } : null;
 }
 
-/**
- * Builds STUN server list
- * Includes self-hosted coturn STUN as primary
- * Optionally includes Google STUN servers as fallback
- *
- * @returns Array of STUN server configurations
- */
 export function getStunServers(): { urls: string }[] {
-	const stunServers: { urls: string }[] = [];
-
-	// Add self-hosted STUN (coturn also provides STUN)
-	const server = import.meta.env.VITE_TURN_SERVER;
-	const port = import.meta.env.VITE_TURN_PORT || '3478';
-
-	if (server) {
-		stunServers.push({ urls: `stun:${server}:${port}` });
+	observeSelection();
+	const servers: { urls: string }[] = [];
+	const runtime = runtimeTurn.get();
+	const endpoint = runtime ?? staticEndpoint();
+	const url = endpoint ? stunUrl(endpoint) : null;
+	if (url) servers.push({ urls: url });
+	// Third-party discovery is opt-in. Enabling runtime TURN never enables Google.
+	if (import.meta.env.VITE_ENABLE_GOOGLE_STUN === 'true') {
+		servers.push({ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' });
 	}
-
-	// Add Google STUN servers as optional fallback
-	const enableGoogleStun = import.meta.env.VITE_ENABLE_GOOGLE_STUN === 'true';
-
-	if (enableGoogleStun) {
-		stunServers.push(
-			{ urls: 'stun:stun.l.google.com:19302' },
-			{ urls: 'stun:stun1.l.google.com:19302' }
-		);
-	}
-
-	return stunServers;
+	return servers;
 }
 
-/**
- * Builds complete RTCConfiguration object for WebRTC connections
- * Combines STUN and TURN servers into a production-ready configuration
- *
- * @returns RTCConfiguration object ready for use with RTCPeerConnection
- */
 export function buildRTCConfig(): RTCConfiguration {
-	const iceServers: RTCIceServer[] = [];
-
-	// Add STUN servers
-	const stunServers = getStunServers();
-	iceServers.push(...stunServers);
-
-	// Add TURN server if configured
-	const turnConfig = getTurnConfig();
-	if (turnConfig) {
-		iceServers.push(turnConfig);
-		console.log('[TURN Config] Using configured TURN server');
-	} else {
-		console.warn('[TURN Config] No TURN server configured - calls may fail across restrictive NATs');
-	}
-
-	return {
-		iceServers
-	};
+	const iceServers: RTCIceServer[] = getStunServers();
+	const turn = getTurnConfig();
+	if (turn) iceServers.push(turn);
+	return { iceServers };
 }

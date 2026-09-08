@@ -138,7 +138,9 @@ services:
       - ./data:/wabi-data:ro,z
     entrypoint: ["/bin/sh", "/usr/local/bin/docker-entrypoint.sh"]
     environment:
-      - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
+      # Selected coturn must receive an explicit reachable address. Leave empty
+      # when unselected so core-only Compose still parses without TURN settings.
+      - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-}
       - TURN_REALM=${TURN_REALM:-localhost}
       # TURN HMAC key - REQUIRED when the turn profile runs. Not interpolated
       # with :? (that breaks `compose config`/`up` for everyone, even without

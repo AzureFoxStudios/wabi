@@ -50,7 +50,7 @@ use tokio::signal;
 use tracing::info;
 use wabidb::engine::wabi_store::WabiStore;
 
-use crate::config::{ServerConfig, ServerRole};
+use crate::config::{ServerConfig, ServerRole, TurnStartupConfig};
 use crate::secrets::resolve_jwt_secret;
 
 /// Wabi Node CLI arguments
@@ -243,15 +243,17 @@ async fn main() -> anyhow::Result<()> {
 
     let jwt_secret = resolve_jwt_secret(&args.data_dir);
 
+    let turn = TurnStartupConfig::from_env().map_err(anyhow::Error::msg)?;
+
     let config = ServerConfig {
         host: args.host,
         port: args.port,
         data_dir: args.data_dir,
         uploads_dir,
         jwt_secret: jwt_secret,
-        turn_enabled: false,
-        turn_uri: None,
-        turn_secret: None,
+        turn_enabled: turn.enabled,
+        turn_uri: turn.uri,
+        turn_secret: turn.secret,
         node_id: "node-1".to_string(),
         is_primary: true,
         mesh_enabled: std::env::var("WABI_MESH_ENABLED")

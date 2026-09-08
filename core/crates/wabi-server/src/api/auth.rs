@@ -699,11 +699,11 @@ pub async fn handle_turn_credentials(
         return Err(AppError::BadRequest("TURN server not enabled".into()));
     }
 
-    let turn_uri = state
+    let endpoint = state
         .config
-        .turn_uri
-        .as_ref()
-        .ok_or_else(|| AppError::BadRequest("TURN URI not configured".into()))?;
+        .turn_endpoint()
+        .map_err(|error| AppError::BadRequest(error.into()))?
+        .ok_or_else(|| AppError::BadRequest("TURN server not enabled".into()))?;
 
     let turn_secret = state
         .config
@@ -716,18 +716,11 @@ pub async fn handle_turn_credentials(
     let username = format!("{}:{}", expiry, user_id);
     let credential = generate_turn_password(&username, turn_secret, expiry);
 
-    // Parse host:port from turn_uri (e.g. "turn.wabi.chat:3478")
-    let (host, port) = if let Some((h, p)) = turn_uri.rsplit_once(':') {
-        (h.to_string(), p.parse::<u16>().unwrap_or(3478))
-    } else {
-        (turn_uri.clone(), 3478)
-    };
-
     Ok(Json(TurnCredentialsResponse {
         turn: TurnCredentialsPayload {
-            server: host,
-            port,
-            use_turns: false,
+            server: endpoint.server,
+            port: endpoint.port,
+            use_turns: endpoint.use_turns,
             username,
             credential,
             expires_at: expiry,
