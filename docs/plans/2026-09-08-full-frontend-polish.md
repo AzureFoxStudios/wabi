@@ -142,3 +142,38 @@ Deployment is not complete until actual host inventory, rollback protection,
 exact-artifact swap and live checks succeed. Old deployment recipes contradict
 the current Dockerfile and lock/account safety rules; do not follow their
 live-registration probes, broad source sync or unverified lock deletion.
+
+### Completed push and deployment
+
+The SSH check was subsequently authorized. Implementation was pushed to
+`origin/main` as `ec4af0f118d2a454d429ee5c4297254ee6810795`. Tim started the
+candidate at **2026-09-08 03:49:11 UTC** (10:49:11 Bangkok). Both `/wabi-server`
+and the running `/proc/1/exe` match the candidate SHA-256 above.
+
+- Tim's existing Fedora runtime uses glibc 2.43 and is compatible with the
+  candidate. Only the bind-mounted binary changed; the container, keys, Lore
+  mounts, tunnel and coturn configuration were retained.
+- Consistent stopped-server backup and a separate immediate-cutover backup are
+  retained in private `/home/tim/Desktop/Wabi/release-polish-20260908.v9OfSx`.
+  Old binaries and stale locks are recoverable there. Both lock paths were
+  checked only after the owning process stopped. No user data was deleted.
+- Candidate replay on a separate copy, same image/UID, `--network none` and no
+  live writable mounts passed readiness, owner-marker, enabled-Lore and all 21
+  exact embedded asset checks. The preflight container is stopped, not a second
+  background service.
+- Origin and public health pass from Tim; public health/liveness/readiness,
+  anonymous channel/admin denial, unknown-API JSON 404, `no-cache` HTML, all 21
+  referenced asset hashes and Engine.IO handshake pass from Ronin.
+- Headful Chromium renders the actual public login at desktop and 390px without
+  uncaught application errors. This is unauthenticated live smoke, not a
+  real-account login, physical phone, native installer or two-device call test.
+
+Evidence: `/tmp/wabi-polish-{backup,preflight,swap,public}.log` and
+`/tmp/wabi-polish-release-2rHPLk/`. Existing browser tabs need a reload; bundled
+Tauri clients require a matching client build to receive frontend changes.
+
+Next coherent objective: truthful message acceptance and durable message
+reconstruction. The existing socket path can acknowledge/broadcast after a WDB
+failure, while file payload decoding/history reconstruction can lose ordinary
+attachments after restart. This release does not claim those independent defects
+fixed; its session-memory draft improvements are not server persistence receipts.
