@@ -22,6 +22,7 @@ import { QueueManager } from '../src/lib/wabidb/queue/manager';
 import { registerCallSocketOwner } from '../src/lib/callSocketLifecycle';
 import { currentUser, users, serverMembers } from '../src/lib/presenceIdentity';
 import { buildUserMenuItems } from '../src/lib/components/userListHelpers';
+import { messageDeliveryContract } from './message-delivery-contract';
 
 class FixtureSocket {
   id = crypto.randomUUID(); connected = true;
@@ -80,6 +81,7 @@ setStoredDbUserId(1); setStoredUsername('Owner');
 install(); init();
 mount(GroupMembershipHarness, { target: document.querySelector('#harness')! });
 (window as any).__group = {
+	messageDeliveryContract: () => messageDeliveryContract({ socket: () => fixture, install, init, owner }),
 	unsupportedBanContract: async () => {
 		const assert = (condition: boolean, message: string) => { if (!condition) throw new Error(message); };
 		const db = getWabiDB() || await openWabiDB();

@@ -22,6 +22,12 @@ const STORED_DB_USER_ID_KEY_PREFIX = 'wabi_db_user_id:';
 
 const hydratedServerScopes = new Set<string>();
 const sessionClearListeners = new Set<(server: string) => void>();
+const sessionGenerations = new Map<string, number>();
+
+/** Distinguish logout/re-login to the same account from the previous session. */
+export function authSessionGeneration(serverUrl?: string | null): number {
+	return sessionGenerations.get(resolveServerScope(serverUrl)) ?? 0;
+}
 
 /** Explicit session boundaries also retire memory owned by unmounted surfaces. */
 export function onAuthSessionCleared(listener: (server: string) => void): () => void {
@@ -228,6 +234,7 @@ export function clearAuthSession(serverUrl?: string | null): void {
 	// or a 30-day refresh token survives in sessionStorage after "logout".
 	clearRefreshToken(serverUrl);
 	const server = resolveServerScope(serverUrl);
+	sessionGenerations.set(server, authSessionGeneration(server) + 1);
 	for (const listener of sessionClearListeners) {
 		try { listener(server); }
 		catch { console.error('Session memory cleanup failed'); }

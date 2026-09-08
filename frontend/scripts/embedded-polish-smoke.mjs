@@ -56,12 +56,18 @@ try {
     await page.waitForFunction(label => document.querySelector('.workspace-current')?.textContent === label, label);
   }
   assert.equal(await text.inputValue(), 'Embedded candidate draft', 'minified bundle preserves draft');
+  await page.locator('.chat-container .send-button').click();
+  const delivered = page.locator('.chat-container .message[id^="message-msg_"]').filter({ hasText: 'Embedded candidate draft' });
+  await delivered.waitFor();
+  await delivered.locator('.message-delivery-row').waitFor({ state: 'hidden' });
+  assert.equal(await delivered.count(), 1, 'accepted echo keeps one message in the minified application');
+  assert.equal(await text.inputValue(), '', 'real embedded send completes its composer handoff');
   await runAdminPolishChecks(page, scratch);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: `${scratch}/embedded-mobile.png` });
   assert.deepEqual(errors, [], 'no uncaught embedded app errors');
   console.log(JSON.stringify({ status: 'passed', evidence: scratch,
-    checks: ['embedded static bundle', 'real UI login', 'workspace draft roundtrip', 'admin desktop/mobile', 'reaction preferences'] }));
+    checks: ['embedded static bundle', 'real UI login', 'workspace draft roundtrip', 'real message acceptance', 'admin desktop/mobile', 'reaction preferences'] }));
 } catch (error) {
   await page?.screenshot({ path: `${scratch}/failure.png` }).catch(() => {});
   console.error(`Evidence: ${scratch}`);

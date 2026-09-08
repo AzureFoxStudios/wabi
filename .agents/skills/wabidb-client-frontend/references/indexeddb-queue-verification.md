@@ -1,62 +1,30 @@
-# Verifying the WabiDB outbound queue + "integration done" claims
+# Verifying the client queue
 
-## 1. IndexedDB queue round-trip probe (browser console)
+Run from `frontend/`, with a working display for headful Chromium:
 
-Paste in the Wabi app's browser console (after WabiDB has booted via +layout.svelte).
-Proves the keyPath fix actually persists and round-trips:
+- `bun test src/lib`: pure receipt/ownership/state-machine regressions.
+- `node scripts/group-membership-browser-smoke.mjs`: production SocketManager,
+  message store and actual isolated IndexedDB; sender/account isolation,
+  receipt ordering, concurrent claims, reconnect/commit interleavings and
+  explicit-session retirement.
+- `node scripts/storage-boundary-browser-smoke.mjs`: actual Settings and
+  IndexedDB transaction aborts, retained non-retryable failures, quarantined
+  unowned archives and simulated native boundaries.
+- `node scripts/message-delivery-rows-browser-smoke.mjs`: real status rows,
+  narrow/dark/light layouts, escaping and state transitions.
 
-```js
-// needs a scope registered; System is always-on by default after openWabiDB()
-const db = window.__wabiDB || null;            // getWabiDB() isn't on window; get it via the app if exposed
-// If not exposed, the app calls openWabiDB() on mount; trigger enqueue through the UI path instead.
-// Minimal manual IDB check of the store itself:
-const req = indexedDB.open('wabi-queue', 1);
-req.onsuccess = () => {
-  const idb = req.result;
-  const tx = idb.transaction(['outbound_queue'], 'readwrite');
-  const store = tx.objectStore('outbound_queue');
-  const rec = { key: 'corechat:probe-1', id: 'probe-1', scopeId: 'corechat',
-                type: 'test', status: 'pending', payload: { hi: 1 }, createdAt: Date.now() };
-  store.put(rec);                              // with keyPath:'key', rec MUST have .key
-  store.get('corechat:probe-1').onsuccess = (e) => {
-    console.log('ROUNDTRIP_OK', e.target.result);   // null === BROKEN (keyPath mismatch)
-    store.delete('corechat:probe-1');
-  };
-  store.put({ id: 'bad', scopeId: 'corechat' }).onerror = (err) =>
-    console.log('NO_KEY_THROWS', err.target.error);  // DataError === the original bug
-};
-```
+These scripts create isolated browser storage and close their owned processes.
+Do not paste destructive/bad-record probes into a user's live IndexedDB. A
+successful request followed by transaction abort is not a completed write;
+deliberately writing a record without the required inline `key` throws, even
+when the application serializer is correct.
 
-Interpretation: if `ROUNDTRIP_OK` logs the record object, the fix is live. If `NO_KEY_THROWS`
-fires `DataError`, the keyPath mismatch is still present.
+Trace a control's actual consumer and result handling, not just its import or
+translation key. Storage translations use `storage.offline`. Usage estimates
+and incoming-history methods remain scaffolds, not measured archives. Report
+current typecheck results, not the obsolete July error allowance.
 
-## 2. "Integration done" grep recipe (agent self-reports lie)
-
-Run from /var/home/Ronin/wabi:
-
-```bash
-# Did StorageSettings actually USE wabidb, or just import it?
-grep -n "getWabiDB\|listScopes\|retryFailed\|enableScope" frontend/src/lib/components/StorageSettings.svelte
-
-# Do the offline.* i18n keys actually get rendered anywhere?
-grep -rn "offline\." frontend/src --include=*.svelte
-
-# Are the new i18n keys present in BOTH locales (symmetric)?
-grep -c "offline" frontend/src/lib/i18n/locales/en.json
-grep -c "offline" frontend/src/lib/i18n/locales/es.json
-```
-
-If the component imports `openWabiDB`/`getWabiDB` but none of the call-site greps match,
-the integration is dead imports — finish it or remove them. If `offline.*` exists in i18n
-but the svelte grep returns nothing, the strings are orphaned.
-
-## 3. Build-check baseline (don't trust a green check)
-
-```bash
-cd /var/home/Ronin/wabi/frontend && npm run check 2>&1 | grep -E "svelte-check found|Error:"
-```
-
-Baseline (2026-07-25): `2 errors and 90 warnings` — the 2 errors are PRE-EXISTING
-(VoiceChannelList.svelte 'announcement' type mismatch; LoreChannel.svelte string|number) and
-unrelated to wabidb. A wabidb change is clean if the error count stays at 2 and no new
-`Error:` lines name a wabidb file. svelte-check passing does NOT prove the queue works.
+These checks do not prove native WebView/installer behavior, physical mobile
+devices, real microphones or correctness of every non-message queued action.
+See the maintained client-offline skill and the dated message-delivery plan for
+the full verified contract and release status.

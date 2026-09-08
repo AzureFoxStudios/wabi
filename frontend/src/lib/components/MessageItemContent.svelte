@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Message, User, Emoji, FileAttachment, Channel } from '$lib/socket';
-	import { retryMessagePersistence } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import type { ChatFilterResult } from '$lib/chatEnhancements';
 	import type { AnimationPassPreset } from '$lib/animationPass';
@@ -14,6 +13,7 @@
 	import MessageHeader from './message/MessageHeader.svelte';
 	import MessageEditForm from './message/MessageEditForm.svelte';
 	import MessagePersistenceRow from './message/MessagePersistenceRow.svelte';
+	import MessageDeliveryRow from './message/MessageDeliveryRow.svelte';
 	import MessageContent from './message/MessageContent.svelte';
 
 	export let message: Message;
@@ -187,7 +187,7 @@
 	<div
 		id="message-{message.id}"
 		class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinned ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''} {deletionModeEnabled ? 'deletion-mode-active' : ''} {message.deliveryState === 'sending' ? 'is-sending' : ''} {message.deliveryState === 'failed' ? 'is-send-failed' : ''}"
-		title={message.deliveryState === 'failed' ? (message.deliveryError || 'Message failed to send') : undefined}
+		title={ownMessage && message.deliveryState === 'failed' ? (message.deliveryError || 'Delivery not confirmed. Check this conversation before sending again.') : undefined}
 		on:contextmenu={(e) => onContextMenu(e, message)}
 		use:longpress={{ onLongPress: (e) => onLongPress(e, message) }}
 		transition:messageItemTransition={{
@@ -270,16 +270,6 @@
 			{formatTime}
 			{formatTimeTooltip}
 		/>
-		{#if ownMessage && message.persistenceState}
-			<MessagePersistenceRow
-				persistenceState={message.persistenceState}
-				persistenceError={message.persistenceError}
-				{currentChannel}
-				messageId={message.id}
-				onRetry={retryMessagePersistence}
-			/>
-		{/if}
-
 		<!-- Reply Preview -->
 		{#if replyToMsg}
 			<MessageReplyPreview {replyToMsg} {onJumpToMessage} />
@@ -324,12 +314,29 @@
 				/>
 		{/if}
 
+		<MessageDeliveryRow
+			{ownMessage}
+			deliveryState={message.deliveryState}
+			deliveryError={message.deliveryError}
+		/>
+		{#if ownMessage && !message.deliveryState && message.persistenceState}
+			<MessagePersistenceRow
+				persistenceState={message.persistenceState}
+				persistenceError={message.persistenceError}
+			/>
+		{/if}
 		<MessageReactions {message} {currentUser} {users} {emojis} {onToggleReaction} />
 	</div>
 </div>
 {/if}
 
 <style>
+	/* The inline status now conveys pending delivery. Keep it readable instead
+	 * of dimming the entire message (including its status) on small screens. */
+	.message.is-sending {
+		opacity: 1;
+	}
+
 	:global(.message.deletion-mode-active) {
 		position: relative;
 		cursor: crosshair;

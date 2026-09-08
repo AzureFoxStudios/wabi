@@ -1,7 +1,8 @@
 import type { QueuedAction, QueueFilter } from '../types';
 import { QueueDB } from './db';
 import { groupMembership } from '$lib/groupAccess';
-import { GROUP_QUEUE_ACTIONS, CALL_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ERROR, BAN_QUEUE_ERROR } from './groupPolicy';
+import { GROUP_QUEUE_ACTIONS, CALL_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ERROR, BAN_QUEUE_ERROR, MESSAGE_QUEUE_ACTIONS, MESSAGE_QUEUE_OWNERSHIP_ERROR } from './groupPolicy';
+import type { MessageSettlement } from '$lib/messageDelivery';
 
 const MAX_QUEUE_SIZE = 10000;
 const MAX_FAILED_AGE_MS = 24 * 60 * 60 * 1000;
@@ -20,6 +21,7 @@ export class QueueManager {
 		if (CALL_QUEUE_ACTIONS.has(action.type)) throw new Error('Voice actions belong to the current call, not the offline queue');
 		if (ADMIN_ROLE_QUEUE_ACTIONS.has(action.type)) throw new Error(ADMIN_ROLE_QUEUE_ERROR);
 		const realm = groupMembership.realm();
+		if (MESSAGE_QUEUE_ACTIONS.has(action.type) && !realm) throw new Error(MESSAGE_QUEUE_OWNERSHIP_ERROR);
 		const channelId = (action.payload as { channelId?: unknown } | null)?.channelId;
 		const revision = typeof channelId === 'string' && groupMembership.tracks(channelId)
 			? groupMembership.revision(channelId) : undefined;
@@ -84,18 +86,26 @@ export class QueueManager {
 			current.status !== 'pending' || current.attemptedAt !== undefined ? null : { ...current, attemptedAt: Date.now() });
 	}
 
-	async markSyncedByClientId(clientMessageId: string): Promise<void> {
+	async settleMessageReceipt(channelId: string, clientMessageId: string, realm: string | null, result: MessageSettlement): Promise<void> {
+		// A bare client ID must not settle another account/channel's queue, or an
+		// offline intent which has never been submitted. Capture realm at receipt.
+		if (!realm) return;
+		const matches = (item: QueuedAction) => {
+			const payload = item.payload as { channelId?: string; clientMessageId?: string } | null;
+			return (item.type === 'send-message' || item.type === 'message') && item.authority?.realm === realm &&
+				payload?.channelId === channelId && payload.clientMessageId === clientMessageId && item.attemptedAt !== undefined;
+		};
 		const all = await this.db.getAll();
 		for (const item of all) {
-			if (!this._isQueuedAction(item)) continue;
-			if (item.status === 'synced') continue;
-			const payload = item.payload as any;
-			if (payload?.clientMessageId === clientMessageId) {
-				const key = `${item.scopeId}:${item.id}`;
-				await this.db.updateAction(key, current => current.retryable === false && !current.attemptedAt ? null :
-					({ ...current, status: 'synced', error: undefined }));
-				return;
-			}
+			if (!this._isQueuedAction(item) || !matches(item)) continue;
+			await this.db.updateAction(`${item.scopeId}:${item.id}`, current => {
+				if (!matches(current) || current.status === 'synced') return null;
+				if (result.status === 'synced') return { ...current, status: 'synced', error: undefined, deliveryOutcome: undefined };
+				// A late timeout must not replace a correlated rejection, and no
+				// failure may overwrite a receipt already committed by another tab.
+				if (current.status !== 'pending' && !(current.deliveryOutcome === 'unknown' && result.outcome === 'rejected')) return null;
+				return { ...current, status: 'failed', error: result.error, deliveryOutcome: result.outcome, retryable: false };
+			});
 		}
 	}
 

@@ -40,6 +40,8 @@ try {
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__group_membership`);
   await page.waitForFunction(() => !!window.__group);
   assert.equal(await page.evaluate(() => window.__group.profileIdentityContract()), true);
+  assert.equal(await page.evaluate(() => window.__group.messageDeliveryContract()), true);
+  results.push('actual message receipts, sender-qualified identity, disconnect/session cancellation and account-scoped IndexedDB settlement');
   assert.equal(await page.evaluate(() => window.__group.unsupportedBanContract()), true);
   results.push('unsupported bans have no menu or emit; legacy IndexedDB requests remain retained, failed and non-retryable');
   results.push('actual SocketManager profile callbacks isolate other accounts, preserve self saves and role events; guest role menu actions are unavailable');
@@ -132,7 +134,7 @@ try {
   }
   assert.equal((await page.evaluate(() => window.__group.sent())).some(([event]) => ['assign-role', 'remove-role'].includes(event)), false);
   assert.equal(queue.find(action => action.id === 'legacy-message').retryable, false);
-  await receive('message-accepted', { channelId: 'group-test', clientMessageId: 'fresh-draft', messageId: 'authoritative' });
+  await receive('message-accepted', { channelId: 'group-test', clientMessageId: 'fresh-draft', messageId: 'authoritative', timestamp: Date.now() });
   // Poll the resolved IndexedDB value, never the truthiness of a Promise.
   await page.evaluate(async () => {
     const deadline = Date.now() + 5000;

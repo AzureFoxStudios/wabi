@@ -70,7 +70,6 @@ export {
 	channelUnreadCounts,
 	markMessagesAsRead,
 	markChannelAsRead,
-	retryMessagePersistence,
 	sendMessage,
 	editMessage,
 	deleteMessage,

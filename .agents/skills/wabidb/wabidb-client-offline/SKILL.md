@@ -107,7 +107,7 @@ key; old unowned hints remain untouched and are not adopted. Upload work recheck
 its captured editor/realm/group before continuing after awaits.
 
 Records contain `id/type/scopeId/status/createdAt/payload` plus optional
-`retriedAt/error/retryable/authority/attemptedAt`. These are client IndexedDB
+`retriedAt/error/retryable/authority/attemptedAt/deliveryOutcome`. These are client IndexedDB
 records, not Rust postcard records. Preserve `key: scopeId + ':' + id` on every
 write: passing a separate put argument does not satisfy an inline keyPath.
 
@@ -119,12 +119,28 @@ A crash/lost reply may leave an uncertain attempt. Never automatically replay it
 the server currently echoes clientMessageId but does not use it as a durable
 deduplication key.
 
-A queued chat message becomes synced only after `message-accepted`, via the
-concrete `getWabiDB().markSyncedByClientId` method. A timeout/uncertain prior
-attempt becomes non-retryable failed; a late valid receipt can still confirm an
-attempt. Atomic status updates prevent a late timeout overwriting synced.
-This proves a server receipt, not independently verified durable message
-persistence: the server's separate message-send failure contract needs review.
+A queued chat message becomes synced only after a complete `message-accepted`,
+via concrete `getWabiDB().settleMessageReceipt(channelId, clientMessageId, realm,
+result)`. It matches chat type, captured account/server realm, channel, nonce and
+a durable attempt marker inside the same status transaction. Never settle by a
+bare client ID or adopt unowned legacy chat rows; retain those as non-retryable
+failures. New chat enqueue requires an account realm.
+
+`messageDelivery.ts` owns one deadline per socket/channel/client ID, shared by
+online and queued sends. Disconnect/timeout/transport exceptions are unknown,
+not proof of rejection. Correlated pre-write denials are rejected. Acceptance
+wins over rejection, which wins over uncertainty, including a resumed drain or
+another tab's late transaction. A late valid receipt may confirm a failed
+attempt; no uncertain attempt is automatically retried. Receipt callbacks and
+drains capture `authSessionGeneration` as well as realm/socket: logout/re-login
+to the same account must not revive old work. If reconnect drained before an
+enqueue committed, request a fresh serialized drain after successful enqueue;
+do not overwrite an already sending/accepted row with the queued label.
+
+The socket server now stops all success effects when the WabiStore write fails;
+live channels intentionally skip disk. This does not establish full attachment
+or rich-message reconstruction after restart. See the message-delivery plan for
+the tested boundary and remaining metadata problem.
 Non-message legacy dispatches still use their existing emit completion behavior;
 do not generalize membership/message guarantees to all action types.
 

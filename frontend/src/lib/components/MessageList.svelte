@@ -3,7 +3,7 @@
 	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
-	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions, retryMessagePersistence } from '$lib/socket';
+	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageItem from './MessageItem.svelte';
 	import MessageListOverlays from './message/MessageListOverlays.svelte';

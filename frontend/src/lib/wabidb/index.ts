@@ -1,6 +1,7 @@
 import type { WabiDB, WabiDBOptions, OfflineScopeDescriptor, ScopeStatus, QueuedAction, QueueFilter, StorageReport, Query } from './types';
 import { initScopeRegistry, registerScope, enableScope, disableScope, listScopes } from './scopes/registry';
 import { QueueManager } from './queue/manager';
+import type { MessageSettlement } from '$lib/messageDelivery';
 
 let instance: WabiDBImpl | null = null;
 
@@ -73,8 +74,8 @@ class WabiDBImpl implements WabiDB {
 
 	async claimMessage(actionId: string): Promise<boolean> { return this.queue.claimMessage(actionId); }
 
-	async markSyncedByClientId(clientMessageId: string): Promise<void> {
-		return this.queue.markSyncedByClientId(clientMessageId);
+	async settleMessageReceipt(channelId: string, clientMessageId: string, realm: string | null, result: MessageSettlement): Promise<void> {
+		return this.queue.settleMessageReceipt(channelId, clientMessageId, realm, result);
 	}
 
 	async retryFailed(): Promise<void> {
