@@ -1171,14 +1171,14 @@ async fn repo_manifest(
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let lore = lore_service(&state).await?;
     let files = lore.list_files(channel_id, None).await?;
-    let head_revision = state
-        .wdb
-        .list_lore_commits(channel_id)
-        .await
-        .unwrap_or_default()
-        .last()
-        .map(|c| c.commit_hash.clone())
-        .unwrap_or_default();
+    // The WDB commit table is keyed by commit_hash (unordered), so `.last()`
+    // over it would pick a hash-order artifact — NOT the newest commit. The
+    // per-file change feed is the authoritative ordering: its keys embed the
+    // engine commit_seq (BE) so a full scan returns oldest→newest, making the
+    // final entry the true head. Using it keeps `headRevision` consistent
+    // with the `/changes` cursor feed sync clients advance over.
+    let changes = state.wdb.list_lore_file_changes(channel_id, 0).await?;
+    let head_revision = changes.last().map(|c| c.revision.clone()).unwrap_or_default();
     Ok(Json(serde_json::json!({
         "channelId": channel_id,
         "files": files,
@@ -1204,11 +1204,22 @@ async fn repo_changes(
 ) -> Result<Json<serde_json::Value>> {
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
     let since = query.since.unwrap_or(0);
-    let changes = state.wdb.list_lore_file_changes(channel_id, since).await?;
+    let limit = query.limit.unwrap_or(1000);
+    if limit == 0 {
+        return Err(AppError::BadRequest("change-feed limit must be greater than zero".into()));
+    }
+    let changes: Vec<_> = state
+        .wdb
+        .list_lore_file_changes(channel_id, since)
+        .await?
+        .into_iter()
+        .take(limit.min(1000))
+        .collect();
+    // This is a page checkpoint, not the unseen feed head. Advancing past
+    // records omitted by the limit would make a sync client skip those writes.
     let latest = changes.last().map(|c| c.seq).unwrap_or(since);
     let changes: Vec<serde_json::Value> = changes
         .into_iter()
-        .take(query.limit.unwrap_or(1000))
         .map(|c| {
             serde_json::json!({
                 "seq": c.seq,
@@ -1985,8 +1996,7 @@ async fn repo_history(
         let records = state
             .wdb
             .list_lore_commits(channel_id)
-            .await
-            .unwrap_or_default();
+            .await?;
         // Dedupe by commit hash: one lore commit can carry several file-path
         // records; a revision list should show each commit once.
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -2026,8 +2036,7 @@ async fn file_level_history(
         let records = state
             .wdb
             .list_lore_commits(channel_id)
-            .await
-            .unwrap_or_default();
+            .await?;
         let mut entries: Vec<serde_json::Value> = records
             .into_iter()
             .filter(|r| r.file_path == path)
