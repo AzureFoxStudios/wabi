@@ -1,410 +1,120 @@
-# TURN Server Setup Guide
+# Optional STUN/TURN for Wabi
 
-This guide will help you set up and configure the integrated coturn TURN server for production voice/video calling in Wabi.
+Wabi's Socket.IO media relay uses the same reachable server connection as the
+application. It does **not** require coturn or LiveKit. TURN is an additional
+WebRTC/P2P path when direct connectivity cannot traverse NAT.
 
-## Table of Contents
+An HTTP tunnel can expose Wabi behind CGNAT, but does not make that host's TURN
+listener and UDP relay ports publicly reachable. Keep `WABI_TURN_ENABLED=false`
+until you have tested a reachable TURN endpoint. Do not advertise a private
+address to public clients or treat the proxied app hostname as a TURN address.
 
-- [Prerequisites](#prerequisites)
-- [Quick Start (Local Development)](#quick-start-local-development)
-- [Production Deployment](#production-deployment)
-- [SSL/TLS Setup](#ssltls-setup)
-- [Firewall Configuration](#firewall-configuration)
-- [Testing](#testing)
-- [Troubleshooting](#troubleshooting)
+## Runtime credentials, not frontend secrets
 
-## Prerequisites
+The server reads these settings at startup:
 
-- Docker and Docker Compose installed
-- A public IP address or domain name (for production)
-- SSL/TLS certificates (recommended for production)
-- Firewall access to configure ports
+```dotenv
+WABI_TURN_ENABLED=true
+WABI_TURN_URI=turn:turn.example.com:3478
+TURN_HMAC_KEY=<operator-generated shared secret>
+TURN_EXTERNAL_IP=<reachable public IP literal>
+TURN_REALM=turn.example.com
+```
 
-## Quick Start (Local Development)
+Generate the shared secret with `openssl rand -base64 32`. Keep it private and
+shared with coturn. `WABI_TURN_SECRET` can override `TURN_HMAC_KEY` for Wabi's
+issuer; it must match the actual coturn key. An explicitly empty override is an
+error, not a fallback.
 
-For local testing, you can use the default configuration:
+The URI accepts `host[:port]`, `turn:host[:port]` or `turns:host[:port]`, with
+bracketed IPv6. Default ports are 3478 and 5349 respectively. Paths, embedded
+credentials and query strings are rejected. Use `turns:` only with a working TLS
+listener and trusted certificate.
 
-1. **Copy environment files:**
-   ```bash
-   cp .env.example .env
-   cp frontend/.env.example frontend/.env
-   ```
+Authenticated clients obtain expiring credentials from
+`GET /api/media/turn-credentials`. Runtime endpoint changes need no frontend
+rebuild. Browser cache and pending requests belong to the selected
+server/account/session/relay. Non-TLS runtime TURN also supplies self-hosted
+STUN. Google STUN remains opt-in.
 
-2. **Start all services:**
-   ```bash
-   docker-compose up -d
-   ```
+Never put the HMAC secret in `VITE_*` values. Explicit legacy
+`VITE_TURN_USERNAME`/`VITE_TURN_PASSWORD` compatibility remains, but these values
+are public in compiled assets and are not the recommended deployment path.
 
-3. **Verify TURN server is running:**
-   ```bash
-   docker logs wabi-coturn
-   ```
+## Optional coturn deployment
 
-   You should see output indicating the server started successfully.
-
-The default configuration uses `127.0.0.1` as the external IP, which works for local testing but **will not work** for calls between different networks.
-
-## Production Deployment
-
-For production deployment with internet-facing voice/video calling:
-
-### 1. Generate Secure Credentials
-
-Generate a strong password for TURN authentication:
+Root Compose passes `.env` to Wabi; select coturn explicitly:
 
 ```bash
-openssl rand -base64 32
+docker compose --profile turn up -d coturn
 ```
 
-Copy the generated password for use in the next step.
-
-### 2. Configure Root Environment
-
-Edit `.env` in the project root:
-
-```env
-# TURN Server Configuration
-TURN_EXTERNAL_IP=your.domain.com       # Your public domain or IP
-TURN_REALM=your.domain.com             # Your domain (can match EXTERNAL_IP)
-TURN_USERNAME=wabi_turn_user           # Any username you prefer
-TURN_PASSWORD=<paste_generated_password_here>
-
-# Backend Configuration
-BACKEND_PORT=8080
-NODE_ENV=production
-JWT_SECRET=<generate_another_secure_token>
-
-# Frontend Configuration
-FRONTEND_PORT=3000
-```
-
-**Important:** Replace:
-- `your.domain.com` with your actual domain or public IP address
-- `<paste_generated_password_here>` with the password from step 1
-- `<generate_another_secure_token>` with another secure token (run `openssl rand -base64 64`)
-
-### 3. Configure Frontend Environment
-
-Edit `frontend/.env`:
-
-```env
-# TURN Server Configuration
-VITE_TURN_SERVER=your.domain.com       # Must match TURN_EXTERNAL_IP
-VITE_TURN_PORT=3478                    # 3478 for TURN, 5349 for TURNS
-VITE_TURN_USERNAME=wabi_turn_user      # Must match TURN_USERNAME
-VITE_TURN_PASSWORD=<same_password_as_above>
-VITE_USE_TURNS=false                   # Set to true if using SSL (port 5349)
-
-# Optional: Disable Google STUN for full independence
-VITE_ENABLE_GOOGLE_STUN=false
-```
-
-**Important:** The credentials must match exactly between `.env` and `frontend/.env`.
-
-### 4. Start Services
-
-```bash
-docker-compose up -d
-```
-
-### 5. Verify Configuration
-
-Check that the TURN server loaded your configuration:
-
-```bash
-docker logs wabi-coturn
-```
-
-Look for output like:
-```
-=== Coturn Configuration Generated ===
-External IP: your.domain.com
-Realm: your.domain.com
-Username: wabi_turn_user
-======================================
-```
-
-## SSL/TLS Setup
-
-For production security, enable TURNS (TURN over TLS) using SSL certificates.
-
-### 1. Obtain SSL Certificates
-
-Get a free SSL certificate from Let's Encrypt:
-
-```bash
-# Install certbot
-sudo apt-get install certbot
-
-# Obtain certificate for your domain
-sudo certbot certonly --standalone -d your.domain.com
-```
-
-This creates certificates in `/etc/letsencrypt/live/your.domain.com/`:
-- `cert.pem` - The certificate
-- `privkey.pem` - The private key
-
-### 2. Copy Certificates
-
-Copy the certificates to the TURN server directory:
-
-```bash
-mkdir -p turn-server/certs
-sudo cp /etc/letsencrypt/live/your.domain.com/cert.pem turn-server/certs/
-sudo cp /etc/letsencrypt/live/your.domain.com/privkey.pem turn-server/certs/
-sudo chmod 644 turn-server/certs/*
-```
-
-### 3. Enable TLS in Configuration
-
-Edit `turn-server/turnserver.conf.template` and uncomment the TLS lines:
-
-```conf
-# TLS/TURNS SUPPORT
-cert=/etc/coturn/certs/cert.pem
-pkey=/etc/coturn/certs/privkey.pem
-tls-listening-port=5349
-```
-
-### 4. Update Frontend Configuration
-
-Edit `frontend/.env`:
-
-```env
-VITE_TURN_PORT=5349
-VITE_USE_TURNS=true
-```
-
-### 5. Restart Services
-
-```bash
-docker-compose restart coturn
-docker-compose restart frontend
-```
-
-### 6. Certificate Renewal
-
-Let's Encrypt certificates expire after 90 days. Set up automatic renewal:
-
-```bash
-# Add renewal cron job
-sudo crontab -e
-
-# Add this line (runs renewal check daily at 2am)
-0 2 * * * certbot renew --quiet && cp /etc/letsencrypt/live/your.domain.com/*.pem /path/to/wabi/turn-server/certs/ && docker-compose -f /path/to/wabi/docker-compose.yml restart coturn
-```
-
-## Firewall Configuration
-
-Your server firewall must allow the following ports:
-
-### Required Ports
-
-```bash
-# TURN/STUN signaling (UDP and TCP)
-sudo ufw allow 3478/udp
-sudo ufw allow 3478/tcp
-
-# TURNS (if using TLS)
-sudo ufw allow 5349/udp
-sudo ufw allow 5349/tcp
-
-# Media relay port range (UDP)
-sudo ufw allow 49152:65535/udp
-```
-
-### AWS Security Groups
-
-If using AWS, add these inbound rules:
-
-| Type        | Protocol | Port Range    | Source    |
-|-------------|----------|---------------|-----------|
-| Custom UDP  | UDP      | 3478          | 0.0.0.0/0 |
-| Custom TCP  | TCP      | 3478          | 0.0.0.0/0 |
-| Custom UDP  | UDP      | 5349          | 0.0.0.0/0 |
-| Custom TCP  | TCP      | 5349          | 0.0.0.0/0 |
-| Custom UDP  | UDP      | 49152-65535   | 0.0.0.0/0 |
-
-### Google Cloud Firewall
-
-```bash
-# TURN/STUN
-gcloud compute firewall-rules create turn-server \
-  --allow udp:3478,tcp:3478,udp:5349,tcp:5349
-
-# Media relay
-gcloud compute firewall-rules create turn-media \
-  --allow udp:49152-65535
-```
-
-## Testing
-
-### 1. Verify TURN Server is Running
-
-```bash
-docker logs wabi-coturn
-```
-
-Expected output:
-```
-0: : INFO: ....
-0: : INFO: coturn server started
-```
-
-### 2. Test TURN Connectivity
-
-Use the [Trickle ICE](https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/) test:
-
-1. Go to https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/
-2. Remove the default servers
-3. Add your TURN server:
-   ```
-   turn:your.domain.com:3478
-   ```
-4. Enter your username and password
-5. Click "Gather candidates"
-
-**Expected results:**
-- You should see `relay` candidates (indicates TURN is working)
-- You should see `srflx` candidates (indicates STUN is working)
-- You should NOT see errors about authentication
-
-### 3. Test WebRTC in Browser
-
-1. Open your Wabi app in a browser
-2. Open browser DevTools (F12) → Console
-3. Initiate a voice or video call
-4. Check the console for:
-   ```
-   [TURN Config] Using configured TURN server
-   ```
-
-5. To see ICE candidates, run this in the console while in a call:
-   ```javascript
-   // This will show the connection stats
-   console.log(pc.getStats())
-   ```
-
-   Look for candidates with `type: "relay"` (means TURN is being used).
-
-### 4. Test Across Networks
-
-The ultimate test: Make a call between two devices on different networks (e.g., one on WiFi, one on mobile data).
-
-If the call works, your TURN server is properly configured!
-
-## Troubleshooting
-
-### Issue: "TURN server not configured" warning
-
-**Cause:** Environment variables not loaded in frontend.
-
-**Solution:**
-1. Ensure `frontend/.env` exists and has correct values
-2. Rebuild frontend: `docker-compose build frontend`
-3. Restart: `docker-compose up -d`
-
-### Issue: Calls fail between different networks
-
-**Cause:** Firewall blocking TURN ports or incorrect external IP.
-
-**Solution:**
-1. Verify `TURN_EXTERNAL_IP` matches your public IP/domain
-2. Check firewall allows ports 3478 and 49152-65535
-3. Test with Trickle ICE (see Testing section)
-4. Check coturn logs: `docker logs wabi-coturn`
-
-### Issue: Authentication errors in Trickle ICE
-
-**Cause:** Username/password mismatch.
-
-**Solution:**
-1. Verify credentials match in `.env` and `frontend/.env`
-2. Check coturn logs for "user not found" errors
-3. Restart coturn: `docker-compose restart coturn`
-
-### Issue: "Permission denied" for certificates
-
-**Cause:** Certificate files not readable by Docker.
-
-**Solution:**
-```bash
-sudo chmod 644 turn-server/certs/*
-```
-
-### Issue: Coturn container crashes on startup
-
-**Cause:** Invalid configuration or environment variable.
-
-**Solution:**
-1. Check logs: `docker logs wabi-coturn`
-2. Verify environment variables in `.env`
-3. Ensure `turnserver.conf.template` has valid syntax
-4. Test config generation manually:
-   ```bash
-   docker-compose run --rm coturn cat /etc/coturn/turnserver.conf
-   ```
-
-### Issue: High CPU/memory usage
-
-**Cause:** Too many concurrent connections or media relays.
-
-**Solution:**
-1. Limit port range in `turnserver.conf.template`:
-   ```conf
-   min-port=50000
-   max-port=50100
-   ```
-2. Consider deploying multiple TURN servers
-3. Monitor with: `docker stats wabi-coturn`
-
-### Issue: Calls work locally but not in production
-
-**Cause:** Network configuration or NAT issues.
-
-**Solution:**
-1. Verify your server has a public IP
-2. Check NAT configuration (if behind NAT, use `external-ip=public-ip/local-ip`)
-3. Ensure Docker network mode is `host` for coturn
-4. Test with online tools like Trickle ICE
-
-## Advanced Configuration
-
-### Using Multiple TURN Servers
-
-For high availability, you can configure multiple TURN servers in `frontend/src/lib/turnConfig.ts`:
-
-```typescript
-// Add multiple servers
-const turnServers = [
-	getTurnConfig('VITE_TURN_SERVER_1', 'VITE_TURN_USERNAME_1', 'VITE_TURN_PASSWORD_1'),
-	getTurnConfig('VITE_TURN_SERVER_2', 'VITE_TURN_USERNAME_2', 'VITE_TURN_PASSWORD_2')
-].filter(Boolean);
-```
-
-### Dynamic Credentials (REST API)
-
-For better security, implement a backend endpoint that generates time-limited credentials:
-
-1. Install `coturn` utilities
-2. Implement `/api/turn-credentials` endpoint
-3. Generate credentials with expiration
-4. Update frontend to fetch credentials before calls
-
-See [coturn REST API documentation](https://github.com/coturn/coturn/wiki/turnserver#turn-rest-api) for details.
-
-## Additional Resources
-
-- [Coturn Documentation](https://github.com/coturn/coturn/wiki/turnserver)
-- [WebRTC Trickle ICE Tool](https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/)
-- [Let's Encrypt Documentation](https://letsencrypt.org/getting-started/)
-- [WebRTC Standards](https://webrtc.org/)
-
-## Support
-
-If you encounter issues not covered in this guide:
-
-1. Check Docker logs: `docker-compose logs`
-2. Review coturn logs: `docker logs wabi-coturn`
-3. Test with Trickle ICE to isolate the issue
-4. Check firewall rules: `sudo ufw status`
-5. Open an issue on GitHub with logs and configuration (redact credentials!)
+Normal `docker compose up -d` does not select the profile. Apply server
+environment changes using the normal stopped-writer/backup/recreate procedure,
+including both WabiDB locks; see the
+[update runbook](TIM_IYOKU_UPDATE_RUNBOOK.md). A container restart alone does not
+reload Compose environment values. Preserve live data and custom mounts.
+
+The entrypoint requires an explicit IP and nonempty scalar secret; it does not
+guess a historical public IP. The generated private configuration uses
+`use-auth-secret` and the HMAC key. A domain in `TURN_EXTERNAL_IP` is not an IP
+literal. When that address changes, update the deployment and recreate coturn.
+
+The template's UDP range, **49160–49200**, matches Docker's published relay
+ports. TCP/UDP 3478 and the UDP relay range must be reachable through every
+firewall/NAT/container layer. Allocation can succeed while media fails if those
+layers disagree. This small range is not a large-public-service capacity claim.
+
+## TLS is a separate gate
+
+Publishing TCP/UDP 5349 does not create a TLS listener. To opt in, supply
+certificates through the existing read-only `turn-server/certs` mount and set
+coturn's `cert`, `pkey` and `tls-listening-port` directives. Give the container
+UID read access without making the private key world-readable. Arrange renewal
+through existing certificate management; no unrelated host package installation
+is needed to validate Wabi.
+
+Only after successful TLS negotiation and allocation, select
+`WABI_TURN_URI=turns:turn.example.com:5349`. Wabi generates TCP TLS TURN URLs,
+not unsupported `turns:?transport=udp` or plaintext STUN on a TLS port.
+Application HTTPS and TURN TLS are independent listeners.
+
+Review coturn resource limits and peer address policy before broad public
+exposure. Issued credentials are bearer credentials: Wabi account revocation
+prevents new issuance but does not invalidate an already-issued coturn
+credential. The existing 24-hour lifetime remains because active peers do not
+yet rotate their ICE credentials in place.
+
+## Prove traffic, not merely startup
+
+1. Verify Wabi readiness and authenticated credential issuance. Invalid
+   authentication must be denied; disabled TURN must not issue credentials.
+   Runtime media status describes configuration, not measured reachability.
+2. From outside the server network, test STUN and authenticated allocation over
+   the intended transport. Verify the returned IP and published relay range.
+3. Force WebRTC to `iceTransportPolicy: 'relay'`, exchange media/data, and check
+   the selected candidate pair and byte counters. A listed relay candidate alone
+   is insufficient. An ordinary Wabi call may use its independent WebSocket
+   relay, so it does not prove TURN.
+4. Repeat with two real devices/networks where available. Test TLS separately.
+   Never paste the HMAC secret into diagnostic pages or publish credentials.
+
+The [Trickle ICE sample](https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/)
+helps inspect candidate gathering, not bidirectional media.
+The [upstream coturn configuration reference](https://github.com/coturn/coturn/blob/master/examples/etc/turnserver.conf)
+documents address mapping, authentication and relay ranges.
+
+## CGNAT decision
+
+If the listener times out and the operator confirms CGNAT without forwarding,
+use the existing application relay. Do not advertise dead TURN, repeatedly
+restart Wabi, weaken authentication or switch to host networking. A separately
+reachable self-hosted TURN machine is an optional operator choice, not an
+implicit paid/third-party dependency.
+
+Tim's direct page, owner login and authenticated Socket.IO initialization were
+verified on 2026-09-08 over SSH/Tailscale with external HTTP requests blocked in
+the browser. The public tunnel stayed online. Wabi itself can bypass Cloudflare;
+public visitors still need a reachable entry point. See the
+[delivery record](../plans/2026-09-08-turn-runtime-delivery.md) for evidence and
+limits, including what was not tested.

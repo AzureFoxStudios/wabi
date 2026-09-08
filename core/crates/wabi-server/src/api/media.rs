@@ -377,12 +377,10 @@ async fn media_runtime_snapshot(
     State(state): State<Arc<AppState>>,
 ) -> Json<ServerMediaRuntimePayload> {
     let config = &state.config;
-    let turn_configured = config.turn_enabled && config.turn_uri.is_some();
-    let turn_uri = config.turn_uri.clone();
-    let (turn_server, turn_port) = turn_uri
-        .as_deref()
-        .and_then(parse_turn_uri)
-        .unzip();
+    // Startup validates selected TURN configuration. Treat manually constructed
+    // incomplete states as unconfigured, never as a healthy advertised relay.
+    let turn_endpoint = config.turn_endpoint().ok().flatten();
+    let turn_configured = turn_endpoint.is_some();
 
     let livekit_configured = tokio::process::Command::new("livekit-server")
         .arg("--version")
@@ -403,9 +401,9 @@ async fn media_runtime_snapshot(
             }),
             turn: Some(ServerMediaRuntimeTurnPayload {
                 configured: turn_configured,
-                server: turn_server.flatten(),
-                port: turn_port.flatten(),
-                use_turns: turn_configured,
+                server: turn_endpoint.as_ref().map(|endpoint| endpoint.server.clone()),
+                port: turn_endpoint.as_ref().map(|endpoint| endpoint.port),
+                use_turns: turn_endpoint.as_ref().is_some_and(|endpoint| endpoint.use_turns),
             }),
             gateway: Some(ServerMediaRuntimeGatewayPayload {
                 configured: false,
@@ -445,13 +443,6 @@ async fn media_runtime_snapshot(
     };
 
     Json(payload)
-}
-
-fn parse_turn_uri(uri: &str) -> Option<(Option<String>, Option<u16>)> {
-    let stripped = uri.strip_prefix("turn:")?.strip_prefix("//")?;
-    let host = stripped.split('/').next()?.to_string();
-    let port = host.split(':').nth(1)?.parse::<u16>().ok();
-    Some((Some(host), port))
 }
 
 // ---------------------------------------------------------------------------

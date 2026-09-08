@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+umask 077
 mkdir -p /var/log/turnserver
 
 # A TURN shared secret must be operator-generated; a known default would let
@@ -10,25 +11,50 @@ if [ -z "${TURN_HMAC_KEY:-}" ]; then
     exit 1
 fi
 
-# Replace ${VAR} and ${VAR:-default} placeholders with current env values.
-python3 - <<'PYCODE'
-import os, re, sys
-path = "/etc/coturn/turnserver.conf"
-tmpl = "/etc/coturn/turnserver.conf.template"
+# Validate selected infrastructure before writing any generated configuration.
+# In particular, never advertise a baked-in IP from an earlier deployment or
+# allow an environment value to inject extra coturn directives.
+python3 - /etc/coturn/turnserver.conf.template /etc/coturn/turnserver.conf <<'PYCODE'
+import ipaddress, os, re, sys
 
-defaults = {
-    "TURN_EXTERNAL_IP": "27.130.13.202",
-    "TURN_REALM": "wabi.chat",
-    "WABI_AUTOGEN_PATH": "/wabi-data/.wabi-autogen",
+def fail(message):
+    raise SystemExit("ERROR: " + message)
+
+def scalar(name, default=None):
+    value = os.environ.get(name, default)
+    if not value or any(ord(c) < 33 or ord(c) > 126 or c in '#\\"' for c in value):
+        fail(name + " must be a nonempty scalar without whitespace or config delimiters")
+    return value
+
+external_ip = scalar("TURN_EXTERNAL_IP")
+parts = external_ip.split('/')
+if len(parts) not in (1, 2):
+    fail("TURN_EXTERNAL_IP must be an IP address or a public/private IP pair")
+try:
+    addresses = [ipaddress.ip_address(part) for part in parts]
+except ValueError:
+    fail("TURN_EXTERNAL_IP must contain valid IP addresses")
+if any(address.is_unspecified or address.is_multicast for address in addresses) or len({address.version for address in addresses}) != 1:
+    fail("TURN_EXTERNAL_IP must contain usable same-family IP addresses")
+
+values = {
+    "TURN_EXTERNAL_IP": external_ip,
+    "TURN_REALM": scalar("TURN_REALM", "localhost"),
+    "TURN_HMAC_KEY": scalar("TURN_HMAC_KEY"),
 }
 
-text = open(tmpl).read()
+with open(sys.argv[1]) as template:
+    text = template.read()
 
 def repl(m):
     name = m.group(1)
-    return os.environ.get(name, defaults.get(name, m.group(0) or ""))
+    if name not in values:
+        fail("TURN template contains an unsupported placeholder")
+    return values[name]
 
-open(path, "w").write(re.sub(r"\$\{(\w+)(?::-[^}]*)?\}", repl, text))
+rendered = re.sub(r"\$\{(\w+)(?::-[^}]*)?\}", repl, text)
+with open(sys.argv[2], "w") as output:
+    output.write(rendered)
 PYCODE
 
 exec turnserver -c /etc/coturn/turnserver.conf "$@"
