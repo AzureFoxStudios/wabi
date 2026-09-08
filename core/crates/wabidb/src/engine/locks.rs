@@ -197,6 +197,13 @@ impl ProjectionState {
         map.get(key).map(|entry| entry.value().clone())
     }
 
+    /// Number of indexed entries, without scanning or creating a missing index.
+    /// Like ordinary projection reads, this is not a multi-index snapshot.
+    pub fn index_len(&self, index: &str) -> usize {
+        let indexes = self.indexes.read().unwrap();
+        indexes.get(index).map_or(0, SkipMap::len)
+    }
+
     /// Run `f` with the `SkipMap` for a named index. The create path takes a
     /// write lock, but if the index already exists we serve `f` under a *read*
     /// lock: `SkipMap` inserts are lock-free on `&self`, so the hot apply path

@@ -294,6 +294,49 @@ Mobile is ONE SPA, two skins (no separate site). The shell branch happens on `<h
 
 See `docs/plans/2026-09-08-full-frontend-polish.md` for scope and verification.
 
+### Administration and request ownership (2026-09-08)
+
+- Personal Settings launches the dedicated Admin workspace through
+  adminNavigationState; do not mount duplicate policy/member editors. The
+  account/server/role-keyed child owns drafts. Explicit session clearing also
+  retires the whole privileged view, including secret recovery inputs.
+- adminDashboardResource owns one coalesced, cancellable, bounded stats read.
+  Unavailable reads retain an explicitly stale snapshot, never a healthy Ready
+  claim; denied access clears privileged data. Measured health is writer liveness,
+  projection application, uptime and nullable process RSS, not host capacity,
+  backups or replication health. Latest recorded changes are existing bounded
+  role/channel audit rows, not a report queue or fabricated timestamped activity.
+- Payments edits the same canonical WabiDB policy used by creation. Require a
+  successful load before edits, separate draft/published objects, and permit
+  explicit empty allowlists. The server-supplied actor owns admission decisions.
+  Saved role strings are exact: never silently normalize Moderator/OWNER into a
+  grant. The compatibility editor requires explicit review of names changed by
+  save normalization and retains unrecognized strings without counting them as
+  effective access. Follow docs/architecture/POLICY_SYSTEM.md for storage rules.
+- Branding uploads feed File objects directly from picker or drop, await a
+  bounded upload including its body, and only change the draft. Publish waits for
+  real storage acknowledgement; failed saves keep the draft. Invalid partial
+  color input must survive editing another field. The mounted editor cancels
+  pending artwork uploads on teardown; no unbounded naked fetch in a busy form.
+- People badge commands use adminBadgeMutation: one pending request per socket,
+  captured account/generation/socket identity, request-correlated private errors
+  and a ten-second uncertain deadline. Only an authoritative matching badge-list
+  update confirms the desired state. Disconnect or view retirement detaches
+  listeners and releases ownership; a late error from an old visit cannot settle
+  a replacement. Never optimistically patch badges to conceal missing broadcasts.
+- api/utils.fetchWithTimeout delegates to apiRequest, which captures the original
+  server/account/session generation and Authorization before yielding. Refresh
+  that scope at most once; never substitute the newly selected server's token or
+  replay an old sensitive request as a replacement account. Preserve caller
+  cancellation and finite explicit network retries. authRefresh coalescing is
+  generation-scoped so logout/relogin cannot revive old token work. UI-only
+  result fences cannot prevent a lower-level credential leak or stale replay.
+- Tests mocking API/auth modules must run in an isolated Bun fixture process
+  (see adminPolicyDeadline and authRefresh ownership tests), not poison the
+  process-wide module cache used by unrelated suites. Run the headful workspace
+  and embedded-polish scripts after the static/release build for acceptance;
+  compile, synthetic media and Chromium do not certify a native Tauri installer.
+
 ### Durable group client lifecycle (2026-09-08)
 
 - Local `Channel` extends the generated protocol with explicit `ownerId` and

@@ -359,8 +359,8 @@ fn is_hex_color(s: &str) -> bool {
 
 /// Compose index.html with server-injected brand tokens so first paint is
 /// branded with zero extra requests (Phase 1 boot optimization). Cached
-/// against admin_policies.json mtime — no explicit invalidation needed:
-/// admin rebrand edits change the mtime and the next request recomposes.
+/// against the already-read policy value. A separate mtime read can race an
+/// atomic publication and cache old branding under the new file's timestamp.
 ///
 /// Fail-open by design: a missing token (stale embedded build) or unreadable
 /// policy serves the raw embedded shell with default Wabi branding.
@@ -369,11 +369,6 @@ async fn composed_index_html(state: &Arc<AppState>) -> Vec<u8> {
     static TOKEN_WARNED: AtomicBool = AtomicBool::new(false);
 
     let policy = crate::api::public::load_frontend_metadata_policy(&state.config.data_dir);
-    let policy_mtime = std::fs::metadata(
-        PathBuf::from(&state.config.data_dir).join("admin_policies.json"),
-    )
-    .and_then(|m| m.modified())
-    .ok();
     let brand_json = crate::api::public::build_boot_brand_json(&policy);
     let has_custom_brand = brand_json.is_some();
 
@@ -381,7 +376,7 @@ async fn composed_index_html(state: &Arc<AppState>) -> Vec<u8> {
     {
         let cached = state.composed_index.read().await;
         if let Some(cache) = cached.as_ref() {
-            if cache.policy_mtime == policy_mtime && cache.has_custom_brand == has_custom_brand {
+            if cache.policy == policy && cache.has_custom_brand == has_custom_brand {
                 return cache.body.clone();
             }
         }
@@ -442,7 +437,7 @@ async fn composed_index_html(state: &Arc<AppState>) -> Vec<u8> {
 
     let body = html.into_bytes();
     *state.composed_index.write().await = Some(ComposedIndexCache {
-        policy_mtime,
+        policy,
         has_custom_brand,
         body: body.clone(),
     });

@@ -275,21 +275,27 @@ impl QueryableProjection for ChannelProjection {
 
     fn query(&self, state: &ProjectionState, filter: &ChannelsFilter) -> Result<Vec<Channel>> {
         let mut results = Vec::new();
+        let decode = |value: &[u8]| serde_json::from_slice::<Channel>(value)
+            .map_err(|error| crate::error::WabiError::Corrupt {
+                location: "channels".into(), detail: error.to_string(),
+            });
         match &filter.channel_id {
             Some(channel_id) => {
                 let key = channel_id.as_bytes().to_vec();
                 if let Some(bytes) = state.get("channels", &key) {
-                    if let Ok(channel) = serde_json::from_slice::<Channel>(&bytes) {
-                        results.push(channel);
-                    }
+                    results.push(decode(&bytes)?);
                 }
             }
             None => {
+                let mut failure = None;
                 state.for_each("channels", |_key, value| {
-                    if let Ok(channel) = serde_json::from_slice::<Channel>(value) {
-                        results.push(channel);
+                    if failure.is_some() { return; }
+                    match decode(value) {
+                        Ok(channel) => results.push(channel),
+                        Err(error) => failure = Some(error),
                     }
                 });
+                if let Some(error) = failure { return Err(error); }
             }
         }
         apply_limit(&mut results, filter.limit);
@@ -301,6 +307,33 @@ impl QueryableProjection for ChannelProjection {
 mod tests {
     use super::*;
     use crate::projections::handler::DurableEvent;
+
+    #[test]
+    fn typed_queries_reject_corrupt_channels_instead_of_hiding_them() {
+        let state = ProjectionState::new();
+        state.insert("channels", b"broken".to_vec(), b"invalid JSON".to_vec(), 1);
+        for filter in [ChannelsFilter::default(), ChannelsFilter { channel_id: Some("broken".into()), ..Default::default() }] {
+            assert!(ChannelProjection.query(&state, &filter).is_err());
+        }
+    }
+
+    #[test]
+    fn typed_queries_preserve_legacy_defaults_and_tombstones_for_adapter_filtering() {
+        let state = ProjectionState::new();
+        let value = serde_json::json!({"channel_id":"legacy", "name":"Old channel", "channel_kind":"Text",
+            "owner_user_id":1, "created_at_micros":1, "is_active":false});
+        state.insert("channels", b"legacy".to_vec(), serde_json::to_vec(&value).unwrap(), 1);
+        for filter in [ChannelsFilter::default(), ChannelsFilter { channel_id: Some("legacy".into()), ..Default::default() }] {
+            let rows = ChannelProjection.query(&state, &filter).unwrap();
+            assert_eq!(rows.len(), 1);
+            assert!(!rows[0].is_active);
+            assert_eq!(rows[0].description, None);
+            assert_eq!(rows[0].parent_id, None);
+            assert_eq!(rows[0].position, 0);
+            assert!(!rows[0].force_spoiler);
+            assert!(!rows[0].asset_storage);
+        }
+    }
 
     #[test]
     fn encode_decode_roundtrip() {

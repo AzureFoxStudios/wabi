@@ -2,14 +2,13 @@
 	import { createEventDispatcher } from 'svelte';
 	import { modalFocus } from '$lib/actions/modalFocus';
 	import { layoutStore } from '$lib/layoutStore';
+	import { openAdminSection } from '$lib/adminNavigationState';
+	import type { AdminSection } from '$lib/adminNavigation';
 	import { _ as t, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
-	import { channelMessages, currentUser, getSocket, updateProfile } from '$lib/socket';
-	import type { Message } from '$lib/socket';
+	import { currentUser, getSocket, updateProfile } from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
-	import { getServerUrl } from '$lib/serverUrl';
 	import { uploadProfilePictureFile } from '$lib/profilePictureUpload';
 	import AvatarEditor from './AvatarEditor.svelte';
-	import ConfirmDialog from './ConfirmDialog.svelte';
 	import StorageSettings from './StorageSettings.svelte';
 	import AboutSettingsTab from './settings/AboutSettingsTab.svelte';
 	import AccessibilitySettingsTab from './settings/AccessibilitySettingsTab.svelte';
@@ -87,7 +86,6 @@
 	let profilePaymentSheetInitialProviderId: string | null = null;
 	let profilePaymentSheetInitialMethodId: string | null = null;
 	let profilePaymentSheetInitialMetadata: Record<string, unknown> | null = null;
-	let showClearServerConfirm = false;
 	let avatarUploadStatus = '';
 	let avatarUploadError = '';
 
@@ -115,9 +113,9 @@
 		isOpen = false;
 	}
 
-	function openAdminDashboard(): void {
+	function openAdminDashboard(event?: CustomEvent<{ section?: AdminSection }>): void {
 		closeModal();
-		layoutStore.showAdminCenterStage();
+		openAdminSection(event?.detail?.section ?? 'overview');
 	}
 
 	function handleLogout(): void {
@@ -233,45 +231,6 @@
 		}
 	}
 
-	async function confirmClearServer(): Promise<void> {
-		try {
-			const authToken = getAuthToken();
-			const headers: HeadersInit = { 'Content-Type': 'application/json' };
-			if (authToken) {
-				headers.Authorization = `Bearer ${authToken}`;
-			}
-
-			const response = await fetch(`${getServerUrl()}/api/clear-messages`, {
-				method: 'POST',
-				headers
-			});
-			const result = await response.json();
-
-			if (result.success) {
-				channelMessages.update((msgs) => {
-					const cleared: Record<string, Message[]> = {};
-					for (const key of Object.keys(msgs)) {
-						cleared[key] = [];
-					}
-					if (!('general' in cleared)) {
-						cleared.general = [];
-					}
-					return cleared;
-				});
-				localStorage.removeItem('channelUnreadCounts');
-				localStorage.removeItem('unreadCount');
-				localStorage.removeItem('lastReadMessageId');
-				alert('All server messages have been deleted successfully!');
-			} else {
-				alert('Failed to clear server messages: ' + (result.error || 'Unknown error'));
-			}
-		} catch (error) {
-			console.error('Error clearing server messages:', error);
-			alert('Failed to clear server messages. Check console for details.');
-		} finally {
-			showClearServerConfirm = false;
-		}
-	}
 </script>
 
 {#if isOpen}
@@ -363,7 +322,7 @@
 					{:else if activeSettingsTab === 'appearance'}
 						<AppearanceSettingsTab />
 					{:else if activeSettingsTab === 'server'}
-						<ServerSettingsTab on:clearServer={() => (showClearServerConfirm = true)} />
+						<ServerSettingsTab />
 					{:else if activeSettingsTab === 'addons'}
 						<AddonSettingsTab />
 					{:else if activeSettingsTab === 'emojis'}
@@ -435,15 +394,4 @@
 	onClose={() => {
 		profilePaymentSheetOpen = false;
 	}}
-/>
-
-<ConfirmDialog
-	isOpen={showClearServerConfirm}
-	overlayZIndex={'var(--z-settings-nested)'}
-	title={$t('settings.confirm.clear_server_title')}
-	message={$t('settings.confirm.clear_server_message')}
-	confirmText={$t('settings.confirm.clear_server_confirm')}
-	variant="danger"
-	onConfirm={confirmClearServer}
-	onCancel={() => (showClearServerConfirm = false)}
 />

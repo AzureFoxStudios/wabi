@@ -6,7 +6,7 @@
 //! - sw.js and manifest.webmanifest must revalidate (`no-cache`), never
 //!   immutable-cache — an immutable manifest hides rebrands from PWAs
 //! - admin-entered strings are escaped / rejected, never injected raw
-//! - composition re-runs when admin_policies.json changes (mtime keying)
+//! - composition re-runs when policy content changes, even at the same mtime
 
 use std::path::Path;
 use std::sync::Arc;
@@ -223,8 +223,7 @@ async fn recomposes_when_policy_changes() {
     let (_, _, body) = get(&app, "/").await;
     assert!(body.contains(r#""brandName":"Before""#));
 
-    // Rewrite with a different display name; the mtime change must invalidate.
-    std::thread::sleep(std::time::Duration::from_millis(20));
+    // Content, not a filesystem timestamp, determines the cached branding.
     write_policies(tmp.path(), serde_json::json!({ "displayName": "After" }));
 
     let (_, _, body) = get(&app, "/").await;
@@ -234,3 +233,21 @@ async fn recomposes_when_policy_changes() {
     );
 }
 
+#[tokio::test]
+async fn publication_with_unchanged_mtime_cannot_pin_stale_branding() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("admin_policies.json");
+    write_policies(tmp.path(), serde_json::json!({"displayName":"First identity"}));
+    let original_time = std::fs::metadata(&path).unwrap().modified().unwrap();
+    let app = fresh_server(tmp.path()).await;
+    let (_, _, before) = get(&app, "/").await;
+    assert!(before.contains("<title>First identity</title>"));
+    write_policies(tmp.path(), serde_json::json!({"displayName":"Second identity"}));
+    // Deterministic equivalent of caching old bytes against a newer rename's
+    // timestamp: both versions have the same cache metadata, different content.
+    std::fs::File::options().write(true).open(&path).unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(original_time)).unwrap();
+    let (_, _, after) = get(&app, "/channels/deep-link").await;
+    assert!(after.contains("<title>Second identity</title>"));
+    assert!(!after.contains("<title>First identity</title>"));
+}

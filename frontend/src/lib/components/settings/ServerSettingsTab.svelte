@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import {
 		directionsAssistSettings,
@@ -15,15 +14,11 @@
 	} from '$lib/business/sync';
 	import TailcatConnectionCard from './TailcatConnectionCard.svelte';
 
-	const dispatch = createEventDispatcher<{
-		clearServer: void;
-	}>();
-
-	let directionsGpsEnabled = $directionsAssistSettings.gpsEnabled;
-	let directionsGpsStatus = '';
-	let businessSyncMode: 'manual' | 'auto' = getBusinessSyncMode();
-	let businessSyncInFlight = false;
-	let businessSyncStatus = '';
+	let directionsGpsEnabled = $state($directionsAssistSettings.gpsEnabled);
+	let directionsGpsStatus = $state('');
+	let businessSyncMode: 'manual' | 'auto' = $state(getBusinessSyncMode());
+	let businessSyncInFlight = $state(false);
+	let businessSyncStatus = $state('');
 
 	async function toggleDirectionsGpsAssist(): Promise<void> {
 		const next = !directionsGpsEnabled;
@@ -72,7 +67,7 @@
 				<span class="setting-label">Directions GPS</span>
 				<span class="setting-description">Use location only on this device for directions cards. Never uploaded.</span>
 			</div>
-			<button class="toggle-btn" class:active={directionsGpsEnabled} on:click={toggleDirectionsGpsAssist} aria-label="Directions GPS"></button>
+			<button class="toggle-btn" class:active={directionsGpsEnabled} onclick={toggleDirectionsGpsAssist} aria-label="Directions GPS"></button>
 		</div>
 		{#if directionsGpsStatus}
 			<div class="runtime-note">{directionsGpsStatus}</div>
@@ -82,29 +77,20 @@
 				<span class="setting-label">Business sync</span>
 				<span class="setting-description">On = continuous auto sync. Off = manual only.</span>
 			</div>
-			<button class="toggle-btn" class:active={businessSyncMode === 'auto'} on:click={toggleBusinessSyncMode} aria-label="Business sync auto"></button>
+			<button class="toggle-btn" class:active={businessSyncMode === 'auto'} onclick={toggleBusinessSyncMode} aria-label="Business sync auto"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Sync now</span>
 				<span class="setting-description">Pull server state, then push local business updates.</span>
 			</div>
-			<button class="action-btn" on:click={runBusinessSyncNow} disabled={businessSyncInFlight}>
+			<button class="action-btn" onclick={runBusinessSyncNow} disabled={businessSyncInFlight}>
 				{businessSyncInFlight ? 'Syncing…' : 'Sync'}
 			</button>
 		</div>
 		{#if businessSyncStatus}
 			<div class="runtime-note">{businessSyncStatus}</div>
 		{/if}
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Purge all server messages</span>
-				<span class="setting-description">Deletes history for everyone. Cannot be undone.</span>
-			</div>
-			<button class="action-btn danger" on:click={() => dispatch('clearServer')}>
-				{$_('settings.actions.clear_server')}
-			</button>
-		</div>
 	</div>
 
 	<TailcatConnectionCard />

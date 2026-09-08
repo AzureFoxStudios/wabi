@@ -1,3 +1,4 @@
+mod access;
 mod handlers;
 mod intents;
 mod promptpay;
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::state::AppState;
+pub(crate) use access::{access_unavailable, account_user_id, authenticate_account, load_access_policy, parse_access_policy, save_access_policy};
 use wabidb::engine::wabi_store::WabiStore;
 use wabidb::projections::payments::{
     PaymentAccountLinkRecord, PaymentUserBlockRecord,
@@ -181,75 +183,8 @@ pub fn json_error(status: StatusCode, message: &str) -> Response {
         .into_response()
 }
 
-pub fn extract_user_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> anyhow::Result<i64> {
-    use jsonwebtoken::{decode, DecodingKey, Validation};
-
-    let auth = headers
-        .get("authorization")
-        .ok_or_else(|| anyhow::anyhow!("Authentication required"))?
-        .to_str()
-        .map_err(|_| anyhow::anyhow!("invalid authorization header"))?;
-    let token = auth
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| anyhow::anyhow!("missing Bearer prefix"))?;
-
-    #[derive(serde::Deserialize)]
-    struct Claims {
-        sub: String,
-    }
-
-    let key = DecodingKey::from_secret(jwt_secret.as_bytes());
-    let mut v = Validation::default();
-    v.validate_exp = true;
-    v.leeway = 60;
-    let c =
-        decode::<Claims>(token, &key, &v).map_err(|e| anyhow::anyhow!("invalid token: {}", e))?;
-    c.claims
-        .sub
-        .parse::<i64>()
-        .map_err(|_| anyhow::anyhow!("invalid user_id in token"))
-}
-
 pub async fn is_admin_user(user_id: i64, state: &std::sync::Arc<AppState>) -> bool {
     state.is_admin(user_id).await
-}
-
-/// Extract `(user_id, is_guest)` from the Bearer token. WS-3: guest status is
-/// required to enforce the payments access policy.
-pub fn extract_identity(
-    headers: &axum::http::HeaderMap,
-    jwt_secret: &str,
-) -> anyhow::Result<(i64, bool)> {
-    use jsonwebtoken::{decode, DecodingKey, Validation};
-
-    let auth = headers
-        .get("authorization")
-        .ok_or_else(|| anyhow::anyhow!("Authentication required"))?
-        .to_str()
-        .map_err(|_| anyhow::anyhow!("invalid authorization header"))?;
-    let token = auth
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| anyhow::anyhow!("missing Bearer prefix"))?;
-
-    #[derive(serde::Deserialize, Default)]
-    struct Claims {
-        sub: String,
-        #[serde(default)]
-        is_guest: bool,
-    }
-
-    let key = DecodingKey::from_secret(jwt_secret.as_bytes());
-    let mut v = Validation::default();
-    v.validate_exp = true;
-    v.leeway = 60;
-    let c = decode::<Claims>(token, &key, &v)
-        .map_err(|e| anyhow::anyhow!("invalid token: {}", e))?;
-    let user_id = c
-        .claims
-        .sub
-        .parse::<i64>()
-        .map_err(|_| anyhow::anyhow!("invalid user_id in token"))?;
-    Ok((user_id, c.claims.is_guest))
 }
 
 /// WS-3: evaluate the payments access policy for a user. Shared by
@@ -257,40 +192,43 @@ pub fn extract_identity(
 /// Returns the camelCase actor JSON the frontend contract expects.
 pub async fn evaluate_payment_access(
     state: &std::sync::Arc<AppState>,
+    policy: &PaymentAccessPolicy,
     user_id: i64,
     is_guest: bool,
-) -> Value {
-    let policy = match get_policy_row(state, "policy:payments_access").await {
-        Some(v) => serde_json::from_value::<PaymentAccessPolicy>(v).unwrap_or_default(),
-        None => PaymentAccessPolicy::default(),
-    };
-
+) -> anyhow::Result<Value> {
     let now_ms = chrono::Utc::now().timestamp_millis();
     let blocked = state
         .wdb
         .list_payment_user_blocks(DEFAULT_WORKSPACE_ID)
-        .await
-        .map(|blocks| {
-            blocks.into_iter().any(|b| {
-                b.user_id == user_id
-                    && b.expires_at
-                        .map(|expires| expires > now_ms)
-                        .unwrap_or(true)
-            })
-        })
-        .unwrap_or(false);
+        .await?
+        .into_iter()
+        .any(|b| {
+            b.user_id == user_id
+                && b.expires_at
+                    .map(|expires| expires > now_ms)
+                    .unwrap_or(true)
+        });
 
     let mut roles: Vec<String> = Vec::new();
-    if is_admin_user(user_id, state).await {
-        roles.push("admin".into());
+    if !is_guest {
+        let role = state.wdb.get_user_role(DEFAULT_WORKSPACE_ID, user_id as u64).await?;
+        let owner = state.is_owner(user_id).await || role.as_deref() == Some("Owner");
+        if owner {
+            roles.push("owner".into());
+        }
+        if owner || state.config.admin_user_ids.contains(&user_id) || role.as_deref() == Some("Admin") {
+            roles.push("admin".into());
+        }
+        if role.as_deref() == Some("Moderator") {
+            roles.push("mod".into());
+        }
     }
     roles.push(if is_guest { "guest".into() } else { "member".into() });
 
-    let role_allowed = policy.allowed_role_names.is_empty()
-        || policy
-            .allowed_role_names
-            .iter()
-            .any(|allowed| roles.iter().any(|role| role == allowed));
+    let role_allowed = policy
+        .allowed_role_names
+        .iter()
+        .any(|allowed| roles.iter().any(|role| role == allowed));
 
     let (can_create, reason_code, reason): (bool, Option<&str>, Option<&str>) = if blocked {
         (
@@ -320,7 +258,7 @@ pub async fn evaluate_payment_access(
         (true, None, None)
     };
 
-    serde_json::json!({
+    Ok(serde_json::json!({
         "authenticated": true,
         "userId": user_id,
         "roles": roles,
@@ -328,19 +266,17 @@ pub async fn evaluate_payment_access(
         "canCreate": can_create,
         "reasonCode": reason_code,
         "reason": reason,
-    })
+    }))
 }
 
-pub async fn get_policy_row(state: &AppState, key: &str) -> Option<Value> {
+pub async fn get_policy_row(state: &AppState, key: &str) -> anyhow::Result<Option<Value>> {
     // Phase 1: payment-policy projection wired into WabiDB events.
-    match state.wdb.get_payment_policy(key).await {
-        Ok(Some(v)) => Some(v),
-        _ => None,
-    }
+    Ok(state.wdb.get_payment_policy(key).await?)
 }
 
-pub async fn upsert_policy(state: &AppState, key: &str, value: &Value) {
-    let _ = state.wdb.upsert_payment_policy(key, value).await;
+pub async fn upsert_policy(state: &AppState, key: &str, value: &Value) -> anyhow::Result<()> {
+    state.wdb.upsert_payment_policy(key, value).await?;
+    Ok(())
 }
 
 pub async fn upsert_account_link(state: &AppState, link: &PaymentAccountLink) {

@@ -1,294 +1,52 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { _ as t } from '$lib/i18n';
-	import {
-		assignRole,
-		channels,
-		currentUser,
-		roleDefinitions,
-		users,
-		serverMembers,
-		type User
-	} from '$lib/socket';
-	import { getAuthToken } from '$lib/authSession';
-	import {
-		adminClearUserLoginLockout,
-		adminResetUserPassword,
-		getAdminUploadLimits,
-		saveAdminUploadLimits,
-		type UploadLimitConfig,
-		type UploadRoleTier
-	} from '$lib/api';
-	import UploadLimitsPanel from './admin/UploadLimitsPanel.svelte';
-	import AdminSettingsPayments from './admin/AdminSettingsPayments.svelte';
-	import AdminSettingsCommunityNodes from './admin/AdminSettingsCommunityNodes.svelte';
-	import AdminUserList from './admin/AdminUserList.svelte';
-	import BrandingSettings from './admin/BrandingSettings.svelte';
-	import {
-		MB,
-		bytesToMbInput,
-		fallbackRoleLabels,
-		isProtectedOwner,
-		parseMbInput,
-		uploadLimitInputsFromConfig,
-		uploadRoleLabels,
-		uploadRoleOrder,
-		userHasRole
-	} from './admin/adminSettingsHelpers';
+	import { currentUser } from '$lib/socket';
+	import type { AdminSection } from '$lib/adminNavigation';
 
-	const dispatch = createEventDispatcher<{ openServerDonation: void; openDashboard: void }>();
-	let uploadLimitConfig: UploadLimitConfig = {
-		perRoleBytes: { new: 10 * MB, trusted: 1024 * MB, moderator: 30 * 1024 * MB, admin: null, owner: null },
-		globalUploadCapBytes: null
-	};
-	let uploadLimitInputs: Record<UploadRoleTier, string> = {
-		new: '10',
-		trusted: '1024',
-		moderator: '30720',
-		admin: '',
-		owner: ''
-	};
-	let globalUploadLimitInput = '';
-	let loadingUploadLimits = false;
-	let savingUploadLimits = false;
-	let uploadLimitsLoaded = false;
-	let roleBusyUserIds: number[] = [];
-	let roleActionError = '';
-	let roleActionStatus = '';
-
-	$: roleLabelMap = (() => {
-		const labels: Record<string, string> = { ...fallbackRoleLabels };
-		for (const role of $roleDefinitions) {
-			labels[role.roleName] = role.displayName;
-		}
-		return labels;
-	})();
-	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
-	// Full roster: registered users (serverMembers) merged with live online
-	// users so offline accounts (e.g. a member who can't log in) are still
-	// visible and manageable here.
-	$: rosterUsers = (() => {
-		const byId = new Map<string, User>();
-		for (const u of $serverMembers) byId.set(String(u.dbUserId ?? u.id), u);
-		for (const u of $users) byId.set(String(u.dbUserId ?? u.id), u); // online wins
-		return [...byId.values()];
-	})();
-	$: sortedAdminUsers = [...rosterUsers].sort((a, b) => {
-		const aPriority = a.highestRole === 'owner' ? 3 : a.highestRole === 'admin' ? 2 : a.highestRole === 'mod' ? 1 : 0;
-		const bPriority = b.highestRole === 'owner' ? 3 : b.highestRole === 'admin' ? 2 : b.highestRole === 'mod' ? 1 : 0;
-		if (aPriority !== bPriority) return bPriority - aPriority;
-		return a.username.localeCompare(b.username);
-	});
-	$: communityAnnouncementChannelOptions = $channels.filter(
-		(channel) => channel.type === 'text' || channel.type === 'public' || channel.type === 'thread_public' || channel.type === 'thread_private'
-	);
-	$: communityNodeWhitelistCandidates = sortedAdminUsers.filter(
-		(user) => typeof user.dbUserId === 'number'
-	);
-	$: if (canManageAdmin && !uploadLimitsLoaded && !loadingUploadLimits) void loadUploadLimits();
-
-	function openServerDonation(): void {
-		dispatch('openServerDonation');
-	}
-
-	function syncUploadLimitInputsFromConfig(config: UploadLimitConfig) {
-		uploadLimitConfig = config;
-		uploadLimitInputs = uploadLimitInputsFromConfig(config);
-		globalUploadLimitInput = bytesToMbInput(config.globalUploadCapBytes);
-	}
-
-	async function loadUploadLimits() {
-		if (!canManageAdmin || loadingUploadLimits) return;
-		const token = getAuthToken();
-		if (!token) return;
-		loadingUploadLimits = true;
-		try {
-			const { config } = await getAdminUploadLimits(token);
-			syncUploadLimitInputsFromConfig(config);
-			uploadLimitsLoaded = true;
-		} catch (error) {
-			console.error('Failed to load upload limits:', error);
-		} finally {
-			loadingUploadLimits = false;
-		}
-	}
-
-	async function saveUploadLimits() {
-		if (!canManageAdmin || savingUploadLimits) return;
-		const token = getAuthToken();
-		if (!token) {
-			alert('You are not authenticated.');
-			return;
-		}
-		try {
-			const nextConfig: UploadLimitConfig = {
-				perRoleBytes: {
-					new: parseMbInput(uploadLimitInputs.new),
-					trusted: parseMbInput(uploadLimitInputs.trusted),
-					moderator: parseMbInput(uploadLimitInputs.moderator),
-					admin: parseMbInput(uploadLimitInputs.admin),
-					owner: parseMbInput(uploadLimitInputs.owner)
-				},
-				globalUploadCapBytes: parseMbInput(globalUploadLimitInput)
-			};
-			savingUploadLimits = true;
-			const saved = await saveAdminUploadLimits(token, nextConfig);
-			syncUploadLimitInputsFromConfig(saved);
-		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to save upload limits.');
-		} finally {
-			savingUploadLimits = false;
-		}
-	}
-
-	function canManageTargetUser(user: { id: string; dbUserId?: number; highestRole?: string; isRegistered?: boolean | null }): boolean {
-		if (!canManageAdmin) return false;
-		if (!user.dbUserId || user.isRegistered === false) return false;
-		if (!$currentUser || user.id === $currentUser.id) return false;
-		if (isProtectedOwner(user)) return false;
-		return true;
-	}
-
-	function getRoleLabel(roleName?: string): string {
-		if (!roleName) return roleLabelMap.member;
-		return roleLabelMap[roleName] || roleName;
-	}
-
-	async function changeUserRole(user: User, role: 'admin' | 'mod' | 'member') {
-		if (!canManageTargetUser(user) || !user.dbUserId || roleBusyUserIds.includes(user.dbUserId)) return;
-		const userId = user.dbUserId;
-		roleBusyUserIds = [...roleBusyUserIds, userId];
-		roleActionError = ''; roleActionStatus = '';
-		try {
-			await assignRole(userId, role);
-			roleActionStatus = `${user.username} is now ${getRoleLabel(role)}.`;
-		} catch (error) {
-			roleActionError = error instanceof Error ? error.message : 'Could not change this member’s role.';
-		} finally {
-			roleBusyUserIds = roleBusyUserIds.filter((id) => id !== userId);
-		}
-	}
-
-	function promoteUser(user: User, role: 'admin' | 'mod') {
-		void changeUserRole(user, role);
-	}
-
-	function resetUserToMember(user: User) {
-		void changeUserRole(user, 'member');
-	}
-
-	async function promptAdminPasswordReset(user: { dbUserId?: number; username: string; id: string; highestRole?: string }) {
-		if (!canManageTargetUser(user) || !user.dbUserId) return;
-		const newPassword = window.prompt(`Set a new password for ${user.username} (min 8 chars):`);
-		if (!newPassword) return;
-		if (newPassword.length < 8) {
-			alert('Password must be at least 8 characters.');
-			return;
-		}
-		const confirm = window.prompt(`Confirm new password for ${user.username}:`);
-		if (confirm !== newPassword) {
-			alert('Password confirmation does not match.');
-			return;
-		}
-		const token = getAuthToken();
-		if (!token) {
-			alert('You must be logged in as admin/owner.');
-			return;
-		}
-		const temporaryReset = window.confirm(`Make this a temporary password for ${user.username}? Click OK to require a password change on next login, or Cancel to make it permanent.`);
-		try {
-			await adminResetUserPassword(token, user.dbUserId, newPassword, temporaryReset);
-			alert(temporaryReset ? `Temporary password set for ${user.username}. They will be asked to change it on next login.` : `Password reset for ${user.username}.`);
-		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to reset password.');
-		}
-	}
-
-	async function clearUserLoginLockout(user: { dbUserId?: number; username: string; id: string; highestRole?: string }) {
-		if (!canManageTargetUser(user) || !user.dbUserId) return;
-		const token = getAuthToken();
-		if (!token) {
-			alert('You must be logged in as admin/owner.');
-			return;
-		}
-		try {
-			await adminClearUserLoginLockout(token, user.dbUserId);
-			alert(`Cleared login lockout state for ${user.username}.`);
-		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to clear lockout.');
-		}
-	}
+	const dispatch = createEventDispatcher<{ openDashboard: { section: AdminSection } }>();
+	const canManageAdmin = $derived(['owner', 'admin'].includes($currentUser?.highestRole ?? ''));
+	const destinations: Array<{ section: AdminSection; title: string; description: string }> = [
+		{ section: 'users', title: 'People', description: 'Find members, manage roles, and help someone regain access.' },
+		{ section: 'branding', title: 'Server identity', description: 'Update the name, icon, and banner people see for this server.' },
+		{ section: 'roles', title: 'Roles', description: 'Review the server’s built-in permission levels.' },
+		{ section: 'runtime', title: 'Server health', description: 'Inspect the running server and its diagnostics.' }
+	];
 </script>
 
-<div class="settings-section admin-settings-shell">
-	<div class="admin-settings-top">
-		<div>
-			<h3>{$t('settings.sections.admin_panel')}</h3>
-			<p class="admin-help">Roles, limits, branding, and community tools. Full dashboard opens in center stage.</p>
+{#if canManageAdmin}
+	<section class="admin-settings-launcher" aria-labelledby="admin-launcher-title">
+		<div class="admin-launcher-heading">
+			<h3 id="admin-launcher-title">Server administration</h3>
+			<p>Manage your community in one workspace. Your personal preferences stay here in Settings.</p>
 		</div>
-		<button class="admin-open-dashboard-btn" type="button" on:click={() => dispatch('openDashboard')}>
-			<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<rect x="3" y="3" width="7" height="7" rx="1" />
-				<rect x="14" y="3" width="7" height="7" rx="1" />
-				<rect x="14" y="14" width="7" height="7" rx="1" />
-				<rect x="3" y="14" width="7" height="7" rx="1" />
-			</svg>
-			Dashboard
+		<button class="admin-open-dashboard-btn" type="button" onclick={() => dispatch('openDashboard', { section: 'overview' })}>
+			Open administration
+			<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
 		</button>
-	</div>
+		<div class="admin-destination-list">
+			{#each destinations as destination (destination.section)}
+				<button class="admin-destination" type="button" onclick={() => dispatch('openDashboard', { section: destination.section })}>
+					<span><strong>{destination.title}</strong><span>{destination.description}</span></span>
+					<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 5 7 7-7 7" /></svg>
+				</button>
+			{/each}
+		</div>
+	</section>
+{/if}
 
-	<div class="admin-settings-stack">
-		<section class="admin-block">
-			<h4 class="admin-block-title">People</h4>
-			{#if roleActionError}<p role="alert">{roleActionError}</p>{/if}
-			{#if roleBusyUserIds.length > 0}<p role="status">Updating member role…</p>{/if}
-			{#if roleActionStatus}<p role="status">{roleActionStatus}</p>{/if}
-			<AdminUserList
-				{sortedAdminUsers}
-				canManageTargetUser={(user) => canManageTargetUser(user) && !roleBusyUserIds.includes(user.dbUserId ?? 0)}
-				{userHasRole}
-				{getRoleLabel}
-				onPromoteAdmin={(u) => promoteUser(u, 'admin')}
-				onRemoveAdmin={resetUserToMember}
-				onPromoteMod={(u) => promoteUser(u, 'mod')}
-				onRemoveMod={resetUserToMember}
-				onResetToMember={resetUserToMember}
-				onResetPassword={promptAdminPasswordReset}
-				onClearLockout={clearUserLoginLockout}
-			/>
-		</section>
-
-		<section class="admin-block">
-			<h4 class="admin-block-title">Uploads</h4>
-			<UploadLimitsPanel
-				{canManageAdmin}
-				{loadingUploadLimits}
-				{savingUploadLimits}
-				{uploadRoleOrder}
-				{uploadRoleLabels}
-				{uploadLimitInputs}
-				{globalUploadLimitInput}
-				onSave={saveUploadLimits}
-			/>
-		</section>
-
-		<section class="admin-block">
-			<h4 class="admin-block-title">Brand</h4>
-			<BrandingSettings canManageBranding={canManageAdmin} />
-		</section>
-
-		<section class="admin-block">
-			<h4 class="admin-block-title">Money</h4>
-			<AdminSettingsPayments {canManageAdmin} on:openServerDonation={openServerDonation} />
-		</section>
-
-		<section class="admin-block">
-			<h4 class="admin-block-title">Community nodes</h4>
-			<AdminSettingsCommunityNodes
-				{canManageAdmin}
-				communityNodeWhitelistCandidates={communityNodeWhitelistCandidates as any}
-				communityAnnouncementChannelOptions={communityAnnouncementChannelOptions as any}
-			/>
-		</section>
-	</div>
-</div>
+<style>
+	.admin-settings-launcher { display: grid; gap: 1.25rem; color: var(--text-primary); }
+	.admin-launcher-heading h3 { margin: 0 0 0.5rem; font-size: 1.2rem; color: var(--text-heading); }
+	.admin-launcher-heading p { margin: 0; max-width: 56ch; color: var(--text-secondary); line-height: 1.6; text-wrap: pretty; }
+	.admin-open-dashboard-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.75rem; justify-self: start; min-height: 44px; padding: 0.7rem 1rem; border: 1px solid var(--accent-primary); border-radius: var(--radius-md); background: var(--accent-primary); color: var(--text-on-accent, white); font: inherit; font-weight: 600; cursor: pointer; }
+	.admin-open-dashboard-btn:hover { background: var(--accent-secondary); }
+	.admin-destination-list { display: grid; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; }
+	.admin-destination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 76px; width: 100%; padding: 1rem; background: var(--surface-raised); border: 0; text-align: left; color: var(--text-primary); font: inherit; cursor: pointer; }
+	.admin-destination + .admin-destination { border-top: 1px solid var(--border-subtle); }
+	.admin-destination:hover { background: var(--surface-hover); }
+	.admin-destination > span { display: grid; gap: 0.35rem; min-width: 0; }
+	.admin-destination strong { font-weight: 600; color: var(--text-heading); }
+	.admin-destination span span { color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5; text-wrap: pretty; }
+	.admin-destination svg, .admin-open-dashboard-btn svg { flex-shrink: 0; }
+	button:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: -3px; }
+</style>

@@ -1,220 +1,138 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
-  import { fade } from 'svelte/transition'
-  // Phase 4 boot optimization: ships with this (lazy) component instead of MainLayout's eager graph.
-  import '$lib/../styles/components/admin-center-stage.css';
-  import { currentUser } from '$lib/socket'
-  import { layoutStore } from '$lib/layoutStore'
-  import { getAuthToken } from '$lib/authSession'
-  import OverviewSection from './admin/OverviewSection.svelte'
-  import type { DashboardStats } from './admin/OverviewSection.svelte'
-  import AdminWorkspace from './AdminWorkspace.svelte'
-  import { getAdminPaymentAccessPolicy, getApiBase, type PaymentAccessPolicy } from '$lib/api'
+	import { onMount, tick } from 'svelte';
+	import '$lib/../styles/components/admin-center-stage.css';
+	import '$lib/../styles/components/admin-workbench.css';
+	import { currentUser } from '$lib/socket';
+	import { layoutStore } from '$lib/layoutStore';
+	import { getAuthToken, authSessionGeneration, onAuthSessionCleared } from '$lib/authSession';
+	import { activeServerUrl } from '$lib/serverUrl';
+	import { tryRefresh } from '$lib/api/authRefresh';
+	import { adminSectionsFor, canManageServer, resolveAdminSection, type AdminSection } from '$lib/adminNavigation';
+	import { adminSection } from '$lib/adminNavigationState';
+	import { createAdminDashboardResource, emptyAdminSnapshot, AdminDashboardAccessError } from '$lib/adminDashboardResource';
+	import type { WorkspacePanelIcon as IconName } from '$lib/workspacePanels';
+	import WorkspacePanelIcon from './WorkspacePanelIcon.svelte';
+	import OverviewSection from './admin/OverviewSection.svelte';
+	import ServerHealthSection from './admin/ServerHealthSection.svelte';
+	import AdminWorkspace from './AdminWorkspace.svelte';
 
-  type Section =
-    | 'overview' | 'users' | 'roles' | 'channels' | 'gates'
-    | 'runtime' | 'branding' | 'settings'
+	const icons: Partial<Record<AdminSection, IconName>> = {
+		overview: 'activity', runtime: 'activity', users: 'users', roles: 'admin',
+		channels: 'messages', branding: 'media', settings: 'settings', payments: 'box',
+	};
+	let snapshot = $state.raw(emptyAdminSnapshot());
+	let now = $state(Date.now());
+	let resource: ReturnType<typeof createAdminDashboardResource> | null = null;
+	const role = $derived($currentUser?.highestRole?.toLowerCase() ?? 'member');
+	const accountId = $derived($currentUser?.dbUserId ?? $currentUser?.id ?? null);
+	const sections = $derived(adminSectionsFor(role));
+	const section = $derived(resolveAdminSection($adminSection, role));
+	const selected = $derived(sections.find(item => item.id === section));
+	const stale = $derived(Boolean(snapshot.stats && (snapshot.error || !snapshot.receivedAt || now - snapshot.receivedAt > 90_000)));
 
-  const sectionMeta: Record<Section, { label: string; icon: string; badge?: string }> = {
-    overview: { label: 'Overview', icon: 'overview' },
-    users: { label: 'Users', icon: 'users' },
-    roles: { label: 'Roles', icon: 'roles' },
-    channels: { label: 'Channels', icon: 'channels' },
-    gates: { label: 'Role Gates', icon: 'gates' },
-    runtime: { label: 'Runtime', icon: 'runtime' },
-    branding: { label: 'Branding', icon: 'branding' },
-    settings: { label: 'Server Policy', icon: 'settings' },
-  }
+	$effect(() => {
+		const server = $activeServerUrl;
+		const identity = accountId;
+		const allowed = canManageServer(role);
+		snapshot = emptyAdminSnapshot();
+		const off = onAuthSessionCleared(cleared => {
+			if (cleared !== server) return;
+			resource?.dispose();
+			snapshot = emptyAdminSnapshot();
+			// Retire the whole privileged editor, not only its statistics.
+			// A same-account re-login must not inherit this session's draft.
+			layoutStore.setCenterPanelView('chat');
+		});
+		if (!allowed || !identity) return off;
+		const generation = authSessionGeneration(server);
+		const isCurrent = () => authSessionGeneration(server) === generation;
+		const owner = createAdminDashboardResource({
+			onChange: next => { snapshot = next; now = Date.now(); },
+			read: async signal => {
+				const request = async () => {
+					signal.throwIfAborted();
+					if (!isCurrent()) throw new AdminDashboardAccessError('Your session changed. Reopen Administration.');
+					const token = getAuthToken(server);
+					if (!token) throw new AdminDashboardAccessError('Sign in again to view server status.');
+					return fetch(server + '/api/admin/stats', { headers: { Authorization: 'Bearer ' + token }, credentials: 'include', signal });
+				};
+				let response = await request();
+				if (response.status === 401 && isCurrent() && !signal.aborted && await tryRefresh(server)) response = await request();
+				signal.throwIfAborted();
+				if (!isCurrent()) throw new AdminDashboardAccessError('Your session changed. Reopen Administration.');
+				if (response.status === 401 || response.status === 403) throw new AdminDashboardAccessError('Administrator access is no longer available. Sign in again or contact the owner.');
+				if (!response.ok) throw new Error('Could not read server status (HTTP ' + response.status + ').');
+				if (!/\bjson\b/i.test(response.headers.get('content-type') ?? '')) throw new Error('The server did not return an administration snapshot.');
+				return response.json();
+			},
+		});
+		resource = owner;
+		void owner.refresh();
+		const interval = setInterval(() => { now = Date.now(); if (!document.hidden) void owner.refresh(); }, 30_000);
+		const visible = () => { now = Date.now(); if (!document.hidden) void owner.refresh(); };
+		document.addEventListener('visibilitychange', visible);
+		return () => {
+			owner.dispose(); off(); clearInterval(interval); document.removeEventListener('visibilitychange', visible);
+			if (resource === owner) resource = null;
+		};
+	});
 
-  const sectionAccess: Record<Section, string[]> = {
-    overview: ['owner', 'admin', 'mod'],
-    users: ['owner', 'admin', 'mod'],
-    roles: ['owner', 'admin'],
-    channels: ['owner', 'admin'],
-    gates: ['owner', 'admin'],
-    runtime: ['owner', 'admin'],
-    branding: ['owner', 'admin'],
-    settings: ['owner', 'admin'],
-  }
+	function navigate(destination: AdminSection): void {
+		adminSection.set(destination);
+	}
 
-  let section: Section = 'overview'
-  let stats: DashboardStats | null = null
-  let statsLoading = true
-  /** Finding 27: surface stats fetch failures instead of silently stale dashboard */
-  let statsError: string | null = null
-  let timeStr = ''
-  let paymentPolicy: PaymentAccessPolicy | null = null
-  let paymentLoading = true
+	async function back(): Promise<void> {
+		layoutStore.setCenterPanelView('chat');
+		await tick();
+		document.querySelector<HTMLButtonElement>('.workspace-trigger')?.focus();
+	}
 
-  $: role = $currentUser?.highestRole || 'member'
-  $: canAccess = (s: Section) => sectionAccess[s].includes(role)
-
-  function visibleSections(): Array<{ id: Section; meta: typeof sectionMeta[Section] }> {
-    const result: Array<{ id: Section; meta: typeof sectionMeta[Section] }> = []
-    for (const [id, meta] of Object.entries(sectionMeta)) {
-      if (canAccess(id as Section)) {
-        result.push({ id: id as Section, meta })
-      }
-    }
-    return result
-  }
-
-  async function fetchStats() {
-    const token = getAuthToken()
-    if (!token) { statsLoading = false; statsError = 'Sign in again to view server statistics.'; return }
-    statsLoading = true
-    statsError = null
-    try {
-      const res = await fetch(`${getApiBase()}/api/admin/stats`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (res.ok) {
-        stats = await res.json()
-      } else {
-        statsError = `Stats unavailable (HTTP ${res.status})`
-        console.warn(`[Admin] stats failed: HTTP ${res.status}`)
-      }
-    } catch (err) {
-      statsError = 'Stats unavailable (network error)'
-      console.warn('[Admin] stats network error:', err)
-    } finally {
-      statsLoading = false
-    }
-  }
-
-  async function fetchPaymentPolicy() {
-    const token = getAuthToken()
-    paymentLoading = true
-    if (!token) { paymentLoading = false; return }
-    try {
-      const policy = await getAdminPaymentAccessPolicy(token)
-      paymentPolicy = {
-        ...policy,
-        allowedRoleNames: Array.isArray(policy.allowedRoleNames)
-          ? policy.allowedRoleNames.map((r) => r.toLowerCase())
-          : []
-      }
-    } catch {
-      paymentPolicy = null
-    } finally {
-      paymentLoading = false
-    }
-  }
-
-  async function goBackToChat() {
-    layoutStore.setCenterPanelView('chat')
-    await tick()
-    document.querySelector<HTMLButtonElement>('.workspace-trigger')?.focus()
-  }
-
-  onMount(() => {
-    document.querySelector<HTMLButtonElement>('.admin-back-btn')?.focus()
-    fetchStats()
-    fetchPaymentPolicy()
-    const interval = setInterval(fetchStats, 30000)
-    const clock = setInterval(() => {
-      const now = new Date()
-      timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    }, 1000)
-    return () => { clearInterval(interval); clearInterval(clock) }
-  })
+	onMount(() => { document.querySelector<HTMLButtonElement>('.admin-back-btn')?.focus(); });
 </script>
 
-<div class="admin-center-stage">
-  <!-- Sidebar -->
-  <aside class="admin-sidebar">
-    <div class="admin-sidebar-header">
-      <button class="admin-back-btn" on:click={goBackToChat} title="Back to Chat">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M19 12H5M12 19l-7-7 7-7"/>
-        </svg>
-        <span>Back</span>
-      </button>
-    </div>
-
-    <div class="admin-sidebar-role">
-      <span class="admin-role-tag" class:admin-role-owner={role === 'owner'} class:admin-role-admin={role === 'admin'} class:admin-role-mod={role === 'mod'}>
-        {role}
-      </span>
-      <span class="admin-role-label">viewing as</span>
-    </div>
-
-    <nav class="admin-sidebar-nav">
-      {#each visibleSections() as item}
-        {@const isActive = section === item.id}
-        <button
-          class="admin-nav-item"
-          class:admin-nav-active={isActive}
-          on:click={() => section = item.id}
-        >
-          <span class="admin-nav-icon">
-            {#if item.meta.icon === 'overview'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-            {:else if item.meta.icon === 'users'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
-            {:else if item.meta.icon === 'channels'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-            {:else if item.meta.icon === 'roles'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            {:else if item.meta.icon === 'gates'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-            {:else if item.meta.icon === 'runtime'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/></svg>
-            {:else if item.meta.icon === 'branding'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-            {:else if item.meta.icon === 'settings'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-            {/if}
-          </span>
-          <span class="admin-nav-label">{item.meta.label}</span>
-        </button>
-      {/each}
-    </nav>
-
-  </aside>
-
-  <!-- Main -->
-  <div class="admin-main">
-    <header class="admin-topbar">
-      <div class="admin-topbar-left">
-        <h2 class="admin-topbar-title">{sectionMeta[section].label}</h2>
-        {#if role === 'mod'}
-          <span class="admin-topbar-badge">View Only</span>
-        {/if}
-      </div>
-      <div class="admin-topbar-right">
-        {#if stats}
-          <div class="admin-topbar-stats">
-            <span class="admin-topbar-dot"></span>
-            <span class="admin-topbar-stat">{stats.overview.onlineUsers} online</span>
-            <span class="admin-topbar-sep"></span>
-            <span class="admin-topbar-stat">{stats.overview.totalUsers} total</span>
-          </div>
-        {:else if statsError}
-          <span class="admin-topbar-stat admin-topbar-stat--error" title={statsError}>{statsError}</span>
-        {/if}
-        <span class="admin-topbar-clock">{timeStr}</span>
-      </div>
-    </header>
-
-    <main class="admin-content">
-      {#if statsError && section === 'overview'}
-        <div class="admin-section" role="alert">
-          <p>{statsError}{stats ? '. Showing the last available snapshot.' : ''}</p>
-          <button class="admin-btn" on:click={fetchStats} disabled={statsLoading}>Retry statistics</button>
-        </div>
-      {/if}
-      {#key section}
-        <div class="admin-content-inner" in:fade={{ duration: 200 }}>
-          {#if section === 'overview'}
-            {#if stats || !statsError}
-              <OverviewSection {stats} loading={statsLoading && !stats} paymentPolicy={paymentPolicy} paymentLoading={paymentLoading} />
-            {/if}
-          {:else}
-            <AdminWorkspace section={section} />
-          {/if}
-        </div>
-      {/key}
-    </main>
-  </div>
+<div class="admin-center-stage admin-workbench">
+	<aside class="admin-sidebar" aria-label="Administration">
+		<div class="admin-sidebar-header">
+			<button class="admin-back-btn" onclick={back}>
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 12H5m7 7-7-7 7-7" /></svg>
+				Back to workspace
+			</button>
+		</div>
+		<div class="admin-identity"><strong>Administration</strong><span>{canManageServer(role) ? 'Manage this server' : 'Staff workspace'}</span></div>
+		<nav class="admin-sidebar-nav" aria-label="Admin sections">
+			{#each sections as item (item.id)}
+				<button class="admin-nav-item" class:admin-nav-active={section === item.id} aria-current={section === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
+					<span class="admin-nav-icon" aria-hidden="true"><WorkspacePanelIcon icon={icons[item.id] ?? 'settings'} /></span>
+					<span class="admin-nav-label">{item.label}</span>
+				</button>
+			{/each}
+		</nav>
+	</aside>
+	<div class="admin-main">
+		<header class="admin-topbar">
+			<div class="admin-heading"><h1>{selected?.label ?? 'Administration'}</h1><p>{selected?.description ?? 'Your server role does not grant access to this workspace.'}</p></div>
+			{#if canManageServer(role)}
+				<div class="admin-snapshot-controls">
+					<span class:stale>{snapshot.receivedAt ? (stale ? 'Last snapshot ' : 'Updated ') + new Date(snapshot.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No snapshot yet'}</span>
+					<button class="admin-refresh" onclick={() => resource?.refresh()} disabled={snapshot.loading}>{snapshot.loading ? 'Refreshing…' : 'Refresh'}</button>
+				</div>
+			{/if}
+		</header>
+		<main class="admin-content" aria-label={selected?.label ?? 'Administration'}>
+			{#if snapshot.error && (section === 'overview' || section === 'runtime')}
+				<div class="admin-read-error" role="alert"><strong>Server status unavailable</strong><p>{snapshot.error} {snapshot.stats ? 'The last snapshot is shown below; it is not a current health check.' : ''}</p></div>
+			{/if}
+			<div class="admin-content-inner">
+				{#if section === 'overview'}
+					<OverviewSection stats={snapshot.stats} loading={snapshot.loading} {stale} onNavigate={navigate} />
+				{:else if section === 'runtime'}
+					<ServerHealthSection health={snapshot.stats?.extra?.health} loading={snapshot.loading && !snapshot.stats} {stale} expanded />
+				{:else if section}
+					{#key JSON.stringify([$activeServerUrl, accountId, role, section])}<AdminWorkspace {section} />{/key}
+				{:else}
+					<p class="admin-access-message" role="status">Administration is available to server staff. Your workspace and conversations are unchanged.</p>
+				{/if}
+			</div>
+		</main>
+	</div>
 </div>

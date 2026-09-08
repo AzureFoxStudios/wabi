@@ -240,7 +240,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (detail.view === 'chat') {
 			activeView = 'chat';
 			layoutStore.showMobileChannels.set(false);
-			layoutStore.closeRightPanel();
+			if (detail.preserveRightPanel !== true) layoutStore.closeRightPanel();
 			if (typeof detail.channelId === 'string' && detail.channelId) {
 				currentChannel.set(detail.channelId);
 				void joinChannel(detail.channelId);

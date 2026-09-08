@@ -1,5 +1,5 @@
 const browser: boolean = typeof window !== 'undefined' && typeof document !== 'undefined';
-import { getAuthToken, setAuthToken, clearAuthToken } from '../authSession';
+import { getAuthToken, setAuthToken, clearAuthToken, authSessionGeneration } from '../authSession';
 import { getServerUrl, normalizeServerUrl } from '../serverUrl';
 
 // Refresh tokens are stored server-scoped, session-scoped (cleared when the
@@ -64,14 +64,16 @@ const inFlight = new Map<string, Promise<boolean>>();
 export async function tryRefresh(serverUrl?: string | null): Promise<boolean> {
 	const base = normalizeServerUrl(serverUrl || getServerUrl());
 	if (!browser || !base) return false;
-	const existing = inFlight.get(base);
+	const generation = authSessionGeneration(base);
+	const key = JSON.stringify([base, generation]);
+	const existing = inFlight.get(key);
 	if (existing) return existing;
 	// Resolve and capture the server/account before yielding. Never send a token
 	// to whichever server happens to be selected when the request resumes.
 	const refreshToken = getRefreshToken(base);
 	const accessBefore = getAuthToken(base);
 	if (!refreshToken || !accessBefore) return false;
-	const stillCurrent = () => getAuthToken(base) === accessBefore && getRefreshToken(base) === refreshToken;
+	const stillCurrent = () => authSessionGeneration(base) === generation && getAuthToken(base) === accessBefore && getRefreshToken(base) === refreshToken;
 	const pending = Promise.resolve().then(async () => {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 15000);
@@ -115,9 +117,9 @@ export async function tryRefresh(serverUrl?: string | null): Promise<boolean> {
 			return false;
 		} finally {
 			clearTimeout(timeout);
-			inFlight.delete(base);
+			if (inFlight.get(key) === pending) inFlight.delete(key);
 		}
 	});
-	inFlight.set(base, pending);
+	inFlight.set(key, pending);
 	return pending;
 }

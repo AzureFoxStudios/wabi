@@ -604,33 +604,113 @@ async fn message_in_channel(state: &SioState, channel_id: &str, message_id: &str
     }
 }
 
-/// True if the socket's bearer token has been revoked (password change on
-/// another session, logout-everywhere, admin kick). REST requests check this
-/// in `auth_extractor`; without this check a revoked token keeps full live
-/// socket access until the JWT expires. Guest sockets carry an empty token
-/// and are unaffected; a token that fails to decode keeps its existing
-/// unauthenticated treatment.
+/// Check a previously authenticated socket's original bearer against current
+/// revocation state. New handshakes still enforce expiration. Established
+/// sockets may outlive exp (including healthy calls), but expiration must never
+/// hide their original subject/iat from later user or global revocation floors.
+/// Invalid signatures/claims fail closed; signed guest credentials use the same
+/// rule. Individual-jti entries remain subject to the existing exp+1h pruning
+/// limit; unlike user/global floors they are not retained indefinitely.
 async fn socket_token_revoked(app: &AppState, token: &str) -> bool {
-    if token.is_empty() {
-        return false;
-    }
+    let revocations = app.revocations.read().await;
+    socket_token_revoked_by(token, &app.config.jwt_secret, &revocations)
+}
+
+fn socket_token_revoked_by(token: &str, secret: &str, revocations: &crate::state::RevocationStore) -> bool {
+    if token.is_empty() { return true; }
     use jsonwebtoken::{decode, DecodingKey, Validation};
     #[derive(Deserialize)]
     struct C {
         sub: String,
+        // Legacy account access tokens may lack a per-token identifier. Their
+        // signed subject and issuance time still obey account/global floors.
+        #[serde(default)]
         jti: String,
         iat: i64,
     }
-    let key = DecodingKey::from_secret(app.config.jwt_secret.as_bytes());
+    let key = DecodingKey::from_secret(secret.as_bytes());
     let mut v = Validation::default();
-    v.validate_exp = true;
-    v.leeway = 60;
+    // Signature verification and required claims stay enabled. Only temporal
+    // expiry is irrelevant to this established-session revocation lookup.
+    v.validate_exp = false;
     match decode::<C>(token, &key, &v) {
         Ok(d) => {
-            let sub = d.claims.sub.parse::<i64>().unwrap_or(-1);
-            app.is_token_revoked(&d.claims.jti, sub, d.claims.iat).await
+            let Ok(sub) = d.claims.sub.parse::<i64>() else { return true; };
+            // A negative iat would wrap to u64 inside the floor comparison.
+            if sub <= 0 || d.claims.iat < 0 { return true; }
+            revocations.is_revoked(&d.claims.jti, sub, d.claims.iat)
         }
-        Err(_) => false,
+        Err(_) => true,
+    }
+}
+
+#[cfg(test)]
+mod socket_revocation_tests {
+    use super::*;
+    use crate::state::RevocationStore;
+
+    const SECRET: &str = "established-socket-revocation-test-only";
+    fn claims() -> Value {
+        json!({"sub":"7","username":"fixture","is_guest":false,"token_type":"access",
+            "iat":1_500_000_000_i64,"exp":1_500_000_100_i64,"jti":"socket-fixture"})
+    }
+    fn signed(claims: &Value, secret: &str) -> String {
+        jsonwebtoken::encode(&jsonwebtoken::Header::default(), claims,
+            &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes())).unwrap()
+    }
+
+    #[test]
+    fn expired_established_credentials_keep_continuity_but_cannot_start_a_new_socket() {
+        for is_guest in [false, true] {
+            let mut payload = claims(); payload["is_guest"] = json!(is_guest);
+            let token = signed(&payload, SECRET);
+            assert_eq!(validate_token_sync(&token, SECRET).unwrap_err(), "token expired");
+            assert!(!socket_token_revoked_by(&token, SECRET, &RevocationStore::default()),
+                "token expiry alone must not tear down an established healthy call");
+        }
+    }
+
+    #[test]
+    fn expired_established_credentials_still_obey_every_retained_revocation_rule() {
+        let token = signed(&claims(), SECRET);
+        let mut revoked = RevocationStore::default();
+        assert!(!socket_token_revoked_by(&token, SECRET, &revoked));
+        revoked.user_iat_revoked.insert(7, 1_500_000_001);
+        assert!(socket_token_revoked_by(&token, SECRET, &revoked), "later account revocation must not disappear after exp");
+        revoked.user_jti_exemptions.insert(7, HashSet::from(["socket-fixture".into()]));
+        assert!(!socket_token_revoked_by(&token, SECRET, &revoked), "existing explicit same-session exemption stays valid");
+        revoked.epoch = 1_500_000_001;
+        assert!(socket_token_revoked_by(&token, SECRET, &revoked), "global revocation overrides the exemption");
+        revoked = RevocationStore::default(); revoked.users.insert(7);
+        assert!(socket_token_revoked_by(&token, SECRET, &revoked));
+        revoked = RevocationStore::default(); revoked.jtis.insert("socket-fixture".into(), u64::MAX);
+        assert!(socket_token_revoked_by(&token, SECRET, &revoked), "a retained per-token revocation remains effective");
+    }
+
+    #[test]
+    fn legacy_missing_jti_preserves_continuity_without_bypassing_account_floors() {
+        let mut payload = claims(); payload.as_object_mut().unwrap().remove("jti");
+        let token = signed(&payload, SECRET); let mut revoked = RevocationStore::default();
+        assert!(!socket_token_revoked_by(&token, SECRET, &revoked));
+        revoked.user_iat_revoked.insert(7, 1_500_000_001);
+        assert!(socket_token_revoked_by(&token, SECRET, &revoked));
+    }
+
+    #[test]
+    fn invalid_signature_or_claims_cannot_turn_into_unrevoked_cached_identity() {
+        let revoked = RevocationStore::default();
+        for token in [String::new(), "malformed.jwt".into(), signed(&claims(), "different-key")] {
+            assert!(socket_token_revoked_by(&token, SECRET, &revoked));
+        }
+        for (field, value) in [("sub", json!("0")), ("sub", json!("-7")), ("sub", json!("not-an-id")),
+            ("sub", json!("9223372036854775808")), ("iat", json!(-1)), ("iat", Value::Null), ("jti", json!(7))] {
+            let mut payload = claims(); payload[field] = value;
+            assert!(socket_token_revoked_by(&signed(&payload, SECRET), SECRET, &revoked), "invalid {field}");
+        }
+        for field in ["sub", "iat", "exp"] {
+            let mut payload = claims(); payload.as_object_mut().unwrap().remove(field);
+            assert!(socket_token_revoked_by(&signed(&payload, SECRET), SECRET, &revoked), "missing required {field}");
+        }
     }
 }
 

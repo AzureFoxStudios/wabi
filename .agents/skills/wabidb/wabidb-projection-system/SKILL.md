@@ -209,6 +209,24 @@ pub fn compact(state: &ProjectionState) -> usize {
 
 `users` index is NOT just a single-user lookup. `UsersProjection::list(state, filter)` with `UsersFilter::default()` returns EVERY user row — registered accounts, guests, and bots — each with profile fields. This is the canonical "who exists on this server" read: `WdbAdapter::list_users()` (in `wabi-server/src/adapter/mod.rs`) feeds the socket `init` payload's `serverMembers`, which the frontend renders as the People panel's greyed-out "Offline — N" section (`offlineUsers = serverMembers − online`). Guest discriminator = empty `password_hash` (same check `auth.rs::handle_login` uses), exposed on the wire as `is_registered` (UserView). If `serverMembers` is empty, the offline roster silently vanishes — always route roster reads through `list_users()`, never a hardcoded `Vec::new()` stub.
 
+### Administrative reads (2026-09-08)
+
+User/channel typed queries propagate genuine record decode failures; do not
+silently filter corrupt rows into a plausible partial roster or channel count.
+Preserve supported legacy decoders, absent-ghost handling and tombstones.
+This changes error propagation, not postcard layouts or secondary-index writes.
+
+AuditProjection records only role_assigned, role_removed and
+channel_settings_updated in **audit_log**. count uses index length; recent(limit)
+reverse-scans fixed-width big-endian commit keys and validates each selected
+record/key. Do not decode/sort the entire history for a dashboard poll or invent
+timestamps absent from AuditEntry. API sequences are strings to preserve u64.
+The latest-ten read is not a full corruption scan or a complete moderation log.
+
+The Admin health read reports writer liveness and projection health, not host,
+backup or replication health. Its applied commit is not a durable committed
+watermark. Existing read isolation guarantees remain unchanged.
+
 ### Membership removal and old snapshots (2026-09-07)
 
 `channel_member_removed` uses the **existing, unchanged** postcard
@@ -299,6 +317,7 @@ Messages registers `MessagesByChannelIndex` → `"messages_by_channel"` and `Mes
 
 ## Common Pitfalls
 
+- **A complete badge list cannot skip corrupt rows.** BadgesProjection::list_user_badges returns an error for an unreadable row in that user's prefix, preserving the legacy optional timestamp decode. Mutation readback uses the checked result and never broadcasts a fabricated empty/partial list; roster initialization has a separate best-effort decoration fallback. Regression: badges projection tests plus wabi-server admin_role_contract's real socket corruption/recovery case. No event/index/record encoding changed.
 - **`for_each` / `prefix_scan` closures must not call `state.get`/`state.insert` for a DIFFERENT index that may need a write lock.** Even a *read* `get` inside the read-locked `for_each` closure is unsafe vs a queued writer (re-entrancy deadlock family, same as the insert case). Collect (key, value) pairs inside the closure, drop the lock, THEN call `state.get` on the other index outside the loop (2026-07-19 fix in `maintenance.rs::ThreadAutoArchiver`).
 - **Compaction must cover secondary indexes.** See Tombstone Compaction step 4 — if a soft-deletable projection has secondary indexes, purge them in `compact()` or deleted rows persist until full rebuild.
 - **Secondary-index apply already rewrites `message_id`.** See SecondaryIndex value-encoding note — do not re-encode the payload without the `msg_{:x}` rewrite or query tests fail.

@@ -602,8 +602,13 @@ impl WabiDbEngine {
 
     /// Ready to accept writes and serve projections without a known apply gap.
     pub fn is_healthy(&self) -> bool {
-        self.projection_state.is_healthy()
-            && self.sequencer.as_ref().is_some_and(|s| !s.sender().is_closed())
+        self.projection_state.is_healthy() && self.is_writer_running()
+    }
+
+    /// Whether the sequencer still accepts commands and its task is alive.
+    /// This is runtime liveness, not an acknowledgement of any particular write.
+    pub fn is_writer_running(&self) -> bool {
+        self.sequencer.as_ref().is_some_and(|s| !s.sender().is_closed())
             && self._sequencer_handle.as_ref().is_some_and(|h| !h.is_finished())
     }
 
@@ -1174,7 +1179,17 @@ mod tests {
         assert_eq!(engine.bootstrap_key(), &[0xABu8; 32]);
         assert_eq!(engine.data_dir(), dir.path());
         assert!(engine.sequencer.is_some());
+        assert!(engine.is_writer_running());
+        assert!(engine.is_healthy());
         assert!(engine._lock_file_path.is_some());
+    }
+
+    #[test]
+    fn projection_only_test_engine_does_not_claim_a_live_writer() {
+        let engine = WabiDbEngine::new_for_tests();
+        assert!(engine.projection_state().is_healthy());
+        assert!(!engine.is_writer_running());
+        assert!(!engine.is_healthy());
     }
 
     #[tokio::test]

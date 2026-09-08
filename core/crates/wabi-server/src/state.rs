@@ -24,13 +24,13 @@ use wabidb::retention::tombstone::TombstoneTable;
 /// channel_id → Vec of message JSON objects (capped at 1000 per channel).
 pub type SessionMessages = Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>;
 
-/// Composed (brand-injected) index.html, cached against admin_policies.json
-/// mtime. Phase 1 boot optimization: the server stamps its identity into the
+/// Composed (brand-injected) index.html, cached against the read policy value.
+/// Phase 1 boot optimization: the server stamps its identity into the
 /// SPA shell so first paint is branded with zero extra requests. In-memory
 /// Rust state only — no persistence.
 #[derive(Clone)]
 pub struct ComposedIndexCache {
-    pub policy_mtime: Option<std::time::SystemTime>,
+    pub policy: serde_json::Value,
     /// Whether the cached body carries an injected brand (fast-path key).
     pub has_custom_brand: bool,
     pub body: Vec<u8>,
@@ -39,6 +39,9 @@ pub struct ComposedIndexCache {
 /// Shared application state
 pub struct AppState {
     pub config: ServerConfig,
+    /// Monotonic server lifetime, including initialization; never starts on the
+    /// first health/dashboard request. Runtime-only, not a persisted record.
+    pub started_at: std::time::Instant,
     /// WabiDB engine handle. The source of truth for all persistence.
     /// Concrete `WdbAdapter` (not the trait object) — `WabiStore` is not
     /// yet dyn-compatible (its async fns need a Send bound for `dyn Trait`).
@@ -63,6 +66,9 @@ pub struct AppState {
     /// ownership) so concurrent first registrations can't interleave:
     /// exactly one account is created before an owner exists.
     pub setup_claim_lock: tokio::sync::Mutex<()>,
+    /// Orders legacy payment-policy import against either administrative save
+    /// route. Runtime coordination only; WabiDB remains authoritative.
+    pub payment_policy_lock: tokio::sync::Mutex<()>,
     /// Token revocation state. A stolen/compromised JWT can be killed
     /// without rotating the signing secret: individual `jti`s, entire
     /// users, or all tokens issued before an `epoch` can be revoked.
@@ -174,9 +180,10 @@ pub struct RevocationStore {
     /// Bumping it effectively revokes every outstanding token at once.
     pub epoch: u64,
     /// Individually revoked token IDs (`jti`) → the revoked token's `exp`
-    /// (unix seconds). Entries whose exp has passed can no longer authenticate
-    /// anyone (the JWT validation rejects expired tokens before the
-    /// revocation lookup), so they are pruned on save to bound file growth.
+    /// (unix seconds). REST and new socket handshakes reject expired tokens;
+    /// entries are pruned after exp+1h to bound file growth. Established sockets
+    /// may outlive exp, so individual-jti revocation is only retained for that
+    /// window. User/global revocation floors remain effective afterward.
     /// Legacy format was a bare `HashSet<String>`; deserialized via a
     /// backward-compat shim in `load_revocations`.
     #[serde(default)]
@@ -200,6 +207,18 @@ pub struct RevocationStore {
 }
 
 impl RevocationStore {
+    /// Capture the revocation cut associated with an authentication proof.
+    pub(crate) fn account_watermark(&self, user_id: i64) -> (u64, u64) {
+        (self.epoch, self.user_iat_revoked.get(&user_id).copied().unwrap_or(0))
+    }
+
+    fn next_user_floor(&self, user_id: i64, now: i64) -> u64 {
+        let (epoch, floor) = self.account_watermark(user_id);
+        (now.max(0) as u64).saturating_add(1)
+            .max(epoch.saturating_add(1))
+            .max(floor.saturating_add(1))
+    }
+
     /// Pure revocation decision used by `AppState::is_token_revoked`.
     /// `sub` is the user id, `iat` the token's issued-at timestamp.
     pub fn is_revoked(&self, jti: &str, sub: i64, iat: i64) -> bool {
@@ -232,10 +251,11 @@ impl RevocationStore {
         false
     }
 
-    /// Drop revoked-jti entries whose token has expired. Safe by construction:
-    /// JWT validation rejects expired tokens before the revocation lookup, so
-    /// an expired jti can never be the reason a request is rejected. Called
-    /// from `save_revocations` to bound on-disk growth.
+    /// Drop individual-jti revocations after exp+1h to bound on-disk growth.
+    /// REST/new handshakes reject expired JWTs independently. Established
+    /// sockets can outlive that window: use account/global floors when their
+    /// access must remain revoked beyond it. Do not mistake this retention
+    /// limit for a universal guarantee that expired tokens have no live socket.
     pub fn prune_expired_jtis(&mut self, now_unix: u64) {
         // Grace window of one hour: never race the clock edge between the
         // token's own exp validation (which has leeway) and this prune.
@@ -249,6 +269,7 @@ impl AppState {
     /// `<data_dir>/wabidb/`. WDB is fully decommissioned — no WDB
     /// initialization, no compat shim.
     pub async fn new(config: ServerConfig) -> anyhow::Result<Self> {
+        let started_at = std::time::Instant::now();
         let owner_user_id = RwLock::new(None);
         let node_registry = NodeRegistry::new_persistent(
             config.node_id.clone(),
@@ -315,6 +336,7 @@ impl AppState {
         );
         Ok(Self {
             config,
+            started_at,
             wdb,
             channels: RwLock::new(ChannelManager {
                 channel_broadcasts: std::collections::HashMap::new(),
@@ -327,6 +349,7 @@ impl AppState {
             tombstone_table: Arc::new(RwLock::new(TombstoneTable::new())),
             owner_user_id,
             setup_claim_lock: tokio::sync::Mutex::new(()),
+            payment_policy_lock: tokio::sync::Mutex::new(()),
             revocation_file,
             revocations,
             recovery_file,
@@ -593,8 +616,11 @@ impl AppState {
     pub async fn revoke_user(&self, user_id: i64) {
         {
             let mut g = self.revocations.write().await;
-            let floor = chrono::Utc::now().timestamp().max(1) as u64 + 1;
+            let floor = g.next_user_floor(user_id, chrono::Utc::now().timestamp());
             g.user_iat_revoked.insert(user_id, floor);
+            // A later forced logout/admin reset also revokes the session that
+            // was exempted by an earlier own-password change.
+            g.user_jti_exemptions.remove(&user_id);
             // Drop any legacy permanent-ban entry — the floor replaces it.
             g.users.remove(&user_id);
         }
@@ -625,12 +651,14 @@ impl AppState {
     pub async fn revoke_user_other_sessions(&self, user_id: i64, exempt_jti: &str) {
         {
             let mut guard = self.revocations.write().await;
-            let watermark = (chrono::Utc::now().timestamp().max(1)) as u64 + 1;
+            let watermark = guard.next_user_floor(user_id, chrono::Utc::now().timestamp());
             guard.user_iat_revoked.insert(user_id, watermark);
             if !exempt_jti.is_empty() {
                 let mut set = HashSet::new();
                 set.insert(exempt_jti.to_string());
                 guard.user_jti_exemptions.insert(user_id, set);
+            } else {
+                guard.user_jti_exemptions.remove(&user_id);
             }
         }
         self.save_revocations().await;
@@ -639,7 +667,13 @@ impl AppState {
     /// Revoke ALL outstanding tokens by advancing the revocation epoch.
     pub async fn revoke_all_tokens(&self) {
         {
-            self.revocations.write().await.epoch = chrono::Utc::now().timestamp().max(1) as u64 + 1;
+            let mut guard = self.revocations.write().await;
+            // Fresh tokens can be stamped at a user's future watermark. A
+            // subsequent global revoke must move past those tokens as well.
+            let latest_user_floor = guard.user_iat_revoked.values().copied().max().unwrap_or(0);
+            guard.epoch = (chrono::Utc::now().timestamp().max(0) as u64).saturating_add(1)
+                .max(guard.epoch.saturating_add(1))
+                .max(latest_user_floor.saturating_add(1));
         }
         self.save_revocations().await;
     }

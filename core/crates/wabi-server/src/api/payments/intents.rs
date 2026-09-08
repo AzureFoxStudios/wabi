@@ -29,7 +29,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::promptpay::{build_promptpay_qr_payload, PromptPayQrParams};
-use super::{evaluate_payment_access, extract_identity, extract_user_id, is_admin_user, json_error};
+use super::{account_user_id, evaluate_payment_access, is_admin_user, json_error};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 use wabidb::projections::payments::PaymentIntentRecord;
@@ -170,12 +170,20 @@ pub async fn create_intent(
     headers: HeaderMap,
     Json(input): Json<CreateIntentInput>,
 ) -> Response {
-    let (user_id, is_guest) = match extract_identity(&headers, &state.config.jwt_secret) {
-        Ok(identity) => identity,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let auth = match super::authenticate_account(&headers, &state).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
+    };
+    let user_id = auth.user_id;
+    let policy = match super::load_access_policy(&state, false).await {
+        Ok(policy) => policy,
+        Err(error) => return super::access_unavailable(&error),
     };
     // WS-3: enforce the persisted payments access policy + user blocks.
-    let actor = evaluate_payment_access(&state, user_id, is_guest).await;
+    let actor = match evaluate_payment_access(&state, &policy, user_id, auth.is_guest).await {
+        Ok(actor) => actor,
+        Err(error) => return super::access_unavailable(&error),
+    };
     if actor.get("canCreate").and_then(|v| v.as_bool()) != Some(true) {
         let reason = actor
             .get("reason")
@@ -429,7 +437,7 @@ pub async fn list_intents(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Response {
-    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let user_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -452,7 +460,7 @@ pub async fn confirm_intent(
     AxumPath(id): AxumPath<String>,
     Json(input): Json<ConfirmIntentInput>,
 ) -> Response {
-    let admin_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let admin_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
@@ -497,7 +505,7 @@ pub async fn reject_intent(
     AxumPath(id): AxumPath<String>,
     Json(input): Json<ConfirmIntentInput>,
 ) -> Response {
-    let admin_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let admin_id = match account_user_id(&headers, &state).await {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };

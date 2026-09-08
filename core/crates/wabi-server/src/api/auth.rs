@@ -199,8 +199,7 @@ async fn handle_register(
         }
     }
 
-    let access_token = generate_access_jwt(&state, user_id, &req.username, false)?;
-    let refresh_token = generate_refresh_jwt(&state, user_id, &req.username, false)?;
+    let (access_token, refresh_token) = generate_account_jwts(&state, user_id, &req.username, false, None).await?;
 
     Ok(Json(AuthResponse::new(
         access_token,
@@ -228,14 +227,17 @@ async fn handle_login(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>> {
-    let user_row = state
-        .wdb
-        .get_user_by_username(&req.username)
-        .await
-        .map_err(|e| AppError::Internal(format!("wdb get_user_by_username: {e}")))?
-        .ok_or_else(|| {
-            AppError::Unauthorized("Invalid username or password".into())
-        })?;
+    let (user_row, authenticated_at) = {
+        // Capture the password row and its revocation cut together. A reset
+        // during password verification must not turn the old password proof
+        // into a new session beyond that reset's cutoff.
+        let revocations = state.revocations.read().await;
+        let user = state.wdb.get_user_by_username(&req.username).await
+            .map_err(|e| AppError::Internal(format!("wdb get_user_by_username: {e}")))?
+            .ok_or_else(|| AppError::Unauthorized("Invalid username or password".into()))?;
+        let watermark = revocations.account_watermark(user.user_id as i64);
+        (user, watermark)
+    };
 
     let user_id = user_row.user_id as i64;
 
@@ -285,8 +287,7 @@ async fn handle_login(
     // login→401 bounce loop (2026-07-23 incident).
     state.clear_legacy_user_revocation(user_id).await;
 
-    let access_token = generate_access_jwt(&state, user_id, &username, false)?;
-    let refresh_token = generate_refresh_jwt(&state, user_id, &username, false)?;
+    let (access_token, refresh_token) = generate_account_jwts(&state, user_id, &username, false, Some(authenticated_at)).await?;
 
     Ok(Json(AuthResponse::new(
         access_token,
@@ -357,7 +358,11 @@ async fn handle_refresh(
         .map_err(|_| AppError::Unauthorized("invalid user_id in token".into()))?;
 
     // Check if token is revoked (reuse detection: if already burned, kill the whole family)
-    if state.is_token_revoked(&claims.jti, user_id, claims.iat).await {
+    let (revoked, authenticated_at) = {
+        let revocations = state.revocations.read().await;
+        (revocations.is_revoked(&claims.jti, user_id, claims.iat), revocations.account_watermark(user_id))
+    };
+    if revoked {
         // Refresh token was already used — treat as theft, revoke all user tokens
         state.revoke_user(user_id).await;
         return Err(AppError::Unauthorized("token reuse detected; all sessions revoked".into()));
@@ -390,8 +395,7 @@ async fn handle_refresh(
     let is_guest = user_row.password_hash.is_empty();
 
     // Mint fresh access + refresh pair
-    let access_token = generate_access_jwt(&state, user_id, &username, is_guest)?;
-    let refresh_token = generate_refresh_jwt(&state, user_id, &username, is_guest)?;
+    let (access_token, refresh_token) = generate_account_jwts(&state, user_id, &username, is_guest, Some(authenticated_at)).await?;
 
     Ok(Json(AuthResponse::new(
         access_token,
@@ -475,8 +479,7 @@ async fn handle_guest(
         .await?;
     let user_id = user_id_u64 as i64;
 
-    let access_token = generate_access_jwt(&state, user_id, &username, true)?;
-    let refresh_token = generate_refresh_jwt(&state, user_id, &username, true)?;
+    let (access_token, refresh_token) = generate_account_jwts(&state, user_id, &username, true, None).await?;
 
     Ok(Json(AuthResponse::new(
         access_token,
@@ -562,60 +565,31 @@ struct JwtClaims {
     token_type: String, // "access" or "refresh"; missing = legacy access token
 }
 
-/// Generate JWT access token for authenticated user (15 min TTL)
-fn generate_access_jwt(state: &AppState, user_id: i64, username: &str, is_guest: bool) -> Result<String> {
+/// Mint a coherent account pair under one revocation snapshot. A successful
+/// fresh proof after a reset must work immediately, even when the cutoff is
+/// the next Unix second. Only iat is clamped; wall-clock TTLs are unchanged.
+async fn generate_account_jwts(
+    state: &AppState, user_id: i64, username: &str, is_guest: bool,
+    authenticated_at: Option<(u64, u64)>,
+) -> Result<(String, String)> {
     let now = Utc::now();
-    let expiration = now + Duration::minutes(15);
-
-    let claims = JwtClaims {
-        sub: user_id.to_string(),
-        username: username.to_string(),
-        is_guest,
-        exp: expiration.timestamp(),
-        iat: now.timestamp(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        stepup: false,
-        token_type: "access".to_string(),
+    let revocations = state.revocations.read().await;
+    let watermark = revocations.account_watermark(user_id);
+    if authenticated_at.is_some_and(|proof| proof != watermark) {
+        return Err(AppError::Unauthorized("Account sessions changed during authentication. Sign in again.".into()));
+    }
+    let issued_at = i64::try_from((now.timestamp().max(0) as u64).max(watermark.0).max(watermark.1))
+        .map_err(|_| AppError::Internal("Invalid account revocation timestamp".into()))?;
+    let mint = |kind: &str, ttl: Duration| -> Result<String> {
+        Ok(encode(&Header::default(), &JwtClaims {
+            sub: user_id.to_string(), username: username.to_string(), is_guest,
+            exp: (now + ttl).timestamp(), iat: issued_at,
+            jti: uuid::Uuid::new_v4().to_string(), stepup: false, token_type: kind.into(),
+        }, &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()))?)
     };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-    )?;
-
-    Ok(token)
-}
-
-/// Generate JWT refresh token for authenticated user (30 day TTL).
-/// Guests are capped at 24h — a guest identity must not outlive the tab
-/// by 30 days (pre-rotation semantics: guest tokens expired in 24h).
-fn generate_refresh_jwt(state: &AppState, user_id: i64, username: &str, is_guest: bool) -> Result<String> {
-    let now = Utc::now();
-    let expiration = if is_guest {
-        now + Duration::hours(24)
-    } else {
-        now + Duration::days(30)
-    };
-
-    let claims = JwtClaims {
-        sub: user_id.to_string(),
-        username: username.to_string(),
-        is_guest,
-        exp: expiration.timestamp(),
-        iat: now.timestamp(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        stepup: false,
-        token_type: "refresh".to_string(),
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-    )?;
-
-    Ok(token)
+    let access = mint("access", Duration::minutes(15))?;
+    let refresh = mint("refresh", if is_guest { Duration::hours(24) } else { Duration::days(30) })?;
+    Ok((access, refresh))
 }
 
 /// Generate a short-lived step-up JWT after the user re-proves their password.
@@ -818,6 +792,36 @@ mod tests {
             lore: Default::default(),
         };
         (data_dir, Arc::new(AppState::new(config).await.unwrap()))
+    }
+
+    #[tokio::test]
+    async fn fresh_account_pair_respects_cutoff_without_reviving_an_older_proof() {
+        let (_directory, state) = make_test_state().await;
+        let uid = state.wdb.create_user("mint-test", None, "test-hash").await.unwrap() as i64;
+        let now = Utc::now().timestamp();
+        let old_proof = state.revocations.read().await.account_watermark(uid);
+        {
+            let mut revocations = state.revocations.write().await;
+            revocations.epoch = (now + 60) as u64;
+            revocations.user_iat_revoked.insert(uid, (now + 120) as u64);
+        }
+        assert!(matches!(generate_account_jwts(&state, uid, "mint-test", false, Some(old_proof)).await, Err(AppError::Unauthorized(_))));
+        let current_proof = state.revocations.read().await.account_watermark(uid);
+        let (access, refresh) = generate_account_jwts(&state, uid, "mint-test", false, Some(current_proof)).await.unwrap();
+        let access_claims = decode_token(&access, &state.config.jwt_secret).await.unwrap();
+        let refresh_claims = decode_token(&refresh, &state.config.jwt_secret).await.unwrap();
+        assert_eq!(access_claims.iat, now + 120);
+        assert_eq!(refresh_claims.iat, access_claims.iat);
+        assert!(access_claims.exp <= Utc::now().timestamp() + 15 * 60, "a future cutoff must not extend token TTL");
+        assert!(crate::auth_extractor::authenticate_access_token(&state, &access).await.is_ok());
+        assert!(!state.is_token_revoked(&refresh_claims.jti, uid, refresh_claims.iat).await);
+        state.revoke_user(uid).await;
+        assert!(state.is_token_revoked(&access_claims.jti, uid, access_claims.iat).await, "a repeated cutoff must move beyond freshly clamped tokens");
+        let proof = state.revocations.read().await.account_watermark(uid);
+        let (access, _) = generate_account_jwts(&state, uid, "mint-test", false, Some(proof)).await.unwrap();
+        assert!(crate::auth_extractor::authenticate_access_token(&state, &access).await.is_ok());
+        state.revoke_all_tokens().await;
+        assert!(crate::auth_extractor::authenticate_access_token(&state, &access).await.is_err(), "global revoke must include tokens minted at a user's future cutoff");
     }
 
     #[tokio::test]

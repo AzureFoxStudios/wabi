@@ -6,6 +6,7 @@ import type {
 import type { PaymentAccessPolicy } from '../../../../shared/adminPolicyContracts';
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
 import { hasAddonCapability } from '../addonInventory';
+import { parsePaymentAccessResponse } from '../payments/paymentAccessContract';
 
 export interface PaymentIntent {
 	intentId: string;
@@ -496,7 +497,7 @@ export async function savePaymentAccess(
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to save payment access policy');
 	}
-	return (data.policy || policy) as PaymentAccessPolicy;
+	return parsePaymentAccessResponse(data).policy;
 }
 
 export async function getPaymentAccess(token: string | null | undefined): Promise<PaymentAccessStatusResponse> {
@@ -508,23 +509,5 @@ export async function getPaymentAccess(token: string | null | undefined): Promis
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load payment access status');
 	}
-	return {
-		success: Boolean(data.success),
-		policy: (data.policy || {
-			enabled: false,
-			allowGuest: false,
-			allowedRoleNames: ['owner', 'admin', 'mod', 'member']
-		}) as PaymentAccessPolicy,
-		// The actor gate is derived client-side from the session; the WabiDB
-		// payment projection (Phase 1) serves the persisted access policy.
-		actor: {
-			authenticated: Boolean(token),
-			userId: null,
-			roles: [],
-			blocked: false,
-			canCreate: Boolean(token),
-			reasonCode: null,
-			reason: null
-		}
-	};
+	return parsePaymentAccessResponse(data);
 }

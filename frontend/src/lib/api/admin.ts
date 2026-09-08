@@ -161,7 +161,7 @@ export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Pro
 			const error = (await safeJsonParse(res)) as Record<string, any>;
 			throw new Error(error.error || `Failed to load policy: ${key}`);
 		}
-		return res.json();
+		return await res.json();
 	} finally {
 		clearTimeout(timeout);
 	}
@@ -209,6 +209,8 @@ export async function saveAdminUploadLimits(token: string, config: UploadLimitCo
 }
 
 export async function getAdminPaymentAccessPolicy(token: string): Promise<PaymentAccessPolicy> {
+	// Compatibility endpoint, backed by the same canonical WabiDB policy as
+	// /payments/access (not the legacy admin JSON store).
 	const data = await getAdminPolicy<PaymentAccessPolicy>(token, 'payments_access');
 	return data.config;
 }

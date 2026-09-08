@@ -177,27 +177,30 @@ impl QueryableProjection for UsersProjection {
             Some(user_id) => {
                 let key = encode_key(user_id);
                 if let Some(bytes) = state.get("users", &key) {
-                    if let Ok(record) = decode_record(&bytes) {
-                        if let Some(active) = filter.is_active {
-                            if record.is_active != active {
-                                return Ok(results);
-                            }
+                    let record = decode_record(&bytes)?;
+                    if let Some(active) = filter.is_active {
+                        if record.is_active != active {
+                            return Ok(results);
                         }
-                        results.push(record);
                     }
+                    results.push(record);
                 }
             }
             None => {
+                let mut failure = None;
                 state.for_each("users", |_key, value| {
-                    if let Ok(record) = decode_record(value) {
-                        if let Some(active) = filter.is_active {
-                            if record.is_active != active {
-                                return;
+                    if failure.is_some() { return; }
+                    match decode_record(value) {
+                        Ok(record) => {
+                            if let Some(active) = filter.is_active {
+                                if record.is_active != active { return; }
                             }
+                            results.push(record);
                         }
-                        results.push(record);
+                        Err(error) => failure = Some(error),
                     }
                 });
+                if let Some(error) = failure { return Err(error); }
             }
         }
         apply_limit(&mut results, filter.limit);
@@ -275,6 +278,22 @@ mod tests {
         assert_eq!(decoded.password_hash, "$2b$12$legacyhash");
         assert_eq!(decoded.profile_picture, None);
         assert_eq!(decoded.bio, None);
+
+        // Typed list/direct queries must retain the same legacy fallback.
+        let state = ProjectionState::new();
+        state.insert("users", encode_key(legacy.user_id), buf, 1);
+        assert_eq!(UsersProjection.query(&state, &UsersFilter::default()).unwrap(), vec![decoded.clone()]);
+        assert_eq!(UsersProjection.query(&state, &UsersFilter { user_id: Some(legacy.user_id), ..Default::default() }).unwrap(), vec![decoded]);
+    }
+
+    #[test]
+    fn typed_queries_reject_corrupt_users_instead_of_hiding_accounts() {
+        let state = ProjectionState::new();
+        state.insert("users", encode_key(42), vec![0xff], 1);
+        for filter in [UsersFilter::default(), UsersFilter { user_id: Some(42), ..Default::default() },
+            UsersFilter { is_active: Some(true), limit: Some(1), ..Default::default() }] {
+            assert!(UsersProjection.query(&state, &filter).is_err());
+        }
     }
 
     #[test]
