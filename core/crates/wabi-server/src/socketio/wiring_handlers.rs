@@ -168,6 +168,120 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
     drop(socket.emit("assign-role-success", &json!({ "requestId": request_id, "targetUserId": target_user_id, "role": role_name })));
 }
 
+/// Admin ban surface backed by the durable file-backed blacklist manager.
+/// Mirrors `handle_assign_role`: same identity resolution, admin gate, and
+/// active-registered-member target validation, plus ban-specific protections
+/// (no self-ban, owner is unbannable, non-owner admins cannot ban admins).
+#[allow(dead_code)]
+pub async fn handle_admin_ban_user(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
+    let request_id = data.get("requestId").cloned().unwrap_or(Value::Null);
+    let target_user_id = data.get("targetUserId").and_then(|v| v.as_i64()).unwrap_or(0);
+    let reason: String = data.get("reason").and_then(|v| v.as_str()).unwrap_or("").trim().chars().take(200).collect();
+    let reason = if reason.is_empty() { "Banned by administrator".to_string() } else { reason };
+
+    if target_user_id <= 0 {
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Choose a valid member to ban" }));
+        return;
+    }
+
+    let Some(identity) = resolve_identity(&socket, state).await else { return; };
+    let caller_id = identity.user_id;
+    if identity.is_guest || !state.app.is_admin(caller_id).await {
+        warn!("[sio] admin-ban-user: user {} not authorized", caller_id);
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Only admins can ban users" }));
+        return;
+    }
+
+    if !matches!(state.app.wdb.get_user(target_user_id as u64).await,
+        Ok(Some(user)) if !user.password_hash.is_empty() && user.is_active) {
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Bans can only be applied to active registered members" }));
+        return;
+    }
+
+    if target_user_id == caller_id {
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "You cannot ban yourself" }));
+        return;
+    }
+
+    if state.app.is_owner(target_user_id).await {
+        warn!("[sio] admin-ban-user: refusing to ban server owner {}", target_user_id);
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "The server owner cannot be banned" }));
+        return;
+    }
+
+    // `is_admin` covers the same authorities `handle_assign_role` checks
+    // separately (owner, `config.admin_user_ids`, live Admin role): a
+    // non-owner admin may not ban another admin, but the owner may ban
+    // anyone else including admins.
+    if !state.app.is_owner(caller_id).await && state.app.is_admin(target_user_id).await {
+        warn!("[sio] admin-ban-user: non-owner admin {} tried to ban admin {}", caller_id, target_user_id);
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Only the server owner can ban another administrator" }));
+        return;
+    }
+
+    let Some(blacklist) = state.app.get_blacklist().await else {
+        warn!("[sio] admin-ban-user: blacklist manager unavailable");
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Ban enforcement is currently unavailable" }));
+        return;
+    };
+    blacklist.add_user(target_user_id, &reason, None).await;
+
+    // Full token revoke so outstanding sessions die on their next request.
+    state.app.revoke_user(target_user_id).await;
+
+    // Reuse the established revoked-session mechanism (`auth-revoked` +
+    // disconnect, cf. `resolve_identity` in shared.rs): evict every live
+    // socket authenticated as the banned user so the ban takes effect
+    // immediately instead of on their next request.
+    for device in io.sockets() {
+        if device.extensions.get::<SioIdentity>().is_some_and(|id| id.user_id == target_user_id) {
+            let _ = device.emit("auth-revoked", &json!({ "reason": "You have been banned from this server" }));
+            let _ = device.disconnect();
+        }
+    }
+
+    let _ = socket.emit("admin-ban-success", &json!({ "requestId": request_id, "targetUserId": target_user_id, "reason": reason }));
+    let _ = io.broadcast().emit("user-banned", &json!({ "targetUserId": target_user_id, "bannedByUserId": caller_id, "reason": reason })).await;
+}
+
+/// Admin unban surface: removes the target from the durable blacklist.
+/// Same gate and target validation as the ban path; lifting a ban is never
+/// a privilege escalation so the self/owner/admin protections don't apply.
+#[allow(dead_code)]
+pub async fn handle_admin_unban_user(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
+    let request_id = data.get("requestId").cloned().unwrap_or(Value::Null);
+    let target_user_id = data.get("targetUserId").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    if target_user_id <= 0 {
+        let _ = socket.emit("admin-unban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Choose a valid member to unban" }));
+        return;
+    }
+
+    let Some(identity) = resolve_identity(&socket, state).await else { return; };
+    let caller_id = identity.user_id;
+    if identity.is_guest || !state.app.is_admin(caller_id).await {
+        warn!("[sio] admin-unban-user: user {} not authorized", caller_id);
+        let _ = socket.emit("admin-unban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Only admins can unban users" }));
+        return;
+    }
+
+    if !matches!(state.app.wdb.get_user(target_user_id as u64).await,
+        Ok(Some(user)) if !user.password_hash.is_empty() && user.is_active) {
+        let _ = socket.emit("admin-unban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Unbans can only be applied to active registered members" }));
+        return;
+    }
+
+    let Some(blacklist) = state.app.get_blacklist().await else {
+        warn!("[sio] admin-unban-user: blacklist manager unavailable");
+        let _ = socket.emit("admin-unban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Ban enforcement is currently unavailable" }));
+        return;
+    };
+    blacklist.remove_user(target_user_id).await;
+
+    let _ = socket.emit("admin-unban-success", &json!({ "requestId": request_id, "targetUserId": target_user_id }));
+    let _ = io.broadcast().emit("user-unbanned", &json!({ "targetUserId": target_user_id, "unbannedByUserId": caller_id })).await;
+}
+
 pub async fn handle_toggle_reception(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
     let identity = resolve_sio_identity(&socket);
     let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
