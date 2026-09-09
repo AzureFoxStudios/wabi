@@ -81,6 +81,7 @@
 	export let onHandleMarkdownContentClick: (event: MouseEvent) => void;
 	export let onDeletionModeDelete: (message: Message) => void | Promise<void> = () => {};
 	export let onHandleUsernameClick: (event: MouseEvent, message: Message, resolvedUser?: User) => void;
+	export let onHandleUsernameContextMenu: (event: MouseEvent, message: Message, resolvedUser?: User) => void = () => {};
 	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean) => void;
 
 	export let LinkPreviewComponent: any;
@@ -230,7 +231,19 @@
 	{:else}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="message-avatar">
+			<div
+				class="message-avatar"
+				role="button"
+				tabindex="0"
+				on:click={(e) => onHandleUsernameClick(e, message, author)}
+				on:contextmenu={(e) => onHandleUsernameContextMenu(e, message, author)}
+				on:keydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						onHandleUsernameClick(e as unknown as MouseEvent, message, author);
+					}
+				}}
+			>
 				{#if author?.profilePicture}
 					<img src={author.profilePicture} alt={displayUsername} class="avatar" loading="lazy" decoding="async" />
 				{:else}
@@ -262,6 +275,7 @@
 			{displayEnhancementSettingsStore}
 			{themeStore}
 			onUsernameClick={onHandleUsernameClick}
+			onUsernameContextMenu={onHandleUsernameContextMenu}
 			{getUserColor}
 			{getUsernameStyle}
 			{getTopRoleBadgeLabel}

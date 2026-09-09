@@ -518,6 +518,18 @@
 		openUserPopoutForUser(user, target);
 	}
 
+	/** Right-click a message author name: open the user popout (which carries
+	 * the moderation section for owner/admin) instead of the message menu. */
+	function handleUsernameContextMenu(event: MouseEvent, message: Message, resolvedUser?: User): void {
+		event.preventDefault();
+		event.stopPropagation();
+		const target = event.currentTarget as HTMLElement | null;
+		if (!target) return;
+		const user = resolvedUser || getUserByMessageAuthor(message);
+		if (!user) return;
+		openUserPopoutForUser(user, target);
+	}
+
 	async function handleMarkdownContentClick(event: MouseEvent): Promise<void> {
 		const target = event.target as HTMLElement | null;
 		if (!target) return;
@@ -2056,6 +2068,7 @@
 			onToggleSpoiler={toggleSpoiler}
 			onCapturedSpoilerClick={handleCapturedSpoilerClick}
 			onHandleUsernameClick={handleUsernameClick}
+			onHandleUsernameContextMenu={handleUsernameContextMenu}
 			onHandleAlbumAnnouncementKeydown={handleAlbumAnnouncementKeydown}
 		/>
 	{/if}

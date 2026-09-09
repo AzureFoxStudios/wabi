@@ -13,6 +13,7 @@
 	export let displayEnhancementSettingsStore: any;
 	export let themeStore: any;
 	export let onUsernameClick: (event: MouseEvent, message: Message, author?: User) => void;
+	export let onUsernameContextMenu: (event: MouseEvent, message: Message, author?: User) => void = () => {};
 	export let getUserColor: (user: User | undefined, username: string) => string;
 	export let getUsernameStyle: (user: User | undefined, username: string, themeState: any) => string;
 	export let getTopRoleBadgeLabel: (user: User | undefined) => string | null;
@@ -33,6 +34,7 @@
 					class:clickable-username={displayEnhancementSettingsStore.clickableMentionsEnabled}
 					style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, themeStore)}"
 					on:click={(event) => onUsernameClick(event, message, author)}
+					on:contextmenu={(event) => onUsernameContextMenu(event, message, author)}
 				>
 					{displayUsername}
 				</span>
@@ -78,6 +80,7 @@
 					class:clickable-username={displayEnhancementSettingsStore.clickableMentionsEnabled}
 					style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, themeStore)}"
 					on:click={(event) => onUsernameClick(event, message, author)}
+					on:contextmenu={(event) => onUsernameContextMenu(event, message, author)}
 				>
 					{displayUsername}
 				</span>
