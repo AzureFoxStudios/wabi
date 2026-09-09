@@ -1247,7 +1247,9 @@
 	}
 	function handleReactionSelect(event: CustomEvent<{ emoji: Emoji }>) {
 		if (!reactionPickerMessageId || !reactionPickerChannelId) return;
-		addReaction(reactionPickerChannelId, reactionPickerMessageId, event.detail.emoji.id);
+		// Toggle, never blindly add — picking an emoji you already reacted
+		// with must remove it, not stack a duplicate react.
+		toggleReaction(reactionPickerMessageId, event.detail.emoji.id, reactionPickerChannelId);
 		closeReactionPicker();
 	}
 	function getCurrentIdentityIds(): string[] {
@@ -1335,17 +1337,17 @@
 	function getReactionTooltip(userIds: string[]): string {
 		return userIds.map(getReactionUsername).filter(Boolean).join(', ');
 	}
-	function toggleReaction(messageId: string, emojiId: string) {
+	function toggleReaction(messageId: string, emojiId: string, channelId: string = activeChannelId) {
 		const message = messages.find(m => m.id === messageId);
 		if (!message || !message.reactions) {
-			addReaction(activeChannelId, messageId, emojiId);
+			addReaction(channelId, messageId, emojiId);
 			return;
 		}
 		const userReacted = hasCurrentUserReaction(message.reactions[emojiId]);
 		if (userReacted) {
-			removeReaction(activeChannelId, messageId, emojiId);
+			removeReaction(channelId, messageId, emojiId);
 		} else {
-			addReaction(activeChannelId, messageId, emojiId);
+			addReaction(channelId, messageId, emojiId);
 		}
 	}
 	$: if (showReactionPicker && reactionPickerChannelId && activeChannelId !== reactionPickerChannelId) {

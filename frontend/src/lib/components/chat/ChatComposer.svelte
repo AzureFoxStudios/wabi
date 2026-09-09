@@ -12,6 +12,7 @@
 	import { _ } from '$lib/i18n';
 	import { isMobile } from '$lib/layoutStoreStates';
 	import { showToast } from '$lib/toast';
+import { addQuickReactionCustomEmojiId } from '$lib/quickReactions';
 	import { getMatchingCommands, type Command } from '$lib/commands';
 	import { getAuthToken } from '$lib/authSession';
 	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
@@ -467,6 +468,13 @@
 		const { emoji } = event.detail;
 		showEmojiPicker = false;
 		showMediaMenu = false;
+		// Remember this emoji for the quick-reaction strip on every message,
+		// not just the current one (Discord-style recency, cap 12).
+		try {
+			addQuickReactionCustomEmojiId(emoji.id);
+		} catch {
+			// best-effort; recency memory must never block inserting the emoji
+		}
 		const token = `:${emoji.name}:`;
 		const needsSpace = messageInput.length > 0 && !/\s$/.test(messageInput);
 		const next = needsSpace ? `${messageInput} ${token}` : `${messageInput}${token}`;
