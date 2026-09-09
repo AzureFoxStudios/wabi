@@ -484,6 +484,10 @@ impl AppState {
                 Some("Owner") => "Owner".to_string(),
                 Some("Admin") => "Admin".to_string(),
                 Some("Moderator") => "Moderator".to_string(),
+                // Artist/Developer are workspace (RBAC) tiers surfaced by exact
+                // stored-role match — same rule as effective_user_role.
+                Some("Developer") => "Developer".to_string(),
+                Some("Artist") => "Artist".to_string(),
                 _ => "Member".to_string(),
             },
             Err(_) => "Member".to_string(),
