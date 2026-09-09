@@ -3,10 +3,10 @@
  * Loads and applies theme on app startup
  */
 
-import { themeStore, currentTheme } from './themeStore';
-import { applyTheme, loadThemeFromLocalStorage, saveThemeToLocalStorage } from './themeManager';
+import { themeStore, currentTheme, backgroundImageSetting, loadBackgroundImageSetting } from './themeStore';
+import { applyTheme, loadThemeFromLocalStorage, saveThemeToLocalStorage, resolveThemeBackground } from './themeManager';
 import { applyPanelColors } from './panelColors';
-import { fetchThemePreferences } from './themeApi';
+import { fetchThemePreferences, getBackgroundImageFromPrefs } from './themeApi';
 import { get } from 'svelte/store';
 import { startupMark, startupMeasure } from '$lib/startupProfiler';
 
@@ -19,11 +19,13 @@ import { startupMark, startupMeasure } from '$lib/startupProfiler';
 export async function initializeTheme(isRegistered: boolean = false): Promise<void> {
 	startupMark('theme:initialize:start');
 	// Shared applier so we can paint twice (snapshot first, server reconcile second)
-	// without duplicating the block.
+	// without duplicating the block. Background is theme-agnostic: prefer the
+	// independent top-level setting, fall back to legacy customTheme for
+	// migration — so it paints on preset themes too.
 	const applyCurrentTheme = () => {
 		const theme = get(currentTheme);
 		const state = get(themeStore);
-		const bgImage = state.customTheme?.backgroundImage;
+		const bgImage = resolveThemeBackground(get(backgroundImageSetting), state.customTheme);
 		applyTheme(theme, bgImage, {
 			enabled: state.uniformFontEnabled,
 			family: state.uniformFontFamily,
@@ -45,6 +47,10 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 			const snapshot = loadThemeFromLocalStorage();
 			if (snapshot) {
 				themeStore.load(snapshot);
+				// Snapshot may carry a top-level background (new) or only the
+				// legacy customTheme.backgroundImage (old) — the applier
+				// resolves either way via resolveThemeBackground.
+				loadBackgroundImageSetting(snapshot.background_image ?? null);
 				applyCurrentTheme();
 			}
 			try {
@@ -54,8 +60,18 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 				startupMark('theme:fetch:end');
 				startupMeasure('theme:fetch', 'theme:fetch:start', 'theme:fetch:end');
 				themeStore.load(prefs);
+				// Load the theme-agnostic background next to theme prefs.
+				// Migration: raw top-level only — legacy customTheme fallback
+				// is resolved at apply time, never deleted here.
+				loadBackgroundImageSetting(prefs.background_image ?? null);
 				// Refresh the local snapshot so the NEXT boot paints instantly.
-				saveThemeToLocalStorage(prefs.theme_id, prefs.custom_theme ?? undefined);
+				// Persist the effective background so top-level art survives
+				// even when custom_theme carries no legacy copy.
+				saveThemeToLocalStorage(
+					prefs.theme_id,
+					prefs.custom_theme ?? undefined,
+					getBackgroundImageFromPrefs(prefs)
+				);
 				console.log('[Theme] ✅ Successfully loaded preferences from server:', {
 					theme_id: prefs.theme_id,
 					uniform_font_enabled: prefs.uniform_font_enabled
@@ -69,6 +85,7 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 					const localPrefs = loadThemeFromLocalStorage();
 					if (localPrefs) {
 						themeStore.load(localPrefs);
+						loadBackgroundImageSetting(localPrefs.background_image ?? null);
 						console.log('[Theme] ✅ Loaded from localStorage fallback:', localPrefs);
 					} else {
 						console.log('[Theme] No localStorage preferences found, using defaults');
@@ -81,6 +98,7 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 			const localPrefs = loadThemeFromLocalStorage();
 			if (localPrefs) {
 				themeStore.load(localPrefs);
+				loadBackgroundImageSetting(localPrefs.background_image ?? null);
 				console.log('[Theme] ✅ Loaded from localStorage:', localPrefs);
 			} else {
 				console.log('[Theme] No localStorage preferences found for guest, using defaults');
@@ -90,7 +108,7 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 		// Apply the theme to DOM
 		const theme = get(currentTheme);
 		const stateInit = get(themeStore);
-	const bgImage = stateInit.customTheme?.backgroundImage;
+	const bgImage = resolveThemeBackground(get(backgroundImageSetting), stateInit.customTheme);
 	applyTheme(theme, bgImage, {
 		enabled: stateInit.uniformFontEnabled,
 		family: stateInit.uniformFontFamily,
@@ -111,7 +129,7 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 		// Apply default theme as fallback
 		const theme = get(currentTheme);
 		const state = get(themeStore);
-		const backgroundImage = state.customTheme?.backgroundImage;
+		const backgroundImage = resolveThemeBackground(get(backgroundImageSetting), state.customTheme);
 		applyTheme(theme, backgroundImage, {
 			enabled: state.uniformFontEnabled,
 			family: state.uniformFontFamily,
@@ -130,9 +148,12 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
  * Call this once on app initialization
  */
 export function watchThemeChanges(): () => void {
-	return themeStore.subscribe((state) => {
+	const applyFromStores = () => {
 		const theme = get(currentTheme);
-		const backgroundImage = state.customTheme?.backgroundImage;
+		const state = get(themeStore);
+		// Theme-agnostic: independent setting wins, legacy customTheme migrates.
+		// applyTheme → applyBackgroundImageVars repaints on every change, any theme.
+		const backgroundImage = resolveThemeBackground(get(backgroundImageSetting), state.customTheme);
 		applyTheme(theme, backgroundImage, {
 			enabled: state.uniformFontEnabled,
 			family: state.uniformFontFamily,
@@ -141,7 +162,13 @@ export function watchThemeChanges(): () => void {
 			style: state.uniformFontStyle
 		});
 		applyPanelColors(state.customTheme?.panelColors);
-	});
+	};
+	const unsubTheme = themeStore.subscribe(() => applyFromStores());
+	const unsubBg = backgroundImageSetting.subscribe(() => applyFromStores());
+	return () => {
+		unsubTheme();
+		unsubBg();
+	};
 }
 
 /**
@@ -151,7 +178,7 @@ export function watchThemeChanges(): () => void {
 export function syncThemeToLocalStorage(): () => void {
 	return themeStore.subscribe((state) => {
 		if (!state.isLoading && !state.error) {
-			saveThemeToLocalStorage(state.themeId, state.customTheme);
+			saveThemeToLocalStorage(state.themeId, state.customTheme, get(backgroundImageSetting));
 		}
 	});
 }
