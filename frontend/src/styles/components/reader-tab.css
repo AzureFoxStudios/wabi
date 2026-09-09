@@ -332,6 +332,12 @@
 
 	.reader-document :global(a) {
 		color: var(--reader-accent);
+		text-decoration: none;
+	}
+
+	.reader-document :global(a:hover) {
+		text-decoration: underline;
+		color: var(--reader-accent);
 	}
 
 	.reader-document :global(img) {
