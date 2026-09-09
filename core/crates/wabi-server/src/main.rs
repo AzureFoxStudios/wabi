@@ -29,6 +29,7 @@ mod mesh;
 mod metrics;
 #[cfg(feature = "wabi-lore")]
 mod lore;
+mod lore_roles;
 mod nodes;
 mod rate_limit;
 mod replication_transport;

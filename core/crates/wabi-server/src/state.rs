@@ -14,6 +14,7 @@ use crate::blobs::BlobRegistry;
 use crate::bot_registry::BotRegistry;
 use crate::config::ServerConfig;
 use crate::jobs::JobQueue;
+use crate::lore_roles::LoreRoleStore;
 use crate::nodes::NodeRegistry;
 use crate::replication_transport::ReqwestTransport;
 use crate::upload_registry::UploadRegistry;
@@ -135,6 +136,9 @@ pub struct AppState {
     pub profile_media_cache: Arc<
         RwLock<HashMap<u64, (String, Option<serde_json::Map<String, serde_json::Value>>)>>,
     >,
+    /// User-defined Lore role tiers (capability bundles in
+    /// `<data_dir>/lore_roles.json` + configurable default policy).
+    pub lore_roles: Arc<LoreRoleStore>,
     /// Composed (brand-injected) index.html. Keyed by admin_policies.json
     /// mtime — admin rebrands are picked up on the next request without
     /// explicit invalidation.
@@ -334,6 +338,10 @@ impl AppState {
             config.port,
             std::path::Path::new(config.data_dir.as_str()),
         );
+        // User-defined Lore roles: seed `<data_dir>/lore_roles.json` when
+        // missing and publish the process-global handle read by the sync
+        // `server_role_catalog()`.
+        let lore_roles = LoreRoleStore::open(&config.data_dir);
         Ok(Self {
             config,
             started_at,
@@ -377,6 +385,7 @@ impl AppState {
             steam_http: crate::api::steam::shared_http_client(),
             guest_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
             tailcat,
+            lore_roles,
             profile_media_cache: Arc::new(RwLock::new(HashMap::new())),
             composed_index: tokio::sync::RwLock::new(None),
         })

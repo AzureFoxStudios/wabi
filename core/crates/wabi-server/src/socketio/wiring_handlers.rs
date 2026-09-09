@@ -67,22 +67,227 @@ pub async fn handle_get_role_definitions(socket: SocketRef, _io: &SocketIo, _sta
     let _ = socket.emit("role-definitions-updated", &server_role_catalog());
 }
 
-/// Server RBAC has fixed roles. WabiStore's channel permission definitions are
-/// a different record, not customizable display labels or a list of assigned roles.
+/// Server RBAC catalog for the moderation menu, built FROM the LoreRoleStore
+/// (single source of truth shared with the admin role editor). Shape kept
+/// stable: `{ roles: [{roleName, displayName, priority, description, color,
+/// isHoisted, capabilities?}], canRename: false }`, plus `defaultPolicy` for
+/// the editor. `mod`/`guest` are NOT lore roles — they stay listed for the
+/// moderation menu with no capabilities array. Custom (unknown-id) roles ride
+/// at member-level priority.
 fn server_role_catalog() -> Value {
-    let roles: Vec<Value> = [
-        ("owner", "Owner", 400, "The server owner. Ownership is protected and managed separately."),
-        ("admin", "Admin", 300, "Manages server settings and member roles."),
-        ("developer", "Developer", 260, "Full edit access to Lore/Project repositories (stage, commit, approve, lock)."),
-        ("mod", "Moderator", 200, "Moderates conversations using the server's moderation controls."),
-        ("artist", "Artist", 120, "Asset-write access to Lore/Project repositories (stage and lock artwork assets)."),
-        ("member", "Member", 100, "A registered member, subject to channel access and server policies."),
-        ("guest", "Guest", 0, "An unregistered visitor. Guest access follows server policies and is not an assignable member role."),
-    ].into_iter().map(|(name, label, priority, description)| json!({
-        "roleName": name, "displayName": label, "priority": priority,
-        "description": description, "color": null, "isHoisted": false,
-    })).collect();
-    json!({ "roles": roles, "canRename": false })
+    match crate::lore_roles::shared_lore_roles() {
+        Some(store) => {
+            let defs: std::collections::HashMap<String, crate::lore_roles::LoreRoleDef> =
+                store.list_roles().into_iter().map(|d| (d.id.clone(), d)).collect();
+            catalog_from_defs(&defs, &store.default_policy())
+        }
+        // Cold-start fallback (no AppState built yet, e.g. unit contexts):
+        // the seed defaults, so the menu never renders empty.
+        None => catalog_from_defs(&crate::lore_roles::seed_roles(), "view"),
+    }
+}
+
+fn lore_catalog_priority(id: &str) -> i64 {
+    match id {
+        "owner" => 400,
+        "admin" => 300,
+        "developer" => 260,
+        "mod" => 200,
+        "artist" => 120,
+        "member" => 100,
+        "guest" => 0,
+        _ => 100,
+    }
+}
+
+fn catalog_from_defs(
+    defs: &std::collections::HashMap<String, crate::lore_roles::LoreRoleDef>,
+    default_policy: &str,
+) -> Value {
+    const MOD_DESCRIPTION: &str =
+        "Moderates conversations using the server's moderation controls.";
+    const GUEST_DESCRIPTION: &str =
+        "An unregistered visitor. Guest access follows server policies and is not an assignable member role.";
+
+    let mut roles: Vec<Value> = Vec::new();
+    // Fixed moderation-menu order; store-backed entries resolve by id.
+    for id in ["owner", "admin", "developer", "mod", "artist", "member"] {
+        if id == "mod" {
+            roles.push(json!({
+                "roleName": "mod", "displayName": "Moderator",
+                "priority": lore_catalog_priority("mod"),
+                "description": MOD_DESCRIPTION, "color": null, "isHoisted": false,
+            }));
+            continue;
+        }
+        match defs.get(id) {
+            Some(def) => roles.push(json!({
+                "roleName": def.id, "displayName": def.name,
+                "priority": lore_catalog_priority(&def.id),
+                "description": def.description, "color": null, "isHoisted": false,
+                "capabilities": def.capabilities,
+            })),
+            None => continue,
+        }
+    }
+    // Custom roles (anything outside the fixed set), sorted by id.
+    let mut custom: Vec<&crate::lore_roles::LoreRoleDef> = defs
+        .values()
+        .filter(|d| !["owner", "admin", "developer", "artist", "member"].contains(&d.id.as_str()))
+        .collect();
+    custom.sort_by(|a, b| a.id.cmp(&b.id));
+    for def in custom {
+        roles.push(json!({
+            "roleName": def.id, "displayName": def.name,
+            "priority": lore_catalog_priority(&def.id),
+            "description": def.description, "color": null, "isHoisted": false,
+            "capabilities": def.capabilities,
+        }));
+    }
+    roles.push(json!({
+        "roleName": "guest", "displayName": "Guest", "priority": lore_catalog_priority("guest"),
+        "description": GUEST_DESCRIPTION, "color": null, "isHoisted": false,
+    }));
+    json!({ "roles": roles, "canRename": false, "defaultPolicy": default_policy })
+}
+
+/// Shared admin gate for the lore-roles CRUD surface. Mirrors
+/// `handle_assign_role`: `resolve_identity` + `!is_guest` +
+/// `state.app.is_admin`. Emits `lore-roles-error` on denial.
+async fn require_lore_roles_admin(
+    socket: &SocketRef,
+    state: &SioState,
+    request_id: &Value,
+) -> Option<i64> {
+    match resolve_identity(socket, state).await {
+        Some(identity)
+            if !identity.is_guest && state.app.is_admin(identity.user_id).await =>
+        {
+            Some(identity.user_id)
+        }
+        Some(identity) => {
+            warn!("[sio] lore-roles: user {} not authorized", identity.user_id);
+            let _ = socket.emit(
+                "lore-roles-error",
+                &json!({ "requestId": request_id, "error": "Only admins can manage Lore roles" }),
+            );
+            None
+        }
+        None => None,
+    }
+}
+
+/// Broadcast the fresh role snapshot + refreshed moderation catalog after a
+/// successful mutation: the requester gets a direct emit, everyone else the
+/// broadcast (same split as the emoji delete path).
+async fn publish_lore_roles(socket: &SocketRef, state: &SioState) {
+    let payload = state.app.lore_roles.snapshot();
+    let _ = socket.emit("lore-roles-updated", &payload);
+    let _ = socket.broadcast().emit("lore-roles-updated", &payload).await;
+    let catalog = server_role_catalog();
+    let _ = socket.emit("role-definitions-updated", &catalog);
+    let _ = socket.broadcast().emit("role-definitions-updated", &catalog).await;
+}
+
+#[allow(dead_code)]
+pub async fn handle_lore_roles_list(socket: SocketRef, data: Value, state: &SioState, _io: &SocketIo) {
+    let request_id = data.get("requestId").cloned().unwrap_or(Value::Null);
+    if require_lore_roles_admin(&socket, state, &request_id).await.is_none() {
+        return;
+    }
+    let _ = socket.emit("lore-roles-updated", &state.app.lore_roles.snapshot());
+}
+
+#[allow(dead_code)]
+pub async fn handle_lore_roles_upsert(socket: SocketRef, data: Value, state: &SioState, _io: &SocketIo) {
+    let request_id = data.get("requestId").cloned().unwrap_or(Value::Null);
+    if require_lore_roles_admin(&socket, state, &request_id).await.is_none() {
+        return;
+    }
+    let raw_id = data
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let name = data
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    // The store additionally refuses any capability reduction below ALL for
+    // the admin id, and fully locks the owner id.
+    let id = if raw_id.is_empty() {
+        crate::lore_roles::slugify_name(&name)
+    } else {
+        raw_id
+    };
+    let description: String = data
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(280)
+        .collect();
+    let capabilities: Vec<String> = data
+        .get("capabilities")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| c.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let def = crate::lore_roles::LoreRoleDef { id, name, description, capabilities };
+    match state.app.lore_roles.upsert(def) {
+        Ok(_) => publish_lore_roles(&socket, state).await,
+        Err(error) => {
+            let _ = socket.emit("lore-roles-error", &json!({ "requestId": request_id, "error": error }));
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub async fn handle_lore_roles_delete(socket: SocketRef, data: Value, state: &SioState, _io: &SocketIo) {
+    let request_id = data.get("requestId").cloned().unwrap_or(Value::Null);
+    if require_lore_roles_admin(&socket, state, &request_id).await.is_none() {
+        return;
+    }
+    let id = data
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if id.is_empty() {
+        let _ = socket.emit("lore-roles-error", &json!({ "requestId": request_id, "error": "Missing role id" }));
+        return;
+    }
+    match state.app.lore_roles.delete(&id) {
+        Ok(()) => publish_lore_roles(&socket, state).await,
+        Err(error) => {
+            let _ = socket.emit("lore-roles-error", &json!({ "requestId": request_id, "error": error }));
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub async fn handle_lore_roles_set_default(socket: SocketRef, data: Value, state: &SioState, _io: &SocketIo) {
+    let request_id = data.get("requestId").cloned().unwrap_or(Value::Null);
+    if require_lore_roles_admin(&socket, state, &request_id).await.is_none() {
+        return;
+    }
+    let policy = data.get("policy").and_then(|v| v.as_str()).unwrap_or("");
+    match state.app.lore_roles.set_default_policy(policy) {
+        Ok(_) => publish_lore_roles(&socket, state).await,
+        Err(error) => {
+            let _ = socket.emit("lore-roles-error", &json!({ "requestId": request_id, "error": error }));
+        }
+    }
 }
 
 fn parse_server_role(value: &str) -> Option<(MemberRole, &'static str)> {
