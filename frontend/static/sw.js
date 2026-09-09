@@ -5,8 +5,8 @@
 // Finding 12: install actually precaches a shell; navigate falls back to it;
 //             media SWR revalidate is tied to event.waitUntil.
 
-const MEDIA_CACHE = 'media-cache-v2';
-const SHELL_CACHE = 'shell-cache-v2';
+const MEDIA_CACHE = 'media-cache-v3';
+const SHELL_CACHE = 'shell-cache-v3';
 
 const MAX_MEDIA_ENTRIES = 300;
 // Capability-URL uploads: short retention. Logout also deletes this cache.
