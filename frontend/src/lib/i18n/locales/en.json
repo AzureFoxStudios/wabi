@@ -526,7 +526,7 @@
     },
     "browser": {
       "title": "Browser Storage",
-      "subtitle": "Your chat history is saved only on your device. The server stores nothing permanently.",
+      "subtitle": "Your chat history is cached on this device for offline use. What the server keeps depends on each channel's retention setting \u2014 some channels delete history automatically, others keep it forever.",
       "save_toggle": "Save chat history locally",
       "save_hint": "When enabled, messages are stored in your browser. You control your data.",
       "rotation_period": "Rotation Period",

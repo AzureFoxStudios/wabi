@@ -49,6 +49,22 @@
 .chat-surface {
 	flex: 1;
 	min-height: 0;
+	/* UI-02/UI-07 (2026-09-07 recon): the workspace switcher strip is now an
+	   unconditional first child; the surface is a column so each surface
+	   fills the REMAINING height instead of 100% of the host (Notes used to
+	   overflow by the strip's height). */
+	display: flex;
+	flex-direction: column;
+}
+
+.chat-surface > .workspace-view-bar {
+	flex: 0 0 auto;
+}
+
+.chat-surface > :not(.workspace-view-bar) {
+	flex: 1 1 0;
+	min-height: 0;
+	height: auto;
 }
 
 .server-rail-container {

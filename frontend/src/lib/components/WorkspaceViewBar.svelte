@@ -38,7 +38,12 @@
 	// Blur on selection so the pills collapse again; keyboard Tab navigation
 	// still reveals them via :focus-within as intended.
 	function handleSelect(view: string, event: Event): void {
-		(event.currentTarget as HTMLElement | null)?.blur();
+		// UI-05 (2026-09-07 recon): blur ONLY pointer clicks (detail > 0).
+		// Keyboard activation (Enter/Space) also fires click with detail 0 —
+		// blurring there threw focus to <body> the instant a workspace opened.
+		if ((event as MouseEvent).detail > 0) {
+			(event.currentTarget as HTMLElement | null)?.blur();
+		}
 		onSelectView(view);
 	}
 </script>

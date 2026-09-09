@@ -16,7 +16,6 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
-	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
 	import type { User } from '$lib/socket';
 	import type { WorkspaceViewKey } from './types';
 
@@ -143,9 +142,6 @@
 		{/if}
 	</div>
 	<div class="header-actions">
-		<div class="header-action-group">
-			<WorkspaceViewBar activeView={selectedWorkspaceView} onSelectView={handleWorkspaceViewSelect} />
-		</div>
 		<div class="header-action-group">
 			{#if isDMChannel && dmCallTargetUser}
 				<div class="dm-call-actions">

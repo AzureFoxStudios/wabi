@@ -64,9 +64,9 @@
 		try {
 			await db.retryFailed();
 			await refreshQueue();
-			alert(t('offline.alerts.retry_success'));
+			alert(t('storage.offline.alerts.retry_success'));
 		} catch {
-			alert(t('offline.alerts.retry_failed'));
+			alert(t('storage.offline.alerts.retry_failed'));
 		}
 	}
 
@@ -390,31 +390,31 @@
 
 	<div class="offline-section">
 		<div class="header">
-			<h3>🌐 {$_('offline.title')}</h3>
-			<p class="subtitle">{$_('offline.subtitle')}</p>
+			<h3>🌐 {$_('storage.offline.title')}</h3>
+			<p class="subtitle">{$_('storage.offline.subtitle')}</p>
 		</div>
 
 		{#if scopes.length > 0}
 			<div class="setting-group">
-				<span class="label">{$_('offline.wabiDB.scope_label')}</span>
+				<span class="label">{$_('storage.offline.wabiDB.scope_label')}</span>
 				{#each scopes as scope}
 					<div class="scope-item">
 						<span class="scope-name">{scope.name}</span>
 						<span class="badge">
 							{#if scope.userControl === 'always'}
-								{$_('offline.scopes.always_on')}
+								{$_('storage.offline.scopes.always_on')}
 							{:else if scope.userControl === 'opt-in'}
-								{$_('offline.scopes.opt_in')}
+								{$_('storage.offline.scopes.opt_in')}
 							{:else}
-								{$_('offline.scopes.off')}
+								{$_('storage.offline.scopes.off')}
 							{/if}
 						</span>
 						{#if scope.userControl === 'always'}
-							<button class="btn-small" disabled>{$_('offline.scopes.always_on')}</button>
+							<button class="btn-small" disabled>{$_('storage.offline.scopes.always_on')}</button>
 						{:else if scope.enabled}
-							<button class="btn-small" on:click={() => toggleScope(scope.scopeId, false)}>{$_('offline.scopes.disable')}</button>
+							<button class="btn-small" on:click={() => toggleScope(scope.scopeId, false)}>{$_('storage.offline.scopes.disable')}</button>
 						{:else}
-							<button class="btn-small" on:click={() => toggleScope(scope.scopeId, true)}>{$_('offline.scopes.enable')}</button>
+							<button class="btn-small" on:click={() => toggleScope(scope.scopeId, true)}>{$_('storage.offline.scopes.enable')}</button>
 						{/if}
 					</div>
 				{/each}
@@ -422,22 +422,22 @@
 		{/if}
 
 		<div class="setting-group">
-			<span class="label">{$_('offline.wabiDB.queue_label')}</span>
+			<span class="label">{$_('storage.offline.wabiDB.queue_label')}</span>
 			<p>
-				{$_('offline.wabiDB.pending')}: {queueCounts.pending} |
-				{$_('offline.wabiDB.failed')}: {queueCounts.failed} |
-				{$_('offline.wabiDB.synced')}: {queueCounts.synced}
+				{$_('storage.offline.wabiDB.pending')}: {queueCounts.pending} |
+				{$_('storage.offline.wabiDB.failed')}: {queueCounts.failed} |
+				{$_('storage.offline.wabiDB.synced')}: {queueCounts.synced}
 			</p>
 		</div>
 
 		<div class="setting-group">
 			<button class="btn-primary" on:click={handleRetry}>
-				{$_('offline.retry.button')}
+				{$_('storage.offline.retry.button')}
 			</button>
 		</div>
 
 		<div class="setting-group">
-			<span class="label">{$_('offline.wabiDB.usage_label')}</span>
+			<span class="label">{$_('storage.offline.wabiDB.usage_label')}</span>
 			<p>{formatBytes(usage.totalBytes)}</p>
 		</div>
 	</div>

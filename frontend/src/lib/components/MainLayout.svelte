@@ -223,6 +223,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: if (!showSettings) {
 		requestedSettingsPaymentSurface = null;
 	}
+	// UI-14 (2026-09-07 recon): opening the fullscreen Admin dashboard closes
+	// Settings. Leaving Settings open underneath made the dashboard's Back
+	// land on a surprise Profile tab instead of one predictable surface.
+	$: if ($layoutStore.centerPanelView === 'admin' && showSettings) {
+		showSettings = false;
+	}
 	$: if (accountSecurityOpenRequest > lastHandledAccountSecurityOpenRequest) {
 		lastHandledAccountSecurityOpenRequest = accountSecurityOpenRequest;
 		requestedSettingsPasswordChangeRequest = accountSecurityOpenRequest;
@@ -1167,9 +1173,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<div class="main-content">
 		<div class="chat-stack">
 			<div class="chat-surface">
-				{#if isModelViewportTabActive || isReaderTabActive || isMediaAlbumsTabActive || isMapTabActive || isPlannerTabActive || isNotesTabActive || $voiceViewOpen}
-					<WorkspaceViewBar activeView={workspaceActiveView} onSelectView={handleWorkspaceViewSelect} />
-				{/if}
+				<!-- UI-02 (2026-09-07 recon): ONE switcher anchor for every center
+				     surface — chat included. The bar used to live inside ChatHeader
+				     for chat and in this strip for workspaces, so its position
+				     teleported between views. Unconditional strip = same anchor. -->
+				<WorkspaceViewBar activeView={workspaceActiveView} onSelectView={handleWorkspaceViewSelect} />
 				{#if isModelViewportTabActive}
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
