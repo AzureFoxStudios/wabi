@@ -523,6 +523,40 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            socket.on("lore-roles-list", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    // Role-definition reads serialize like other gated socket operations.
+                    async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_list(socket, data, &s, &io).await }
+                }
+            });
+
+            socket.on("lore-roles-upsert", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    // Role-definition writes serialize like assign-role.
+                    async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_upsert(socket, data, &s, &io).await }
+                }
+            });
+
+            socket.on("lore-roles-delete", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_delete(socket, data, &s, &io).await }
+                }
+            });
+
+            socket.on("lore-roles-set-default", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_set_default(socket, data, &s, &io).await }
+                }
+            });
+
             socket.on("get-badge-catalog", {
                 let s = state.clone();
                 move |socket: SocketRef| {

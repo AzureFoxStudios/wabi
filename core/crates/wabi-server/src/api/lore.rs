@@ -164,43 +164,36 @@ async fn can_asset_write_lore(state: &AppState, user_id: i64) -> bool {
     can_lore(state, user_id, "lore.stage").await
 }
 
-/// Granular Lore capabilities (spec 2026-08-28 P1.2), derived from workspace
-/// roles. Phase 1 mapping (no per-channel override store yet — Phase 2):
-///   owner/admin    → everything
-///   developer      → view, stage, commit, approve, lock
-///   artist         → view, stage, lock
-///   viewer/member  → view
+/// Granular Lore capabilities (spec 2026-08-28 P1.2), resolved from the
+/// user-defined role store (`<data_dir>/lore_roles.json`, GitHub-custom-
+/// roles model). Resolution order:
+///   1. server owner / admin (live `is_owner` / `is_admin`) → all caps.
+///   2. stored workspace role id `owner` / `admin` → all caps (the
+///      un-lockable base: these ids cannot be reduced below ALL).
+///   3. stored role id found in the store → capability in its bundle.
+///   4. roleless / unknown role id → default policy: `open` = all caps,
+///      otherwise only `lore.view`.
 /// LoreWriteUser enforces connect-token scope independently of these role gates.
 pub(crate) async fn can_lore(state: &AppState, user_id: i64, capability: &str) -> bool {
-    const OWNER_ADMIN_CAPS: [&str; 7] = [
-        "lore.view",
-        "lore.stage",
-        "lore.commit",
-        "lore.approve",
-        "lore.lock",
-        "lore.manage-binding",
-        "lore.admin",
-    ];
-    const DEVELOPER_CAPS: [&str; 5] = [
-        "lore.view",
-        "lore.stage",
-        "lore.commit",
-        "lore.approve",
-        "lore.lock",
-    ];
-    const ARTIST_CAPS: [&str; 3] = ["lore.view", "lore.stage", "lore.lock"];
+    use crate::lore_roles::ALL_CAPABILITIES;
 
     if state.is_owner(user_id).await || state.is_admin(user_id).await {
-        return OWNER_ADMIN_CAPS.contains(&capability);
+        return ALL_CAPABILITIES.contains(&capability);
     }
+    let default_fallback = || {
+        if state.lore_roles.default_policy_is_open() {
+            ALL_CAPABILITIES.contains(&capability)
+        } else {
+            capability == crate::lore_roles::CAP_VIEW
+        }
+    };
     match lore_role(state, user_id).await.map(|r| r.to_ascii_lowercase()) {
-        Some(r) => match r.as_str() {
-            "owner" | "admin" => OWNER_ADMIN_CAPS.contains(&capability),
-            "developer" => DEVELOPER_CAPS.contains(&capability),
-            "artist" => ARTIST_CAPS.contains(&capability),
-            _ => capability == "lore.view",
+        Some(r) if r == "owner" || r == "admin" => ALL_CAPABILITIES.contains(&capability),
+        Some(r) => match state.lore_roles.capabilities_for(Some(r.as_str())) {
+            Some(bundle) => bundle.iter().any(|c| c == capability),
+            None => default_fallback(),
         },
-        None => capability == "lore.view",
+        None => default_fallback(),
     }
 }
 

@@ -35,3 +35,4 @@ pub mod websocket;
 
 #[cfg(feature = "wabi-lore")]
 pub mod lore;
+pub mod lore_roles;
