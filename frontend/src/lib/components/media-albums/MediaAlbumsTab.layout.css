@@ -262,6 +262,21 @@
 		gap: 0.42rem;
 	}
 
+	/* Album cards tile like a photo library instead of full-width slabs. */
+	.album-list {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+		gap: 0.65rem;
+		align-items: stretch;
+	}
+
+	.album-list .album-card {
+		display: flex;
+		flex-direction: column;
+		width: auto;
+		min-width: 0;
+	}
+
 	.album-card {
 		display: block;
 		width: 100%;
@@ -312,6 +327,7 @@
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: 0.4rem;
+		flex-wrap: wrap;
 	}
 
 	.album-name-stack {
@@ -348,6 +364,8 @@
 		align-items: center;
 		gap: 0.3rem;
 		flex-shrink: 0;
+		flex-wrap: wrap;
+		justify-content: flex-end;
 	}
 
 	.album-quick-btn {
@@ -374,14 +392,16 @@
 
 	.album-card-preview-row {
 		display: flex;
+		flex: 1;
 		gap: 0.38rem;
 		margin-top: 0.45rem;
 		min-height: 3.7rem;
 	}
 
 	.album-card-preview {
-		flex: 0 0 calc((100% - 0.76rem) / 3);
-		height: 3.7rem;
+		flex: 1 1 0;
+		min-width: 0;
+		height: 5.6rem;
 		border-radius: 0.8rem;
 		overflow: hidden;
 		border: 1px solid var(--border-subtle);
