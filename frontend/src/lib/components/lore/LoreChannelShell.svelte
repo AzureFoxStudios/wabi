@@ -55,6 +55,7 @@ import { channels } from '$lib/channelStore';
 	import LoreEditorBridge from './LoreEditorBridge.svelte';
 	import LoreScriptRunner from './LoreScriptRunner.svelte';
 	import LoreMirrorPanel from './LoreMirrorPanel.svelte';
+	import LoreRolesAdmin from './LoreRolesAdmin.svelte';
 
 	// Timeline
 	import LoreActivityFeed from './LoreActivityFeed.svelte';
@@ -120,6 +121,8 @@ import { channels } from '$lib/channelStore';
 	let loreRole = $derived((user?.highestRole || '').toLowerCase());
 	let canEdit = $derived(['owner', 'admin', 'developer'].includes(loreRole));
 	let canAssetWrite = $derived(canEdit || loreRole === 'artist');
+	/** Repository role editing is admin-gated (lore.admin). */
+	let canManageRoles = $derived(['owner', 'admin'].includes(loreRole));
 
 	let activeTab = $state<Tab>('files');
 	let selectedPath = $state<string | null>(null);
@@ -130,6 +133,9 @@ import { channels } from '$lib/channelStore';
 
 	// Template picker
 	let showTemplates = $state(false);
+
+	// Repository roles editor (user-defined lore roles + default policy)
+	let showRoles = $state(false);
 
 	// Editor bridge (P4): ephemeral code-server session for this repo
 	let showEditor = $state(false);
@@ -977,6 +983,18 @@ import { channels } from '$lib/channelStore';
 				{health || '...'}
 			</span>
 
+			{#if canManageRoles}
+				<button class="btn btn-sm" title="Edit repository roles and the default access policy" onclick={() => showRoles = true}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+						<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+						<circle cx="9" cy="7" r="4"/>
+						<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+						<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+					</svg>
+					Roles
+				</button>
+			{/if}
+
 			{#if canEdit}
 				<button class="action-btn danger-btn" title="Detach or delete this repository" onclick={() => openDanger('detach')} aria-label="Repository danger zone">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -1050,6 +1068,15 @@ import { channels } from '$lib/channelStore';
 						{templates}
 						onSelect={handleTemplateSelect}
 					/>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Repository roles editor overlay (mirrors the template picker overlay) -->
+		{#if showRoles}
+			<div class="roles-overlay" onclick={() => showRoles = false}>
+				<div class="roles-panel" onclick={(e) => e.stopPropagation()}>
+					<LoreRolesAdmin onClose={() => showRoles = false} />
 				</div>
 			</div>
 		{/if}
@@ -2099,6 +2126,28 @@ import { channels } from '$lib/channelStore';
 		flex-direction: column;
 	}
 
+	/* Repository roles editor overlay (same pattern, wider for role cards) */
+	.roles-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: var(--z-modal, 1000);
+	}
+
+	.roles-panel {
+		background: var(--surface-base);
+		border-radius: var(--radius-lg);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent);
+		width: min(720px, 94vw);
+		max-height: 86vh;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+	}
+
 	.template-header {
 		display: flex;
 		align-items: center;
@@ -2175,6 +2224,10 @@ import { channels } from '$lib/channelStore';
 
 		.template-picker-panel {
 			width: 90vw;
+		}
+
+		.roles-panel {
+			width: 94vw;
 		}
 
 		.citation-preview-panel {

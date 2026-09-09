@@ -23,6 +23,7 @@
 	import { brandName } from '$lib/branding';
 	import UserPopoutActions from './UserPopoutActions.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
+	import { requestLiveRoleChange, selectAssignableRoles } from './userListHelpers';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import {
@@ -357,6 +358,12 @@
 		return true;
 	})();
 
+	// Live role list for the moderation buttons: lore roles from the catalog
+	// plus mod. Kept compact — the member list shows the full set.
+	$: popoutAssignableRoles = canManageRoles ? selectAssignableRoles($roleDefinitions) : [];
+	$: popoutRoles = popoutAssignableRoles.slice(0, 6);
+	$: hiddenRoleCount = Math.max(0, popoutAssignableRoles.length - popoutRoles.length);
+
 	let roleActionStatus = '';
 	let banActionStatus = '';
 	$: isTargetBanned = user?.dbUserId != null ? $bannedUserIds.has(user.dbUserId) : false;
@@ -365,12 +372,11 @@
 	$: if ($socket && browser) {
 		try { attachUserBanListeners($socket); } catch { /* best-effort */ }
 	}
-	async function setUserRole(role: 'admin' | 'mod' | 'member' | 'artist' | 'developer') {
+	async function setUserRole(role: string) {
 		if (!user?.dbUserId || !canManageRoles) return;
 		roleActionStatus = 'Saving…';
 		try {
-			const { assignRole } = await import('$lib/presenceStore');
-			await assignRole(String(user.dbUserId), role);
+			await requestLiveRoleChange($socket, user.dbUserId, role);
 			roleActionStatus = 'Saved.';
 			setTimeout(() => (roleActionStatus = ''), 2200);
 		} catch (error) {
@@ -637,6 +643,8 @@
 				localNicknamesEnabled={$displayEnhancementSettingsStore.localNicknamesEnabled}
 				canManageRoles={canManageRoles}
 				targetRole={user?.highestRole || 'member'}
+				roles={popoutRoles}
+				hiddenRoleCount={hiddenRoleCount}
 				roleActionStatus={roleActionStatus}
 				onSetRole={setUserRole}
 				isBanned={isTargetBanned}

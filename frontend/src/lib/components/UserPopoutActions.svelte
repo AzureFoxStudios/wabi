@@ -19,8 +19,10 @@
 	export let onClearLocalNickname: () => void = () => {};
 	export let canManageRoles = false;
 	export let targetRole: string = 'member';
+	export let roles: Array<{ roleName: string; displayName: string }> = [];
+	export let hiddenRoleCount = 0;
 	export let roleActionStatus = '';
-	export let onSetRole: (role: 'admin' | 'mod' | 'member' | 'artist' | 'developer') => void = () => {};
+	export let onSetRole: (role: string) => void = () => {};
 	export let isBanned = false;
 	export let banActionStatus = '';
 	export let onBanUser: () => void = () => {};
@@ -145,35 +147,16 @@
 		<div class="manage-roles">
 			<div class="manage-roles-label">Moderation</div>
 			<div class="manage-roles-buttons">
-				<button
-					class="context-btn"
-					class:active-role={targetRole === 'admin'}
-					on:click={() => onSetRole(targetRole === 'admin' ? 'member' : 'admin')}
-				>
-					{targetRole === 'admin' ? 'Remove Admin' : 'Make Admin'}
-				</button>
-				<button
-					class="context-btn"
-					class:active-role={targetRole === 'developer'}
-					on:click={() => onSetRole(targetRole === 'developer' ? 'member' : 'developer')}
-				>
-					{targetRole === 'developer' ? 'Remove Developer' : 'Make Developer'}
-				</button>
-				<button
-					class="context-btn"
-					class:active-role={targetRole === 'mod'}
-					on:click={() => onSetRole(targetRole === 'mod' ? 'member' : 'mod')}
-				>
-					{targetRole === 'mod' ? 'Remove Moderator' : 'Make Moderator'}
-				</button>
-				<button
-					class="context-btn"
-					class:active-role={targetRole === 'artist'}
-					on:click={() => onSetRole(targetRole === 'artist' ? 'member' : 'artist')}
-				>
-					{targetRole === 'artist' ? 'Remove Artist' : 'Make Artist'}
-				</button>
-			{#if targetRole === 'admin' || targetRole === 'developer' || targetRole === 'mod' || targetRole === 'artist'}
+				{#each roles as role (role.roleName)}
+					<button
+						class="context-btn"
+						class:active-role={targetRole === role.roleName}
+						on:click={() => onSetRole(targetRole === role.roleName ? 'member' : role.roleName)}
+					>
+						{targetRole === role.roleName ? `Remove ${role.displayName}` : `Make ${role.displayName}`}
+					</button>
+				{/each}
+			{#if roles.some((role) => role.roleName === targetRole) || ['admin', 'developer', 'mod', 'artist'].includes(targetRole)}
 				<button class="context-btn danger" on:click={() => onSetRole('member')}>
 					Reset to Member
 				</button>
@@ -188,6 +171,9 @@
 				</button>
 			{/if}
 		</div>
+		{#if hiddenRoleCount > 0}
+			<span class="manage-roles-status">+{hiddenRoleCount} more role{hiddenRoleCount === 1 ? '' : 's'} in the member list.</span>
+		{/if}
 		{#if roleActionStatus}
 			<span class="manage-roles-status">{roleActionStatus}</span>
 		{/if}
