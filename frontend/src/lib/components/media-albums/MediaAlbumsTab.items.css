@@ -202,9 +202,12 @@
 	}
 
 	.album-meta {
-		margin-top: 0.42rem;
+		margin-top: auto;
+		padding-top: 0.42rem;
 		display: flex;
 		justify-content: space-between;
+		gap: 0.5rem;
+		flex-wrap: wrap;
 		font-size: 0.72rem;
 		color: var(--text-secondary);
 	}
