@@ -17,12 +17,14 @@
 
 <div class="file-gallery">
 	<div class="gallery-header">
-		<span>
+		<span class="gallery-count">
 			{filePreviews.length === 1
 				? $_('chat.upload.files_selected_one', { values: { count: filePreviews.length } })
 				: $_('chat.upload.files_selected_many', { values: { count: filePreviews.length } })}
 		</span>
-		<button type="button" class="cancel-gallery" on:click={onCancelUpload}>✕</button>
+		<button type="button" class="cancel-gallery" aria-label="Cancel upload" on:click={onCancelUpload}>
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+		</button>
 	</div>
 	<div class="gallery-grid">
 		{#each filePreviews as { file, preview }, index}
@@ -45,28 +47,14 @@
 					</div>
 				{/if}
 				<div class="gallery-file-info">
-					<div class="gallery-file-name">{file.name}</div>
+					<div class="gallery-file-name" title={file.name}>{file.name}</div>
 					<div class="gallery-file-size">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
 				</div>
-				<button type="button" class="remove-file" on:click={() => onRemoveFile(index)}>✕</button>
+				<button type="button" class="remove-file" aria-label="Remove {file.name}" on:click={() => onRemoveFile(index)}>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+				</button>
 			</div>
 		{/each}
-	</div>
-	<div class="spoiler-checkbox-container">
-		<span class="spoiler-label-text">{spoilerLocked ? '🔒 Spoiler channel' : $_('chat.upload.mark_spoiler')}</span>
-		<button
-			type="button"
-			class="toggle-btn"
-			class:active={markAsSpoiler}
-			disabled={spoilerLocked}
-			on:click={() => (markAsSpoiler = !markAsSpoiler)}
-			role="switch"
-			aria-checked={markAsSpoiler}
-			aria-label="Mark uploads as spoiler"
-		></button>
-		{#if !spoilerLocked}
-			<span class="spoiler-hint" title={$_('chat.upload.spoiler_hint')}>⚠️</span>
-		{/if}
 	</div>
 	{#if albumEligibleSelection}
 		<div class="upload-album-row">
@@ -93,9 +81,26 @@
 			{/if}
 		</div>
 	{/if}
-	<button type="button" class="upload-files-btn" on:click={() => void onUploadSelectedFiles()}>
-		{filePreviews.length === 1
-			? $_('chat.upload.upload_files_one', { values: { count: filePreviews.length } })
-			: $_('chat.upload.upload_files_many', { values: { count: filePreviews.length } })}
-	</button>
+	<div class="gallery-footer">
+		<div class="spoiler-checkbox-container">
+			<span class="spoiler-label-text" title={$_('chat.upload.spoiler_hint')}
+				>{spoilerLocked ? '🔒 Spoiler channel' : $_('chat.upload.mark_spoiler')}</span
+			>
+			<button
+				type="button"
+				class="toggle-btn settings-switch"
+				class:active={markAsSpoiler}
+				disabled={spoilerLocked}
+				on:click={() => (markAsSpoiler = !markAsSpoiler)}
+				role="switch"
+				aria-checked={markAsSpoiler}
+				aria-label="Mark uploads as spoiler"
+			></button>
+		</div>
+		<button type="button" class="upload-files-btn" on:click={() => void onUploadSelectedFiles()}>
+			{filePreviews.length === 1
+				? $_('chat.upload.upload_files_one', { values: { count: filePreviews.length } })
+				: $_('chat.upload.upload_files_many', { values: { count: filePreviews.length } })}
+		</button>
+	</div>
 </div>

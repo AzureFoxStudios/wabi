@@ -467,6 +467,18 @@
 		<div class="reader-progress-fill" style:width={`${readerProgressPercent}%`}></div>
 	</div>
 
+	{#if isFullscreenMode}
+		<button type="button" class="reader-exit-fs" onclick={toggleFullscreenMode} aria-label="Exit fullscreen" title="Exit fullscreen (Esc)">
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+				<path d="M8 3v3a2 2 0 0 1-2 2H3"></path>
+				<path d="M21 8h-3a2 2 0 0 1-2-2V3"></path>
+				<path d="M3 16h3a2 2 0 0 1 2 2v3"></path>
+				<path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>
+			</svg>
+			<span>Exit fullscreen</span>
+		</button>
+	{/if}
+
 	{#if !readerChromeHidden}
 		<div class="reader-toolbar">
 			<div class="reader-toolbar-main">

@@ -116,7 +116,13 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 			case 'model': return $modelViewportSelection?.fileName || '3D model';
 			case 'map': return $focusedMapPlace?.name || 'Map';
 			case 'voice': return 'Voice';
-			default: return channelDisplayName;
+			default:
+				// Prefer the live peer identity for DMs — the stored channel name
+				// can be stale/blank (renders as "Unknown"), while the peer is
+				// usually resolvable from presence/members.
+				return isDMChannel && dmCallTargetUser?.username
+					? dmCallTargetUser.username
+					: channelDisplayName;
 		}
 	})();
 	$: workspaceHeaderSubtitle = (() => {
