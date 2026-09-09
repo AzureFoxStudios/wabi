@@ -748,11 +748,23 @@ fn highest_role(db_id: Option<i64>, owner_id: Option<i64>) -> &'static str {
 
 /// Snapshot and incremental user views must use the same live RBAC authority
 /// as command authorization, not infer every non-owner account to be Member.
+/// Role precedence: owner > admin > developer > moderator > artist > member.
+/// Artist/Developer are orthogonal workspace tiers (Lore access), never
+/// moderation/admin powers — they are read here by exact stored-role match,
+/// NOT via the rank-based `has_role` (where every unknown role ranks 0).
 async fn effective_user_role(state: &SioState, db_id: Option<i64>, is_registered: bool) -> &'static str {
     let Some(user_id) = db_id.filter(|id| *id > 0) else { return "guest"; };
     if !is_registered { return "guest"; }
     if state.app.is_owner(user_id).await { return "owner"; }
     if state.app.is_admin(user_id).await { return "admin"; }
+    // Exact stored-role match (not rank-based `has_role`, where every
+    // unknown role ranks 0): developer outranks moderator, artist sits
+    // below it. Single-role store, so at most one arm fires.
+    match state.app.wdb.get_user_role("default-workspace", user_id as u64).await {
+        Ok(Some(stored)) if stored.eq_ignore_ascii_case("developer") => return "developer",
+        Ok(Some(stored)) if stored.eq_ignore_ascii_case("artist") => return "artist",
+        _ => {}
+    }
     if state.app.has_role(user_id, "Moderator").await { return "mod"; }
     "member"
 }

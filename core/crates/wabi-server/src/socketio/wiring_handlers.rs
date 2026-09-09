@@ -73,7 +73,9 @@ fn server_role_catalog() -> Value {
     let roles: Vec<Value> = [
         ("owner", "Owner", 400, "The server owner. Ownership is protected and managed separately."),
         ("admin", "Admin", 300, "Manages server settings and member roles."),
+        ("developer", "Developer", 260, "Full edit access to Lore/Project repositories (stage, commit, approve, lock)."),
         ("mod", "Moderator", 200, "Moderates conversations using the server's moderation controls."),
+        ("artist", "Artist", 120, "Asset-write access to Lore/Project repositories (stage and lock artwork assets)."),
         ("member", "Member", 100, "A registered member, subject to channel access and server policies."),
         ("guest", "Guest", 0, "An unregistered visitor. Guest access follows server policies and is not an assignable member role."),
     ].into_iter().map(|(name, label, priority, description)| json!({
@@ -88,6 +90,12 @@ fn parse_server_role(value: &str) -> Option<(MemberRole, &'static str)> {
         "owner" => Some((MemberRole::Owner, "Owner")),
         "admin" => Some((MemberRole::Admin, "Admin")),
         "mod" | "moderator" => Some((MemberRole::Moderator, "Moderator")),
+        // Artist/Developer are workspace (RBAC-event) role strings, not
+        // channel-scoped MemberRole variants, so they ride on
+        // MemberRole::Member while the stored payload role ("Artist" /
+        // "Developer") carries the real tier for the Lore gates.
+        "developer" => Some((MemberRole::Member, "Developer")),
+        "artist" => Some((MemberRole::Member, "Artist")),
         "member" => Some((MemberRole::Member, "Member")),
         _ => None,
     }

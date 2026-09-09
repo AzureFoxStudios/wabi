@@ -20,7 +20,10 @@ pub struct BadgeDef {
 pub const BADGE_CATALOG: &[BadgeDef] = &[
     BadgeDef { id: "founder", icon: "👑", label: "Founder" },
     BadgeDef { id: "bug-hunter", icon: "🐛", label: "Bug Hunter" },
-    BadgeDef { id: "artist", icon: "🎨", label: "Artist" },
+    // NOTE: no "artist" badge — the id collided with the real Artist
+    // workspace role and trapped admins into thinking they'd granted Lore
+    // access. Previously-assigned "artist" badge records are simply filtered
+    // out by `badge_in_catalog` and stop rendering; no data migration needed.
     BadgeDef { id: "contributor", icon: "🛠️", label: "Contributor" },
     BadgeDef { id: "supporter", icon: "💜", label: "Supporter" },
     BadgeDef { id: "mod-star", icon: "⭐", label: "Star Mod" },
