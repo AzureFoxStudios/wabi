@@ -526,7 +526,7 @@
     },
     "browser": {
       "title": "Almacenamiento del navegador",
-      "subtitle": "Tu historial de chat se guarda solo en tu dispositivo. El servidor no guarda nada de forma permanente.",
+      "subtitle": "Tu historial de chat se guarda en cach\u00e9 en este dispositivo para su uso sin conexi\u00f3n. Lo que conserva el servidor depende de la configuraci\u00f3n de retenci\u00f3n de cada canal: algunos eliminan el historial autom\u00e1ticamente, otros lo guardan para siempre.",
       "save_toggle": "Guardar historial del chat localmente",
       "save_hint": "Cuando esta activo, los mensajes se guardan en tu navegador. Tu controlas tus datos.",
       "rotation_period": "Periodo de rotacion",

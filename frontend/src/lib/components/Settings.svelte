@@ -110,8 +110,60 @@
 		activeSettingsTab = 'profile';
 	}
 
+	let dialogElement: HTMLDivElement | null = null;
+	let triggerElementBeforeOpen: HTMLElement | null = null;
+
+	// UI-04 (2026-09-07 recon): the dialog never received focus, so the
+	// trigger kept it and immediate Escape did nothing (the Escape handlers
+	// live on overlay/content, which never see keys while focus is outside).
+	// Focus the dialog on open, trap Tab inside, close on Escape anywhere,
+	// and hand focus back to the trigger on close.
+	$: if (isOpen && dialogElement && document.activeElement !== dialogElement) {
+		triggerElementBeforeOpen = document.activeElement as HTMLElement | null;
+		dialogElement.focus({ preventScroll: true });
+	}
+
+	function handleDialogKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			closeModal();
+			return;
+		}
+		if (event.key !== 'Tab' || !dialogElement) return;
+		const focusables = dialogElement.querySelectorAll<HTMLElement>(
+			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+		);
+		if (focusables.length === 0) return;
+		const first = focusables[0];
+		const last = focusables[focusables.length - 1];
+		const active = document.activeElement;
+		if (event.shiftKey && (active === first || active === dialogElement)) {
+			event.preventDefault();
+			last.focus();
+		} else if (!event.shiftKey && active === last) {
+			event.preventDefault();
+			first.focus();
+		}
+	}
+
+	function restoreTriggerFocus(): void {
+		if (triggerElementBeforeOpen?.isConnected) {
+			triggerElementBeforeOpen.focus();
+		}
+		triggerElementBeforeOpen = null;
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent): void {
+		if (isOpen && event.key === 'Escape') {
+			event.preventDefault();
+			closeModal();
+		}
+	}
+
 	function closeModal(): void {
+		if (!isOpen) return;
 		isOpen = false;
+		restoreTriggerFocus();
 	}
 
 	function handleLogout(): void {
@@ -270,6 +322,7 @@
 </script>
 
 {#if isOpen}
+	<svelte:window on:keydown={handleWindowKeydown} />
 	<div
 		class="modal-overlay"
 		role="presentation"
@@ -283,17 +336,13 @@
 	>
 		<div
 			class="modal-content"
+			bind:this={dialogElement}
 			role="dialog"
 			aria-modal="true"
 			aria-label={$t('settings.title')}
 			tabindex="-1"
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				if (event.key === 'Escape') {
-					event.preventDefault();
-					closeModal();
-				}
-			}}
+			on:keydown={handleDialogKeydown}
 		>
 			<div class="modal-header">
 				<h2>

@@ -10,8 +10,14 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-1);
+	row-gap: 4px;
 	padding: var(--space-1);
 	flex-shrink: 0;
+	/* UI-03 (2026-09-07 recon): the revealed bar was wider than a narrow
+	   center pane and painted under pinned panels. Wrap within the pane. */
+	flex-wrap: wrap;
+	min-width: 0;
+	max-width: 100%;
 }
 
 .surface-header {

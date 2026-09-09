@@ -612,6 +612,9 @@
 .admin-role-bar-pct {
   font-size: 10px;
   color: var(--text-disabled, #666);
+  /* UI-11 (2026-09-07 recon): count and percent read as one token ("480%"). */
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 /* ─── Top Users ──────────────────────────────────────────────────── */

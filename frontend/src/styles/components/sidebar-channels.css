@@ -1078,7 +1078,23 @@
 	.category-chevron {
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		flex-shrink: 0;
 		transition: transform var(--duration-fast);
+	}
+
+	/* UI-01 (2026-09-07 recon): the chevron svg had no intrinsic size and no
+	   stroke — the expand/collapse indicator was literally invisible. */
+	.category-chevron svg {
+		width: 100%;
+		height: 100%;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
 	}
 
 	.category-toggle[aria-expanded="true"] .category-chevron {
