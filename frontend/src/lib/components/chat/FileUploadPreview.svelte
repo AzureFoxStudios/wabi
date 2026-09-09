@@ -53,11 +53,20 @@
 		{/each}
 	</div>
 	<div class="spoiler-checkbox-container">
-		<label class="spoiler-checkbox-label">
-			<input type="checkbox" bind:checked={markAsSpoiler} class="spoiler-checkbox" disabled={spoilerLocked} />
-			<span>{spoilerLocked ? '🔒 Spoiler channel' : $_('chat.upload.mark_spoiler')}</span>
-		</label>
-		<span class="spoiler-hint" title={$_('chat.upload.spoiler_hint')}>⚠️</span>
+		<span class="spoiler-label-text">{spoilerLocked ? '🔒 Spoiler channel' : $_('chat.upload.mark_spoiler')}</span>
+		<button
+			type="button"
+			class="toggle-btn"
+			class:active={markAsSpoiler}
+			disabled={spoilerLocked}
+			on:click={() => (markAsSpoiler = !markAsSpoiler)}
+			role="switch"
+			aria-checked={markAsSpoiler}
+			aria-label="Mark uploads as spoiler"
+		></button>
+		{#if !spoilerLocked}
+			<span class="spoiler-hint" title={$_('chat.upload.spoiler_hint')}>⚠️</span>
+		{/if}
 	</div>
 	{#if albumEligibleSelection}
 		<div class="upload-album-row">
