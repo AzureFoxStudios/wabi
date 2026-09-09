@@ -232,7 +232,14 @@ struct SaveLayoutRequest {
 /// Must include every slot the server's own writers store
 /// (save_profile_media / socketio presence both persist `profile_media`).
 fn validate_layout_keys(parsed: &serde_json::Value) -> Result<()> {
-    const ALLOWED_KEYS: [&str; 5] = ["layout", "theme", "railDensity", "railSide", "profile_media"];
+    const ALLOWED_KEYS: [&str; 6] = [
+        "layout",
+        "theme",
+        "railDensity",
+        "railSide",
+        "profile_media",
+        "background_image",
+    ];
     if let Some(obj) = parsed.as_object() {
         for key in obj.keys() {
             if !ALLOWED_KEYS.contains(&key.as_str()) {
@@ -258,10 +265,24 @@ async fn get_theme(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>> {
     let stored = state.wdb.get_user_layout(auth.user_id as u64).await?;
-    let value = stored
-        .and_then(|layout| serde_json::from_str::<serde_json::Value>(&layout.layout_json).ok())
+    let container: Option<serde_json::Value> = stored
+        .and_then(|layout| serde_json::from_str::<serde_json::Value>(&layout.layout_json).ok());
+    let top_level_bg = container
+        .as_ref()
+        .and_then(|value| value.as_object())
+        .and_then(|map| map.get("background_image"))
+        .cloned();
+    let mut value = container
         .and_then(|value| value.get("theme").cloned().or(Some(value)))
         .unwrap_or_else(|| serde_json::from_str(DEFAULT_THEME_JSON).expect("valid default theme"));
+    // Theme-agnostic background: stored at the container top level so it
+    // applies under any theme. Merge it into the response so old and new
+    // clients can read it without a second roundtrip.
+    if let Some(bg) = top_level_bg {
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("background_image".to_string(), bg);
+        }
+    }
     Ok(Json(value))
 }
 
@@ -276,14 +297,20 @@ async fn save_theme(
     let allowed = [
         "theme_id", "custom_theme", "uniform_font_enabled", "uniform_font_family",
         "uniform_font_size", "uniform_font_weight", "uniform_font_style",
-        "theme_ambient",
+        "theme_ambient", "background_image",
     ];
     let filtered = object
         .iter()
         .filter(|(key, _)| allowed.contains(&key.as_str()))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect::<serde_json::Map<_, _>>();
-    let theme = serde_json::Value::Object(filtered.clone());
+    // Theme-agnostic background: `background_image` lives at the container top
+    // level (applies under any theme), NOT inside the `theme` sub-object.
+    // Everything else stays inside `theme` as before.
+    let background_image = filtered.get("background_image").cloned();
+    let mut theme_map = filtered.clone();
+    theme_map.remove("background_image");
+    let theme = serde_json::Value::Object(theme_map.clone());
     let layout = state.wdb.get_user_layout(auth.user_id as u64).await?;
     let layout_value = layout
         .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
@@ -304,7 +331,16 @@ async fn save_theme(
             map
         }
     };
-    combined.insert("theme".to_string(), theme);
+    // Only touch the `theme` sub-object when the request actually carries
+    // theme keys: a background-only save ({background_image: {...}} alone)
+    // must leave theme_id/custom_theme untouched.
+    if !theme_map.is_empty() {
+        combined.insert("theme".to_string(), theme);
+    }
+    // Top-level background: present (object) sets it, explicit null clears it.
+    if let Some(bg) = background_image {
+        combined.insert("background_image".to_string(), bg);
+    }
     let json = serde_json::to_string(&serde_json::Value::Object(combined))
         .map_err(|error| AppError::BadRequest(format!("invalid theme preferences: {error}")))?;
     state.wdb.upsert_user_layout(auth.user_id as u64, &json).await?;
@@ -355,11 +391,22 @@ async fn save_profile_media(
     let root = existing
         .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
         .unwrap_or_else(|| serde_json::json!({}));
-    let combined = serde_json::json!({
+    let mut combined = serde_json::json!({
         "layout": root.get("layout").cloned().unwrap_or_else(|| root.clone()),
         "theme": root.get("theme").cloned().unwrap_or_else(|| serde_json::json!({})),
         "profile_media": filtered,
     });
+    // Preserve the theme-agnostic top-level background (and rail chrome)
+    // across profile-media saves — the rebuild shape would otherwise wipe it.
+    if let Some(bg) = root.get("background_image") {
+        combined["background_image"] = bg.clone();
+    }
+    if let Some(rail_density) = root.get("railDensity") {
+        combined["railDensity"] = rail_density.clone();
+    }
+    if let Some(rail_side) = root.get("railSide") {
+        combined["railSide"] = rail_side.clone();
+    }
     let serialized = serde_json::to_string(&combined)
         .map_err(|error| AppError::BadRequest(error.to_string()))?;
     state.wdb.upsert_user_layout(auth.user_id as u64, &serialized).await?;

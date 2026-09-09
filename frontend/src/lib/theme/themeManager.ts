@@ -7,8 +7,22 @@
  */
 
 import type { Theme } from './themes';
-import type { BackgroundImage } from '../types/theme';
+import type { BackgroundImage, CustomTheme } from '../../types/theme';
 import { applyAccessibilitySettings, getStoredAccessibilitySettings } from '../accessibility';
+
+/**
+ * Resolve the effective chat background for any theme.
+ * Prefers the theme-agnostic top-level setting when present; falls back to
+ * the legacy `custom_theme.backgroundImage` (migration read — never deletes
+ * the legacy field). A background therefore applies on preset themes too.
+ */
+export function resolveThemeBackground(
+	topLevel: BackgroundImage | null | undefined,
+	customTheme?: CustomTheme | null
+): BackgroundImage | undefined {
+	if (topLevel) return topLevel;
+	return customTheme?.backgroundImage;
+}
 
 /**
  * Apply only the background-image CSS custom properties. Extracted from
@@ -231,9 +245,11 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, unif
 }
 
 /**
- * Load theme from localStorage (fallback for guests)
+ * Load theme from localStorage (fallback for guests).
+ * Also carries the theme-agnostic `background_image` when present so a
+ * top-level background paints instantly on boot (any theme).
  */
-export function loadThemeFromLocalStorage(): { theme_id: string; custom_theme?: any } | null {
+export function loadThemeFromLocalStorage(): { theme_id: string; custom_theme?: any; background_image?: BackgroundImage | null } | null {
 	try {
 		const saved = localStorage.getItem('wabi-theme');
 		if (!saved) return null;
@@ -246,13 +262,16 @@ export function loadThemeFromLocalStorage(): { theme_id: string; custom_theme?: 
 }
 
 /**
- * Save theme to localStorage (fallback for guests)
+ * Save theme to localStorage (fallback for guests).
+ * Optional third arg persists the theme-agnostic background alongside the
+ * theme snapshot. Backward compatible — old two-arg callers still work.
  */
-export function saveThemeToLocalStorage(themeId: string, customTheme?: any): void {
+export function saveThemeToLocalStorage(themeId: string, customTheme?: any, backgroundImage?: BackgroundImage | null): void {
 	try {
 		localStorage.setItem('wabi-theme', JSON.stringify({
 			theme_id: themeId,
-			custom_theme: customTheme || null
+			custom_theme: customTheme || null,
+			...(backgroundImage !== undefined ? { background_image: backgroundImage } : {})
 		}));
 	} catch (error) {
 		console.error('[ThemeManager] Failed to save theme to localStorage:', error);

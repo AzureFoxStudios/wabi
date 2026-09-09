@@ -3,9 +3,10 @@
  * Svelte writable store for managing theme state
  */
 
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { DEFAULT_THEME, getThemeById, type Theme } from './themes';
-import type { CustomTheme, ThemeAmbientOverride } from '../../types/theme';
+import type { BackgroundImage, CustomTheme, ThemeAmbientOverride } from '../../types/theme';
+import { saveThemePreferences } from './themeApi';
 
 interface ThemeState {
 	themeId: string;
@@ -168,3 +169,57 @@ export const currentTheme = derived(themeStore, ($themeStore) => {
 export const isCustomTheme = derived(themeStore, ($themeStore) => {
 	return $themeStore.themeId === 'custom';
 });
+
+/**
+ * Theme-agnostic chat background image setting.
+ * Applies under ANY theme (preset or custom). Persisted server-side as the
+ * top-level `background_image` key — never inside `custom_theme` — so saving
+ * a background no longer forces theme_id='custom'.
+ * Migration read: when the server has no top-level value but
+ * `custom_theme.backgroundImage` exists (legacy), callers resolve to the
+ * legacy value via `resolveEffectiveBackgroundImage` below.
+ */
+export const backgroundImageSetting = writable<BackgroundImage | null>(null);
+
+/** Load the independent background setting (called on boot next to theme prefs). */
+export function loadBackgroundImageSetting(bg: BackgroundImage | null): void {
+	backgroundImageSetting.set(bg ?? null);
+}
+
+/**
+ * Resolve the effective background: prefer the theme-agnostic top-level
+ * setting when present, otherwise fall back to the legacy
+ * `custom_theme.backgroundImage`. Never deletes the legacy field.
+ */
+export function resolveEffectiveBackgroundImage(
+	topLevel: BackgroundImage | null | undefined,
+	customTheme?: CustomTheme | null
+): BackgroundImage | null {
+	if (topLevel) return topLevel;
+	return customTheme?.backgroundImage ?? null;
+}
+
+/**
+ * Persist the background WITHOUT changing theme_id/custom_theme.
+ * Sends `{ background_image: {...} }` alone (or null to clear) — the backend
+ * stores it at the container top level and leaves the theme untouched.
+ */
+export async function persistBackgroundImageSetting(bg: BackgroundImage | null): Promise<void> {
+	backgroundImageSetting.set(bg ?? null);
+	try {
+		await saveThemePreferences({ background_image: bg ?? null });
+	} catch (error) {
+		console.error('[ThemeStore] Failed to persist background image setting:', error);
+		throw error;
+	}
+}
+
+/** Clear the background (theme-agnostic remove). */
+export async function clearBackgroundImageSetting(): Promise<void> {
+	await persistBackgroundImageSetting(null);
+}
+
+/** Snapshot helper for non-reactive contexts (initTheme apply blocks). */
+export function getBackgroundImageSnapshot(): BackgroundImage | null {
+	return get(backgroundImageSetting);
+}

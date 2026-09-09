@@ -1,9 +1,14 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
-	import { themeStore } from '../theme/themeStore';
-	import { saveThemePreferences } from '../theme/themeApi';
-	import type { BackgroundImage, CustomTheme } from '../../types/theme';
+	import {
+		themeStore,
+		backgroundImageSetting,
+		loadBackgroundImageSetting,
+		persistBackgroundImageSetting
+	} from '../theme/themeStore';
+	import { applyBackgroundImageVars, resolveThemeBackground } from '../theme/themeManager';
+	import type { BackgroundImage } from '../../types/theme';
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '../serverUrl';
 
@@ -31,21 +36,33 @@
 	const positionOptions = ['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
 	const blendModes = ['normal', 'overlay', 'multiply', 'screen', 'darken', 'lighten', 'color-dodge', 'color-burn'];
 
-	const unsubscribeThemeStore = themeStore.subscribe((state) => {
-		if (!state.customTheme?.backgroundImage) {
+	// Theme-agnostic read: prefer the independent top-level setting, fall back
+	// to legacy customTheme.backgroundImage (migration read — never deleted).
+	function syncFromStores() {
+		const topLevel = get(backgroundImageSetting);
+		const themeState = get(themeStore);
+		const effective = resolveThemeBackground(topLevel, themeState.customTheme) ?? null;
+		if (!effective) {
 			backgroundImage = null;
 			return;
 		}
-		backgroundImage = state.customTheme.backgroundImage;
-		opacity = Math.round((backgroundImage.opacity || 0.3) * 100);
-		blur = backgroundImage.blur || 0;
-		size = backgroundImage.size || 'cover';
-		position = backgroundImage.position || 'center';
-		repeat = backgroundImage.repeat || 'no-repeat';
-		blend = backgroundImage.blend || 'overlay';
-	});
+		backgroundImage = effective;
+		opacity = Math.round((effective.opacity ?? 0.3) * 100);
+		blur = effective.blur ?? 0;
+		size = effective.size ?? 'cover';
+		position = effective.position ?? 'center';
+		repeat = effective.repeat ?? 'no-repeat';
+		blend = effective.blend ?? 'overlay';
+	}
 
-	onDestroy(unsubscribeThemeStore);
+	const unsubscribeBg = backgroundImageSetting.subscribe(() => syncFromStores());
+	const unsubscribeThemeStore = themeStore.subscribe(() => syncFromStores());
+	syncFromStores();
+
+	onDestroy(() => {
+		unsubscribeBg();
+		unsubscribeThemeStore();
+	});
 
 	async function handleFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
@@ -137,28 +154,24 @@
 		if (!backgroundImage) return;
 
 		try {
-			const activeTheme = get(themeStore).customTheme;
-			const customTheme: CustomTheme = {
-				...activeTheme,
-				colors: activeTheme?.colors,
-				gradients: activeTheme?.gradients,
-				backgroundImage: {
-					url: backgroundImage.url,
-					opacity: opacity / 100,
-					blur,
-					size,
-					position,
-					repeat,
-					blend
-				}
+			// Theme-agnostic write: top-level `background_image` only.
+			// theme_id / custom_theme are left untouched — no 'custom' hijack.
+			const next: BackgroundImage = {
+				url: backgroundImage.url,
+				opacity: opacity / 100,
+				blur,
+				size,
+				position,
+				repeat,
+				blend
 			};
-
-			themeStore.setCustomTheme(customTheme);
+			backgroundImage = next;
+			// Live repaint on any theme.
+			applyBackgroundImageVars(next);
 			if (getAuthToken()) {
-				await saveThemePreferences({
-					theme_id: 'custom',
-					custom_theme: customTheme
-				});
+				await persistBackgroundImageSetting(next);
+			} else {
+				loadBackgroundImageSetting(next);
 			}
 		} catch (error) {
 			console.error('Failed to save background image settings:', error);
@@ -167,19 +180,12 @@
 
 	async function handleRemove() {
 		backgroundImage = null;
-		const activeTheme = get(themeStore).customTheme;
-		const customTheme: CustomTheme | null = activeTheme
-			? {
-					...activeTheme,
-					backgroundImage: undefined
-		}
-			: null;
-		themeStore.setCustomTheme(customTheme);
+		// Live clear on any theme; null clears the top-level server key.
+		applyBackgroundImageVars(undefined);
 		if (getAuthToken()) {
-			await saveThemePreferences({
-				theme_id: customTheme ? 'custom' : get(themeStore).themeId,
-				custom_theme: customTheme
-			});
+			await persistBackgroundImageSetting(null);
+		} else {
+			loadBackgroundImageSetting(null);
 		}
 	}
 

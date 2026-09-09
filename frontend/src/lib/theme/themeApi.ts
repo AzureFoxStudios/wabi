@@ -3,7 +3,7 @@
  * Handles communication with backend theme endpoints
  */
 
-import type { ThemePreferences } from '../../types/theme';
+import type { BackgroundImage, ThemePreferences } from '../../types/theme';
 import { getServerUrl } from '../serverUrl';
 import { authStore } from '../authStore';
 import { getAuthToken } from '../authSession';
@@ -21,9 +21,38 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Theme preferences as returned by GET /api/user/theme.
+ * `background_image` is the theme-agnostic top-level setting (applies under
+ * any theme); legacy clients may still carry it inside `custom_theme`.
+ */
+export type ThemePreferencesResponse = ThemePreferences & {
+	background_image?: BackgroundImage | null;
+};
+
+/** Payload accepted by POST /api/user/theme (snake_case wire shape). */
+export type SaveThemePayload = Partial<ThemePreferences> & {
+	background_image?: BackgroundImage | null;
+};
+
+/**
+ * Typed accessor for the theme-agnostic background.
+ * Prefers the top-level `background_image`; falls back to the legacy
+ * `custom_theme.backgroundImage` (migration read — callers must NOT delete
+ * the legacy field, just prefer top-level when present).
+ */
+export function getBackgroundImageFromPrefs(
+	prefs: Partial<ThemePreferencesResponse> | null | undefined
+): BackgroundImage | null {
+	if (!prefs) return null;
+	const top = (prefs as SaveThemePayload).background_image;
+	if (top) return top;
+	return prefs.custom_theme?.backgroundImage ?? null;
+}
+
+/**
  * Fetch theme preferences from server
  */
-export async function fetchThemePreferences(): Promise<ThemePreferences> {
+export async function fetchThemePreferences(): Promise<ThemePreferencesResponse> {
 	const token = getAuthToken();
 
 
@@ -101,15 +130,26 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 		uniform_font_weight: data.uniform_font_weight,
 		uniform_font_style: data.uniform_font_style,
 		theme_ambient: data.theme_ambient ?? null,
+		background_image: data.background_image ?? null,
 		updated_at: data.updated_at
 	};
 }
 
 /**
- * Save theme preferences to server
+ * Save theme preferences to server.
+ * Backward compatible: existing callers pass a single `prefs` object.
+ * To persist the theme-agnostic background WITHOUT touching theme_id /
+ * custom_theme, either pass `{ background_image: {...} }` inside `prefs`
+ * or use the optional second argument:
+ * `saveThemePreferences({}, bg)` / `saveThemePreferences({}, null)` (clear).
  */
-export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Promise<void> {
+export async function saveThemePreferences(
+	prefs: SaveThemePayload,
+	backgroundImage?: BackgroundImage | null
+): Promise<void> {
 	const token = getAuthToken();
+	const body: SaveThemePayload =
+		backgroundImage !== undefined ? { ...prefs, background_image: backgroundImage } : { ...prefs };
 
 	let response;
 	const controller = new AbortController();
@@ -122,7 +162,7 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 				'Content-Type': 'application/json'
 			},
 			credentials: 'include',
-			body: JSON.stringify(prefs),
+			body: JSON.stringify(body),
 			signal: controller.signal
 		});
 	} catch (networkError) {
