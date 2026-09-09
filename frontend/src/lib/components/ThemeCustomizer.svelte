@@ -6,7 +6,6 @@
 	import ColorPicker from './ColorPicker.svelte';
 	import GradientEditor from './GradientEditor.svelte';
 	import ThemePreview from './ThemePreview.svelte';
-	import BackgroundImageEditor from './BackgroundImageEditor.svelte';
 	import type { CustomTheme, PanelColors, PanelColorOverride } from '$lib/types/theme';
 	import { getAuthToken } from '$lib/authSession';
 	import { ALL_PALETTES, DEFAULT_PALETTE } from '$lib/theme/palettes';
@@ -514,12 +513,6 @@
 						{/if}
 					{/each}
 				{/if}
-			</section>
-
-			<!-- Background Image -->
-			<section class="section">
-				<h4>Background Image</h4>
-				<BackgroundImageEditor />
 			</section>
 
 			<!-- Live Preview -->
