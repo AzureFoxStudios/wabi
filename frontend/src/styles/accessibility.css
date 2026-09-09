@@ -156,7 +156,16 @@
   .main-content,
 [data-ambient='true']
   .chat-content {
-	background: rgba(var(--surface-base-rgb), var(--surface-frost-opacity, 1)) !important;
+	/* NOTE: do NOT use the background shorthand here — it resets
+	   background-image and kills the user's custom background image.
+	   Only the surface color is overridden so the frost reads as a
+	   translucent wash while the image below stays visible. */
+	background-color: rgba(var(--surface-base-rgb), var(--surface-frost-opacity, 1)) !important;
+	background-image: var(--background-image-url, none) !important;
+	background-size: var(--background-image-size, cover) !important;
+	background-position: var(--background-image-position, center) !important;
+	background-repeat: var(--background-image-repeat, no-repeat) !important;
+	background-blend-mode: var(--background-image-blend, overlay) !important;
 }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
