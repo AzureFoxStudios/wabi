@@ -5,6 +5,7 @@
 	import { channels, currentChannel, currentUser, users, joinChannel } from '$lib/socket';
 	import RoleBadge from './RoleBadge.svelte';
 	import { getAdminPaymentAccessPolicy, getApiBase, type PaymentAccessPolicy } from '$lib/api';
+	import { unavailableDashboardMetrics } from '$lib/adminDashboard';
 
 	type ServerPulse = { onlineUsers: number; totalUsers: number };
 	type HealthInfo = {
@@ -31,6 +32,12 @@
 	let health: HealthInfo | null = null;
 	let recentAudit: AuditEntry[] = [];
 	let unavailableMetrics: string[] = [];
+	let modSignals = {
+		openReports: null as number | null,
+		bannedUsers: null as number | null,
+		mutedUsers: null as number | null,
+		auditEntries: null as number | null
+	};
 
 	let paymentPolicy: PaymentAccessPolicy | null = null;
 	let paymentPolicyLoading = false;
@@ -70,6 +77,19 @@
 				unavailableMetrics = Array.isArray(data?.extra?.unavailableMetrics)
 					? data.extra.unavailableMetrics
 					: [];
+				// Moderation counts only — this client has no report queue, ban
+				// log, or mute history store. Null means "not reported", not zero.
+				const missing = unavailableDashboardMetrics(data?.extra);
+				const pickCount = (value: unknown, metric: string): number | null => {
+					if (missing.has(metric)) return null;
+					return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+				};
+				modSignals = {
+					openReports: pickCount(data?.overview?.openReports, 'openReports'),
+					bannedUsers: pickCount(data?.overview?.bannedUsers, 'bannedUsers'),
+					mutedUsers: pickCount(data?.overview?.mutedUsers, 'mutedUsers'),
+					auditEntries: pickCount(data?.overview?.totalAuditEntries, 'totalAuditEntries')
+				};
 				channelPulseError = false;
 			} else {
 				// Finding 27: distinguish "no data" from request failure
@@ -177,9 +197,55 @@
 				<span class="ops-card-value ops-muted">—</span>
 			{/if}
 		</div>
-		</div>
+	</div>
 
-		{#if recentAudit.length > 0}
+	{#if canModerate}
+	<section class="ops-section">
+		<div class="ops-section-head">
+			<span class="ops-section-label">Moderation</span>
+			{#if modSignals.openReports !== null}
+				<span class="ops-section-count">{modSignals.openReports} open</span>
+			{/if}
+		</div>
+		<div class="ops-cards">
+			<div class="ops-card">
+				<span class="ops-card-label">Open reports</span>
+				{#if modSignals.openReports === null}
+					<span class="ops-card-value ops-muted">n/a</span>
+				{:else}
+					<span class="ops-card-value">{modSignals.openReports}</span>
+				{/if}
+			</div>
+			<div class="ops-card">
+				<span class="ops-card-label">Banned</span>
+				{#if modSignals.bannedUsers === null}
+					<span class="ops-card-value ops-muted">n/a</span>
+				{:else}
+					<span class="ops-card-value">{modSignals.bannedUsers}</span>
+				{/if}
+			</div>
+			<div class="ops-card">
+				<span class="ops-card-label">Muted</span>
+				{#if modSignals.mutedUsers === null}
+					<span class="ops-card-value ops-muted">n/a</span>
+				{:else}
+					<span class="ops-card-value">{modSignals.mutedUsers}</span>
+				{/if}
+			</div>
+			<div class="ops-card">
+				<span class="ops-card-label">Audit log</span>
+				{#if modSignals.auditEntries === null}
+					<span class="ops-card-value ops-muted">n/a</span>
+				{:else}
+					<span class="ops-card-value">{modSignals.auditEntries}</span>
+				{/if}
+			</div>
+		</div>
+		<span class="ops-card-unit">Snapshot counts only — no report queue, ban log, or mute history is exposed to this client.</span>
+	</section>
+	{/if}
+
+	{#if recentAudit.length > 0}
 		<section class="ops-section">
 			<div class="ops-section-head">
 				<span class="ops-section-label">Recent staff activity</span>
