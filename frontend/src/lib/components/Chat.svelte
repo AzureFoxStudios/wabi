@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
 	import { get } from 'svelte/store';
+	import { showToast } from '$lib/toast';
+	import { deletionModeEnabled as deletionModeStore } from '$lib/moderationDeleteMode';
 	import {
 		channelMessagesStore,
 		channels,
@@ -337,6 +339,16 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 			setSearchInput: v => { searchInput = v; },
 			openReaderSurface, openModelViewportSurface, openFullMapTab,
 			openPaymentSheet, dispatchLogout: () => dispatch('logout'),
+			onToggleDeletionMode: () => {
+				const next = !get(deletionModeStore);
+				if (next) {
+					const confirmed = window.confirm('Deletion mode removes messages immediately for everyone. Turn it on?');
+					if (!confirmed) return;
+				}
+				deletionModeStore.set(next);
+				if (next) showToast?.('Deletion mode on — click a message to remove it. Esc exits.', 'info');
+				else showToast?.('Deletion mode off.', 'info');
+			},
 			undefined, "": resolveDmChannelId,
 			openExistingDM: (channelId, otherUser) => openExistingDmSignal.set({ channelId, otherUser }),
 			pushLocalDirectionsCard,

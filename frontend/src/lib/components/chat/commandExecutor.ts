@@ -17,6 +17,11 @@ export function executeChatCommand(
 			context.onOpenPaymentSheet?.({ amountInput: amount, description });
 			return true;
 		}
+		case 'delete':
+		case 'deletemode': {
+			context.onToggleDeletionMode?.();
+			return true;
+		}
 		default:
 			if (onExecuteCommand) { void onExecuteCommand(trimmed); } else { console.warn("[Command] No onExecuteCommand handler"); }
 			return true;
@@ -29,6 +34,7 @@ export function getMatchingCommands(input: string): Command[] {
 	const allCommands: Command[] = [
 		{ name: 'pay', description: 'Create a payment request', usage: '/pay <amount> [description]' },
 		{ name: 'payment', description: 'Create a payment request', usage: '/payment <amount> [description]' },
+		{ name: 'delete', description: 'Toggle deletion mode (moderators)', usage: '/delete' },
 		{ name: 'me', description: 'Send an emote message', usage: '/me <action>' },
 		{ name: 'spoiler', description: 'Send a spoiler message', usage: '/spoiler <message>' }
 	];

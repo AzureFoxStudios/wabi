@@ -10,6 +10,7 @@
 		getDMChannelIdForUser,
 		roleDefinitions,
 		socket,
+		users,
 		type Message,
 		type User
 	} from '$lib/socket';
@@ -148,6 +149,12 @@
 	})();
 	$: popoutDisplayName = localNickname || user?.username || '';
 	$: popoutTopRoleName = getUserTopRoleName(user ?? undefined);
+	// Live-sync status/avatar: the `user` prop is captured at click time and
+	// goes stale when presence changes. Resolve the freshest roster entry by
+	// id so the dot and label track the real status.
+	$: liveUser =
+		(user && $users.find((candidate) => candidate.id === user.id)) || user || null;
+	$: popoutStatus = liveUser?.status || user?.status || 'offline';
 
 	$: if (user?.id && browser && user.id !== lastLoadedUserId) {
 		loadUserNote();
@@ -218,7 +225,9 @@
 
 		const rect = anchorElement.getBoundingClientRect();
 		const popoutWidth = 340;
-		const popoutHeight = 400; // approximate
+		// Measure the real node after it renders — the fixed 400px guess let
+		// tall popouts run past the viewport bottom with no way to scroll.
+		const popoutHeight = popoutElement?.offsetHeight || 400;
 		const padding = 8;
 
 		// Default: position to the right of the anchor
@@ -237,7 +246,7 @@
 
 		// Vertical positioning - try to align with anchor, but keep in viewport
 		if (top + popoutHeight > window.innerHeight - padding) {
-			top = window.innerHeight - popoutHeight - padding;
+			top = Math.max(padding, window.innerHeight - popoutHeight - padding);
 		}
 		if (top < padding) {
 			top = padding;
@@ -252,6 +261,11 @@
 	}
 
 	function handleClickOutside(event: MouseEvent) {
+		// The username that opened the popout lives outside the popout node, so
+		// the reopen click bubbles to document and would instantly close it on
+		// every open after the first. Ignore clicks on the anchor (and anything
+		// inside it) — the popout's own toggle manages those.
+		if (anchorElement && anchorElement.contains(event.target as Node)) return;
 		if (popoutElement && !popoutElement.contains(event.target as Node)) {
 			closePopout();
 		}
@@ -413,6 +427,13 @@
 				{#if user.overlayUrl && !disableAllBanners}
 					<span class="popout-avatar-overlay" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
 				{/if}
+				<!-- Presence dot: bottom-right of the avatar, tracks live status -->
+				<span
+					class="popout-presence-dot"
+					style="--status-color: {getStatusColor(popoutStatus)}"
+					title={getStatusLabel(popoutStatus)}
+					aria-label={getStatusLabel(popoutStatus)}
+				></span>
 			</div>
 		</div>
 
@@ -458,8 +479,8 @@
 			{/if}
 
 			<div class="status-section">
-				<span class="status-indicator" style="--status-color: {getStatusColor(user.status)}"></span>
-				<span class="status-label status-label-tooltip" title={getStatusLabel(user.status)} aria-label={getStatusLabel(user.status)}></span>
+				<span class="status-indicator" style="--status-color: {getStatusColor(popoutStatus)}"></span>
+				<span class="status-label" title={getStatusLabel(popoutStatus)} aria-label={getStatusLabel(popoutStatus)}>{getStatusLabel(popoutStatus)}</span>
 			</div>
 
 			<div class="divider"></div>

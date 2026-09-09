@@ -72,13 +72,36 @@
 		}
 	});
 
-	// ── Password change ──
+	// ── Password change (two-step flow) ──
 	let currentPasswordDraft = $state('');
 	let newPasswordDraft = $state('');
 	let confirmNewPasswordDraft = $state('');
 	let currentPasswordInput = $state<HTMLInputElement | null>(null);
 	let mustChangeOwnPassword = $state(false);
 	let changingPassword = $state(false);
+	let passwordStep = $state<1 | 2>(1);
+	let passwordError = $state('');
+	let passwordSuccess = $state('');
+
+	function advancePasswordStep(): void {
+		passwordError = '';
+		passwordSuccess = '';
+		if (!currentPasswordDraft) {
+			passwordError = 'Enter your current password first.';
+			return;
+		}
+		passwordStep = 2;
+		tick().then(() => {
+			document.querySelector<HTMLInputElement>('[data-pwd-new]')?.focus();
+		});
+	}
+
+	function backPasswordStep(): void {
+		passwordStep = 1;
+		passwordError = '';
+		passwordSuccess = '';
+		tick().then(() => currentPasswordInput?.focus());
+	}
 
 	// ── PR4: Profile status + about me (self-edit) ──
 	let bioDraft = $state('');
@@ -259,22 +282,24 @@
 
 	async function changeOwnPassword() {
 		if (changingPassword) return;
+		passwordError = '';
+		passwordSuccess = '';
 		if (!currentPasswordDraft || !newPasswordDraft || !confirmNewPasswordDraft) {
-			alert('Please fill in all password fields.');
+			passwordError = 'Fill in every field to update your password.';
 			return;
 		}
 		if (newPasswordDraft !== confirmNewPasswordDraft) {
-			alert('New password confirmation does not match.');
+			passwordError = 'New password confirmation does not match.';
 			return;
 		}
 		if (newPasswordDraft.length < 8) {
-			alert('New password must be at least 8 characters.');
+			passwordError = 'New password must be at least 8 characters.';
 			return;
 		}
 
 		const token = getAuthToken();
 		if (!token) {
-			alert('You must be logged in to change password.');
+			passwordError = 'You must be logged in to change password.';
 			return;
 		}
 
@@ -285,9 +310,10 @@
 			newPasswordDraft = '';
 			confirmNewPasswordDraft = '';
 			mustChangeOwnPassword = false;
-			alert('Password updated.');
+			passwordStep = 1;
+			passwordSuccess = 'Password updated.';
 		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to change password.');
+			passwordError = error instanceof Error ? error.message : 'Failed to change password.';
 		} finally {
 			changingPassword = false;
 		}
@@ -492,10 +518,21 @@
 	</div>
 
 	<div class="profile-mock-toggles" role="group" aria-label="Banner and overlay visibility">
-		<label class="mini-toggle" title="Hide everyone’s banners and overlays on this client">
-			<input type="checkbox" bind:checked={disableAllBannersLocal} />
-			<span>Hide all</span>
-		</label>
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Hide banners & overlays</span>
+				<span class="setting-description">Hide everyone’s banners and avatar overlays on this device.</span>
+			</div>
+			<button
+				type="button"
+				class="toggle-btn settings-switch"
+				class:active={disableAllBannersLocal}
+				on:click={() => (disableAllBannersLocal = !disableAllBannersLocal)}
+				role="switch"
+				aria-checked={disableAllBannersLocal}
+				aria-label="Hide banners and overlays"
+			></button>
+		</div>
 	</div>
 </div>
 	</div>
@@ -563,14 +600,41 @@
 				{#if mustChangeOwnPassword}
 					<p class="warning-text">Temporary password — change it now.</p>
 				{/if}
-				<div class="pwd-grid">
-					<input type="password" class="emoji-name-input" placeholder="Current" bind:value={currentPasswordDraft} bind:this={currentPasswordInput} autocomplete="current-password" />
-					<input type="password" class="emoji-name-input" placeholder="New" bind:value={newPasswordDraft} autocomplete="new-password" />
-					<input type="password" class="emoji-name-input" placeholder="Confirm" bind:value={confirmNewPasswordDraft} autocomplete="new-password" />
-					<button class="pfp-upload-btn" on:click={changeOwnPassword} disabled={changingPassword}>
-						{changingPassword ? '…' : 'Update'}
-					</button>
-				</div>
+
+				{#if passwordStep === 1}
+					<div class="pwd-step">
+						<input
+							type="password"
+							class="emoji-name-input"
+							placeholder="Current password"
+							bind:value={currentPasswordDraft}
+							bind:this={currentPasswordInput}
+							autocomplete="current-password"
+							on:keydown={(e) => { if (e.key === 'Enter') advancePasswordStep(); }}
+						/>
+						<button class="pfp-upload-btn" on:click={advancePasswordStep}>Continue</button>
+					</div>
+				{:else}
+					<div class="pwd-step">
+						<button type="button" class="pwd-back-btn" on:click={backPasswordStep} title="Back to current password">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+							Back
+						</button>
+						<div class="pwd-grid">
+							<input type="password" class="emoji-name-input" placeholder="New password" data-pwd-new bind:value={newPasswordDraft} autocomplete="new-password" />
+							<input type="password" class="emoji-name-input" placeholder="Confirm new password" bind:value={confirmNewPasswordDraft} autocomplete="new-password" on:keydown={(e) => { if (e.key === 'Enter') changeOwnPassword(); }} />
+							<button class="pfp-upload-btn" on:click={changeOwnPassword} disabled={changingPassword}>
+								{changingPassword ? '…' : 'Update password'}
+							</button>
+						</div>
+					</div>
+				{/if}
+				{#if passwordError}
+					<p class="pwd-feedback pwd-error" role="alert">{passwordError}</p>
+				{/if}
+				{#if passwordSuccess}
+					<p class="pwd-feedback pwd-success" role="status">{passwordSuccess}</p>
+				{/if}
 			</div>
 
 			<div class="setting-item-full">

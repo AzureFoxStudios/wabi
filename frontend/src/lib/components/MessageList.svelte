@@ -5,6 +5,7 @@
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
+	import { deletionModeEnabled as deletionModeStore } from '$lib/moderationDeleteMode';
 	import MessageItem from './MessageItem.svelte';
 	import MessageListOverlays from './message/MessageListOverlays.svelte';
 	import LorePromoteModal from './lore/LorePromoteModal.svelte';
@@ -145,7 +146,8 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuMessage: Message | null = null;
-	let deletionModeEnabled = false;
+	let deletionModeEnabled = $deletionModeStore;
+	$: $deletionModeStore = deletionModeEnabled;
 	let deletionModeDeletingIds = new Set<string>();
 	type AlbumAnnouncementMeta = { name: string; kind: 'opened' | 'shared' };
 	let albumAnnouncementUploadInput: HTMLInputElement | null = null;
@@ -1925,16 +1927,11 @@
 	on:keydown={handleDeletionModeKeydown}
 />
 
-{#if canUseDeletionMode}
-	<div class="moderation-delete-toolbar" class:active={deletionModeEnabled} role="region" aria-label="Moderation deletion mode">
-		<button type="button" class="moderation-delete-toggle" class:active={deletionModeEnabled} on:click={toggleDeletionMode}>
-			{deletionModeEnabled ? 'Exit deletion mode' : 'Deletion mode'}
-		</button>
-		{#if deletionModeEnabled}
-			<span class="moderation-delete-hint">Hover a message and hit Delete. Esc exits.</span>
-		{:else}
-			<span class="moderation-delete-hint">Mod+ fast-delete for targeted cleanup.</span>
-		{/if}
+{#if canUseDeletionMode && deletionModeEnabled}
+	<div class="moderation-delete-toolbar active" role="region" aria-label="Deletion mode active">
+		<span class="moderation-delete-dot" aria-hidden="true"></span>
+		<span class="moderation-delete-hint">Deletion mode — click a message to remove it for everyone.</span>
+		<button type="button" class="moderation-delete-exit" on:click={toggleDeletionMode}>Exit (Esc)</button>
 	</div>
 {/if}
 
@@ -2077,6 +2074,8 @@
 	{popoutAnchorElement}
 	bind:popoutIsOwnProfile
 	bind:showReactionPicker
+	bind:reactionPickerX
+	bind:reactionPickerY
 	bind:contextMenuVisible
 	bind:showForwardDialog
 	bind:forwardMessage
@@ -2142,24 +2141,33 @@
 		gap: var(--space-2, 8px);
 		margin: var(--space-2, 8px) var(--space-4, 16px);
 		padding: var(--space-2, 8px) var(--space-3, 12px);
-		border: 1px solid color-mix(in srgb, var(--border, #2f3450) 76%, transparent);
+		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 42%, transparent);
 		border-radius: var(--radius-lg, 12px);
-		background: color-mix(in srgb, var(--bg-secondary, #171a2d) 88%, transparent);
-		color: var(--text-secondary, #b8c0d8);
-		font-size: var(--font-size-sm, 13px);
-	}
-
-	.moderation-delete-toolbar.active {
-		border-color: color-mix(in srgb, var(--color-danger, #ef4444) 42%, transparent);
 		background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, var(--bg-secondary, #171a2d));
 		color: var(--text-primary, #fff);
+		font-size: var(--font-size-sm, 13px);
+		width: fit-content;
 	}
 
-	.moderation-delete-toggle {
+	.moderation-delete-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--color-danger, #ef4444);
+		flex-shrink: 0;
+		animation: moderation-delete-pulse 1.4s ease-in-out infinite;
+	}
+
+	@keyframes moderation-delete-pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.35; }
+	}
+
+	.moderation-delete-exit {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 28px;
+		min-height: 26px;
 		padding: 0 var(--space-3, 12px);
 		border: 1px solid color-mix(in srgb, var(--border, #2f3450) 86%, transparent);
 		border-radius: var(--radius-md, 8px);
@@ -2168,10 +2176,10 @@
 		font-size: var(--font-size-xs, 12px);
 		font-weight: 700;
 		cursor: pointer;
+		flex-shrink: 0;
 	}
 
-	.moderation-delete-toggle:hover,
-	.moderation-delete-toggle.active {
+	.moderation-delete-exit:hover {
 		border-color: color-mix(in srgb, var(--color-danger, #ef4444) 52%, transparent);
 		background: color-mix(in srgb, var(--color-danger, #ef4444) 18%, transparent);
 	}

@@ -510,6 +510,54 @@
 	justify-self: start;
 }
 
+/* Two-step password flow */
+.pwd-step {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+}
+
+.pwd-step > .emoji-name-input,
+.pwd-step .pwd-grid {
+	width: 100%;
+}
+
+.pwd-back-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+	align-self: flex-start;
+	background: none;
+	border: none;
+	color: var(--text-secondary);
+	font-size: 0.8rem;
+	font-weight: 600;
+	cursor: pointer;
+	padding: 0.2rem 0.3rem;
+	border-radius: var(--radius-sm);
+	transition: color var(--duration-fast), background var(--duration-fast);
+}
+
+.pwd-back-btn:hover {
+	color: var(--text-heading);
+	background: var(--surface-raised);
+}
+
+.pwd-feedback {
+	margin-top: 0.4rem;
+	font-size: 0.78rem;
+	font-weight: 600;
+}
+
+.pwd-error {
+	color: var(--color-danger);
+}
+
+.pwd-success {
+	color: var(--color-success);
+}
+
 .settings-group-card.tight {
 	padding-top: 0.15rem;
 	padding-bottom: 0.25rem;

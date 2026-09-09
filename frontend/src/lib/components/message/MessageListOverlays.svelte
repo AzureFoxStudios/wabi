@@ -16,6 +16,8 @@
 	export let popoutAnchorElement: HTMLElement | null = null;
 	export let popoutIsOwnProfile = false;
 	export let showReactionPicker = false;
+	export let reactionPickerX = 0;
+	export let reactionPickerY = 0;
 	export let contextMenuMessage: Message | null = null;
 	export let contextMenuVisible = false;
 	export let contextMenuX = 0;
@@ -80,11 +82,22 @@
 
 {#if showReactionPicker}
 	{#if EmojiPickerComponent}
-		<svelte:component
-			this={EmojiPickerComponent}
-			on:select={handleReactionSelect}
-			on:close={closeReactionPicker}
-		/>
+		<!-- Reaction picker is anchored to the clicked message's action bar
+		     (Discord-style popover). The raw EmojiPicker CSS is composed
+		     bottom-right; this fixed wrapper re-anchors it at the click point
+		     so it visibly spawns below/above the message instead of opening
+		     somewhere near the composer. -->
+		<div
+			class="reaction-picker-anchor"
+			style="left: {reactionPickerX}px; top: {reactionPickerY}px;"
+			role="presentation"
+		>
+			<svelte:component
+				this={EmojiPickerComponent}
+				on:select={handleReactionSelect}
+				on:close={closeReactionPicker}
+			/>
+		</div>
 	{:else}
 		<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
 	{/if}

@@ -3,6 +3,25 @@
    Extracted from messagelist.css
    ========================================================================== */
 
+/* Reaction picker anchored to the clicked message's action bar. The wrapper
+   is fixed at the click point; the picker inside becomes a compact popover
+   instead of the composer-anchored bottom-right variant. */
+.reaction-picker-anchor {
+	position: fixed;
+	z-index: var(--z-popover, 500);
+	transform: translate(-50%, 8px);
+}
+
+.reaction-picker-anchor .emoji-picker {
+	position: static;
+	bottom: auto;
+	right: auto;
+	width: 340px;
+	height: 380px;
+	box-shadow: 0 12px 40px var(--shadow-lg, rgba(0, 0, 0, 0.45));
+	border: 1px solid var(--border-subtle);
+}
+
 
 
 .message-actions {
