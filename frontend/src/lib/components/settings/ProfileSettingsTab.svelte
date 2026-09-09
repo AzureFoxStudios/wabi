@@ -612,18 +612,18 @@
 							autocomplete="current-password"
 							on:keydown={(e) => { if (e.key === 'Enter') advancePasswordStep(); }}
 						/>
-						<button class="pfp-upload-btn" on:click={advancePasswordStep}>Continue</button>
+						<button type="button" class="action-btn" on:click={advancePasswordStep}>Continue</button>
 					</div>
 				{:else}
 					<div class="pwd-step">
-						<button type="button" class="pwd-back-btn" on:click={backPasswordStep} title="Back to current password">
+						<button type="button" class="action-btn secondary small" on:click={backPasswordStep} title="Back to current password">
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
 							Back
 						</button>
 						<div class="pwd-grid">
 							<input type="password" class="emoji-name-input" placeholder="New password" data-pwd-new bind:value={newPasswordDraft} autocomplete="new-password" />
 							<input type="password" class="emoji-name-input" placeholder="Confirm new password" bind:value={confirmNewPasswordDraft} autocomplete="new-password" on:keydown={(e) => { if (e.key === 'Enter') changeOwnPassword(); }} />
-							<button class="pfp-upload-btn" on:click={changeOwnPassword} disabled={changingPassword}>
+							<button type="button" class="action-btn" on:click={changeOwnPassword} disabled={changingPassword}>
 								{changingPassword ? '…' : 'Update password'}
 							</button>
 						</div>
@@ -638,18 +638,14 @@
 			</div>
 
 			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">Local accounts</span>
-					<span class="setting-description">
-						Default:
-						{$defaultLocalWabiAccountStore
-							? getLocalWabiAccountDisplayLabel($defaultLocalWabiAccountStore)
-							: 'none'}
-					</span>
-				</div>
-				<div class="setting-inline-save">
+				<div class="local-accounts-head">
+					<div class="setting-info">
+						<span class="setting-label">Local accounts</span>
+						<span class="setting-description">Default: {$defaultLocalWabiAccountStore ? getLocalWabiAccountDisplayLabel($defaultLocalWabiAccountStore) : 'none'}</span>
+					</div>
 					<button
-						class="pfp-upload-btn"
+						type="button"
+						class="action-btn secondary small"
 						on:click={makeCurrentLocalWabiDefault}
 						disabled={!currentLocalWabiAccountKey || currentLocalWabiAccountIsDefault}
 					>
@@ -664,7 +660,8 @@
 							{/each}
 						</select>
 						<button
-							class="pfp-upload-btn"
+							type="button"
+							class="action-btn secondary small"
 							on:click={importProfileFromSelectedLocalWabiAccount}
 							disabled={!linkedWabiImportPreview?.canImport || linkedWabiImporting}
 						>
