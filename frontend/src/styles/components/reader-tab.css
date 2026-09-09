@@ -117,6 +117,30 @@
 		margin-top: 0.9rem;
 	}
 
+	.reader-settings-panel {
+		display: none;
+		grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+		gap: 0.9rem 1rem;
+		margin-top: 0.9rem;
+		padding: 0.9rem;
+		border-radius: 14px;
+		border: 1px solid var(--reader-border);
+		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.5);
+	}
+
+	.reader-settings-panel.open {
+		display: grid;
+	}
+
+	.reader-shell.theme-night .reader-settings-panel {
+		background: rgba(10, 14, 20, 0.55);
+	}
+
+	.reader-settings-panel .reader-slider {
+		grid-column: 1 / -1;
+		max-width: 26rem;
+	}
+
 	.reader-control,
 	.reader-slider {
 		display: flex;

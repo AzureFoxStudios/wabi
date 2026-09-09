@@ -93,9 +93,11 @@
 	{:else}
 		<div class="viewport-empty">
 			<div class="empty-actions">
-				<p>No model selected yet.</p>
+				<p class="empty-title">No model selected yet</p>
+				<p class="empty-hint">Load a GLB/GLTF/OBJ/STL to preview it here. Models stay on this device.</p>
 				<div class="empty-action-row">
-					<button class="picker-btn" on:click={openTempPicker}>Open Temp Model</button>
+					<button class="picker-btn" on:click={openTempPicker}>Open temp model</button>
+					<button class="picker-btn" on:click={() => localFileInput?.click()}>Load from file…</button>
 					{#if $modelViewportHistory.length > 0}
 						<select class="model-select" on:change={handlePickRecent}>
 							<option value="">Recent models</option>
@@ -203,18 +205,36 @@
 	.empty-actions {
 		display: flex;
 		flex-direction: column;
-		gap: 0.7rem;
+		gap: 0.5rem;
 		align-items: center;
+		max-width: 30rem;
+		text-align: center;
+		padding: 1.5rem;
 	}
 
 	.empty-actions p {
 		margin: 0;
 	}
 
+	.empty-title {
+		font-size: 1.05rem;
+		font-weight: 700;
+		color: var(--text-heading);
+	}
+
+	.empty-hint {
+		font-size: var(--font-size-sm);
+		color: var(--text-muted);
+		line-height: 1.45;
+	}
+
 	.empty-action-row {
 		display: flex;
 		align-items: center;
+		justify-content: center;
+		flex-wrap: wrap;
 		gap: 0.45rem;
+		margin-top: 0.4rem;
 	}
 
 	.hidden-input {

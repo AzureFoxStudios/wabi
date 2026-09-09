@@ -849,11 +849,9 @@
 			{/if}
 		{:else}
 			<div class="reader-empty-state">
-				<div class="reader-empty-actions">
-					<button class="reader-action-btn glass" type="button" onclick={openFilePicker}>Open File</button>
-					<button class="reader-action-btn glass" type="button" onclick={openImagePicker}>Open Images</button>
-					<button class="reader-action-btn glass" type="button" onclick={() => openImportPanel('markdown')}>Paste Markdown</button>
-					<button class="reader-action-btn glass" type="button" onclick={() => openImportPanel('text')}>Paste Text</button>
+				<div class="reader-empty-card">
+					<h3>Nothing open yet</h3>
+					<p>Open a document or image, or paste markdown to start reading in a clean, focused view.</p>
 				</div>
 			</div>
 		{/if}
