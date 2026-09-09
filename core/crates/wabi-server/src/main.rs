@@ -233,9 +233,13 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Compute uploads_dir and blacklist_file before data_dir is consumed
-    let uploads_dir =
-        std::env::var("UPLOADS_DIR").unwrap_or_else(|_| format!("{}/uploads", args.data_dir));
+    // Compute uploads_dir and blacklist_file before data_dir is consumed.
+    // Accept both the legacy UPLOADS_DIR name and the WABI_-prefixed alias so
+    // container configs don't silently fall back to data_dir/uploads (which is
+    // usually not the mounted/served path).
+    let uploads_dir = std::env::var("WABI_UPLOADS_DIR")
+        .or_else(|_| std::env::var("UPLOADS_DIR"))
+        .unwrap_or_else(|_| format!("{}/uploads", args.data_dir));
     let blacklist_file = std::env::var("WABI_BLACKLIST_FILE")
         .unwrap_or_else(|_| format!("{}/blacklist.txt", args.data_dir));
     let server_role = ServerRole::from_env();
