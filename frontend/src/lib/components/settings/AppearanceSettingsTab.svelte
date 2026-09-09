@@ -4,6 +4,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { saveUserSettings } from '$lib/api';
 	import ThemeCustomizer from '../ThemeCustomizer.svelte';
+	import BackgroundImageEditor from '../BackgroundImageEditor.svelte';
 	import UniformFontMode from '../UniformFontMode.svelte';
 	import EffectsTab from '$lib/effects/EffectsTab.svelte';
 	import { layoutStore } from '$lib/layoutStore';
@@ -533,8 +534,18 @@
 				Toggle above to take control.
 			</div>
 		{/if}
-	</div>
-</div>
+		</div>
+		</div>
+
+		<!-- Chat background — always visible, not buried under Tune theme -->
+		<div class="settings-section">
+		<h3>Chat background</h3>
+		<div class="settings-group-card">
+			<div class="customizer-container settings-customizer-slot">
+				<BackgroundImageEditor />
+			</div>
+		</div>
+		</div>
 
 <style>
 	.advanced-toggle {
