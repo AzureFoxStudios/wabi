@@ -62,13 +62,13 @@ import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 
 	function getAlbumAnnouncementStatusLabel(meta: { name: string }, itemCount = 0): string {
 		if (albumAnnouncementUploadName === meta.name) return 'Uploading';
-		return itemCount > 0 ? `${itemCount} items` : 'Click to upload';
+		return itemCount > 0 ? `${itemCount} items` : 'Empty album';
 	}
 
 	function getAlbumAnnouncementSupportText(meta: { name: string }, itemCount = 0): string {
 		if (albumAnnouncementUploadName === meta.name) return 'Uploading files into this shared album now.';
 		if (itemCount > 0) return 'Open Albums to browse this shared album or add more files.';
-		return 'Click anywhere on this row to add the first image, or open Albums to manage it.';
+		return 'This shared album has no files yet. Use Add Media to drop the first one, or Open Albums to manage it.';
 	}
 
 	$: albumAnnouncement = parseAlbumAnnouncement(message.text);
