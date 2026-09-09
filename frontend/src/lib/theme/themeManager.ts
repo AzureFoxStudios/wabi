@@ -11,6 +11,33 @@ import type { BackgroundImage } from '../types/theme';
 import { applyAccessibilitySettings, getStoredAccessibilitySettings } from '../accessibility';
 
 /**
+ * Apply only the background-image CSS custom properties. Extracted from
+ * applyTheme so the background image can be re-applied live when the user
+ * changes it in the theme editor — setCustomTheme updates the store but the
+ * DOM vars otherwise stay stale until reload.
+ */
+export function applyBackgroundImageVars(backgroundImage?: BackgroundImage): void {
+	const root = document.documentElement;
+	if (backgroundImage) {
+		root.style.setProperty('--background-image-url', `url('${backgroundImage.url}')`);
+		root.style.setProperty('--background-image-opacity', String(backgroundImage.opacity ?? 0.3));
+		root.style.setProperty('--background-image-blur', `${backgroundImage.blur ?? 0}px`);
+		root.style.setProperty('--background-image-size', backgroundImage.size ?? 'cover');
+		root.style.setProperty('--background-image-position', backgroundImage.position ?? 'center');
+		root.style.setProperty('--background-image-repeat', backgroundImage.repeat ?? 'no-repeat');
+		root.style.setProperty('--background-image-blend', backgroundImage.blend ?? 'overlay');
+	} else {
+		root.style.setProperty('--background-image-url', 'none');
+		root.style.setProperty('--background-image-opacity', '1');
+		root.style.setProperty('--background-image-blur', '0px');
+		root.style.setProperty('--background-image-size', 'cover');
+		root.style.setProperty('--background-image-position', 'center');
+		root.style.setProperty('--background-image-repeat', 'no-repeat');
+		root.style.setProperty('--background-image-blend', 'normal');
+	}
+}
+
+/**
  * Convert color name from camelCase to kebab-case CSS variable name
  * Example: bgPrimary -> --bg-primary
  */
@@ -140,23 +167,7 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, unif
 	});
 
 	// === 5. Apply background image variables ===
-	if (backgroundImage) {
-		root.style.setProperty('--background-image-url', `url('${backgroundImage.url}')`);
-		root.style.setProperty('--background-image-opacity', String(backgroundImage.opacity ?? 0.3));
-		root.style.setProperty('--background-image-blur', `${backgroundImage.blur ?? 0}px`);
-		root.style.setProperty('--background-image-size', backgroundImage.size ?? 'cover');
-		root.style.setProperty('--background-image-position', backgroundImage.position ?? 'center');
-		root.style.setProperty('--background-image-repeat', backgroundImage.repeat ?? 'no-repeat');
-		root.style.setProperty('--background-image-blend', backgroundImage.blend ?? 'overlay');
-	} else {
-		root.style.setProperty('--background-image-url', 'none');
-		root.style.setProperty('--background-image-opacity', '1');
-		root.style.setProperty('--background-image-blur', '0px');
-		root.style.setProperty('--background-image-size', 'cover');
-		root.style.setProperty('--background-image-position', 'center');
-		root.style.setProperty('--background-image-repeat', 'no-repeat');
-		root.style.setProperty('--background-image-blend', 'normal');
-	}
+	applyBackgroundImageVars(backgroundImage);
 
 	// === 6. Apply uniform font settings ===
 	if (uniformFontSettings?.enabled) {
