@@ -78,7 +78,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={timedThemeModeEnabled} on:click={toggleTimedThemeModeAddon}>
-						{timedThemeModeEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 				{#if timedThemeModeEnabled}

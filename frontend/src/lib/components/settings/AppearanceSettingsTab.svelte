@@ -526,7 +526,11 @@
 		</div>
 		{#if !$animationQuality.userOverride}
 			<div class="runtime-note" style="padding: 0.35rem 0.1rem">
-				Device tier: <strong>{$animationQuality.tier}</strong> — auto-tuned. Toggle above to take control.
+				Device tier: <strong>{$animationQuality.tier}</strong> — auto-tuned:
+				{$animationQuality.cssOnly ? 'CSS animations only' : 'spring animations on'}
+				·
+				{$animationQuality.disableWindows ? 'pop-out windows off' : 'pop-out windows on'}.
+				Toggle above to take control.
 			</div>
 		{/if}
 	</div>

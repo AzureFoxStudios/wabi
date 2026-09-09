@@ -85,7 +85,6 @@
 				<div class="runtime-note">Locally muted channels: {mutedChannelCount}</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={hideMutedCategoriesEnabled} on:click={toggleHideMutedCategoriesAddon}>
-						{hideMutedCategoriesEnabled ? 'ON' : 'OFF'}
 					</button>
 					<button class="action-btn secondary" on:click={clearMutedChannelsAddon} disabled={mutedChannelCount === 0}>
 						Clear Muted
@@ -102,7 +101,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={readAllNotificationsButtonEnabled} on:click={toggleReadAllNotificationsButtonAddon}>
-						{readAllNotificationsButtonEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -116,7 +114,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={serverCounterEnabled} on:click={toggleServerCounterAddon}>
-						{serverCounterEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -130,7 +127,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={betterNsfwTagEnabled} on:click={toggleBetterNsfwTagAddon}>
-						{betterNsfwTagEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -144,7 +140,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={betterFriendListEnabled} on:click={toggleBetterFriendListAddon}>
-						{betterFriendListEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>

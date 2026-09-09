@@ -230,7 +230,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={$chatFilterStore.enabled} on:click={toggleChatFilterEnabled}>
-						{$chatFilterStore.enabled ? 'ON' : 'OFF'}
 					</button>
 					<select
 						class="theme-select"

@@ -81,7 +81,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={spoilerAllMessagesEnabled} on:click={toggleSpoilerAllMessages}>
-						{spoilerAllMessagesEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -95,7 +94,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={revealAllSpoilersEnabled} on:click={toggleRevealAllSpoilersAddon}>
-						{revealAllSpoilersEnabled ? 'ON' : 'OFF'}
 					</button>
 					<label class="upload-limit-row split-chunk-size-row">
 						<span>Minimum role</span>
@@ -147,7 +145,6 @@
 						</div>
 						<div class="settings-row-actions">
 							<button class="toggle-btn" class:active={serverSpoilAll} on:click={toggleServerSpoilAll}>
-								{serverSpoilAll ? 'ON' : 'OFF'}
 							</button>
 						</div>
 					</div>
@@ -165,7 +162,6 @@
 						</div>
 						<div class="settings-row-actions">
 							<button class="toggle-btn" class:active={serverUnspoilAll} on:click={toggleServerUnspoilAll}>
-								{serverUnspoilAll ? 'ON' : 'OFF'}
 							</button>
 						</div>
 					</div>

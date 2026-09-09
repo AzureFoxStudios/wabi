@@ -58,7 +58,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={friendNotificationsEnabled} on:click={toggleFriendNotificationsAddon}>
-						{friendNotificationsEnabled ? 'ON' : 'OFF'}
 					</button>
 					<button
 						class="toggle-btn"

@@ -7,10 +7,30 @@
 	import { getAdminPaymentAccessPolicy, getApiBase, type PaymentAccessPolicy } from '$lib/api';
 
 	type ServerPulse = { onlineUsers: number; totalUsers: number };
+	type HealthInfo = {
+		status: string;
+		writerRunning: boolean;
+		projectionHealthy: boolean;
+		appliedCommitSeq: string;
+		uptimeSeconds: number;
+		processMemoryBytes: number;
+	};
+	type AuditEntry = {
+		id: string;
+		action: string;
+		performedBy?: string;
+		targetUser?: string;
+		targetChannel?: string;
+		details?: string;
+		createdAt: string | null;
+	};
 
 	let serverPulse: ServerPulse | null = null;
 	let serverPulseLoading = false;
 	let channelPulseError = false;
+	let health: HealthInfo | null = null;
+	let recentAudit: AuditEntry[] = [];
+	let unavailableMetrics: string[] = [];
 
 	let paymentPolicy: PaymentAccessPolicy | null = null;
 	let paymentPolicyLoading = false;
@@ -45,6 +65,11 @@
 					onlineUsers: data?.overview?.onlineUsers ?? 0,
 					totalUsers: data?.overview?.totalUsers ?? 0
 				};
+				health = data?.extra?.health ?? null;
+				recentAudit = Array.isArray(data?.recentAudit) ? data.recentAudit : [];
+				unavailableMetrics = Array.isArray(data?.extra?.unavailableMetrics)
+					? data.extra.unavailableMetrics
+					: [];
 				channelPulseError = false;
 			} else {
 				// Finding 27: distinguish "no data" from request failure
@@ -135,7 +160,45 @@
 				<span class="ops-card-value ops-muted">none active</span>
 			{/if}
 		</div>
-	</div>
+
+		<div class="ops-card">
+			<span class="ops-card-label">Server Health</span>
+			{#if health}
+				<span class="ops-card-value">
+					<span class="ops-pulse-dot" class:ops-pulse-degraded={health.status !== 'ready'}></span>
+					{health.status === 'ready' ? 'Ready' : 'Degraded'}
+				</span>
+				<span class="ops-card-unit">
+					{health.writerRunning ? 'writer up' : 'writer down'} · {health.projectionHealthy ? 'projections ok' : 'projections degraded'}
+				</span>
+			{:else if channelPulseError}
+				<span class="ops-card-value ops-muted">unavailable</span>
+			{:else}
+				<span class="ops-card-value ops-muted">—</span>
+			{/if}
+		</div>
+		</div>
+
+		{#if recentAudit.length > 0}
+		<section class="ops-section">
+			<div class="ops-section-head">
+				<span class="ops-section-label">Recent staff activity</span>
+				<span class="ops-section-count">{recentAudit.length}</span>
+			</div>
+			<div class="ops-audit-list">
+				{#each recentAudit as entry (entry.id)}
+					<div class="ops-audit-item" title={entry.details || entry.action}>
+						<span class="ops-audit-action">{entry.action}</span>
+						<span class="ops-audit-meta">
+							{#if entry.performedBy}<strong>{entry.performedBy}</strong>{/if}
+							{#if entry.targetUser}<span>→ {entry.targetUser}</span>{/if}
+							{#if entry.targetChannel}<span class="ops-audit-channel">#{entry.targetChannel}</span>{/if}
+						</span>
+					</div>
+				{/each}
+			</div>
+		</section>
+		{/if}
 
 	<section class="ops-section">
 		<div class="ops-section-head">
@@ -353,6 +416,66 @@
 		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
 		border-radius: 10px;
 		background: var(--surface-base, #24243e);
+	}
+
+	.ops-pulse-dot {
+		display: inline-block;
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--status-online, #43b581);
+		margin-right: 0.35rem;
+	}
+
+	.ops-pulse-degraded {
+		background: var(--status-busy, #faa61a);
+	}
+
+	.ops-audit-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+
+	.ops-audit-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		padding: 0.35rem 0.5rem;
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--surface-raised, #1a1a2e) 70%, transparent);
+		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.07));
+		min-width: 0;
+	}
+
+	.ops-audit-action {
+		font-size: 0.66rem;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--accent-secondary, #818cf8);
+		font-weight: 700;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.ops-audit-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.7rem;
+		color: var(--text-secondary, #b8c0d8);
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.ops-audit-meta strong {
+		color: var(--text-heading, #e0e0ff);
+		font-weight: 600;
+	}
+
+	.ops-audit-channel {
+		color: var(--text-muted, #9999ff);
 	}
 	.ops-section-head {
 		display: flex;

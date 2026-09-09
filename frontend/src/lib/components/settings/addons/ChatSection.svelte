@@ -211,7 +211,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={spellCheckEnabled} on:click={toggleSpellCheckAddon}>
-						{spellCheckEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -225,7 +224,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={charCounterEnabled} on:click={toggleCharCounterAddon}>
-						{charCounterEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -239,7 +237,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={splitLargeMessagesEnabled} on:click={toggleSplitLargeMessagesAddon}>
-						{splitLargeMessagesEnabled ? 'ON' : 'OFF'}
 					</button>
 					<label class="upload-limit-row split-chunk-size-row">
 						<span>Chunk size</span>
@@ -268,7 +265,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={writeUpperCaseEnabled} on:click={toggleWriteUpperCaseAddon}>
-						{writeUpperCaseEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -282,7 +278,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={clickableMentionsEnabled} on:click={toggleClickableMentionsAddon}>
-						{clickableMentionsEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -317,7 +312,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={messageUtilitiesEnabled} on:click={toggleMessageUtilitiesAddon}>
-						{messageUtilitiesEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -331,7 +325,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={quickMentionEnabled} on:click={toggleQuickMentionAddon}>
-						{quickMentionEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -346,7 +339,6 @@
 				<div class="runtime-note">Local personal pins: {personalPinCount}</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={personalPinsEnabled} on:click={togglePersonalPinsAddon}>
-						{personalPinsEnabled ? 'ON' : 'OFF'}
 					</button>
 					<button class="action-btn secondary" on:click={clearPersonalPinsAddon} disabled={personalPinCount === 0}>
 						Clear Local Pins
@@ -363,17 +355,12 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={unicodeEmojisEnabled} on:click={toggleUnicodeEmojisAddon}>
-						{unicodeEmojisEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 				{#if unicodeEmojisEnabled}
 					<div class="settings-row-actions">
-						<button class="toggle-btn" class:active={unicodeConvertDefaultEnabled} on:click={toggleUnicodeDefaultSource}>
-							Default source: {unicodeConvertDefaultEnabled ? 'ON' : 'OFF'}
-						</button>
-						<button class="toggle-btn" class:active={unicodeConvertOpenmojiEnabled} on:click={toggleUnicodeOpenmojiSource}>
-							OpenMoji source: {unicodeConvertOpenmojiEnabled ? 'ON' : 'OFF'}
-						</button>
+						<button class="toggle-btn" class:active={unicodeConvertDefaultEnabled} on:click={toggleUnicodeDefaultSource} aria-label="Default emoji source" aria-pressed={unicodeConvertDefaultEnabled}></button>
+						<button class="toggle-btn" class:active={unicodeConvertOpenmojiEnabled} on:click={toggleUnicodeOpenmojiSource} aria-label="OpenMoji emoji source" aria-pressed={unicodeConvertOpenmojiEnabled}></button>
 					</div>
 				{/if}
 				<div class="runtime-note">Applies to main chat, DM sends, and GIF captions.</div>
