@@ -213,6 +213,58 @@
 		background: transparent;
 	}
 
+	/* Toolbar icon buttons (prev/next page, font size, theme, fullscreen,
+	   focus, settings) — these previously had NO stylesheet rules at all and
+	   rendered as bare browser buttons. */
+	.reader-icon-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.05rem;
+		height: 2.05rem;
+		min-width: 2.05rem;
+		padding: 0;
+		border: 1px solid transparent;
+		border-radius: 10px;
+		background: transparent;
+		color: var(--reader-muted);
+		cursor: pointer;
+		transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+	}
+
+	.reader-icon-btn:hover:not(:disabled) {
+		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
+		color: var(--reader-text);
+	}
+
+	.reader-icon-btn:focus-visible {
+		outline: 2px solid var(--reader-accent);
+		outline-offset: 1px;
+	}
+
+	.reader-icon-btn:disabled {
+		opacity: 0.32;
+		cursor: not-allowed;
+	}
+
+	.reader-icon-btn svg {
+		width: 17px;
+		height: 17px;
+	}
+
+	.reader-icon-btn.active {
+		color: var(--reader-accent);
+		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.06);
+	}
+
+	.reader-icon-divider {
+		width: 1px;
+		height: 1.2rem;
+		align-self: center;
+		background: var(--reader-border);
+		margin-inline: 0.15rem;
+	}
+
 	.reader-page-indicator {
 		display: inline-flex;
 		align-items: center;
