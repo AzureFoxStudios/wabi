@@ -244,6 +244,20 @@
 			alert('Invalid layout JSON.');
 		}
 	}
+
+	// Plain-words explanation of the auto-detected device tier (weak | mid | capable).
+	function getDeviceTierLabel(tier: string | undefined): string {
+		switch (tier) {
+			case 'weak':
+				return 'low-power device';
+			case 'mid':
+				return 'mid-range device';
+			case 'capable':
+				return 'full-power device';
+			default:
+				return 'this device';
+		}
+	}
 </script>
 
 <!-- Chat -->
@@ -276,14 +290,14 @@
 				<span class="setting-label">Own messages on right</span>
 				<span class="setting-description">Align your messages to the right side.</span>
 			</div>
-			<button class="toggle-btn" class:active={ownMessagesOnRight} on:click={toggleOwnMessagesOnRight} aria-label="Own messages on right"></button>
+			<button class="toggle-btn" class:active={ownMessagesOnRight} on:click={toggleOwnMessagesOnRight} role="switch" aria-checked={ownMessagesOnRight} aria-label="Own messages on right"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Send button</span>
 				<span class="setting-description">Show a clickable send button in the composer.</span>
 			</div>
-			<button class="toggle-btn" class:active={clickableSendEnabled} on:click={toggleClickableSendEnabled} aria-label="Clickable send button"></button>
+			<button class="toggle-btn" class:active={clickableSendEnabled} on:click={toggleClickableSendEnabled} role="switch" aria-checked={clickableSendEnabled} aria-label="Clickable send button"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
@@ -339,7 +353,7 @@
 				<span class="setting-label">Collapse nav</span>
 				<span class="setting-description">Minimize the server dock to icons.</span>
 			</div>
-			<button class="toggle-btn" class:active={$layoutStore.isNavCollapsed} on:click={toggleDockNavCollapsed} aria-label="Collapse navigation"></button>
+			<button class="toggle-btn" class:active={$layoutStore.isNavCollapsed} on:click={toggleDockNavCollapsed} role="switch" aria-checked={$layoutStore.isNavCollapsed} aria-label="Collapse navigation"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
@@ -403,7 +417,7 @@
 				<span class="setting-label">Video compression ({videoCompressionRuntimeLabel})</span>
 				<span class="setting-description">Automatically compress large video uploads.</span>
 			</div>
-			<button class="toggle-btn" class:active={videoCompressionEnabled} on:click={toggleVideoCompressionEnabled} aria-label="Video compression"></button>
+			<button class="toggle-btn" class:active={videoCompressionEnabled} on:click={toggleVideoCompressionEnabled} role="switch" aria-checked={videoCompressionEnabled} aria-label="Video compression"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
@@ -503,7 +517,8 @@
 				class="toggle-btn"
 				class:active={$animationQuality.cssOnly}
 				on:click={() => animationQuality.setCssOnly(!$animationQuality.cssOnly)}
-				aria-pressed={$animationQuality.cssOnly}
+				role="switch"
+				aria-checked={$animationQuality.cssOnly}
 				aria-label="CSS animations"
 			></button>
 		</div>
@@ -521,16 +536,17 @@
 				class="toggle-btn"
 				class:active={$animationQuality.disableWindows}
 				on:click={() => animationQuality.setDisableWindows(!$animationQuality.disableWindows)}
-				aria-pressed={$animationQuality.disableWindows}
+				role="switch"
+				aria-checked={$animationQuality.disableWindows}
 				aria-label="Disable new windows"
 			></button>
 		</div>
 		{#if !$animationQuality.userOverride}
 			<div class="runtime-note" style="padding: 0.35rem 0.1rem">
-				Device tier: <strong>{$animationQuality.tier}</strong> — auto-tuned:
-				{$animationQuality.cssOnly ? 'CSS animations only' : 'spring animations on'}
+				Auto-tuned for a {getDeviceTierLabel($animationQuality.tier)}:
+				{$animationQuality.cssOnly ? 'simple CSS animations' : 'full spring animations'}
 				·
-				{$animationQuality.disableWindows ? 'pop-out windows off' : 'pop-out windows on'}.
+				{$animationQuality.disableWindows ? 'panels stay inline' : 'pop-out windows on'}.
 				Toggle above to take control.
 			</div>
 		{/if}

@@ -546,6 +546,11 @@
 		margin-bottom: var(--space-2);
 	}
 
+	.settings-row-actions .action-btn {
+		flex: 0 1 auto;
+		min-width: 0;
+	}
+
 
 	.alias-input {
 		min-width: 220px;

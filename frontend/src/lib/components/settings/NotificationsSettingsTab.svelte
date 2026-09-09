@@ -512,7 +512,7 @@
 			<span class="setting-label">Suppress @everyone, @here, and @all</span>
 			<span class="setting-description">Skip @everyone / @here / @all.</span>
 		</div>
-		<button class="toggle-btn" class:active={suppressEveryoneHereMentions} on:click={toggleSuppressEveryoneHereMentions} aria-label="Suppress everyone mentions"></button>
+		<button class="toggle-btn" class:active={suppressEveryoneHereMentions} on:click={toggleSuppressEveryoneHereMentions} role="switch" aria-checked={suppressEveryoneHereMentions} aria-label="Suppress everyone mentions"></button>
 	</div>
 
 	<div class="setting-item">
@@ -520,7 +520,7 @@
 			<span class="setting-label">Suppress All Role @mentions</span>
 			<span class="setting-description">Skip role @mentions.</span>
 		</div>
-		<button class="toggle-btn" class:active={suppressRoleMentions} on:click={toggleSuppressRoleMentions} aria-label="Suppress role mentions"></button>
+		<button class="toggle-btn" class:active={suppressRoleMentions} on:click={toggleSuppressRoleMentions} role="switch" aria-checked={suppressRoleMentions} aria-label="Suppress role mentions"></button>
 	</div>
 
 	<div class="setting-item">
@@ -528,7 +528,7 @@
 			<span class="setting-label">Show Message Preview</span>
 			<span class="setting-description">Include message text in the alert.</span>
 		</div>
-		<button class="toggle-btn" class:active={notificationPreviewEnabled} on:click={toggleNotificationPreview} aria-label="Show message preview"></button>
+		<button class="toggle-btn" class:active={notificationPreviewEnabled} on:click={toggleNotificationPreview} role="switch" aria-checked={notificationPreviewEnabled} aria-label="Show message preview"></button>
 	</div>
 	</div>
 
@@ -551,7 +551,7 @@
 		<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac" bind:this={notificationSoundInput} on:change={handleNotificationSoundFileSelect} class="hidden" />
 		<div class="runtime-note">Active sound: {notificationSoundLabel}</div>
 		<div class="settings-row-actions">
-			<button class="test-sound-btn" on:click={testNotificationSound}>Test Sound</button>
+			<button class="action-btn" on:click={testNotificationSound}>Test Sound</button>
 			<button class="action-btn secondary" on:click={resetNotificationSoundToDefault}>Reset Default</button>
 		</div>
 	</div>
@@ -572,8 +572,8 @@
 				<button class="action-btn secondary" on:click={() => (callRingtoneSynthEditorExpanded = !callRingtoneSynthEditorExpanded)}>
 					{callRingtoneSynthEditorExpanded ? 'Hide Advanced' : 'Edit Synth'}
 				</button>
-				<button class="sound-option" on:click={exportCallRingtoneCustomSynth}>Export JSON</button>
-				<button class="sound-option" on:click={triggerCallRingtoneSynthImportFilePicker}>Import JSON</button>
+				<button class="action-btn secondary" on:click={exportCallRingtoneCustomSynth}>Export JSON</button>
+				<button class="action-btn secondary" on:click={triggerCallRingtoneSynthImportFilePicker}>Import JSON</button>
 			</div>
 			<div class="runtime-note">Preset: {getCallRingtoneCustomSynthSummary()}</div>
 			{#if callRingtoneSynthEditorExpanded}
@@ -640,22 +640,22 @@
 					</div>
 				</div>
 				<div class="settings-row-actions">
-					<button class="sound-option" on:click={resetCallRingtoneCustomSynth}>Reset Synth</button>
+					<button class="action-btn secondary" on:click={resetCallRingtoneCustomSynth}>Reset Synth</button>
 				</div>
 			{/if}
 			<input type="file" accept="application/json,.json" bind:this={callRingtoneSynthImportInput} on:change={handleCallRingtoneSynthImportFileSelect} class="hidden" />
 		{:else if callRingtoneMode === 'custom-audio'}
 			<div class="sound-options">
-				<button class="sound-option" on:click={triggerCallRingtoneFilePicker}>
+				<button class="action-btn secondary" on:click={triggerCallRingtoneFilePicker}>
 					{callRingtoneLabel === 'Custom audio' ? 'Upload Custom Audio' : 'Replace Custom Audio'}
 				</button>
-				<button class="sound-option" on:click={resetCallRingtoneToDefault}>Back To Preset</button>
+				<button class="action-btn secondary" on:click={resetCallRingtoneToDefault}>Back To Preset</button>
 			</div>
 			<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac" bind:this={callRingtoneInput} on:change={handleCallRingtoneFileSelect} class="hidden" />
 		{/if}
 		<div class="runtime-note">Active ringtone: {callRingtoneLabel}</div>
 		<div class="settings-row-actions">
-			<button class="test-sound-btn" on:click={testCallRingtone}>Test Ringtone</button>
+			<button class="action-btn" on:click={testCallRingtone}>Test Ringtone</button>
 			{#if callRingtoneMode !== 'custom-audio'}
 				<button class="action-btn secondary" on:click={resetCallRingtoneToDefault}>Reset Default</button>
 			{/if}

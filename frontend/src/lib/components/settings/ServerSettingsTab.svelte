@@ -67,7 +67,7 @@
 				<span class="setting-label">Directions GPS</span>
 				<span class="setting-description">Use location only on this device for directions cards. Never uploaded.</span>
 			</div>
-			<button class="toggle-btn" class:active={directionsGpsEnabled} onclick={toggleDirectionsGpsAssist} aria-label="Directions GPS"></button>
+			<button class="toggle-btn" class:active={directionsGpsEnabled} onclick={toggleDirectionsGpsAssist} role="switch" aria-checked={directionsGpsEnabled} aria-label="Directions GPS"></button>
 		</div>
 		{#if directionsGpsStatus}
 			<div class="runtime-note">{directionsGpsStatus}</div>
@@ -77,7 +77,7 @@
 				<span class="setting-label">Business sync</span>
 				<span class="setting-description">On = continuous auto sync. Off = manual only.</span>
 			</div>
-			<button class="toggle-btn" class:active={businessSyncMode === 'auto'} onclick={toggleBusinessSyncMode} aria-label="Business sync auto"></button>
+			<button class="toggle-btn" class:active={businessSyncMode === 'auto'} onclick={toggleBusinessSyncMode} role="switch" aria-checked={businessSyncMode === 'auto'} aria-label="Business sync auto"></button>
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">

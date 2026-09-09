@@ -318,14 +318,14 @@
 	.audio-settings .setting-info { min-width: 0; flex: 1; }
 	.audio-settings .runtime-note { line-height: 1.5; overflow-wrap: anywhere; text-wrap: pretty; }
 	.audio-settings audio { width: 100%; min-width: 0; }
-	.audio-settings .action-btn { min-height: 40px; }
+	.audio-settings .action-btn { min-height: 40px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.audio-settings .toggle-btn { box-sizing: content-box; border-block: 6px solid transparent !important; background-clip: padding-box !important; }
 	.audio-settings :is(button, select, input, summary):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 	.audio-helper { display: grid; gap: 0.85rem; border-top: 1px solid var(--border-subtle); padding-top: 1rem; }
 	.mic-level { height: 8px; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-sunken); }
 	.mic-level span { display: block; height: 100%; background: var(--accent-primary); transition: width 80ms linear; }
 	.mic-test-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; min-width: 0; }
-	.mic-test-btn { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 40px; padding: 0 1rem; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent); background: var(--surface-raised); color: var(--text-heading); font-weight: 600; cursor: pointer; transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast); }
+	.mic-test-btn { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 40px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0.6rem 1rem; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent); background: var(--surface-raised); color: var(--text-heading); font-weight: 600; cursor: pointer; transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast); }
 	.mic-test-btn svg { width: 16px; height: 16px; }
 	.mic-test-btn:hover { background: color-mix(in srgb, var(--accent-primary-color) 14%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent-primary-color) 40%, transparent); }
 	.mic-test-btn.recording { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 45%, transparent); animation: mic-test-pulse 1.2s ease-in-out infinite; }
