@@ -345,6 +345,31 @@
 		}
 	}
 
+	// --- Moderation (role management) for owner/admin on other registered users ---
+	$: canManageRoles = (() => {
+		const self = $currentUser;
+		if (!self || !user) return false;
+		if (user.dbUserId == null) return false;
+		if (isOwnProfile) return false;
+		if ((self.highestRole !== 'owner' && self.highestRole !== 'admin')) return false;
+		if (user.highestRole === 'owner') return false;
+		return true;
+	})();
+
+	let roleActionStatus = '';
+	async function setUserRole(role: 'admin' | 'mod' | 'member') {
+		if (!user?.dbUserId || !canManageRoles) return;
+		roleActionStatus = 'Saving…';
+		try {
+			const { assignRole } = await import('$lib/presenceStore');
+			await assignRole(String(user.dbUserId), role);
+			roleActionStatus = 'Saved.';
+			setTimeout(() => (roleActionStatus = ''), 2200);
+		} catch (error) {
+			roleActionStatus = error instanceof Error ? error.message : 'Could not change role.';
+		}
+	}
+
 	function getStatusLabel(status: string) {
 		switch (status) {
 			case 'active': return get(_)('user.status.online');
@@ -575,6 +600,10 @@
 				{user}
 				{localNickname}
 				localNicknamesEnabled={$displayEnhancementSettingsStore.localNicknamesEnabled}
+				canManageRoles={canManageRoles}
+				targetRole={user?.highestRole || 'member'}
+				roleActionStatus={roleActionStatus}
+				onSetRole={setUserRole}
 				onOpenDM={openDM}
 				onOpenFullProfile={openFullProfile}
 				onOpenSettings={openFullProfile}

@@ -17,6 +17,10 @@
 	export let onScreenShare: () => void = () => {};
 	export let onSetLocalNickname: () => void = () => {};
 	export let onClearLocalNickname: () => void = () => {};
+	export let canManageRoles = false;
+	export let targetRole: string = 'member';
+	export let roleActionStatus = '';
+	export let onSetRole: (role: 'admin' | 'mod' | 'member') => void = () => {};
 
 	async function handleShareProfile() {
 		if (!user) return;
@@ -58,6 +62,31 @@
 		font-size: 0.72rem;
 		color: var(--text-muted, #8e9297);
 		text-align: center;
+	}
+	.manage-roles {
+		display: grid;
+		gap: 0.4rem;
+		padding-top: 0.2rem;
+	}
+	.manage-roles-label {
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--text-muted, #8e9297);
+	}
+	.manage-roles-buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+	}
+	.manage-roles-status {
+		font-size: 0.72rem;
+		color: var(--text-secondary, #b9bbbe);
+	}
+	.context-btn.active-role {
+		border-color: rgba(var(--accent-rgb), 0.5);
+		background: rgba(var(--accent-rgb), 0.14);
 	}
 </style>
 
@@ -107,5 +136,34 @@
 				Clear Local Nickname
 			</button>
 		{/if}
+	{/if}
+	{#if canManageRoles && user}
+		<div class="manage-roles">
+			<div class="manage-roles-label">Moderation</div>
+			<div class="manage-roles-buttons">
+				<button
+					class="context-btn"
+					class:active-role={targetRole === 'admin'}
+					on:click={() => onSetRole(targetRole === 'admin' ? 'member' : 'admin')}
+				>
+					{targetRole === 'admin' ? 'Remove Admin' : 'Make Admin'}
+				</button>
+				<button
+					class="context-btn"
+					class:active-role={targetRole === 'mod'}
+					on:click={() => onSetRole(targetRole === 'mod' ? 'member' : 'mod')}
+				>
+					{targetRole === 'mod' ? 'Remove Moderator' : 'Make Moderator'}
+				</button>
+				{#if targetRole === 'admin' || targetRole === 'mod'}
+					<button class="context-btn danger" on:click={() => onSetRole('member')}>
+						Reset to Member
+					</button>
+				{/if}
+			</div>
+			{#if roleActionStatus}
+				<span class="manage-roles-status">{roleActionStatus}</span>
+			{/if}
+		</div>
 	{/if}
 </div>
