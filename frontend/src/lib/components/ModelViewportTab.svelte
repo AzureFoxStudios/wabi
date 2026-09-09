@@ -161,9 +161,9 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		border: 1px solid rgba(92, 106, 126, 0.8);
-		background: rgba(15, 20, 30, 0.9);
-		color: var(--text-inverse, #e6edf5);
+		border: 1px solid var(--border-subtle);
+		background: var(--surface-raised);
+		color: var(--text-heading);
 		border-radius: 7px;
 		font-size: 1rem;
 		line-height: 1;
@@ -173,9 +173,9 @@
 
 	.model-select,
 	.picker-btn {
-		border: 1px solid rgba(92, 106, 126, 0.8);
-		background: rgba(15, 20, 30, 0.9);
-		color: var(--text-inverse, #e6edf5);
+		border: 1px solid var(--border-subtle);
+		background: var(--surface-raised);
+		color: var(--text-heading);
 		border-radius: 7px;
 		padding: 0.3rem 0.55rem;
 		font-size: 0.75rem;
