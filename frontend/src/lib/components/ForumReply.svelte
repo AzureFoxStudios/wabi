@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ForumPost } from '$lib/forumStore';
-	import { findAuthor, formatForumTime } from '$lib/forumStore';
+	import { findAuthor, formatForumTime, extractForumAttachments, resolveForumFileUrl, stripForumImageMarkdown, formatForumFileSize } from '$lib/forumStore';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { slugify } from '$lib/objectRefRegistry';
 
@@ -11,6 +11,8 @@
 	export let channelId: string;
 
 	$: author = findAuthor(reply.author_user_id);
+	$: attachments = reply.attachments ?? extractForumAttachments(reply.body);
+	$: textBody = stripForumImageMarkdown(reply.body);
 	$: shareRecord = {
 		kind: 'forum_post' as const,
 		id: reply.post_id,
@@ -41,7 +43,40 @@
 		<span>·</span>
 		<span>{formatForumTime(reply.created_at_micros)}</span>
 	</div>
-	<div class="forum-reply-body">{reply.body}</div>
+	<div class="forum-reply-body">{textBody}</div>
+	{#if attachments.length > 0}
+		<div class="forum-files-gallery" class:has-more={attachments.length > 4}>
+			{#each attachments.slice(0, 4) as attachment, index}
+				<div class="forum-gallery-file-item" class:last-item={index === 3 && attachments.length > 4}>
+					<a href={resolveForumFileUrl(attachment.url)} target="_blank" rel="noopener noreferrer" title={attachment.name}>
+						<img
+							src={resolveForumFileUrl(attachment.url)}
+							alt={attachment.name}
+							class="forum-gallery-file-image"
+							loading="lazy"
+							decoding="async"
+						/>
+					</a>
+					{#if index === 3 && attachments.length > 4}
+						<div class="forum-more-overlay">
+							<span class="forum-more-count">+{attachments.length - 4}</span>
+						</div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+		{#if attachments.length > 4}
+			<div class="forum-file-card-list">
+				{#each attachments.slice(4) as attachment}
+					<a class="forum-file-card" href={resolveForumFileUrl(attachment.url)} target="_blank" rel="noopener noreferrer">
+						<span class="forum-file-card-icon" aria-hidden="true">&#128196;</span>
+						<span class="forum-file-card-name">{attachment.name}</span>
+						{#if attachment.size}<span class="forum-file-card-size">{formatForumFileSize(attachment.size)}</span>{/if}
+					</a>
+				{/each}
+			</div>
+		{/if}
+	{/if}
 	<div class="forum-reply-actions">
 		<button class="forum-action-btn" on:click={() => onVote('up')}>&#9650; {reply.votes_up}</button>
 		<button class="forum-action-btn" on:click={() => onVote('down')}>&#9660; {reply.votes_down}</button>

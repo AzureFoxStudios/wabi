@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ForumPost } from '$lib/forumStore';
-	import { findAuthor, formatForumTime, categorizeThread, tagClass } from '$lib/forumStore';
+	import { findAuthor, formatForumTime, categorizeThread, tagClass, extractForumAttachments, resolveForumFileUrl } from '$lib/forumStore';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import RoleBadge from './RoleBadge.svelte';
 	import { slugify } from '$lib/objectRefRegistry';
@@ -12,6 +12,8 @@
 
 	$: author = findAuthor(thread.author_user_id);
 	$: category = categorizeThread(thread);
+	$: attachments = thread.attachments ?? extractForumAttachments(thread.body);
+	$: previewImages = attachments.slice(0, 3);
 	$: shareRecord = {
 		kind: 'forum_post' as const,
 		id: thread.post_id,
@@ -39,6 +41,25 @@
 		{/if}
 	</div>
 	<div class="forum-post-row-title">{thread.title}</div>
+	{#if previewImages.length > 0}
+		<div class="forum-post-row-images">
+			{#each previewImages as attachment}
+				<a
+					href={resolveForumFileUrl(attachment.url)}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="forum-post-row-thumb"
+					on:click|stopPropagation
+					title={attachment.name}
+				>
+					<img src={resolveForumFileUrl(attachment.url)} alt={attachment.name} loading="lazy" decoding="async" />
+				</a>
+			{/each}
+			{#if attachments.length > previewImages.length}
+				<span class="forum-post-row-more">+{attachments.length - previewImages.length}</span>
+			{/if}
+		</div>
+	{/if}
 	<div class="forum-post-row-meta">
 		<div class="forum-post-row-author">
 			{#if author}

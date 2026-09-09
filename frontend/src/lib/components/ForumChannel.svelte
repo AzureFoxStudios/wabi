@@ -19,6 +19,10 @@
 		getDefaultCategories,
 		categorizeThread,
 		tagClass,
+		extractForumAttachments,
+		resolveForumFileUrl,
+		stripForumImageMarkdown,
+		formatForumFileSize,
 		type ForumPost,
 	} from '$lib/forumStore';
 	import SurfaceHeader from './SurfaceHeader.svelte';
@@ -39,6 +43,10 @@
 	let activeCategory: string | null = null;
 	let searchQuery = '';
 	let showNewThread = false;
+	// Focused-writing surface: right-anchored draft drawer (the calls-panel
+	// pattern, kept forum-local — see handleNewThread). The inline composer
+	// stays for quick posts via handleQuickPost.
+	let showDraftDrawer = false;
 
 	initObjectRefRegistry();
 
@@ -171,6 +179,10 @@
 	$: selectedPosts = selectedThreadId ? (postsByThread.get(selectedThreadId) || []) : [];
 	$: threadStarter = selectedPosts.find((p) => p.is_thread_starter) || selectedThread;
 	$: threadReplies = selectedPosts.filter((p) => !p.is_thread_starter && p.post_id !== threadStarter?.post_id);
+	$: starterAttachments = threadStarter
+		? (threadStarter.attachments ?? extractForumAttachments(threadStarter.body))
+		: [];
+	$: starterText = threadStarter ? stripForumImageMarkdown(threadStarter.body) : '';
 	$: hasSolution = threadReplies.some((r) => r.is_solution);
 	$: canCurrentUserPost = Boolean($currentUser?.dbUserId);
 
@@ -186,6 +198,8 @@
 	$: if ($currentChannel) {
 		customCategories = loadCustomCategories($currentChannel);
 		loadThreads($currentChannel);
+		// The draft drawer is scoped to the active forum channel.
+		showDraftDrawer = false;
 	}
 
 	// C2: deep-link handoff after threads load — peek first, take only on hit
@@ -214,7 +228,15 @@
 	}
 
 	function handleNewThread() {
+		showDraftDrawer = true;
+	}
+
+	function handleQuickPost() {
 		showNewThread = true;
+	}
+
+	function handleCloseDraftDrawer() {
+		showDraftDrawer = false;
 	}
 
 	function handleCancelNewThread() {
@@ -226,6 +248,7 @@
 		const post = await createThread($currentChannel, body, title, undefined, category || undefined);
 		if (post) {
 			showNewThread = false;
+			showDraftDrawer = false;
 			if (category) activeCategory = category;
 			selectThread(post);
 		}
@@ -370,7 +393,10 @@
 				<div class="forum-post-list-header">
 					<span>{activeCategory || 'All'} Threads <span class="forum-post-list-header-count">{categorizedThreads.length}</span></span>
 					{#if canCurrentUserPost}
-						<button class="forum-new-thread-btn" on:click={handleNewThread} title="New Thread">+</button>
+						<div class="forum-post-list-header-actions">
+							<button class="forum-quick-post-btn" on:click={handleQuickPost} title="Quick post inline">Quick</button>
+							<button class="forum-new-thread-btn" on:click={handleNewThread} title="New thread (focused writing panel)">+</button>
+						</div>
 					{/if}
 				</div>
 				{#if categorizedThreads.length === 0}
@@ -399,6 +425,7 @@
 					<ForumComposer
 						showTitle={true}
 						categoryOptions={categories}
+						channelId={$currentChannel}
 						placeholder="Write your post... Use **bold** `code` @mentions"
 						onSubmit={handleCreateNewThread}
 						onCancel={handleCancelNewThread}
@@ -443,7 +470,40 @@
 									<span>·</span>
 									<span>&#128065; {threadStarter.votes_up + threadStarter.votes_down} views</span>
 								</div>
-								<div class="forum-post-detail-body">{threadStarter.body}</div>
+								<div class="forum-post-detail-body">{starterText}</div>
+								{#if starterAttachments.length > 0}
+									<div class="forum-files-gallery" class:has-more={starterAttachments.length > 4}>
+										{#each starterAttachments.slice(0, 4) as attachment, index}
+											<div class="forum-gallery-file-item" class:last-item={index === 3 && starterAttachments.length > 4}>
+												<a href={resolveForumFileUrl(attachment.url)} target="_blank" rel="noopener noreferrer" title={attachment.name}>
+													<img
+														src={resolveForumFileUrl(attachment.url)}
+														alt={attachment.name}
+														class="forum-gallery-file-image"
+														loading="lazy"
+														decoding="async"
+													/>
+												</a>
+												{#if index === 3 && starterAttachments.length > 4}
+													<div class="forum-more-overlay">
+														<span class="forum-more-count">+{starterAttachments.length - 4}</span>
+													</div>
+												{/if}
+											</div>
+										{/each}
+									</div>
+									{#if starterAttachments.length > 4}
+										<div class="forum-file-card-list">
+											{#each starterAttachments.slice(4) as attachment}
+												<a class="forum-file-card" href={resolveForumFileUrl(attachment.url)} target="_blank" rel="noopener noreferrer">
+													<span class="forum-file-card-icon" aria-hidden="true">&#128196;</span>
+													<span class="forum-file-card-name">{attachment.name}</span>
+													{#if attachment.size}<span class="forum-file-card-size">{formatForumFileSize(attachment.size)}</span>{/if}
+												</a>
+											{/each}
+										</div>
+									{/if}
+								{/if}
 								<div class="forum-post-detail-actions">
 									<button
 										class="forum-action-btn"
@@ -489,10 +549,53 @@
 
 					<ForumComposer
 						placeholder="Write a reply... Ctrl+Enter to post"
+						channelId={$currentChannel}
 						onSubmit={handleReply}
 					/>
 				{/if}
 			</div>
 		{/if}
 	</div>
+
+	{#if showDraftDrawer}
+		<div
+			class="forum-draft-backdrop"
+			on:click={handleCloseDraftDrawer}
+			role="presentation"
+		></div>
+		<div
+			class="forum-draft-drawer"
+			role="dialog"
+			aria-modal="false"
+			tabindex="-1"
+			aria-label="New thread draft"
+			on:keydown={(e) => { if (e.key === 'Escape') handleCloseDraftDrawer(); }}
+		>
+			<div class="forum-draft-drawer-header">
+				<div class="forum-draft-drawer-titles">
+					<span class="forum-draft-drawer-kicker">Focused writing</span>
+					<h2 class="forum-draft-drawer-title">New thread</h2>
+					<span class="forum-draft-drawer-channel">in {activeChannel?.name || 'Forum'}</span>
+				</div>
+				<button
+					class="forum-draft-drawer-close"
+					on:click={handleCloseDraftDrawer}
+					title="Close draft"
+					aria-label="Close draft"
+				>&#10005;</button>
+			</div>
+			<div class="forum-draft-drawer-body">
+				{#key $currentChannel}
+					<ForumComposer
+						showTitle={true}
+						categoryOptions={categories}
+						channelId={$currentChannel}
+						placeholder="Write your post... Use **bold** `code` @mentions"
+						onSubmit={handleCreateNewThread}
+						onCancel={handleCloseDraftDrawer}
+					/>
+				{/key}
+			</div>
+		</div>
+	{/if}
 </div>
