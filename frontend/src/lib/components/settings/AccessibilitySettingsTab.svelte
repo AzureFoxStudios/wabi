@@ -186,8 +186,12 @@
 				<option value="off">Off</option>
 			</select>
 		</div>
-		<div class="setting-item-full">
-			<button type="button" class="action-btn secondary" on:click={resetAccessibilityVisuals}>Reset accessibility</button>
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Reset accessibility</span>
+				<span class="setting-description">Restore interface scale, motion, and color settings to defaults.</span>
+			</div>
+			<button type="button" class="action-btn secondary" on:click={resetAccessibilityVisuals}>Reset</button>
 		</div>
 	</div>
 </div>

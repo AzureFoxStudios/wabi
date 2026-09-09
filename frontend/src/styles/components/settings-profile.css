@@ -310,7 +310,7 @@
 
 .profile-mock-identity {
 	min-width: 0;
-	padding-top: 2.35rem;
+	padding-top: 0.25rem;
 	display: flex;
 	flex-direction: column;
 	gap: 0.35rem;
@@ -422,7 +422,13 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
+	justify-content: flex-end;
 	gap: 0.45rem;
+}
+
+.profile-mock-bio-bar .runtime-note {
+	flex: 1 1 100%;
+	text-align: right;
 }
 
 .profile-mock-toggles {

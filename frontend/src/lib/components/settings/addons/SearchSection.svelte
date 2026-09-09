@@ -90,7 +90,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={betterSearchPageEnabled} on:click={toggleBetterSearchPageAddon}>
-						{betterSearchPageEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -104,7 +103,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={googleSearchReplaceEnabled} on:click={toggleGoogleSearchReplaceAddon}>
-						{googleSearchReplaceEnabled ? 'ON' : 'OFF'}
 					</button>
 					<label class="upload-limit-row split-chunk-size-row">
 						<span>Search engine</span>

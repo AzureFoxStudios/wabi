@@ -152,7 +152,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={customStatusPresetsEnabled} on:click={toggleCustomStatusPresetsAddon}>
-						{customStatusPresetsEnabled ? 'ON' : 'OFF'}
 					</button>
 					<div class="runtime-note">
 						Presets: {$customStatusPresetsStore.presets.length}/{MAX_CUSTOM_STATUS_PRESETS}
@@ -247,7 +246,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={lastMessageDateEnabled} on:click={toggleLastMessageDateAddon}>
-						{lastMessageDateEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -261,7 +259,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={showConnectionsEnabled} on:click={toggleShowConnectionsAddon}>
-						{showConnectionsEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -275,7 +272,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={userNotesEnabled} on:click={toggleUserNotesAddon}>
-						{userNotesEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -289,7 +285,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={removeNicknamesEnabled} on:click={toggleRemoveNicknamesAddon}>
-						{removeNicknamesEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -304,7 +299,6 @@
 				<div class="runtime-note">Local nicknames saved: {localNicknameCount}</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={localNicknamesEnabled} on:click={toggleLocalNicknamesAddon}>
-						{localNicknamesEnabled ? 'ON' : 'OFF'}
 					</button>
 					<button class="action-btn secondary" on:click={clearAllLocalNicknamesAddon} disabled={localNicknameCount === 0}>
 						Clear Local Nicknames
@@ -321,7 +315,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={staffTagEnabled} on:click={toggleStaffTagAddon}>
-						{staffTagEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -335,7 +328,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={topRoleEverywhereEnabled} on:click={toggleTopRoleEverywhereAddon}>
-						{topRoleEverywhereEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>

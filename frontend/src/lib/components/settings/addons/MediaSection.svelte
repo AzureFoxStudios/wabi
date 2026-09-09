@@ -206,7 +206,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={emojiStatisticsEnabled} on:click={toggleEmojiStatisticsAddon}>
-						{emojiStatisticsEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 				{#if emojiStatisticsEnabled}
@@ -238,7 +237,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={spotifyControlsEnabled} on:click={toggleSpotifyControlsAddon}>
-						{spotifyControlsEnabled ? 'ON' : 'OFF'}
 					</button>
 				</div>
 			</div>
@@ -252,7 +250,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={gifCaptionerEnabled} on:click={toggleGifCaptionerAddon}>
-						{gifCaptionerEnabled ? 'ON' : 'OFF'}
 					</button>
 					<button
 						class="toggle-btn"
@@ -291,7 +288,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={zipPreviewEnabled} on:click={toggleZipPreviewAddon}>
-						{zipPreviewEnabled ? 'ON' : 'OFF'}
 					</button>
 					<button
 						class="toggle-btn"
@@ -314,7 +310,6 @@
 				</div>
 				<div class="settings-row-actions">
 					<button class="toggle-btn" class:active={quickReactionsEnabled} on:click={toggleMoreQuickReactsAddon}>
-						{quickReactionsEnabled ? 'ON' : 'OFF'}
 					</button>
 					<div class="runtime-note">
 						Custom quick set: {$quickReactionSettingsStore.customEmojiIds.length}/{MAX_CUSTOM_QUICK_REACTION_EMOJIS}
