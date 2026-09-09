@@ -489,6 +489,24 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            socket.on("admin-ban-user", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    // Ban-state changes serialize like role changes.
+                    async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_admin_ban_user(socket, data, &s, &io).await }
+                }
+            });
+
+            socket.on("admin-unban-user", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    // Ban-state changes serialize like role changes.
+                    async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_admin_unban_user(socket, data, &s, &io).await }
+                }
+            });
+
             socket.on("toggle-reception", {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
