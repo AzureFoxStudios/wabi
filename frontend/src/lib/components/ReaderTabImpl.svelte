@@ -481,9 +481,16 @@
 
 	{#if !readerChromeHidden}
 		<div class="reader-toolbar">
-			<div class="reader-toolbar-main">
+			<div class="reader-toolbar-main" class:has-doc={!!$readerSelection}>
 				{#if !$readerSelection}
 					<span class="reader-kicker">Reader Mode</span>
+				{:else}
+					<div class="reader-title-group">
+						<span class="reader-kicker">Reader Mode</span>
+						<h2 class="reader-toolbar-doc-title" title={$readerSelection.title}>
+							{$readerSelection.title}
+						</h2>
+					</div>
 				{/if}
 
 				<div class="reader-toolbar-actions">
@@ -705,7 +712,7 @@
 					</div>
 
 					<div class="reader-control compact">
-						<label for="reader-direction">Dir</label>
+						<label for="reader-direction">Direction</label>
 						<select
 							id="reader-direction"
 							class="reader-select"
@@ -720,7 +727,7 @@
 				{/if}
 
 				<div class="reader-slider">
-					<label for="reader-font-size">Size {$readerPreferences.fontSize}px</label>
+					<label for="reader-font-size">Font size · {$readerPreferences.fontSize}px</label>
 					<input
 						id="reader-font-size"
 						type="range"
@@ -733,7 +740,7 @@
 				</div>
 
 				<div class="reader-slider">
-					<label for="reader-line-height">Line {$readerPreferences.lineHeight.toFixed(2)}</label>
+					<label for="reader-line-height">Line height · {$readerPreferences.lineHeight.toFixed(2)}</label>
 					<input
 						id="reader-line-height"
 						type="range"

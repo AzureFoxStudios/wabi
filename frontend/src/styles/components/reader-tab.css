@@ -61,6 +61,47 @@
 		gap: 1rem;
 	}
 
+	/* Open-document state: title truncates, actions stay right and wrap
+	   to a second row on narrow widths instead of colliding. */
+	.reader-toolbar-main.has-doc {
+		flex-wrap: wrap;
+		align-items: center;
+		row-gap: 0.6rem;
+	}
+
+	.reader-toolbar-main.has-doc .reader-title-group {
+		flex: 1 1 12rem;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.reader-toolbar-doc-title {
+		margin: 0;
+		min-width: 0;
+		max-width: 100%;
+		font-size: 0.95rem;
+		line-height: 1.3;
+		font-weight: 700;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.reader-toolbar-main.has-doc .reader-toolbar-actions {
+		flex: 0 1 auto;
+		min-width: 0;
+		margin-left: auto;
+		align-items: center;
+	}
+
+	.reader-toolbar-actions .reader-icon-btn,
+	.reader-toolbar-actions .reader-page-indicator,
+	.reader-toolbar-actions .reader-icon-divider {
+		flex-shrink: 0;
+	}
+
 	.reader-title-group {
 		min-width: 0;
 	}
@@ -120,9 +161,10 @@
 	.reader-settings-panel {
 		display: none;
 		grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-		gap: 0.9rem 1rem;
+		gap: 0.85rem 1rem;
+		align-items: start;
 		margin-top: 0.9rem;
-		padding: 0.9rem;
+		padding: 1rem;
 		border-radius: 14px;
 		border: 1px solid var(--reader-border);
 		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.5);
@@ -137,15 +179,17 @@
 	}
 
 	.reader-settings-panel .reader-slider {
-		grid-column: 1 / -1;
-		max-width: 26rem;
+		grid-column: auto;
+		min-width: 0;
+		max-width: none;
 	}
 
 	.reader-control,
 	.reader-slider {
 		display: flex;
 		flex-direction: column;
-		gap: 0.3rem;
+		gap: 0.45rem;
+		min-width: 0;
 	}
 
 	.reader-control label,
@@ -154,6 +198,7 @@
 		font-size: 0.73rem;
 		font-weight: 700;
 		letter-spacing: 0.03em;
+		line-height: 1.3;
 		color: var(--reader-muted);
 	}
 
@@ -184,11 +229,20 @@
 	}
 
 	.reader-select {
-		min-width: 8.5rem;
+		min-width: 0;
+		width: 100%;
 	}
 
 	.reader-slider input {
 		accent-color: var(--reader-accent);
+	}
+
+	.reader-slider input[type='range'] {
+		width: 100%;
+		min-height: 2.2rem;
+		margin: 0;
+		padding: 0;
+		cursor: pointer;
 	}
 
 	.reader-action-btn {
@@ -279,12 +333,32 @@
 		top: 0.85rem;
 		right: 0.85rem;
 		z-index: 10;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
 		border: 1px solid var(--reader-border);
 		border-radius: 999px;
 		background: var(--reader-surface);
 		color: inherit;
 		padding: 0.55rem 0.9rem;
+		font: inherit;
+		font-size: 0.8rem;
+		font-weight: 500;
 		cursor: pointer;
+	}
+
+	.reader-focus-return svg {
+		width: 15px;
+		height: 15px;
+	}
+
+	.reader-focus-return:hover {
+		border-color: color-mix(in srgb, var(--reader-accent) 55%, var(--reader-border));
+	}
+
+	.reader-focus-return:focus-visible {
+		outline: 2px solid var(--reader-accent);
+		outline-offset: 1px;
 	}
 
 	.reader-stage,
@@ -365,17 +439,24 @@
 
 	.reader-document :global(blockquote) {
 		margin: 1.35rem 0;
-		padding: 0.2rem 0 0.2rem 1rem;
+		padding: 0.85rem 0 0.85rem 1.1rem;
 		border-left: 3px solid color-mix(in srgb, var(--reader-accent) 60%, transparent);
 		color: var(--reader-muted);
 		font-style: italic;
+		line-height: 1.7;
 	}
 
 	.reader-document :global(pre) {
+		margin: 1.35rem 0;
 		background: var(--shadow-sm, rgba(0, 0, 0, 0.08));
 		border-radius: 14px;
-		padding: 0.95rem;
+		padding: 1rem 1.1rem;
 		overflow-x: auto;
+		line-height: 1.65;
+	}
+
+	.reader-document :global(pre code) {
+		line-height: inherit;
 	}
 
 	.reader-shell.theme-night .reader-document :global(pre) {
@@ -539,9 +620,17 @@
 		background: var(--reader-bg);
 	}
 
-	.reader-shell.fullscreen-mode .reader-toolbar,
-	.reader-shell.fullscreen-mode .reader-focus-return {
+	.reader-shell.fullscreen-mode .reader-toolbar {
 		display: none;
+	}
+
+	/* Focus + fullscreen can combine (toolbar hidden, both pills rendered).
+	   Stack the pills vertically so they never overlap: exit-fullscreen on
+	   top, exit-focus below it. */
+	.reader-shell.fullscreen-mode .reader-focus-return {
+		top: 3.5rem;
+		right: 1rem;
+		z-index: 12;
 	}
 
 	.reader-shell.fullscreen-mode .reader-document-viewport {
@@ -584,6 +673,7 @@
 	}
 
 	.reader-shell.fullscreen-mode:hover .reader-exit-fs,
+	.reader-shell.fullscreen-mode:focus-within .reader-exit-fs,
 	.reader-shell.fullscreen-mode .reader-exit-fs:focus-visible {
 		opacity: 1;
 		transform: translateY(0);
