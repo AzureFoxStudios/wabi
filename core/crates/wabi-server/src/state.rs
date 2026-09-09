@@ -518,6 +518,9 @@ impl AppState {
             "Owner" => 3,
             "Admin" => 2,
             "Moderator" => 1,
+            // Artist/Developer (and any other unknown role) rank 0: they are
+            // orthogonal workspace tiers for Lore access, never moderation or
+            // admin powers, so they can never satisfy a Moderator/Admin check.
             _ => 0,
         };
         rank(&current) >= rank(role)
