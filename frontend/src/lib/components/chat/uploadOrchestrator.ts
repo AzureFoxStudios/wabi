@@ -38,6 +38,8 @@ export interface UploadOrchestratorContext {
 	albumName: string;
 	albumScopeType: MediaAlbumScopeType | null;
 	albumScopeId: string | null;
+	/** When set, files are added to this existing album instead of a new one. */
+	targetAlbumId: number | null;
 	getCompressionMetadata: (file: File) => UploadVideoCompressionMetadata | undefined;
 	onProgress: (pct: number) => void;
 	isCurrent?: () => boolean;
@@ -67,6 +69,7 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 		albumName,
 		albumScopeType,
 		albumScopeId,
+		targetAlbumId,
 		getCompressionMetadata,
 		onProgress
 	} = ctx;
@@ -130,23 +133,37 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 	let createdAlbumName: string | null = null;
 	if (createAlbum && authToken && albumScopeType && albumScopeId) {
 		assertCurrent();
-		const finalAlbumName = albumName.trim() || 'Upload';
-		const album = await createMediaAlbum(authToken, {
-			scopeType: albumScopeType,
-			scopeId: albumScopeId,
-			name: finalAlbumName
-		});
-		for (const f of uploadedFiles) {
-			assertCurrent();
-			await addMediaAlbumItem(authToken, album.id, {
-				attachmentUrl: f.fileUrl,
-				attachmentName: f.fileName,
-				attachmentSize: f.fileSize,
-				attachmentMime: f.mimeType,
-				caption: messageInput || null
+		if (targetAlbumId != null) {
+			// Add to an existing album in this scope.
+			for (const f of uploadedFiles) {
+				assertCurrent();
+				await addMediaAlbumItem(authToken, targetAlbumId, {
+					attachmentUrl: f.fileUrl,
+					attachmentName: f.fileName,
+					attachmentSize: f.fileSize,
+					attachmentMime: f.mimeType,
+					caption: messageInput || null
+				});
+			}
+		} else {
+			const finalAlbumName = albumName.trim() || 'Upload';
+			const album = await createMediaAlbum(authToken, {
+				scopeType: albumScopeType,
+				scopeId: albumScopeId,
+				name: finalAlbumName
 			});
+			for (const f of uploadedFiles) {
+				assertCurrent();
+				await addMediaAlbumItem(authToken, album.id, {
+					attachmentUrl: f.fileUrl,
+					attachmentName: f.fileName,
+					attachmentSize: f.fileSize,
+					attachmentMime: f.mimeType,
+					caption: messageInput || null
+				});
+			}
+			createdAlbumName = album.name;
 		}
-		createdAlbumName = album.name;
 	}
 	assertCurrent();
 

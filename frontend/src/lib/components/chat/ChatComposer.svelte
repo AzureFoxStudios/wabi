@@ -13,6 +13,7 @@
 	import { isMobile } from '$lib/layoutStoreStates';
 	import { showToast } from '$lib/toast';
 import { addQuickReactionCustomEmojiId } from '$lib/quickReactions';
+import type { MediaAlbum } from '$lib/api';
 	import { getMatchingCommands, type Command } from '$lib/commands';
 	import { getAuthToken } from '$lib/authSession';
 	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
@@ -118,6 +119,10 @@ import { addQuickReactionCustomEmojiId } from '$lib/quickReactions';
 	let markAsSpoiler = $state(restoredDraft?.spoiler || false);
 	let createAlbumFromUpload = $state(restoredDraft?.createAlbum || false);
 	let uploadAlbumName = $state(restoredDraft?.albumName || '');
+	/** Existing album the upload should be added to (0 = create new). */
+	let uploadTargetAlbumId = $state<number>(0);
+	let uploadAlbums: MediaAlbum[] = $state([]);
+	let uploadAlbumsLoadedForScope = $state('');
 	let isUploading = $state(false);
 	let uploadProgress = $state(0);
 	let uploadStatusLabel = $state('');
@@ -488,7 +493,24 @@ import { addQuickReactionCustomEmojiId } from '$lib/quickReactions';
 	async function prepareIncomingFiles(files: File[]): Promise<File[]> { for (const file of files) { if (file.size > MAX_UPLOAD_FILE_BYTES) { showToast(`File too large! Maximum size is 1GB per file. "${file.name}" is ${formatFileMb(file.size)}MB`, 'error'); return []; } } const prepared: File[] = []; for (const file of files) { const candidate = videoCompressionController ? await videoCompressionController.maybeCompressVideoFile(file) : file; if (candidate) prepared.push(candidate); } return prepared; }
 	async function handleFileSelect(event: Event) { const input = event.target as HTMLInputElement; const files = Array.from(input.files || []); if (files.length === 0) return; await receiveFiles(files, 'replace'); input.value = ''; }
 	function removeFile(index: number) { const removed = filePreviews[index]; revokePreviewUrl(removed?.preview); if (removed?.file) videoCompressionController?.deleteCompressionMetadata(removed.file); selectedFiles = selectedFiles.filter((_, i) => i !== index); filePreviews = filePreviews.filter((_, i) => i !== index); }
-	function handleAlbumUploadToggle(checked: boolean): void { createAlbumFromUpload = checked; if (!checked) { uploadAlbumName = ''; return; } if (!uploadAlbumName.trim()) uploadAlbumName = buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput); }
+	function handleAlbumUploadToggle(checked: boolean): void { createAlbumFromUpload = checked; if (!checked) { uploadAlbumName = ''; uploadTargetAlbumId = 0; return; } if (!uploadAlbumName.trim()) uploadAlbumName = buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput); void loadUploadAlbums(); }
+	async function loadUploadAlbums(): Promise<void> {
+		const activeChannel = $channels.find(ch => ch.id === effectiveChannel);
+		if (!activeChannel || !getAuthToken()) return;
+		const scopeType = (activeChannel.type === 'dm' || activeChannel.type === 'group' ? 'dm' : 'channel') as any;
+		const scopeId = activeChannel.id;
+		const scopeKey = `${scopeType}:${scopeId}`;
+		if (uploadAlbumsLoadedForScope === scopeKey) return;
+		try {
+			const { listMediaAlbums } = await import('$lib/api');
+			const token = getAuthToken();
+			if (!token) return;
+			uploadAlbums = await listMediaAlbums(token, scopeType, scopeId, 100);
+			uploadAlbumsLoadedForScope = scopeKey;
+		} catch {
+			uploadAlbums = [];
+		}
+	}
 	async function uploadSelectedFiles() {
 		if (selectedFiles.length === 0 || isUploading || isSending || !operationCurrent()) return;
 		const submitted = snapshotDraft();
@@ -504,7 +526,7 @@ import { addQuickReactionCustomEmojiId } from '$lib/quickReactions';
 		uploadProgress = 0;
 		try {
 			const captionEntities = resolveOutgoingPlaceEntities(messageInput.trim());
-			const spec = await orchestrateUpload({ files: submitted.files, channelId: draftChannel, channelType: activeChannel?.type || 'channel', dmChannelId: activeChannel?.type === 'dm' ? activeChannel.id : undefined, dmOtherDbUserId, authToken, messageInput: submitted.text.trim(), replyToId: submitted.reply?.id, markAsSpoiler: submitted.spoiler, captionEntities, createAlbum: submitted.createAlbum, albumName: submitted.albumName, albumScopeType: (albumScope?.scopeType ?? null) as any, albumScopeId: albumScope?.scopeId ?? null, getCompressionMetadata: f => videoCompressionController?.getCompressionMetadata(f), onProgress: pct => { uploadProgress = pct; }, isCurrent: operationCurrent });
+			const spec = await orchestrateUpload({ files: submitted.files, channelId: draftChannel, channelType: activeChannel?.type || 'channel', dmChannelId: activeChannel?.type === 'dm' ? activeChannel.id : undefined, dmOtherDbUserId, authToken, messageInput: submitted.text.trim(), replyToId: submitted.reply?.id, markAsSpoiler: submitted.spoiler, captionEntities, createAlbum: submitted.createAlbum, albumName: submitted.albumName, albumScopeType: (albumScope?.scopeType ?? null) as any, albumScopeId: albumScope?.scopeId ?? null, targetAlbumId: uploadTargetAlbumId > 0 ? uploadTargetAlbumId : null, getCompressionMetadata: f => videoCompressionController?.getCompressionMetadata(f), onProgress: pct => { uploadProgress = pct; }, isCurrent: operationCurrent });
 			if (!operationCurrent()) return;
 			// Only an issued message handoff survives retirement. Upload requests
 			// still stop when their editor leaves; an accepted handoff must consume
@@ -589,7 +611,7 @@ import { addQuickReactionCustomEmojiId } from '$lib/quickReactions';
 	{/if}
 	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
 	{#if showEmojiSuggestions}<EmojiSuggestions suggestions={emojiSuggestions} selectedIndex={emojiSuggestionSelectedIndex} onApply={applyEmojiSuggestion} />{/if}
-	{#if filePreviews.length > 0 && !isUploading}		<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
+	{#if filePreviews.length > 0 && !isUploading}		<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName albums={uploadAlbums} bind:targetAlbumId={uploadTargetAlbumId} onAlbumTargetChange={(id) => (uploadTargetAlbumId = id)} buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple class="hidden" />
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
