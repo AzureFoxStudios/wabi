@@ -13,6 +13,9 @@
 	export let onCancelUpload: () => void;
 	export let onRemoveFile: (index: number) => void;
 	export let onUploadSelectedFiles: () => void | Promise<void>;
+	export let albums: { id: number; name: string }[] = [];
+	export let targetAlbumId: number;
+	export let onAlbumTargetChange: (albumId: number) => void = () => {};
 </script>
 
 <div class="file-gallery">
@@ -67,17 +70,38 @@
 				<span>Turn this multi-photo upload into a shared album</span>
 			</label>
 			{#if createAlbumFromUpload}
-				<label class="upload-album-field">
-					<span>Album name</span>
-					<input
-						class="upload-album-name input"
-						type="text"
-						bind:value={uploadAlbumName}
-						placeholder={buildDefaultUploadAlbumName()}
-						maxlength="80"
-					/>
-				</label>
-				<small class="upload-album-hint">This name shows up in chat and in the Albums tab.</small>
+				{#if albums.length > 0}
+					<label class="upload-album-field">
+						<span>Add to album</span>
+						<select
+							class="upload-album-name input"
+							value={targetAlbumId}
+							on:change={(e) => onAlbumTargetChange(Number((e.currentTarget as HTMLSelectElement).value))}
+						>
+							<option value={0}>Create a new album…</option>
+							{#each albums as album (album.id)}
+								<option value={album.id}>{album.name}</option>
+							{/each}
+						</select>
+					</label>
+				{/if}
+				{#if targetAlbumId === 0}
+					<label class="upload-album-field">
+						<span>Album name</span>
+						<input
+							class="upload-album-name input"
+							type="text"
+							bind:value={uploadAlbumName}
+							placeholder={buildDefaultUploadAlbumName()}
+							maxlength="80"
+						/>
+					</label>
+				{/if}
+				<small class="upload-album-hint"
+					>{targetAlbumId > 0
+						? 'Files are added to the chosen album and posted to chat.'
+						: 'This name shows up in chat and in the Albums tab.'}</small
+				>
 			{/if}
 		</div>
 	{/if}
