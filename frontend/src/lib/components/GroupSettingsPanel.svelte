@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, kickGroupMember, addGroupMember, leaveGroup } from '$lib/socket';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import GroupAvatar from './GroupAvatar.svelte';
@@ -9,6 +10,21 @@
 	let addSearchQuery = $state('');
 	let busy = $state(false);
 	let operationError = $state('');
+
+	// Mirrors the popout `disableAllBanners` profile-visibility kill switch
+	// (localStorage `wabi:profile:visibility` -> disableAll).
+	let disableAllBanners = $state(false);
+
+	onMount(() => {
+		try {
+			const raw = localStorage.getItem('wabi:profile:visibility');
+			if (!raw) return;
+			const v = JSON.parse(raw);
+			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+		} catch {
+			// ignore malformed local state
+		}
+	});
 	let myStableId = $derived($currentUser ? getDmDirectoryKey($currentUser) : null);
 	let isOwner = $derived(Boolean(myStableId && channel.ownerId === myStableId));
 	let directory = $derived(buildDmDirectoryUsers({
@@ -117,6 +133,9 @@
 							<div class="member-avatar-ph" style="background-color: {member.roleColor || member.color}">
 								{member.username.charAt(0).toUpperCase()}
 							</div>
+						{/if}
+						{#if member.overlayUrl && !disableAllBanners}
+							<span class="avatar-overlay-badge" style="background-image: url({member.overlayUrl})" aria-hidden="true"></span>
 						{/if}
 					</div>
 					<div class="member-info">
@@ -311,6 +330,7 @@
 	}
 
 	.member-avatar-wrap {
+		position: relative;
 		flex-shrink: 0;
 		width: 28px;
 		height: 28px;

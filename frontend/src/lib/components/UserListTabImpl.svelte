@@ -1,6 +1,7 @@
 <script lang="ts">
 	import './UserListTabImpl.css';
 	import { get } from 'svelte/store';
+	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, roleDefinitions } from '$lib/socket';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { showToast } from '$lib/toast';
@@ -43,6 +44,24 @@
 	let friendPresenceFilter: 'all' | 'active' | 'away' | 'busy' | 'offline' = 'all';
 	let friendSortMode: 'role' | 'name' | 'status' = 'role';
 	let offlineSectionExpanded = false;
+
+	// Mirrors the popout/ProfileCard `disableAllBanners` profile-visibility kill
+	// switch (localStorage `wabi:profile:visibility` -> disableAll): suppresses
+	// avatar overlays when the user hides all banners/decorations.
+	let disableAllBanners = false;
+
+	const BANNER_VISIBILITY_KEY = 'wabi:profile:visibility';
+
+	onMount(() => {
+		try {
+			const raw = localStorage.getItem(BANNER_VISIBILITY_KEY);
+			if (!raw) return;
+			const v = JSON.parse(raw);
+			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+		} catch {
+			// ignore malformed local state
+		}
+	});
 
 	$: rolePriority = buildRolePriority($roleDefinitions);
 	$: roleLabelMap = buildRoleLabelMap($roleDefinitions);
@@ -340,6 +359,9 @@
 								{getDisplayName(user).charAt(0).toUpperCase()}
 							</div>
 						{/if}
+						{#if user.overlayUrl && !disableAllBanners}
+							<span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
+						{/if}
 						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'} style="--status-color: {getStatusColor(user.status)}"></span>
 					</div>
 					<div class="user-info">
@@ -379,7 +401,10 @@
 									{getDisplayName(user).charAt(0).toUpperCase()}
 								</div>
 							{/if}
-							<span class="presence-dot" style="--status-color: {getStatusColor('offline')}"></span>
+						{#if user.overlayUrl && !disableAllBanners}
+							<span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
+						{/if}
+						<span class="presence-dot" style="--status-color: {getStatusColor('offline')}"></span>
 						</div>
 						<div class="user-info">
 							<span class="user-name-row">

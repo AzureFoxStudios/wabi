@@ -1,10 +1,26 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { currentUser, users } from '$lib/socket';
   import type { Channel } from '$lib/socket';
 
   export let channel: Channel;
   export let liveCount: number = 0;
   export let onJoin: () => void;
+
+  // Mirrors the popout `disableAllBanners` profile-visibility kill switch
+  // (localStorage `wabi:profile:visibility` -> disableAll).
+  let disableAllBanners = false;
+
+  onMount(() => {
+    try {
+      const raw = localStorage.getItem('wabi:profile:visibility');
+      if (!raw) return;
+      const v = JSON.parse(raw);
+      if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+    } catch {
+      // ignore malformed local state
+    }
+  });
 
   $: participantUsers = $users.filter(u =>
     channel.members?.includes(u.id) || channel.members === undefined
@@ -40,6 +56,9 @@
               <div class="avatar-placeholder" style="background-color: {user.color || '#98D8C8'}">
                 {user.username?.charAt(0).toUpperCase() || '?'}
               </div>
+            {/if}
+            {#if user.overlayUrl && !disableAllBanners}
+              <span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
             {/if}
           </div>
         {/each}
@@ -114,6 +133,7 @@
   }
 
   .avatar-wrapper {
+    position: relative;
     width: 36px;
     height: 36px;
     border-radius: 50%;
