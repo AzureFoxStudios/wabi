@@ -15,7 +15,7 @@ export function requestServerRoleChange(socket: RoleCommandSocket, targetUserId:
 	requestId?: string;
 }): Promise<void> {
 	if (!socket.connected || !options.isCurrent()) return Promise.reject(new Error('Reconnect before changing roles.'));
-	if (!Number.isSafeInteger(targetUserId) || targetUserId <= 0 || !['member', 'mod', 'admin'].includes(roleName)) {
+	if (!Number.isSafeInteger(targetUserId) || targetUserId <= 0 || !['member', 'mod', 'admin', 'artist', 'developer'].includes(roleName)) {
 		return Promise.reject(new Error('Choose a valid member role.'));
 	}
 	let targets = pending.get(socket);
@@ -43,7 +43,7 @@ export function requestServerRoleChange(socket: RoleCommandSocket, targetUserId:
 		const onSuccess = (payload: any) => {
 			if (payload?.requestId !== requestId || payload.targetUserId !== targetUserId) return;
 			if (!options.isCurrent()) { onDisconnect(); return; }
-			const expected = { member: 'Member', mod: 'Moderator', admin: 'Admin' }[roleName];
+			const expected = { member: 'Member', mod: 'Moderator', admin: 'Admin', artist: 'Artist', developer: 'Developer' }[roleName];
 			if (payload.role !== expected) { finish(new Error('The server returned an unexpected role. Reload the member list to verify it.')); return; }
 			finish();
 		};

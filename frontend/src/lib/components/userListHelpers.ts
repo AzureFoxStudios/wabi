@@ -152,17 +152,25 @@ export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
 	if (canManageContextUserRoles() && contextMenuUser) {
 		const roles = contextMenuUser.roles || [];
 		const isAdmin = roles.includes('admin') || contextMenuUser.highestRole === 'admin';
+		const isDeveloper = roles.includes('developer') || contextMenuUser.highestRole === 'developer';
 		const isMod = roles.includes('mod') || contextMenuUser.highestRole === 'mod';
+		const isArtist = roles.includes('artist') || contextMenuUser.highestRole === 'artist';
 
 		items.push({ id: 'role-divider', type: 'separator' });
 
 		if (!isAdmin) items.push({ id: 'make-admin', label: 'Make Admin', icon: 'settings', onSelect: () => {} });
 		else items.push({ id: 'remove-admin', label: 'Remove Admin', icon: 'settings', danger: true, onSelect: () => {} });
 
+		if (!isDeveloper) items.push({ id: 'make-developer', label: 'Make Developer', icon: 'settings', onSelect: () => {} });
+		else items.push({ id: 'remove-developer', label: 'Remove Developer', icon: 'settings', danger: true, onSelect: () => {} });
+
 		if (!isMod) items.push({ id: 'make-mod', label: 'Make Moderator', icon: 'settings', onSelect: () => {} });
 		else items.push({ id: 'remove-mod', label: 'Remove Moderator', icon: 'settings', danger: true, onSelect: () => {} });
 
-		if (isAdmin || isMod) items.push({ id: 'reset-member', label: 'Reset to Member', icon: 'settings', danger: true, onSelect: () => {} });
+		if (!isArtist) items.push({ id: 'make-artist', label: 'Make Artist', icon: 'settings', onSelect: () => {} });
+		else items.push({ id: 'remove-artist', label: 'Remove Artist', icon: 'settings', danger: true, onSelect: () => {} });
+
+		if (isAdmin || isDeveloper || isMod || isArtist) items.push({ id: 'reset-member', label: 'Reset to Member', icon: 'settings', danger: true, onSelect: () => {} });
 
 		const isBanned = typeof contextMenuUser.dbUserId === 'number'
 			? ctx.bannedUserIds?.has(contextMenuUser.dbUserId) ?? false

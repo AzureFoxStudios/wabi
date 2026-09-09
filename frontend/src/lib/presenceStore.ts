@@ -132,7 +132,7 @@ export async function assignRole(userId: string | number, roleId: string): Promi
 }
 
 export async function removeUserRole(userId: string | number, roleId: string): Promise<void> {
-	if (!['admin', 'mod', 'member'].includes(roleId)) throw new Error('Choose a valid member role.');
+	if (!['admin', 'mod', 'member', 'artist', 'developer'].includes(roleId)) throw new Error('Choose a valid member role.');
 	await assignRole(userId, 'member');
 }
 
