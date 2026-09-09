@@ -111,6 +111,9 @@
 						{avatarInitial}
 					</div>
 				{/if}
+				{#if $currentUser.overlayUrl && !disableAllBanners}
+					<span class="avatar-overlay-badge" style="background-image: url({$currentUser.overlayUrl})" aria-hidden="true"></span>
+				{/if}
 				<span
 					class="status-indicator presence-toggle"
 					class:online={visibleStatus === 'active'}

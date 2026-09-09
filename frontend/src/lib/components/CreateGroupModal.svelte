@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, createGroup } from '$lib/socket';
 	import type { User } from '$lib/socket';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
@@ -10,6 +11,21 @@
 	let selectedUsers = $state<User[]>([]);
 	let pending = $state(false);
 	let operationError = $state('');
+
+	// Mirrors the popout `disableAllBanners` profile-visibility kill switch
+	// (localStorage `wabi:profile:visibility` -> disableAll).
+	let disableAllBanners = $state(false);
+
+	onMount(() => {
+		try {
+			const raw = localStorage.getItem('wabi:profile:visibility');
+			if (!raw) return;
+			const v = JSON.parse(raw);
+			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+		} catch {
+			// ignore malformed local state
+		}
+	});
 
 	let filteredUsers = $derived(buildDmDirectoryUsers({
 		onlineUsers: $users,
@@ -130,6 +146,9 @@
 								<div class="user-avatar-placeholder" style="background-color: {user.roleColor || user.color}">
 									{user.username.charAt(0).toUpperCase()}
 								</div>
+							{/if}
+							{#if user.overlayUrl && !disableAllBanners}
+								<span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
 							{/if}
 							<div class="status-indicator" style="background-color: {getStatusColor(user.status)}"></div>
 						</div>

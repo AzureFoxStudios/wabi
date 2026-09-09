@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, createDM, channels, joinChannel } from '$lib/socket';
 	import type { Channel, User } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
@@ -12,6 +13,21 @@
 	let searchInput: HTMLInputElement | null = null;
 	let pendingUserKey = '';
 	let createError = '';
+
+	// Mirrors the popout `disableAllBanners` profile-visibility kill switch
+	// (localStorage `wabi:profile:visibility` -> disableAll).
+	let disableAllBanners = false;
+
+	onMount(() => {
+		try {
+			const raw = localStorage.getItem('wabi:profile:visibility');
+			if (!raw) return;
+			const v = JSON.parse(raw);
+			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+		} catch {
+			// ignore malformed local state
+		}
+	});
 
 	$: if (isOpen) {
 		void tick().then(() => searchInput?.focus());
@@ -144,6 +160,9 @@
 								<div class="user-avatar-placeholder" style="background-color: {user.color}">
 									{user.username.charAt(0).toUpperCase()}
 								</div>
+							{/if}
+							{#if user.overlayUrl && !disableAllBanners}
+								<span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
 							{/if}
 							<div class="status-indicator" style="background-color: {getStatusColor(user.status)}"></div>
 						</div>

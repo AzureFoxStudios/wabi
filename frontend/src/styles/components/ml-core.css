@@ -235,6 +235,7 @@
 		cursor: pointer;
 		margin-top: 2px;
 		width: 40px;
+		position: relative;
 	}
 
 
@@ -778,6 +779,21 @@ html[data-message-density='compact'] .message-content {
 
 
 	.avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
+
+
+	/* Discord-style avatar overlay badge (user-set image layered over the pfp).
+	 * Apply alongside an inline `background-image: url(...)` style inside any
+	 * position:relative avatar wrapper (24px+ pfps only). No z-index on purpose:
+	 * insert before presence/status dots so those keep painting on top. */
+	.avatar-overlay-badge {
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		background-size: cover;
+		background-position: center;
+		background-repeat: no-repeat;
+		pointer-events: none;
+	}
 
 
 	@keyframes highlight-pulse {

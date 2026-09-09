@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { Message, User, Emoji, FileAttachment, Channel } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import type { ChatFilterResult } from '$lib/chatEnhancements';
@@ -94,6 +95,21 @@
 		member: 'Member',
 		guest: 'Guest'
 	};
+
+	// Mirrors the popout `disableAllBanners` profile-visibility kill switch
+	// (localStorage `wabi:profile:visibility` -> disableAll).
+	let disableAllBanners = false;
+
+	onMount(() => {
+		try {
+			const raw = localStorage.getItem('wabi:profile:visibility');
+			if (!raw) return;
+			const v = JSON.parse(raw);
+			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+		} catch {
+			// ignore malformed local state
+		}
+	});
 
 	$: roleLabelMap = (() => {
 		const labels: Record<string, string> = { ...fallbackRoleLabels };
@@ -250,6 +266,9 @@
 					<div class="avatar-placeholder" style="--avatar-color: {getUserColor(author, displayUsername)}">
 						{displayUsername.charAt(0).toUpperCase()}
 					</div>
+				{/if}
+				{#if author?.overlayUrl && !disableAllBanners}
+					<span class="avatar-overlay-badge" style="background-image: url({author.overlayUrl})" aria-hidden="true"></span>
 				{/if}
 			</div>
 	{/if}
