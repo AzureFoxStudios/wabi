@@ -20,7 +20,7 @@
 	export let canManageRoles = false;
 	export let targetRole: string = 'member';
 	export let roleActionStatus = '';
-	export let onSetRole: (role: 'admin' | 'mod' | 'member') => void = () => {};
+	export let onSetRole: (role: 'admin' | 'mod' | 'member' | 'artist' | 'developer') => void = () => {};
 	export let isBanned = false;
 	export let banActionStatus = '';
 	export let onBanUser: () => void = () => {};
@@ -154,12 +154,26 @@
 				</button>
 				<button
 					class="context-btn"
+					class:active-role={targetRole === 'developer'}
+					on:click={() => onSetRole(targetRole === 'developer' ? 'member' : 'developer')}
+				>
+					{targetRole === 'developer' ? 'Remove Developer' : 'Make Developer'}
+				</button>
+				<button
+					class="context-btn"
 					class:active-role={targetRole === 'mod'}
 					on:click={() => onSetRole(targetRole === 'mod' ? 'member' : 'mod')}
 				>
 					{targetRole === 'mod' ? 'Remove Moderator' : 'Make Moderator'}
 				</button>
-			{#if targetRole === 'admin' || targetRole === 'mod'}
+				<button
+					class="context-btn"
+					class:active-role={targetRole === 'artist'}
+					on:click={() => onSetRole(targetRole === 'artist' ? 'member' : 'artist')}
+				>
+					{targetRole === 'artist' ? 'Remove Artist' : 'Make Artist'}
+				</button>
+			{#if targetRole === 'admin' || targetRole === 'developer' || targetRole === 'mod' || targetRole === 'artist'}
 				<button class="context-btn danger" on:click={() => onSetRole('member')}>
 					Reset to Member
 				</button>

@@ -197,7 +197,7 @@
 		await startDMCall($socket, contextMenuUser, true);
 	}
 
-	async function handleAssignContextRole(roleName: 'admin' | 'mod' | 'member') {
+	async function handleAssignContextRole(roleName: 'admin' | 'mod' | 'member' | 'artist' | 'developer') {
 		const target = contextMenuUser;
 		if (!target?.dbUserId) return;
 		closeContextMenu();
@@ -209,7 +209,7 @@
 		}
 	}
 
-	function handleRemoveContextRole(_roleName: 'admin' | 'mod') {
+	function handleRemoveContextRole(_roleName: 'admin' | 'mod' | 'artist' | 'developer') {
 		void handleAssignContextRole('member');
 	}
 
@@ -273,8 +273,12 @@
 			'nickname-clear': clearContextLocalNickname,
 			'make-admin': () => handleAssignContextRole('admin'),
 			'remove-admin': () => handleRemoveContextRole('admin'),
+			'make-developer': () => handleAssignContextRole('developer'),
+			'remove-developer': () => handleRemoveContextRole('developer'),
 			'make-mod': () => handleAssignContextRole('mod'),
 			'remove-mod': () => handleRemoveContextRole('mod'),
+			'make-artist': () => handleAssignContextRole('artist'),
+			'remove-artist': () => handleRemoveContextRole('artist'),
 			'reset-member': handleResetContextUserToMember,
 			'ban-user': handleBanContextUser,
 			'unban-user': handleUnbanContextUser

@@ -365,7 +365,7 @@
 	$: if ($socket && browser) {
 		try { attachUserBanListeners($socket); } catch { /* best-effort */ }
 	}
-	async function setUserRole(role: 'admin' | 'mod' | 'member') {
+	async function setUserRole(role: 'admin' | 'mod' | 'member' | 'artist' | 'developer') {
 		if (!user?.dbUserId || !canManageRoles) return;
 		roleActionStatus = 'Saving…';
 		try {
