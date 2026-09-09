@@ -44,6 +44,24 @@
 	height: 32px;
 }
 
+/* WhatsApp/LINE-style right-side own messages: mirror the hover action
+   bar to the row's LEFT edge so it never overlaps the right-aligned
+   content, and keep the strip divider on the outward-facing side. */
+html[data-own-messages-right='true'] .message.own-message .message-actions {
+	right: auto;
+	left: 12px;
+}
+
+html[data-own-messages-right='true'] .message.own-message .message-actions .quick-reactions-strip {
+	margin-right: 0;
+	padding-right: 0;
+	border-right: none;
+	margin-left: 4px;
+	padding-left: 4px;
+	border-left: 1px solid var(--border-subtle);
+	order: 2;
+}
+
 /* Message actions are progressive-disclosure controls in both channels and DMs. */
 .message:hover .message-actions,
 .message:focus-within .message-actions,
