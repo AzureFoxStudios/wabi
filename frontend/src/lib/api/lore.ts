@@ -1,4 +1,5 @@
 import { getApiBase, fetchWithTimeout } from './utils';
+import { getSocket } from '$lib/socketConnection';
 
 export interface LoreRepo {
 	channelId: number;
@@ -1145,4 +1146,254 @@ export async function getLorePromotesForMessage(token: string, messageId: string
 	if (!res.ok) throw new Error(await loreApiError(res));
 	const body = await res.json();
 	return Array.isArray(body?.promotes) ? body.promotes.map(promoteFromRaw) : [];
+}
+
+// ---------------------------------------------------------------------------
+// User-defined repository roles (stored server-side in lore_roles.json).
+//
+// Socket contract (server is source of truth; this file only drives it):
+// - emit `lore-roles-list` → server replies `lore-roles-updated` { roles, defaultPolicy }
+// - emit `lore-roles-upsert` { id?, name, description, capabilities }
+//     → `lore-roles-updated` or `lore-roles-error` { requestId?, error }
+// - emit `lore-roles-delete` { id } → same acks
+// - emit `lore-roles-set-default` { policy } → same acks
+// Auth rides the socket session; the `token` params below are kept so call
+// sites read like the REST helpers above (and are otherwise unused).
+// ---------------------------------------------------------------------------
+
+/** Policy for roleless users: read-only until granted a role, or full access. */
+export type LoreDefaultPolicy = 'view' | 'open';
+
+/** A named bundle of toggleable lore capabilities. */
+export interface LoreRoleDef {
+	id: string;
+	name: string;
+	description: string;
+	capabilities: string[];
+}
+
+export interface LoreRolesState {
+	roles: LoreRoleDef[];
+	defaultPolicy: LoreDefaultPolicy;
+}
+
+/** Ordered capability ids the server understands. */
+export const ALL_LORE_CAPABILITIES: string[] = [
+	'lore.view',
+	'lore.stage',
+	'lore.commit',
+	'lore.approve',
+	'lore.lock',
+	'lore.manage-binding',
+	'lore.admin'
+];
+
+/** Short UI labels for the capability checkboxes. */
+export const CAPABILITY_LABELS: Record<string, string> = {
+	'lore.view': 'View',
+	'lore.stage': 'Stage',
+	'lore.commit': 'Commit',
+	'lore.approve': 'Approve',
+	'lore.lock': 'Lock',
+	'lore.manage-binding': 'Manage binding',
+	'lore.admin': 'Admin'
+};
+
+/** One-line tooltips for the capability checkboxes. */
+export const CAPABILITY_DESCRIPTIONS: Record<string, string> = {
+	'lore.view': 'Read files and history',
+	'lore.stage': 'Upload and stage files',
+	'lore.commit': 'Write changes to the repository history',
+	'lore.approve': 'Approve uploads awaiting review',
+	'lore.lock': 'Lock/unlock files',
+	'lore.manage-binding': 'Change the repo↔channel binding',
+	'lore.admin': 'Edit roles and delete content'
+};
+
+/** Role ids the server protects from deletion. */
+export const BUILT_IN_LORE_ROLES: string[] = ['owner', 'admin', 'developer', 'artist', 'member'];
+
+interface LoreRolesSocket {
+	connected: boolean;
+	on(event: string, listener: (payload: any) => void): unknown;
+	off(event: string, listener: (payload: any) => void): unknown;
+	emit(event: string, payload?: unknown): unknown;
+}
+
+function resolveLoreRolesSocket(): LoreRolesSocket {
+	const sock = getSocket() as LoreRolesSocket | null;
+	if (!sock?.connected) throw new Error('Reconnect to manage repository roles.');
+	return sock;
+}
+
+function normalizeLoreRoleDef(raw: any): LoreRoleDef | null {
+	if (!raw || typeof raw !== 'object') return null;
+	const id = typeof raw.id === 'string' ? raw.id : null;
+	const name = typeof raw.name === 'string' ? raw.name : null;
+	if (!id || !name) return null;
+	return {
+		id,
+		name,
+		description: typeof raw.description === 'string' ? raw.description : '',
+		capabilities: Array.isArray(raw.capabilities)
+			? raw.capabilities.filter((c: unknown): c is string => typeof c === 'string')
+			: []
+	};
+}
+
+function normalizeLoreRolesState(payload: any): LoreRolesState | null {
+	if (!payload || typeof payload !== 'object' || !Array.isArray(payload.roles)) return null;
+	return {
+		roles: payload.roles
+			.map(normalizeLoreRoleDef)
+			.filter((r: LoreRoleDef | null): r is LoreRoleDef => r !== null),
+		defaultPolicy: payload.defaultPolicy === 'open' ? 'open' : 'view'
+	};
+}
+
+/**
+ * Emit a lore-roles request, then resolve with the next correlated ack.
+ * `lore-roles-updated` is also a broadcast, so it is accepted even when it
+ * carries no requestId; `lore-roles-error` is only accepted for this request
+ * (or when it carries no requestId at all).
+ */
+function awaitLoreRolesAck(
+	sock: LoreRolesSocket,
+	requestId: string,
+	timeoutMs = 10_000
+): Promise<LoreRolesState> {
+	return new Promise<LoreRolesState>((resolve, reject) => {
+		let done = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const cleanup = () => {
+			clearTimeout(timer);
+			sock.off('lore-roles-updated', onUpdated);
+			sock.off('lore-roles-error', onError);
+			sock.off('disconnect', onDisconnect);
+		};
+		const finishOk = (payload: any) => {
+			if (done) return;
+			const state = normalizeLoreRolesState(payload);
+			if (!state) return;
+			done = true;
+			cleanup();
+			resolve(state);
+		};
+		const onUpdated = (payload: any) => {
+			if (done) return;
+			if (
+				payload &&
+				typeof payload === 'object' &&
+				'requestId' in payload &&
+				(payload as any).requestId !== undefined &&
+				(payload as any).requestId !== requestId
+			) {
+				return;
+			}
+			finishOk(payload);
+		};
+		const onError = (payload: any) => {
+			if (done) return;
+			if (
+				payload &&
+				typeof payload === 'object' &&
+				(payload as any).requestId !== undefined &&
+				(payload as any).requestId !== requestId
+			) {
+				return;
+			}
+			done = true;
+			cleanup();
+			reject(
+				new Error(
+					typeof payload?.error === 'string'
+						? payload.error
+						: 'The server could not update repository roles.'
+				)
+			);
+		};
+		const onDisconnect = () => {
+			if (done) return;
+			done = true;
+			cleanup();
+			reject(new Error('Connection lost before the server confirmed. Reload roles after reconnecting.'));
+		};
+		sock.on('lore-roles-updated', onUpdated);
+		sock.on('lore-roles-error', onError);
+		sock.on('disconnect', onDisconnect);
+		timer = setTimeout(() => {
+			if (done) return;
+			done = true;
+			cleanup();
+			reject(new Error('The server did not respond. Try loading roles again.'));
+		}, timeoutMs);
+	});
+}
+
+/** Load the role list + default policy for roleless users. */
+export async function fetchLoreRoles(token: string): Promise<LoreRolesState> {
+	void token;
+	const sock = resolveLoreRolesSocket();
+	const requestId = crypto.randomUUID();
+	const pending = awaitLoreRolesAck(sock, requestId);
+	try {
+		sock.emit('lore-roles-list', { requestId });
+	} catch {
+		throw new Error('Reconnect to manage repository roles.');
+	}
+	return pending;
+}
+
+/** Create a role (omit `id`) or update one (include `id`). Resolves with fresh state. */
+export async function upsertLoreRole(
+	token: string,
+	role: { id?: string; name: string; description: string; capabilities: string[] }
+): Promise<LoreRolesState> {
+	void token;
+	const sock = resolveLoreRolesSocket();
+	const requestId = crypto.randomUUID();
+	const pending = awaitLoreRolesAck(sock, requestId);
+	try {
+		sock.emit('lore-roles-upsert', {
+			...(role.id ? { id: role.id } : {}),
+			name: role.name,
+			description: role.description,
+			capabilities: role.capabilities,
+			requestId
+		});
+	} catch {
+		throw new Error('Reconnect to manage repository roles.');
+	}
+	return pending;
+}
+
+/** Delete a custom role. The server refuses built-ins — surfaced as a rejection. */
+export async function deleteLoreRole(token: string, id: string): Promise<LoreRolesState> {
+	void token;
+	const sock = resolveLoreRolesSocket();
+	const requestId = crypto.randomUUID();
+	const pending = awaitLoreRolesAck(sock, requestId);
+	try {
+		sock.emit('lore-roles-delete', { id, requestId });
+	} catch {
+		throw new Error('Reconnect to manage repository roles.');
+	}
+	return pending;
+}
+
+/** Set the policy for users with no role. Resolves with fresh state. */
+export async function setLoreDefaultPolicy(
+	token: string,
+	policy: LoreDefaultPolicy
+): Promise<LoreRolesState> {
+	void token;
+	const sock = resolveLoreRolesSocket();
+	const requestId = crypto.randomUUID();
+	const pending = awaitLoreRolesAck(sock, requestId);
+	try {
+		sock.emit('lore-roles-set-default', { policy, requestId });
+	} catch {
+		throw new Error('Reconnect to manage repository roles.');
+	}
+	return pending;
 }

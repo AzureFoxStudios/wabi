@@ -1,7 +1,7 @@
 <script lang="ts">
 	import './UserListTabImpl.css';
 	import { get } from 'svelte/store';
-	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, assignRole, roleDefinitions } from '$lib/socket';
+	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, roleDefinitions } from '$lib/socket';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { showToast } from '$lib/toast';
 	import { layoutStore } from '$lib/layoutStore';
@@ -31,6 +31,7 @@
 		matchesPresenceFilter,
 		buildUserMenuItems,
 		queuePayment,
+		requestLiveRoleChange,
 		startDMCall,
 		type BuildMenuContext
 	} from './userListHelpers';
@@ -197,19 +198,19 @@
 		await startDMCall($socket, contextMenuUser, true);
 	}
 
-	async function handleAssignContextRole(roleName: 'admin' | 'mod' | 'member' | 'artist' | 'developer') {
+	async function handleAssignContextRole(roleName: string) {
 		const target = contextMenuUser;
 		if (!target?.dbUserId) return;
 		closeContextMenu();
 		try {
-			await assignRole(target.dbUserId, roleName);
+			await requestLiveRoleChange($socket, target.dbUserId, roleName);
 			showToast(`Role updated for ${target.username}.`, 'info');
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : 'Could not change this member’s role.', 'error');
 		}
 	}
 
-	function handleRemoveContextRole(_roleName: 'admin' | 'mod' | 'artist' | 'developer') {
+	function handleRemoveContextRole() {
 		void handleAssignContextRole('member');
 	}
 
@@ -258,7 +259,8 @@
 			localNicknamesEnabled: localNickEnabled,
 			hasLocalNickname: hasContextLocalNickname(),
 			socket: $socket,
-			bannedUserIds: $bannedUserIds
+			bannedUserIds: $bannedUserIds,
+			roleDefinitions: $roleDefinitions
 		};
 	}
 
@@ -271,19 +273,20 @@
 			video: handleContextVideoCall,
 			'nickname-set': promptSetContextLocalNickname,
 			'nickname-clear': clearContextLocalNickname,
-			'make-admin': () => handleAssignContextRole('admin'),
-			'remove-admin': () => handleRemoveContextRole('admin'),
-			'make-developer': () => handleAssignContextRole('developer'),
-			'remove-developer': () => handleRemoveContextRole('developer'),
-			'make-mod': () => handleAssignContextRole('mod'),
-			'remove-mod': () => handleRemoveContextRole('mod'),
-			'make-artist': () => handleAssignContextRole('artist'),
-			'remove-artist': () => handleRemoveContextRole('artist'),
 			'reset-member': handleResetContextUserToMember,
 			'ban-user': handleBanContextUser,
 			'unban-user': handleUnbanContextUser
 		};
 		if (handlers[item.id]) return { ...item, onSelect: handlers[item.id] };
+		// Live role entries from the role catalog (`make-role:<id>` grants,
+		// `remove-role:<id>` reverts to member).
+		if (item.id.startsWith('make-role:')) {
+			const roleName = item.id.slice('make-role:'.length);
+			return { ...item, onSelect: () => handleAssignContextRole(roleName) };
+		}
+		if (item.id.startsWith('remove-role:')) {
+			return { ...item, onSelect: () => handleRemoveContextRole() };
+		}
 		return item;
 	});
 

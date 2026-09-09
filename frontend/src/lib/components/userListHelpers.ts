@@ -10,7 +10,8 @@ const fallbackRolePriority: Record<string, number> = {
 };
 
 const fallbackRoleLabels: Record<string, string> = {
-	owner: 'Owner', admin: 'Admin', mod: 'Moderator', member: 'Member', guest: 'Guest'
+	owner: 'Owner', admin: 'Admin', developer: 'Developer', artist: 'Artist',
+	mod: 'Moderator', member: 'Member', guest: 'Guest'
 };
 
 export function buildRolePriority(roleDefinitions: Array<{ roleName: string; priority: number }>): Record<string, number> {
@@ -103,6 +104,149 @@ export interface BuildMenuContext {
 	hasLocalNickname: boolean;
 	socket: unknown;
 	bannedUserIds?: Set<number> | null;
+	/** Live role catalog (role-definitions-updated). Drives the role menu. */
+	roleDefinitions?: Array<{
+		roleName: string;
+		displayName: string;
+		priority: number;
+		capabilities?: string[];
+	}> | null;
+}
+
+/** A role the viewer may grant/revoke from the member menu. */
+export interface AssignableRoleEntry {
+	roleName: string;
+	displayName: string;
+	priority: number;
+}
+
+/**
+ * Lore roles = catalog roles that carry lore capabilities, i.e. every role
+ * except the moderation (`mod`) and guest shells. The client role store
+ * strips unknown fields, so when no entry carries `capabilities` (store not
+ * yet refreshed) fall back to the same heuristic on role names.
+ */
+export function selectLoreRoles(
+	defs: Array<{ roleName: string; displayName: string; priority: number; capabilities?: string[] }> | null | undefined
+): AssignableRoleEntry[] {
+	if (!defs || defs.length === 0) return [];
+	const withCaps = defs.filter((d) => Array.isArray(d.capabilities) && d.capabilities.length > 0);
+	const lore = withCaps.length > 0
+		? withCaps
+		: defs.filter((d) => d.roleName !== 'mod' && d.roleName !== 'guest');
+	return [...lore]
+		.map((d) => ({ roleName: d.roleName, displayName: d.displayName, priority: d.priority ?? 0 }))
+		.sort((a, b) => b.priority - a.priority);
+}
+
+/**
+ * Full offerable set for the member menu: lore roles (minus owner/member/
+ * guest — owner is never grantable here, member is covered by reset) plus
+ * `mod` for moderation. Falls back to the classic four when the catalog has
+ * not loaded yet so the menu never goes empty.
+ */
+export function selectAssignableRoles(
+	defs: Array<{ roleName: string; displayName: string; priority: number; capabilities?: string[] }> | null | undefined,
+	rolePriority?: Record<string, number>
+): AssignableRoleEntry[] {
+	const excluded = new Set(['owner', 'member', 'guest']);
+	if (!defs || defs.length === 0) {
+		return [
+			{ roleName: 'admin', displayName: 'Admin', priority: 90 },
+			{ roleName: 'mod', displayName: 'Moderator', priority: 70 },
+			{ roleName: 'developer', displayName: 'Developer', priority: 60 },
+			{ roleName: 'artist', displayName: 'Artist', priority: 50 }
+		];
+	}
+	const priorityOf = (roleName: string, fallback: number): number =>
+		rolePriority?.[roleName] ?? fallback;
+	const lore = selectLoreRoles(defs).filter((r) => !excluded.has(r.roleName));
+	const offerable = [...lore];
+	if (!offerable.some((r) => r.roleName === 'mod')) {
+		const modDef = defs.find((d) => d.roleName === 'mod');
+		offerable.push({
+			roleName: 'mod',
+			displayName: modDef?.displayName || 'Moderator',
+			priority: modDef?.priority ?? priorityOf('mod', 70)
+		});
+	}
+	return offerable.sort((a, b) => b.priority - a.priority);
+}
+
+/** Role names (roleName) the target currently holds — highestRole + roles. */
+export function getTargetRoleNames(user: User): Set<string> {
+	const names = new Set<string>();
+	if (user.highestRole) names.add(user.highestRole);
+	for (const role of user.roles || []) {
+		if (typeof role === 'string' && role) names.add(role);
+	}
+	return names;
+}
+
+interface LiveRoleSocket {
+	connected: boolean;
+	on(event: string, listener: (payload: any) => void): unknown;
+	off(event: string, listener: (payload: any) => void): unknown;
+	emit(event: string, payload: unknown): unknown;
+}
+
+function toNumericDbUserId(userId: string | number | null | undefined): number | null {
+	if (typeof userId === 'number' && Number.isSafeInteger(userId) && userId > 0) return userId;
+	const match = String(userId ?? '').match(/^(?:user-)?(\d+)$/);
+	return match ? Number(match[1]) : null;
+}
+
+/**
+ * The existing assign-role flow, minus the stale built-in-only whitelist, so
+ * user-defined role ids assign exactly like admin/mod/artist/developer.
+ * Correlates `assign-role-success` / `assign-role-error` by requestId.
+ * Removing a role = assigning `member` (the server reverts to Member).
+ */
+export function requestLiveRoleChange(
+	socket: LiveRoleSocket | null | undefined,
+	userId: string | number | null | undefined,
+	roleName: string,
+	options?: { timeoutMs?: number }
+): Promise<void> {
+	const sock: LiveRoleSocket | null | undefined = socket;
+	if (!sock?.connected) return Promise.reject(new Error('Reconnect before changing roles.'));
+	const targetUserId = toNumericDbUserId(userId);
+	if (!targetUserId || !roleName.trim()) {
+		return Promise.reject(new Error('Choose a registered member.'));
+	}
+	const requestId = crypto.randomUUID();
+	return new Promise<void>((resolve, reject) => {
+		let done = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const finish = (error?: Error) => {
+			if (done) return;
+			done = true;
+			clearTimeout(timer);
+			sock.off('assign-role-success', onSuccess);
+			sock.off('assign-role-error', onError);
+			sock.off('disconnect', onDisconnect);
+			if (error) reject(error);
+			else resolve();
+		};
+		const onSuccess = (payload: any) => {
+			if (payload?.requestId !== requestId || payload.targetUserId !== targetUserId) return;
+			finish();
+		};
+		const onError = (payload: any) => {
+			if (payload?.requestId !== requestId) return;
+			finish(new Error(typeof payload?.error === 'string' ? payload.error : 'The server could not change this role.'));
+		};
+		const onDisconnect = () => finish(new Error('Connection changed before the role change was confirmed. Check the member’s role after reconnecting.'));
+		sock.on('assign-role-success', onSuccess);
+		sock.on('assign-role-error', onError);
+		sock.on('disconnect', onDisconnect);
+		timer = setTimeout(() => finish(new Error('The server did not confirm the role change. Reload the member list before trying again.')), options?.timeoutMs ?? 10_000);
+		try {
+			sock.emit('assign-role', { targetUserId, roleName, requestId });
+		} catch {
+			onDisconnect();
+		}
+	});
 }
 
 export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
@@ -150,27 +294,28 @@ export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
 	}
 
 	if (canManageContextUserRoles() && contextMenuUser) {
-		const roles = contextMenuUser.roles || [];
-		const isAdmin = roles.includes('admin') || contextMenuUser.highestRole === 'admin';
-		const isDeveloper = roles.includes('developer') || contextMenuUser.highestRole === 'developer';
-		const isMod = roles.includes('mod') || contextMenuUser.highestRole === 'mod';
-		const isArtist = roles.includes('artist') || contextMenuUser.highestRole === 'artist';
+		const targetRoles = getTargetRoleNames(contextMenuUser);
+		// Live role list: lore roles from the catalog plus mod for moderation.
+		// `make-role:<id>` grants, `remove-role:<id>` reverts to member — the
+		// host component maps those ids to the assign-role flow.
+		const offerable = selectAssignableRoles(ctx.roleDefinitions, ctx.rolePriority);
 
 		items.push({ id: 'role-divider', type: 'separator' });
 
-		if (!isAdmin) items.push({ id: 'make-admin', label: 'Make Admin', icon: 'settings', onSelect: () => {} });
-		else items.push({ id: 'remove-admin', label: 'Remove Admin', icon: 'settings', danger: true, onSelect: () => {} });
+		for (const role of offerable) {
+			const hasRole = targetRoles.has(role.roleName);
+			items.push({
+				id: hasRole ? `remove-role:${role.roleName}` : `make-role:${role.roleName}`,
+				label: hasRole ? `Remove ${role.displayName}` : `Make ${role.displayName}`,
+				icon: 'settings',
+				danger: hasRole,
+				onSelect: () => {}
+			});
+		}
 
-		if (!isDeveloper) items.push({ id: 'make-developer', label: 'Make Developer', icon: 'settings', onSelect: () => {} });
-		else items.push({ id: 'remove-developer', label: 'Remove Developer', icon: 'settings', danger: true, onSelect: () => {} });
-
-		if (!isMod) items.push({ id: 'make-mod', label: 'Make Moderator', icon: 'settings', onSelect: () => {} });
-		else items.push({ id: 'remove-mod', label: 'Remove Moderator', icon: 'settings', danger: true, onSelect: () => {} });
-
-		if (!isArtist) items.push({ id: 'make-artist', label: 'Make Artist', icon: 'settings', onSelect: () => {} });
-		else items.push({ id: 'remove-artist', label: 'Remove Artist', icon: 'settings', danger: true, onSelect: () => {} });
-
-		if (isAdmin || isDeveloper || isMod || isArtist) items.push({ id: 'reset-member', label: 'Reset to Member', icon: 'settings', danger: true, onSelect: () => {} });
+		if (offerable.some((role) => targetRoles.has(role.roleName))) {
+			items.push({ id: 'reset-member', label: 'Reset to Member', icon: 'settings', danger: true, onSelect: () => {} });
+		}
 
 		const isBanned = typeof contextMenuUser.dbUserId === 'number'
 			? ctx.bannedUserIds?.has(contextMenuUser.dbUserId) ?? false
