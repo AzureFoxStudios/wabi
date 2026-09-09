@@ -4,6 +4,13 @@ import { fetchChannel } from './api/channelAccess';
 import { getServerUrl } from '$lib/serverUrl';
 import { users, type User } from '$lib/socket';
 
+export interface ForumAttachment {
+	url: string;
+	name: string;
+	size?: number;
+	mime?: string;
+}
+
 export interface ForumPost {
 	post_id: string;
 	thread_id: string;
@@ -20,6 +27,7 @@ export interface ForumPost {
 	votes_down: number;
 	is_solution: boolean;
 	category?: string;
+	attachments?: ForumAttachment[];
 }
 
 export type ForumCategory = string;
@@ -49,6 +57,84 @@ function headers(): Record<string, string> {
 	};
 }
 
+// Forum posts live in a dedicated WabiDB forum table/projection (ForumPostRecord),
+// not in chat messages — the API payloads accept only body/title/tags/category.
+// Images uploaded via the chat resumable path persist as `![name](url)` markdown
+// appended to `body`; these helpers build and parse that markdown client-side.
+const FORUM_IMAGE_MARKDOWN_RE = /!\[([^\]\n]*)\]\(([^)\s]+)\)/g;
+
+export function buildForumImageMarkdown(attachments: ForumAttachment[]): string {
+	if (attachments.length === 0) return '';
+	return attachments.map((a) => `![${a.name.replace(/[\[\]\n]/g, '')}](${a.url})`).join('\n');
+}
+
+export function withForumImages(body: string, attachments: ForumAttachment[]): string {
+	const markdown = buildForumImageMarkdown(attachments);
+	if (!markdown) return body;
+	return body ? `${body}\n\n${markdown}` : markdown;
+}
+
+export function extractForumAttachments(body: string): ForumAttachment[] {
+	const out: ForumAttachment[] = [];
+	if (!body) return out;
+	FORUM_IMAGE_MARKDOWN_RE.lastIndex = 0;
+	let match: RegExpExecArray | null;
+	while ((match = FORUM_IMAGE_MARKDOWN_RE.exec(body)) !== null) {
+		const name = match[1] || 'image';
+		const url = match[2];
+		if (url && !out.some((a) => a.url === url)) {
+			out.push({ url, name, mime: 'image/*' });
+		}
+	}
+	return out;
+}
+
+export function stripForumImageMarkdown(body: string): string {
+	if (!body) return body;
+	return body
+		.replace(FORUM_IMAGE_MARKDOWN_RE, '')
+		.replace(/\n{3,}/g, '\n\n')
+		.trim();
+}
+
+export function resolveForumFileUrl(url: string): string {
+	if (!url) return '';
+	if (/^(https?:|data:|blob:)/i.test(url)) return url;
+	const base = getServerUrl().replace(/\/+$/, '');
+	const path = url.startsWith('/') ? url : `/${url}`;
+	return `${base}${path}`;
+}
+
+export function formatForumFileSize(bytes?: number): string {
+	if (bytes == null || Number.isNaN(bytes)) return '';
+	if (bytes < 1024) return `${bytes} B`;
+	const kb = bytes / 1024;
+	if (kb < 1024) return `${kb.toFixed(1)} KB`;
+	return `${(kb / 1024).toFixed(2)} MB`;
+}
+
+function mapForumPost(t: Record<string, unknown>): ForumPost {
+	const body = String(t.body ?? '');
+	return {
+		post_id: String(t.post_id ?? ''),
+		thread_id: String(t.thread_id ?? ''),
+		channel_id: String(t.channel_id ?? ''),
+		author_user_id: Number(t.author_user_id ?? 0),
+		body,
+		created_at_micros: Number(t.created_at_micros ?? 0),
+		edited_at_micros: t.edited_at_micros != null ? Number(t.edited_at_micros) : undefined,
+		is_deleted: Boolean(t.is_deleted),
+		is_thread_starter: Boolean(t.is_thread_starter),
+		title: String(t.title ?? ''),
+		tags: Array.isArray(t.tags) ? t.tags.map(String) : [],
+		votes_up: Number(t.votes_up ?? 0),
+		votes_down: Number(t.votes_down ?? 0),
+		is_solution: Boolean(t.is_solution),
+		category: t.category != null ? String(t.category) : undefined,
+		attachments: extractForumAttachments(body),
+	};
+}
+
 export async function loadThreads(channelId: string): Promise<void> {
 	const token = getAuthToken();
 	if (!token || !channelId) {
@@ -68,23 +154,9 @@ export async function loadThreads(channelId: string): Promise<void> {
 		});
 		if (!res.ok) throw new Error(`Failed to load threads: ${res.statusText}`);
 		const data = await res.json();
-		const threads: ForumPost[] = (data.threads || []).map((t: Record<string, unknown>) => ({
-			post_id: String(t.post_id ?? ''),
-			thread_id: String(t.thread_id ?? ''),
-			channel_id: String(t.channel_id ?? ''),
-			author_user_id: Number(t.author_user_id ?? 0),
-			body: String(t.body ?? ''),
-			created_at_micros: Number(t.created_at_micros ?? 0),
-			edited_at_micros: t.edited_at_micros != null ? Number(t.edited_at_micros) : undefined,
-			is_deleted: Boolean(t.is_deleted),
-			is_thread_starter: Boolean(t.is_thread_starter),
-			title: String(t.title ?? ''),
-			tags: Array.isArray(t.tags) ? t.tags.map(String) : [],
-			votes_up: Number(t.votes_up ?? 0),
-			votes_down: Number(t.votes_down ?? 0),
-			is_solution: Boolean(t.is_solution),
-			category: t.category != null ? String(t.category) : undefined,
-		}));
+		const threads: ForumPost[] = (data.threads || []).map((t: Record<string, unknown>) =>
+			mapForumPost(t)
+		);
 		forumThreads.set(threads);
 	} catch (err) {
 		forumError.set(err instanceof Error ? err.message : 'Failed to load forum threads');
@@ -102,23 +174,9 @@ export async function loadPosts(channelId: string, threadId: string): Promise<vo
 		);
 		if (!res.ok) throw new Error(`Failed to load posts: ${res.statusText}`);
 		const data = await res.json();
-		const posts: ForumPost[] = (data.posts || []).map((p: Record<string, unknown>) => ({
-			post_id: String(p.post_id ?? ''),
-			thread_id: String(p.thread_id ?? ''),
-			channel_id: String(p.channel_id ?? ''),
-			author_user_id: Number(p.author_user_id ?? 0),
-			body: String(p.body ?? ''),
-			created_at_micros: Number(p.created_at_micros ?? 0),
-			edited_at_micros: p.edited_at_micros != null ? Number(p.edited_at_micros) : undefined,
-			is_deleted: Boolean(p.is_deleted),
-			is_thread_starter: Boolean(p.is_thread_starter),
-			title: String(p.title ?? ''),
-			tags: Array.isArray(p.tags) ? p.tags.map(String) : [],
-			votes_up: Number(p.votes_up ?? 0),
-			votes_down: Number(p.votes_down ?? 0),
-			is_solution: Boolean(p.is_solution),
-			category: p.category != null ? String(p.category) : undefined,
-		}));
+		const posts: ForumPost[] = (data.posts || []).map((p: Record<string, unknown>) =>
+			mapForumPost(p)
+		);
 		forumPostsByThread.update((map) => {
 			const next = new Map(map);
 			next.set(threadId, posts);
@@ -134,16 +192,22 @@ export async function createThread(
 	body: string,
 	title?: string,
 	tags?: string[],
-	category?: string
+	category?: string,
+	attachments?: ForumAttachment[]
 ): Promise<ForumPost | null> {
 	try {
 		const res = await fetchChannel(channelId, `${apiBase()}/${encodeURIComponent(channelId)}/threads`, {
 			method: 'POST',
 			headers: headers(),
-			body: JSON.stringify({ title, body, tags, category }),
+			body: JSON.stringify({
+				title,
+				body: withForumImages(body, attachments || []),
+				tags,
+				category,
+			}),
 		});
 		if (!res.ok) throw new Error(`Failed to create thread: ${res.statusText}`);
-		const post: ForumPost = await res.json();
+		const post: ForumPost = mapForumPost(await res.json());
 		forumThreads.update((ts) => [post, ...ts]);
 		return post;
 	} catch (err) {
@@ -156,7 +220,8 @@ export async function createPost(
 	channelId: string,
 	threadId: string,
 	body: string,
-	tags?: string[]
+	tags?: string[],
+	attachments?: ForumAttachment[]
 ): Promise<ForumPost | null> {
 	try {
 		const res = await fetchChannel(channelId,
@@ -164,11 +229,11 @@ export async function createPost(
 			{
 				method: 'POST',
 				headers: headers(),
-				body: JSON.stringify({ body, tags }),
+				body: JSON.stringify({ body: withForumImages(body, attachments || []), tags }),
 			}
 		);
 		if (!res.ok) throw new Error(`Failed to create post: ${res.statusText}`);
-		const post: ForumPost = await res.json();
+		const post: ForumPost = mapForumPost(await res.json());
 		forumPostsByThread.update((map) => {
 			const next = new Map(map);
 			const existing = next.get(threadId) || [];
@@ -198,7 +263,7 @@ export async function votePost(
 			}
 		);
 		if (!res.ok) throw new Error(`Failed to vote: ${res.statusText}`);
-		const post: ForumPost = await res.json();
+		const post: ForumPost = mapForumPost(await res.json());
 		updatePostInStore(threadId, post);
 		return post;
 	} catch (err) {
@@ -221,7 +286,7 @@ export async function markSolution(
 			}
 		);
 		if (!res.ok) throw new Error(`Failed to mark solution: ${res.statusText}`);
-		const post: ForumPost = await res.json();
+		const post: ForumPost = mapForumPost(await res.json());
 		updatePostInStore(threadId, post);
 		return post;
 	} catch (err) {
@@ -254,7 +319,7 @@ export async function updateForumPost(
 			}
 		);
 		if (!res.ok) throw new Error(`Failed to update post: ${res.statusText}`);
-		const post: ForumPost = await res.json();
+		const post: ForumPost = mapForumPost(await res.json());
 		updatePostInStore(threadId, post);
 		return post;
 	} catch (err) {
