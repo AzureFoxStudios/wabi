@@ -504,7 +504,8 @@
 	}
 
 
-	.action-btn {
+	.settings-section .action-btn,
+	.settings-content .action-btn {
 		padding: var(--space-3) var(--space-4);
 		border-radius: var(--radius-md);
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
@@ -516,19 +517,22 @@
 	}
 
 
-	.action-btn.secondary {
+	.settings-section .action-btn.secondary,
+	.settings-content .action-btn.secondary {
 		background: color-mix(in srgb, var(--surface-raised) 84%, transparent);
 		color: var(--text-heading);
 	}
 
 
-	.action-btn.secondary:hover {
+	.settings-section .action-btn.secondary:hover,
+	.settings-content .action-btn.secondary:hover {
 		background: var(--surface-hover);
 		transform: translateY(-1px);
 	}
 
 
-	.action-btn.small {
+	.settings-section .action-btn.small,
+	.settings-content .action-btn.small {
 		padding: var(--space-2) var(--space-3);
 		font-size: var(--font-size-sm);
 		border-radius: var(--radius-md);
