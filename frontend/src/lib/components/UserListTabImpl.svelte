@@ -2,6 +2,7 @@
 	import './UserListTabImpl.css';
 	import { get } from 'svelte/store';
 	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, assignRole, roleDefinitions } from '$lib/socket';
+	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { showToast } from '$lib/toast';
 	import { layoutStore } from '$lib/layoutStore';
 	import type { User } from '$lib/socket';
@@ -216,6 +217,39 @@
 		void handleAssignContextRole('member');
 	}
 
+	// Keep the client-side ban mirror fed by `user-banned`/`user-unbanned`
+	// broadcasts while this list is alive (idempotent per socket).
+	$: if ($socket) {
+		try { attachUserBanListeners($socket); } catch { /* best-effort */ }
+	}
+
+	async function handleBanContextUser() {
+		const target = contextMenuUser;
+		if (!target?.dbUserId) return;
+		if (!window.confirm(`Ban @${target.username} from this server? They will be logged out and blocked from signing in.`)) return;
+		closeContextMenu();
+		try {
+			const { banUser } = await import('$lib/presenceStore');
+			await banUser(target.dbUserId);
+			showToast(`Banned @${target.username}.`, 'info');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Could not ban this member.', 'error');
+		}
+	}
+
+	async function handleUnbanContextUser() {
+		const target = contextMenuUser;
+		if (!target?.dbUserId) return;
+		closeContextMenu();
+		try {
+			const { unbanUser } = await import('$lib/presenceStore');
+			await unbanUser(target.dbUserId);
+			showToast(`Unbanned @${target.username}.`, 'info');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Could not unban this member.', 'error');
+		}
+	}
+
 	function buildMenuCtx(): BuildMenuContext {
 		return {
 			contextMenuUser,
@@ -223,7 +257,8 @@
 			rolePriority,
 			localNicknamesEnabled: localNickEnabled,
 			hasLocalNickname: hasContextLocalNickname(),
-			socket: $socket
+			socket: $socket,
+			bannedUserIds: $bannedUserIds
 		};
 	}
 
@@ -240,7 +275,9 @@
 			'remove-admin': () => handleRemoveContextRole('admin'),
 			'make-mod': () => handleAssignContextRole('mod'),
 			'remove-mod': () => handleRemoveContextRole('mod'),
-			'reset-member': handleResetContextUserToMember
+			'reset-member': handleResetContextUserToMember,
+			'ban-user': handleBanContextUser,
+			'unban-user': handleUnbanContextUser
 		};
 		if (handlers[item.id]) return { ...item, onSelect: handlers[item.id] };
 		return item;

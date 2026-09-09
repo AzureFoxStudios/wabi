@@ -21,6 +21,10 @@
 	export let targetRole: string = 'member';
 	export let roleActionStatus = '';
 	export let onSetRole: (role: 'admin' | 'mod' | 'member') => void = () => {};
+	export let isBanned = false;
+	export let banActionStatus = '';
+	export let onBanUser: () => void = () => {};
+	export let onUnbanUser: () => void = () => {};
 
 	async function handleShareProfile() {
 		if (!user) return;
@@ -155,15 +159,27 @@
 				>
 					{targetRole === 'mod' ? 'Remove Moderator' : 'Make Moderator'}
 				</button>
-				{#if targetRole === 'admin' || targetRole === 'mod'}
-					<button class="context-btn danger" on:click={() => onSetRole('member')}>
-						Reset to Member
-					</button>
-				{/if}
-			</div>
-			{#if roleActionStatus}
-				<span class="manage-roles-status">{roleActionStatus}</span>
+			{#if targetRole === 'admin' || targetRole === 'mod'}
+				<button class="context-btn danger" on:click={() => onSetRole('member')}>
+					Reset to Member
+				</button>
 			{/if}
+			{#if isBanned}
+				<button class="context-btn danger" on:click={onUnbanUser}>
+					Unban
+				</button>
+			{:else}
+				<button class="context-btn danger" on:click={onBanUser}>
+					Ban from server
+				</button>
+			{/if}
+		</div>
+		{#if roleActionStatus}
+			<span class="manage-roles-status">{roleActionStatus}</span>
+		{/if}
+		{#if banActionStatus}
+			<span class="manage-roles-status">{banActionStatus}</span>
+		{/if}
 		</div>
 	{/if}
 </div>
