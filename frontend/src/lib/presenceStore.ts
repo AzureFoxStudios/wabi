@@ -10,7 +10,7 @@
  * - Role definitions and assignments
  */
 
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { getSocket } from './socketConnection';
 import type { User, UserBadge } from './socket-types';
@@ -155,12 +155,192 @@ export async function removeBadge(userId: string | number, badgeId: string): Pro
 }
 
 // ============================================================================
-// PUBLIC API - User Management
+// PUBLIC API - User Management (server-wide bans)
 // ============================================================================
 
-/** Compatibility export only: the server has no durable account-ban command. */
-export async function banUser(_userId: string | number, _reason?: string): Promise<void> {
-	throw new Error('Server-wide bans are not available. No account access was changed.');
+/** Client-side mirror of server ban enforcement, fed by `user-banned` /
+ *  `user-unbanned` broadcasts. The server is the source of truth; this set
+ *  only drives Ban vs Unban affordances until a durable roster arrives. */
+export const bannedUserIds = writable<Set<number>>(new Set());
+
+function addBannedUserId(targetUserId: number): void {
+	bannedUserIds.update((current) => {
+		if (current.has(targetUserId)) return current;
+		const next = new Set(current);
+		next.add(targetUserId);
+		return next;
+	});
+}
+
+function removeBannedUserId(targetUserId: number): void {
+	bannedUserIds.update((current) => {
+		if (!current.has(targetUserId)) return current;
+		const next = new Set(current);
+		next.delete(targetUserId);
+		return next;
+	});
+}
+
+/** Reactive Ban vs Unban check for moderation UI. */
+export function isUserBanned(dbUserId: string | number | null | undefined): boolean {
+	if (dbUserId == null) return false;
+	const targetUserId = toNumericUserId(dbUserId);
+	if (!targetUserId) return false;
+	return get(bannedUserIds).has(targetUserId);
+}
+
+interface BanCommandSocket {
+	connected: boolean;
+	on(event: string, listener: (payload: any) => void): unknown;
+	off(event: string, listener: (payload: any) => void): unknown;
+	emit(event: string, payload: unknown): unknown;
+}
+
+const pendingBanCommands = new WeakMap<object, Set<string>>();
+const banListenerSockets = new WeakSet<object>();
+
+function toBanPayloadTarget(value: unknown): number | null {
+	if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return value;
+	if (typeof value === 'string') return toNumericUserId(value);
+	return null;
+}
+
+/**
+ * Listen for server ban broadcasts on a socket and mirror them into
+ * `bannedUserIds`. Idempotent per socket instance; returns a detach cleanup.
+ *
+ * NOTE: there is no global assign-role listener site to co-locate this with —
+ * role acks are correlated per-request inside serverRoleCommands.ts. Call this
+ * for each fresh socket (it is also ensured lazily by banUser/unbanUser).
+ * The natural persistent home would be socketConnectionCore.ts next to
+ * bindStateEventListeners, which is outside the files this change may touch.
+ */
+export function attachUserBanListeners(sock: BanCommandSocket | Socket): () => void {
+	if (banListenerSockets.has(sock)) return () => {};
+	banListenerSockets.add(sock);
+	const socket = sock as BanCommandSocket;
+	const onBanned = (payload: any) => {
+		const targetUserId = toBanPayloadTarget(payload?.targetUserId);
+		if (targetUserId) addBannedUserId(targetUserId);
+	};
+	const onUnbanned = (payload: any) => {
+		const targetUserId = toBanPayloadTarget(payload?.targetUserId);
+		if (targetUserId) removeBannedUserId(targetUserId);
+	};
+	socket.on('user-banned', onBanned);
+	socket.on('user-unbanned', onUnbanned);
+	return () => {
+		socket.off('user-banned', onBanned);
+		socket.off('user-unbanned', onUnbanned);
+		banListenerSockets.delete(sock);
+	};
+}
+
+/** Request/ack correlation for admin ban commands, modeled on
+ *  requestServerRoleChange: per-socket pending de-dupe, requestId
+ *  correlation, 10s timeout, disconnect/auth-revoked cleanup. */
+function requestAdminBanCommand(
+	sock: BanCommandSocket,
+	kind: 'ban' | 'unban',
+	targetUserId: number,
+	options: {
+		isCurrent: () => boolean;
+		onInvalidated: (cancel: () => void) => () => void;
+		timeoutMs?: number;
+		reason?: string;
+	}
+): Promise<void> {
+	if (!sock.connected || !options.isCurrent()) return Promise.reject(new Error('Reconnect before changing bans.'));
+	let pending = pendingBanCommands.get(sock);
+	if (!pending) { pending = new Set(); pendingBanCommands.set(sock, pending); }
+	const key = `${kind}:${targetUserId}`;
+	if (pending.has(key)) return Promise.reject(new Error('A ban change for this member is already in progress.'));
+	pending.add(key);
+	const pendingSet = pending;
+	const requestId = crypto.randomUUID();
+	const emitEvent = kind === 'ban' ? 'admin-ban-user' : 'admin-unban-user';
+	const successEvent = kind === 'ban' ? 'admin-ban-success' : 'admin-unban-success';
+	const errorEvent = kind === 'ban' ? 'admin-ban-error' : 'admin-unban-error';
+	return new Promise<void>((resolve, reject) => {
+		let done = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let unsubscribe = () => {};
+		const finish = (error?: Error) => {
+			if (done) return;
+			done = true;
+			clearTimeout(timer);
+			sock.off(successEvent, onSuccess);
+			sock.off(errorEvent, onError);
+			sock.off('disconnect', onDisconnect);
+			sock.off('auth-revoked', onDisconnect);
+			unsubscribe();
+			pendingSet.delete(key);
+			if (error) { reject(error); return; }
+			if (kind === 'ban') addBannedUserId(targetUserId);
+			else removeBannedUserId(targetUserId);
+			resolve();
+		};
+		const onDisconnect = () => finish(new Error('Connection changed before the ban change was confirmed. Check the member list after reconnecting.'));
+		const onSuccess = (payload: any) => {
+			if (payload?.requestId !== requestId) return;
+			if (payload?.targetUserId != null && toBanPayloadTarget(payload.targetUserId) !== targetUserId) return;
+			if (!options.isCurrent()) { onDisconnect(); return; }
+			finish();
+		};
+		const onError = (payload: any) => {
+			if (payload?.requestId !== requestId) return;
+			finish(new Error(typeof payload.error === 'string' && payload.error ? payload.error : 'The server could not change this ban.'));
+		};
+		sock.on(successEvent, onSuccess);
+		sock.on(errorEvent, onError);
+		sock.on('disconnect', onDisconnect);
+		sock.on('auth-revoked', onDisconnect);
+		unsubscribe = options.onInvalidated(onDisconnect);
+		if (done) { unsubscribe(); return; }
+		timer = setTimeout(() => finish(new Error('The server did not confirm the ban change. Reload the member list before trying again.')), options.timeoutMs ?? 10_000);
+		try {
+			const payload = kind === 'ban' && options.reason
+				? { targetUserId, reason: options.reason, requestId }
+				: { targetUserId, requestId };
+			sock.emit(emitEvent, payload);
+		} catch { onDisconnect(); }
+	});
+}
+
+function banCommandGuards(sock: Socket | null, userId: string | number): number {
+	if (!sock?.connected) throw new Error('Reconnect before changing bans.');
+	const targetUserId = toNumericUserId(userId);
+	if (!targetUserId) throw new Error('Choose a registered member.');
+	const selfId = get(currentUser)?.dbUserId;
+	if (typeof selfId === 'number' && selfId === targetUserId) throw new Error('You cannot ban yourself.');
+	return targetUserId;
+}
+
+function banCommandScope(sock: Socket) {
+	const realm = groupMembership.realm();
+	return {
+		isCurrent: () => !!realm && groupMembership.realm() === realm && getSocket() === sock,
+		onInvalidated: (cancel: () => void) => socketState.subscribe((current) => { if (current !== sock) cancel(); })
+	};
+}
+
+/** Ban a member server-wide. They are logged out and blocked from signing in. */
+export async function banUser(userId: string | number, reason?: string): Promise<void> {
+	const sock = getSocket();
+	const targetUserId = banCommandGuards(sock, userId);
+	if (!sock) throw new Error('Reconnect before changing bans.');
+	try { attachUserBanListeners(sock); } catch { /* listener attach is best-effort */ }
+	await requestAdminBanCommand(sock, 'ban', targetUserId, { ...banCommandScope(sock), reason });
+}
+
+/** Lift a server-wide ban. */
+export async function unbanUser(userId: string | number): Promise<void> {
+	const sock = getSocket();
+	if (!sock?.connected) throw new Error('Reconnect before changing bans.');
+	const targetUserId = toNumericUserId(userId);
+	if (!targetUserId) throw new Error('Choose a registered member.');
+	try { attachUserBanListeners(sock); } catch { /* listener attach is best-effort */ }
+	await requestAdminBanCommand(sock, 'unban', targetUserId, banCommandScope(sock));
 }
 
 // ============================================================================

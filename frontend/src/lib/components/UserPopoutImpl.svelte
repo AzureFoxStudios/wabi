@@ -23,6 +23,7 @@
 	import { brandName } from '$lib/branding';
 	import UserPopoutActions from './UserPopoutActions.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
+	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import {
 		MAX_USER_NOTE_LENGTH,
@@ -357,6 +358,13 @@
 	})();
 
 	let roleActionStatus = '';
+	let banActionStatus = '';
+	$: isTargetBanned = user?.dbUserId != null ? $bannedUserIds.has(user.dbUserId) : false;
+	// Keep the client-side ban mirror fed by `user-banned`/`user-unbanned`
+	// broadcasts while this popout is alive (idempotent per socket).
+	$: if ($socket && browser) {
+		try { attachUserBanListeners($socket); } catch { /* best-effort */ }
+	}
 	async function setUserRole(role: 'admin' | 'mod' | 'member') {
 		if (!user?.dbUserId || !canManageRoles) return;
 		roleActionStatus = 'Saving…';
@@ -367,6 +375,33 @@
 			setTimeout(() => (roleActionStatus = ''), 2200);
 		} catch (error) {
 			roleActionStatus = error instanceof Error ? error.message : 'Could not change role.';
+		}
+	}
+
+	async function handleBanUser() {
+		if (!user?.dbUserId || !canManageRoles || !browser) return;
+		if (!window.confirm(`Ban @${user.username} from this server? They will be logged out and blocked from signing in.`)) return;
+		banActionStatus = 'Banning…';
+		try {
+			const { banUser } = await import('$lib/presenceStore');
+			await banUser(user.dbUserId);
+			banActionStatus = 'Banned.';
+			setTimeout(() => (banActionStatus = ''), 2200);
+		} catch (error) {
+			banActionStatus = error instanceof Error ? error.message : 'Could not ban this member.';
+		}
+	}
+
+	async function handleUnbanUser() {
+		if (!user?.dbUserId || !canManageRoles) return;
+		banActionStatus = 'Unbanning…';
+		try {
+			const { unbanUser } = await import('$lib/presenceStore');
+			await unbanUser(user.dbUserId);
+			banActionStatus = 'Unbanned.';
+			setTimeout(() => (banActionStatus = ''), 2200);
+		} catch (error) {
+			banActionStatus = error instanceof Error ? error.message : 'Could not unban this member.';
 		}
 	}
 
@@ -604,6 +639,10 @@
 				targetRole={user?.highestRole || 'member'}
 				roleActionStatus={roleActionStatus}
 				onSetRole={setUserRole}
+				isBanned={isTargetBanned}
+				banActionStatus={banActionStatus}
+				onBanUser={handleBanUser}
+				onUnbanUser={handleUnbanUser}
 				onOpenDM={openDM}
 				onOpenFullProfile={openFullProfile}
 				onOpenSettings={openFullProfile}

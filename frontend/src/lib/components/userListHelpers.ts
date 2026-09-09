@@ -102,6 +102,7 @@ export interface BuildMenuContext {
 	localNicknamesEnabled: boolean;
 	hasLocalNickname: boolean;
 	socket: unknown;
+	bannedUserIds?: Set<number> | null;
 }
 
 export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
@@ -162,6 +163,12 @@ export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
 		else items.push({ id: 'remove-mod', label: 'Remove Moderator', icon: 'settings', danger: true, onSelect: () => {} });
 
 		if (isAdmin || isMod) items.push({ id: 'reset-member', label: 'Reset to Member', icon: 'settings', danger: true, onSelect: () => {} });
+
+		const isBanned = typeof contextMenuUser.dbUserId === 'number'
+			? ctx.bannedUserIds?.has(contextMenuUser.dbUserId) ?? false
+			: false;
+		if (isBanned) items.push({ id: 'unban-user', label: 'Unban', icon: 'settings', onSelect: () => {} });
+		else items.push({ id: 'ban-user', label: 'Ban from server', icon: 'settings', danger: true, onSelect: () => {} });
 	}
 
 	return items;
