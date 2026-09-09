@@ -211,10 +211,23 @@
 			<p class="runtime-note">Effective mode: <strong>{$audioProcessingRuntimeStatus.effective.toUpperCase()}</strong> {#if $audioProcessingRuntimeStatus.reason === 'performance_guard'}(performance fallback){:else if $audioProcessingRuntimeStatus.reason === 'native_not_supported'}(native suppression is not supported here){/if}</p>
 		{/if}
 		<div class="setting-item-full">
-			<div class="setting-info"><span class="setting-label">Test your microphone</span><span class="setting-description">Record 4 seconds with the selected device and audio processing, then play it back. This test is separate from any active call.</span></div>
-			<button type="button" class="action-btn" onclick={runMicTest} disabled={micTestState === 'recording'}>{micTestState === 'recording' ? 'Recording...' : 'Record 4s Sample'}</button>
-			<div class="mic-level" role="meter" aria-label="Microphone input level" aria-valuemin="0" aria-valuemax="1" aria-valuenow={micTestLevel}><span style:width={`${Math.round(micTestLevel * 100)}%`}></span></div>
-			{#if micTestAudioUrl}<audio src={micTestAudioUrl} controls aria-label="Microphone test recording"></audio>{/if}
+			<div class="setting-info"><span class="setting-label">Test your microphone</span><span class="setting-description">Record a short sample with the selected device and audio processing, then play it back. This test is separate from any active call.</span></div>
+			<div class="mic-test-row">
+				<button
+					type="button"
+					class="mic-test-btn"
+					class:recording={micTestState === 'recording'}
+					onclick={runMicTest}
+					disabled={micTestState === 'recording'}
+					aria-label={micTestState === 'recording' ? 'Recording microphone sample' : 'Record microphone sample'}
+				>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+					<span>{micTestState === 'recording' ? 'Recording…' : 'Test mic'}</span>
+				</button>
+				<div class="mic-level" role="meter" aria-label="Microphone input level" aria-valuemin="0" aria-valuemax="1" aria-valuenow={micTestLevel}><span style:width={`${Math.round(micTestLevel * 100)}%`}></span></div>
+				{#if micTestState === 'recording'}<span class="mic-test-state">Recording 4s sample…</span>{/if}
+				{#if micTestAudioUrl}<audio src={micTestAudioUrl} controls aria-label="Microphone test recording"></audio>{/if}
+			</div>
 		</div>
 	</section>
 
@@ -310,7 +323,17 @@
 	.audio-settings :is(button, select, input, summary):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 	.audio-helper { display: grid; gap: 0.85rem; border-top: 1px solid var(--border-subtle); padding-top: 1rem; }
 	.mic-level { height: 8px; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-sunken); }
-	.mic-level span { display: block; height: 100%; background: var(--accent-primary); }
+	.mic-level span { display: block; height: 100%; background: var(--accent-primary); transition: width 80ms linear; }
+	.mic-test-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; min-width: 0; }
+	.mic-test-btn { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 40px; padding: 0 1rem; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent); background: var(--surface-raised); color: var(--text-heading); font-weight: 600; cursor: pointer; transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast); }
+	.mic-test-btn svg { width: 16px; height: 16px; }
+	.mic-test-btn:hover { background: color-mix(in srgb, var(--accent-primary-color) 14%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent-primary-color) 40%, transparent); }
+	.mic-test-btn.recording { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 45%, transparent); animation: mic-test-pulse 1.2s ease-in-out infinite; }
+	.mic-test-btn:disabled { opacity: 0.6; cursor: default; }
+	.mic-test-state { font-size: var(--font-size-xs); color: var(--text-secondary); }
+	@keyframes mic-test-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+	.mic-test-row .mic-level { flex: 1 1 140px; min-width: 140px; }
+	.mic-test-row audio { flex: 1 1 200px; min-width: 200px; }
 	@media (pointer: coarse) {
 		.audio-settings select, .audio-settings .action-btn { min-height: 44px; }
 		.audio-settings .toggle-btn { border-block-width: 8px !important; }

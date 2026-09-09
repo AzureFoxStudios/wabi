@@ -24,12 +24,12 @@
 		}
 	}
 
-	.popout-banner {
+	.popout-container .popout-banner {
 		height: 92px;
 		position: relative;
 	}
 
-	.banner-gradient {
+	.popout-container .banner-gradient {
 		position: absolute;
 		bottom: 0;
 		left: 0;
@@ -40,7 +40,7 @@
 			linear-gradient(transparent, var(--surface-base));
 	}
 
-	.avatar-section {
+	.popout-container .avatar-section {
 		display: flex;
 		justify-content: flex-start;
 		padding: 0 18px;
@@ -49,7 +49,7 @@
 		z-index: 1;
 	}
 
-	.avatar-ring {
+	.popout-container .avatar-ring {
 		position: relative;
 		width: 80px;
 		height: 80px;
@@ -59,15 +59,15 @@
 		box-shadow: 0 14px 34px var(--shadow-md, rgba(0, 0, 0, 0.32));
 	}
 
-	.popout-avatar,
-	.popout-avatar-placeholder {
+	.popout-container .popout-avatar,
+	.popout-container .popout-avatar-placeholder {
 		width: 100%;
 		height: 100%;
 		border-radius: 21px;
 		object-fit: cover;
 	}
 
-	.popout-avatar-overlay {
+	.popout-container .popout-avatar-overlay {
 		position: absolute;
 		inset: 6px;
 		border-radius: 21px;
@@ -76,7 +76,22 @@
 		pointer-events: none;
 	}
 
-	.popout-avatar-placeholder {
+	/* Presence dot — bottom-right of the avatar ring, Discord-style. */
+	.popout-container .popout-presence-dot {
+		position: absolute;
+		right: -2px;
+		bottom: -2px;
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: var(--status-color, var(--status-offline));
+		border: 4px solid var(--surface-base);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+		z-index: 2;
+		pointer-events: none;
+	}
+
+	.popout-container .popout-avatar-placeholder {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -85,13 +100,13 @@
 		color: white;
 	}
 
-	.popout-body {
+	.popout-container .popout-body {
 		padding: 12px 18px 18px;
 		max-height: calc(min(680px, 100dvh - 16px) - 92px);
 		overflow-y: auto;
 	}
 
-	.username-section {
+	.popout-container .username-section {
 		display: flex;
 		align-items: baseline;
 		flex-wrap: wrap;
@@ -99,7 +114,7 @@
 		margin-bottom: 4px;
 	}
 
-	.display-name {
+	.popout-container .display-name {
 		margin: 0;
 		font-size: 1.35rem;
 		font-weight: 800;
@@ -107,24 +122,24 @@
 		color: var(--text-heading);
 	}
 
-	.username-tag {
+	.popout-container .username-tag {
 		font-size: 0.875rem;
 		color: var(--text-secondary);
 	}
 
-	.local-identity-note {
+	.popout-container .local-identity-note {
 		font-size: 0.72rem;
 		color: var(--text-secondary);
 	}
 
-	.popout-role-tags {
+	.popout-container .popout-role-tags {
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
 		margin: 0 0 0.55rem;
 	}
 
-	.popout-role-badge {
+	.popout-container .popout-role-badge {
 		display: inline-flex;
 		align-items: center;
 		padding: 0.14rem 0.46rem;
@@ -137,31 +152,31 @@
 		border: 1px solid transparent;
 	}
 
-	.popout-role-badge.tone-owner {
+	.popout-container .popout-role-badge.tone-owner {
 		background: color-mix(in srgb, var(--color-warning, #f0b429) 22%, var(--surface-base));
 		border-color: color-mix(in srgb, var(--color-warning, #f0b429) 58%, transparent);
 		color: var(--color-warning, #f7d98c);
 	}
 
-	.popout-role-badge.tone-admin {
+	.popout-container .popout-role-badge.tone-admin {
 		background: color-mix(in srgb, var(--color-info, #4f9cff) 20%, var(--surface-base));
 		border-color: color-mix(in srgb, var(--color-info, #4f9cff) 52%, transparent);
 		color: var(--text-info, #cde0ff);
 	}
 
-	.popout-role-badge.tone-mod {
+	.popout-container .popout-role-badge.tone-mod {
 		background: color-mix(in srgb, var(--color-success, #18a999) 19%, var(--surface-base));
 		border-color: color-mix(in srgb, var(--color-success, #18a999) 48%, transparent);
 		color: var(--text-success, #b6f0e9);
 	}
 
-	.popout-role-badge.tone-default {
+	.popout-container .popout-role-badge.tone-default {
 		background: rgba(var(--accent-rgb), 0.14);
 		border-color: rgba(var(--accent-rgb), 0.42);
 		color: var(--text-secondary);
 	}
 
-	.popout-staff-tag {
+	.popout-container .popout-staff-tag {
 		display: inline-flex;
 		align-items: center;
 		padding: 0.14rem 0.42rem;
@@ -176,14 +191,14 @@
 		color: var(--text-danger, #ffc6c6);
 	}
 
-	.profile-detail-grid {
+	.popout-container .profile-detail-grid {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 0.5rem;
 		margin: 0 0 0.75rem;
 	}
 
-	.profile-detail-grid > div {
+	.popout-container .profile-detail-grid > div {
 		display: grid;
 		gap: 0.12rem;
 		padding: 0.58rem 0.62rem;
@@ -193,7 +208,7 @@
 		min-width: 0;
 	}
 
-	.profile-detail-grid span {
+	.popout-container .profile-detail-grid span {
 		color: var(--text-muted);
 		font-size: 0.64rem;
 		font-weight: 800;
@@ -201,7 +216,7 @@
 		text-transform: uppercase;
 	}
 
-	.profile-detail-grid strong {
+	.popout-container .profile-detail-grid strong {
 		color: var(--text-heading);
 		font-size: 0.82rem;
 		overflow: hidden;
@@ -209,25 +224,25 @@
 		white-space: nowrap;
 	}
 
-	.status-section {
+	.popout-container .status-section {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		margin-bottom: 12px;
 	}
 
-	.status-indicator {
+	.popout-container .status-indicator {
 		width: 8px;
 		height: 8px;
 		border-radius: 50%;
 	}
 
-	.status-label {
+	.popout-container .status-label {
 		font-size: 0.8125rem;
 		color: var(--text-secondary);
 	}
 
-	.status-label-tooltip {
+	.popout-container .status-label-tooltip {
 		width: 5px;
 		height: 5px;
 		padding: 0;
@@ -235,25 +250,25 @@
 		background: var(--status-color, var(--text-muted));
 	}
 
-	.username-handle,
-	.member-since-ghost {
+	.popout-container .username-handle,
+	.popout-container .member-since-ghost {
 		color: color-mix(in srgb, var(--text-secondary) 58%, transparent);
 		font-size: 0.72rem;
 	}
 
-	.member-since-ghost {
+	.popout-container .member-since-ghost {
 		display: block;
 		margin: 0.2rem 0 0.7rem;
 		font-style: italic;
 	}
 
-	.divider {
+	.popout-container .divider {
 		height: 1px;
 		background: color-mix(in srgb, var(--border-subtle) 82%, transparent);
 		margin: 12px 0;
 	}
 
-	.section {
+	.popout-container .section {
 		margin-bottom: 12px;
 		padding: 0.65rem;
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
@@ -261,7 +276,7 @@
 		background: color-mix(in srgb, var(--surface-raised) 52%, transparent);
 	}
 
-	.section-title {
+	.popout-container .section-title {
 		margin: 0 0 4px 0;
 		font-size: 0.75rem;
 		font-weight: 700;
@@ -270,19 +285,19 @@
 		letter-spacing: 0.02em;
 	}
 
-	.section-content {
+	.popout-container .section-content {
 		margin: 0;
 		font-size: 0.875rem;
 		color: var(--text-heading);
 		line-height: 1.4;
 	}
 
-	.note-content {
+	.popout-container .note-content {
 		font-style: italic;
 		color: var(--text-secondary);
 	}
 
-	.note-input {
+	.popout-container .note-input {
 		width: 100%;
 		min-height: 64px;
 		padding: 0.45rem 0.55rem;
@@ -296,21 +311,21 @@
 		box-sizing: border-box;
 	}
 
-	.note-input:focus {
+	.popout-container .note-input:focus {
 		outline: 1.5px solid var(--accent-primary-color);
 		outline-offset: 1px;
 		border-color: var(--border-subtle);
 		box-shadow: none;
 	}
 
-	.note-actions {
+	.popout-container .note-actions {
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
 		margin-top: 0.4rem;
 	}
 
-	.note-btn {
+	.popout-container .note-btn {
 		border: 1px solid var(--border-subtle);
 		background: var(--surface-raised);
 		color: var(--text-secondary);
@@ -320,36 +335,36 @@
 		cursor: pointer;
 	}
 
-	.note-btn.primary {
+	.popout-container .note-btn.primary {
 		color: var(--text-heading);
 		background: rgba(var(--accent-rgb), 0.2);
 		border-color: rgba(var(--accent-rgb), 0.5);
 	}
 
-	.note-btn:disabled {
+	.popout-container .note-btn:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
 
-	.note-count {
+	.popout-container .note-count {
 		margin-left: auto;
 		font-size: 0.7rem;
 		color: var(--text-secondary);
 	}
 
-	.note-status {
+	.popout-container .note-status {
 		margin: 0.32rem 0 0;
 		font-size: 0.72rem;
 		color: var(--text-secondary);
 	}
 
-	.connections-list {
+	.popout-container .connections-list {
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
 	}
 
-	.connection-row {
+	.popout-container .connection-row {
 		display: flex;
 		align-items: baseline;
 		flex-wrap: wrap;
@@ -357,7 +372,7 @@
 		min-width: 0;
 	}
 
-	.connection-label {
+	.popout-container .connection-label {
 		font-size: 0.72rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
@@ -366,8 +381,8 @@
 		flex-shrink: 0;
 	}
 
-	.connection-value,
-	.connection-link {
+	.popout-container .connection-value,
+	.popout-container .connection-link {
 		font-size: 0.82rem;
 		color: var(--text-heading);
 		overflow: hidden;
@@ -376,17 +391,17 @@
 		min-width: 0;
 	}
 
-	.connection-link:hover {
+	.popout-container .connection-link:hover {
 		color: var(--accent-primary-color);
 	}
 
-	.actions {
+	.popout-container .actions {
 		display: flex;
 		gap: 8px;
 		margin-bottom: 8px;
 	}
 
-	.action-btn {
+	.popout-container .action-btn {
 		flex: 1;
 		display: flex;
 		align-items: center;
@@ -401,31 +416,31 @@
 		transition: all 0.15s ease;
 	}
 
-	.action-btn.primary {
+	.popout-container .action-btn.primary {
 		background: var(--accent-primary-color);
 		color: white;
 	}
 
-	.action-btn.primary:hover {
+	.popout-container .action-btn.primary:hover {
 		background: var(--accent-hover);
 	}
 
-	.action-btn.secondary {
+	.popout-container .action-btn.secondary {
 		background: var(--surface-raised);
 		color: var(--text-heading);
 	}
 
-	.action-btn.secondary:hover {
+	.popout-container .action-btn.secondary:hover {
 		background: var(--surface-hover);
 	}
 
-	.context-actions {
+	.popout-container .context-actions {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
 	}
 
-	.context-btn {
+	.popout-container .context-btn {
 		display: block;
 		width: 100%;
 		padding: 8px 12px;
@@ -439,28 +454,28 @@
 		transition: all 0.15s ease;
 	}
 
-	.context-btn:hover {
+	.popout-container .context-btn:hover {
 		background: var(--surface-raised);
 		color: var(--text-heading);
 	}
 
-	.context-btn.danger {
+	.popout-container .context-btn.danger {
 		color: color-mix(in srgb, var(--color-danger, var(--color-danger, #ef4444)) 76%, var(--text-secondary));
 	}
 
-	.context-btn.danger:hover {
+	.popout-container .context-btn.danger:hover {
 		background: color-mix(in srgb, var(--color-danger, var(--color-danger, #ef4444)) 16%, var(--surface-raised));
 		color: var(--accent-danger-soft, var(--accent-danger-soft, var(--accent-danger-soft, #fca5a5)));
 	}
 
-	.call-actions {
+	.popout-container .call-actions {
 		display: flex;
 		gap: 6px;
 		margin-bottom: 8px;
 		flex-wrap: wrap;
 	}
 
-	.call-btn {
+	.popout-container .call-btn {
 		flex: 1;
 		display: flex;
 		align-items: center;
@@ -477,19 +492,19 @@
 		color: var(--text-secondary);
 	}
 
-	.call-btn:hover {
+	.popout-container .call-btn:hover {
 		color: white;
 	}
 
-	.call-btn.voice-call:hover {
+	.popout-container .call-btn.voice-call:hover {
 		background: var(--color-success, #43b581);
 	}
 
-	.call-btn.video-call:hover {
+	.popout-container .call-btn.video-call:hover {
 		background: var(--accent-primary-color);
 	}
 
-	.call-btn.screen-share:hover {
+	.popout-container .call-btn.screen-share:hover {
 		background: var(--color-warning, #faa61a);
 	}
 
@@ -501,18 +516,18 @@
 			max-height: calc(100dvh - 16px);
 		}
 
-		.actions,
-		.call-actions {
+		.popout-container .actions,
+		.popout-container .call-actions {
 			flex-direction: column;
 		}
 	}
 
-	.popout-banner { background: var(--banner-color, var(--pfp-banner, var(--accent-primary-color))); }
-	.popout-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
-	.status-indicator { background-color: var(--status-color); }
+	.popout-container .popout-banner { background: var(--banner-color, var(--pfp-banner, var(--accent-primary-color))); }
+	.popout-container .popout-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
+	.popout-container .status-indicator { background-color: var(--status-color); }
 
 /* PR1: uploaded banner image */
-.popout-banner-img {
+.popout-container .popout-banner-img {
 	position: absolute;
 	inset: 0;
 	width: 100%;
@@ -522,7 +537,7 @@
 }
 
 /* PR2: overlay preview square in settings */
-.avatar-overlay-preview {
+.popout-container .avatar-overlay-preview {
 	width: 120px;
 	height: 120px;
 	border-radius: 50%;
@@ -532,7 +547,7 @@
 }
 
 /* PR2: overlay layer on avatar (messages, popouts, member list) */
-.avatar-overlay-layer {
+.popout-container .avatar-overlay-layer {
 	position: absolute;
 	inset: 0;
 	background-size: cover;
@@ -542,13 +557,13 @@
 }
 
 /* Own-profile voice controls + share (C: popout UX) */
-.voice-actions {
+.popout-container .voice-actions {
 	display: flex;
 	gap: 8px;
 	margin-bottom: 8px;
 }
 
-.voice-btn {
+.popout-container .voice-btn {
 	flex: 1;
 	display: flex;
 	align-items: center;
@@ -562,22 +577,22 @@
 	transition: all 0.15s ease;
 }
 
-.voice-btn:hover:not(:disabled) {
+.popout-container .voice-btn:hover:not(:disabled) {
 	color: var(--text-heading);
 	background: var(--surface-hover);
 }
 
-.voice-btn.active {
+.popout-container .voice-btn.active {
 	background: color-mix(in srgb, var(--accent-primary-color) 20%, var(--surface-raised));
 	color: var(--accent-primary-color);
 }
 
-.voice-btn:disabled {
+.popout-container .voice-btn:disabled {
 	opacity: 0.45;
 	cursor: not-allowed;
 }
 
-.share-btn {
+.popout-container .share-btn {
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -595,6 +610,7 @@
 	transition: all 0.15s ease;
 }
 
-.share-btn:hover {
+.popout-container .share-btn:hover {
 	background: var(--surface-hover);
 }
+

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { _ as t } from '$lib/i18n';
+	import { isTauriRuntime } from '$lib/tauri-platform';
 	import {
 		getDefaultCustomSynthRingtonePreset,
 		playCallRingtone,
@@ -23,6 +24,8 @@
 	} from '$lib/pwa/pushClient';
 
 	let notificationsEnabled = true;
+	// True when the app is running as an installed PWA (standalone display mode).
+	let isPwaStandalone = false;
 	let suppressEveryoneHereMentions = false;
 	let suppressRoleMentions = false;
 	let notificationPreviewEnabled = false;
@@ -45,6 +48,9 @@
 
 	onMount(() => {
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
+		isPwaStandalone =
+			window.matchMedia?.('(display-mode: standalone)')?.matches === true ||
+			(navigator as unknown as { standalone?: boolean }).standalone === true;
 		suppressEveryoneHereMentions = localStorage.getItem('suppressEveryoneHereMentions') === 'true';
 		suppressRoleMentions = localStorage.getItem('suppressRoleMentions') === 'true';
 		notificationPreviewEnabled = localStorage.getItem('notificationPreviewEnabled') === 'true';
@@ -465,6 +471,7 @@
 		</button>
 	</div>
 
+	{#if !isTauriRuntime() && isPwaStandalone}
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Background push (PWA)</span>
@@ -488,6 +495,17 @@
 			</button>
 		</div>
 	</div>
+	{:else if isTauriRuntime()}
+	<div class="setting-item">
+		<div class="setting-info">
+			<span class="setting-label">System notifications</span>
+			<span class="setting-description">Native alerts from the desktop app.</span>
+		</div>
+		<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
+			{notificationsEnabled ? 'Enabled' : 'Enable'}
+		</button>
+	</div>
+	{/if}
 
 	<div class="setting-item">
 		<div class="setting-info">
