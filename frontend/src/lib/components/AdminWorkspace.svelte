@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { channels, currentUser, assignRole, badgeCatalog, type User, connected } from '$lib/socket';
+	import { channels, currentUser, badgeCatalog, type User, connected } from '$lib/socket';
+	import { assignRole } from '$lib/presenceStore';
 	import { socket as socketState } from '$lib/socketConnectionState';
 	import { createAdminBadgeMutation, type AdminBadgeMutationState } from '$lib/adminBadgeMutation';
 	import { createAdminRoleCatalog, type AdminRoleDefinition } from '$lib/adminRoleCatalog';
@@ -785,6 +786,18 @@
 		/>
 	</div>
 {:else if section === 'users'}
+	<AdminHeader
+		currentUserHighestRole={$currentUser?.highestRole}
+		{canManageRoles}
+		{canModerate}
+		usersLength={rosterUsers.length}
+		{ownerCount}
+		{adminCount}
+		{modCount}
+		{guestCount}
+		serverName={$currentSavedServer?.effectiveName || ''}
+		serverTagline={$currentSavedServer?.effectiveTagline || ''}
+	/>
 	{#if roleActionError}<p role="alert">{roleActionError}</p>{/if}
 	{#if roleActionStatus}<p role="status">{roleActionStatus}</p>{/if}
 	{#if messageActionError}<p role="alert">{messageActionError}</p>{/if}
