@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { effectsRegistry } from './registry';
+	import MouseFeelerSettings from './MouseFeelerSettings.svelte';
 	import { themeStore } from '$lib/theme/themeStore';
 	import { THEMES } from '$lib/theme/themes';
 	import { getAuthToken } from '$lib/authSession';
@@ -332,6 +333,8 @@
 		</button>
 	</div>
 </div>
+
+<MouseFeelerSettings />
 
 <style>
 	.color-picker {
