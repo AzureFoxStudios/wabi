@@ -4,6 +4,7 @@
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import GroupAvatar from './GroupAvatar.svelte';
 	import type { Channel, User } from '$lib/socket';
+	import { overlayStyle } from '$lib/overlayStyle';
 
 	let { channel }: { channel: Channel } = $props();
 	let showAddMember = $state(false);
@@ -135,7 +136,7 @@
 							</div>
 						{/if}
 						{#if member.overlayUrl && !disableAllBanners}
-							<span class="avatar-overlay-badge" style="background-image: url({member.overlayUrl})" aria-hidden="true"></span>
+							<span class="avatar-overlay-badge" style={overlayStyle(member)} aria-hidden="true"></span>
 						{/if}
 					</div>
 					<div class="member-info">

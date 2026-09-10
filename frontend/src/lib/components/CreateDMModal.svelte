@@ -6,6 +6,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId } from '$lib/dmConversations';
+	import { overlayStyle } from '$lib/overlayStyle';
 
 	export let isOpen = false;
 
@@ -162,7 +163,7 @@
 								</div>
 							{/if}
 							{#if user.overlayUrl && !disableAllBanners}
-								<span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
+								<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
 							{/if}
 							<div class="status-indicator" style="background-color: {getStatusColor(user.status)}"></div>
 						</div>

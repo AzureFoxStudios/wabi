@@ -272,6 +272,32 @@ fn media_banner_overlay(
     (banner_url, overlay_url)
 }
 
+/// Extract per-user overlay alignment (`overlay_scale`, `overlay_offset_x/y`)
+/// from a profile_media map. Defaults 1/0/0 keep old overlays rendering
+/// exactly as before.
+fn media_overlay_alignment(media: &serde_json::Map<String, Value>) -> (f64, f64, f64) {
+    let num = |key: &str, default: f64| -> f64 {
+        media.get(key).and_then(|v| v.as_f64()).unwrap_or(default)
+    };
+    let scale = num("overlay_scale", 1.0).clamp(0.5, 3.0);
+    let ox = num("overlay_offset_x", 0.0).clamp(-200.0, 200.0);
+    let oy = num("overlay_offset_y", 0.0).clamp(-200.0, 200.0);
+    (scale, ox, oy)
+}
+
+/// Sanitize an optional numeric alignment field from the update-profile
+/// payload: accepts numbers (or numeric strings), clamps to [min, max].
+fn sanitize_overlay_num(v: &Value, min: f64, max: f64) -> Option<f64> {
+    let n = v.as_f64().or_else(|| {
+        v.as_str()
+            .and_then(|s| s.trim().parse::<f64>().ok())
+    })?;
+    if !n.is_finite() {
+        return None;
+    }
+    Some(n.clamp(min, max))
+}
+
 /// Build a full `UserView` (with profile fields) for broadcast.
 ///
 /// The profile fields are passed in (not re-read from the store) because
@@ -310,6 +336,7 @@ async fn build_user_view(
         None => profile_media_for(state, db_user_id).await.unwrap_or_default(),
     };
     let (banner_url, overlay_url) = media_banner_overlay(&media);
+    let (overlay_scale, overlay_ox, overlay_oy) = media_overlay_alignment(&media);
     let badges = badges_json_for(state, db_user_id).await;
 
     json!({
@@ -321,6 +348,9 @@ async fn build_user_view(
         "profilePicture": profile_picture,
         "bannerUrl": banner_url,
         "overlayUrl": overlay_url,
+        "overlayScale": overlay_scale,
+        "overlayOffsetX": overlay_ox,
+        "overlayOffsetY": overlay_oy,
         "bio": bio,
         "statusMessage": status_message,
         "dbUserId": if db_user_id > 0 { Some(db_user_id) } else { None },
@@ -462,7 +492,12 @@ async fn on_update_profile(
     // the profile fields below): the merged map is passed straight into the
     // broadcast view instead of re-reading the store after the write.
     let mut media_patch: Option<serde_json::Map<String, Value>> = None;
-    if data.get("bannerUrl").is_some() || data.get("overlayUrl").is_some() {
+    if data.get("bannerUrl").is_some()
+        || data.get("overlayUrl").is_some()
+        || data.get("overlayScale").is_some()
+        || data.get("overlayOffsetX").is_some()
+        || data.get("overlayOffsetY").is_some()
+    {
         let mut media = profile_media_for(&state, db_user_id).await.unwrap_or_default();
         if let Some(v) = data.get("bannerUrl") {
             let value = match v.as_str() {
@@ -495,6 +530,30 @@ async fn on_update_profile(
                 _ => Value::Null,
             };
             media.insert("overlay_url".into(), value);
+        }
+        if let Some(v) = data.get("overlayScale") {
+            if let Some(n) = sanitize_overlay_num(v, 0.5, 3.0) {
+                media.insert(
+                    "overlay_scale".into(),
+                    Value::from(serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(1))),
+                );
+            }
+        }
+        if let Some(v) = data.get("overlayOffsetX") {
+            if let Some(n) = sanitize_overlay_num(v, -200.0, 200.0) {
+                media.insert(
+                    "overlay_offset_x".into(),
+                    Value::from(serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(0))),
+                );
+            }
+        }
+        if let Some(v) = data.get("overlayOffsetY") {
+            if let Some(n) = sanitize_overlay_num(v, -200.0, 200.0) {
+                media.insert(
+                    "overlay_offset_y".into(),
+                    Value::from(serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(0))),
+                );
+            }
         }
         media_patch = Some(media);
     }

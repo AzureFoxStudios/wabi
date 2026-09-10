@@ -3,6 +3,7 @@
 	import { users, serverMembers, currentUser, createGroup } from '$lib/socket';
 	import type { User } from '$lib/socket';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
+	import { overlayStyle } from '$lib/overlayStyle';
 
 	let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
 
@@ -148,7 +149,7 @@
 								</div>
 							{/if}
 							{#if user.overlayUrl && !disableAllBanners}
-								<span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
+								<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
 							{/if}
 							<div class="status-indicator" style="background-color: {getStatusColor(user.status)}"></div>
 						</div>

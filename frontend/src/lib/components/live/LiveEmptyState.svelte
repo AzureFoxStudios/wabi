@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { currentUser, users } from '$lib/socket';
   import type { Channel } from '$lib/socket';
+  import { overlayStyle } from '$lib/overlayStyle';
 
   export let channel: Channel;
   export let liveCount: number = 0;
@@ -58,7 +59,7 @@
               </div>
             {/if}
             {#if user.overlayUrl && !disableAllBanners}
-              <span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
+              <span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
             {/if}
           </div>
         {/each}

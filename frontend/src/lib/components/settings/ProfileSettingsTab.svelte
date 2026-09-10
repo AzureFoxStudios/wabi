@@ -23,6 +23,7 @@
 	} from '$lib/localWabiProfileImport';
 	import UsernameFontCustomizer from '../UsernameFontCustomizer.svelte';
 	import RoleBadge from '../RoleBadge.svelte';
+	import { overlayStyle } from '$lib/overlayStyle';
 
 	const dispatch = createEventDispatcher<{
 		openAvatarEditor: void;
@@ -139,6 +140,99 @@
 	let overlayUploading = $state(false);
 	let overlayStatus = $state('');
 	let disableAllBannersLocal = $state(false);
+
+	// ── Overlay alignment editor (per-user scale + X/Y offset) ──
+	let overlayAlignMode = $state(false);
+	let overlayDraftScale = $state(1);
+	let overlayDraftX = $state(0);
+	let overlayDraftY = $state(0);
+	let overlayAlignSaving = $state(false);
+	let overlayDrag: { pointerId: number; startX: number; startY: number; baseX: number; baseY: number } | null = null;
+
+	function clampOverlayDrafts() {
+		overlayDraftScale = Math.min(3, Math.max(0.5, Number.isFinite(overlayDraftScale) ? overlayDraftScale : 1));
+		overlayDraftX = Math.min(200, Math.max(-200, Number.isFinite(overlayDraftX) ? overlayDraftX : 0));
+		overlayDraftY = Math.min(200, Math.max(-200, Number.isFinite(overlayDraftY) ? overlayDraftY : 0));
+	}
+
+	function enterOverlayAlign() {
+		const u = $currentUser;
+		overlayDraftScale = typeof u?.overlayScale === 'number' && Number.isFinite(u.overlayScale) ? u.overlayScale : 1;
+		overlayDraftX = typeof u?.overlayOffsetX === 'number' && Number.isFinite(u.overlayOffsetX) ? u.overlayOffsetX : 0;
+		overlayDraftY = typeof u?.overlayOffsetY === 'number' && Number.isFinite(u.overlayOffsetY) ? u.overlayOffsetY : 0;
+		clampOverlayDrafts();
+		overlayAlignMode = true;
+	}
+
+	function cancelOverlayAlign() {
+		overlayAlignMode = false;
+		overlayDrag = null;
+	}
+
+	function resetOverlayAlign() {
+		overlayDraftScale = 1;
+		overlayDraftX = 0;
+		overlayDraftY = 0;
+	}
+
+	function nudgeOverlayScale(delta: number) {
+		overlayDraftScale = Math.round(Math.min(3, Math.max(0.5, overlayDraftScale + delta)) * 100) / 100;
+	}
+
+	function saveOverlayAlign() {
+		clampOverlayDrafts();
+		overlayAlignSaving = true;
+		try {
+			if ($currentUser) {
+				$currentUser = {
+					...$currentUser,
+					overlayScale: overlayDraftScale,
+					overlayOffsetX: overlayDraftX,
+					overlayOffsetY: overlayDraftY
+				};
+			}
+			updateProfile({
+				overlayScale: overlayDraftScale,
+				overlayOffsetX: overlayDraftX,
+				overlayOffsetY: overlayDraftY
+			});
+			overlayStatus = 'Overlay alignment saved.';
+		} finally {
+			overlayAlignSaving = false;
+			overlayAlignMode = false;
+		}
+	}
+
+	function onOverlayPointerDown(e: PointerEvent) {
+		if (!overlayAlignMode) return;
+		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+		overlayDrag = {
+			pointerId: e.pointerId,
+			startX: e.clientX,
+			startY: e.clientY,
+			baseX: overlayDraftX,
+			baseY: overlayDraftY
+		};
+	}
+
+	function onOverlayPointerMove(e: PointerEvent) {
+		if (!overlayDrag || e.pointerId !== overlayDrag.pointerId) return;
+		overlayDraftX = Math.min(200, Math.max(-200, overlayDrag.baseX + (e.clientX - overlayDrag.startX)));
+		overlayDraftY = Math.min(200, Math.max(-200, overlayDrag.baseY + (e.clientY - overlayDrag.startY)));
+	}
+
+	function onOverlayPointerUp(e: PointerEvent) {
+		if (!overlayDrag || e.pointerId !== overlayDrag.pointerId) return;
+		overlayDraftX = Math.round(overlayDraftX);
+		overlayDraftY = Math.round(overlayDraftY);
+		overlayDrag = null;
+	}
+
+	function onOverlayWheel(e: WheelEvent) {
+		if (!overlayAlignMode) return;
+		e.preventDefault();
+		nudgeOverlayScale(e.deltaY < 0 ? 0.05 : -0.05);
+	}
 
 	const VISIBILITY_KEY = 'wabi:profile:visibility';
 
@@ -385,9 +479,16 @@
 <button
 					type="button"
 					class="profile-preview-avatar"
-					on:click={() => dispatch('openAvatarEditor')}
-					title="Change avatar"
-					aria-label="Change avatar"
+					class:aligning={overlayAlignMode}
+					on:click={() => { if (!overlayAlignMode) dispatch('openAvatarEditor'); }}
+					on:pointerdown={onOverlayPointerDown}
+					on:pointermove={onOverlayPointerMove}
+					on:pointerup={onOverlayPointerUp}
+					on:pointercancel={onOverlayPointerUp}
+					on:wheel={onOverlayWheel}
+					title={overlayAlignMode ? 'Drag to move the overlay · scroll to scale' : 'Change avatar'}
+					aria-label={overlayAlignMode ? 'Overlay alignment preview. Drag to move.' : 'Change avatar'}
+					style={overlayAlignMode ? 'touch-action: none; cursor: move;' : undefined}
 				>
 					{#if $currentUser?.profilePicture}
 						<img src={$currentUser.profilePicture} alt="" />
@@ -397,7 +498,12 @@
 						</span>
 					{/if}
 					{#if $currentUser?.overlayUrl && !disableAllBannersLocal}
-						<span class="profile-preview-overlay" style="background-image: url({$currentUser.overlayUrl})"></span>
+						<span
+							class="profile-preview-overlay"
+							style={overlayAlignMode
+								? `background-image: url({$currentUser.overlayUrl}); --overlay-scale: ${overlayDraftScale}; --overlay-offset-x: ${overlayDraftX}px; --overlay-offset-y: ${overlayDraftY}px;`
+								: overlayStyle($currentUser)}
+						></span>
 					{/if}
 					<span
 						class="profile-preview-status"
@@ -418,6 +524,28 @@
 					aria-label="Upload avatar overlay"
 				></button>
 			</div>
+			{#if $currentUser?.overlayUrl && !overlayAlignMode}
+				<button type="button" class="action-btn secondary small" on:click={enterOverlayAlign}>
+					Adjust overlay
+				</button>
+			{/if}
+			{#if overlayAlignMode}
+				<div class="overlay-align-editor" role="group" aria-label="Overlay alignment">
+					<p class="runtime-note">Drag the preview to move · scroll or use −/+ to scale.</p>
+					<div class="overlay-align-row">
+						<button type="button" class="action-btn secondary small" on:click={() => nudgeOverlayScale(-0.05)} aria-label="Decrease overlay scale">−</button>
+						<span class="runtime-note" aria-live="polite">Scale {overlayDraftScale.toFixed(2)}×</span>
+						<button type="button" class="action-btn secondary small" on:click={() => nudgeOverlayScale(0.05)} aria-label="Increase overlay scale">+</button>
+					</div>
+					<div class="overlay-align-row">
+						<button type="button" class="action-btn secondary small" on:click={resetOverlayAlign}>Reset</button>
+						<button type="button" class="action-btn secondary small" on:click={cancelOverlayAlign}>Cancel</button>
+						<button type="button" class="action-btn small" on:click={saveOverlayAlign} disabled={overlayAlignSaving}>
+							{overlayAlignSaving ? 'Saving…' : 'Save alignment'}
+						</button>
+					</div>
+				</div>
+			{/if}
 			<div class="profile-preview-body">
 				<strong class="profile-preview-name">{previewName}</strong>
 				<span class="profile-preview-handle">{previewHandle}</span>
@@ -449,6 +577,15 @@
 					>
 						{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
 					</span>
+				{/if}
+				{#if $currentUser?.overlayUrl && !disableAllBannersLocal}
+					<span
+						class="profile-preview-overlay"
+						style={overlayAlignMode && $currentUser?.overlayUrl
+							? `background-image: url({$currentUser.overlayUrl}); --overlay-scale: ${overlayDraftScale}; --overlay-offset-x: ${overlayDraftX}px; --overlay-offset-y: ${overlayDraftY}px;`
+							: overlayStyle($currentUser)}
+						aria-hidden="true"
+					></span>
 				{/if}
 				<span
 					class="profile-mock-status"

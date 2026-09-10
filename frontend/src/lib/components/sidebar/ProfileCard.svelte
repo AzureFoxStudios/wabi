@@ -5,6 +5,7 @@
 	import { clearActiveCustomStatusPreset, customStatusPresetsStore, getActiveCustomStatusPreset } from '$lib/customStatusPresets';
 	import { selectPresence, getStoredPresence, maskedStatus, type PresenceState } from '$lib/presenceControl';
 	import { FALLBACK_ROLE_LABELS } from './channelSidebarHelpers';
+	import { overlayStyle } from '$lib/overlayStyle';
 
 	export let sidebarWidth: number;
 
@@ -112,7 +113,7 @@
 					</div>
 				{/if}
 				{#if $currentUser.overlayUrl && !disableAllBanners}
-					<span class="avatar-overlay-badge" style="background-image: url({$currentUser.overlayUrl})" aria-hidden="true"></span>
+					<span class="avatar-overlay-badge" style={overlayStyle($currentUser)} aria-hidden="true"></span>
 				{/if}
 				<span
 					class="status-indicator presence-toggle"
