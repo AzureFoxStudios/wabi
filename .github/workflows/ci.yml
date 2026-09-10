@@ -26,10 +26,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # --- Fast compile smoke (catches stupid Rust errors before test time) ---
-      - name: Cargo check
-        run: cargo check --workspace
-
       # --- Frontend: install from committed lockfile, then test + type-check ---
       - name: Install frontend deps
         working-directory: frontend
@@ -47,6 +43,18 @@ jobs:
       - name: Frontend svelte-check
         working-directory: frontend
         run: bun run check -- --threshold 1
+
+      # wabi-server uses rust_embed for frontend/build, so the static SPA must
+      # exist before cargo check/test compile the server crate.
+      - name: Build frontend assets for Rust embedding
+        working-directory: frontend
+        run: |
+          STATIC_BUILD=1 npm run build
+          test -f build/index.html
+
+      # --- Compile smoke after generating the assets required by wabi-server ---
+      - name: Cargo check
+        run: cargo check --workspace
 
       # --- Full Rust test suite (wabidb crash/power-loss/property tests run in
       #     tempfile temp dirs — never touch real data/) ---
