@@ -7,6 +7,7 @@
 		type FeelerPattern
 	} from './mouseFeelerConfig';
 	import {
+		downloadPointerShaderTemplate,
 		importLocalImageEffect,
 		importLocalShaderEffect,
 		listLocalVisualEffects,
@@ -234,6 +235,7 @@
 		<div class="local-effects-actions">
 			<button type="button" class="action-btn" disabled={importBusy} on:click={() => imageInput?.click()}>Import image</button>
 			<button type="button" class="action-btn" disabled={importBusy} on:click={() => shaderInput?.click()}>Import shader</button>
+			<button type="button" class="action-btn" on:click={downloadPointerShaderTemplate}>Shader template</button>
 		</div>
 		<input
 			bind:this={imageInput}
