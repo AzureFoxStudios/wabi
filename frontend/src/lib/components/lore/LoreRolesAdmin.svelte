@@ -1,563 +1,143 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy, untrack } from 'svelte';
 	import { currentUser } from '$lib/socket';
-	import { getAuthToken } from '$lib/authSession';
-	import {
-		ALL_LORE_CAPABILITIES,
-		BUILT_IN_LORE_ROLES,
-		CAPABILITY_DESCRIPTIONS,
-		CAPABILITY_LABELS,
-		deleteLoreRole,
-		fetchLoreRoles,
-		setLoreDefaultPolicy,
-		upsertLoreRole,
-		type LoreDefaultPolicy,
-		type LoreRoleDef
-	} from '$lib/api/lore';
+	import { getApiBase } from '$lib/api/utils';
+	import { getAuthToken, authSessionGeneration } from '$lib/authSession';
+	import { ALL_LORE_CAPABILITIES, BUILT_IN_LORE_ROLES, CAPABILITY_DESCRIPTIONS, CAPABILITY_LABELS,
+		deleteLoreRole, fetchLoreRoles, setLoreDefaultPolicy, upsertLoreRole,
+		type LoreDefaultPolicy, type LoreRoleDef, type LoreRolesState } from '$lib/api/lore';
+	import { sameRoleDraft } from '$lib/lore/workspacePresentation';
+	import LoreIcon from './LoreIcon.svelte';
 
-	let { onClose = () => {} }: { onClose?: () => void } = $props();
-
-	let isAdmin = $derived(
-		$currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin'
-	);
+	let { onClose = () => {}, onDirtyChange }: { onClose?: () => void; onDirtyChange?: (dirty: boolean) => void } = $props();
+	const server = getApiBase();
+	const generation = authSessionGeneration(server);
+	let alive = true;
+	let isAdmin = $derived(['owner', 'admin'].includes(($currentUser?.highestRole ?? '').toLowerCase()));
 	let loading = $state(true);
+	let busy = $state(false);
 	let roles = $state<LoreRoleDef[]>([]);
-	let defaultPolicy = $state<LoreDefaultPolicy>('view');
-	let status = $state<{ kind: 'ok' | 'error' | 'info'; text: string } | null>(null);
-	/** Role id currently saving/deleting, or 'new' / 'policy'. */
-	let busy = $state<string | null>(null);
-
-	interface RoleDraft {
-		name: string;
-		description: string;
-		capabilities: string[];
+	let policy = $state<LoreDefaultPolicy>('view');
+	let policyDraft = $state<LoreDefaultPolicy>('view');
+	let selected = $state('');
+	let draft = $state({ name: '', description: '', capabilities: ['lore.view'] as string[] });
+	let status = $state('');
+	let error = $state('');
+	let role = $derived(roles.find(item => item.id === selected));
+	let locked = $derived(selected === 'owner' || selected === 'admin');
+	let isNew = $derived(selected === '@new');
+	let dirty = $derived(selected === '@policy' ? policyDraft !== policy : isNew ? !!draft.name || !!draft.description || !sameRoleDraft(draft, { name: '', description: '', capabilities: ['lore.view'] }) : !!role && !sameRoleDraft(draft, role));
+	$effect(() => { const value = dirty || busy; untrack(() => onDirtyChange?.(value)); });
+	onDestroy(() => { alive = false; onDirtyChange?.(false); });
+	function active() { return alive && isAdmin && getApiBase() === server && authSessionGeneration(server) === generation; }
+	function token() {
+		if (!active()) throw new Error('Your session changed. Reopen the role editor.');
+		const value = getAuthToken(server); if (!value) throw new Error('Sign in to manage repository roles.'); return value;
 	}
-	let drafts = $state<Record<string, RoleDraft>>({});
-	let newDraft = $state<RoleDraft>({ name: '', description: '', capabilities: ['lore.view'] });
-
-	function isBuiltIn(id: string): boolean {
-		return BUILT_IN_LORE_ROLES.includes(id);
+	function apply(state: LoreRolesState) { roles = state.roles; policy = state.defaultPolicy; }
+	function choose(id: string, ask = true) {
+		if (busy || (ask && dirty && !window.confirm('Discard unsaved permission changes?'))) return;
+		selected = id; policyDraft = policy;
+		const found = roles.find(item => item.id === id);
+		draft = found ? { name: found.name, description: found.description, capabilities: [...found.capabilities] } : { name: '', description: '', capabilities: ['lore.view'] };
+		error = ''; status = '';
 	}
-	/** Owner + admin always carry every capability; the server enforces it. */
-	function isLockedFull(id: string): boolean {
-		return id === 'owner' || id === 'admin';
-	}
-	function canEditName(id: string): boolean {
-		return id !== 'owner' && id !== 'admin';
-	}
-
-	function draftFor(role: LoreRoleDef): RoleDraft {
-		return {
-			name: role.name,
-			description: role.description,
-			capabilities: [...role.capabilities]
-		};
-	}
-
-	function setStatus(kind: 'ok' | 'error' | 'info', text: string) {
-		status = { kind, text };
-	}
-
-	function requireToken(): string | null {
-		const token = getAuthToken();
-		if (!token) setStatus('error', 'Sign in again to manage repository roles.');
-		return token;
-	}
-
 	async function load() {
-		const token = requireToken();
-		if (!token) {
-			loading = false;
-			return;
-		}
-		loading = true;
-		setStatus('info', 'Loading repository roles…');
-		try {
-			const state = await fetchLoreRoles(token);
-			roles = state.roles;
-			defaultPolicy = state.defaultPolicy;
-			const next: Record<string, RoleDraft> = {};
-			for (const role of state.roles) next[role.id] = draftFor(role);
-			drafts = next;
-			status = null;
-		} catch (e) {
-			setStatus('error', e instanceof Error ? e.message : 'Could not load repository roles.');
-		} finally {
-			loading = false;
-		}
+		if (busy || (dirty && !window.confirm('Discard unsaved changes and reload roles?'))) return;
+		loading = true; error = '';
+		try { const state = await fetchLoreRoles(token()); if (!active()) return; apply(state); choose(roles[0]?.id ?? '@new', false); }
+		catch (e) { if (alive) error = e instanceof Error ? e.message : 'Could not load repository roles.'; }
+		finally { if (alive) loading = false; }
 	}
-
-	onMount(() => {
-		if (isAdmin) void load();
-		else loading = false;
-	});
-
-	function toggleCapability(draft: RoleDraft, capability: string) {
-		if (draft.capabilities.includes(capability)) {
-			draft.capabilities = draft.capabilities.filter((c) => c !== capability);
-		} else {
-			draft.capabilities = ALL_LORE_CAPABILITIES.filter(
-				(c) => c === capability || draft.capabilities.includes(c)
-			);
-		}
+	onMount(() => { if (isAdmin) void load(); else loading = false; });
+	function toggle(capability: string) {
+		if (busy || locked) return;
+		draft.capabilities = draft.capabilities.includes(capability) ? draft.capabilities.filter(item => item !== capability) : [...draft.capabilities, capability];
 	}
-
-	async function saveRole(role: LoreRoleDef) {
-		const token = requireToken();
-		const draft = drafts[role.id];
-		if (!token || !draft || busy) return;
-		const name = draft.name.trim();
-		if (!name) {
-			setStatus('error', 'Give the role a name before saving.');
-			return;
-		}
-		busy = role.id;
+	async function save() {
+		if (busy || !dirty || locked) return;
+		error = ''; status = '';
+		if (selected !== '@policy' && !draft.name.trim()) { error = 'Give this role a name.'; return; }
+		busy = true;
 		try {
-			const state = await upsertLoreRole(token, {
-				id: role.id,
-				name,
-				description: draft.description.trim(),
-				capabilities: isLockedFull(role.id) ? [...ALL_LORE_CAPABILITIES] : draft.capabilities
+			const existing = new Set(roles.map(item => item.id));
+			const state = selected === '@policy' ? await setLoreDefaultPolicy(token(), policyDraft) : await upsertLoreRole(token(), {
+				...(isNew ? {} : { id: selected }), name: draft.name.trim(), description: draft.description.trim(), capabilities: [...draft.capabilities]
 			});
-			roles = state.roles;
-			defaultPolicy = state.defaultPolicy;
-			const saved = state.roles.find((r) => r.id === role.id);
-			if (saved) drafts = { ...drafts, [role.id]: draftFor(saved) };
-			setStatus('ok', `Saved role “${name}”.`);
-		} catch (e) {
-			setStatus('error', e instanceof Error ? e.message : `Could not save role “${role.name}”.`);
-		} finally {
-			busy = null;
-		}
+			if (!active()) return;
+			apply(state);
+			if (isNew) selected = state.roles.find(item => !existing.has(item.id))?.id ?? '@new';
+			const updated = roles.find(item => item.id === selected);
+			if (updated) draft = { name: updated.name, description: updated.description, capabilities: [...updated.capabilities] };
+			policyDraft = policy; status = 'Changes saved on the server.';
+		} catch (e) { if (alive) error = e instanceof Error ? e.message : 'Save failed. Your draft is still here.'; }
+		finally { if (alive) busy = false; }
 	}
-
-	async function createRole() {
-		const token = requireToken();
-		if (!token || busy) return;
-		const name = newDraft.name.trim();
-		if (!name) {
-			setStatus('error', 'Give the new role a name before creating it.');
-			return;
-		}
-		busy = 'new';
+	async function remove() {
+		if (busy || !role || BUILT_IN_LORE_ROLES.includes(role.id)) return;
+		if (!window.confirm(`Delete the “${role.name}” role across this server? Members lose the access provided by it.`)) return;
+		busy = true; error = '';
 		try {
-			const state = await upsertLoreRole(token, {
-				name,
-				description: newDraft.description.trim(),
-				capabilities: newDraft.capabilities
-			});
-			roles = state.roles;
-			defaultPolicy = state.defaultPolicy;
-			const next: Record<string, RoleDraft> = {};
-			for (const role of state.roles) next[role.id] = draftFor(role);
-			drafts = next;
-			newDraft = { name: '', description: '', capabilities: ['lore.view'] };
-			setStatus('ok', `Created role “${name}”.`);
-		} catch (e) {
-			setStatus('error', e instanceof Error ? e.message : 'Could not create the role.');
-		} finally {
-			busy = null;
-		}
+			const state = await deleteLoreRole(token(), role.id); if (!active()) return;
+			apply(state); busy = false; choose(roles[0]?.id ?? '@new', false); status = 'Role deleted.';
+		} catch (e) { if (alive) error = e instanceof Error ? e.message : 'Could not delete this role.'; }
+		finally { if (alive) busy = false; }
 	}
-
-	async function removeRole(role: LoreRoleDef) {
-		const token = requireToken();
-		if (!token || busy) return;
-		if (!window.confirm(`Delete the “${role.name}” role? Members with this role lose its access.`)) {
-			return;
-		}
-		busy = role.id;
-		try {
-			const state = await deleteLoreRole(token, role.id);
-			roles = state.roles;
-			defaultPolicy = state.defaultPolicy;
-			const next = { ...drafts };
-			delete next[role.id];
-			drafts = next;
-			setStatus('ok', `Deleted role “${role.name}”.`);
-		} catch (e) {
-			setStatus('error', e instanceof Error ? e.message : `Could not delete role “${role.name}”.`);
-		} finally {
-			busy = null;
-		}
-	}
-
-	async function changeDefaultPolicy(policy: LoreDefaultPolicy) {
-		const token = requireToken();
-		if (!token || busy || policy === defaultPolicy) return;
-		busy = 'policy';
-		try {
-			const state = await setLoreDefaultPolicy(token, policy);
-			roles = state.roles;
-			defaultPolicy = state.defaultPolicy;
-			setStatus('ok', `Users with no role now have ${policy === 'open' ? 'open access' : 'view-only access'}.`);
-		} catch (e) {
-			setStatus('error', e instanceof Error ? e.message : 'Could not update the default policy.');
-		} finally {
-			busy = null;
-		}
-	}
+	function close() { if (!busy && (!dirty || window.confirm('Discard unsaved permission changes?'))) onClose(); }
 </script>
 
-<div class="roles-admin">
-	<div class="roles-head">
-		<div>
-			<h2>Repository roles</h2>
-			<p class="roles-sub">Named bundles of access — assign them from any member menu.</p>
-		</div>
-		<button class="roles-close" onclick={onClose} aria-label="Close role editor">✕</button>
-	</div>
-
-	{#if !isAdmin}
-		<p class="roles-status error" role="alert">Only server admins can edit repository roles.</p>
-	{:else if loading}
-		<p class="roles-status info" role="status">Loading repository roles…</p>
+<section class="roles-admin" aria-label="Repository role editor" aria-busy={busy || loading}>
+	<header class="roles-head"><div><h2>Repository permissions</h2><p>Server-wide roles. Changes apply across projects, not just this repository.</p></div><button onclick={close} disabled={busy} aria-label="Close role editor"><LoreIcon name="close" /></button></header>
+	{#if !isAdmin}<p role="alert">Only server administrators can edit repository roles.</p>
+	{:else if loading}<p role="status">Loading repository roles…</p>
 	{:else}
-		{#if roles.length === 0}
-			<p class="roles-empty">No roles yet. Create the first one below.</p>
-		{/if}
-
-		{#each roles as role (role.id)}
-			{@const draft = drafts[role.id]}
-			{@const locked = isLockedFull(role.id)}
-			<section class="role-card" aria-label={`Role ${role.name}`}>
-				<div class="role-top">
-					{#if canEditName(role.id)}
-						<input
-							class="role-name"
-							bind:value={draft.name}
-							maxlength={48}
-							placeholder="Role name"
-							aria-label={`Name for role ${role.id}`}
-							disabled={busy !== null}
-						/>
+		{#if error}<p class="roles-error" role="alert">{error} <button disabled={busy} onclick={() => void load()}>Reload roles</button></p>{/if}
+		{#if status}<p class="roles-status" role="status">{status}</p>{/if}
+		<div class="roles-layout">
+			<nav class="roles-list" aria-label="Choose a repository role">
+				<p class="roles-eyebrow">Roles</p>
+				{#each roles as item (item.id)}<button class:chosen={selected === item.id} aria-current={selected === item.id ? 'true' : undefined} disabled={busy} onclick={() => choose(item.id)}><span>{item.name}</span><small>{['owner', 'admin'].includes(item.id) ? 'System role' : `${item.capabilities.length} permissions`}</small></button>{/each}
+				<button class:chosen={isNew} disabled={busy} onclick={() => choose('@new')}>+ New role</button>
+				<hr /><button class:chosen={selected === '@policy'} disabled={busy} onclick={() => choose('@policy')}>Default access<small>Members without a role</small></button>
+			</nav>
+			<div class="role-editor">
+				<div class="role-fields">
+					{#if selected === '@policy'}
+						<h3>Default repository access</h3><p>Choose what members without a recognized repository role can do.</p>
+						<label class="permission-row"><input type="radio" name="lore-policy" value="view" bind:group={policyDraft} disabled={busy} /><span><strong>View only</strong><small>Members need an assigned role to make changes. Recommended.</small></span></label>
+						<label class="permission-row"><input type="radio" name="lore-policy" value="open" bind:group={policyDraft} disabled={busy} /><span><strong>Open access</strong><small>Grants the server's open-access policy to members without a recognized role.</small></span></label>
+					{:else if locked}
+						<div class="system-role"><LoreIcon name="shield" size={30} /><h3>{role?.name}</h3><p>System role — all repository capabilities.</p><p>The server enforces this access. It cannot be removed here.</p></div>
 					{:else}
-						<span class="role-name locked" title="Built-in roles keep their name">{role.name}</span>
-					{/if}
-					{#if !isBuiltIn(role.id)}
-						<span class="role-id" title="Role id used by the assign-role flow">{role.id}</span>
-					{/if}
-				</div>
-				<textarea
-					class="role-desc"
-					bind:value={draft.description}
-					rows={2}
-					maxlength={280}
-					placeholder="What is this role for?"
-					aria-label={`Description for role ${role.name}`}
-					disabled={busy !== null}
-				></textarea>
-				<div class="cap-grid">
-					{#each ALL_LORE_CAPABILITIES as capability}
-						{@const checked = locked || draft.capabilities.includes(capability)}
-						<label
-							class="cap"
-							class:locked
-							title={CAPABILITY_DESCRIPTIONS[capability] ?? capability}
-						>
-							<input
-								type="checkbox"
-								checked={checked}
-								disabled={locked || busy !== null}
-								onchange={() => toggleCapability(draft, capability)}
-							/>
-							<span>{CAPABILITY_LABELS[capability] ?? capability}</span>
-						</label>
-					{/each}
-				</div>
-				{#if locked}
-					<p class="role-note">
-						{role.id === 'owner'
-							? 'The owner role is fully locked.'
-							: 'Admins always keep every capability — the server enforces this.'}
-					</p>
-				{/if}
-				<div class="role-actions">
-					<button
-						class="roles-btn primary"
-						disabled={busy !== null}
-						onclick={() => void saveRole(role)}
-					>
-						{busy === role.id ? 'Saving…' : 'Save'}
-					</button>
-					{#if !isBuiltIn(role.id)}
-						<button
-							class="roles-btn danger"
-							disabled={busy !== null}
-							onclick={() => void removeRole(role)}
-						>
-							{busy === role.id ? 'Deleting…' : 'Delete'}
-						</button>
+						<label class="role-field">Role name<input bind:value={draft.name} maxlength="48" disabled={busy} placeholder="For example, Animator" /></label>
+						<label class="role-field">Description<textarea bind:value={draft.description} maxlength="280" rows="2" disabled={busy} placeholder="What does this role do?"></textarea></label>
+						<h3>Permissions</h3>
+						{#each ALL_LORE_CAPABILITIES as capability}<label class="permission-row"><input type="checkbox" checked={draft.capabilities.includes(capability)} disabled={busy} onchange={() => toggle(capability)} /><span><strong>{CAPABILITY_LABELS[capability] ?? capability}</strong><small>{CAPABILITY_DESCRIPTIONS[capability] ?? capability}</small></span></label>{/each}
 					{/if}
 				</div>
-			</section>
-		{/each}
-
-		<section class="role-card new" aria-label="Create a new role">
-			<div class="role-top">
-				<input
-					class="role-name"
-					bind:value={newDraft.name}
-					maxlength={48}
-					placeholder="New role name"
-					aria-label="New role name"
-					disabled={busy !== null}
-				/>
+				<footer class="role-footer"><span>{dirty ? 'Unsaved changes' : 'No unsaved changes'}</span><div>
+					{#if role && !BUILT_IN_LORE_ROLES.includes(role.id)}<button class="role-delete" disabled={busy} onclick={() => void remove()}>Delete role…</button>{/if}
+					<button disabled={busy || !dirty} onclick={() => choose(selected)}>Cancel</button><button class="role-save" disabled={busy || !dirty || locked} onclick={() => void save()}>{busy ? 'Saving…' : isNew ? 'Create role' : 'Save changes'}</button>
+				</div></footer>
 			</div>
-			<textarea
-				class="role-desc"
-				bind:value={newDraft.description}
-				rows={2}
-				maxlength={280}
-				placeholder="What is this role for?"
-				aria-label="New role description"
-				disabled={busy !== null}
-			></textarea>
-			<div class="cap-grid">
-				{#each ALL_LORE_CAPABILITIES as capability}
-					<label class="cap" title={CAPABILITY_DESCRIPTIONS[capability] ?? capability}>
-						<input
-							type="checkbox"
-							checked={newDraft.capabilities.includes(capability)}
-							disabled={busy !== null}
-							onchange={() => toggleCapability(newDraft, capability)}
-						/>
-						<span>{CAPABILITY_LABELS[capability] ?? capability}</span>
-					</label>
-				{/each}
-			</div>
-			<div class="role-actions">
-				<button
-					class="roles-btn primary"
-					disabled={busy !== null || !newDraft.name.trim()}
-					onclick={() => void createRole()}
-				>
-					{busy === 'new' ? 'Creating…' : 'Create role'}
-				</button>
-			</div>
-		</section>
-
-		<section class="role-card policy" aria-label="Default policy for users with no role">
-			<span class="policy-label">Users with no role:</span>
-			<div class="policy-options" role="radiogroup" aria-label="Default policy">
-				<label class="policy-option" class:selected={defaultPolicy === 'view'}>
-					<input
-						type="radio"
-						name="lore-default-policy"
-						checked={defaultPolicy === 'view'}
-						disabled={busy !== null}
-						onchange={() => void changeDefaultPolicy('view')}
-					/>
-					<span>View only (recommended)</span>
-				</label>
-				<label class="policy-option" class:selected={defaultPolicy === 'open'}>
-					<input
-						type="radio"
-						name="lore-default-policy"
-						checked={defaultPolicy === 'open'}
-						disabled={busy !== null}
-						onchange={() => void changeDefaultPolicy('open')}
-					/>
-					<span>Open access</span>
-				</label>
-			</div>
-			<p class="role-note">
-				Open = everyone can do everything until you restrict. View = read-only until you grant a role.
-				{busy === 'policy' ? 'Saving…' : ''}
-			</p>
-		</section>
+		</div>
 	{/if}
-
-	{#if status}
-		<p class="roles-status {status.kind}" role="status">{status.text}</p>
-	{/if}
-</div>
+</section>
 
 <style>
-	.roles-admin {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-3);
-		color: var(--text-body, inherit);
-	}
-	.roles-head {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
-	.roles-head h2 {
-		margin: 0;
-		font-size: var(--font-size-md, 1rem);
-		color: var(--text-heading);
-	}
-	.roles-sub {
-		margin: 2px 0 0;
-		font-size: var(--font-size-xs);
-		color: var(--text-muted);
-	}
-	.roles-close {
-		flex-shrink: 0;
-		width: 28px;
-		height: 28px;
-		border: none;
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--text-muted);
-		cursor: pointer;
-		font-size: 14px;
-	}
-	.roles-close:hover {
-		background: var(--surface-raised);
-		color: var(--text-heading);
-	}
-	.role-card {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		background: var(--surface-sunken);
-		border: 1px solid color-mix(in srgb, var(--text-muted) 18%, transparent);
-		border-radius: var(--radius-md);
-	}
-	.role-top {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-	.role-name {
-		flex: 1;
-		min-width: 0;
-		padding: 4px var(--space-2);
-		border-radius: var(--radius-sm);
-		border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
-		background: var(--surface-base, transparent);
-		color: var(--text-heading);
-		font-size: var(--font-size-sm);
-		font-weight: 600;
-	}
-	.role-name.locked {
-		border: none;
-		background: none;
-		padding-left: 0;
-	}
-	.role-id {
-		flex-shrink: 0;
-		font-family: var(--font-family-mono, monospace);
-		font-size: var(--font-size-2xs);
-		color: var(--text-muted);
-	}
-	.role-desc {
-		width: 100%;
-		box-sizing: border-box;
-		padding: 4px var(--space-2);
-		border-radius: var(--radius-sm);
-		border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
-		background: var(--surface-base, transparent);
-		color: var(--text-secondary);
-		font-size: var(--font-size-xs);
-		font-family: inherit;
-		resize: vertical;
-	}
-	.cap-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-		gap: 4px var(--space-2);
-	}
-	.cap {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		font-size: var(--font-size-xs);
-		color: var(--text-secondary);
-		cursor: pointer;
-	}
-	.cap.locked {
-		cursor: default;
-		opacity: 0.85;
-	}
-	.cap input {
-		accent-color: var(--accent-primary);
-	}
-	.role-note {
-		margin: 0;
-		font-size: var(--font-size-xs);
-		color: var(--text-muted);
-	}
-	.role-actions {
-		display: flex;
-		gap: var(--space-2);
-		justify-content: flex-end;
-	}
-	.roles-btn {
-		padding: 4px var(--space-3);
-		border-radius: var(--radius-sm);
-		border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
-		background: var(--surface-raised);
-		color: var(--text-heading);
-		font-size: var(--font-size-xs);
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.roles-btn:disabled {
-		opacity: 0.55;
-		cursor: default;
-	}
-	.roles-btn.primary {
-		background: var(--accent-primary);
-		border-color: transparent;
-		color: #fff;
-	}
-	.roles-btn.danger {
-		background: transparent;
-		border-color: color-mix(in srgb, var(--color-danger, #ef4444) 45%, transparent);
-		color: var(--color-danger, #ef4444);
-	}
-	.policy-label {
-		font-size: var(--font-size-sm);
-		font-weight: 600;
-		color: var(--text-heading);
-	}
-	.policy-options {
-		display: flex;
-		gap: var(--space-2);
-		flex-wrap: wrap;
-	}
-	.policy-option {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding: 4px var(--space-2);
-		border-radius: var(--radius-sm);
-		border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
-		font-size: var(--font-size-xs);
-		color: var(--text-secondary);
-		cursor: pointer;
-	}
-	.policy-option.selected {
-		border-color: color-mix(in srgb, var(--accent-primary) 60%, transparent);
-		color: var(--text-heading);
-	}
-	.policy-option input {
-		accent-color: var(--accent-primary);
-	}
-	.roles-status {
-		margin: 0;
-		font-size: var(--font-size-xs);
-	}
-	.roles-status.ok {
-		color: var(--color-success, #22c55e);
-	}
-	.roles-status.error {
-		color: var(--color-danger, #ef4444);
-	}
-	.roles-status.info {
-		color: var(--text-muted);
-	}
-	.roles-empty {
-		margin: 0;
-		font-size: var(--font-size-sm);
-		color: var(--text-muted);
-	}
+	.roles-admin { display:flex; flex-direction:column; min-height:0; width:100%; max-height:80vh; color:var(--text-primary, #e8eded); background:var(--bg-primary, #111b20); font-size:14px; }
+	.roles-head { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; padding:22px; border-bottom:1px solid var(--border-color, #334047); }
+	h2 { margin:0; font-size:20px; } h3 { margin:20px 0 12px; font-size:16px; } p { line-height:1.6; margin:6px 0; }
+	.roles-head p,small,.role-footer>span { color:var(--text-secondary, #b7c3c9); } small { display:block; margin-top:4px; font-size:13px; line-height:1.5; }
+	button,input,textarea { font:inherit; color:inherit; } button { min-height:36px; border:1px solid var(--border-color, #334047); border-radius:7px; padding:8px 12px; background:var(--bg-secondary, #1b292f); cursor:pointer; } button:disabled { opacity:.5; cursor:not-allowed; }
+	button:focus-visible,input:focus-visible,textarea:focus-visible { outline:2px solid var(--accent-color, #7cbeb2); outline-offset:3px; }
+	.roles-layout { display:grid; grid-template-columns:210px minmax(0,1fr); flex:1; min-height:0; }
+	.roles-list { overflow:auto; padding:16px 12px; border-right:1px solid var(--border-color, #334047); }.roles-list button { display:block; width:100%; text-align:left; margin:5px 0; border-color:transparent; background:transparent; }.roles-list button.chosen { border-color:var(--accent-color, #7cbeb2); background:var(--bg-secondary, #1b292f); }
+	.roles-eyebrow { font-size:11px; letter-spacing:.1em; text-transform:uppercase; padding:0 12px; }.roles-list hr { border:0; border-top:1px solid var(--border-color, #334047); margin:18px 0; }
+	.role-editor { display:flex; flex-direction:column; min-height:0; }.role-fields { padding:24px; overflow:auto; flex:1; }.role-field { display:block; margin-bottom:18px; font-size:13px; }
+	.role-field input,.role-field textarea { display:block; width:100%; box-sizing:border-box; margin-top:7px; padding:10px 12px; border:1px solid var(--border-color, #334047); border-radius:7px; background:var(--bg-secondary, #1b292f); }.role-field textarea { resize:vertical; }
+	.permission-row { display:flex; align-items:flex-start; gap:14px; padding:15px 0; border-bottom:1px solid var(--border-color, #334047); cursor:pointer; }.permission-row input { width:18px; height:18px; margin:3px 0; flex-shrink:0; accent-color:var(--accent-color, #7cbeb2); }
+	.role-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:16px 22px; border-top:1px solid var(--border-color, #334047); background:var(--bg-secondary, #1b292f); }.role-footer div { display:flex; flex-wrap:wrap; gap:8px; }.role-footer>span { font-size:12px; }.role-save { border-color:var(--accent-color, #7cbeb2); font-weight:650; }.role-delete { color:var(--danger-color, #e68b87); }
+	.roles-error,.roles-status { padding:12px 22px; }.roles-error { border-left:3px solid var(--danger-color, #e68b87); }.system-role { padding:20px 0; max-width:55ch; }.system-role :global(svg) { color:var(--accent-color, #7cbeb2); }
+	@media(max-width:650px) { .roles-layout { grid-template-columns:1fr; }.roles-list { display:flex; flex-wrap:wrap; max-height:190px; border-right:0; border-bottom:1px solid var(--border-color, #334047); }.roles-list button { width:auto; flex:1 0 130px; }.roles-eyebrow,.roles-list hr { display:none; }.role-fields { padding:18px; }.roles-admin { max-height:none; } }
 </style>
