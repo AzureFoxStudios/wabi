@@ -49,10 +49,14 @@ jobs:
         run: cd frontend && npm ci --no-audit --no-fund
 
       # STATIC_BUILD=1 emits the adapter-static SPA (index.html); the default
-      # build is adapter-node and produces nothing Tauri can serve. The Tauri
-      # build's own beforeBuildCommand re-runs this with TAURI_ENV_PLATFORM set.
+      # build is adapter-node and produces nothing Tauri can serve. Use the
+      # Actions env map instead of POSIX-only inline assignment so this also
+      # works under PowerShell on Windows.
       - name: Build frontend
-        run: cd frontend && STATIC_BUILD=1 npm run build
+        working-directory: frontend
+        run: npm run build
+        env:
+          STATIC_BUILD: 1
 
       - name: Install Tauri dependencies (Windows & macOS)
         if: runner.os == 'Windows' || runner.os == 'macOS'
