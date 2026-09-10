@@ -348,26 +348,26 @@
 	word-wrap: break-word;
 }
 
-.wiki-content-body :global(img) {
+.wiki-content-body img {
 	max-width: 100%;
 	height: auto;
 	border-radius: var(--radius-md);
 }
 
-.wiki-content-body :global(pre),
-.wiki-content-body :global(table) {
+.wiki-content-body pre,
+.wiki-content-body table {
 	max-width: 100%;
 	overflow-x: auto;
 }
 
-.wiki-content-body :global(pre) {
+.wiki-content-body pre {
 	white-space: pre;
 }
 
-.wiki-content-body :global(h1),
-.wiki-content-body :global(h2),
-.wiki-content-body :global(h3),
-.wiki-content-body :global(h4) {
+.wiki-content-body h1,
+.wiki-content-body h2,
+.wiki-content-body h3,
+.wiki-content-body h4 {
 	scroll-margin-top: var(--space-6);
 }
 
@@ -735,7 +735,7 @@
 	margin: 0;
 }
 
-.wiki-content-body :global(h1) {
+.wiki-content-body h1 {
 	font-size: 22px;
 	font-weight: var(--font-weight-bold);
 	color: var(--text-heading);
@@ -745,7 +745,7 @@
 	line-height: var(--line-height-tight);
 }
 
-.wiki-content-body :global(h2) {
+.wiki-content-body h2 {
 	font-size: 17px;
 	font-weight: var(--font-weight-semibold);
 	color: var(--text-heading);
@@ -753,7 +753,7 @@
 	line-height: var(--line-height-tight);
 }
 
-.wiki-content-body :global(h3) {
+.wiki-content-body h3 {
 	font-size: var(--font-size-lg);
 	font-weight: var(--font-weight-semibold);
 	color: var(--text-muted);
@@ -761,11 +761,11 @@
 	line-height: var(--line-height-tight);
 }
 
-.wiki-content-body :global(p) {
+.wiki-content-body p {
 	margin: 0 0 var(--space-3);
 }
 
-.wiki-content-body :global(code) {
+.wiki-content-body code {
 	font-family: var(--font-mono);
 	font-size: 13px;
 	background: var(--surface-base);
@@ -774,7 +774,7 @@
 	border: 1px solid var(--border-default);
 }
 
-.wiki-content-body :global(pre) {
+.wiki-content-body pre {
 	background: var(--surface-base);
 	border: 1px solid var(--border-default);
 	border-radius: var(--radius-md);
@@ -785,13 +785,13 @@
 	margin: var(--space-3) 0;
 }
 
-.wiki-content-body :global(pre code) {
+.wiki-content-body pre code {
 	background: none;
 	border: none;
 	padding: 0;
 }
 
-.wiki-content-body :global(blockquote) {
+.wiki-content-body blockquote {
 	border-left: 2px solid var(--accent-primary);
 	margin: var(--space-3) 0;
 	padding: var(--space-2) var(--space-4);
@@ -799,21 +799,21 @@
 	color: var(--text-muted);
 }
 
-.wiki-content-body :global(table) {
+.wiki-content-body table {
 	width: 100%;
 	border-collapse: collapse;
 	margin: var(--space-3) 0;
 }
 
-.wiki-content-body :global(th),
-.wiki-content-body :global(td) {
+.wiki-content-body th,
+.wiki-content-body td {
 	padding: var(--space-2) var(--space-3);
 	border: 1px solid var(--border-default);
 	font-size: var(--font-size-sm);
 	text-align: left;
 }
 
-.wiki-content-body :global(th) {
+.wiki-content-body th {
 	background: var(--surface-base);
 	font-size: 13px;
 	text-transform: uppercase;
@@ -821,26 +821,26 @@
 	color: var(--text-muted);
 }
 
-.wiki-content-body :global(a) {
+.wiki-content-body a {
 	color: var(--text-link);
 	text-decoration: none;
 }
 
-.wiki-content-body :global(a:hover) {
+.wiki-content-body a:hover {
 	text-decoration: underline;
 }
 
-.wiki-content-body :global(ul),
-.wiki-content-body :global(ol) {
+.wiki-content-body ul,
+.wiki-content-body ol {
 	margin: var(--space-2) 0;
 	padding-left: var(--space-6);
 }
 
-.wiki-content-body :global(li) {
+.wiki-content-body li {
 	margin: var(--space-1) 0;
 }
 
-.wiki-content-body :global(hr) {
+.wiki-content-body hr {
 	border: none;
 	border-top: 1px solid var(--border-subtle);
 	margin: var(--space-6) 0;
