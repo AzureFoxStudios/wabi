@@ -12,11 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- Rust toolchain (pinned via committed rust-toolchain.toml) ---
+      # --- Rust toolchain ---
+      # Keep this version in sync with rust-toolchain.toml. The
+      # dtolnay/rust-toolchain action does not accept a toolchain-file input.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain-file: rust-toolchain.toml
+        uses: dtolnay/rust-toolchain@1.93
 
       # --- Node (for npm install in frontend) ---
       - name: Setup Node
