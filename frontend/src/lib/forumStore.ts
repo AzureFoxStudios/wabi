@@ -91,6 +91,9 @@ export function extractForumAttachments(body: string): ForumAttachment[] {
 
 export function stripForumImageMarkdown(body: string): string {
 	if (!body) return body;
+	// Global regexes carry lastIndex between calls — reset before use or
+	// alternating calls skip matches (images silently vanish on refresh).
+	FORUM_IMAGE_MARKDOWN_RE.lastIndex = 0;
 	return body
 		.replace(FORUM_IMAGE_MARKDOWN_RE, '')
 		.replace(/\n{3,}/g, '\n\n')

@@ -156,6 +156,34 @@
 		});
 	}
 
+	// New-page mode gets the same editor affordances as edit mode.
+	// (Legacy-mode file: plain lets, matching the rest of WikiChannel.)
+	let newPageBodyElement: HTMLTextAreaElement | undefined;
+	let newPageImageInput: HTMLInputElement | undefined;
+	let newPagePreview = false;
+	function insertNewPageMarkdown(insertion: string) {
+		if (!newPageBodyElement) return;
+		const next = insertWikiMarkdown(newPageBody, newPageBodyElement.selectionStart, newPageBodyElement.selectionEnd, insertion);
+		newPageBody = next.value;
+		requestAnimationFrame(() => {
+			newPageBodyElement?.focus();
+			newPageBodyElement?.setSelectionRange(next.selectionStart, next.selectionEnd);
+		});
+	}
+	async function handleNewPageImage(file: File) {
+		if (!$currentChannel || !file.type.startsWith('image/')) return;
+		imageUploading = true;
+		try {
+			const uploaded = await uploadFileResumable(file, $currentChannel, () => {}, false);
+			insertNewPageMarkdown(`![${file.name.replace(/\.[^.]+$/, '')}](${uploaded.fileUrl})`);
+		} catch (err) {
+			copyError = err instanceof Error ? err.message : 'Image upload failed';
+		} finally {
+			imageUploading = false;
+			if (newPageImageInput) newPageImageInput.value = '';
+		}
+	}
+
 	async function handleSaveEdit() {
 		if (!$currentChannel || !selectedPage) return;
 		if (!editTitle.trim()) {
@@ -331,11 +359,26 @@
 						placeholder="Page title..."
 						bind:value={newPageTitle}
 					/>
-					<textarea
-						class="wiki-edit-body"
-						placeholder="Write wiki content in markdown..."
-						bind:value={newPageBody}
-					></textarea>
+					<div class="wiki-editor-toolbar" role="toolbar" aria-label="Markdown formatting">
+						<button type="button" on:click={() => insertNewPageMarkdown('**bold**')}>Bold</button>
+						<button type="button" on:click={() => insertNewPageMarkdown('*italic*')}>Italic</button>
+						<button type="button" on:click={() => insertNewPageMarkdown('[link text](https://)')}>Link</button>
+						<button type="button" on:click={() => insertNewPageMarkdown('## Heading\n')}>Heading</button>
+						<button type="button" on:click={() => insertNewPageMarkdown('> Quote\n')}>Quote</button>
+						<button type="button" disabled={imageUploading} on:click={() => newPageImageInput?.click()}>{imageUploading ? 'Uploading…' : 'Image'}</button>
+						<input class="wiki-image-input" type="file" accept="image/*" bind:this={newPageImageInput} on:change={(event) => { const file = (event.currentTarget as HTMLInputElement).files?.[0]; if (file) void handleNewPageImage(file); }} />
+						<button type="button" class:active={newPagePreview} on:click={() => { newPagePreview = !newPagePreview; }}>{newPagePreview ? 'Edit' : 'Preview'}</button>
+					</div>
+					{#if newPagePreview}
+						<div class="wiki-edit-preview wiki-content-body">{@html parseMessage(newPageBody)}</div>
+					{:else}
+						<textarea
+							class="wiki-edit-body"
+							placeholder="Write wiki content in markdown..."
+							bind:this={newPageBodyElement}
+							bind:value={newPageBody}
+						></textarea>
+					{/if}
 					<div class="wiki-edit-footer">
 						<button class="wiki-edit-cancel-btn" on:click={handleCancelNewPage}>Cancel</button>
 						<button class="wiki-edit-save-btn" on:click={handleCreateNewPage} disabled={!newPageTitle.trim()}>Create</button>
