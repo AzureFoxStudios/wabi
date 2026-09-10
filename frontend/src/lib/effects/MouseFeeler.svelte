@@ -1,73 +1,61 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-
-	type FeelerPattern = 'triangles' | 'dots' | 'grid' | 'sparkles' | 'none';
-	type FeelerSettings = {
-		enabled: boolean;
-		pattern: FeelerPattern;
-		radius: number;
-		intensity: number;
-		textureOpacity: number;
-		idleDelayMs: number;
-		fadeMs: number;
-	};
-
-	const STORAGE_KEY = 'wabi.mouse-feeler.v1';
-	const SETTINGS_EVENT = 'wabi:mouse-feeler-settings';
-	const DEFAULTS: FeelerSettings = {
-		enabled: true,
-		pattern: 'triangles',
-		radius: 190,
-		intensity: 0.05,
-		textureOpacity: 0.16,
-		idleDelayMs: 90,
-		fadeMs: 520
-	};
+	import PointerShaderSurface from './PointerShaderSurface.svelte';
+	import {
+		DEFAULT_FEELER_SETTINGS,
+		FEELER_SETTINGS_EVENT,
+		normalizeFeelerSettings,
+		readFeelerSettings,
+		writeFeelerSettings,
+		type FeelerSettings
+	} from './mouseFeelerConfig';
+	import {
+		getLocalVisualEffect,
+		LOCAL_VISUAL_EFFECTS_EVENT,
+		type LocalVisualEffectRecord
+	} from './localVisualEffects';
 
 	let layer: HTMLDivElement;
-	let settings: FeelerSettings = { ...DEFAULTS };
+	let settings: FeelerSettings = { ...DEFAULT_FEELER_SETTINGS };
+	let localEffect: LocalVisualEffectRecord | null = null;
+	let customImageUrl = '';
+	let customTileSize = 96;
+	let shaderSource = '';
+	let shaderError = '';
+	let shaderSurface: {
+		setPointerState: (x: number, y: number, vx: number, vy: number) => void;
+		pause: () => void;
+	} | null = null;
 
-	function isPattern(value: unknown): value is FeelerPattern {
-		return value === 'triangles' || value === 'dots' || value === 'grid' || value === 'sparkles' || value === 'none';
+	function clearLocalEffect(): void {
+		if (customImageUrl) URL.revokeObjectURL(customImageUrl);
+		customImageUrl = '';
+		shaderSource = '';
+		shaderError = '';
+		localEffect = null;
 	}
 
-	function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
-		const parsed = typeof value === 'number' ? value : Number(value);
-		return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
-	}
-
-	function normalize(input: Partial<FeelerSettings> | null | undefined): FeelerSettings {
-		return {
-			enabled: input?.enabled !== false,
-			pattern: isPattern(input?.pattern) ? input.pattern : DEFAULTS.pattern,
-			radius: clampNumber(input?.radius, DEFAULTS.radius, 80, 360),
-			intensity: clampNumber(input?.intensity, DEFAULTS.intensity, 0, 0.15),
-			textureOpacity: clampNumber(input?.textureOpacity, DEFAULTS.textureOpacity, 0, 0.4),
-			idleDelayMs: clampNumber(input?.idleDelayMs, DEFAULTS.idleDelayMs, 30, 300),
-			fadeMs: clampNumber(input?.fadeMs, DEFAULTS.fadeMs, 150, 1200)
-		};
-	}
-
-	function readSettings(): FeelerSettings {
+	async function loadSelectedLocalEffect(): Promise<void> {
+		clearLocalEffect();
+		if (settings.pattern !== 'local' || !settings.customEffectId) return;
 		try {
-			const raw = window.localStorage.getItem(STORAGE_KEY);
-			if (!raw) return { ...DEFAULTS };
-			return normalize(JSON.parse(raw) as Partial<FeelerSettings>);
-		} catch {
-			return { ...DEFAULTS };
-		}
-	}
-
-	function writeSettings(next: FeelerSettings): void {
-		try {
-			window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-		} catch {
-			// Cosmetic preference persistence is best-effort only.
+			const effect = await getLocalVisualEffect(settings.customEffectId);
+			if (!effect) return;
+			localEffect = effect;
+			if (effect.kind === 'image' && effect.imageBlob) {
+				customImageUrl = URL.createObjectURL(effect.imageBlob);
+				customTileSize = Math.max(32, Math.min(512, effect.tileSize || 96));
+			} else if (effect.kind === 'shader' && effect.shaderSource) {
+				shaderSource = effect.shaderSource;
+			}
+		} catch (error) {
+			console.warn('[MouseFeeler] Failed to load local visual effect:', error);
 		}
 	}
 
 	onMount(() => {
-		settings = readSettings();
+		settings = readFeelerSettings();
+		void loadSelectedLocalEffect();
 
 		const finePointer = window.matchMedia('(pointer: fine)');
 		const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -75,15 +63,19 @@
 		let idleTimer: ReturnType<typeof setTimeout> | null = null;
 		let pendingX = window.innerWidth / 2;
 		let pendingY = window.innerHeight / 2;
+		let velocityX = 0;
+		let velocityY = 0;
+		let lastPointerX = pendingX;
+		let lastPointerY = pendingY;
+		let lastPointerTime = performance.now();
 
 		const hide = () => {
 			if (idleTimer) {
 				clearTimeout(idleTimer);
 				idleTimer = null;
 			}
+			shaderSurface?.pause();
 			if (!layer) return;
-			// Fade only when the pointer goes idle. Movement itself should never
-			// be interpolated, otherwise the reveal visibly trails fast cursors.
 			layer.style.transitionDuration = `${settings.fadeMs}ms`;
 			layer.style.opacity = '0';
 		};
@@ -97,21 +89,25 @@
 
 			const left = pendingX - settings.radius;
 			const top = pendingY - settings.radius;
-
-			// Move one small composited circle instead of repainting a full-screen
-			// blend/mask on every pointer event. translate3d keeps the hot path on
-			// the compositor; texture offsets preserve the "under the UI" feel.
 			layer.style.transitionDuration = '0ms';
 			layer.style.transform = `translate3d(${left}px, ${top}px, 0)`;
 			layer.style.setProperty('--feeler-pattern-x', `${-left}px`);
 			layer.style.setProperty('--feeler-pattern-y', `${-top}px`);
 			layer.style.opacity = '1';
+			shaderSurface?.setPointerState(pendingX, pendingY, velocityX, velocityY);
 		};
 
 		const handlePointerMove = (event: PointerEvent) => {
 			if (!settings.enabled || !finePointer.matches || reducedMotion.matches) return;
 			if (event.pointerType && event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
 
+			const now = performance.now();
+			const dt = Math.max(1, now - lastPointerTime);
+			velocityX = Math.max(-5000, Math.min(5000, ((event.clientX - lastPointerX) / dt) * 1000));
+			velocityY = Math.max(-5000, Math.min(5000, ((event.clientY - lastPointerY) / dt) * 1000));
+			lastPointerX = event.clientX;
+			lastPointerY = event.clientY;
+			lastPointerTime = now;
 			pendingX = event.clientX;
 			pendingY = event.clientY;
 
@@ -122,17 +118,26 @@
 
 		const handleSettings = (event: Event) => {
 			const detail = (event as CustomEvent<Partial<FeelerSettings>>).detail;
-			settings = normalize({ ...settings, ...(detail || {}) });
-			writeSettings(settings);
+			const previousCustom = settings.customEffectId;
+			const previousPattern = settings.pattern;
+			settings = normalizeFeelerSettings({ ...settings, ...(detail || {}) });
+			writeFeelerSettings(settings);
+			if (settings.pattern !== previousPattern || settings.customEffectId !== previousCustom) {
+				void loadSelectedLocalEffect();
+			}
 			if (!settings.enabled) hide();
 			else if (!frame) frame = requestAnimationFrame(flush);
 		};
 
+		const handleLibraryChanged = () => {
+			if (settings.pattern === 'local' && settings.customEffectId) void loadSelectedLocalEffect();
+		};
 		const handleMotionChange = () => hide();
 
 		window.addEventListener('pointermove', handlePointerMove, { passive: true });
 		window.addEventListener('blur', hide);
-		window.addEventListener(SETTINGS_EVENT, handleSettings);
+		window.addEventListener(FEELER_SETTINGS_EVENT, handleSettings);
+		window.addEventListener(LOCAL_VISUAL_EFFECTS_EVENT, handleLibraryChanged);
 		document.documentElement.addEventListener('mouseleave', hide);
 		finePointer.addEventListener('change', handleMotionChange);
 		reducedMotion.addEventListener('change', handleMotionChange);
@@ -140,12 +145,15 @@
 		return () => {
 			window.removeEventListener('pointermove', handlePointerMove);
 			window.removeEventListener('blur', hide);
-			window.removeEventListener(SETTINGS_EVENT, handleSettings);
+			window.removeEventListener(FEELER_SETTINGS_EVENT, handleSettings);
+			window.removeEventListener(LOCAL_VISUAL_EFFECTS_EVENT, handleLibraryChanged);
 			document.documentElement.removeEventListener('mouseleave', hide);
 			finePointer.removeEventListener('change', handleMotionChange);
 			reducedMotion.removeEventListener('change', handleMotionChange);
 			if (frame) cancelAnimationFrame(frame);
 			if (idleTimer) clearTimeout(idleTimer);
+			shaderSurface?.pause();
+			clearLocalEffect();
 		};
 	});
 </script>
@@ -155,12 +163,30 @@
 	class="mouse-feeler"
 	class:mouse-feeler--disabled={!settings.enabled}
 	data-pattern={settings.pattern}
+	data-local-kind={localEffect?.kind || ''}
 	aria-hidden="true"
 	style={`--feeler-radius: ${settings.radius}px; --feeler-diameter: ${settings.radius * 2}px; --feeler-strength: ${settings.intensity}; --feeler-texture-opacity: ${settings.textureOpacity};`}
 >
 	<div class="mouse-feeler__glow"></div>
-	<div class="mouse-feeler__texture"></div>
+	{#if shaderSource}
+		<PointerShaderSurface
+			bind:this={shaderSurface}
+			source={shaderSource}
+			radius={settings.radius}
+			opacity={settings.textureOpacity}
+			on:shadererror={(event) => shaderError = event.detail}
+		/>
+	{:else}
+		<div
+			class="mouse-feeler__texture"
+			style={customImageUrl ? `background-image: url("${customImageUrl}"); background-size: ${customTileSize}px ${customTileSize}px;` : ''}
+		></div>
+	{/if}
 </div>
+
+{#if shaderError}
+	<span class="sr-only" aria-live="polite">Pointer shader error: {shaderError}</span>
+{/if}
 
 <style>
 	.mouse-feeler {
@@ -208,6 +234,7 @@
 	.mouse-feeler__texture {
 		opacity: var(--feeler-texture-opacity);
 		mix-blend-mode: screen;
+		background-repeat: repeat;
 		-webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0%, rgb(0 0 0 / 0.7) 42%, transparent 82%);
 		mask-image: radial-gradient(circle at 50% 50%, #000 0%, rgb(0 0 0 / 0.7) 42%, transparent 82%);
 	}
@@ -244,8 +271,30 @@
 			var(--feeler-pattern-x) var(--feeler-pattern-y);
 	}
 
+	.mouse-feeler[data-pattern='suits'] .mouse-feeler__texture {
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cg fill='white' fill-opacity='.42' font-family='serif'%3E%3Ctext x='10' y='28' font-size='22'%3E%E2%99%A0%3C/text%3E%3Ctext x='58' y='22' font-size='17'%3E%E2%99%A5%3C/text%3E%3Ctext x='29' y='62' font-size='19'%3E%E2%99%A6%3C/text%3E%3Ctext x='68' y='80' font-size='23'%3E%E2%99%A3%3C/text%3E%3C/g%3E%3C/svg%3E");
+		background-size: 96px 96px;
+		background-position: var(--feeler-pattern-x) var(--feeler-pattern-y);
+	}
+
+	.mouse-feeler[data-pattern='local'][data-local-kind='image'] .mouse-feeler__texture {
+		background-position: var(--feeler-pattern-x) var(--feeler-pattern-y);
+	}
+
 	.mouse-feeler[data-pattern='none'] .mouse-feeler__texture {
 		display: none;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 
 	@media (prefers-reduced-motion: reduce), (pointer: coarse) {
