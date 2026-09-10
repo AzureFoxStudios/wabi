@@ -2,6 +2,9 @@
 pub fn run() {
   tauri::Builder::default()
     .manage(tailcat::TailcatState::default())
+    .manage(lore_local::LocalWorkspaceState::default())
+    .manage(lore_local::detection::LocalDetectionState::default())
+    .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -33,7 +36,15 @@ pub fn run() {
         tailcat::tailcat_register_key,
         tailcat::tailcat_connect,
         tailcat::tailcat_disconnect,
-        tailcat::tailcat_status
+        tailcat::tailcat_status,
+        lore_local::lore_local_choose,
+        lore_local::lore_local_scan,
+        lore_local::lore_local_save_state,
+        lore_local::lore_local_open,
+        lore_local::lore_local_publish,
+        lore_local::lore_local_pull,
+        lore_local::detection::lore_local_watch_poll,
+        lore_local::detection::lore_local_watch_stop
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -42,5 +53,6 @@ pub fn run() {
 mod commands;
 mod recording;
 mod tailcat;
+mod lore_local;
 pub mod tailcat_proxy;
 mod viewer;
