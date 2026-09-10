@@ -1,5 +1,12 @@
 /** Compile the real Svelte markup, not only its TypeScript script block. */
-import { compile } from 'svelte/compiler';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+// CI can validate markup with the repository-pinned compiler in an isolated tool
+// directory, while the full frontend job continues to enforce its own lockfile.
+const require = createRequire(process.env.LORE_VALIDATOR_DIR
+  ? resolve(process.env.LORE_VALIDATOR_DIR, 'package.json') : import.meta.url);
+const { compile } = require('svelte/compiler');
+console.log(`Svelte compiler ${require('svelte/package.json').version}`);
 import { readFileSync } from 'node:fs';
 const files = [
   'LoreWorkspace.svelte', 'LoreRepositoryWorkspace.svelte',

@@ -12,6 +12,26 @@ on:
 permissions:
   contents: read
 jobs:
+  markup:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Dependency-free presentation tests
+        run: node --experimental-strip-types --test scripts/lore-workspace-presentation.test.mjs
+      - name: Install only the repository-pinned Svelte compiler
+        run: |
+          SVELTE_VERSION=$(node -p 'require("./package.json").devDependencies.svelte')
+          npm install --prefix "$RUNNER_TEMP/lore-validator" --no-audit --no-fund --ignore-scripts --package-lock=false "svelte@$SVELTE_VERSION"
+      - name: Compile real component markup
+        env:
+          LORE_VALIDATOR_DIR: ${{ runner.temp }}/lore-validator
+        run: node scripts/lore-workspace-compile.mjs
   frontend:
     runs-on: ubuntu-latest
     defaults:
