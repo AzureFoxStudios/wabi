@@ -1,0 +1,63 @@
+name: Reader checks
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/src/lib/components/Reader*.svelte'
+      - 'frontend/src/lib/components/reader*.ts'
+      - 'frontend/src/lib/reader*.ts'
+      - 'frontend/src/styles/components/reader-tab.css'
+      - 'frontend/scripts/reader-browser-smoke.mjs'
+      - '.github/workflows/reader-checks.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reader-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Reader unit tests
+        working-directory: frontend
+        run: bun test src/lib/components/readerDocumentTools.test.ts
+      # Vite's native dependency resolver also visits the parent project.
+      # Its tsconfig extends the generated Kit configuration, even though
+      # the Reader fixture itself uses an isolated, minimal tsconfig.
+      - name: Generate SvelteKit configuration
+        working-directory: frontend
+        run: npx svelte-kit sync
+      - name: Install Chromium and display dependencies
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Exercise production Reader in a headful browser
+        working-directory: frontend
+        run: xvfb-run -a node scripts/reader-browser-smoke.mjs
+      - name: Upload actual browser screenshots and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reader-browser-checks
+          path: /tmp/wabi-reader-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
