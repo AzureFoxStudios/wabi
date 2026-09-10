@@ -5,6 +5,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 concurrency:
   group: pr-integration-audit
   cancel-in-progress: true
@@ -21,15 +22,53 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Assemble reviewed heads on a disposable working tree
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/pr-integration-candidate.py
-      - uses: actions/upload-artifact@v4
+          ref: 5c11caa8708476b3311fb8907e64a66fb83e1e06
+      - uses: actions/download-artifact@v4
         with:
-          name: pr-integration-audit
-          path: ${{ runner.temp }}/pr-audit
-          retention-days: 7
+          name: pr-integration-result
+          run-id: 34479587807
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/previous-candidate
+      - name: Validate candidate ancestry and correct stale catalog assertions
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/pr-audit" "$RUNNER_TEMP/pr-checks"
+          test "$(git rev-parse HEAD)" = 5c11caa8708476b3311fb8907e64a66fb83e1e06
+          git fetch origin main
+          git merge-base --is-ancestor origin/main HEAD
+          cp "$RUNNER_TEMP/previous-candidate/report.json" "$RUNNER_TEMP/pr-audit/report.json"
+          cp "$RUNNER_TEMP/previous-candidate/base.txt" "$RUNNER_TEMP/pr-audit/base.txt"
+          git config user.name 'Wabi integration audit'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'pr-audit'
+          report = json.loads((out / 'report.json').read_text())
+          for row in report['prs']:
+              if row['outcome'] != 'already merged':
+                  subprocess.run(['git', 'merge-base', '--is-ancestor', row['head'], 'HEAD'], check=True)
+          path = pathlib.Path('core/crates/wabi-server/tests/admin_role_contract.rs')
+          assert subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() == 'd86a4b000daafe8a2b76d121819f61ee802abcc7'
+          source = path.read_text()
+          old = 'vec!["owner", "admin", "mod", "member", "guest"]'
+          new = 'vec!["owner", "admin", "developer", "mod", "artist", "member", "guest"]'
+          assert source.count(old) == 1
+          source = source.replace(old, new)
+          old = 'assert_eq!(init["roleDefinitions"].as_array().unwrap().len(), 5);'
+          new = '''assert_eq!(
+                      init["roleDefinitions"].as_array().unwrap().iter()
+                          .map(|role| role["roleName"].as_str().unwrap()).collect::<Vec<_>>(),
+                      vec!["owner", "admin", "developer", "mod", "artist", "member", "guest"]
+                  );'''
+          assert source.count(old) == 1
+          source = source.replace(old, new)
+          path.write_text(source)
+          report['integrationFix'] = 'Update two stale five-role assertions to the existing seven-role server catalog; retain all authorization/persistence checks and compare full reloaded names instead of just a count.'
+          (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
+          PY
+          git add -- core/crates/wabi-server/tests/admin_role_contract.rs
+          git commit -m 'test(roles): match the existing seven-role catalog in contract fixtures'
+          printf 'assembly=0\n' > "$RUNNER_TEMP/pr-checks/status.txt"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -43,17 +82,15 @@ jobs:
             . -> target
             src-tauri -> target
           cache-on-failure: true
-      - name: Check the combined frontend
+      - name: Verify combined frontend and all local-workflow tests
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/pr-checks"
-          cp "$RUNNER_TEMP/pr-audit/assembly-status.txt" "$RUNNER_TEMP/pr-checks/status.txt"
           set +e
           cd frontend
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/pr-checks/install.log" 2>&1
-          install_code=$?
-          echo "install=$install_code" >> "$RUNNER_TEMP/pr-checks/status.txt"
-          if [ "$install_code" = 0 ]; then
+          code=$?
+          echo "install=$code" >> "$RUNNER_TEMP/pr-checks/status.txt"
+          if [ "$code" = 0 ]; then
             bun test src/lib > "$RUNNER_TEMP/pr-checks/frontend-tests.log" 2>&1
             echo "frontend_tests=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
             npm run check > "$RUNNER_TEMP/pr-checks/frontend-check.log" 2>&1
@@ -61,40 +98,29 @@ jobs:
             STATIC_BUILD=1 npm run build > "$RUNNER_TEMP/pr-checks/frontend-build.log" 2>&1
             echo "frontend_build=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
             for test in scripts/lore-local-changes.test.mjs scripts/lore-local-detection.test.mjs scripts/lore-workspace-presentation.test.mjs; do
-              if [ -f "$test" ]; then
-                node --experimental-strip-types --test "$test" > "$RUNNER_TEMP/pr-checks/$(basename "$test").log" 2>&1
-                echo "$(basename "$test")=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
-              fi
+              node --experimental-strip-types --test "$test" > "$RUNNER_TEMP/pr-checks/$(basename "$test").log" 2>&1
+              echo "$(basename "$test")=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
             done
-            if [ -f scripts/lore-local-observer.test.mjs ]; then
-              node --experimental-vm-modules --test scripts/lore-local-observer.test.mjs > "$RUNNER_TEMP/pr-checks/observer.log" 2>&1
-              echo "observer=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
-            fi
+            node --experimental-vm-modules --test scripts/lore-local-observer.test.mjs > "$RUNNER_TEMP/pr-checks/observer.log" 2>&1
+            echo "observer=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
           fi
           cat "$RUNNER_TEMP/pr-checks/status.txt"
           exit 0
-      - name: Resolve Cargo lockfile and check the combined Rust workspace
+      - name: Check and test all Rust targets without hiding later failures
         shell: bash
         run: |
           set +e
-          if [ -f frontend/build/index.html ]; then
-            cargo check --workspace > "$RUNNER_TEMP/pr-checks/cargo-check.log" 2>&1
-            code=$?
-            echo "cargo_check=$code" >> "$RUNNER_TEMP/pr-checks/status.txt"
-            if [ "$code" = 0 ]; then
-              cargo check --workspace --locked > "$RUNNER_TEMP/pr-checks/cargo-locked.log" 2>&1
-              echo "cargo_locked=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
-              cargo test --workspace --locked > "$RUNNER_TEMP/pr-checks/cargo-test.log" 2>&1
-              echo "cargo_test=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
-              cargo test -p wabi-lore -p wabi-sync --locked > "$RUNNER_TEMP/pr-checks/lore-rust-tests.log" 2>&1
-              echo "lore_rust_tests=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
-            fi
-          else
-            echo 'cargo_check=blocked_missing_frontend_assets' >> "$RUNNER_TEMP/pr-checks/status.txt"
+          cargo check --workspace --locked > "$RUNNER_TEMP/pr-checks/cargo-check.log" 2>&1
+          code=$?
+          echo "cargo_check=$code" >> "$RUNNER_TEMP/pr-checks/status.txt"
+          if [ "$code" = 0 ]; then
+            timeout 1500 cargo test --workspace --locked --no-fail-fast > "$RUNNER_TEMP/pr-checks/cargo-test.log" 2>&1
+            echo "cargo_test=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
+            cargo test -p wabi-lore -p wabi-sync --locked > "$RUNNER_TEMP/pr-checks/lore-rust-tests.log" 2>&1
+            echo "lore_rust_tests=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
           fi
           cat "$RUNNER_TEMP/pr-checks/status.txt"
-          tail -80 "$RUNNER_TEMP/pr-checks/cargo-check.log" 2>/dev/null || true
-          tail -80 "$RUNNER_TEMP/pr-checks/cargo-test.log" 2>/dev/null || true
+          tail -100 "$RUNNER_TEMP/pr-checks/cargo-test.log" 2>/dev/null || true
           exit 0
       - uses: actions/upload-artifact@v4
         if: always()
@@ -102,17 +128,20 @@ jobs:
           name: pr-integration-core-checks
           path: ${{ runner.temp }}/pr-checks
           retention-days: 7
-      - name: Install native desktop build libraries
+      - name: Install native desktop build libraries and the real pinned Tailcat sidecar
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential pkg-config libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libxkbcommon-dev
+          bash scripts/fetch-tailcat-sidecar.sh
+          test -s src-tauri/binaries/tailcat-x86_64-unknown-linux-gnu
+          sha256sum src-tauri/binaries/tailcat-x86_64-unknown-linux-gnu > "$RUNNER_TEMP/pr-checks/sidecar-sha256.txt"
       - name: Compile both native entry points and run local-workspace tests
         shell: bash
         env:
           WABI_SKIP_VIEWER_TEST: 1
         run: |
           set +e
-          cargo check --manifest-path src-tauri/Cargo.toml --all-targets > "$RUNNER_TEMP/pr-checks/native-check.log" 2>&1
+          cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked > "$RUNNER_TEMP/pr-checks/native-check.log" 2>&1
           code=$?
           echo "native_check=$code" >> "$RUNNER_TEMP/pr-checks/status.txt"
           if [ "$code" = 0 ]; then
@@ -122,21 +151,18 @@ jobs:
           tail -120 "$RUNNER_TEMP/pr-checks/native-check.log"
           tail -100 "$RUNNER_TEMP/pr-checks/native-tests.log" 2>/dev/null || true
           exit 0
-      - name: Export exact candidate and generated lockfiles for review
+      - name: Export exact reviewed candidate
         if: always()
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/pr-result"
           test -f "$RUNNER_TEMP/pr-audit/report.json"
-          git add -- Cargo.lock src-tauri/Cargo.lock
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(integration): resolve lockfiles for combined dependency and desktop changes"
-          fi
           base=$(cat "$RUNNER_TEMP/pr-audit/base.txt")
           git rev-parse HEAD > "$RUNNER_TEMP/pr-result/head.txt"
           printf '%s\n' "$base" > "$RUNNER_TEMP/pr-result/base.txt"
           git bundle create "$RUNNER_TEMP/pr-result/candidate.bundle" HEAD "^$base"
           git diff "$base" HEAD > "$RUNNER_TEMP/pr-result/candidate.diff"
+          # Generated TS is a known test side effect. It is never added to the candidate.
           git diff HEAD -- > "$RUNNER_TEMP/pr-result/unstaged-after-checks.diff"
           cp Cargo.lock "$RUNNER_TEMP/pr-result/Cargo.lock"
           cp src-tauri/Cargo.lock "$RUNNER_TEMP/pr-result/desktop-Cargo.lock"
@@ -150,14 +176,15 @@ jobs:
           name: pr-integration-result
           path: ${{ runner.temp }}/pr-result
           retention-days: 7
-      - name: Fail visibly for any unsuccessful or missing check
+      - name: Fail visibly for unsuccessful or missing checks
         if: always()
         shell: bash
         run: |
           test -f "$RUNNER_TEMP/pr-checks/status.txt"
           cat "$RUNNER_TEMP/pr-checks/status.txt"
-          grep -q '^native_check=0$' "$RUNNER_TEMP/pr-checks/status.txt"
-          grep -q '^native_tests=0$' "$RUNNER_TEMP/pr-checks/status.txt"
+          for name in assembly install frontend_tests frontend_check frontend_build cargo_check cargo_test lore_rust_tests native_check native_tests; do
+            grep -q "^$name=0$" "$RUNNER_TEMP/pr-checks/status.txt" || exit 1
+          done
           ! grep -v '=0$' "$RUNNER_TEMP/pr-checks/status.txt"
   preserve-candidate:
     needs: candidate
@@ -189,4 +216,4 @@ jobs:
           branch="integrate/candidate-${GITHUB_RUN_ID}"
           test -z "$(git ls-remote --heads origin "refs/heads/$branch")"
           git push origin "$head:refs/heads/$branch"
-          printf 'Candidate preserved on `%s` at `%s`. Tests must be reviewed before main integration. Main was not modified by this workflow.\n' "$branch" "$head" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Candidate preserved on `%s` at `%s`. Review tests before main integration. Main was not modified by this workflow.\n' "$branch" "$head" >> "$GITHUB_STEP_SUMMARY"
