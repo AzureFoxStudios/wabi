@@ -1,0 +1,57 @@
+name: Lore workspace UI
+on:
+  pull_request:
+    paths:
+      - 'frontend/src/lib/components/Lore*.svelte'
+      - 'frontend/src/lib/components/lore/**'
+      - 'frontend/src/lib/lore/**'
+      - 'frontend/src/lib/loreLocal*.ts'
+      - 'frontend/scripts/lore-*.mjs'
+      - '.github/workflows/lore-workspace-ui.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  markup:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Dependency-free presentation tests
+        run: node --experimental-strip-types --test scripts/lore-workspace-presentation.test.mjs
+      - name: Install only the repository-pinned Svelte compiler
+        run: |
+          SVELTE_VERSION=$(node -p 'require("./package.json").devDependencies.svelte')
+          npm install --prefix "$RUNNER_TEMP/lore-validator" --no-audit --no-fund --ignore-scripts --package-lock=false "svelte@$SVELTE_VERSION"
+      - name: Compile real component markup
+        env:
+          LORE_VALIDATOR_DIR: ${{ runner.temp }}/lore-validator
+        run: node scripts/lore-workspace-compile.mjs
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Presentation and existing local-workflow tests
+        run: |
+          node --experimental-strip-types --test scripts/lore-workspace-presentation.test.mjs scripts/lore-local-changes.test.mjs scripts/lore-local-detection.test.mjs
+          node --experimental-vm-modules --test scripts/lore-local-observer.test.mjs
+      - name: Compile shared workspace components for browser and server
+        run: node scripts/lore-workspace-compile.mjs
+      - name: Full frontend type check
+        run: npm run check
+      - name: Static build
+        run: npm run build:static

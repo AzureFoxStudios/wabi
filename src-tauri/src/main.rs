@@ -8,6 +8,7 @@ use tauri::{
 };
 
 mod recording;
+mod lore_local;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -31,6 +32,8 @@ fn open_external_url(url: String) -> Result<(), String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(lore_local::LocalWorkspaceState::default())
+        .manage(lore_local::detection::LocalDetectionState::default())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
@@ -40,7 +43,15 @@ pub fn run() {
             greet,
             get_platform,
             open_external_url,
-            recording::save_call_recording
+            recording::save_call_recording,
+            lore_local::lore_local_choose,
+            lore_local::lore_local_scan,
+            lore_local::lore_local_save_state,
+            lore_local::lore_local_open,
+            lore_local::lore_local_publish,
+            lore_local::lore_local_pull,
+            lore_local::detection::lore_local_watch_poll,
+            lore_local::detection::lore_local_watch_stop
         ])
         .setup(|app| {
             // Create system tray
