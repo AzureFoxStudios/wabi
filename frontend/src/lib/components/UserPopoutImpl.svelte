@@ -25,6 +25,7 @@
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import { requestLiveRoleChange, selectAssignableRoles } from './userListHelpers';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
+	import { overlayStyle } from '$lib/overlayStyle';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import {
 		MAX_USER_NOTE_LENGTH,
@@ -501,7 +502,7 @@
 					</div>
 				{/if}
 				{#if user.overlayUrl && !disableAllBanners}
-					<span class="popout-avatar-overlay" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
+					<span class="popout-avatar-overlay" style={overlayStyle(user)} aria-hidden="true"></span>
 				{/if}
 				<!-- Presence dot: bottom-right of the avatar, tracks live status -->
 				<span

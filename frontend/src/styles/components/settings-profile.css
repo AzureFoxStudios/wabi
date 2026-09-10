@@ -125,7 +125,9 @@
 	position: absolute;
 	inset: 0;
 	border-radius: 50%;
-	background-size: cover;
+	background-size: calc(100% * var(--overlay-scale, 1));
+	background-position: calc(50% + var(--overlay-offset-x, 0px)) calc(50% + var(--overlay-offset-y, 0px));
+	background-repeat: no-repeat;
 	pointer-events: none;
 }
 
@@ -168,6 +170,20 @@
 .profile-preview-overlay-btn:disabled {
 	cursor: wait;
 	opacity: 0.7;
+}
+
+.overlay-align-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 0.45rem;
+	margin-top: 0.5rem;
+}
+
+.overlay-align-row {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	flex-wrap: wrap;
 }
 
 .profile-preview-status {

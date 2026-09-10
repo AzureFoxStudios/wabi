@@ -106,6 +106,9 @@ export interface User {
   profilePicture?: Exclude<ProtocolUserView['profilePicture'], null>;
   bannerUrl?: string;
   overlayUrl?: string;
+  overlayScale?: number;
+  overlayOffsetX?: number;
+  overlayOffsetY?: number;
   bio?: Exclude<ProtocolUserView['bio'], null>;
   joinedAt?: Exclude<ProtocolUserView['joinedAt'], null>;
   dbUserId?: Exclude<ProtocolUserView['dbUserId'], null>;

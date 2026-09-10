@@ -811,7 +811,7 @@ async fn connected_user_to_view(user: &ConnectedUser, _owner_id: Option<i64>, st
     };
 
     let role = effective_user_role(state, user.db_user_id, is_registered.unwrap_or(false)).await;
-    let (banner_url, overlay_url) = if let Some(db_id) = user.db_user_id {
+    let (banner_url, overlay_url, overlay_scale, overlay_ox, overlay_oy) = if let Some(db_id) = user.db_user_id {
         let stored = state
             .app
             .wdb
@@ -824,12 +824,18 @@ async fn connected_user_to_view(user: &ConnectedUser, _owner_id: Option<i64>, st
             .and_then(|root| root.get("profile_media").cloned())
             .and_then(|m| m.as_object().cloned())
             .unwrap_or_default();
+        let num = |key: &str, default: f64| -> f64 {
+            media.get(key).and_then(|v| v.as_f64()).unwrap_or(default)
+        };
         (
             media.get("banner_url").and_then(|v| v.as_str()).map(String::from),
             media.get("overlay_url").and_then(|v| v.as_str()).map(String::from),
+            num("overlay_scale", 1.0).clamp(0.5, 3.0),
+            num("overlay_offset_x", 0.0).clamp(-200.0, 200.0),
+            num("overlay_offset_y", 0.0).clamp(-200.0, 200.0),
         )
     } else {
-        (None, None)
+        (None, None, 1.0, 0.0, 0.0)
     };
 
     let badges = badges_json_for(state, user.db_user_id.unwrap_or(0)).await;
@@ -843,6 +849,9 @@ async fn connected_user_to_view(user: &ConnectedUser, _owner_id: Option<i64>, st
         "profilePicture": profile_picture,
         "bannerUrl":   banner_url,
         "overlayUrl":  overlay_url,
+        "overlayScale": overlay_scale,
+        "overlayOffsetX": overlay_ox,
+        "overlayOffsetY": overlay_oy,
         "usernameFont": username_font,
         "bio":         bio,
         "dbUserId":    user.db_user_id,

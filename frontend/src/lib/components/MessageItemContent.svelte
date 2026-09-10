@@ -16,6 +16,7 @@
 	import MessagePersistenceRow from './message/MessagePersistenceRow.svelte';
 	import MessageDeliveryRow from './message/MessageDeliveryRow.svelte';
 	import MessageContent from './message/MessageContent.svelte';
+	import { overlayStyle } from '$lib/overlayStyle';
 
 	export let message: Message;
 	export let author: User | undefined;
@@ -268,7 +269,7 @@
 					</div>
 				{/if}
 				{#if author?.overlayUrl && !disableAllBanners}
-					<span class="avatar-overlay-badge" style="background-image: url({author.overlayUrl})" aria-hidden="true"></span>
+					<span class="avatar-overlay-badge" style={overlayStyle(author)} aria-hidden="true"></span>
 				{/if}
 			</div>
 	{/if}

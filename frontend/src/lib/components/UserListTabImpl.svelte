@@ -14,6 +14,7 @@
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { rememberPeople } from '$lib/peopleTracker';
 	import { getStatusColor } from './userPanelHelpers';
+	import { overlayStyle } from '$lib/overlayStyle';
 	import {
 		MAX_LOCAL_NICKNAME_LENGTH,
 		clearLocalNicknameForUser,
@@ -360,7 +361,7 @@
 							</div>
 						{/if}
 						{#if user.overlayUrl && !disableAllBanners}
-							<span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
+							<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
 						{/if}
 						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'} style="--status-color: {getStatusColor(user.status)}"></span>
 					</div>
@@ -402,7 +403,7 @@
 								</div>
 							{/if}
 						{#if user.overlayUrl && !disableAllBanners}
-							<span class="avatar-overlay-badge" style="background-image: url({user.overlayUrl})" aria-hidden="true"></span>
+							<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
 						{/if}
 						<span class="presence-dot" style="--status-color: {getStatusColor('offline')}"></span>
 						</div>

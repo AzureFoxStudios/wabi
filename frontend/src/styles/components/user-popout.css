@@ -71,8 +71,9 @@
 		position: absolute;
 		inset: 6px;
 		border-radius: 21px;
-		background-size: cover;
-		background-position: center;
+		background-size: calc(100% * var(--overlay-scale, 1));
+		background-position: calc(50% + var(--overlay-offset-x, 0px)) calc(50% + var(--overlay-offset-y, 0px));
+		background-repeat: no-repeat;
 		pointer-events: none;
 	}
 

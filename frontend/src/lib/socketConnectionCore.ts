@@ -1127,6 +1127,9 @@ export class SocketManager {
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
 				overlayUrl: user.overlayUrl,
+				overlayScale: user.overlayScale,
+				overlayOffsetX: user.overlayOffsetX,
+				overlayOffsetY: user.overlayOffsetY,
 				usernameFont: user.usernameFont,
 				bio: user.bio
 			});
@@ -1157,6 +1160,9 @@ export class SocketManager {
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
 				overlayUrl: user.overlayUrl,
+				overlayScale: user.overlayScale,
+				overlayOffsetX: user.overlayOffsetX,
+				overlayOffsetY: user.overlayOffsetY,
 				usernameFont: user.usernameFont,
 				bio: user.bio
 			});
