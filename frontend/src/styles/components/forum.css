@@ -818,7 +818,7 @@
 
 .forum-files-gallery {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
 	gap: var(--space-2);
 	margin-top: var(--space-3);
 }
@@ -830,6 +830,9 @@
 	border: 1px solid var(--border-subtle);
 	background: var(--surface-raised);
 	aspect-ratio: 4 / 3;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .forum-gallery-file-item a {
@@ -841,8 +844,10 @@
 .forum-gallery-file-image {
 	width: 100%;
 	height: 100%;
-	object-fit: cover;
+	object-fit: contain;
 	display: block;
+	padding: 2px;
+	box-sizing: border-box;
 	cursor: zoom-in;
 	transition: transform var(--duration-fast);
 }
@@ -968,19 +973,19 @@
 /* ---- right-anchored draft drawer (calls-panel pattern, forum-local) ---- */
 
 .forum-draft-backdrop {
-	position: absolute;
+	position: fixed;
 	inset: 0;
 	background: rgba(0, 0, 0, 0.35);
-	z-index: 40;
+	z-index: var(--z-overlay);
 }
 
 .forum-draft-drawer {
-	position: absolute;
+	position: fixed;
 	top: 0;
 	right: 0;
 	bottom: 0;
 	width: min(420px, 90%);
-	z-index: 41;
+	z-index: var(--z-overlay);
 	display: flex;
 	flex-direction: column;
 	background: var(--surface-base);

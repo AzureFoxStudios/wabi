@@ -18,7 +18,7 @@
 	import { startScreenShare } from '$lib/calling';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { brandName } from '$lib/branding';
 	import UserPopoutActions from './UserPopoutActions.svelte';
@@ -173,7 +173,17 @@
 	}
 
 	$: if (isOpen && anchorElement) {
+		// The popout node may not be laid out yet at this reactive tick —
+		// measure AFTER paint so offsetHeight is real (a 0-height measure
+		// fell back to 400 and clipped tall popouts off-screen).
 		calculatePosition();
+		void tick().then(() => calculatePosition());
+	}
+
+	// Expanding the profile (or any height change) must re-clamp the popout
+	// into the viewport, otherwise the bottom runs off-screen again.
+	$: if (isOpen && profileExpanded) {
+		void tick().then(() => calculatePosition());
 	}
 
 	function handleViewportChange(): void {
