@@ -15,6 +15,39 @@ export type LocalVisualEffectRecord = {
 
 export const LOCAL_VISUAL_EFFECTS_EVENT = 'wabi:local-visual-effects-changed';
 
+export const POINTER_SHADER_TEMPLATE = `// Wabi pointer visual effect
+// Available uniforms (provided by Wabi; do not redeclare them):
+//   vec2  u_resolution  - shader surface size in pixels
+//   vec2  u_viewport    - Wabi viewport size in CSS pixels
+//   vec2  u_pointer     - pointer position in viewport pixels (origin bottom-left)
+//   vec2  u_velocity    - pointer velocity in CSS pixels/second
+//   float u_time        - seconds since this shader was loaded
+//   float u_active      - 1.0 while the pointer is moving, 0.0 when paused
+//   vec3  u_accent      - current Wabi accent color, normalized 0..1
+
+void mainImage(out vec4 color, in vec2 fragCoord) {
+    vec2 uv = fragCoord / u_resolution;
+    vec2 center = vec2(0.5);
+    float distanceFromPointer = distance(uv, center);
+    float glow = 1.0 - smoothstep(0.05, 0.5, distanceFromPointer);
+    color = vec4(u_accent, glow * 0.35);
+}
+`;
+
+export function downloadPointerShaderTemplate(): void {
+	if (typeof window === 'undefined') return;
+	const blob = new Blob([POINTER_SHADER_TEMPLATE], { type: 'text/plain;charset=utf-8' });
+	const url = URL.createObjectURL(blob);
+	try {
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = 'wabi-pointer-effect.frag';
+		anchor.click();
+	} finally {
+		window.setTimeout(() => URL.revokeObjectURL(url), 0);
+	}
+}
+
 const DB_NAME = 'wabi-local-visual-effects';
 const DB_VERSION = 1;
 const STORE_NAME = 'effects';
