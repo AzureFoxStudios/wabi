@@ -12,6 +12,10 @@
 		parseRoleGateText
 	} from './messageItemUtils';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
+	import {
+		deletedAlbumNames,
+		isAlbumDeletedByNameSet
+	} from '$lib/albumLifecycle';
 	import UnfurlCard from '$lib/components/UnfurlCard.svelte';
 	import SteamJoinButton from '$lib/components/plugins/SteamJoinButton.svelte';
 	import type { MessageEntity } from '$lib/socket';
@@ -61,17 +65,25 @@ import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean) => void;
 
 	function getAlbumAnnouncementStatusLabel(meta: { name: string }, itemCount = 0): string {
+		if (isAlbumDeletedByNameSet($deletedAlbumNames, meta.name)) return 'Deleted';
 		if (albumAnnouncementUploadName === meta.name) return 'Uploading';
 		return itemCount > 0 ? `${itemCount} items` : 'Empty album';
 	}
 
 	function getAlbumAnnouncementSupportText(meta: { name: string }, itemCount = 0): string {
+		if (isAlbumDeletedByNameSet($deletedAlbumNames, meta.name))
+			return 'This album was deleted. The chat message remains for history.';
 		if (albumAnnouncementUploadName === meta.name) return 'Uploading files into this shared album now.';
 		if (itemCount > 0) return 'Open Albums to browse this shared album or add more files.';
 		return 'This shared album has no files yet. Use Add Media to drop the first one, or Open Albums to manage it.';
 	}
 
 	$: albumAnnouncement = parseAlbumAnnouncement(message.text);
+	// A deleted album must never show "Empty album" / "Add Media" — the empty
+	// state only applies while the album genuinely exists and has no files.
+	$: albumAnnouncementDeleted = albumAnnouncement
+		? isAlbumDeletedByNameSet($deletedAlbumNames, albumAnnouncement.name)
+		: false;
 
 	const OBJECT_ENTITY_KINDS = new Set(['forum_post', 'wiki_page', 'gallery_work', 'place']);
 
@@ -209,12 +221,17 @@ import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 	{:else if albumAnnouncement && (!message.files || message.files.length === 0)}
 		<div
 			class="album-message-card album-message-card--actionable album-message-card--empty"
-			class:is-uploading={albumAnnouncementUploadName === albumAnnouncement.name}
-			role="button"
-			tabindex="0"
-			aria-disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-			on:click={() => onHandleAlbumActivate(albumAnnouncement, false)}
-			on:keydown={(event) => onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, false)}
+			class:album-message-card--deleted={albumAnnouncementDeleted}
+			class:is-uploading={!albumAnnouncementDeleted && albumAnnouncementUploadName === albumAnnouncement.name}
+			role={albumAnnouncementDeleted ? undefined : 'button'}
+			tabindex={albumAnnouncementDeleted ? undefined : 0}
+			aria-disabled={albumAnnouncementDeleted || albumAnnouncementUploadName === albumAnnouncement.name}
+			on:click={() => {
+				if (!albumAnnouncementDeleted) onHandleAlbumActivate(albumAnnouncement, false);
+			}}
+			on:keydown={(event) => {
+				if (!albumAnnouncementDeleted) onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, false);
+			}}
 		>
 			<div class="album-message-main">
 				<div class="album-message-head">
@@ -228,19 +245,25 @@ import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 					{getAlbumAnnouncementSupportText(albumAnnouncement)}
 				</div>
 			</div>
-			<div class="album-message-actions">
-				<button
-					type="button"
-					class="album-message-btn"
-					disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-					on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
-				>
-					{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
-				</button>
-				<button type="button" class="album-message-btn primary" on:click|stopPropagation={onOpenAlbumPanel}>
-					Open Albums
-				</button>
-			</div>
+			{#if albumAnnouncementDeleted}
+				<div class="album-message-actions">
+					<span class="album-message-deleted-note">Album deleted</span>
+				</div>
+			{:else}
+				<div class="album-message-actions">
+					<button
+						type="button"
+						class="album-message-btn"
+						disabled={albumAnnouncementUploadName === albumAnnouncement.name}
+						on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
+					>
+						{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
+					</button>
+					<button type="button" class="album-message-btn primary" on:click|stopPropagation={onOpenAlbumPanel}>
+						Open Albums
+					</button>
+				</div>
+			{/if}
 		</div>
 	{:else if message.type === 'role_gate'}
 		{@const gate = parseRoleGateText(messageText)}

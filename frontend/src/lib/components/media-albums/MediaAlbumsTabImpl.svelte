@@ -34,6 +34,7 @@
 		type AlbumItemViewMode
 		} from './mediaAlbumHelpers';
 		import { uploadAlbumFile } from './mediaAlbumUpload';
+		import { markAlbumCreated, markAlbumDeleted } from '$lib/albumLifecycle';
 		import AlbumViewer from './AlbumViewer.svelte';
 		import AlbumCard from './AlbumCard.svelte';
 		import AlbumUploadForm from './AlbumUploadForm.svelte';
@@ -470,6 +471,7 @@
 				name
 			});
 			newAlbumName = '';
+			markAlbumCreated(created.name);
 			await refreshAlbums(false);
 			selectedAlbumId = created.id;
 			await loadAlbumItems(created.id);
@@ -638,6 +640,9 @@
 		clearError();
 		try {
 			await deleteMediaAlbum(token, albumId);
+			// Broadcast-lite: tell chat announcement cards (same session) that
+			// this album is gone. They match by name (see albumLifecycle.ts).
+			markAlbumDeleted(albumId, album?.name ?? label);
 			if (selectedAlbumId === albumId) {
 				selectedAlbumId = null;
 				albumItems = [];
