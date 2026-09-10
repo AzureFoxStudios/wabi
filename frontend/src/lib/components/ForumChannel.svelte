@@ -33,7 +33,10 @@
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
 
-	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
+	export let channelId: string | undefined = undefined;
+	$: effectiveChannel = channelId || $currentChannel;
+
+	$: activeChannel = $channels.find((ch) => ch.id === effectiveChannel) || null;
 	$: allThreads = $forumThreadsStore;
 	$: postsByThread = $forumPostsByThreadStore;
 	$: isLoading = $forumLoadingStore;
@@ -50,14 +53,14 @@
 
 	initObjectRefRegistry();
 
-	$: if (allThreads.length > 0 && $currentChannel) {
+	$: if (allThreads.length > 0 && effectiveChannel) {
 		for (const thread of allThreads) {
 			registerObjectRef({
 				kind: 'forum_post',
 				id: thread.post_id,
 				slug: slugify(thread.title),
 				title: thread.title,
-				channelId: $currentChannel,
+				channelId: effectiveChannel,
 				subtitle: findAuthor(thread.author_user_id)?.username || undefined,
 				updatedAt: thread.created_at_micros > 1e12 ? Math.floor(thread.created_at_micros / 1000) : thread.created_at_micros,
 			});
@@ -107,10 +110,10 @@
 	}
 
 	function saveCustomCategories() {
-		if (!$currentChannel) return;
+		if (!effectiveChannel) return;
 		try {
 			localStorage.setItem(
-				customCategoriesKey($currentChannel),
+				customCategoriesKey(effectiveChannel),
 				JSON.stringify(customCategories)
 			);
 		} catch {
@@ -138,7 +141,7 @@
 			saveCustomCategories();
 		}
 		if (activeCategory === from) activeCategory = to;
-		if ($currentChannel) await renameForumCategory($currentChannel, from, to);
+		if (effectiveChannel) await renameForumCategory(effectiveChannel, from, to);
 	}
 
 	function commitAddCategory() {
@@ -190,30 +193,30 @@
 
 	function selectThread(thread: ForumPost) {
 		forumSelectedThreadIdStore.set(thread.post_id);
-		if ($currentChannel) {
-			loadPosts($currentChannel, thread.thread_id);
+		if (effectiveChannel) {
+			loadPosts(effectiveChannel, thread.thread_id);
 		}
 	}
 
-	$: if ($currentChannel) {
-		customCategories = loadCustomCategories($currentChannel);
-		loadThreads($currentChannel);
+	$: if (effectiveChannel) {
+		customCategories = loadCustomCategories(effectiveChannel);
+		loadThreads(effectiveChannel);
 		// The draft drawer is scoped to the active forum channel.
 		showDraftDrawer = false;
 	}
 
 	// C2: deep-link handoff after threads load — peek first, take only on hit
-	$: if ($currentChannel && allThreads.length > 0) {
+	$: if (effectiveChannel && allThreads.length > 0) {
 		const pending = peekPendingNav();
 		if (
 			pending?.kind === 'forum_post' &&
-			(!pending.channelId || pending.channelId === $currentChannel)
+			(!pending.channelId || pending.channelId === effectiveChannel)
 		) {
 			const hit =
 				allThreads.find((t) => t.post_id === pending.postId) ||
 				allThreads.find((t) => t.thread_id === pending.postId);
 			if (hit) {
-				takePendingNav('forum_post', $currentChannel);
+				takePendingNav('forum_post', effectiveChannel);
 				selectThread(hit);
 			}
 		}
@@ -244,8 +247,8 @@
 	}
 
 	async function handleCreateNewThread(body: string, title?: string, category?: string) {
-		if (!$currentChannel) return;
-		const post = await createThread($currentChannel, body, title, undefined, category || undefined);
+		if (!effectiveChannel) return;
+		const post = await createThread(effectiveChannel, body, title, undefined, category || undefined);
 		if (post) {
 			showNewThread = false;
 			showDraftDrawer = false;
@@ -255,18 +258,18 @@
 	}
 
 	async function handleReply(body: string) {
-		if (!$currentChannel || !selectedThreadId) return;
-		await createPost($currentChannel, selectedThreadId, body);
+		if (!effectiveChannel || !selectedThreadId) return;
+		await createPost(effectiveChannel, selectedThreadId, body);
 	}
 
 	async function handleVote(post: ForumPost, direction: 'up' | 'down') {
-		if (!$currentChannel) return;
-		await votePost($currentChannel, post.thread_id, post.post_id, direction);
+		if (!effectiveChannel) return;
+		await votePost(effectiveChannel, post.thread_id, post.post_id, direction);
 	}
 
 	async function handleMarkSolution(post: ForumPost) {
-		if (!$currentChannel) return;
-		await markSolution($currentChannel, post.thread_id, post.post_id);
+		if (!effectiveChannel) return;
+		await markSolution(effectiveChannel, post.thread_id, post.post_id);
 	}
 
 	function handleFilterByCategory(cat: string) {
@@ -292,7 +295,7 @@
 		{:else if error}
 			<div class="forum-error">
 				<span>{error}</span>
-				<button on:click={() => $currentChannel && loadThreads($currentChannel)}>Retry</button>
+				<button on:click={() => effectiveChannel && loadThreads(effectiveChannel)}>Retry</button>
 			</div>
 		{:else}
 			<div class="forum-category-pane">
@@ -409,7 +412,7 @@
 							{thread}
 							active={thread.post_id === selectedThreadId}
 							onClick={() => selectThread(thread)}
-							channelId={$currentChannel}
+							channelId={effectiveChannel}
 						/>
 					{/each}
 				{/if}
@@ -425,7 +428,7 @@
 					<ForumComposer
 						showTitle={true}
 						categoryOptions={categories}
-						channelId={$currentChannel}
+						channelId={effectiveChannel}
 						placeholder="Write your post... Use **bold** `code` @mentions"
 						onSubmit={handleCreateNewThread}
 						onCancel={handleCancelNewThread}
@@ -523,7 +526,7 @@
 											id: threadStarter.post_id,
 											slug: slugify(threadStarter.title),
 											title: threadStarter.title,
-											channelId: $currentChannel,
+											channelId: effectiveChannel,
 											subtitle: threadStarterAuthor?.username,
 										}}
 									/>
@@ -540,7 +543,7 @@
 										isSolution={reply.is_solution}
 										onVote={(direction) => handleVote(reply, direction)}
 										onMarkSolution={() => handleMarkSolution(reply)}
-										channelId={$currentChannel}
+										channelId={effectiveChannel}
 									/>
 								{/each}
 							</div>
@@ -549,7 +552,7 @@
 
 					<ForumComposer
 						placeholder="Write a reply... Ctrl+Enter to post"
-						channelId={$currentChannel}
+						channelId={effectiveChannel}
 						onSubmit={handleReply}
 					/>
 				{/if}
@@ -585,11 +588,11 @@
 				>&#10005;</button>
 			</div>
 			<div class="forum-draft-drawer-body">
-				{#key $currentChannel}
+				{#key effectiveChannel}
 					<ForumComposer
 						showTitle={true}
 						categoryOptions={categories}
-						channelId={$currentChannel}
+						channelId={effectiveChannel}
 						placeholder="Write your post... Use **bold** `code` @mentions"
 						onSubmit={handleCreateNewThread}
 						onCancel={handleCloseDraftDrawer}
