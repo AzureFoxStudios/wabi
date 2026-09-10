@@ -83,7 +83,7 @@ export async function uploadFileResumable(
 	const resumeKey = getResumeStorageKey(realm, channelId, file);
 	const previousUploadId = allowPersistentResume ? localStorage.getItem(resumeKey) || undefined : undefined;
 
-	const initResponse = await scopedFetch(`${serverUrl}/api/upload/resumable/init`, {
+	let initResponse = await scopedFetch(`${serverUrl}/api/upload/resumable/init`, {
 		method: 'POST',
 		headers: getUploadAuthHeaders(true),
 		credentials: 'include',
@@ -97,7 +97,37 @@ export async function uploadFileResumable(
 		})
 	});
 	if (!initResponse.ok) {
-		throw new Error(`Resumable init failed (${initResponse.status})`);
+		// A 401 here means the access token expired while the user was
+		// composing (refresh happens in the background on other requests).
+		// Try ONE refresh + retry before giving up — the old behavior threw
+		// instantly, silently killing uploads and the posts that carried them.
+		if (initResponse.status === 401 || initResponse.status === 403) {
+			const { tryRefresh } = await import('$lib/api/authRefresh');
+			if (await tryRefresh(serverUrl)) {
+				const retry = await scopedFetch(`${serverUrl}/api/upload/resumable/init`, {
+					method: 'POST',
+					headers: getUploadAuthHeaders(true),
+					credentials: 'include',
+					body: JSON.stringify({
+						uploadId: previousUploadId,
+						fileName: file.name,
+						fileSize: file.size,
+						mimeType: file.type || 'application/octet-stream',
+						channelId,
+						videoCompression: videoCompression || null
+					})
+				});
+				if (retry.ok) {
+					initResponse = retry;
+				} else {
+					throw new Error(`Resumable init failed (${retry.status})`);
+				}
+			} else {
+				throw new Error(`Resumable init failed (${initResponse.status}) — please sign in again`);
+			}
+		} else {
+			throw new Error(`Resumable init failed (${initResponse.status})`);
+		}
 	}
 
 	const initResult = await initResponse.json();
