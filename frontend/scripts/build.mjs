@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const forceStatic = process.argv.includes('--static');
 const env = { ...process.env };
@@ -17,9 +18,10 @@ if (!env.STATIC_BUILD) {
 	console.log('');
 }
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const result = spawnSync(npm, ['run', 'build:only'], {
-	cwd: new URL('../', import.meta.url),
+const appRoot = fileURLToPath(new URL('../', import.meta.url));
+const viteCliPath = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
+const result = spawnSync(process.execPath, [viteCliPath, 'build'], {
+	cwd: appRoot,
 	env,
 	stdio: 'inherit'
 });
