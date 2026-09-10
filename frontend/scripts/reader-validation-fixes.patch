@@ -1,0 +1,135 @@
+--- a/frontend/src/lib/components/ReaderTabImpl.svelte
++++ b/frontend/src/lib/components/ReaderTabImpl.svelte
+@@ -112,9 +112,9 @@
+ 			lastAnchor = saved;
+ 			void tick().then(async () => {
+ 				if (cancelled) return;
++				wordCount = content ? countWords(content.textContent || '') : 0;
+ 				outline = content ? prepareReaderDocument(content) : [];
+ 				blocks = content ? readerBlocks(content) : Array.from(view.querySelectorAll<HTMLElement>('.reader-image-page'));
+-				wordCount = content ? countWords(content.textContent || '') : 0;
+ 				contentHasTitle = !!content?.querySelector('h1');
+ 				await tick();
+ 				if (cancelled) return;
+@@ -471,6 +471,7 @@
+ 
+ 	{#if $readerSelection}
+ 		<div class="reader-workspace">
++			<!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable reading region must be keyboard-focusable.) -->
+ 			<div bind:this={viewport} class="reader-viewport" class:reader-paged={!isImageMode && layout === 'paged'} class:reader-images={isImageMode} class:reader-horizontal={isImageMode && horizontal} tabindex="0" role="region" aria-label={$readerSelection.title} onscroll={handleScroll}>
+ 				{#if isImageMode}
+ 					<div class="reader-gallery" data-fit={$readerPreferences.imageFit} dir={$readerPreferences.readingDirection === 'rtl' ? 'rtl' : 'ltr'}>
+@@ -486,7 +487,7 @@
+ 								<div class="reader-document-meta"><span>{wordCount.toLocaleString()} words</span><span>~{minutes} min read</span><span>{formatSourceLabel($readerSelection.source)}</span></div>
+ 							</header>
+ 							<!-- The delegated handler only enhances real links and real copy buttons. -->
+-							<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
++							<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events (Delegated clicks originate from native links and buttons, which already support keyboard activation.) -->
+ 							<div class="reader-document-body" bind:this={body} onclick={handleArticleClick}>{@html html}</div>
+ 						</article>
+ 					</div>
+--- a/frontend/src/lib/readerLibrary.ts
++++ b/frontend/src/lib/readerLibrary.ts
+@@ -77,6 +77,13 @@
+ 	}
+ });
+ 
++// Bookmark IDs are local record keys, not authentication tokens. The fallback
++// keeps self-hosted HTTP installations working where randomUUID is unavailable.
++function makeReaderItemId(): string {
++	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
++	return `reader-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
++}
++
+ function editRecord(key: string, edit: (record: ReaderReadingRecord) => ReaderReadingRecord): void {
+ 	if (!key) return;
+ 	readerLibrary.update((records) => ({ ...records, [key]: edit(records[key] || { bookmarks: [], notes: [] }) }));
+@@ -90,7 +97,7 @@
+ 	editRecord(key, (record) => ({
+ 		...record,
+ 		bookmarks: [...record.bookmarks, {
+-			id: crypto.randomUUID(), label: label.trim().slice(0, 160) || 'Saved place', anchor, createdAt: Date.now()
++			id: makeReaderItemId(), label: label.trim().slice(0, 160) || 'Saved place', anchor, createdAt: Date.now()
+ 		}].slice(-MAX_ITEMS)
+ 	}));
+ }
+@@ -103,7 +110,7 @@
+ 	if (!text.trim()) return;
+ 	editRecord(key, (record) => ({
+ 		...record,
+-		notes: [...record.notes, { id: crypto.randomUUID(), text: text.trim().slice(0, 10000), anchor, createdAt: Date.now() }].slice(-MAX_ITEMS)
++		notes: [...record.notes, { id: makeReaderItemId(), text: text.trim().slice(0, 10000), anchor, createdAt: Date.now() }].slice(-MAX_ITEMS)
+ 	}));
+ }
+ 
+--- a/frontend/src/styles/components/reader-tab.css
++++ b/frontend/src/styles/components/reader-tab.css
+@@ -314,6 +314,12 @@
+ 	.reader-import-grid { grid-template-columns: minmax(0, 1fr); }
+ 	.reader-focused .reader-settings-panel { top: 56px; }
+ }
++@container reader (max-width: 379px) {
++	.reader-toolbar .reader-tool { flex-basis: 32px; width: 32px; }
++	.reader-search-trigger { width: 32px; padding: 6px; }
++	.reader-open-button { padding-inline: 8px; }
++	.reader-open-button span { display: none; }
++}
+ @media (prefers-reduced-motion: reduce) {
+ 	.reader-redesign *, .reader-redesign *::before, .reader-redesign *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+ }
+--- a/frontend/scripts/reader-browser-smoke.mjs
++++ b/frontend/scripts/reader-browser-smoke.mjs
+@@ -1,5 +1,5 @@
+ import assert from 'node:assert/strict';
+-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
++import { mkdtemp, mkdir, writeFile, copyFile, rm } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import path from 'node:path';
+ import { fileURLToPath } from 'node:url';
+@@ -14,12 +14,26 @@
+ const fixture = await mkdtemp(path.join(frontend, '.reader-smoke-'));
+ const artifacts = process.env.READER_ARTIFACT_DIR || path.join(tmpdir(), 'wabi-reader-artifacts');
+ await mkdir(artifacts, { recursive: true });
+-const file = (relative) => JSON.stringify(path.join(frontend, relative));
++const file = (relative) => JSON.stringify(path.join(fixture, relative));
+ let server;
+ let browser;
+ const passed = [];
+ 
+ try {
++	// Copy production bytes into an isolated TypeScript project. Otherwise the
++	// fixture inherits Kit's generated tsconfig, which needs a full app sync.
++	for (const relative of [
++		'src/lib/components/ReaderTabImpl.svelte', 'src/lib/components/ReaderImportSheet.svelte',
++		'src/lib/components/ReaderIcon.svelte', 'src/lib/components/readerTabHelpers.ts',
++		'src/lib/components/readerDocumentTools.ts', 'src/lib/readerWorkspace.ts',
++		'src/lib/readerLibrary.ts', 'src/styles/components/reader-tab.css'
++	]) {
++		await mkdir(path.dirname(path.join(fixture, relative)), { recursive: true });
++		await copyFile(path.join(frontend, relative), path.join(fixture, relative));
++	}
++	await writeFile(path.join(fixture, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
++		target: 'ES2022', module: 'ESNext', moduleResolution: 'bundler', skipLibCheck: true
++	} }));
+ 	await writeFile(path.join(fixture, 'environment.js'), 'export const browser = true; export const dev = true; export const building = false;');
+ 	await writeFile(path.join(fixture, 'tabQueue.js'), 'export const mobileTabQueue = { openAddonTab() {} };');
+ 	await writeFile(path.join(fixture, 'main.js'), `
+@@ -49,15 +63,16 @@
+ 		resolve: { dedupe: ['svelte'], alias: [
+ 			{ find: '$app/environment', replacement: path.join(fixture, 'environment.js') },
+ 			{ find: '$lib/mobileTabQueue', replacement: path.join(fixture, 'tabQueue.js') },
+-			{ find: '$lib', replacement: path.join(frontend, 'src/lib') }
++			{ find: '$lib', replacement: path.join(fixture, 'src/lib') }
+ 		] },
++		optimizeDeps: { rolldownOptions: { tsconfig: false } },
+ 		server: { host: '127.0.0.1', port: 0, fs: { allow: [frontend] } },
+ 		logLevel: 'warn'
+ 	});
+ 	await server.listen();
+ 	const origin = server.resolvedUrls.local[0];
+ 	// Headful under Xvfb avoids the repository's documented headless Skia crash.
+-	browser = await chromium.launch({ headless: false, args: ['--no-sandbox'] });
++	browser = await chromium.launch({ headless: false, executablePath: process.env.READER_CHROMIUM_PATH, args: ['--no-sandbox'] });
+ 	const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, colorScheme: 'light', reducedMotion: 'reduce' });
+ 	await context.route('**/*', (route) => new URL(route.request().url()).origin === new URL(origin).origin ? route.continue() : route.abort());
+ 	const page = await context.newPage();
