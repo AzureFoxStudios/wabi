@@ -1,4 +1,4 @@
-//! Explicitly granted, manual local workspaces. No watcher, shell, or shared Lore staging.
+//! Explicitly granted local workspaces. Detection is automatic; file writes stay manual.
 //! Tokens are used for one request only and are never written to the workspace index.
 use std::{collections::HashMap, fs, io::{Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}}, time::Duration};
 use anyhow::{anyhow, bail, Context, Result};
@@ -10,6 +10,9 @@ use tauri::{State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
+
+#[path = "lore_local_detection.rs"]
+pub mod detection;
 
 const META: &str = ".wabi-workspace";
 const MAX_TRANSFER: u64 = 1024 * 1024 * 1024;

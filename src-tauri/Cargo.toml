@@ -28,6 +28,7 @@ tauri-plugin-dialog = "2"
 open = "5"
 url = "2"
 sha2 = "0.10"
+notify = "8.2"
 
 # Tailcat private access (tunnel + local forwarder for the webview)
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "process", "time", "sync", "fs"] }
