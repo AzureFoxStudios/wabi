@@ -158,16 +158,34 @@ function imageMimeFromFile(file: File): string {
 	return '';
 }
 
+function containsUnsafeCssResource(value: string): boolean {
+	if (/\@import\b/i.test(value)) return true;
+	const urlPattern = /url\s*\(\s*(['"]?)(.*?)\1\s*\)/gi;
+	let match: RegExpExecArray | null;
+	while ((match = urlPattern.exec(value))) {
+		const target = match[2].trim();
+		if (!target.startsWith('#')) return true;
+	}
+	return false;
+}
+
 async function sanitizeSvg(file: File): Promise<Blob> {
 	const source = await file.text();
+	if (/<!DOCTYPE\b/i.test(source)) throw new Error('SVG DOCTYPE declarations are not allowed');
+
 	const doc = new DOMParser().parseFromString(source, 'image/svg+xml');
 	if (doc.querySelector('parsererror')) throw new Error('Invalid SVG');
 
 	const blockedTags = new Set(['script', 'foreignobject', 'iframe', 'object', 'embed']);
 	for (const element of Array.from(doc.querySelectorAll('*'))) {
-		if (blockedTags.has(element.tagName.toLowerCase())) {
-			throw new Error(`SVG contains unsupported <${element.tagName.toLowerCase()}> content`);
+		const tagName = element.tagName.toLowerCase();
+		if (blockedTags.has(tagName)) {
+			throw new Error(`SVG contains unsupported <${tagName}> content`);
 		}
+		if (tagName === 'style' && containsUnsafeCssResource(element.textContent || '')) {
+			throw new Error('SVG external style resources are not allowed');
+		}
+
 		for (const attribute of Array.from(element.attributes)) {
 			const name = attribute.name.toLowerCase();
 			const value = attribute.value.trim();
@@ -175,8 +193,8 @@ async function sanitizeSvg(file: File): Promise<Blob> {
 			if ((name === 'href' || name === 'xlink:href' || name === 'src') && value && !value.startsWith('#')) {
 				throw new Error('SVG external resources are not allowed');
 			}
-			if (name === 'style' && /(?:url\s*\(|@import)/i.test(value)) {
-				throw new Error('SVG external style resources are not allowed');
+			if (containsUnsafeCssResource(value)) {
+				throw new Error('SVG external resources are not allowed');
 			}
 		}
 	}
