@@ -1,0 +1,37 @@
+name: Lore workspace UI
+on:
+  pull_request:
+    paths:
+      - 'frontend/src/lib/components/Lore*.svelte'
+      - 'frontend/src/lib/components/lore/**'
+      - 'frontend/src/lib/lore/**'
+      - 'frontend/src/lib/loreLocal*.ts'
+      - 'frontend/scripts/lore-*.mjs'
+      - '.github/workflows/lore-workspace-ui.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Presentation and existing local-workflow tests
+        run: |
+          node --experimental-strip-types --test scripts/lore-workspace-presentation.test.mjs scripts/lore-local-changes.test.mjs scripts/lore-local-detection.test.mjs
+          node --experimental-vm-modules --test scripts/lore-local-observer.test.mjs
+      - name: Compile shared workspace components for browser and server
+        run: node scripts/lore-workspace-compile.mjs
+      - name: Full frontend type check
+        run: npm run check
+      - name: Static build
+        run: npm run build:static
