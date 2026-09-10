@@ -1,0 +1,40 @@
+name: Repair frontend TypeScript lockfile
+
+on:
+  push:
+    branches:
+      - fix/github-actions-rust-toolchain
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/github-actions-rust-toolchain
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Resolve compatible TypeScript version
+        working-directory: frontend
+        run: npm install --package-lock-only --ignore-scripts --save-dev --save-exact typescript@6.0.3
+
+      - name: Commit generated package metadata
+        run: |
+          if git diff --quiet -- frontend/package.json frontend/package-lock.json; then
+            echo "Package metadata already repaired."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/package.json frontend/package-lock.json
+          git commit -m "fix(frontend): restore compatible TypeScript 6"
+          git push origin HEAD:fix/github-actions-rust-toolchain
