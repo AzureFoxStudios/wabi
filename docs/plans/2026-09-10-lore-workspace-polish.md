@@ -22,7 +22,7 @@ One repository should not have different navigation when opened from a channel v
 
 ## Verification performed here
 
-- `node --experimental-strip-types --test frontend/scripts/lore-workspace-presentation.test.mjs`: **53 passed, 0 failed**. 45 tests execute pure production presentation helpers (timestamp ordering, labels, preview classification, relative paths, draft equality and request epochs); 8 supplementary source-contract tests inspect integration boundaries. Source-contract tests are NOT Svelte compilation or browser interaction tests.
+- `node --experimental-strip-types --test frontend/scripts/lore-workspace-presentation.test.mjs`: **53 passed, 0 failed**. 46 tests execute pure production presentation helpers (timestamp ordering, labels, preview classification, relative paths, draft equality and request epochs); 7 supplementary source-contract tests inspect integration boundaries. Source-contract tests are NOT Svelte compilation or browser interaction tests.
 - Strict standalone TypeScript type check of `workspacePresentation.ts`: passed.
 - TypeScript syntax transpilation of the new/replaced TS modules and nine Svelte script blocks: 11 inputs, no syntax diagnostics. This does not compile the Svelte markup or resolve application types/imports.
 - `lore-workspace-compile.mjs` adds real client/server Svelte compilation checks. A focused frontend-only GitHub workflow runs presentation + existing staging/detection tests, actual Svelte compilation, full frontend check and static build. It does not depend on the unrelated Rust CI job and has read-only permissions, no deployment steps or secrets.
@@ -38,3 +38,18 @@ One repository should not have different navigation when opened from a channel v
 6. Explicit file/project-picker navigation warns before discarding dirty editor/settings state. Global application sidebar navigation can still unmount the workspace; application-wide navigation blocking/draft recovery is a separate integration concern, not advertised as solved here.
 
 No new server routes, WabiDB events, generated protocol changes, native watcher/transfer changes, automatic file mutations, atomic multi-file commits, or production deployment are included.
+
+
+## GitHub verification after publication
+
+Implementation commit: `54953bbda444dc94dccc553989b30b58e483cfbf`.
+Independent compiler-check commit: `701438d8602a5244454df49a5512c5e94e0910e4`.
+
+Workflow run `34460938792`, markup job `102818352163`, completed successfully:
+- All 53 presentation tests passed again on GitHub's PR merge checkout.
+- The repository-pinned Svelte compiler **5.56.8** compiled all nine new/replaced components for both client and server: **18 targets, zero errors, six warnings**.
+- Four warnings (two per target) identify deliberately captured initial server/channel props in the per-context keyed workspace. Two warnings identify a self-closing datalist option in the history picker. These warnings are not an assertion of full type-check or runtime success; review them alongside the full frontend gate.
+
+The separate full frontend job `102818351906` failed during `npm ci`, before application checks. The first attempt's decoded log (`102816578576`) identifies the pre-existing dependency conflict: `typescript@7.0.2` versus `@sveltejs/kit@2.59.0`'s optional peer range `^5.3.3 || ^6.0.0`. The application dependency files and peer enforcement were NOT changed. The isolated compiler job installs only the repository-pinned Svelte package into a temporary tool directory; it does not make the full frontend job green.
+
+The overall workflow is therefore still failing. Full application type-check/static build, browser interactions, and native desktop tests are still outstanding. No merge or deployment was performed.
