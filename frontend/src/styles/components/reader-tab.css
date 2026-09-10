@@ -314,6 +314,12 @@
 	.reader-import-grid { grid-template-columns: minmax(0, 1fr); }
 	.reader-focused .reader-settings-panel { top: 56px; }
 }
+@container reader (max-width: 379px) {
+	.reader-toolbar .reader-tool { flex-basis: 32px; width: 32px; }
+	.reader-search-trigger { width: 32px; padding: 6px; }
+	.reader-open-button { padding-inline: 8px; }
+	.reader-open-button span { display: none; }
+}
 @media (prefers-reduced-motion: reduce) {
 	.reader-redesign *, .reader-redesign *::before, .reader-redesign *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }

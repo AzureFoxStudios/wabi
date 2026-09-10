@@ -112,9 +112,9 @@
 			lastAnchor = saved;
 			void tick().then(async () => {
 				if (cancelled) return;
+				wordCount = content ? countWords(content.textContent || '') : 0;
 				outline = content ? prepareReaderDocument(content) : [];
 				blocks = content ? readerBlocks(content) : Array.from(view.querySelectorAll<HTMLElement>('.reader-image-page'));
-				wordCount = content ? countWords(content.textContent || '') : 0;
 				contentHasTitle = !!content?.querySelector('h1');
 				await tick();
 				if (cancelled) return;
@@ -471,6 +471,7 @@
 
 	{#if $readerSelection}
 		<div class="reader-workspace">
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable reading region must be keyboard-focusable.) -->
 			<div bind:this={viewport} class="reader-viewport" class:reader-paged={!isImageMode && layout === 'paged'} class:reader-images={isImageMode} class:reader-horizontal={isImageMode && horizontal} tabindex="0" role="region" aria-label={$readerSelection.title} onscroll={handleScroll}>
 				{#if isImageMode}
 					<div class="reader-gallery" data-fit={$readerPreferences.imageFit} dir={$readerPreferences.readingDirection === 'rtl' ? 'rtl' : 'ltr'}>
@@ -486,7 +487,7 @@
 								<div class="reader-document-meta"><span>{wordCount.toLocaleString()} words</span><span>~{minutes} min read</span><span>{formatSourceLabel($readerSelection.source)}</span></div>
 							</header>
 							<!-- The delegated handler only enhances real links and real copy buttons. -->
-							<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events (Delegated clicks originate from native links and buttons, which already support keyboard activation.) -->
 							<div class="reader-document-body" bind:this={body} onclick={handleArticleClick}>{@html html}</div>
 						</article>
 					</div>

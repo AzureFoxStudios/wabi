@@ -77,6 +77,13 @@ readerLibrary.subscribe((records) => {
 	}
 });
 
+// Bookmark IDs are local record keys, not authentication tokens. The fallback
+// keeps self-hosted HTTP installations working where randomUUID is unavailable.
+function makeReaderItemId(): string {
+	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+	return `reader-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 function editRecord(key: string, edit: (record: ReaderReadingRecord) => ReaderReadingRecord): void {
 	if (!key) return;
 	readerLibrary.update((records) => ({ ...records, [key]: edit(records[key] || { bookmarks: [], notes: [] }) }));
@@ -90,7 +97,7 @@ export function addReaderBookmark(key: string, label: string, anchor: ReaderAnch
 	editRecord(key, (record) => ({
 		...record,
 		bookmarks: [...record.bookmarks, {
-			id: crypto.randomUUID(), label: label.trim().slice(0, 160) || 'Saved place', anchor, createdAt: Date.now()
+			id: makeReaderItemId(), label: label.trim().slice(0, 160) || 'Saved place', anchor, createdAt: Date.now()
 		}].slice(-MAX_ITEMS)
 	}));
 }
@@ -103,7 +110,7 @@ export function addReaderNote(key: string, text: string, anchor: ReaderAnchor): 
 	if (!text.trim()) return;
 	editRecord(key, (record) => ({
 		...record,
-		notes: [...record.notes, { id: crypto.randomUUID(), text: text.trim().slice(0, 10000), anchor, createdAt: Date.now() }].slice(-MAX_ITEMS)
+		notes: [...record.notes, { id: makeReaderItemId(), text: text.trim().slice(0, 10000), anchor, createdAt: Date.now() }].slice(-MAX_ITEMS)
 	}));
 }
 

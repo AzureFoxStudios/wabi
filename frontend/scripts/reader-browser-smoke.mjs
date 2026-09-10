@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,12 +14,26 @@ const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const fixture = await mkdtemp(path.join(frontend, '.reader-smoke-'));
 const artifacts = process.env.READER_ARTIFACT_DIR || path.join(tmpdir(), 'wabi-reader-artifacts');
 await mkdir(artifacts, { recursive: true });
-const file = (relative) => JSON.stringify(path.join(frontend, relative));
+const file = (relative) => JSON.stringify(path.join(fixture, relative));
 let server;
 let browser;
 const passed = [];
 
 try {
+	// Copy production bytes into an isolated TypeScript project. Otherwise the
+	// fixture inherits Kit's generated tsconfig, which needs a full app sync.
+	for (const relative of [
+		'src/lib/components/ReaderTabImpl.svelte', 'src/lib/components/ReaderImportSheet.svelte',
+		'src/lib/components/ReaderIcon.svelte', 'src/lib/components/readerTabHelpers.ts',
+		'src/lib/components/readerDocumentTools.ts', 'src/lib/readerWorkspace.ts',
+		'src/lib/readerLibrary.ts', 'src/styles/components/reader-tab.css'
+	]) {
+		await mkdir(path.dirname(path.join(fixture, relative)), { recursive: true });
+		await copyFile(path.join(frontend, relative), path.join(fixture, relative));
+	}
+	await writeFile(path.join(fixture, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
+		target: 'ES2022', module: 'ESNext', moduleResolution: 'bundler', skipLibCheck: true
+	} }));
 	await writeFile(path.join(fixture, 'environment.js'), 'export const browser = true; export const dev = true; export const building = false;');
 	await writeFile(path.join(fixture, 'tabQueue.js'), 'export const mobileTabQueue = { openAddonTab() {} };');
 	await writeFile(path.join(fixture, 'main.js'), `
@@ -49,15 +63,16 @@ try {
 		resolve: { dedupe: ['svelte'], alias: [
 			{ find: '$app/environment', replacement: path.join(fixture, 'environment.js') },
 			{ find: '$lib/mobileTabQueue', replacement: path.join(fixture, 'tabQueue.js') },
-			{ find: '$lib', replacement: path.join(frontend, 'src/lib') }
+			{ find: '$lib', replacement: path.join(fixture, 'src/lib') }
 		] },
+		optimizeDeps: { rolldownOptions: { tsconfig: false } },
 		server: { host: '127.0.0.1', port: 0, fs: { allow: [frontend] } },
 		logLevel: 'warn'
 	});
 	await server.listen();
 	const origin = server.resolvedUrls.local[0];
 	// Headful under Xvfb avoids the repository's documented headless Skia crash.
-	browser = await chromium.launch({ headless: false, args: ['--no-sandbox'] });
+	browser = await chromium.launch({ headless: false, executablePath: process.env.READER_CHROMIUM_PATH, args: ['--no-sandbox'] });
 	const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, colorScheme: 'light', reducedMotion: 'reduce' });
 	await context.route('**/*', (route) => new URL(route.request().url()).origin === new URL(origin).origin ? route.continue() : route.abort());
 	const page = await context.newPage();
