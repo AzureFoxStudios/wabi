@@ -67,19 +67,21 @@
 				</div>
 			</div>
 			<div class="album-viewer-stage">
-				{#if isVideoAlbumItem(currentItem)}
-					<video controls autoplay playsinline>
-						<source
+				{#key currentItem.id}
+					{#if isVideoAlbumItem(currentItem)}
+						<video controls autoplay playsinline preload="metadata">
+							<source
+								src={resolveAlbumAssetUrl(currentItem.attachmentUrl)}
+								type={currentItem.attachmentMime || undefined}
+							/>
+						</video>
+					{:else}
+						<img
 							src={resolveAlbumAssetUrl(currentItem.attachmentUrl)}
-							type={currentItem.attachmentMime || undefined}
+							alt={currentItem.attachmentName}
 						/>
-					</video>
-				{:else}
-					<img
-						src={resolveAlbumAssetUrl(currentItem.attachmentUrl)}
-						alt={currentItem.attachmentName}
-					/>
-				{/if}
+					{/if}
+				{/key}
 				{#if items.length > 1}
 					<button type="button" class="album-viewer-nav album-viewer-nav-prev" on:click={() => navigate('prev')} aria-label="Previous album item">
 						&lt;

@@ -8,6 +8,7 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
+	import { deletedAlbumNames, isAlbumDeletedByNameSet } from '$lib/albumLifecycle';
 	import { promoteCacheStore } from '$lib/lorePromoteCache';
 	import {
 		formatFileSize,
@@ -77,15 +78,22 @@
 	}
 
 	function getAlbumAnnouncementStatusLabel(meta: { name: string }, itemCount = 0): string {
+		if (isAlbumDeletedByNameSet($deletedAlbumNames, meta.name)) return 'Deleted';
 		if (albumAnnouncementUploadName === meta.name) return 'Uploading';
 		return itemCount > 0 ? `${itemCount} items` : 'Click to upload';
 	}
 
 	function getAlbumAnnouncementSupportText(meta: { name: string }, itemCount = 0): string {
+		if (isAlbumDeletedByNameSet($deletedAlbumNames, meta.name))
+			return 'This album was deleted. The chat message remains for history.';
 		if (albumAnnouncementUploadName === meta.name) return 'Uploading files into this shared album now.';
 		if (itemCount > 0) return 'Open Albums to browse this shared album or add more files.';
 		return 'Click anywhere on this row to add the first image, or open Albums to manage it.';
 	}
+
+	$: albumAnnouncementDeleted = albumAnnouncement
+		? isAlbumDeletedByNameSet($deletedAlbumNames, albumAnnouncement.name)
+		: false;
 </script>
 
 {#if message.type === 'file' && (message.fileUrl || message.files)}
@@ -99,10 +107,16 @@
 							.slice(0, 4)}
 						<div
 							class="album-message-card album-message-card--actionable"
-							role="button"
-							tabindex="0"
-							on:click={() => onHandleAlbumActivate(albumAnnouncement, true)}
-							on:keydown={(event) => onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, true)}
+							class:album-message-card--deleted={albumAnnouncementDeleted}
+							role={albumAnnouncementDeleted ? undefined : 'button'}
+							tabindex={albumAnnouncementDeleted ? undefined : 0}
+							on:click={() => {
+								if (!albumAnnouncementDeleted) onHandleAlbumActivate(albumAnnouncement, true);
+							}}
+							on:keydown={(event) => {
+								if (!albumAnnouncementDeleted)
+									onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, true);
+							}}
 						>
 							<div class="album-message-main">
 								<div class="album-message-head">
@@ -123,7 +137,10 @@
 											>
 												{#if isVideo(fileAttachment.fileName)}
 													<video muted playsinline preload="metadata">
-														<source src={getFileUrl(fileAttachment.fileUrl)} />
+														<source
+															src={getFileUrl(fileAttachment.fileUrl)}
+															type={getMediaMimeType(fileAttachment.fileName) || undefined}
+														/>
 													</video>
 												{:else}
 													<img
@@ -143,17 +160,21 @@
 								{/if}
 							</div>
 							<div class="album-message-actions">
-								<button
-									type="button"
-									class="album-message-btn"
-									disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-									on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
-								>
-									{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
-								</button>
-								<button type="button" class="album-message-btn primary" on:click|stopPropagation={onOpenAlbumPanel}>
-									Open Album
-								</button>
+								{#if albumAnnouncementDeleted}
+									<span class="album-message-deleted-note">Album deleted</span>
+								{:else}
+									<button
+										type="button"
+										class="album-message-btn"
+										disabled={albumAnnouncementUploadName === albumAnnouncement.name}
+										on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
+									>
+										{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
+									</button>
+									<button type="button" class="album-message-btn primary" on:click|stopPropagation={onOpenAlbumPanel}>
+										Open Album
+									</button>
+								{/if}
 								{#if albumPreviewFiles.length > 0}
 									<button
 										type="button"
@@ -208,8 +229,12 @@
 												onEnlargeVideo(getFileUrl(fileAttachment.fileUrl));
 											}}
 											title={$_('messages.media.click_enlarge')}
+											preload="metadata"
 										>
-											<source src={getFileUrl(fileAttachment.fileUrl)} />
+											<source
+												src={getFileUrl(fileAttachment.fileUrl)}
+												type={getMediaMimeType(fileAttachment.fileName) || undefined}
+											/>
 										</video>
 										{#if index === 3 && message.files.length > 4}
 											<div class="more-overlay">
