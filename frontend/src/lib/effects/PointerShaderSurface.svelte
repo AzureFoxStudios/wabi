@@ -117,7 +117,11 @@ void main() {
 	}
 
 	function parseAccent(): [number, number, number] {
-		const raw = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+		const style = getComputedStyle(document.documentElement);
+		const raw =
+			style.getPropertyValue('--accent-primary-color').trim() ||
+			style.getPropertyValue('--accent-primary').trim() ||
+			style.getPropertyValue('--accent').trim();
 		const short = raw.match(/^#([0-9a-f]{3})$/i);
 		if (short) return short[1].split('').map((value) => parseInt(value + value, 16) / 255) as [number, number, number];
 		const long = raw.match(/^#([0-9a-f]{6})$/i);
