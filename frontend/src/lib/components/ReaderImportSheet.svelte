@@ -1,49 +1,35 @@
 <script lang="ts">
+	import ReaderIcon from './ReaderIcon.svelte';
 	import type { ReaderDocumentFormat } from '$lib/readerWorkspace';
 
-	export let importTitle = '';
-	export let importContent = '';
-	export let importFormat: ReaderDocumentFormat = 'markdown';
-	export let onClose: () => void = () => {};
-	export let onSubmit: () => void = () => {};
+	let {
+		importTitle = $bindable(''),
+		importContent = $bindable(''),
+		importFormat = $bindable<ReaderDocumentFormat>('markdown'),
+		onClose = () => {},
+		onSubmit = () => {}
+	}: {
+		importTitle?: string;
+		importContent?: string;
+		importFormat?: ReaderDocumentFormat;
+		onClose?: () => void;
+		onSubmit?: () => void;
+	} = $props();
+
+	function openDialog(node: HTMLDialogElement) {
+		node.showModal();
+		return { destroy() { node.close(); } };
+	}
 </script>
 
-<div class="reader-import-sheet">
-	<div class="reader-import-card">
-		<div class="reader-import-header">
-			<h3>Import Into Reader</h3>
-			<button class="reader-action-btn subtle" type="button" on:click={onClose}>Close</button>
-		</div>
+<dialog class="reader-import-dialog" use:openDialog aria-label="Import into Reader" oncancel={onClose}>
+	<form onsubmit={(event) => { event.preventDefault(); if (importContent.trim()) onSubmit(); }}>
+		<div class="reader-panel-heading"><h2>Open something to read</h2><button class="reader-tool" type="button" onclick={onClose} aria-label="Close import dialog"><ReaderIcon name="close" /></button></div>
 		<div class="reader-import-grid">
-			<label class="reader-field">
-				<span>Title</span>
-				<input
-					type="text"
-					bind:value={importTitle}
-					placeholder="Document title"
-				/>
-			</label>
-			<label class="reader-field">
-				<span>Format</span>
-				<select bind:value={importFormat}>
-					<option value="markdown">Markdown</option>
-					<option value="text">Plain text</option>
-					<option value="html">HTML</option>
-				</select>
-			</label>
+			<label class="reader-field">Title<input type="text" bind:value={importTitle} maxlength="240" placeholder="Document title" /></label>
+			<label class="reader-field">Format<select bind:value={importFormat}><option value="text">Plain text</option><option value="markdown">Markdown</option><option value="html">HTML</option></select></label>
 		</div>
-		<label class="reader-field block">
-			<span>Content</span>
-			<textarea
-				bind:value={importContent}
-				rows="14"
-				placeholder="Paste an article, chapter, essay, or issue draft here."
-			></textarea>
-		</label>
-		<div class="reader-import-actions">
-			<button class="reader-action-btn primary" type="button" on:click={onSubmit} disabled={!importContent.trim()}>
-				Open In Reader
-			</button>
-		</div>
-	</div>
-</div>
+		<label class="reader-field">Content<textarea bind:value={importContent} rows="12" placeholder="Paste an article, chapter, essay, or notes here."></textarea></label>
+		<div class="reader-import-actions"><button type="button" class="reader-secondary-button" onclick={onClose}>Cancel</button><button class="reader-secondary-button reader-import-submit" type="submit" disabled={!importContent.trim()}>Open in Reader</button></div>
+	</form>
+</dialog>
