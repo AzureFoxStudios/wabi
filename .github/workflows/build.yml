@@ -14,7 +14,7 @@ env:
   RUST_BACKTRACE: 1
 
 # Determinism contract for this workflow:
-#   - Rust comes from the committed rust-toolchain.toml (not @stable).
+#   - Rust is pinned to the same version as rust-toolchain.toml (not @stable).
 #   - Frontend deps come from the committed frontend/package-lock.json via
 #     `npm ci` (bun.lock is gitignored and must never govern CI installs).
 #     There is NO fallback to an unlocked install: a stale lockfile must
@@ -43,10 +43,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install Rust (pinned via rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@master
+      - name: install Rust
+        uses: dtolnay/rust-toolchain@1.93
         with:
-          toolchain-file: rust-toolchain.toml
           targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: install dependencies (ubuntu only)
@@ -90,10 +89,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install Rust (pinned via rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain-file: rust-toolchain.toml
+      - name: install Rust
+        uses: dtolnay/rust-toolchain@1.93
 
       - name: install node
         uses: actions/setup-node@v4
