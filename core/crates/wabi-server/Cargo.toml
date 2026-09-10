@@ -93,7 +93,7 @@ urlencoding = "2"
 # Optional addons
 wabi-webhooks = { path = "../../addons/webhooks/backend", optional = true }
 wabi-lore = { path = "../../addons/lore/backend", optional = true }
-age = { version = "0.11.3", default-features = false }
+age = { version = "0.12.1", default-features = false }
 
 # Payments rails (roadmap Phases 2-4): compile-time-optional addons
 wabi-payments-crypto = { path = "../../addons/payments-crypto/backend", optional = true }
