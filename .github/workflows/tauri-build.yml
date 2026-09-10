@@ -31,10 +31,9 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Setup Rust (pinned via rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@master
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.93
         with:
-          toolchain-file: rust-toolchain.toml
           targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-msvc,x86_64-apple-darwin
 
       - name: Install Linux dependencies
