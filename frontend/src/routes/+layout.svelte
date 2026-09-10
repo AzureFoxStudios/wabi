@@ -16,7 +16,7 @@
 	import { startupMark, startupMeasure } from '$lib/startupProfiler';
 	import { initEmojis } from '$lib/emoji-store';
 	import AmbientBackground from '$lib/effects/AmbientBackground.svelte';
-	import MouseFeeler from '$lib/effects/MouseFeeler.svelte';
+	import LocalVisualEffectsHost from '$lib/effects/LocalVisualEffectsHost.svelte';
 	import ConnectionBadge from '$lib/effects/ConnectionBadge.svelte';
 	import { startSocketErrorToasts, socketToasts } from '$lib/socketErrorToasts';
 	import { startInstallPromptCapture } from '$lib/pwa/installPrompt';
@@ -200,8 +200,8 @@ function isLocalPreviewHost(): boolean {
 	<slot />
 </div>
 
-<!-- Cosmetic pointer reveal sits above UI but never intercepts input. -->
-<MouseFeeler />
+<!-- User-owned local effects live behind one root host. -->
+<LocalVisualEffectsHost />
 
 <style>
 	/* Keep the ambient effect canvas painted behind all app UI.
