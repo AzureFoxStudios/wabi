@@ -29,7 +29,7 @@ jobs:
           run-id: 34479587807
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/previous-candidate
-      - name: Validate candidate ancestry and correct stale catalog assertions
+      - name: Validate ancestry and apply narrowly scoped integration fixes
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/pr-audit" "$RUNNER_TEMP/pr-checks"
@@ -61,13 +61,36 @@ jobs:
                       vec!["owner", "admin", "developer", "mod", "artist", "member", "guest"]
                   );'''
           assert source.count(old) == 1
-          source = source.replace(old, new)
-          path.write_text(source)
-          report['integrationFix'] = 'Update two stale five-role assertions to the existing seven-role server catalog; retain all authorization/persistence checks and compare full reloaded names instead of just a count.'
+          path.write_text(source.replace(old, new))
+          # Tokio File::write_all may return before its blocking write finishes.
+          # Complete the corrupting write and verify the fixture before testing the reader.
+          path = pathlib.Path('core/crates/wabidb/src/blobs/read.rs')
+          assert subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() == 'c7a72f979dfa4c96d001e6148801ad84dba77032'
+          source = path.read_text()
+          old = '        drop(f);\n        // Now read; the hash check should fail.'
+          new = '''        // Wait for Tokio's background write before reopening this fixture.
+                  tokio::io::AsyncWriteExt::flush(&mut f).await.unwrap();
+                  drop(f);
+                  assert_eq!(tokio::fs::read(&canonical).await.unwrap(), b"original content!corrupt");
+                  // Now read; the hash check should fail.'''
+          assert source.count(old) == 1
+          path.write_text(source.replace(old, new))
+          # reqwest 0.13 gates RequestBuilder::query behind an explicit feature.
+          path = pathlib.Path('src-tauri/Cargo.toml')
+          source = path.read_text()
+          old = 'reqwest = { version = "0.13", features = ["socks", "stream", "json"] }'
+          new = 'reqwest = { version = "0.13", features = ["socks", "stream", "json", "query"] }'
+          assert source.count(old) == 1
+          path.write_text(source.replace(old, new))
+          report['integrationFixes'] = [
+              'Update two stale five-role expectations to the existing seven-role catalog, retaining permission/persistence checks and comparing full reloaded names.',
+              'Flush and verify the corrupting test write before reading it; do not change BlobReader or weaken its integrity assertion.',
+              'Enable the reqwest query feature already used by native Lore publication; preserve conditional writes and manual decisions.'
+          ]
           (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
           PY
-          git add -- core/crates/wabi-server/tests/admin_role_contract.rs
-          git commit -m 'test(roles): match the existing seven-role catalog in contract fixtures'
+          git add -- core/crates/wabi-server/tests/admin_role_contract.rs core/crates/wabidb/src/blobs/read.rs src-tauri/Cargo.toml
+          git commit -m 'fix(integration): enable native query support and repair stale/racy test fixtures'
           printf 'assembly=0\n' > "$RUNNER_TEMP/pr-checks/status.txt"
       - uses: actions/setup-node@v4
         with:
@@ -135,28 +158,34 @@ jobs:
           bash scripts/fetch-tailcat-sidecar.sh
           test -s src-tauri/binaries/tailcat-x86_64-unknown-linux-gnu
           sha256sum src-tauri/binaries/tailcat-x86_64-unknown-linux-gnu > "$RUNNER_TEMP/pr-checks/sidecar-sha256.txt"
-      - name: Compile both native entry points and run local-workspace tests
+      - name: Resolve native query support, compile both entry points and run local-workspace tests
         shell: bash
         env:
           WABI_SKIP_VIEWER_TEST: 1
         run: |
           set +e
-          cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked > "$RUNNER_TEMP/pr-checks/native-check.log" 2>&1
+          cargo check --manifest-path src-tauri/Cargo.toml --all-targets > "$RUNNER_TEMP/pr-checks/native-check.log" 2>&1
           code=$?
           echo "native_check=$code" >> "$RUNNER_TEMP/pr-checks/status.txt"
           if [ "$code" = 0 ]; then
+            cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked > "$RUNNER_TEMP/pr-checks/native-locked.log" 2>&1
+            echo "native_locked=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
             cargo test --manifest-path src-tauri/Cargo.toml --locked --lib lore_local > "$RUNNER_TEMP/pr-checks/native-tests.log" 2>&1
             echo "native_tests=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
           fi
           tail -120 "$RUNNER_TEMP/pr-checks/native-check.log"
           tail -100 "$RUNNER_TEMP/pr-checks/native-tests.log" 2>/dev/null || true
           exit 0
-      - name: Export exact reviewed candidate
+      - name: Export exact reviewed candidate and genuine native lockfile
         if: always()
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/pr-result"
           test -f "$RUNNER_TEMP/pr-audit/report.json"
+          git add -- src-tauri/Cargo.lock
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore(desktop): record native query feature dependency resolution'
+          fi
           base=$(cat "$RUNNER_TEMP/pr-audit/base.txt")
           git rev-parse HEAD > "$RUNNER_TEMP/pr-result/head.txt"
           printf '%s\n' "$base" > "$RUNNER_TEMP/pr-result/base.txt"
@@ -182,7 +211,7 @@ jobs:
         run: |
           test -f "$RUNNER_TEMP/pr-checks/status.txt"
           cat "$RUNNER_TEMP/pr-checks/status.txt"
-          for name in assembly install frontend_tests frontend_check frontend_build cargo_check cargo_test lore_rust_tests native_check native_tests; do
+          for name in assembly install frontend_tests frontend_check frontend_build cargo_check cargo_test lore_rust_tests native_check native_locked native_tests; do
             grep -q "^$name=0$" "$RUNNER_TEMP/pr-checks/status.txt" || exit 1
           done
           ! grep -v '=0$' "$RUNNER_TEMP/pr-checks/status.txt"
