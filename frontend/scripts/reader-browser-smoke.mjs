@@ -9,7 +9,7 @@ import { chromium } from 'playwright';
 
 // Uses the production Reader, parser, preferences, library, and CSS. Only the
 // surrounding tab queue is stubbed: this test never contacts a Wabi server.
-// Run on Linux: xvfb-run -a node scripts/reader-browser-smoke.mjs
+// Run on Linux: npx svelte-kit sync && xvfb-run -a node scripts/reader-browser-smoke.mjs
 const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = await mkdtemp(path.join(frontend, '.reader-smoke-'));
 const artifacts = process.env.READER_ARTIFACT_DIR || path.join(tmpdir(), 'wabi-reader-artifacts');
@@ -18,6 +18,8 @@ const file = (relative) => JSON.stringify(path.join(fixture, relative));
 let server;
 let browser;
 const passed = [];
+const screenshotErrors = [];
+const browserErrors = [];
 
 try {
 	// Copy production bytes into an isolated TypeScript project. Otherwise the
@@ -76,12 +78,29 @@ try {
 	const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, colorScheme: 'light', reducedMotion: 'reduce' });
 	await context.route('**/*', (route) => new URL(route.request().url()).origin === new URL(origin).origin ? route.continue() : route.abort());
 	const page = await context.newPage();
-	const errors = [];
-	page.on('pageerror', (error) => errors.push(error.message));
+	page.on('pageerror', (error) => browserErrors.push(error.message));
+	// A capture failure must not prevent functional assertions from running.
+	// It is still a failed check at the end, with partial results preserved.
+	const capture = async (name) => {
+		let failure;
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			try {
+				await page.bringToFront();
+				await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+				await page.screenshot({ path: path.join(artifacts, name), animations: 'disabled', timeout: 15000 });
+				return;
+			} catch (error) {
+				failure = String(error?.message || error);
+				await page.waitForTimeout(250);
+			}
+		}
+		screenshotErrors.push({ file: name, error: failure });
+		console.warn(`Screenshot failed: ${name}: ${failure}`);
+	};
 	await page.goto(origin);
 	await page.waitForFunction(() => !!window.readerTest);
 	await page.locator('.reader-home h1').waitFor();
-	await page.screenshot({ path: path.join(artifacts, '01-reader-home.png') });
+	await capture('01-reader-home.png');
 	passed.push('real component mounts with functional empty state');
 
 	const paragraph = 'The path through the valley opened into a broad stretch of morning light. A reader should be able to stay here for a while, following a thought without fighting the page. Comfortable lines, clear paragraphs, and a steady place to return are more useful than a crowded toolbar.';
@@ -108,7 +127,7 @@ try {
 	assert.equal(initial.xss, undefined);
 	assert.equal(await page.locator('.reader-document-body script').count(), 0);
 	assert.equal(await page.locator('.reader-outline-item').count(), 82);
-	await page.screenshot({ path: path.join(artifacts, '02-long-form-reading.png') });
+	await capture('02-long-form-reading.png');
 	passed.push('100k+ word document: full-height scrolling, isolated contrast, true contents and sanitized HTML');
 
 	await page.locator('.reader-viewport').focus();
@@ -164,7 +183,7 @@ try {
 	});
 	assert.ok(endVisible, 'the last paragraph must remain reachable in paged mode');
 	await seek(0);
-	await page.screenshot({ path: path.join(artifacts, '03-paged-reading.png') });
+	await capture('03-paged-reading.png');
 	passed.push('real paginated columns, exact page navigation and reachable final paragraph');
 
 	await page.getByRole('button', { name: 'Switch to continuous scrolling', exact: true }).click();
@@ -193,7 +212,7 @@ try {
 		assert.equal(overflow, false, `toolbar controls must fit a ${width}px-wide dock`);
 	}
 	await seek(0);
-	await page.screenshot({ path: path.join(artifacts, '04-mobile-reading.png') });
+	await capture('04-mobile-reading.png');
 	passed.push('mobile and narrow-dock controls remain visible at 390px and 320px');
 
 	await page.setViewportSize({ width: 1440, height: 960 });
@@ -213,11 +232,14 @@ try {
 	assert.equal(await page.getByRole('dialog', { name: 'Image viewer', exact: true }).count(), 0);
 	passed.push('multiple image import retains its FileList, page navigation and native-dialog Escape work');
 
-	assert.deepEqual(errors, [], `unexpected browser errors: ${errors.join('\n')}`);
-	console.log(JSON.stringify({ passed, checks: passed.length }, null, 2));
-	await writeFile(path.join(artifacts, 'results.json'), JSON.stringify({ passed, checks: passed.length }, null, 2));
+	assert.deepEqual(browserErrors, [], `unexpected browser errors: ${browserErrors.join('\n')}`);
+	const results = { passed, checks: passed.length, functionalChecksPassed: true, screenshotErrors };
+	console.log(JSON.stringify(results, null, 2));
+	await writeFile(path.join(artifacts, 'results.json'), JSON.stringify(results, null, 2));
+	assert.deepEqual(screenshotErrors, [], 'Functional checks completed, but visual screenshot capture failed');
 } catch (error) {
 	await writeFile(path.join(artifacts, 'failure.txt'), String(error?.stack || error));
+	await writeFile(path.join(artifacts, 'partial-results.json'), JSON.stringify({ passed, checks: passed.length, screenshotErrors, browserErrors }, null, 2));
 	throw error;
 } finally {
 	await browser?.close();
