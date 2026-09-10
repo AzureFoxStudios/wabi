@@ -313,7 +313,10 @@ mod tests {
         tokio::io::AsyncWriteExt::write_all(&mut f, b"!corrupt")
             .await
             .unwrap();
+        // Wait for Tokio's background write before reopening this fixture.
+        tokio::io::AsyncWriteExt::flush(&mut f).await.unwrap();
         drop(f);
+        assert_eq!(tokio::fs::read(&canonical).await.unwrap(), b"original content!corrupt");
         // Now read; the hash check should fail.
         let err = r.read(&wr.hash).await.unwrap_err();
         assert!(matches!(err, WabiError::Corrupt { .. }), "got {err:?}");

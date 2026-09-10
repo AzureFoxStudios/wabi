@@ -106,7 +106,7 @@ async fn catalog_is_explicit_and_legacy_rename_cannot_write_or_change_membership
     let catalog = client.event("role-definitions-updated").await;
     assert_eq!(catalog["canRename"], false);
     assert_eq!(catalog["roles"].as_array().unwrap().iter().map(|r| r["roleName"].as_str().unwrap()).collect::<Vec<_>>(),
-        vec!["owner", "admin", "mod", "member", "guest"]);
+        vec!["owner", "admin", "developer", "mod", "artist", "member", "guest"]);
     for role in ["member", "Admin", "Owner", "unknown"] {
         client.emit("set-role-display-name", json!({"roleName":role,"displayName":"rename-canary"})).await;
         assert_eq!(client.event("set-role-display-name-error").await["code"], "unsupported");
@@ -212,7 +212,11 @@ async fn lowercase_assignments_have_one_durable_authority_and_update_live_and_re
             let user = init[field].as_array().unwrap().iter().find(|user| user["dbUserId"] == member).unwrap();
             assert_eq!(user["highestRole"], display, "{field}");
         }
-        assert_eq!(init["roleDefinitions"].as_array().unwrap().len(), 5);
+        assert_eq!(
+            init["roleDefinitions"].as_array().unwrap().iter()
+                .map(|role| role["roleName"].as_str().unwrap()).collect::<Vec<_>>(),
+            vec!["owner", "admin", "developer", "mod", "artist", "member", "guest"]
+        );
     }
     assert!(state.wdb.list_channel_members("").await.unwrap().is_empty());
 }

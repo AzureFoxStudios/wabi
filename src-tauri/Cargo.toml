@@ -32,7 +32,7 @@ notify = "8.2"
 
 # Tailcat private access (tunnel + local forwarder for the webview)
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "process", "time", "sync", "fs"] }
-reqwest = { version = "0.13", features = ["socks", "stream", "json"] }
+reqwest = { version = "0.13", features = ["socks", "stream", "json", "query"] }
 http = "1"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio", "http1"] }
