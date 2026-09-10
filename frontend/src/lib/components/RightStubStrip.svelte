@@ -40,6 +40,24 @@
 	const drawerPanels = $derived(
 		availablePanels.filter((panel) => !$layoutStore.stubStrip.includes(panel.id))
 	);
+	// Fallback seed for the wiki/forum stubs: DEFAULT_STUB_STRIP lives in
+	// layoutStoreStates.ts (not owned by this change), so fresh/legacy strips
+	// that still equal the old ['users','dms','notes'] default get wiki+forum
+	// appended once here. Custom user strips are left untouched; everyone can
+	// also add them via the "Add panels" drawer above.
+	let seededChannelPanels = $state(false);
+	$effect(() => {
+		if (seededChannelPanels) return;
+		if (!panelById.has('wiki') || !panelById.has('forum')) return;
+		seededChannelPanels = true;
+		const ids = $layoutStore.stubStrip;
+		const isLegacyDefault =
+			ids.length === 3 && ids[0] === 'users' && ids[1] === 'dms' && ids[2] === 'notes';
+		if (isLegacyDefault) {
+			layoutStore.addStub('wiki');
+			layoutStore.addStub('forum');
+		}
+	});
 	const transferBadgeCount = $derived(
 		$incomingFileOffers.length +
 			$activeTransfers.filter(
@@ -215,6 +233,8 @@
 
 	function resetStrip(): void {
 		layoutStore.resetStubs();
+		layoutStore.addStub('wiki');
+		layoutStore.addStub('forum');
 		closeDrawer(true);
 	}
 
