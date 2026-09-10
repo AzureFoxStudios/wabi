@@ -1,0 +1,21 @@
+name: Local Visual Effects Host Check
+
+on:
+  push:
+    branches:
+      - feat/local-visual-effects-host
+
+jobs:
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Build static frontend
+        working-directory: frontend
+        run: npm run build:static
