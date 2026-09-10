@@ -1,0 +1,163 @@
+name: PR integration audit
+on:
+  push:
+    branches: [integrate/open-prs-2026-09-10]
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: pr-integration-audit
+  cancel-in-progress: true
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Inspect PRs and assemble a disposable candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/pr-audit"
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, urllib.request
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'pr-audit'
+          repo = os.environ['GITHUB_REPOSITORY']
+          def api(path):
+              req = urllib.request.Request('https://api.github.com/repos/' + repo + '/' + path,
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return json.load(response)
+          def git(*args, check=True):
+              return subprocess.run(['git', *args], check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+          git('config', 'user.name', 'Wabi integration audit')
+          git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+          git('fetch', 'origin', 'main')
+          base = git('rev-parse', 'origin/main').stdout.strip()
+          git('switch', '--detach', base)
+          report = {'base': base, 'prs': [], 'candidate': None, 'remoteWrites': False}
+          # Only the PRs included in the owner's current integration request.
+          for number in [*range(158, 174), 175, 179]:
+              pr = api(f'pulls/{number}')
+              row = {k: pr[k] for k in ['number', 'title', 'state', 'draft']}
+              row.update(head=pr['head']['sha'], branch=pr['head']['ref'], files=[])
+              report['prs'].append(row)
+              if pr['state'] != 'open':
+                  row['outcome'] = 'already closed'
+                  continue
+              page = 1
+              while True:
+                  files = api(f'pulls/{number}/files?per_page=100&page={page}')
+                  row['files'].extend(files)
+                  if len(files) < 100: break
+                  page += 1
+              git('fetch', 'origin', f'pull/{number}/head:refs/remotes/pr/{number}')
+              actual = git('rev-parse', f'refs/remotes/pr/{number}').stdout.strip()
+              if actual != row['head']:
+                  row['outcome'] = 'head moved; requires another review'
+                  continue
+              row['before'] = git('rev-parse', 'HEAD').stdout.strip()
+              merged = git('merge', '--no-ff', '--no-edit', '-m', f'Integration candidate: PR #{number}', actual, check=False)
+              (out / f'merge-{number}.log').write_text(merged.stdout)
+              if merged.returncode:
+                  row['outcome'] = 'conflict'
+                  row['conflicts'] = git('diff', '--name-only', '--diff-filter=U').stdout.splitlines()
+                  for i, path in enumerate(row['conflicts']):
+                      for stage in [1, 2, 3]:
+                          content = git('show', f':{stage}:{path}', check=False)
+                          if content.returncode == 0:
+                              (out / f'conflict-{number}-{i}-stage{stage}.txt').write_text(content.stdout)
+                  git('merge', '--abort', check=False)
+              else:
+                  row['outcome'] = 'clean candidate merge'
+              print(f"PR #{number}: {row['outcome']} — {row['title']}", flush=True)
+          report['candidate'] = git('rev-parse', 'HEAD').stdout.strip()
+          changed = git('diff', '--name-only', base, 'HEAD').stdout.splitlines()
+          for path in changed:
+              source = pathlib.Path(path)
+              if source.is_file():
+                  target = out / 'candidate-files' / path
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(source.read_bytes())
+          (out / 'candidate.diff').write_text(git('diff', base, 'HEAD').stdout)
+          (out / 'candidate-tree.txt').write_text(git('ls-tree', '-r', 'HEAD').stdout)
+          (out / 'report.json').write_text(json.dumps(report, indent=2))
+          # Candidate commits exist only on this disposable runner; no branches are pushed.
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-integration-audit
+          path: ${{ runner.temp }}/pr-audit
+          retention-days: 7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: dtolnay/rust-toolchain@1.93
+      - name: Check the combined frontend
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/pr-checks"
+          set +e
+          cd frontend
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/pr-checks/install.log" 2>&1
+          install_code=$?
+          echo "install=$install_code" | tee "$RUNNER_TEMP/pr-checks/status.txt"
+          if [ "$install_code" = 0 ]; then
+            bun test src/lib > "$RUNNER_TEMP/pr-checks/frontend-tests.log" 2>&1
+            echo "frontend_tests=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
+            npm run check > "$RUNNER_TEMP/pr-checks/frontend-check.log" 2>&1
+            echo "frontend_check=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
+            STATIC_BUILD=1 npm run build > "$RUNNER_TEMP/pr-checks/frontend-build.log" 2>&1
+            echo "frontend_build=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
+            for test in scripts/lore-local-changes.test.mjs scripts/lore-local-detection.test.mjs scripts/lore-workspace-presentation.test.mjs; do
+              if [ -f "$test" ]; then
+                node --experimental-strip-types --test "$test" > "$RUNNER_TEMP/pr-checks/$(basename "$test").log" 2>&1
+                echo "$(basename "$test")=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
+              fi
+            done
+            if [ -f scripts/lore-local-observer.test.mjs ]; then
+              node --experimental-vm-modules --test scripts/lore-local-observer.test.mjs > "$RUNNER_TEMP/pr-checks/observer.log" 2>&1
+              echo "observer=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
+            fi
+          fi
+          cat "$RUNNER_TEMP/pr-checks/status.txt"
+          tail -60 "$RUNNER_TEMP/pr-checks/frontend-check.log" 2>/dev/null || true
+          exit 0
+      - name: Check the combined Rust workspace
+        shell: bash
+        run: |
+          set +e
+          if [ -f frontend/build/index.html ]; then
+            cargo check --workspace --locked > "$RUNNER_TEMP/pr-checks/cargo-check.log" 2>&1
+            code=$?
+            echo "cargo_check=$code" >> "$RUNNER_TEMP/pr-checks/status.txt"
+            if [ "$code" = 0 ]; then
+              cargo test --workspace --locked > "$RUNNER_TEMP/pr-checks/cargo-test.log" 2>&1
+              echo "cargo_test=$?" >> "$RUNNER_TEMP/pr-checks/status.txt"
+            fi
+          else
+            echo 'cargo_check=blocked_missing_frontend_assets' >> "$RUNNER_TEMP/pr-checks/status.txt"
+          fi
+          cat "$RUNNER_TEMP/pr-checks/status.txt"
+          tail -100 "$RUNNER_TEMP/pr-checks/cargo-check.log" 2>/dev/null || true
+          tail -100 "$RUNNER_TEMP/pr-checks/cargo-test.log" 2>/dev/null || true
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr-integration-checks
+          path: ${{ runner.temp }}/pr-checks
+          retention-days: 7
+      - name: Fail visibly for any unsuccessful check
+        if: always()
+        shell: bash
+        run: |
+          test -f "$RUNNER_TEMP/pr-checks/status.txt"
+          cat "$RUNNER_TEMP/pr-checks/status.txt"
+          ! grep -v '=0$' "$RUNNER_TEMP/pr-checks/status.txt"
