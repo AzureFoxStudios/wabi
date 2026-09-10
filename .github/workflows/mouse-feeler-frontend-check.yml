@@ -1,0 +1,25 @@
+name: Mouse Feeler Frontend Check
+
+on:
+  push:
+    branches:
+      - prototype/mouse-feeler
+
+jobs:
+  frontend-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Svelte check
+        working-directory: frontend
+        run: npm run check -- --threshold 1
