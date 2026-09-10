@@ -21,6 +21,7 @@
 	let velocityY = 0;
 	let viewportWidth = 1;
 	let viewportHeight = 1;
+	let accentColor: [number, number, number] = [0.5, 0.78, 0.76];
 
 	const VERTEX_SHADER = `
 attribute vec2 a_position;
@@ -101,16 +102,13 @@ void main() {
 				throw new Error('Could not allocate shader geometry');
 			}
 			gl.bindBuffer(gl.ARRAY_BUFFER, nextBuffer);
-			gl.bufferData(
-				gl.ARRAY_BUFFER,
-				new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
-				gl.STATIC_DRAW
-			);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 
 			program = next;
 			buffer = nextBuffer;
 			compiledSource = source;
 			startedAt = performance.now();
+			accentColor = parseAccent();
 			render(performance.now());
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Shader compile failed';
@@ -121,9 +119,7 @@ void main() {
 	function parseAccent(): [number, number, number] {
 		const raw = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
 		const short = raw.match(/^#([0-9a-f]{3})$/i);
-		if (short) {
-			return short[1].split('').map((value) => parseInt(value + value, 16) / 255) as [number, number, number];
-		}
+		if (short) return short[1].split('').map((value) => parseInt(value + value, 16) / 255) as [number, number, number];
 		const long = raw.match(/^#([0-9a-f]{6})$/i);
 		if (long) {
 			return [
@@ -154,12 +150,11 @@ void main() {
 	function uniform2(name: string, x: number, y: number): void {
 		if (!gl || !program) return;
 		const location = gl.getUniformLocation(program, name);
-		if (location) gl.uniform2f(location, x, y);
+		if (location !== null) gl.uniform2f(location, x, y);
 	}
 
 	function render(now: number): void {
 		if (!gl || !program || !buffer) return;
-		resize();
 		gl.clearColor(0, 0, 0, 0);
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		gl.useProgram(program);
@@ -177,11 +172,11 @@ void main() {
 		uniform2('u_velocity', velocityX, -velocityY);
 
 		const time = gl.getUniformLocation(program, 'u_time');
-		if (time) gl.uniform1f(time, Math.max(0, now - startedAt) / 1000);
+		if (time !== null) gl.uniform1f(time, Math.max(0, now - startedAt) / 1000);
 		const active = gl.getUniformLocation(program, 'u_active');
-		if (active) gl.uniform1f(active, running ? 1 : 0);
+		if (active !== null) gl.uniform1f(active, running ? 1 : 0);
 		const accent = gl.getUniformLocation(program, 'u_accent');
-		if (accent) gl.uniform3fv(accent, parseAccent());
+		if (accent !== null) gl.uniform3fv(accent, accentColor);
 
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 	}
@@ -200,6 +195,7 @@ void main() {
 		velocityY = vy;
 		if (!running) {
 			running = true;
+			accentColor = parseAccent();
 			if (!frame) frame = requestAnimationFrame(loop);
 		}
 	}
@@ -229,6 +225,7 @@ void main() {
 		}
 		resize();
 		compileProgram();
+		window.addEventListener('resize', resize, { passive: true });
 	});
 
 	$: if (gl && source !== compiledSource) compileProgram();
@@ -236,6 +233,7 @@ void main() {
 
 	onDestroy(() => {
 		if (frame) cancelAnimationFrame(frame);
+		window.removeEventListener('resize', resize);
 		clearProgram();
 		gl = null;
 	});
