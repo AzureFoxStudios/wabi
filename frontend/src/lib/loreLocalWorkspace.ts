@@ -1,4 +1,5 @@
 import { fetchWithTimeout, parseApiJson } from './api/utils';
+import type { WatchStatus } from './loreLocalDetection';
 import { parseState, planChanges, publishStaged, stageChange, keepLocal, type WorkspaceState, type LocalFile, type RemoteFile, type Change, type Stage, type Published, type Baseline } from './loreLocalChanges';
 
 interface Connection { handle: string; folder: string; identity: string; state: unknown }
@@ -20,6 +21,8 @@ export class LocalWorkspace {
 	snapshot: LocalSnapshot | null = null;
 	private lastManifest: Manifest | null = null;
 	private reviewRequired = false;
+	private lastScan: Scan | null = null;
+	private watchSubscription: string | null = null;
 	private constructor(private connection: Connection, private base: string, private channel: number, private active: () => boolean) {
 		this.folder = connection.folder;
 		this.state = parseState(connection.state, connection.identity);
@@ -52,9 +55,48 @@ export class LocalWorkspace {
 		this.reviewRequired = repo.auto_branch_on_upload === true || repo.autoBranchOnUpload === true;
 		return manifest;
 	}
+	async probeChanges(): Promise<WatchStatus> {
+		this.assertActive();
+		const status = await native<WatchStatus>('lore_local_watch_poll', {
+			...this.args(), subscription: this.watchSubscription
+		});
+		// Retain a late subscription so disposal can release it, even after an account switch.
+		this.watchSubscription = status.subscription;
+		this.assertActive();
+		return status;
+	}
+	async stopWatching(): Promise<void> {
+		const subscription = this.watchSubscription;
+		this.watchSubscription = null;
+		if (subscription) await native('lore_local_watch_stop', { ...this.args(), subscription });
+	}
+	/** Observe only. In particular, automatic checks must not reconcile or unstage saved work. */
+	async detect(token: string, scanLocal: boolean): Promise<LocalSnapshot> {
+		this.assertActive();
+		const scan = scanLocal || !this.lastScan
+			? await native<Scan>('lore_local_scan', this.args()) : this.lastScan;
+		this.assertActive();
+		this.lastScan = scan;
+		let online = true, notice = '';
+		try { this.lastManifest = await this.remote(token); }
+		catch (error) {
+			if (!this.lastManifest) throw error;
+			online = false;
+			notice = 'Server check unavailable. Local changes are compared with the last known server state; nothing is applied automatically.';
+		}
+		this.assertActive();
+		const manifest = this.lastManifest!;
+		const plan = planChanges(scan.files, manifest.files, this.state, scan.ignore);
+		this.snapshot = { changes: plan.changes, online, notice,
+			readOnly: manifest.read_only === true || manifest.readOnly === true, reviewRequired: this.reviewRequired };
+		return this.snapshot;
+	}
+
 	async refresh(token: string, requireOnline = false): Promise<LocalSnapshot> {
 		this.assertActive();
 		const scan = await native<Scan>('lore_local_scan', this.args());
+		this.assertActive();
+		this.lastScan = scan;
 		let online = true, notice = '';
 		try { this.lastManifest = await this.remote(token); }
 		catch (error) {

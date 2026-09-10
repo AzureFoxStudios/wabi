@@ -5,8 +5,9 @@
 	import { parseLoreChannelId } from '$lib/api/lore';
 	import { LocalWorkspace, desktopAvailable, type LocalSnapshot } from '$lib/loreLocalWorkspace';
 	import { stageStillMatches, type Change, type Stage } from '$lib/loreLocalChanges';
+	import { LocalDetection, type DetectionStatus } from '$lib/loreLocalDetection';
 
-	let { channelId, projectName, serverUrl, accountId }: { channelId: string; projectName: string; serverUrl: string; accountId: string } = $props();
+	let { channelId, projectName, serverUrl, accountId, onCounts }: { channelId: string; projectName: string; serverUrl: string; accountId: string; onCounts?: (value: { outgoing: number; incoming: number; conflicts: number }) => void } = $props();
 	let workspace = $state<LocalWorkspace | null>(null);
 	let snapshot = $state<LocalSnapshot | null>(null);
 	let staged = $state<Record<string, Stage>>({});
@@ -18,16 +19,35 @@
 	let alive = true;
 	let generation = $state<number | null>(null);
 	let native = $state(false);
+	let detectionStatus = $state<DetectionStatus>({ checking: false, paused: false, warning: '' });
+	let detector: LocalDetection | null = null;
 	let numericId = $derived(parseLoreChannelId(channelId));
-	onMount(() => { generation = authSessionGeneration(serverUrl); native = desktopAvailable(); });
+
+	onMount(() => {
+		generation = authSessionGeneration(serverUrl); native = desktopAvailable();
+		const nudge = () => { if (document.visibilityState !== 'hidden') detector?.nudge(); };
+		window.addEventListener('focus', nudge);
+		window.addEventListener('online', nudge);
+		document.addEventListener('visibilitychange', nudge);
+		return () => {
+			window.removeEventListener('focus', nudge);
+			window.removeEventListener('online', nudge);
+			document.removeEventListener('visibilitychange', nudge);
+		};
+	});
 	const active = () => alive && generation !== null && getApiBase().replace(/\/+$/, '') === serverUrl.replace(/\/+$/, '')
 		&& authSessionGeneration(serverUrl) === generation && String(getStoredDbUserId(serverUrl) ?? '') === accountId;
-	onDestroy(() => { alive = false; });
+	onDestroy(() => { alive = false; void detector?.dispose().catch(() => {}); });
 	let outgoing = $derived(snapshot?.changes.filter((c) => ['added', 'modified', 'deleted'].includes(c.kind)) ?? []);
 	let incoming = $derived(snapshot?.changes.filter((c) => c.kind === 'incoming') ?? []);
 	let conflicts = $derived(snapshot?.changes.filter((c) => c.kind === 'conflict') ?? []);
 	let stagedCount = $derived(Object.keys(staged).length);
-	let canPublish = $derived(!!snapshot?.online && !snapshot.readOnly && !snapshot.reviewRequired && stagedCount > 0 && !!summary.trim());
+	$effect(() => { onCounts?.({ outgoing: outgoing.length, incoming: incoming.length, conflicts: conflicts.length }); });
+	let staleCount = $derived(Object.values(staged).filter((entry) => {
+		const change = snapshot?.changes.find((c) => c.path === entry.path);
+		return !change || !stageStillMatches(entry, change);
+	}).length);
+	let canPublish = $derived(!!snapshot?.online && !snapshot.readOnly && !snapshot.reviewRequired && stagedCount > 0 && staleCount === 0 && !!summary.trim());
 
 	function token(): string {
 		if (!active()) throw new Error('Account or server changed. Reopen Local changes.');
@@ -35,11 +55,28 @@
 		if (!value) throw new Error('Sign in before using this project.');
 		return value;
 	}
-	function reflect() { if (alive && workspace) { staged = { ...workspace.state.staged }; snapshot = workspace.snapshot; } }
-	async function perform(action: () => Promise<void>) {
+	function reflect() { if (active() && workspace) { staged = { ...workspace.state.staged }; snapshot = workspace.snapshot; } }
+	function startDetection(target: LocalWorkspace) {
+		detectionStatus = { checking: false, paused: false, warning: '' };
+		detector = new LocalDetection({
+			active: () => active() && workspace === target,
+			visible: () => document.visibilityState !== 'hidden',
+			probe: () => target.probeChanges(),
+			compare: async (scanLocal) => {
+				const result = await target.detect(token(), scanLocal);
+				if (!active() || workspace !== target) return;
+				reflect(); lastChecked = new Date().toLocaleTimeString();
+				if (!result.online) throw new Error(result.notice);
+			},
+			release: () => target.stopWatching(),
+			status: (value) => { if (active() && workspace === target) detectionStatus = value; }
+		});
+		detector.start();
+	}
+	async function perform(action: () => Promise<void>, serialize = true) {
 		if (busy) return;
 		busy = true; error = ''; status = '';
-		try { await action(); }
+		try { if (serialize && detector) await detector.runManual(action); else await action(); }
 		catch (e) { if (alive) error = e instanceof Error ? e.message : String(e); }
 		finally { if (alive) { reflect(); busy = false; } }
 	}
@@ -50,12 +87,17 @@
 	async function connect() {
 		if (!numericId) throw new Error('Select a valid Project channel.');
 		token();
-		const selected = await LocalWorkspace.connect(serverUrl, numericId, accountId, active);
-		if (!selected) return;
-		workspace = selected;
-		await selected.save();
-		await refresh();
-		status = 'Folder connected. Saving in your editor does not publish files.';
+		// Do not dispose from inside its own manual queue: wait for the old watcher first.
+		const previous = detector; detector = null;
+		await previous?.dispose();
+		try {
+			const selected = await LocalWorkspace.connect(serverUrl, numericId, accountId, active);
+			if (!selected) return;
+			workspace = selected; snapshot = null; staged = {}; lastChecked = ''; summary = '';
+			await selected.save();
+			await refresh();
+			status = 'Folder connected. Changes are detected automatically; pulling and publishing are your decisions.';
+		} finally { if (workspace && active()) startDetection(workspace); }
 	}
 	async function publish() {
 		if (!workspace) return;
@@ -81,8 +123,8 @@
 
 <section class="local-workspace" aria-label="Local project changes" aria-busy={busy}>
 	<header>
-		<div><h2>{projectName}: local changes</h2><p>Work in your own editor. Review, stage, then publish deliberately.</p></div>
-		{#if native}<button disabled={busy} onclick={() => perform(connect)}>{workspace ? 'Choose another folder' : 'Use this project on my computer'}</button>{/if}
+		<div><h2>{projectName}: local changes</h2><p>Changes appear automatically. You decide what to stage, publish, or pull.</p></div>
+		{#if native}<button disabled={busy} onclick={() => perform(connect, false)}>{workspace ? 'Choose another folder' : 'Use this project on my computer'}</button>{/if}
 	</header>
 	{#if !native}
 		<div class="notice"><h3>Local folders are a desktop feature</h3><p>The website can browse repositories and download copies, but it cannot silently monitor a folder on your computer. Open this project in the Wabi desktop app to connect a folder and stage changes.</p><p>A downloaded ZIP is still an unlinked copy. Existing command-line wabi-sync remains a separate automatic-sync workflow.</p></div>
@@ -90,8 +132,10 @@
 		{#if error}<p role="alert" class="notice error">{error}</p>{/if}
 		{#if status}<p role="status" class="notice">{status}</p>{/if}
 		{#if workspace}
-			<div class="folder-bar"><div><strong>Local folder</strong><code>{workspace.folder}</code><small>{lastChecked ? `Last checked ${lastChecked}` : 'Not checked yet'} · Manual publishing</small></div><div class="actions"><button disabled={busy} onclick={() => perform(async () => { await workspace?.openFolder(); })}>Open folder</button><button disabled={busy} onclick={() => perform(refresh)}>Refresh changes</button><button disabled={busy || !snapshot?.online || !incoming.length} onclick={() => perform(() => pull(incoming))}>Pull incoming ({incoming.length})</button></div></div>
+			<div class="folder-bar"><div><strong>Local folder</strong><code>{workspace.folder}</code><small>{lastChecked ? `Last checked ${lastChecked}` : 'Not checked yet'} · {detectionStatus.paused ? 'Detection paused' : detectionStatus.checking ? 'Checking for changes…' : 'Automatic detection on'} · Manual publishing and pulling</small></div><div class="actions"><button disabled={busy} onclick={() => perform(async () => { await workspace?.openFolder(); })}>Open folder</button><button disabled={busy} onclick={() => perform(refresh)}>Check now</button><button disabled={busy} aria-pressed={detectionStatus.paused} onclick={() => detector?.setPaused(!detectionStatus.paused)}>{detectionStatus.paused ? 'Resume detection' : 'Pause detection'}</button><button disabled={busy || !snapshot?.online || !incoming.length} onclick={() => perform(() => pull(incoming))}>Pull incoming ({incoming.length})</button></div></div>
+			{#if detectionStatus.warning}<p role="status" class="notice">{detectionStatus.warning}</p>{/if}
 			{#if snapshot?.notice}<p role="status" class="notice">{snapshot.notice}</p>{/if}
+			{#if incoming.length && snapshot?.online}<p role="status" class="notice">{incoming.length} incoming change(s) available. Your local files have not been changed. Review the list and choose Pull incoming to apply them.</p>{/if}
 			{#if snapshot?.readOnly}<p class="notice">Read-only mirror: pulling is available, but local changes cannot be published here.</p>{/if}
 			{#if snapshot?.reviewRequired}<p class="notice">This project requires review. Use its Repository review workflow to publish; local staging does not bypass review.</p>{/if}
 			<div class="changes-layout">
@@ -108,6 +152,7 @@
 				<aside class="publish-panel">
 					<h3>Staged ({stagedCount})</h3>
 					<p>Staging records the version you reviewed. Editing it again requires restaging; it will not silently publish newer edits.</p>
+					{#if staleCount}<p role="status">{staleCount} staged selection(s) need review. Uncheck and select changed files again, or unstage them. Automatic detection never restages your work.</p>{/if}
 					{#each Object.values(staged) as entry (entry.path)}<code>{entry.path}</code>{/each}
 					<button disabled={busy || !stagedCount} onclick={() => perform(async () => { await workspace?.unstageAll(); })}>Unstage all</button>
 					<label for="local-publish-summary">Change summary</label><textarea id="local-publish-summary" rows="3" maxlength="2000" bind:value={summary} disabled={busy} placeholder="What changed, and why?"></textarea>
