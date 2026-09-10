@@ -41,6 +41,12 @@ jobs:
       - name: Reader unit tests
         working-directory: frontend
         run: bun test src/lib/components/readerDocumentTools.test.ts
+      # Vite's native dependency resolver also visits the parent project.
+      # Its tsconfig extends the generated Kit configuration, even though
+      # the Reader fixture itself uses an isolated, minimal tsconfig.
+      - name: Generate SvelteKit configuration
+        working-directory: frontend
+        run: npx svelte-kit sync
       - name: Install Chromium and display dependencies
         working-directory: frontend
         run: npx playwright install --with-deps chromium
