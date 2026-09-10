@@ -18,17 +18,26 @@
 	import TaskPanel from './business/TaskPanel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 	import ForumChannel from './ForumChannel.svelte';
-	import { channels, currentChannel, switchChannel } from '$lib/socket';
+	import { channels, currentChannel } from '$lib/socket';
 
 	export let panel: WorkspacePanelManifest;
 
-	// Channel-scoped panels (wiki/forum): unlike workspace/addon panels such as
-	// 'code' (LoreCodePanel repo browser), these render the CURRENT channel's
-	// surface via the shared $currentChannel store. If the active channel is
-	// not of the matching type, fall back to a small channel picker.
+	// Channel-scoped panels (wiki/forum): panel-local selection that never
+	// hijacks the global active channel. Defaults to the active channel when
+	// it matches the panel type; otherwise the user picks locally. State
+	// persists while this host is mounted (close/reopen keeps the pick).
+	let wikiPanelChannelId: string | null = null;
+	let forumPanelChannelId: string | null = null;
 	$: activePanelChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
 	$: wikiChannels = $channels.filter((ch) => ch.type === 'wiki');
 	$: forumChannels = $channels.filter((ch) => ch.type === 'forum');
+
+	$: if (activePanelChannel?.type === 'wiki' && wikiPanelChannelId === null) {
+		wikiPanelChannelId = activePanelChannel.id;
+	}
+	$: if (activePanelChannel?.type === 'forum' && forumPanelChannelId === null) {
+		forumPanelChannelId = activePanelChannel.id;
+	}
 
 	const dispatch = createEventDispatcher<{
 		openSettings: { paymentSurface: 'connections' };
@@ -69,16 +78,16 @@
 	     (the dock owns open/close). Shares the same store as the Planner. -->
 	<TaskPanel compact />
 {:else if panel.component === 'wiki'}
-	{#if activePanelChannel?.type === 'wiki'}
+	{#if wikiPanelChannelId}
 		<div class="right-panel-embedded">
-			<WikiChannel />
+			<WikiChannel channelId={wikiPanelChannelId ?? undefined} />
 		</div>
 	{:else if wikiChannels.length > 0}
 		<div class="channel-picker">
 			<div class="channel-picker-heading">Wiki channels</div>
 			<div class="channel-picker-sub">Pick a wiki channel to view it here.</div>
 			{#each wikiChannels as ch (ch.id)}
-				<button type="button" class="channel-picker-item" on:click={() => switchChannel(ch.id)}>
+				<button type="button" class="channel-picker-item" on:click={() => (wikiPanelChannelId = ch.id)}>
 					<span class="channel-picker-name">{ch.name}</span>
 				</button>
 			{/each}
@@ -90,16 +99,16 @@
 		</div>
 	{/if}
 {:else if panel.component === 'forum'}
-	{#if activePanelChannel?.type === 'forum'}
+	{#if forumPanelChannelId}
 		<div class="right-panel-embedded">
-			<ForumChannel />
+			<ForumChannel channelId={forumPanelChannelId ?? undefined} />
 		</div>
 	{:else if forumChannels.length > 0}
 		<div class="channel-picker">
 			<div class="channel-picker-heading">Forum channels</div>
 			<div class="channel-picker-sub">Pick a forum channel to view it here.</div>
 			{#each forumChannels as ch (ch.id)}
-				<button type="button" class="channel-picker-item" on:click={() => switchChannel(ch.id)}>
+				<button type="button" class="channel-picker-item" on:click={() => (forumPanelChannelId = ch.id)}>
 					<span class="channel-picker-name">{ch.name}</span>
 				</button>
 			{/each}

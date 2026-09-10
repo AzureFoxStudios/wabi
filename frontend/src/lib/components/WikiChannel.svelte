@@ -31,6 +31,9 @@
 		insertWikiMarkdown,
 	} from '$lib/wikiHelpers';
 
+	export let channelId: string | undefined = undefined;
+	$: effectiveChannel = channelId || $currentChannel;
+
 	$: allPages = $wikiPagesStore;
 	$: allRevisions = $wikiRevisionsStore;
 	$: isLoading = $wikiLoadingStore;
@@ -60,14 +63,14 @@
 
 	initObjectRefRegistry();
 
-	$: if (allPages.length > 0 && $currentChannel) {
+	$: if (allPages.length > 0 && effectiveChannel) {
 		for (const page of allPages) {
 			registerObjectRef({
 				kind: 'wiki_page',
 				id: page.pageId,
 				slug: page.slug || slugify(page.title),
 				title: page.title,
-				channelId: $currentChannel,
+				channelId: effectiveChannel,
 				subtitle: findWikiAuthor(page.authorUserId)?.username || undefined,
 				updatedAt: page.updatedAtMicros > 1e12 ? Math.floor(page.updatedAtMicros / 1000) : page.updatedAtMicros,
 			});
@@ -78,33 +81,33 @@
 	$: breadcrumbs = selectedPage ? getWikiBreadcrumbs(allPages, selectedPage.pageId) : [];
 	$: headings = extractWikiHeadings(displayBody);
 
-	$: if (selectedPage && $currentChannel) {
-		loadRevisions($currentChannel, selectedPage.pageId);
+	$: if (selectedPage && effectiveChannel) {
+		loadRevisions(effectiveChannel, selectedPage.pageId);
 		showHistory = false;
 		editMode = false;
 		viewRevision = null;
 	}
 
-	$: if ($currentChannel && $currentChannel !== loadedChannelId) {
-		loadedChannelId = $currentChannel;
-		loadWiki($currentChannel);
+	$: if (effectiveChannel && effectiveChannel !== loadedChannelId) {
+		loadedChannelId = effectiveChannel;
+		loadWiki(effectiveChannel);
 	}
 
-	$: if (!$currentChannel) {
+	$: if (!effectiveChannel) {
 		loadedChannelId = null;
 		wikiSearchQuery = '';
 	}
 
 	// C2: deep-link handoff after pages load — peek first, take only on hit
-	$: if ($currentChannel && allPages.length > 0) {
+	$: if (effectiveChannel && allPages.length > 0) {
 		const pending = peekPendingNav();
 		if (
 			pending?.kind === 'wiki_page' &&
-			(!pending.channelId || pending.channelId === $currentChannel)
+			(!pending.channelId || pending.channelId === effectiveChannel)
 		) {
 			const hit = allPages.find((p) => p.pageId === pending.pageId);
 			if (hit) {
-				takePendingNav('wiki_page', $currentChannel);
+				takePendingNav('wiki_page', effectiveChannel);
 				selectPage(hit);
 			}
 		}
@@ -171,10 +174,10 @@
 		});
 	}
 	async function handleNewPageImage(file: File) {
-		if (!$currentChannel || !file.type.startsWith('image/')) return;
+		if (!effectiveChannel || !file.type.startsWith('image/')) return;
 		imageUploading = true;
 		try {
-			const uploaded = await uploadFileResumable(file, $currentChannel, () => {}, false);
+			const uploaded = await uploadFileResumable(file, effectiveChannel, () => {}, false);
 			insertNewPageMarkdown(`![${file.name.replace(/\.[^.]+$/, '')}](${uploaded.fileUrl})`);
 		} catch (err) {
 			copyError = err instanceof Error ? err.message : 'Image upload failed';
@@ -185,13 +188,13 @@
 	}
 
 	async function handleSaveEdit() {
-		if (!$currentChannel || !selectedPage) return;
+		if (!effectiveChannel || !selectedPage) return;
 		if (!editTitle.trim()) {
 			saveState = 'failed';
 			return;
 		}
 		saveState = 'saving';
-		const result = await updateWikiPage($currentChannel, selectedPage.pageId, {
+		const result = await updateWikiPage(effectiveChannel, selectedPage.pageId, {
 			title: editTitle,
 			body: editBody,
 		});
@@ -207,10 +210,10 @@
 	}
 
 	async function handleWikiImage(file: File) {
-		if (!$currentChannel || !file.type.startsWith('image/')) return;
+		if (!effectiveChannel || !file.type.startsWith('image/')) return;
 		imageUploading = true;
 		try {
-			const uploaded = await uploadFileResumable(file, $currentChannel, () => {}, false);
+			const uploaded = await uploadFileResumable(file, effectiveChannel, () => {}, false);
 			insertEditMarkdown(`![${file.name.replace(/\.[^.]+$/, '')}](${uploaded.fileUrl})`);
 		} catch (err) {
 			copyError = err instanceof Error ? err.message : 'Image upload failed';
@@ -235,8 +238,8 @@
 	}
 
 	async function handleRestoreRevision(revision: WikiRevision) {
-		if (!$currentChannel || !selectedPage) return;
-		const result = await updateWikiPage($currentChannel, selectedPage.pageId, {
+		if (!effectiveChannel || !selectedPage) return;
+		const result = await updateWikiPage(effectiveChannel, selectedPage.pageId, {
 			title: revision.title,
 			body: revision.body,
 		});
@@ -250,8 +253,8 @@
 	}
 
 	async function copyWikiCitation() {
-		if (!selectedPage || !$currentChannel) return;
-		const citation = getWikiCitation(window.location.origin, $currentChannel, selectedPage);
+		if (!selectedPage || !effectiveChannel) return;
+		const citation = getWikiCitation(window.location.origin, effectiveChannel, selectedPage);
 		try {
 			await navigator.clipboard.writeText(formatWikiCitationMarkdown(citation));
 			copyError = '';
@@ -279,8 +282,8 @@
 	}
 
 	async function handleCreateNewPage() {
-		if (!$currentChannel || !newPageTitle.trim()) return;
-		const result = await createWikiPage($currentChannel, {
+		if (!effectiveChannel || !newPageTitle.trim()) return;
+		const result = await createWikiPage(effectiveChannel, {
 			title: newPageTitle.trim(),
 			body: newPageBody,
 			parentPageId: newPageParentId || undefined,
@@ -296,7 +299,7 @@
 		id: selectedPage.pageId,
 		slug: selectedPage.slug || slugify(selectedPage.title),
 		title: selectedPage.title,
-		channelId: $currentChannel || '',
+		channelId: effectiveChannel || '',
 		subtitle: findWikiAuthor(selectedPage.authorUserId)?.username || undefined,
 		updatedAt: selectedPage.updatedAtMicros > 1e12 ? Math.floor(selectedPage.updatedAtMicros / 1000) : selectedPage.updatedAtMicros,
 	} : null;
@@ -349,7 +352,7 @@
 			{:else if error}
 				<div class="wiki-error">
 					<span>{error}</span>
-					<button on:click={() => $currentChannel && loadWiki($currentChannel)}>Retry</button>
+					<button on:click={() => effectiveChannel && loadWiki(effectiveChannel)}>Retry</button>
 				</div>
 			{:else if !selectedPage}
 				<div class="wiki-empty">
