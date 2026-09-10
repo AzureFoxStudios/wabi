@@ -1,929 +1,553 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
+	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
-	import { brandName } from '$lib/branding';
-	import '$lib/prism-theme.css';
+	import ReaderIcon from './ReaderIcon.svelte';
 	import ReaderImportSheet from './ReaderImportSheet.svelte';
 	import { countWords, formatSourceLabel, renderReaderHtml } from './readerTabHelpers';
 	import {
-		openReaderDocument,
-		openReaderHistoryEntry,
-		openReaderImagesFromFiles,
-		openTemporaryReaderFile,
-		type ReaderContentWidth,
-		readerHistory,
-		type ReaderFontFamily,
-		readerPreferences,
-		readerProgressByDocument,
-		readerSelection,
-		setReaderDocumentProgress,
-		type ReaderTheme,
-		updateReaderPreferences,
-		type ReaderDocumentFormat,
-		type ImagePage,
-		type ImageFitMode,
-		type ReadingDirection
+		captureReaderAnchor, restoreReaderAnchor, readerBlocks, prepareReaderDocument,
+		highlightReaderSearch, clearReaderSearch, scrollReaderToElement, readerPageMetrics,
+		type ReaderAnchor, type ReaderHeading
+	} from './readerDocumentTools';
+	import {
+		readerSelection, readerHistory, readerPreferences, readerProgressByDocument,
+		openReaderDocument, openReaderHistoryEntry, openTemporaryReaderFile,
+		openReaderImagesFromFiles, clearReaderSelection, updateReaderPreferences, setReaderDocumentProgress,
+		type ReaderDocumentFormat, type ReaderPreferences, type ReaderTheme,
+		type ReaderFontFamily, type ReaderContentWidth, type ImageFitMode, type ReadingDirection
 	} from '$lib/readerWorkspace';
+	import {
+		readerLibrary, readerStorageNotice, saveReaderAnchor,
+		addReaderBookmark, removeReaderBookmark, addReaderNote, removeReaderNote
+	} from '$lib/readerLibrary';
 
-	const ACCEPTED_READER_FILE_TYPES = '.md,.markdown,.txt,.text,.html,.htm';
-	const ACCEPTED_IMAGE_FILES = '.jpg,.jpeg,.png,.gif,.webp,.bmp';
-	const THEME_ORDER: ReaderTheme[] = ['auto', 'paper', 'sepia', 'night'];
-	const MIN_FONT_SIZE = 14;
-	const MAX_FONT_SIZE = 28;
-
-	let articleViewport = $state<HTMLDivElement | null>(null);
-	let documentArticle = $state<HTMLElement | null>(null);
-	let systemDarkMode = $state(false);
+	let root = $state<HTMLElement | null>(null);
+	let viewport = $state<HTMLDivElement | null>(null);
+	let body = $state<HTMLDivElement | null>(null);
 	let fileInput = $state<HTMLInputElement | null>(null);
 	let imageInput = $state<HTMLInputElement | null>(null);
-	let importPanelOpen = $state(false);
-	let readerChromeHidden = $state(false);
+	let searchInput = $state<HTMLInputElement | null>(null);
+	let lightbox = $state<HTMLDialogElement | null>(null);
+	let lightboxIndex = $state<number | null>(null);
+	let systemDark = $state(false);
+	let focusMode = $state(false);
 	let settingsOpen = $state(false);
+	let sidebarOpen = $state(false);
+	let sidebarTab = $state<'contents' | 'notes' | 'bookmarks'>('contents');
+	let layout = $state<'scroll' | 'paged'>('scroll');
+	let importPanelOpen = $state(false);
 	let importTitle = $state('');
 	let importContent = $state('');
 	let importFormat = $state<ReaderDocumentFormat>('markdown');
-	let importBusy = $state(false);
-	let readerProgressPercent = $state(0);
-	let lastRestoredDocKey = $state('');
-	let isFullscreenMode = $state(false);
-	let isAtDocumentStart = $state(true);
-	let isAtDocumentEnd = $state(false);
-	let currentPageEstimate = $state(1);
-	let totalPagesEstimate = $state(1);
-	let imageViewerOpen = $state(false);
-	let currentImageIndex = $state(0);
-	let imageImportTitle = $state('');
-
-	if (browser) {
-		const saved = localStorage.getItem('wabi:reader:fullscreen');
-		if (saved === 'true') isFullscreenMode = true;
-	}
+	let busy = $state(false);
+	let error = $state('');
+	let outline = $state<ReaderHeading[]>([]);
+	let activeHeading = $state('');
+	let wordCount = $state(0);
+	let contentHasTitle = $state(false);
+	let progress = $state(0);
+	let currentPage = $state(1);
+	let totalPages = $state(1);
+	let atStart = $state(true);
+	let atEnd = $state(false);
+	let lastAnchor = $state<ReaderAnchor>({ block: 0, offset: 0, progress: 0 });
+	let noteDraft = $state('');
+	let noteAnchor = $state<ReaderAnchor | null>(null);
+	let searchOpen = $state(false);
+	let query = $state('');
+	let searchGroups = $state.raw<HTMLElement[][]>([]);
+	let searchIndex = $state(0);
+	let blocks: HTMLElement[] = [];
+	let activeDocumentKey = '';
+	let restoring = false;
+	let scrollFrame = 0;
+	let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 	const isImageMode = $derived($readerSelection?.contentType === 'images');
-	const isHorizontalMode = $derived(
-		isImageMode && $readerPreferences.readingDirection === 'horizontal'
-	);
-	const currentImages = $derived(($readerSelection?.images || []) as ImagePage[]);
-	const currentImage = $derived(currentImages[currentImageIndex] || null);
-	const isFirstImage = $derived(currentImageIndex <= 0);
-	const isLastImage = $derived(
-		currentImages.length > 0 && currentImageIndex >= currentImages.length - 1
-	);
-	const renderedDocumentHtml = $derived(
-		$readerSelection ? renderReaderHtml($readerSelection.content, $readerSelection.format) : ''
-	);
-	const selectedWordCount = $derived($readerSelection ? countWords($readerSelection.content) : 0);
-	const selectedReadMinutes = $derived(Math.max(1, Math.ceil(selectedWordCount / 220)));
+	const images = $derived($readerSelection?.images || []);
+	const horizontal = $derived(isImageMode ? $readerPreferences.readingDirection === 'horizontal' : layout === 'paged');
+	const html = $derived($readerSelection && !isImageMode ? renderReaderHtml($readerSelection.content, $readerSelection.format) : '');
+	const theme = $derived($readerPreferences.theme === 'auto' ? (systemDark ? 'night' : 'paper') : $readerPreferences.theme);
+	const record = $derived($readerSelection ? $readerLibrary[$readerSelection.docKey] : undefined);
+	const bookmarks = $derived(record?.bookmarks || []);
+	const notes = $derived(record?.notes || []);
+	const currentBookmark = $derived(bookmarks.find((mark) => mark.anchor.block === lastAnchor.block && Math.abs(mark.anchor.offset - lastAnchor.offset) < 0.05));
+	const minutes = $derived(Math.max(1, Math.ceil(wordCount / 220)));
+	const displayTitle = $derived(($readerSelection?.title || '').replace(/\.(txt|text|md|markdown|html|htm)$/i, '').replace(/_/g, ' '));
 
 	$effect(() => {
 		if (!browser) return;
 		const media = window.matchMedia('(prefers-color-scheme: dark)');
-		systemDarkMode = media.matches;
-		const onChange = (event: MediaQueryListEvent) => {
-			systemDarkMode = event.matches;
-		};
-		media.addEventListener('change', onChange);
-		return () => media.removeEventListener('change', onChange);
-	});
-
-	const effectiveTheme = $derived.by((): 'paper' | 'sepia' | 'night' => {
-		const theme = $readerPreferences.theme;
-		if (theme !== 'auto') return theme;
-		return systemDarkMode ? 'night' : 'paper';
+		systemDark = media.matches;
+		const update = (event: MediaQueryListEvent) => { systemDark = event.matches; };
+		media.addEventListener('change', update);
+		try { layout = localStorage.getItem('wabi:reader:layout:v1') === 'paged' ? 'paged' : 'scroll'; } catch { /* optional preference */ }
+		return () => media.removeEventListener('change', update);
 	});
 
 	$effect(() => {
-		const root = documentArticle;
-		if (!root || !renderedDocumentHtml) return;
-		void tick().then(() => {
-			root.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
-				if (pre.querySelector('.code-copy-btn')) return;
-				const button = document.createElement('button');
-				button.type = 'button';
-				button.className = 'code-copy-btn';
-				button.textContent = 'Copy';
-				button.setAttribute('aria-label', 'Copy code block');
-				button.addEventListener('click', async (event: Event) => {
-					event.stopPropagation();
-					const text = (pre.innerText || '').replace(/\n$/, '');
-					try {
-						await navigator.clipboard.writeText(text);
-						button.textContent = 'Copied';
-					} catch {
-						button.textContent = 'Copy failed';
-					}
-					window.setTimeout(() => {
-						button.textContent = 'Copy';
-					}, 1500);
-				});
-				pre.appendChild(button);
+		if (root) untrack(() => { sidebarOpen = (root?.clientWidth || 0) >= 980; });
+	});
+
+	$effect(() => {
+		const selection = $readerSelection;
+		const view = viewport;
+		const content = body;
+		html;
+		if (!selection || !view || (selection.contentType !== 'images' && !content)) return;
+		return untrack(() => {
+			let cancelled = false;
+			clearTimeout(saveTimer);
+			activeDocumentKey = selection.docKey;
+			restoring = true;
+			noteDraft = '';
+			noteAnchor = null;
+			query = '';
+			searchGroups = [];
+			lightboxIndex = null;
+			const saved = get(readerLibrary)[selection.docKey]?.anchor || {
+				block: -1, offset: 0, progress: get(readerProgressByDocument)[selection.docKey] || 0
+			};
+			lastAnchor = saved;
+			void tick().then(async () => {
+				if (cancelled) return;
+				outline = content ? prepareReaderDocument(content) : [];
+				blocks = content ? readerBlocks(content) : Array.from(view.querySelectorAll<HTMLElement>('.reader-image-page'));
+				wordCount = content ? countWords(content.textContent || '') : 0;
+				contentHasTitle = !!content?.querySelector('h1');
+				await tick();
+				if (cancelled) return;
+				restoreReaderAnchor(view, blocks, saved, horizontal);
+				updateMetrics();
+				requestAnimationFrame(() => { if (!cancelled) { restoring = false; rememberPosition(); } });
 			});
+			return () => {
+				cancelled = true;
+				clearTimeout(saveTimer);
+				if (activeDocumentKey === selection.docKey) persistPosition();
+			};
 		});
 	});
 
+	// Resizing a dock, revealing tools, or entering focus mode must not lose the passage.
 	$effect(() => {
-		if (!$readerSelection) {
-			lastRestoredDocKey = '';
-			readerProgressPercent = 0;
-		}
-	});
-
-	$effect(() => {
-		const currentDoc = $readerSelection;
-		if (currentDoc && articleViewport && currentDoc.docKey !== lastRestoredDocKey) {
-			const currentDocKey = currentDoc.docKey;
-			lastRestoredDocKey = currentDocKey;
-			const nextProgress = $readerProgressByDocument[currentDocKey] ?? 0;
-			void tick().then(() => {
-				if (!articleViewport || $readerSelection?.docKey !== currentDocKey) return;
-				const horizontal =
-					$readerSelection?.contentType === 'images' &&
-					$readerPreferences.readingDirection === 'horizontal';
-				if (horizontal) {
-					const maxScroll = Math.max(
-						0,
-						articleViewport.scrollWidth - articleViewport.clientWidth
-					);
-					articleViewport.scrollLeft = maxScroll * nextProgress;
-				} else {
-					const maxScroll = Math.max(
-						0,
-						articleViewport.scrollHeight - articleViewport.clientHeight
-					);
-					articleViewport.scrollTop = maxScroll * nextProgress;
-				}
-				readerProgressPercent = Math.round(nextProgress * 100);
-				updatePageEstimate();
+		const view = viewport;
+		if (!view) return;
+		let width = view.clientWidth;
+		let height = view.clientHeight;
+		let frame = 0;
+		const observer = new ResizeObserver(() => {
+			if (width === view.clientWidth && height === view.clientHeight) return;
+			width = view.clientWidth;
+			height = view.clientHeight;
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(() => {
+				if (!restoring) restoreReaderAnchor(view, blocks, lastAnchor, horizontal);
+				updateMetrics();
 			});
-		}
+		});
+		observer.observe(view);
+		return () => { observer.disconnect(); cancelAnimationFrame(frame); };
 	});
 
 	$effect(() => {
-		const el = articleViewport;
-		if (!el || !isHorizontalMode) return;
-		const onWheel = (event: WheelEvent) => {
-			if (event.deltaY !== 0) {
-				event.preventDefault();
-				el.scrollLeft += event.deltaY;
-			}
-		};
-		el.addEventListener('wheel', onWheel, { passive: false });
-		return () => el.removeEventListener('wheel', onWheel);
+		const content = body;
+		const needle = searchOpen ? query : '';
+		html;
+		if (!content) return;
+		const timer = setTimeout(() => {
+			searchGroups = highlightReaderSearch(content, needle);
+			searchIndex = 0;
+			if (searchGroups.length) showSearchMatch(0);
+		}, 160);
+		return () => { clearTimeout(timer); clearReaderSearch(content); };
 	});
 
-	function isTypingTarget(target: EventTarget | null): boolean {
-		if (!(target instanceof HTMLElement)) return false;
-		const tag = target.tagName;
-		return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+	$effect(() => {
+		if (lightboxIndex !== null && lightbox && !lightbox.open) lightbox.showModal();
+	});
+
+	onDestroy(() => {
+		clearTimeout(saveTimer);
+		if (browser) cancelAnimationFrame(scrollFrame);
+		persistPosition();
+	});
+
+	function updateMetrics(): void {
+		if (!viewport) return;
+		const size = horizontal ? viewport.clientWidth : viewport.clientHeight;
+		const extent = horizontal ? viewport.scrollWidth : viewport.scrollHeight;
+		const position = horizontal ? viewport.scrollLeft : viewport.scrollTop;
+		const max = Math.max(0, extent - size);
+		progress = max > 0 ? Math.round(Math.max(0, Math.min(1, position / max)) * 100) : 0;
+		atStart = position <= 2;
+		atEnd = position >= max - 2;
+		if (horizontal) {
+			const pages = readerPageMetrics(position, extent, size);
+			currentPage = pages.current;
+			totalPages = isImageMode ? images.length : pages.total;
+		} else if (isImageMode) {
+			const view = viewport.getBoundingClientRect();
+			const index = blocks.findIndex((block) => block.getBoundingClientRect().bottom > view.top + size / 2);
+			currentPage = index < 0 ? Math.max(1, images.length) : index + 1;
+			totalPages = images.length;
+		}
 	}
 
-	function handleReaderKeydown(event: KeyboardEvent): void {
-		if (!isTypingTarget(event.target) && event.key.toLowerCase() === 'f') {
-			if (!readerChromeHidden) settingsOpen = false;
-			readerChromeHidden = !readerChromeHidden;
-			return;
-		}
-		if (event.key === 'Escape' && isFullscreenMode) {
-			event.preventDefault();
-			toggleFullscreenMode();
-			return;
-		}
-		if (imageViewerOpen) {
-			if (event.key === 'Escape') closeImageViewer();
-			if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') goToPreviousImage();
-			if (event.key === 'ArrowRight' || event.key === 'ArrowDown') goToNextImage();
-			return;
-		}
-		if (isHorizontalMode) {
-			if (event.key === 'ArrowLeft') {
-				event.preventDefault();
-				focusImageAtOffset(-1);
-			} else if (event.key === 'ArrowRight') {
-				event.preventDefault();
-				focusImageAtOffset(1);
+	function currentAnchor(): ReaderAnchor {
+		return viewport ? captureReaderAnchor(viewport, blocks, horizontal) : lastAnchor;
+	}
+
+	function rememberPosition(): void {
+		if (restoring || !viewport || !activeDocumentKey) return;
+		lastAnchor = currentAnchor();
+		const currentBlock = blocks[lastAnchor.block];
+		if (currentBlock && body) {
+			let found = '';
+			for (const heading of outline) {
+				const el = findHeading(heading.id);
+				if (el && (el === currentBlock || !!(el.compareDocumentPosition(currentBlock) & Node.DOCUMENT_POSITION_FOLLOWING))) found = heading.id;
 			}
+			activeHeading = found;
+		}
+		persistPosition();
+	}
+
+	function persistPosition(): void {
+		if (!activeDocumentKey) return;
+		saveReaderAnchor(activeDocumentKey, { ...lastAnchor });
+		setReaderDocumentProgress(activeDocumentKey, lastAnchor.progress);
+	}
+
+	function handleScroll(): void {
+		if (!scrollFrame) scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; updateMetrics(); });
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(rememberPosition, 250);
+	}
+
+	async function changePreferences(next: Partial<ReaderPreferences>): Promise<void> {
+		const anchor = currentAnchor();
+		lastAnchor = anchor;
+		updateReaderPreferences(next);
+		await tick();
+		if (viewport) restoreReaderAnchor(viewport, blocks, anchor, horizontal);
+		updateMetrics();
+	}
+
+	async function toggleLayout(): Promise<void> {
+		const anchor = currentAnchor();
+		lastAnchor = anchor;
+		layout = layout === 'scroll' ? 'paged' : 'scroll';
+		try { localStorage.setItem('wabi:reader:layout:v1', layout); } catch { /* optional preference */ }
+		await tick();
+		if (viewport) restoreReaderAnchor(viewport, blocks, anchor, horizontal);
+		updateMetrics();
+	}
+
+	function movePage(direction: number): void {
+		if (!viewport) return;
+		if (horizontal) viewport.scrollTo({ left: Math.max(0, (currentPage - 1 + direction) * viewport.clientWidth) });
+		else if (isImageMode) {
+			const target = blocks[Math.max(0, Math.min(blocks.length - 1, currentPage - 1 + direction))];
+			if (target) scrollReaderToElement(viewport, target, false);
+		} else viewport.scrollBy({ top: direction * viewport.clientHeight * 0.85 });
+	}
+
+	function seek(value: number): void {
+		if (!viewport) return;
+		const ratio = Math.max(0, Math.min(1, value / 100));
+		if (horizontal) {
+			viewport.scrollTo({ left: Math.round(ratio * Math.max(0, totalPages - 1)) * viewport.clientWidth });
+		} else viewport.scrollTo({ top: ratio * (viewport.scrollHeight - viewport.clientHeight) });
+		updateMetrics();
+		rememberPosition();
+	}
+
+	function jump(anchor: ReaderAnchor): void {
+		if (!viewport) return;
+		restoreReaderAnchor(viewport, blocks, anchor, horizontal);
+		updateMetrics();
+		rememberPosition();
+		if ((root?.clientWidth || 0) < 980) sidebarOpen = false;
+		viewport.focus({ preventScroll: true });
+	}
+
+	function findHeading(id: string): HTMLElement | undefined {
+		return Array.from(body?.querySelectorAll<HTMLElement>('[id]') || []).find((el) => el.id === id);
+	}
+
+	function goToHeading(id: string): void {
+		const el = findHeading(id);
+		if (!el || !viewport) return;
+		scrollReaderToElement(viewport, el, horizontal);
+		activeHeading = id;
+		if ((root?.clientWidth || 0) < 980) sidebarOpen = false;
+		viewport.focus({ preventScroll: true });
+	}
+
+	function toggleBookmark(): void {
+		if (!$readerSelection) return;
+		const anchor = currentAnchor();
+		lastAnchor = anchor;
+		const existing = bookmarks.find((mark) => mark.anchor.block === anchor.block && Math.abs(mark.anchor.offset - anchor.offset) < 0.05);
+		if (existing) removeReaderBookmark($readerSelection.docKey, existing.id);
+		else {
+			const label = isImageMode ? `Image ${currentPage}` : (blocks[anchor.block]?.textContent?.trim().slice(0, 100) || displayTitle);
+			addReaderBookmark($readerSelection.docKey, label, anchor);
 		}
 	}
 
-	function openImportPanel(format: ReaderDocumentFormat): void {
+	function saveNote(): void {
+		if (!$readerSelection || !noteDraft.trim()) return;
+		addReaderNote($readerSelection.docKey, noteDraft, noteAnchor || currentAnchor());
+		noteDraft = '';
+		noteAnchor = null;
+	}
+
+	async function openSearch(): Promise<void> {
+		searchOpen = true;
+		settingsOpen = false;
+		await tick();
+		searchInput?.focus();
+		searchInput?.select();
+	}
+
+	function showSearchMatch(index: number): void {
+		if (!searchGroups.length || !viewport) return;
+		searchGroups[searchIndex]?.forEach((mark) => mark.classList.remove('reader-search-current'));
+		searchIndex = (index + searchGroups.length) % searchGroups.length;
+		const group = searchGroups[searchIndex];
+		group.forEach((mark) => mark.classList.add('reader-search-current'));
+		if (group[0]) scrollReaderToElement(viewport, group[0], horizontal);
+	}
+
+	function returnHome(): void {
+		rememberPosition();
+		clearReaderSelection();
+		searchOpen = false;
+		settingsOpen = false;
+		focusMode = false;
+	}
+
+	function openPaste(format: ReaderDocumentFormat = 'text'): void {
 		importFormat = format;
 		importPanelOpen = true;
 	}
 
-	function closeImportPanel(): void {
+	function closeImport(): void {
 		importPanelOpen = false;
 		importTitle = '';
 		importContent = '';
-		importFormat = 'markdown';
 	}
 
-	function submitImportedDocument(): void {
+	function submitImport(): void {
 		if (!importContent.trim()) return;
-		openReaderDocument(
-			importTitle.trim() || 'Pasted Document',
-			importContent,
-			importFormat,
-			'pasted'
-		);
-		closeImportPanel();
-	}
-
-	function openFilePicker(): void {
-		fileInput?.click();
+		rememberPosition();
+		openReaderDocument(importTitle.trim() || 'Pasted document', importContent, importFormat, 'pasted');
+		closeImport();
 	}
 
 	async function handleFileChange(event: Event): Promise<void> {
-		const target = event.currentTarget as HTMLInputElement;
-		const file = target.files?.[0];
-		target.value = '';
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
 		if (!file) return;
-		importBusy = true;
+		error = '';
+		if (file.size > 20 * 1024 * 1024) { error = 'This text file is larger than 20 MB. Open a chapter or smaller document instead.'; return; }
+		busy = true;
+		try { rememberPosition(); await openTemporaryReaderFile(file); }
+		catch { error = 'The file could not be read. Try opening it again.'; }
+		finally { busy = false; }
+	}
+
+	async function handleImages(event: Event): Promise<void> {
+		const input = event.currentTarget as HTMLInputElement;
+		if (!input.files?.length) return;
+		busy = true;
+		error = '';
 		try {
-			await openTemporaryReaderFile(file);
-		} finally {
-			importBusy = false;
-		}
+			rememberPosition();
+			// Keep the FileList alive until the importer has consumed it.
+			await openReaderImagesFromFiles(input.files.length === 1 ? input.files[0].name : 'Image collection', input.files);
+		} catch { error = 'These images could not be opened. Please try again.'; }
+		finally { input.value = ''; busy = false; }
 	}
 
-	function openImagePicker(): void {
-		imageInput?.click();
-	}
-
-	async function handleImageFileChange(event: Event): Promise<void> {
-		const target = event.currentTarget as HTMLInputElement;
-		const files = target.files;
-		target.value = '';
-		if (!files || files.length === 0) return;
-		await openReaderImagesFromFiles(imageImportTitle.trim() || 'Image Gallery', files);
-		imageImportTitle = '';
-	}
-
-	function openImageViewer(index: number): void {
-		currentImageIndex = Math.max(0, Math.min(index, currentImages.length - 1));
-		imageViewerOpen = true;
-	}
-
-	function closeImageViewer(): void {
-		imageViewerOpen = false;
-	}
-
-	function goToPreviousImage(): void {
-		if (!isFirstImage) {
-			currentImageIndex -= 1;
-		}
-	}
-
-	function goToNextImage(): void {
-		if (!isLastImage) {
-			currentImageIndex += 1;
-		}
-	}
-
-	function setImageFit(event: Event): void {
-		const value = (event.currentTarget as HTMLSelectElement).value as ImageFitMode;
-		updateReaderPreferences({ imageFit: value });
-	}
-
-	function setReadingDirection(event: Event): void {
-		const value = (event.currentTarget as HTMLSelectElement).value as ReadingDirection;
-		updateReaderPreferences({ readingDirection: value });
-	}
-
-	function handleViewportScroll(): void {
-		if (!$readerSelection || !articleViewport) {
-			readerProgressPercent = 0;
+	async function handleArticleClick(event: MouseEvent): Promise<void> {
+		if (!(event.target instanceof Element)) return;
+		const copy = event.target.closest<HTMLButtonElement>('.reader-code-copy');
+		if (copy) {
+			const pre = copy.closest('pre');
+			const text = pre?.querySelector('code')?.textContent || '';
+			try { await navigator.clipboard.writeText(text); copy.textContent = 'Copied'; }
+			catch { copy.textContent = 'Copy failed'; }
+			setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 1500);
 			return;
 		}
-		let progress: number;
-		if (isHorizontalMode) {
-			const maxScroll = Math.max(0, articleViewport.scrollWidth - articleViewport.clientWidth);
-			progress = maxScroll <= 0 ? 0 : articleViewport.scrollLeft / maxScroll;
-		} else {
-			const maxScroll = Math.max(0, articleViewport.scrollHeight - articleViewport.clientHeight);
-			progress = maxScroll <= 0 ? 0 : articleViewport.scrollTop / maxScroll;
+		const link = event.target.closest<HTMLAnchorElement>('a[href^="#"]');
+		if (link) {
+			event.preventDefault();
+			try { goToHeading(decodeURIComponent(link.hash.slice(1))); } catch { /* malformed source link */ }
 		}
-		readerProgressPercent = Math.round(progress * 100);
-		setReaderDocumentProgress($readerSelection.docKey, progress);
-		updatePageEstimate();
 	}
 
-	function focusImageAtOffset(offset: number): void {
-		if (!articleViewport || currentImages.length === 0) return;
-		const pages = Array.from(
-			articleViewport.querySelectorAll<HTMLElement>('.reader-horizontal-page')
-		);
-		if (pages.length === 0) return;
-		const viewportLeft = articleViewport.getBoundingClientRect().left;
-		const center = articleViewport.scrollLeft + articleViewport.clientWidth / 2;
-		let nearest = 0;
-		let bestDistance = Infinity;
-		pages.forEach((page, index) => {
-			const rect = page.getBoundingClientRect();
-			const pageCenter = rect.left - viewportLeft + rect.width / 2;
-			const distance = Math.abs(pageCenter - center);
-			if (distance < bestDistance) {
-				bestDistance = distance;
-				nearest = index;
-			}
-		});
-		const target = Math.max(0, Math.min(pages.length - 1, nearest + offset));
-		const targetRect = pages[target].getBoundingClientRect();
-		const targetScroll =
-			articleViewport.scrollLeft +
-			(targetRect.left - viewportLeft) -
-			(articleViewport.clientWidth - targetRect.width) / 2;
-		articleViewport.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
-	}
-
-	function updatePageEstimate(): void {
-		if (!articleViewport) {
-			currentPageEstimate = 1;
-			totalPagesEstimate = 1;
-			isAtDocumentStart = true;
-			isAtDocumentEnd = true;
+	function handleKeydown(event: KeyboardEvent): void {
+		if (event.defaultPrevented || !root?.getClientRects().length || importPanelOpen || lightboxIndex !== null) return;
+		const target = event.target instanceof HTMLElement ? event.target : null;
+		if (target && !root.contains(target) && target !== document.body) return;
+		if (event.key === 'Escape') {
+			if (settingsOpen) settingsOpen = false;
+			else if (searchOpen) { searchOpen = false; viewport?.focus(); }
+			else if (focusMode) focusMode = false;
+			else if (sidebarOpen && (root.clientWidth < 980)) sidebarOpen = false;
 			return;
 		}
-		if (isHorizontalMode) {
-			const { scrollLeft, scrollWidth, clientWidth } = articleViewport;
-			if (scrollWidth <= clientWidth) {
-				currentPageEstimate = 1;
-				totalPagesEstimate = 1;
-				isAtDocumentStart = true;
-				isAtDocumentEnd = true;
-				return;
-			}
-			const pageWidth = clientWidth * 0.8;
-			totalPagesEstimate = Math.max(1, Math.ceil(scrollWidth / pageWidth));
-			currentPageEstimate = Math.min(totalPagesEstimate, Math.floor(scrollLeft / pageWidth) + 1);
-			isAtDocumentStart = scrollLeft <= 0;
-			isAtDocumentEnd = scrollLeft + clientWidth >= scrollWidth - 5;
-			return;
+		if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f' && !isImageMode && $readerSelection) {
+			event.preventDefault(); void openSearch(); return;
 		}
-		const { scrollTop, scrollHeight, clientHeight } = articleViewport;
-		if (scrollHeight <= clientHeight) {
-			currentPageEstimate = 1;
-			totalPagesEstimate = 1;
-			isAtDocumentStart = true;
-			isAtDocumentEnd = true;
-			return;
-		}
-		const pageHeight = clientHeight * 0.8;
-		totalPagesEstimate = Math.max(1, Math.ceil(scrollHeight / pageHeight));
-		currentPageEstimate = Math.min(totalPagesEstimate, Math.floor(scrollTop / pageHeight) + 1);
-		isAtDocumentStart = scrollTop <= 0;
-		isAtDocumentEnd = scrollTop + clientHeight >= scrollHeight - 5;
-	}
-
-	function goToNextPage(): void {
-		if (!articleViewport) return;
-		if (isHorizontalMode) {
-			const viewportWidth = articleViewport.clientWidth;
-			const newScroll = Math.min(
-				articleViewport.scrollLeft + (viewportWidth * 0.8),
-				articleViewport.scrollWidth - viewportWidth
-			);
-			articleViewport.scrollLeft = newScroll;
-			return;
-		}
-		const viewportHeight = articleViewport.clientHeight;
-		const newScroll = Math.min(
-			articleViewport.scrollTop + (viewportHeight * 0.8),
-			articleViewport.scrollHeight - viewportHeight
-		);
-		articleViewport.scrollTop = newScroll;
-	}
-
-	function goToPreviousPage(): void {
-		if (!articleViewport) return;
-		if (isHorizontalMode) {
-			const viewportWidth = articleViewport.clientWidth;
-			const newScroll = Math.max(articleViewport.scrollLeft - (viewportWidth * 0.8), 0);
-			articleViewport.scrollLeft = newScroll;
-			return;
-		}
-		const viewportHeight = articleViewport.clientHeight;
-		const newScroll = Math.max(articleViewport.scrollTop - (viewportHeight * 0.8), 0);
-		articleViewport.scrollTop = newScroll;
-	}
-
-	function toggleFullscreenMode(): void {
-		isFullscreenMode = !isFullscreenMode;
-		if (isFullscreenMode) settingsOpen = false;
-		if (browser) {
-			localStorage.setItem('wabi:reader:fullscreen', isFullscreenMode ? 'true' : 'false');
-		}
-	}
-
-	function increaseFontSize(): void {
-		updateReaderPreferences({ fontSize: Math.min(MAX_FONT_SIZE, $readerPreferences.fontSize + 1) });
-	}
-
-	function decreaseFontSize(): void {
-		updateReaderPreferences({ fontSize: Math.max(MIN_FONT_SIZE, $readerPreferences.fontSize - 1) });
-	}
-
-	function cycleTheme(): void {
-		const current = $readerPreferences.theme;
-		const index = THEME_ORDER.indexOf(current);
-		updateReaderPreferences({ theme: THEME_ORDER[(index + 1) % THEME_ORDER.length] });
-	}
-
-	function enterFocusMode(): void {
-		settingsOpen = false;
-		readerChromeHidden = true;
-	}
-
-	function handleThemeChange(event: Event): void {
-		const value = (event.currentTarget as HTMLSelectElement).value as ReaderTheme;
-		updateReaderPreferences({ theme: value });
-	}
-
-	function handleFontFamilyChange(event: Event): void {
-		const value = (event.currentTarget as HTMLSelectElement).value as ReaderFontFamily;
-		updateReaderPreferences({ fontFamily: value });
-	}
-
-	function handleContentWidthChange(event: Event): void {
-		const value = (event.currentTarget as HTMLSelectElement).value as ReaderContentWidth;
-		updateReaderPreferences({ contentWidth: value });
+		if (event.ctrlKey || event.metaKey || event.altKey || target?.closest('input,textarea,select,[contenteditable="true"]')) return;
+		if (event.key.toLowerCase() === 'f' && $readerSelection) { focusMode = !focusMode; settingsOpen = false; return; }
+		if (target?.closest('button,a')) return;
+		if (event.key === 'PageDown' || event.key === 'PageUp' || (horizontal && ['ArrowLeft', 'ArrowRight', ' '].includes(event.key))) {
+			event.preventDefault(); movePage(event.key === 'PageUp' || event.key === 'ArrowLeft' || event.shiftKey ? -1 : 1);
+		} else if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); seek(event.key === 'Home' ? 0 : 100); }
 	}
 </script>
 
-<svelte:window on:keydown={handleReaderKeydown} />
+<svelte:window onkeydown={handleKeydown} onpagehide={persistPosition} />
 
-<div
-	class="reader-shell"
-	class:theme-paper={effectiveTheme === 'paper'}
-	class:theme-sepia={effectiveTheme === 'sepia'}
-	class:theme-night={effectiveTheme === 'night'}
-	class:font-serif={$readerPreferences.fontFamily === 'serif'}
-	class:font-sans={$readerPreferences.fontFamily === 'sans'}
-	class:width-narrow={$readerPreferences.contentWidth === 'narrow'}
-	class:width-medium={$readerPreferences.contentWidth === 'medium'}
-	class:width-wide={$readerPreferences.contentWidth === 'wide'}
-	class:fullscreen-mode={isFullscreenMode}
->
-	<div class="reader-progress-track" aria-hidden="true">
-		<div class="reader-progress-fill" style:width={`${readerProgressPercent}%`}></div>
-	</div>
-
-	{#if isFullscreenMode}
-		<button type="button" class="reader-exit-fs" onclick={toggleFullscreenMode} aria-label="Exit fullscreen" title="Exit fullscreen (Esc)">
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-				<path d="M8 3v3a2 2 0 0 1-2 2H3"></path>
-				<path d="M21 8h-3a2 2 0 0 1-2-2V3"></path>
-				<path d="M3 16h3a2 2 0 0 1 2 2v3"></path>
-				<path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>
-			</svg>
-			<span>Exit fullscreen</span>
-		</button>
-	{/if}
-
-	{#if !readerChromeHidden}
-		<div class="reader-toolbar">
-			<div class="reader-toolbar-main" class:has-doc={!!$readerSelection}>
-				{#if !$readerSelection}
-					<span class="reader-kicker">Reader Mode</span>
-				{:else}
-					<div class="reader-title-group">
-						<span class="reader-kicker">Reader Mode</span>
-						<h2 class="reader-toolbar-doc-title" title={$readerSelection.title}>
-							{$readerSelection.title}
-						</h2>
-					</div>
-				{/if}
-
-				<div class="reader-toolbar-actions">
-					{#if $readerSelection}
-						<button
-							class="reader-icon-btn"
-							type="button"
-							onclick={goToPreviousPage}
-							disabled={isAtDocumentStart}
-							title="Previous Page"
-							aria-label="Previous Page"
-						>
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="m18 15-6-6-6 6"></path>
-							</svg>
-						</button>
-						<span class="reader-page-indicator">{currentPageEstimate} / {totalPagesEstimate}</span>
-						<button
-							class="reader-icon-btn"
-							type="button"
-							onclick={goToNextPage}
-							disabled={isAtDocumentEnd}
-							title="Next Page"
-							aria-label="Next Page"
-						>
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="m6 9 6 6 6-6"></path>
-							</svg>
-						</button>
-						<span class="reader-icon-divider" aria-hidden="true"></span>
-						<button
-							class="reader-icon-btn"
-							type="button"
-							onclick={decreaseFontSize}
-							title="Decrease font size"
-							aria-label="Decrease font size"
-						>
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<line x1="5" y1="12" x2="19" y2="12"></line>
-							</svg>
-						</button>
-						<button
-							class="reader-icon-btn"
-							type="button"
-							onclick={increaseFontSize}
-							title="Increase font size"
-							aria-label="Increase font size"
-						>
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<line x1="12" y1="5" x2="12" y2="19"></line>
-								<line x1="5" y1="12" x2="19" y2="12"></line>
-							</svg>
-						</button>
-						<button
-							class="reader-icon-btn"
-							type="button"
-							onclick={cycleTheme}
-							title="Cycle theme"
-							aria-label="Cycle theme"
-						>
-							{#if effectiveTheme === 'night'}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"></path>
-								</svg>
-							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<circle cx="12" cy="12" r="4"></circle>
-									<path d="M12 2v2"></path>
-									<path d="M12 20v2"></path>
-									<path d="m4.93 4.93 1.41 1.41"></path>
-									<path d="m17.66 17.66 1.41 1.41"></path>
-									<path d="M2 12h2"></path>
-									<path d="M20 12h2"></path>
-									<path d="m6.34 17.66-1.41 1.41"></path>
-									<path d="m19.07 4.93-1.41 1.41"></path>
-								</svg>
-							{/if}
-						</button>
-						<button
-							class="reader-icon-btn"
-							type="button"
-							onclick={toggleFullscreenMode}
-							title={isFullscreenMode ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-							aria-label={isFullscreenMode ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-						>
-							{#if isFullscreenMode}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M8 3v3a2 2 0 0 1-2 2H3"></path>
-									<path d="M21 8h-3a2 2 0 0 1-2-2V3"></path>
-									<path d="M3 16h3a2 2 0 0 1 2 2v3"></path>
-									<path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>
-								</svg>
-							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
-									<path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
-									<path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
-									<path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
-								</svg>
-							{/if}
-						</button>
-						<button
-							class="reader-icon-btn"
-							type="button"
-							onclick={enterFocusMode}
-							title="Focus mode"
-							aria-label="Enter focus mode"
-						>
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
-								<circle cx="12" cy="12" r="3"></circle>
-							</svg>
-						</button>
-						<button
-							class="reader-icon-btn"
-							class:active={settingsOpen}
-							type="button"
-							onclick={() => (settingsOpen = !settingsOpen)}
-							title="Reader settings"
-							aria-label="Reader settings"
-							aria-expanded={settingsOpen}
-						>
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
-								<circle cx="12" cy="12" r="3"></circle>
-							</svg>
-						</button>
-					{:else}
-						<button class="reader-action-btn primary" type="button" onclick={openFilePicker} disabled={importBusy}>
-							{importBusy ? 'Opening...' : 'Open File'}
-						</button>
-						<button class="reader-action-btn" type="button" onclick={openImagePicker}>
-							Images
-						</button>
-						<button class="reader-action-btn" type="button" onclick={() => openImportPanel('markdown')}>
-							Paste Markdown
-						</button>
-						<button class="reader-action-btn" type="button" onclick={() => openImportPanel('text')}>
-							Paste Text
-						</button>
-					{/if}
-				</div>
-			</div>
-
-			<div class="reader-settings-panel" class:open={settingsOpen}>
-				<div class="reader-control">
-					<label for="reader-history-select">Recent</label>
-					<select
-						id="reader-history-select"
-						class="reader-select"
-						onchange={(event) => {
-							const value = (event.currentTarget as HTMLSelectElement).value;
-							if (value) openReaderHistoryEntry(value);
-							(event.currentTarget as HTMLSelectElement).value = '';
-						}}
-					>
-						<option value="">Recent documents</option>
-						{#each $readerHistory as entry}
-							<option value={entry.id}>{entry.title}</option>
-						{/each}
-					</select>
-				</div>
-
-				<div class="reader-control">
-					<label for="reader-theme-select">Theme</label>
-					<select
-						id="reader-theme-select"
-						class="reader-select"
-						value={$readerPreferences.theme}
-						onchange={handleThemeChange}
-					>
-						<option value="auto">Auto</option>
-						<option value="paper">Paper</option>
-						<option value="sepia">Sepia</option>
-						<option value="night">Night</option>
-					</select>
-				</div>
-
-				<div class="reader-control">
-					<label for="reader-font-select">Font</label>
-					<select
-						id="reader-font-select"
-						class="reader-select"
-						value={$readerPreferences.fontFamily}
-						onchange={handleFontFamilyChange}
-					>
-						<option value="serif">Serif</option>
-						<option value="sans">Sans</option>
-					</select>
-				</div>
-
-				<div class="reader-control compact">
-					<label for="reader-width-select">Width</label>
-					<select
-						id="reader-width-select"
-						class="reader-select"
-						value={$readerPreferences.contentWidth}
-						onchange={handleContentWidthChange}
-					>
-						<option value="narrow">Narrow</option>
-						<option value="medium">Medium</option>
-						<option value="wide">Wide</option>
-					</select>
-				</div>
-
-				{#if isImageMode}
-					<div class="reader-control">
-						<label for="reader-image-fit">Fit</label>
-						<select
-							id="reader-image-fit"
-							class="reader-select"
-							value={$readerPreferences.imageFit}
-							onchange={setImageFit}
-						>
-							<option value="width">Fit Width</option>
-							<option value="height">Fit Height</option>
-							<option value="original">Original</option>
-						</select>
-					</div>
-
-					<div class="reader-control compact">
-						<label for="reader-direction">Direction</label>
-						<select
-							id="reader-direction"
-							class="reader-select"
-							value={$readerPreferences.readingDirection}
-							onchange={setReadingDirection}
-						>
-							<option value="ltr">LTR</option>
-							<option value="rtl">RTL</option>
-							<option value="horizontal">Horizontal</option>
-						</select>
-					</div>
-				{/if}
-
-				<div class="reader-slider">
-					<label for="reader-font-size">Font size · {$readerPreferences.fontSize}px</label>
-					<input
-						id="reader-font-size"
-						type="range"
-						min="14"
-						max="28"
-						step="1"
-						value={$readerPreferences.fontSize}
-						oninput={(event) => updateReaderPreferences({ fontSize: Number(event.currentTarget.value) })}
-					/>
-				</div>
-
-				<div class="reader-slider">
-					<label for="reader-line-height">Line height · {$readerPreferences.lineHeight.toFixed(2)}</label>
-					<input
-						id="reader-line-height"
-						type="range"
-						min="1.35"
-						max="2.30"
-						step="0.05"
-						value={$readerPreferences.lineHeight}
-						oninput={(event) => updateReaderPreferences({ lineHeight: Number(event.currentTarget.value) })}
-					/>
-				</div>
-			</div>
+<section bind:this={root} class="reader-shell reader-redesign" class:reader-focused={focusMode} class:sidebar-open={sidebarOpen}
+	data-reader-theme={theme} aria-label="Reader"
+	style={`--reader-font-size:${$readerPreferences.fontSize}px;--reader-line-height:${$readerPreferences.lineHeight};--reader-measure:${$readerPreferences.contentWidth === 'narrow' ? '54ch' : $readerPreferences.contentWidth === 'wide' ? '78ch' : '66ch'};`}
+	class:reader-sans={$readerPreferences.fontFamily === 'sans'}>
+	<header class="reader-toolbar">
+		<div class="reader-breadcrumb">
+			<button type="button" class="reader-home-button" onclick={returnHome} title="Reader home"><ReaderIcon name="book" /><span>Reader</span></button>
+			{#if $readerSelection}<span class="reader-breadcrumb-slash" aria-hidden="true">/</span><span class="reader-filename" title={$readerSelection.title}>{$readerSelection.title}</span>{/if}
 		</div>
-	{:else}
-		<button class="reader-focus-return" type="button" onclick={() => (readerChromeHidden = false)}>
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
-				<circle cx="12" cy="12" r="3"></circle>
-			</svg>
-			<span>Exit Focus</span>
-		</button>
-	{/if}
+		<div class="reader-toolbar-actions">
+			{#if $readerSelection}
+				{#if !isImageMode}<button type="button" class="reader-search-trigger" onclick={openSearch} aria-label="Search in document" title="Search in document (Ctrl/Cmd+F)"><ReaderIcon name="search" /><span>Search in document…</span></button>{/if}
+				<button type="button" class="reader-tool" aria-label="Reading settings" title="Reading settings" aria-expanded={settingsOpen} onclick={() => { settingsOpen = !settingsOpen; }}><span class="reader-type-icon">Aa</span></button>
+				<button type="button" class="reader-tool" aria-label="Cycle reader theme" title="Cycle paper, sepia and night themes" onclick={() => { const themes: ReaderTheme[] = ['paper', 'sepia', 'night']; void changePreferences({ theme: themes[(themes.indexOf(theme) + 1) % themes.length] }); }}><ReaderIcon name="theme" /></button>
+				{#if !isImageMode}<button type="button" class="reader-tool" aria-label={layout === 'scroll' ? 'Switch to paged reading' : 'Switch to continuous scrolling'} title={layout === 'scroll' ? 'Paged reading' : 'Continuous scrolling'} onclick={toggleLayout}><ReaderIcon name={layout === 'scroll' ? 'pages' : 'scroll'} /></button>{/if}
+				<button type="button" class="reader-tool" class:active={!!currentBookmark} aria-pressed={!!currentBookmark} aria-label={currentBookmark ? 'Remove bookmark at this place' : 'Bookmark this place'} title="Bookmark this place" onclick={toggleBookmark}><ReaderIcon name="bookmark" /></button>
+				<button type="button" class="reader-tool" aria-label={focusMode ? 'Exit focus mode' : 'Enter focus mode'} title="Focus mode (F)" aria-pressed={focusMode} onclick={() => { lastAnchor = currentAnchor(); focusMode = !focusMode; }}><ReaderIcon name="focus" /></button>
+				<button type="button" class="reader-tool" aria-label="Toggle document sidebar" title="Contents, notes and bookmarks" aria-expanded={sidebarOpen} onclick={() => { lastAnchor = currentAnchor(); sidebarOpen = !sidebarOpen; }}><ReaderIcon name="contents" /></button>
+			{/if}
+			<button type="button" class="reader-open-button" onclick={() => fileInput?.click()} disabled={busy}><ReaderIcon name="file" /><span>Open</span></button>
+		</div>
+	</header>
 
-	{#if importPanelOpen}
-		<ReaderImportSheet
-			bind:importTitle
-			bind:importContent
-			bind:importFormat
-			onClose={closeImportPanel}
-			onSubmit={submitImportedDocument}
-		/>
-	{/if}
+	{#if focusMode}<button type="button" class="reader-exit-focus" onclick={() => { focusMode = false; }}><ReaderIcon name="close" size={15} />Exit focus<span>Esc</span></button>{/if}
 
-	<div class="reader-stage">
-		{#if $readerSelection}
+	{#if settingsOpen && $readerSelection}
+		<section class="reader-settings-panel" aria-label="Reading settings">
+			<div class="reader-panel-heading"><h2>Reading settings</h2><button class="reader-tool" type="button" aria-label="Close reading settings" onclick={() => { settingsOpen = false; }}><ReaderIcon name="close" /></button></div>
+			<label class="reader-field">Theme<select value={$readerPreferences.theme} onchange={(e) => changePreferences({ theme: e.currentTarget.value as ReaderTheme })}><option value="paper">Paper</option><option value="sepia">Sepia</option><option value="night">Night</option><option value="auto">Follow system</option></select></label>
 			{#if isImageMode}
-				{#if isHorizontalMode}
-					<div
-						class="reader-horizontal-scroll"
-						bind:this={articleViewport}
-						onscroll={handleViewportScroll}
-					>
-						{#each currentImages as image, index (image.url)}
-							<div class="reader-horizontal-page">
-								<button
-									type="button"
-									class="reader-image-open"
-									aria-label={image.alt || 'Open image viewer'}
-									onclick={() => openImageViewer(index)}
-								>
-									<img src={image.url} alt={image.alt} class="reader-horizontal-img" />
-								</button>
-							</div>
+				<label class="reader-field">Image size<select value={$readerPreferences.imageFit} onchange={(e) => changePreferences({ imageFit: e.currentTarget.value as ImageFitMode })}><option value="width">Fit width</option><option value="height">Fit height</option><option value="original">Original size</option></select></label>
+				<label class="reader-field">Reading direction<select value={$readerPreferences.readingDirection} onchange={(e) => changePreferences({ readingDirection: e.currentTarget.value as ReadingDirection })}><option value="horizontal">Horizontal pages</option><option value="ltr">Vertical · left to right</option><option value="rtl">Vertical · right to left</option></select></label>
+			{:else}
+				<label class="reader-field">Typeface<select value={$readerPreferences.fontFamily} onchange={(e) => changePreferences({ fontFamily: e.currentTarget.value as ReaderFontFamily })}><option value="serif">Literary serif</option><option value="sans">Clean sans serif</option></select></label>
+				<label class="reader-field">Text size <span>{$readerPreferences.fontSize}px</span><input aria-label="Text size" type="range" min="14" max="28" step="1" value={$readerPreferences.fontSize} oninput={(e) => changePreferences({ fontSize: Number(e.currentTarget.value) })} /></label>
+				<label class="reader-field">Line spacing <span>{$readerPreferences.lineHeight.toFixed(2)}</span><input aria-label="Line spacing" type="range" min="1.35" max="2.3" step="0.05" value={$readerPreferences.lineHeight} oninput={(e) => changePreferences({ lineHeight: Number(e.currentTarget.value) })} /></label>
+				<label class="reader-field">Reading width<select value={$readerPreferences.contentWidth} onchange={(e) => changePreferences({ contentWidth: e.currentTarget.value as ReaderContentWidth })}><option value="narrow">Narrow</option><option value="medium">Comfortable</option><option value="wide">Wide</option></select></label>
+				<p class="reader-panel-hint">F · focus mode<br />Ctrl/Cmd + F · find in document<br />Page Up / Page Down · move through text</p>
+			{/if}
+		</section>
+	{/if}
+
+	{#if searchOpen && $readerSelection && !isImageMode}
+		<div class="reader-search-bar" role="search" aria-label="Find in document">
+			<ReaderIcon name="search" /><input bind:this={searchInput} bind:value={query} aria-label="Find text" placeholder="Find in this document…" onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); showSearchMatch(searchIndex + (e.shiftKey ? -1 : 1)); } }} />
+			<span class="reader-search-count" role="status">{query.trim() ? (searchGroups.length ? `${searchIndex + 1} / ${searchGroups.length}${searchGroups.length === 1000 ? ' (limit)' : ''}` : 'No matches') : ''}</span>
+			<button type="button" class="reader-tool" disabled={!searchGroups.length} aria-label="Previous match" onclick={() => showSearchMatch(searchIndex - 1)}><ReaderIcon name="left" /></button><button type="button" class="reader-tool" disabled={!searchGroups.length} aria-label="Next match" onclick={() => showSearchMatch(searchIndex + 1)}><ReaderIcon name="right" /></button><button type="button" class="reader-tool" aria-label="Close search" onclick={() => { searchOpen = false; viewport?.focus(); }}><ReaderIcon name="close" /></button>
+		</div>
+	{/if}
+
+	{#if error || $readerStorageNotice}<div class="reader-notice" role="status">{error || $readerStorageNotice}{#if error}<button type="button" class="reader-tool" aria-label="Dismiss error" onclick={() => { error = ''; }}><ReaderIcon name="close" /></button>{/if}</div>{/if}
+
+	{#if $readerSelection}
+		<div class="reader-workspace">
+			<div bind:this={viewport} class="reader-viewport" class:reader-paged={!isImageMode && layout === 'paged'} class:reader-images={isImageMode} class:reader-horizontal={isImageMode && horizontal} tabindex="0" role="region" aria-label={$readerSelection.title} onscroll={handleScroll}>
+				{#if isImageMode}
+					<div class="reader-gallery" data-fit={$readerPreferences.imageFit} dir={$readerPreferences.readingDirection === 'rtl' ? 'rtl' : 'ltr'}>
+						{#each images as image, index (`${index}:${image.url}`)}
+							<figure class="reader-image-page"><button class="reader-image-open" type="button" aria-label={`Open image ${index + 1}: ${image.alt || 'Image'}`} onclick={() => { lightboxIndex = index; }}><img src={image.url} alt={image.alt || `Image ${index + 1}`} width={image.width} height={image.height} decoding="async" onload={() => { if (viewport && !restoring) restoreReaderAnchor(viewport, blocks, lastAnchor, horizontal); updateMetrics(); }} /></button><figcaption>{index + 1} / {images.length}<span>{image.alt}</span></figcaption></figure>
 						{/each}
 					</div>
 				{:else}
-					<div class="reader-image-shell">
-						{#if currentImage}
-						<button 
-							class="image-nav prev" 
-							onclick={goToPreviousImage} 
-							disabled={isFirstImage}
-							title="Previous Image"
-						>
-							‹
-						</button>
-						<div class="reader-image-viewport">
-							<button
-								type="button"
-								class="reader-image-open"
-								aria-label="Open image viewer"
-								onclick={() => openImageViewer(currentImageIndex)}
-							>
-								<img
-									src={currentImage.url}
-									alt={currentImage.alt}
-									class="reader-image"
-									style="object-fit: {$readerPreferences.imageFit};"
-								/>
-							</button>
-						</div>
-						<button 
-							class="image-nav next" 
-							onclick={goToNextImage} 
-							disabled={isLastImage}
-							title="Next Image"
-						>
-							›
-						</button>
-						<div class="image-counter">
-							{currentImageIndex + 1} / {currentImages.length}
-						</div>
-					{:else}
-						<div class="reader-empty-state">
-							<p>No images loaded</p>
-						</div>
-					{/if}
-					</div>
-				{/if}
-			{:else}
-				<div class="reader-document-shell">
-					<div
-						class="reader-document-viewport"
-						bind:this={articleViewport}
-						onscroll={handleViewportScroll}
-					>
-						<header class="reader-article-header">
-							<span class="reader-kicker">Reader Mode</span>
-							<h2 class="reader-article-title">{$readerSelection.title}</h2>
-							<div class="reader-article-meta">
-								<span>{selectedWordCount.toLocaleString()} words</span>
-								<span>{selectedReadMinutes} min read</span>
-								<span>{readerProgressPercent}%</span>
-								<span>{formatSourceLabel($readerSelection.source)}</span>
-							</div>
-						</header>
-						<article
-							bind:this={documentArticle}
-							class="reader-document markdown-content"
-							style={`font-size: ${$readerPreferences.fontSize}px; line-height: ${$readerPreferences.lineHeight};`}
-						>
-							{@html renderedDocumentHtml}
+					<div class="reader-paper">
+						<article class="reader-prose">
+							<header class="reader-document-header">
+								{#if !contentHasTitle}<h1>{displayTitle}</h1>{/if}
+								<div class="reader-document-meta"><span>{wordCount.toLocaleString()} words</span><span>~{minutes} min read</span><span>{formatSourceLabel($readerSelection.source)}</span></div>
+							</header>
+							<!-- The delegated handler only enhances real links and real copy buttons. -->
+							<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+							<div class="reader-document-body" bind:this={body} onclick={handleArticleClick}>{@html html}</div>
 						</article>
 					</div>
-				</div>
-			{/if}
-		{:else}
-			<div class="reader-empty-state">
-				<div class="reader-empty-card">
-					<h3>Nothing open yet</h3>
-					<p>Open a document or image, or paste markdown to start reading in a clean, focused view.</p>
-				</div>
+				{/if}
 			</div>
-		{/if}
-	</div>
 
-	<input
-		bind:this={fileInput}
-		class="hidden-input"
-		type="file"
-		accept={ACCEPTED_READER_FILE_TYPES}
-		onchange={handleFileChange}
-	/>
-
-	<input
-		bind:this={imageInput}
-		class="hidden-input"
-		type="file"
-		accept={ACCEPTED_IMAGE_FILES}
-		multiple
-		onchange={handleImageFileChange}
-	/>
-
-	{#if imageViewerOpen && currentImage}
-		<div
-			class="image-viewer-overlay"
-			onclick={closeImageViewer}
-			role="button"
-			tabindex="0"
-			aria-label="Close image viewer"
-			onkeydown={(e) => {
-				if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-					e.preventDefault();
-					closeImageViewer();
-				}
-			}}
-		>
-			<div
-			class="image-viewer-panel"
-			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}
-			role="dialog"
-			aria-modal="true"
-			tabindex="-1"
-			aria-label={currentImage.alt || 'Image viewer'}
-			>
-				<img src={currentImage.url} alt={currentImage.alt} class="image-viewer-img" style="object-fit: {$readerPreferences.imageFit};" />
-				<div class="image-viewer-toolbar">
-					<button type="button" onclick={goToPreviousImage} disabled={isFirstImage}>← Prev</button>
-					<span>{currentImageIndex + 1} / {currentImages.length}</span>
-					<button type="button" onclick={goToNextImage} disabled={isLastImage}>Next →</button>
-					<button type="button" onclick={closeImageViewer}>Close</button>
-				</div>
+			{#if sidebarOpen && !focusMode}
+				<aside class="reader-sidebar" aria-label="Document tools">
+					<div class="reader-sidebar-tabs" role="group" aria-label="Choose document tool">
+						{#each ['contents', 'notes', 'bookmarks'] as tab}<button type="button" class:active={sidebarTab === tab} aria-pressed={sidebarTab === tab} onclick={() => { sidebarTab = tab as typeof sidebarTab; }}><ReaderIcon name={tab} size={16} /><span>{tab === 'contents' ? 'Contents' : tab === 'notes' ? 'Notes' : 'Bookmarks'}</span></button>{/each}
+						<button type="button" class="reader-sidebar-close" aria-label="Close document sidebar" onclick={() => { sidebarOpen = false; }}><ReaderIcon name="close" size={16} /></button>
+					</div>
+					<div class="reader-sidebar-content">
+						{#if sidebarTab === 'contents'}
+							{#if isImageMode}
+								<h2 class="reader-section-label">Images</h2>{#each images as image, index}<button class="reader-outline-item" class:active={currentPage === index + 1} type="button" onclick={() => { const target = blocks[index]; if (target && viewport) scrollReaderToElement(viewport, target, horizontal); }}><span>{index + 1}.</span>{image.alt || `Image ${index + 1}`}</button>{/each}
+							{:else if outline.length}
+								<nav aria-label="Table of contents">{#each outline as heading}<button type="button" class="reader-outline-item" class:active={activeHeading === heading.id} style:--outline-indent={`${Math.min(3, heading.level - 1) * 12}px`} onclick={() => goToHeading(heading.id)}>{heading.label}</button>{/each}</nav>
+							{:else}<h2 class="reader-section-label">Contents</h2><p class="reader-panel-hint">This document has no headings. Use search or save a bookmark to find your place.</p><button class="reader-secondary-button" type="button" onclick={() => seek(0)}>Back to the beginning</button>{/if}
+						{:else if sidebarTab === 'bookmarks'}
+							<button type="button" class="reader-secondary-button" onclick={toggleBookmark}><ReaderIcon name="bookmark" size={16} />{currentBookmark ? 'Remove this bookmark' : 'Bookmark this place'}</button>
+							{#if !bookmarks.length}<p class="reader-panel-hint">Keep a passage within reach. Bookmarks are saved on this device.</p>{/if}
+							{#each bookmarks as mark (mark.id)}<div class="reader-saved-item"><button type="button" class="reader-saved-link" onclick={() => jump(mark.anchor)}><span>{mark.label}</span><small>{Math.round(mark.anchor.progress * 100)}% into document</small></button><button type="button" class="reader-tool" aria-label={`Remove bookmark: ${mark.label}`} onclick={() => { if ($readerSelection) removeReaderBookmark($readerSelection.docKey, mark.id); }}><ReaderIcon name="trash" size={15} /></button></div>{/each}
+						{:else}
+							<label class="reader-field">Note for this passage<textarea bind:value={noteDraft} maxlength="10000" rows="5" placeholder="Write a note…" onfocus={() => { if (!noteAnchor) noteAnchor = currentAnchor(); }}></textarea></label><button type="button" class="reader-secondary-button" disabled={!noteDraft.trim()} onclick={saveNote}>Save note</button><p class="reader-panel-hint">Notes stay on this device and link back to the passage.</p>
+							{#each notes as note (note.id)}<div class="reader-saved-item"><button type="button" class="reader-saved-link" onclick={() => jump(note.anchor)}><span class="reader-note-text">{note.text}</span><small>Return to passage · {Math.round(note.anchor.progress * 100)}%</small></button><button type="button" class="reader-tool" aria-label="Delete note" onclick={() => { if ($readerSelection) removeReaderNote($readerSelection.docKey, note.id); }}><ReaderIcon name="trash" size={15} /></button></div>{/each}
+						{/if}
+					</div>
+				</aside>
+			{/if}
+		</div>
+		<footer class="reader-footer">
+			<div class="reader-pagination"><button type="button" class="reader-tool" aria-label="Previous page" disabled={atStart} onclick={() => movePage(-1)}><ReaderIcon name="left" size={16} /></button><span>{isImageMode ? `Image ${currentPage} of ${totalPages}` : layout === 'paged' ? `Page ${currentPage} of ${totalPages}` : 'Continuous scroll'}</span><button type="button" class="reader-tool" aria-label="Next page" disabled={atEnd} onclick={() => movePage(1)}><ReaderIcon name="right" size={16} /></button></div>
+			<div class="reader-position"><input type="range" min="0" max="100" value={progress} aria-label="Reading position" aria-valuetext={`${progress}% through document`} oninput={(e) => seek(Number(e.currentTarget.value))} /><span>{progress}%</span></div>
+			<span class="reader-footer-hint">{atEnd ? 'End of document' : isImageMode ? '' : `~${Math.max(1, Math.ceil(minutes * (1 - progress / 100)))} min left`}</span>
+		</footer>
+	{:else}
+		<div class="reader-home">
+			<div class="reader-home-intro"><span class="reader-eyebrow">YOUR READING SPACE</span><h1>Open something<br />worth keeping.</h1><p>Books, essays, notes, and long-form text.<br />A comfortable place to pick up where you left off.</p></div>
+			<div class="reader-home-actions">
+				<button type="button" class="reader-import-option reader-import-primary" onclick={() => fileInput?.click()} disabled={busy}><ReaderIcon name="file" size={28} /><span><strong>{busy ? 'Opening…' : 'Open file'}</strong><small>TXT, Markdown, HTML</small></span></button>
+				<button type="button" class="reader-import-option" onclick={() => openPaste('text')}><ReaderIcon name="paste" size={28} /><span><strong>Paste text</strong><small>Plain text, Markdown, or HTML</small></span></button>
+				<button type="button" class="reader-import-option" onclick={() => imageInput?.click()} disabled={busy}><ReaderIcon name="image" size={28} /><span><strong>Open images</strong><small>Read a collection of image pages</small></span></button>
+			</div>
+			<div class="reader-home-bottom">
+				<section class="reader-recent-card"><div class="reader-panel-heading"><h2><ReaderIcon name="clock" />Recent reads</h2><span>This session</span></div>
+					{#if $readerHistory.length}{#each $readerHistory as entry (entry.id)}<button type="button" class="reader-recent-item" onclick={() => openReaderHistoryEntry(entry.id)}><ReaderIcon name={entry.contentType === 'images' ? 'image' : 'file'} size={22} /><span><strong>{entry.title}</strong><small>{entry.contentType === 'images' ? `${entry.images?.length || 0} images` : `${countWords(entry.content).toLocaleString()} words`} · {Math.round(($readerProgressByDocument[entry.docKey] || 0) * 100)}% read</small></span><ReaderIcon name="right" size={16} /></button>{/each}
+					{:else}<p class="reader-panel-hint">Your open documents will appear here. Start with a file or paste something to read.</p>{/if}
+				</section>
+				<section class="reader-home-detail"><ReaderIcon name="bookmark" size={24} /><h2>Your place is kept.</h2><p>Reading position, bookmarks, and notes are saved on this device. Reopen the same document to continue.</p><p class="reader-panel-hint">Local files are not uploaded. Documents remain available in Recent reads for this session.</p></section>
 			</div>
 		</div>
 	{/if}
-</div>
+
+	<input bind:this={fileInput} class="reader-hidden-input" type="file" accept=".txt,.text,.md,.markdown,.html,.htm" onchange={handleFileChange} />
+	<input bind:this={imageInput} class="reader-hidden-input" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp" multiple onchange={handleImages} />
+	{#if importPanelOpen}<ReaderImportSheet bind:importTitle bind:importContent bind:importFormat onClose={closeImport} onSubmit={submitImport} />{/if}
+	{#if lightboxIndex !== null && images[lightboxIndex]}
+		<dialog bind:this={lightbox} class="reader-lightbox" aria-label="Image viewer" oncancel={() => { lightboxIndex = null; }} onclick={(e) => { if (e.target === lightbox) lightboxIndex = null; }}>
+			<div class="reader-lightbox-image"><img src={images[lightboxIndex].url} alt={images[lightboxIndex].alt} /></div>
+			<div class="reader-lightbox-toolbar"><button type="button" class="reader-secondary-button" disabled={lightboxIndex === 0} onclick={() => { lightboxIndex = Math.max(0, (lightboxIndex || 0) - 1); }}>Previous</button><span>{lightboxIndex + 1} / {images.length}</span><button type="button" class="reader-secondary-button" disabled={lightboxIndex === images.length - 1} onclick={() => { lightboxIndex = Math.min(images.length - 1, (lightboxIndex || 0) + 1); }}>Next</button><button type="button" class="reader-secondary-button" onclick={() => { lightboxIndex = null; }}>Close</button></div>
+		</dialog>
+	{/if}
+</section>
