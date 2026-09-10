@@ -1,15 +1,16 @@
 name: Repair frontend TypeScript lockfile
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/github-actions-rust-toolchain
+      - main
 
 permissions:
   contents: write
 
 jobs:
   repair:
+    if: github.head_ref == 'fix/github-actions-rust-toolchain'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
