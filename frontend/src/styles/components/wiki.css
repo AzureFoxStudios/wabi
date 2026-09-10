@@ -845,3 +845,173 @@
 	border-top: 1px solid var(--border-subtle);
 	margin: var(--space-6) 0;
 }
+
+/* ---- right-anchored new-page draft drawer (mirrors forum-draft-drawer) ---- */
+
+.wiki-draft-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.35);
+	z-index: var(--z-overlay);
+}
+
+.wiki-draft-drawer {
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: min(420px, 90%);
+	z-index: var(--z-overlay);
+	display: flex;
+	flex-direction: column;
+	background: var(--surface-base);
+	border-left: 1px solid var(--border-default);
+	box-shadow: -12px 0 32px rgba(0, 0, 0, 0.25);
+	animation: wiki-draft-slide-in 0.18s ease-out;
+}
+
+@keyframes wiki-draft-slide-in {
+	from { transform: translateX(24px); opacity: 0; }
+	to { transform: translateX(0); opacity: 1; }
+}
+
+.wiki-draft-drawer-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-2);
+	padding: var(--space-4) var(--space-4) var(--space-3);
+	border-bottom: 1px solid var(--border-subtle);
+}
+
+.wiki-draft-drawer-titles {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.wiki-draft-drawer-kicker {
+	font-size: var(--font-size-xs);
+	font-weight: var(--font-weight-semibold);
+	color: var(--accent-primary-color);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.wiki-draft-drawer-title {
+	font-size: var(--font-size-lg);
+	font-weight: var(--font-weight-bold);
+	color: var(--text-heading);
+	margin: 0;
+}
+
+.wiki-draft-drawer-channel {
+	font-size: var(--font-size-xs);
+	color: var(--text-muted);
+}
+
+.wiki-draft-drawer-close {
+	width: 28px;
+	height: 28px;
+	border-radius: var(--radius-full);
+	border: 1px solid var(--border-subtle);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.wiki-draft-drawer-close:hover {
+	color: var(--text-heading);
+	border-color: var(--border-default);
+}
+
+.wiki-draft-drawer-body {
+	flex: 1;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+}
+
+.wiki-draft-drawer-body .wiki-edit-area {
+	padding: var(--space-4);
+	flex: 1;
+}
+
+.wiki-draft-drawer-body .wiki-edit-body {
+	flex: 1;
+	min-height: 280px;
+	max-height: none;
+}
+
+/* ---- narrow / right-panel-embedded mode ----
+   WikiChannel and ForumChannel are full-surface layouts (tree + content).
+   Inside the ~320px right panel they collapse to a single stacked column. */
+
+.right-panel-embedded {
+	height: 100%;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+}
+
+.right-panel-embedded .wiki-body {
+	display: flex;
+	flex-direction: column;
+	overflow: visible;
+	flex: 1;
+	min-height: 0;
+}
+
+.right-panel-embedded .wiki-tree-wrapper {
+	display: block;
+}
+
+.right-panel-embedded .wiki-tree-pane {
+	max-height: 220px;
+	border-right: 0;
+	border-bottom: 1px solid var(--border-subtle);
+	flex-shrink: 0;
+}
+
+.right-panel-embedded .wiki-content-pane {
+	overflow: visible;
+	flex: 1;
+}
+
+.right-panel-embedded .wiki-content-header {
+	padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.right-panel-embedded .wiki-content-header-title {
+	font-size: var(--font-size-xl);
+}
+
+.right-panel-embedded .wiki-content-body {
+	padding: var(--space-4);
+	font-size: var(--font-size-base);
+}
+
+.right-panel-embedded .wiki-content-toolbar {
+	flex-wrap: wrap;
+	padding-inline: var(--space-3);
+}
+
+.right-panel-embedded .wiki-content-toolbar-breadcrumb {
+	flex-basis: 100%;
+}
+
+.right-panel-embedded .wiki-edit-area {
+	padding-inline: var(--space-3);
+}
+
+.right-panel-embedded .wiki-edit-footer {
+	flex-wrap: wrap;
+}

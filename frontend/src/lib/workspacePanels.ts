@@ -38,7 +38,9 @@ export type WorkspacePanelComponentKey =
 	| 'transfers'
 	| 'code'
 	| 'planner-tasks'
-	| 'calls';
+	| 'calls'
+	| 'wiki'
+	| 'forum';
 
 export type WorkspacePanelDockArea = 'right' | 'bottom' | 'center' | 'floating';
 export type WorkspacePanelMobileMode = 'sheet' | 'fullscreen' | 'hidden';
@@ -225,6 +227,28 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		mobileMode: 'sheet',
 		source: 'core',
 		sortOrder: 57
+	},
+	{
+		id: 'wiki',
+		label: 'Wiki',
+		icon: 'notes',
+		component: 'wiki',
+		capabilities: ['channel-scoped', 'wiki-channel'],
+		defaultDock: 'right',
+		mobileMode: 'sheet',
+		source: 'core',
+		sortOrder: 58
+	},
+	{
+		id: 'forum',
+		label: 'Forum',
+		icon: 'messages',
+		component: 'forum',
+		capabilities: ['channel-scoped', 'forum-channel'],
+		defaultDock: 'right',
+		mobileMode: 'sheet',
+		source: 'core',
+		sortOrder: 59
 	}
 ];
 
@@ -245,7 +269,9 @@ const KNOWN_COMPONENT_KEYS = new Set<WorkspacePanelComponentKey>([
 	'reader',
 	'transfers',
 	'code',
-	'planner-tasks'
+	'planner-tasks',
+	'wiki',
+	'forum'
 ]);
 
 export const workspacePanelRegistry = { subscribe: panelRegistry.subscribe };

@@ -351,39 +351,6 @@
 					<span>{error}</span>
 					<button on:click={() => $currentChannel && loadWiki($currentChannel)}>Retry</button>
 				</div>
-			{:else if showNewPage}
-				<div class="wiki-edit-area">
-					<input
-						type="text"
-						class="wiki-edit-title"
-						placeholder="Page title..."
-						bind:value={newPageTitle}
-					/>
-					<div class="wiki-editor-toolbar" role="toolbar" aria-label="Markdown formatting">
-						<button type="button" on:click={() => insertNewPageMarkdown('**bold**')}>Bold</button>
-						<button type="button" on:click={() => insertNewPageMarkdown('*italic*')}>Italic</button>
-						<button type="button" on:click={() => insertNewPageMarkdown('[link text](https://)')}>Link</button>
-						<button type="button" on:click={() => insertNewPageMarkdown('## Heading\n')}>Heading</button>
-						<button type="button" on:click={() => insertNewPageMarkdown('> Quote\n')}>Quote</button>
-						<button type="button" disabled={imageUploading} on:click={() => newPageImageInput?.click()}>{imageUploading ? 'Uploading…' : 'Image'}</button>
-						<input class="wiki-image-input" type="file" accept="image/*" bind:this={newPageImageInput} on:change={(event) => { const file = (event.currentTarget as HTMLInputElement).files?.[0]; if (file) void handleNewPageImage(file); }} />
-						<button type="button" class:active={newPagePreview} on:click={() => { newPagePreview = !newPagePreview; }}>{newPagePreview ? 'Edit' : 'Preview'}</button>
-					</div>
-					{#if newPagePreview}
-						<div class="wiki-edit-preview wiki-content-body">{@html parseMessage(newPageBody)}</div>
-					{:else}
-						<textarea
-							class="wiki-edit-body"
-							placeholder="Write wiki content in markdown..."
-							bind:this={newPageBodyElement}
-							bind:value={newPageBody}
-						></textarea>
-					{/if}
-					<div class="wiki-edit-footer">
-						<button class="wiki-edit-cancel-btn" on:click={handleCancelNewPage}>Cancel</button>
-						<button class="wiki-edit-save-btn" on:click={handleCreateNewPage} disabled={!newPageTitle.trim()}>Create</button>
-					</div>
-				</div>
 			{:else if !selectedPage}
 				<div class="wiki-empty">
 					<div class="wiki-empty-icon">
@@ -511,4 +478,69 @@
 			/>
 		{/if}
 	</div>
+
+	{#if showNewPage}
+		<div
+			class="wiki-draft-backdrop"
+			on:click={handleCancelNewPage}
+			role="presentation"
+		></div>
+		<div
+			class="wiki-draft-drawer"
+			role="dialog"
+			aria-modal="false"
+			tabindex="-1"
+			aria-label="New page draft"
+			on:keydown={(e) => { if (e.key === 'Escape') handleCancelNewPage(); }}
+		>
+			<div class="wiki-draft-drawer-header">
+				<div class="wiki-draft-drawer-titles">
+					<span class="wiki-draft-drawer-kicker">Focused writing</span>
+					<h2 class="wiki-draft-drawer-title">New page</h2>
+					<span class="wiki-draft-drawer-channel">{newPageParentId ? `Child of ${allPages.find((p) => p.pageId === newPageParentId)?.title || 'page'}` : 'Top-level page'}</span>
+				</div>
+				<button
+					class="wiki-draft-drawer-close"
+					on:click={handleCancelNewPage}
+					title="Close draft"
+					aria-label="Close draft"
+				>&#10005;</button>
+			</div>
+			<div class="wiki-draft-drawer-body">
+				<div class="wiki-edit-area">
+					<input
+						type="text"
+						class="wiki-edit-title"
+						placeholder="Page title..."
+						bind:value={newPageTitle}
+					/>
+					<div class="wiki-editor-toolbar" role="toolbar" aria-label="Markdown formatting">
+						<button type="button" on:click={() => insertNewPageMarkdown('**bold**')}>Bold</button>
+						<button type="button" on:click={() => insertNewPageMarkdown('*italic*')}>Italic</button>
+						<button type="button" on:click={() => insertNewPageMarkdown('[link text](https://)')}>Link</button>
+						<button type="button" on:click={() => insertNewPageMarkdown('## Heading\n')}>Heading</button>
+						<button type="button" on:click={() => insertNewPageMarkdown('> Quote\n')}>Quote</button>
+						<button type="button" disabled={imageUploading} on:click={() => newPageImageInput?.click()}>{imageUploading ? 'Uploading…' : 'Image'}</button>
+						<input class="wiki-image-input" type="file" accept="image/*" bind:this={newPageImageInput} on:change={(event) => { const file = (event.currentTarget as HTMLInputElement).files?.[0]; if (file) void handleNewPageImage(file); }} />
+						<button type="button" class:active={newPagePreview} on:click={() => { newPagePreview = !newPagePreview; }}>{newPagePreview ? 'Edit' : 'Preview'}</button>
+					</div>
+					{#if newPagePreview}
+						<div class="wiki-edit-preview wiki-content-body">{@html parseMessage(newPageBody)}</div>
+					{:else}
+						<textarea
+							class="wiki-edit-body"
+							placeholder="Write wiki content in markdown..."
+							bind:this={newPageBodyElement}
+							bind:value={newPageBody}
+						></textarea>
+					{/if}
+					<div class="wiki-edit-footer">
+						<span class="wiki-edit-status" role="status">{newPageTitle.trim() || newPageBody.trim() ? 'Unsaved draft' : 'New draft'}</span>
+						<button class="wiki-edit-cancel-btn" on:click={handleCancelNewPage}>Cancel</button>
+						<button class="wiki-edit-save-btn" on:click={handleCreateNewPage} disabled={!newPageTitle.trim()}>Create</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
