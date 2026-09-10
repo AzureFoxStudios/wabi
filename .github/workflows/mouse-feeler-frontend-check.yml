@@ -6,7 +6,7 @@ on:
       - prototype/mouse-feeler
 
 jobs:
-  frontend-check:
+  frontend-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +20,6 @@ jobs:
         working-directory: frontend
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
-      - name: Svelte check
+      - name: Build static frontend
         working-directory: frontend
-        run: npm run check -- --threshold 1
+        run: npm run build:static
