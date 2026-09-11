@@ -1,0 +1,118 @@
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    target = Path(path)
+    text = target.read_text()
+    if old not in text:
+        raise SystemExit(f"expected source block not found in {path}")
+    if text.count(old) != 1:
+        raise SystemExit(f"source block is not unique in {path}")
+    target.write_text(text.replace(old, new, 1))
+
+
+popout = "frontend/src/lib/components/UserPopoutImpl.svelte"
+replace_once(popout, "\t\tgetDMChannelIdForUser,\n", "")
+replace_once(
+    popout,
+    "\timport { overlayStyle } from '$lib/overlayStyle';\n",
+    "\timport { overlayStyle } from '$lib/overlayStyle';\n\timport { resolveDmEntry } from '$lib/dmEntry';\n",
+)
+replace_once(
+    popout,
+    """\tfunction openDM() {
+\t\tif (!user) return;
+\t\tconst self = get(currentUser);
+\t\tif (!self || user.id === self.id) return;
+
+\t\tconst dmId = \"\";
+
+\t\tconst allChannels = get(channels);
+\t\tconst existingDM = allChannels.find(ch => ch.id === dmId);
+
+\t\tif (existingDM) {
+\t\t\tif (existingDM.otherUser) {
+\t\t\t\tdmPanelSignal.set({ channelId: dmId, otherUser: existingDM.otherUser });
+\t\t\t}
+\t\t} else {
+\t\t\tundefined;
+\t\t}
+\t\tclosePopout();
+\t}
+""",
+    """\tasync function openDM() {
+\t\tif (!user) return;
+\t\tconst self = get(currentUser);
+\t\tif (!self || user.id === self.id) return;
+
+\t\tconst result = await resolveDmEntry({
+\t\t\tchannels: get(channels),
+\t\t\ttarget: user,
+\t\t\tcreateDm: createDM
+\t\t});
+\t\tif (!result.ok) {
+\t\t\tconsole.warn('[DM] Could not open conversation:', result.error);
+\t\t\tclosePopout();
+\t\t\treturn;
+\t\t}
+
+\t\t// +page owns the signal and always joins the socket room before showing
+\t\t// the DM, keeping profile-popout behavior identical to the other entry paths.
+\t\tdmPanelSignal.set({ channelId: result.channelId, otherUser: user });
+\t\tclosePopout();
+\t}
+""",
+)
+
+user_list = "frontend/src/lib/components/UserListTabImpl.svelte"
+replace_once(
+    user_list,
+    "\timport { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, roleDefinitions } from '$lib/socket';\n",
+    "\timport { users, serverMembers, currentUser, channels, createDM, joinChannel, socket, roleDefinitions } from '$lib/socket';\n",
+)
+replace_once(
+    user_list,
+    "\timport type { User } from '$lib/socket';\n",
+    "\timport type { User } from '$lib/socket';\n\timport { resolveDmEntry } from '$lib/dmEntry';\n",
+)
+replace_once(
+    user_list,
+    """\tfunction openDirectConversationWithUser(user: User): void {
+\t\tconst self = get(currentUser);
+\t\tif (!self || isCurrentUserEntry(user, $currentUser)) return;
+\t\tconst dmId = \"\";
+\t\tconst existingDM = get(channels).find((channel) => channel.id === dmId);
+\t\tif (existingDM) {
+\t\t\tlayoutStore.openDM(dmId, user);
+\t\t\treturn;
+\t\t}
+\t\tundefined;
+\t\tlayoutStore.showDMsTab();
+\t\tconst unsubscribe = channels.subscribe((allChannels) => {
+\t\t\tconst newDM = allChannels.find((channel) => channel.id === dmId || (channel.type === 'dm' && channel.otherUser?.id === user.id));
+\t\t\tif (!newDM) return;
+\t\t\tlayoutStore.openDM(newDM.id, user);
+\t\t\tunsubscribe();
+\t\t});
+\t}
+""",
+    """\tasync function openDirectConversationWithUser(user: User): Promise<void> {
+\t\tconst self = get(currentUser);
+\t\tif (!self || isCurrentUserEntry(user, $currentUser)) return;
+
+\t\tconst result = await resolveDmEntry({
+\t\t\tchannels: get(channels),
+\t\t\ttarget: user,
+\t\t\tcreateDm: createDM
+\t\t});
+\t\tif (!result.ok) {
+\t\t\tshowToast(result.error, 'error');
+\t\t\tlayoutStore.showDMsTab();
+\t\t\treturn;
+\t\t}
+
+\t\tlayoutStore.openDM(result.channelId, user);
+\t\tjoinChannel(result.channelId);
+\t}
+""",
+)
