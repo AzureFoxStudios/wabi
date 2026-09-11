@@ -1,0 +1,44 @@
+name: Steam review source
+
+on:
+  push:
+    branches: [review/steam-games-2026-09-11]
+    paths: [.github/workflows/steam-review-source.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    if: github.repository == 'AzureFoxStudios/wabi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Export tracked source only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess, zipfile
+          root = pathlib.Path.cwd()
+          target = pathlib.Path(os.environ['RUNNER_TEMP']) / 'wabi-review-source.zip'
+          allowed = {'.rs','.toml','.lock','.ts','.svelte','.css','.json','.js','.mjs','.cjs','.md','.yaml','.yml','.py'}
+          names = subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as z:
+              for name in names:
+                  p = pathlib.Path(name)
+                  if not name or p.suffix not in allowed or p.parts[0] in {'data','.git'}:
+                      continue
+                  source = root / p
+                  if source.is_file() and not source.is_symlink():
+                      z.write(source, name)
+              z.writestr('REVIEW_BASE.txt', subprocess.check_output(['git','rev-parse','HEAD']).decode())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steam-review-source
+          path: ${{ runner.temp }}/wabi-review-source.zip
+          retention-days: 1
+          if-no-files-found: error
