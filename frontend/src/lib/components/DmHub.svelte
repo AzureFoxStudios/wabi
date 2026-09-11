@@ -2,6 +2,7 @@
   import { onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { layoutStore } from '$lib/layoutStore';
+  import { openRightGroupDm } from '$lib/dmNavigation';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
   import { channels, channelMessages, currentUser, users, serverMembers, socket, channelUnreadCounts, createDM, joinChannel } from '$lib/socket';
   import type { Channel, User } from '$lib/socket-types';
@@ -57,7 +58,7 @@
     const person = resolveDmOtherUser(channel, get(currentUser), get(users), get(serverMembers));
     if (channel.type === 'group') {
       if (destination === 'center') layoutStore.openCenterGroupDm(channel.id, channel);
-      else layoutStore.openGroupDM(channel.id, channel);
+      else openRightGroupDm(channel);
     } else {
       if (destination === 'center') layoutStore.openCenterDm(channel.id, person);
       else layoutStore.openDM(channel.id, person);

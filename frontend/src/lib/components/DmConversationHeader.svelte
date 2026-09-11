@@ -4,6 +4,7 @@
   import { currentUser, users, socket, leaveGroup, joinChannel } from '$lib/socket';
   import type { Channel, User } from '$lib/socket-types';
   import { layoutStore } from '$lib/layoutStore';
+  import { openRightGroupDm } from '$lib/dmNavigation';
   import { getApiBase } from '$lib/api/utils';
   import { getUserIdentityKey } from '$lib/localNicknames';
   import { dmPersonName, dmHandle } from '$lib/dmPresentation';
@@ -62,7 +63,7 @@
     if (!channel) return;
     if (channel.type === 'group') {
       if (context === 'right') layoutStore.openCenterGroupDm(channel.id, channel);
-      else layoutStore.openGroupDM(channel.id, channel);
+      else openRightGroupDm(channel);
     } else {
       if (context === 'right') layoutStore.openCenterDm(channel.id, otherUser);
       else layoutStore.openDM(channel.id, otherUser);
@@ -89,7 +90,7 @@
     ];
     if (target.type === 'group') {
       if (settings) menuItems.push({ id: 'group-settings', label: groupSettingsOpen ? 'Back to messages' : 'Group settings', icon: 'settings', onSelect: settings });
-      menuItems.push({ id: 'leave-divider', type: 'separator' }, { id: 'leave', label: 'Leave group…', icon: 'log-out', danger: true, disabled: busy, onSelect: () => leave(target) });
+      menuItems.push({ id: 'leave-divider', type: 'separator' }, { id: 'leave', label: 'Leave group…', icon: 'log-out', disabled: busy, onSelect: () => leave(target) });
     }
     menuOpen = true;
   }
