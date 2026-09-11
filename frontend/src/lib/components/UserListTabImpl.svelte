@@ -2,11 +2,12 @@
 	import './UserListTabImpl.css';
 	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
-	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, roleDefinitions } from '$lib/socket';
+	import { users, serverMembers, currentUser, channels, createDM, joinChannel, socket, roleDefinitions } from '$lib/socket';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { showToast } from '$lib/toast';
 	import { layoutStore } from '$lib/layoutStore';
 	import type { User } from '$lib/socket';
+	import { resolveDmEntry } from '$lib/dmEntry';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
@@ -180,23 +181,23 @@
 		closeContextMenu();
 	}
 
-	function openDirectConversationWithUser(user: User): void {
+	async function openDirectConversationWithUser(user: User): Promise<void> {
 		const self = get(currentUser);
 		if (!self || isCurrentUserEntry(user, $currentUser)) return;
-		const dmId = "";
-		const existingDM = get(channels).find((channel) => channel.id === dmId);
-		if (existingDM) {
-			layoutStore.openDM(dmId, user);
+
+		const result = await resolveDmEntry({
+			channels: get(channels),
+			target: user,
+			createDm: createDM
+		});
+		if (result.ok === false) {
+			showToast(result.error, 'error');
+			layoutStore.showDMsTab();
 			return;
 		}
-		undefined;
-		layoutStore.showDMsTab();
-		const unsubscribe = channels.subscribe((allChannels) => {
-			const newDM = allChannels.find((channel) => channel.id === dmId || (channel.type === 'dm' && channel.otherUser?.id === user.id));
-			if (!newDM) return;
-			layoutStore.openDM(newDM.id, user);
-			unsubscribe();
-		});
+
+		layoutStore.openDM(result.channelId, user);
+		joinChannel(result.channelId);
 	}
 
 	function handleContextRequestPayment(): void {

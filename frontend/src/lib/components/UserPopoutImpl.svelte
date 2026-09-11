@@ -7,7 +7,6 @@
 		currentChannel,
 		currentUser,
 		dmPanelSignal,
-		getDMChannelIdForUser,
 		roleDefinitions,
 		socket,
 		users,
@@ -26,6 +25,7 @@
 	import { requestLiveRoleChange, selectAssignableRoles } from './userListHelpers';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { overlayStyle } from '$lib/overlayStyle';
+	import { resolveDmEntry } from '$lib/dmEntry';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import {
 		MAX_USER_NOTE_LENGTH,
@@ -290,23 +290,25 @@
 		}
 	}
 
-	function openDM() {
+	async function openDM() {
 		if (!user) return;
 		const self = get(currentUser);
 		if (!self || user.id === self.id) return;
 
-		const dmId = "";
-
-		const allChannels = get(channels);
-		const existingDM = allChannels.find(ch => ch.id === dmId);
-
-		if (existingDM) {
-			if (existingDM.otherUser) {
-				dmPanelSignal.set({ channelId: dmId, otherUser: existingDM.otherUser });
-			}
-		} else {
-			undefined;
+		const result = await resolveDmEntry({
+			channels: get(channels),
+			target: user,
+			createDm: createDM
+		});
+		if (result.ok === false) {
+			console.warn('[DM] Could not open conversation:', result.error);
+			closePopout();
+			return;
 		}
+
+		// +page owns the signal and always joins the socket room before showing
+		// the DM, keeping profile-popout behavior identical to the other entry paths.
+		dmPanelSignal.set({ channelId: result.channelId, otherUser: user });
 		closePopout();
 	}
 
