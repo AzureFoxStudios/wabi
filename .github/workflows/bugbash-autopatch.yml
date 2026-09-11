@@ -19,8 +19,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply DM entry patch
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           from pathlib import Path
 
           def replace_once(path: str, old: str, new: str) -> None:
@@ -137,6 +138,7 @@ jobs:
 \t}
 '''
           )
+          PY
 
       - uses: actions/setup-node@v4
         with:
