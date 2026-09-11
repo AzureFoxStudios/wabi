@@ -50,7 +50,7 @@ replace_once(
 \t\t\ttarget: user,
 \t\t\tcreateDm: createDM
 \t\t});
-\t\tif (!result.ok) {
+\t\tif (result.ok === false) {
 \t\t\tconsole.warn('[DM] Could not open conversation:', result.error);
 \t\t\tclosePopout();
 \t\t\treturn;
@@ -105,7 +105,7 @@ replace_once(
 \t\t\ttarget: user,
 \t\t\tcreateDm: createDM
 \t\t});
-\t\tif (!result.ok) {
+\t\tif (result.ok === false) {
 \t\t\tshowToast(result.error, 'error');
 \t\t\tlayoutStore.showDMsTab();
 \t\t\treturn;
