@@ -12,6 +12,11 @@ on:
 
 env:
   RUST_BACKTRACE: 1
+  # dtolnay/rust-toolchain@1.93 resolves to the latest 1.93 patch release.
+  # Pin the effective toolchain to that exact release too, otherwise the
+  # repository's `channel = "1.93"` override can select a separate toolchain
+  # that does not have both universal macOS targets installed.
+  RUSTUP_TOOLCHAIN: 1.93.1
 
 # Determinism contract for this workflow:
 #   - Rust is pinned to the same version as rust-toolchain.toml (not @stable).
