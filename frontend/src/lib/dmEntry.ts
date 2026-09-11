@@ -21,7 +21,7 @@ export async function resolveDmEntry(options: {
 	}
 
 	const result = await options.createDm(getDmDirectoryKey(options.target));
-	if (!result.ok) {
+	if (result.ok === false) {
 		return { ok: false, error: result.error };
 	}
 
