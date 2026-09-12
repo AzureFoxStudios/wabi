@@ -107,7 +107,7 @@ jobs:
             test -x "$X64"
             lipo -create "$ARM64" "$X64" -output "$UNIVERSAL"
             chmod +x "$UNIVERSAL"
-            lipo -verify_arch arm64 x86_64 "$UNIVERSAL"
+            lipo "$UNIVERSAL" -verify_arch arm64 x86_64
             lipo -info "$UNIVERSAL"
             file "$UNIVERSAL"
           else
