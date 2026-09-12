@@ -480,7 +480,7 @@
 		const items: ContextMenuItem[] = [];
 
         if (selectedDmId && !isKeepNotesSelected) items.push({
-          id:'header-find-game',label:'What can we play?',icon:'search',
+          id:'header-find-game',label:'What can we play?',icon:'smile',
           onSelect:()=>openGames({channelId:selectedDmId,tab:'match'})
         });
 		for (const action of headerCallActions) {
