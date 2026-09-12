@@ -68,10 +68,10 @@
 			display: inline-flex;
 			align-items: center;
 			justify-content: center;
-			width: 42px;
-			height: 42px;
-			min-width: 42px;
-			min-height: 42px;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
 			padding: 0;
 			border-radius: 12px;
 		}
@@ -112,12 +112,13 @@
 		   and call buttons into a desktop toolbar. */
 		.search-container {
 			position: relative;
-			flex: 0 0 42px;
+			flex: 0 0 44px;
 			align-items: center;
 			gap: 0;
-			width: 42px;
-			height: 42px;
-			min-width: 42px;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
 			overflow: hidden;
 			border-radius: 12px;
 			background: color-mix(in srgb, var(--surface-raised) 30%, transparent);
@@ -137,9 +138,10 @@
 		.search-input {
 			position: relative;
 			z-index: 2;
-			width: 42px;
-			height: 42px;
-			min-width: 42px;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
 			padding: 0;
 			border: 0;
 			outline: 0;
@@ -314,7 +316,7 @@
 			display: inline-flex;
 			align-items: center;
 			gap: 0.38rem;
-			min-height: 40px;
+			min-height: 44px;
 			padding: 0.45rem 0.72rem;
 			border-radius: 999px;
 			border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
