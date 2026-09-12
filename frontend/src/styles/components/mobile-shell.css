@@ -159,7 +159,6 @@ html[data-shell='mobile'] body {
 		letter-spacing: 0.01em;
 	}
 
-
 	/* ---- Message list density ---- */
 	.messages {
 		padding: 0.35rem var(--mobile-chrome-pad-x) 0.5rem;
@@ -213,7 +212,7 @@ html[data-shell='mobile'] body {
 		border-radius: 12px !important;
 	}
 
-	/* ---- DM hub center layout: stack list full-bleed on phone ---- */
+	/* ---- DM hub: list OR conversation, never a squashed split on phone ---- */
 	.center-dm-layout {
 		display: flex;
 		flex-direction: column;
@@ -221,18 +220,40 @@ html[data-shell='mobile'] body {
 		height: 100%;
 	}
 
-	.center-dm-list {
+	.center-dm-list,
+	.center-dm-thread {
 		flex: 1 1 auto;
 		min-height: 0;
+		width: 100%;
+	}
+
+	.center-dm-list {
 		overflow: auto;
 		-webkit-overflow-scrolling: touch;
 	}
 
 	.center-dm-thread {
-		flex: 1 1 auto;
-		min-height: 0;
 		display: flex;
 		flex-direction: column;
+	}
+
+	/* MainLayout mounts both children for desktop/tablet split layouts. On a
+	   phone the presence of an actual conversation promotes it to the entire
+	   stage; Back returns to the preserved list without remounting that list. */
+	.center-dm-layout:has(.center-dm-thread .dm-conversation) > .center-dm-list {
+		display: none;
+	}
+
+	.center-dm-layout:not(:has(.center-dm-thread .dm-conversation)) > .center-dm-thread {
+		display: none;
+	}
+
+	/* The conversation's Back button is a real navigation affordance on phone;
+	   desktop can keep treating it as a close/move control. */
+	.center-dm-thread .dm-conversation .dm-header-back {
+		width: var(--mobile-touch);
+		height: var(--mobile-touch);
+		min-width: var(--mobile-touch);
 	}
 
 	/* ---- Settings full-bleed feel ---- */
@@ -264,7 +285,6 @@ html[data-shell='mobile'] body {
 		transition: none !important;
 	}
 }
-
 
 /* MOBILE-FIRST ROOT NAV — persistent, glanceable, badge-aware */
 @media (max-width: 768px) {
