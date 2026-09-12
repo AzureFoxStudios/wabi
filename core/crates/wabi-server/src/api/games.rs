@@ -122,8 +122,8 @@ async fn matches(auth:AuthUser,State(state):State<Arc<AppState>>,Json(body):Json
     use super::*;
     fn entry(visibility:Visibility,invitations:bool)->GameSelection {GameSelection {key:"steam:570".into(),title:"Dota 2".into(),platform:"".into(),tags:vec![],note:"".into(),rotation:true,favorite:false,invitations,visibility}}
     #[test] fn private_games_never_change_intersection() {
-        assert_eq!(intersection(&[vec![entry(Visibility::Server,true)],vec![entry(Visibility::Private,true)]]),vec![]);
-        assert_eq!(intersection(&[vec![entry(Visibility::Server,true)],vec![entry(Visibility::Server,false)]]),vec![]);
+        assert_eq!(intersection(&[vec![entry(Visibility::Server,true)],vec![entry(Visibility::Private,true)]]),Vec::<Value>::new());
+        assert_eq!(intersection(&[vec![entry(Visibility::Server,true)],vec![entry(Visibility::Server,false)]]),Vec::<Value>::new());
         assert_eq!(intersection(&[vec![entry(Visibility::Server,true)],vec![entry(Visibility::Server,true)]]).len(),1);
     }
     #[test] fn identities_and_participants_are_exact() {
