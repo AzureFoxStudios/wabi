@@ -37,6 +37,15 @@ jobs:
         working-directory: frontend
         run: npm ci --no-audit --no-fund
 
+      # The isolated Vite harness still resolves the repository tsconfig while
+      # optimizing imported production modules. On a fresh checkout that file
+      # extends .svelte-kit/tsconfig.json, so generate SvelteKit's type/config
+      # output before Vite starts. Local verification often had this directory
+      # already from check/build, which hid the clean-run dependency.
+      - name: Generate SvelteKit config
+        working-directory: frontend
+        run: npx svelte-kit sync
+
       - name: Install Chromium for Playwright
         working-directory: frontend
         run: npx playwright install --with-deps chromium
