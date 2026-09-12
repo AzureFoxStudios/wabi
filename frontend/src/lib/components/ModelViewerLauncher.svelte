@@ -6,10 +6,12 @@
   import { loadAddon } from '$lib/addons/loader';
   import Cad2DViewer from '$lib/components/cad/Cad2DViewer.svelte';
   import ModelOpenMenu from '$lib/components/ModelOpenMenu.svelte';
+  import { openModelAssetAt } from '$lib/modelOpenActions';
   import {
     missingModelSupport,
     modelFamily,
     modelPreviewKind,
+    modelWorkspaceLabel,
     safeModelSource,
     type ModelAsset
   } from '$lib/modelAttachmentPolicy';
@@ -92,6 +94,12 @@
     }
   }
 
+  function openWorkspace(): void {
+    if (!safeSrc) return;
+    try { openModelAssetAt(asset, { kind: 'workspace' }); }
+    catch (error) { launchError = error instanceof Error ? error.message : 'The workspace could not be opened.'; }
+  }
+
   function handleContextMenu(event: MouseEvent): void {
     if (fullBleed || !safeSrc) return;
     const target = event.target as HTMLElement | null;
@@ -103,7 +111,10 @@
 
 <div class="model-launcher" oncontextmenu={handleContextMenu}>
   {#if !fullBleed && safeSrc}
-    <div class="model-file-actions"><ModelOpenMenu bind:this={openMenu} {asset} showSourceLink /></div>
+    <div class="model-file-toolbar">
+      <button class="model-workspace-open" type="button" onclick={openWorkspace}>{modelWorkspaceLabel(fileName)}</button>
+      <ModelOpenMenu bind:this={openMenu} {asset} showSourceLink />
+    </div>
   {/if}
 
   {#if !safeSrc}
@@ -146,18 +157,24 @@
 
 <style>
   .model-launcher { position:relative;min-width:0; }
-  .model-file-actions { position:absolute;right:8px;top:8px;z-index:12; }
+  .model-file-toolbar { display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:6px 0; }
+  .model-workspace-open { border:1px solid var(--border-subtle,#35474e);border-radius:7px;background:var(--surface-raised,#24343b);color:var(--text-heading,#e8f1f2);font:inherit;font-size:11px;min-height:34px;padding:6px 10px;cursor:pointer; }
+  .model-workspace-open:hover { border-color:var(--accent-primary-color,#8fd5c4); }
+  /* The legacy chat renderer adds a sibling "Open 3D Tab" button. This launcher now owns the primary workspace action. */
+  :global(.model-container:has(> .model-launcher) > .open-viewport-btn),
+  :global(.gallery-file-item.model-item:has(.model-launcher) > .open-viewport-btn),
+  :global(.embedded-model-container:has(> .model-launcher) > .open-viewport-btn) { display:none !important; }
   .model-native-card,.model-support-card { display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px;margin:10px;border:1px solid var(--border-subtle,#34454b);border-radius:12px;background:var(--surface-base,#172126);color:var(--text-heading,#e7efef);min-width:0; }
   .model-native-copy,.model-support-card { flex:1 1 200px;min-width:0; }
   .model-native-label,.model-support-label { display:block;margin-bottom:6px;color:var(--text-muted,#a9b9bc);font-size:10px;letter-spacing:.08em;text-transform:uppercase; }
   .model-native-copy strong,.model-support-card strong { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px; }
   .model-native-copy p,.model-support-card p { margin:8px 0 0;color:var(--text-muted,#a9b9bc);line-height:1.55;font-size:12px; }
   .model-native-open { border:1px solid var(--border-subtle,#34454b);background:var(--surface-raised,#263a3f);color:var(--text-heading,#e7efef);border-radius:8px;padding:10px 14px;min-height:40px;font:inherit;font-size:12px;cursor:pointer; }
-  .model-native-open:focus-visible,.cad-preview-activation:focus-visible { outline:2px solid var(--accent-primary-color,#78c7b8);outline-offset:3px; }
+  .model-native-open:focus-visible,.cad-preview-activation:focus-visible,.model-workspace-open:focus-visible { outline:2px solid var(--accent-primary-color,#78c7b8);outline-offset:3px; }
   .model-native-open:disabled { opacity:.6;cursor:progress; }
   .model-launch-error { width:100%;color:var(--text-danger,#e5b589);font-size:12px;line-height:1.5;margin:0; }
   .model-launch-status { padding:20px;color:var(--text-muted,#a9b9bc);font-size:12px; }
-  .model-support-card { display:block;padding-right:52px; }
+  .model-support-card { display:block; }
   .cad-preview-activation { width:100%;min-height:180px;border:1px solid var(--border-subtle,#34454b);border-radius:10px;background:radial-gradient(circle at 20% 20%,rgba(98,168,156,.15),transparent 45%),var(--surface-app,#10191d);color:var(--text-heading,#e7efef);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:18px; }
   .cad-preview-activation span { font-size:13px;font-weight:650; }.cad-preview-activation small { color:var(--text-muted,#a9b9bc);font-size:10px;text-align:center; }
 </style>
