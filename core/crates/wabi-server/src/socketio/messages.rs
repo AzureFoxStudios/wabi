@@ -125,10 +125,24 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     if is_live {
         message_id = format!("live_{}", uuid::Uuid::new_v4());
     } else {
-        let files: Vec<wabidb::projections::messages::FileAttachmentRecord> = cmd
+        let mut files: Vec<wabidb::projections::messages::FileAttachmentRecord> = cmd
             .get("files")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
+        if files.is_empty() {
+            // Single-file uploads send flat fileUrl/fileName/fileSize (no `files`
+            // array). Persist a one-element vec so history reloads render the card.
+            if let (Some(url), Some(name)) = (
+                cmd.get("fileUrl").and_then(|v| v.as_str()),
+                cmd.get("fileName").and_then(|v| v.as_str()),
+            ) {
+                files.push(wabidb::projections::messages::FileAttachmentRecord {
+                    file_url: url.to_string(),
+                    file_name: name.to_string(),
+                    file_size: cmd.get("fileSize").and_then(|v| v.as_u64()).unwrap_or(0),
+                });
+            }
+        }
         match state
             .app
             .wdb
