@@ -1,7 +1,8 @@
 /** Requests never retry mutations and never deliver into a retired account/view. */
 export interface GameContext { server: string; userId: string; generation: number; token: string | null }
 export function createGameClient(context: () => GameContext, fetcher: typeof fetch = fetch) {
-  const origin = context(); const controllers = new Set<AbortController>(); let disposed = false;
+  // Capture primitives, not the caller's mutable context object.
+  const origin = { ...context() }; const controllers = new Set<AbortController>(); let disposed = false;
   const active = () => {
     const now = context();
     return !disposed && !!origin.token && now.server === origin.server && now.userId === origin.userId &&
