@@ -109,7 +109,7 @@
   }
 </script>
 
-<div class="model-launcher" oncontextmenu={handleContextMenu}>
+<div class="model-launcher" class:full-bleed={fullBleed} oncontextmenu={handleContextMenu}>
   {#if !fullBleed && safeSrc}
     <div class="model-file-toolbar">
       <button class="model-workspace-open" type="button" onclick={openWorkspace}>{modelWorkspaceLabel(fileName)}</button>
@@ -157,6 +157,8 @@
 
 <style>
   .model-launcher { position:relative;min-width:0; }
+  .model-launcher.full-bleed { flex:1;min-height:0;display:flex;flex-direction:column; }
+  .model-launcher.full-bleed > :global(*) { flex:1;min-height:0; }
   .model-file-toolbar { display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:6px 0; }
   .model-workspace-open { border:1px solid var(--border-subtle,#35474e);border-radius:7px;background:var(--surface-raised,#24343b);color:var(--text-heading,#e8f1f2);font:inherit;font-size:11px;min-height:34px;padding:6px 10px;cursor:pointer; }
   .model-workspace-open:hover { border-color:var(--accent-primary-color,#8fd5c4); }

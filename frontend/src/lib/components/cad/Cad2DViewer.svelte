@@ -230,7 +230,7 @@
       <aside class="cad2d-inspector" aria-label="2D CAD drawing inspector">
         <section><h3>Drawing</h3><dl><div><dt>Width</dt><dd>{formatCadNumber(drawing.bounds.maxX - drawing.bounds.minX)}</dd></div><div><dt>Height</dt><dd>{formatCadNumber(drawing.bounds.maxY - drawing.bounds.minY)}</dd></div><div><dt>Units</dt><dd>{drawing.unit === 'unknown' ? 'Not declared' : drawing.unit}</dd></div></dl></section>
         <section><div class="cad2d-section-head"><h3>Layers</h3>{#if hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>All on</button>{/if}</div><div class="cad2d-layers">{#each drawing.layers as layer}<label><input type="checkbox" checked={!hiddenLayers.has(layer)} onchange={() => toggleLayer(layer)} /><span>{layer}</span></label>{/each}</div></section>
-        <section><h3>Reader coverage</h3><p>Built-in DXF preview: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT and MTEXT.</p>{#if ignoredCount > 0}<p>{ignoredCount.toLocaleString()} unsupported entities were skipped. The original file is unchanged.</p>{/if}</section>
+        <section><h3>Reader coverage</h3><p>Built-in DXF preview: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT, MTEXT and DIMENSION.</p>{#if ignoredCount > 0}<p>{ignoredCount.toLocaleString()} unsupported entities were skipped. The original file is unchanged.</p>{/if}</section>
       </aside>
     {/if}
   </div>
@@ -238,6 +238,7 @@
 
 <style>
   .cad2d-shell { min-width:0;min-height:0;height:100%;display:flex;flex-direction:column;background:var(--surface-app,#10191d);color:var(--text-heading,#e7efef); }
+  .cad2d-shell:not(.compact) { flex:1; }
   .cad2d-shell.compact { height:var(--cad-height);min-height:180px; }
   .cad2d-toolbar { display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--border-subtle,#34454b);background:var(--surface-base,#172126); }
   .cad2d-title { min-width:0;display:flex;flex-direction:column;gap:2px; }
