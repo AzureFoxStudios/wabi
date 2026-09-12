@@ -1,0 +1,89 @@
+name: Mobile conversation autopatch
+
+on:
+  push:
+    branches:
+      - feat/mobile-first-2026-09-12
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-check:
+    if: ${{ !contains(github.event.head_commit.message, '[mobile-conversation-autopatch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/mobile-first-2026-09-12
+          fetch-depth: 0
+
+      - name: Patch conversation scroll behavior
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('frontend/src/lib/components/Chat.svelte')
+          text = path.read_text()
+
+          old_import = "\timport { channelPaneInTransition, channelPaneOutTransition } from './chat/transitions';\n"
+          new_import = old_import + "\timport { isNearMessageBottom } from '$lib/messageViewport';\n"
+          if text.count(old_import) != 1:
+              raise SystemExit('transitions import did not match exactly once')
+          text = text.replace(old_import, new_import, 1)
+
+          old_state = "\tlet chatContainer: HTMLElement;\n\tlet lastScrollTop = 0;\n"
+          new_state = "\tlet chatContainer: HTMLElement;\n\tlet followLatestMessages = true;\n\tlet scrollChannelId = '';\n"
+          if text.count(old_state) != 1:
+              raise SystemExit('scroll state did not match exactly once')
+          text = text.replace(old_state, new_state, 1)
+
+          old_scroll = '''\tasync function scrollToBottom() {\n\t\tawait tick();\n\t\tif (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;\n\t}\n\t$: if (messages.length) scrollToBottom();\n'''
+          new_scroll = '''\tasync function scrollToBottom(force = false) {\n\t\tif (!force && !followLatestMessages) return;\n\t\tawait tick();\n\t\tif (!chatContainer) return;\n\t\tchatContainer.scrollTop = chatContainer.scrollHeight;\n\t\tfollowLatestMessages = true;\n\t}\n\n\tfunction handleConversationScroll(target: HTMLElement): void {\n\t\tfollowLatestMessages = isNearMessageBottom(target);\n\t\t// The composer is structural phone UI. Reading/scrolling messages must\n\t\t// never make the user hunt for the input box again.\n\t\tif ($isMobile) composerVisible = true;\n\t}\n\n\t$: if ($currentChannel && $currentChannel !== scrollChannelId) {\n\t\tscrollChannelId = $currentChannel;\n\t\tfollowLatestMessages = true;\n\t\tvoid scrollToBottom(true);\n\t}\n\t$: if (messages.length) void scrollToBottom();\n'''
+          if text.count(old_scroll) != 1:
+              raise SystemExit('scrollToBottom block did not match exactly once')
+          text = text.replace(old_scroll, new_scroll, 1)
+
+          old_handler = '''\t\ton:scroll={(e) => {\n\t\t\t// Mobile composer auto-hide on scroll\n\t\t\tif ($isMobile) {\n\t\t\t\tconst currentScrollTop = e.currentTarget.scrollTop;\n\t\t\t\tconst scrollDelta = lastScrollTop - currentScrollTop;\n\t\t\t\t// Show when scrolling down or at top, hide when scrolling up\n\t\t\t\tif (scrollDelta > 10 || currentScrollTop < 50) {\n\t\t\t\t\tcomposerVisible = true;\n\t\t\t\t} else if (scrollDelta < -10 && !isTextareaFocused) {\n\t\t\t\t\tcomposerVisible = false;\n\t\t\t\t}\n\t\t\t\tlastScrollTop = currentScrollTop;\n\t\t\t}\n\t\t}}\n'''
+          new_handler = '''\t\ton:scroll={(e) => handleConversationScroll(e.currentTarget)}\n'''
+          if text.count(old_handler) != 1:
+              raise SystemExit('messages scroll handler did not match exactly once')
+          text = text.replace(old_handler, new_handler, 1)
+
+          old_composer = '''\t\t{#if channelUsesChatStream && !isLiveChannel && chatSurface === 'messages' && !($isMobile && $isInCall)}\n'''
+          new_composer = '''\t\t{#if $isMobile && !followLatestMessages && channelUsesChatStream && !isLiveChannel && chatSurface === 'messages'}\n\t\t\t<button\n\t\t\t\ttype="button"\n\t\t\t\tclass="mobile-jump-latest"\n\t\t\t\ton:click={() => { followLatestMessages = true; void scrollToBottom(true); }}\n\t\t\t\taria-label="Jump to newest messages"\n\t\t\t>\n\t\t\t\t<span aria-hidden="true">↓</span> Newest\n\t\t\t</button>\n\t\t{/if}\n\n''' + old_composer
+          if text.count(old_composer) != 1:
+              raise SystemExit('composer gate did not match exactly once')
+          text = text.replace(old_composer, new_composer, 1)
+          path.write_text(text)
+
+          css = Path('frontend/src/styles/components/chat-mobile.css')
+          css_text = css.read_text()
+          marker = '/* Mobile return-to-latest pill */'
+          if marker not in css_text:
+              insert = '''\n\t\t/* Mobile return-to-latest pill */\n\t\t.mobile-jump-latest {\n\t\t\tposition: absolute;\n\t\t\tright: 0.75rem;\n\t\t\tbottom: calc(var(--mobile-nav-height, 56px) + 4.25rem);\n\t\t\tz-index: 22;\n\t\t\tdisplay: inline-flex;\n\t\t\talign-items: center;\n\t\t\tgap: 0.38rem;\n\t\t\tmin-height: 40px;\n\t\t\tpadding: 0.45rem 0.72rem;\n\t\t\tborder-radius: 999px;\n\t\t\tborder: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);\n\t\t\tbackground: color-mix(in srgb, var(--surface-raised) 94%, black 6%);\n\t\t\tcolor: var(--text-primary);\n\t\t\tfont: inherit;\n\t\t\tfont-size: var(--text-sm);\n\t\t\tfont-weight: 700;\n\t\t\tbox-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);\n\t\t\tbackdrop-filter: blur(10px);\n\t\t\t-webkit-backdrop-filter: blur(10px);\n\t\t}\n\n\t\thtml[data-keyboard-open='1'] .mobile-jump-latest {\n\t\t\tbottom: calc(var(--keyboard-inset, 0px) + 4.25rem);\n\t\t}\n'''
+              needle = "\t\t/* Hide payment/manual cash buttons on mobile — secondary actions live behind + menu */\n"
+              if css_text.count(needle) != 1:
+                  raise SystemExit('mobile CSS insertion point did not match exactly once')
+              css_text = css_text.replace(needle, insert + "\n" + needle, 1)
+              css.write_text(css_text)
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci --no-audit --no-fund
+
+      - name: Run mobile viewport tests
+        run: cd frontend && npx bun test src/lib/messageViewport.test.ts src/lib/mobileShellModel.test.ts src/lib/pwa/pushClient.test.ts
+
+      - name: Run frontend check
+        run: cd frontend && npm run check
+
+      - name: Build static frontend
+        run: cd frontend && npm run build:static
+
+      - name: Commit validated conversation patch and remove workflow
+        run: |
+          git config user.name "Wabi Mobile Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rm .github/workflows/mobile-conversation-autopatch.yml
+          git add frontend/src/lib/components/Chat.svelte frontend/src/styles/components/chat-mobile.css
+          git commit -m "feat(mobile): preserve reading position and composer [mobile-conversation-autopatch]"
+          git push origin HEAD:feat/mobile-first-2026-09-12
