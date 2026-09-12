@@ -1,0 +1,44 @@
+name: Steam recovery source
+on:
+  push:
+    branches: [fix/steam-release-2026-09-12]
+    paths: [.github/workflows/steam-recovery-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    if: github.repository == 'AzureFoxStudios/wabi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Export source and surviving recovery fragment
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess, zipfile, urllib.request
+          root = pathlib.Path.cwd()
+          output = pathlib.Path(os.environ['RUNNER_TEMP']) / 'steam-recovery-source.zip'
+          allowed = {'.rs','.toml','.lock','.ts','.svelte','.css','.json','.js','.mjs','.cjs','.md','.yaml','.yml','.py','.html','.txt'}
+          paths = subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as z:
+              for name in paths:
+                  p = pathlib.Path(name)
+                  if not name or p.suffix not in allowed or p.parts[0] in {'data','.git'} or 'wabi-carl-watch' in name:
+                      continue
+                  source = root / p
+                  if source.is_file() and not source.is_symlink():
+                      z.write(source, name)
+              z.writestr('REVIEW_BASE.txt', subprocess.check_output(['git','rev-parse','HEAD']).decode())
+              url = 'https://raw.githubusercontent.com/AzureFoxStudios/wabi/dc1448095899f23aa7d2ba7f851246f35b2c4cdc/.github/steam-review/part00.b64'
+              with urllib.request.urlopen(url, timeout=15) as response:
+                  z.writestr('RECOVERY_PART00.b64', response.read(16000))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steam-recovery-source
+          path: ${{ runner.temp }}/steam-recovery-source.zip
+          retention-days: 2
+          if-no-files-found: error
