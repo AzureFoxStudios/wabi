@@ -24,7 +24,7 @@ jobs:
           assert set(root.iterdir()) == set(parts), 'unexpected transport file'
           encoded = ''.join(p.read_text().strip() for p in parts)
           assert len(encoded) == 50872, 'transport length mismatch'
-          decoder = lzma.LZMADecompressor(memlimit=64*1024*1024)
+          decoder = lzma.LZMADecompressor(memlimit=128*1024*1024)
           patch = decoder.decompress(base64.b64decode(encoded, validate=True), max_length=138713)
           assert decoder.eof and not decoder.unused_data, 'incomplete compressed patch'
           assert len(patch) == 138712, 'patch length mismatch'
