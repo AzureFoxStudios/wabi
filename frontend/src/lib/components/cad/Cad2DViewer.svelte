@@ -68,6 +68,12 @@
     resetView();
   }
   function showAllLayers(): void { hiddenLayers = new Set(); clearMeasure(); resetView(); }
+  let collapsedSections = $state<Set<string>>(new Set());
+  function toggleSection(section: string): void {
+    const next = new Set(collapsedSections);
+    if (next.has(section)) next.delete(section); else next.add(section);
+    collapsedSections = next;
+  }
 
   function pointFromEvent(event: PointerEvent | MouseEvent): CadPoint | null {
     if (!svg) return null;
@@ -228,9 +234,9 @@
 
     {#if drawing && !compact}
       <aside class="cad2d-inspector" aria-label="2D CAD drawing inspector">
-        <section><h3>Drawing</h3><dl><div><dt>Width</dt><dd>{formatCadNumber(drawing.bounds.maxX - drawing.bounds.minX)}</dd></div><div><dt>Height</dt><dd>{formatCadNumber(drawing.bounds.maxY - drawing.bounds.minY)}</dd></div><div><dt>Units</dt><dd>{drawing.unit === 'unknown' ? 'Not declared' : drawing.unit}</dd></div></dl></section>
-        <section><div class="cad2d-section-head"><h3>Layers</h3>{#if hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>All on</button>{/if}</div><div class="cad2d-layers">{#each drawing.layers as layer}<label><input type="checkbox" checked={!hiddenLayers.has(layer)} onchange={() => toggleLayer(layer)} /><span>{layer}</span></label>{/each}</div></section>
-        <section><h3>Reader coverage</h3><p>Built-in DXF preview: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT, MTEXT and DIMENSION.</p>{#if ignoredCount > 0}<p>{ignoredCount.toLocaleString()} unsupported entities were skipped. The original file is unchanged.</p>{/if}</section>
+        <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('drawing')} onclick={() => toggleSection('drawing')}><h3>Drawing</h3><span aria-hidden="true">{collapsedSections.has('drawing') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('drawing')}<dl><div><dt>Width</dt><dd>{formatCadNumber(drawing.bounds.maxX - drawing.bounds.minX)}</dd></div><div><dt>Height</dt><dd>{formatCadNumber(drawing.bounds.maxY - drawing.bounds.minY)}</dd></div><div><dt>Units</dt><dd>{drawing.unit === 'unknown' ? 'Not declared' : drawing.unit}</dd></div></dl>{/if}</section>
+        <section><div class="cad2d-section-head"><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('layers')} onclick={() => toggleSection('layers')}><h3>Layers</h3><span aria-hidden="true">{collapsedSections.has('layers') ? '▸' : '▾'}</span></button>{#if hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>All on</button>{/if}</div>{#if !collapsedSections.has('layers')}<div class="cad2d-layers">{#each drawing.layers as layer}<label><input type="checkbox" checked={!hiddenLayers.has(layer)} onchange={() => toggleLayer(layer)} /><span>{layer}</span></label>{/each}</div>{/if}</section>
+        <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('coverage')} onclick={() => toggleSection('coverage')}><h3>Reader coverage</h3><span aria-hidden="true">{collapsedSections.has('coverage') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('coverage')}<p>Built-in DXF preview: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT, MTEXT and DIMENSION.</p>{#if ignoredCount > 0}<p>{ignoredCount.toLocaleString()} unsupported entities were skipped. The original file is unchanged.</p>{/if}{/if}</section>
       </aside>
     {/if}
   </div>
@@ -271,6 +277,10 @@
   .cad2d-inspector dl div { display:flex;justify-content:space-between;gap:8px;font-size:10px; }
   .cad2d-inspector dt { color:var(--text-muted,#a9b9bc); }.cad2d-inspector dd { margin:0; }
   .cad2d-section-head { display:flex;align-items:center;justify-content:space-between;gap:8px; }
+  .cad2d-section-toggle { all:unset;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;cursor:pointer;border-radius:4px; }
+  .cad2d-section-toggle h3 { margin:0; }
+  .cad2d-section-toggle span { font-size:9px;color:var(--text-muted,#a9b9bc); }
+  .cad2d-section-head .cad2d-section-toggle { width:auto;flex:1;min-width:0; }
   .cad2d-layers { display:grid;gap:5px;max-height:220px;overflow:auto; }
   .cad2d-layers label { display:flex;align-items:center;gap:7px;font-size:10px;min-width:0; }.cad2d-layers span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
   :is(button,input):focus-visible { outline:2px solid var(--accent-primary-color,#78c7b8);outline-offset:2px; }
