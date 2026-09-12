@@ -9,6 +9,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { uploadProfilePictureFile } from '$lib/profilePictureUpload';
 	import AvatarEditor from './AvatarEditor.svelte';
+	import GamesSettingsEntry from '$lib/games/GamesSettingsEntry.svelte';
 	import StorageSettings from './StorageSettings.svelte';
 	import AboutSettingsTab from './settings/AboutSettingsTab.svelte';
 	import AccessibilitySettingsTab from './settings/AccessibilitySettingsTab.svelte';
@@ -32,6 +33,7 @@
 
 	type SettingsTab =
 		| 'profile'
+		| 'games'
 		| 'audio'
 		| 'notifications'
 		| 'accessibility'
@@ -56,6 +58,7 @@
 	const dispatch = createEventDispatcher<{ logout: void }>();
 	const tabs: Array<{ id: SettingsTab; labelKey: string; adminOnly?: boolean }> = [
 		{ id: 'profile', labelKey: 'settings.tabs.profile' },
+		{ id: 'games', labelKey: 'settings.tabs.games' },
 		{ id: 'audio', labelKey: 'settings.tabs.audio' },
 		{ id: 'notifications', labelKey: 'settings.tabs.notifications' },
 		{ id: 'accessibility', labelKey: 'settings.tabs.accessibility' },
@@ -313,6 +316,8 @@
 							on:openPaymentConnections={openPaymentConnections}
 							on:openServerDonation={openServerDonation}
 						/>
+					{:else if activeSettingsTab === 'games'}
+						<GamesSettingsEntry />
 					{:else if activeSettingsTab === 'audio'}
 						<AudioSettingsTab />
 					{:else if activeSettingsTab === 'notifications'}

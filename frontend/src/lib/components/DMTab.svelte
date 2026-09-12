@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { openGames } from '$lib/games/navigation';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { channels, channelMessages, currentUser, users, serverMembers, createDM, deleteDM, leaveGroup, socket, joinChannel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
@@ -478,6 +479,10 @@
 		if (!hasHeaderActions) return [];
 		const items: ContextMenuItem[] = [];
 
+        if (selectedDmId && !isKeepNotesSelected) items.push({
+          id:'header-find-game',label:'What can we play?',icon:'search',
+          onSelect:()=>openGames({channelId:selectedDmId,tab:'match'})
+        });
 		for (const action of headerCallActions) {
 			items.push({
 				id: `header-${action.id}`,
