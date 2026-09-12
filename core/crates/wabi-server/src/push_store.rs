@@ -105,11 +105,29 @@ impl WebPushStore {
         Ok(())
     }
 
-    pub async fn remove_endpoint(&self, endpoint: &str) -> anyhow::Result<()> {
+    /// Remove an endpoint only when it belongs to the authenticated account.
+    ///
+    /// Endpoints are bearer-like opaque URLs supplied by push providers. Knowing
+    /// another device's endpoint must never be sufficient to unsubscribe it.
+    /// Returns `true` when an owned subscription was removed and `false` when
+    /// the endpoint is absent or belongs to another user.
+    pub async fn remove_endpoint_for_user(
+        &self,
+        user_id: i64,
+        endpoint: &str,
+    ) -> anyhow::Result<bool> {
         let mut guard = self.inner.write().await;
+        let owned = guard
+            .subscriptions
+            .get(endpoint)
+            .map(|record| record.user_id == user_id)
+            .unwrap_or(false);
+        if !owned {
+            return Ok(false);
+        }
         guard.subscriptions.remove(endpoint);
         self.persist_locked(&guard)?;
-        Ok(())
+        Ok(true)
     }
 
     pub async fn remove_user_device(&self, user_id: i64, device_id: &str) -> anyhow::Result<()> {
@@ -163,4 +181,55 @@ pub fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_dir(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("wabi-push-{name}-{nonce}"))
+    }
+
+    fn subscription(user_id: i64, endpoint: &str, device_id: &str) -> PushSubscriptionRecord {
+        PushSubscriptionRecord {
+            user_id,
+            device_id: device_id.into(),
+            endpoint: endpoint.into(),
+            p256dh: "p256dh".into(),
+            auth: "auth".into(),
+            platform: "test".into(),
+            user_agent: None,
+            updated_at_ms: now_ms(),
+        }
+    }
+
+    #[tokio::test]
+    async fn endpoint_unsubscribe_cannot_remove_another_users_device() {
+        let dir = test_dir("ownership");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WebPushStore::new_persistent(&dir);
+        store.upsert(subscription(7, "https://push.example/device", "phone")).await.unwrap();
+
+        let removed = store
+            .remove_endpoint_for_user(8, "https://push.example/device")
+            .await
+            .unwrap();
+        assert!(!removed);
+        assert_eq!(store.list_for_user(7).await.len(), 1);
+
+        let removed = store
+            .remove_endpoint_for_user(7, "https://push.example/device")
+            .await
+            .unwrap();
+        assert!(removed);
+        assert!(store.list_for_user(7).await.is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
