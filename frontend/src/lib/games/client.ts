@@ -1,6 +1,8 @@
 /** Requests never retry mutations and never deliver into a retired account/view. */
 export interface GameContext { server: string; userId: string; generation: number; token: string | null }
-export function createGameClient(context: () => GameContext, fetcher: typeof fetch = fetch) {
+/** Only the callable HTTP interface is required; Bun's optional fetch.preconnect is not. */
+export type GameFetch = (input: string, init?: RequestInit) => Promise<Response>;
+export function createGameClient(context: () => GameContext, fetcher: GameFetch = fetch) {
   // Capture primitives, not the caller's mutable context object.
   const origin = { ...context() }; const controllers = new Set<AbortController>(); let disposed = false;
   const active = () => {
