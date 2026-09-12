@@ -1,4 +1,5 @@
 <script lang="ts">
+	import GamesSettingsEntry from '$lib/games/GamesSettingsEntry.svelte';
 	import type { AddonSectionId } from './addonSettingsRegistry';
 	import { createAddonSettingsView } from './addonSettingsView';
 	import {
@@ -86,6 +87,7 @@
 </script>
 
 <div class="settings-section">
+	<GamesSettingsEntry />
 	<AddonManifestSection
 		{frontendAddons}
 		{backendAddons}

@@ -1,6 +1,7 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
 	import { fly } from 'svelte/transition';
+	import GamesHost from '$lib/games/GamesHost.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
 	import { centerPanelView, centerDmOtherUser, centerGroupChannel, focusMode } from '$lib/layoutStoreStates';
@@ -1360,6 +1361,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		<QuickScratchpad />
 	</div>
 {/if}
+
+<GamesHost />
 
 <style>
 	/* Uniform placeholder for lazily-loaded panels (Phase 4 boot optimization). */
