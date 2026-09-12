@@ -158,6 +158,64 @@ function polylinePoints(pairs: DxfPair[]): CadPoint[] {
   return points;
 }
 
+function pairPoint(pairs: DxfPair[], xCode: number, yCode: number): CadPoint | null {
+  const x = firstNumber(pairs, xCode), y = firstNumber(pairs, yCode);
+  return x != null && y != null ? { x, y } : null;
+}
+
+function parseBlockTable(blocksPairs: DxfPair[], ignored: Record<string, number>): Map<string, Cad2DEntity[]> {
+  const table = new Map<string, Cad2DEntity[]>();
+  const chunks = chunkEntities(blocksPairs);
+  let name: string | null = null;
+  let current: Cad2DEntity[] = [];
+  const flush = () => {
+    if (name) table.set(name, current);
+    name = null;
+    current = [];
+  };
+  for (const chunk of chunks) {
+    if (chunk.type === 'BLOCK') {
+      flush();
+      name = first(chunk.pairs, 2)?.trim() || null;
+      continue;
+    }
+    if (chunk.type === 'ENDBLK') {
+      flush();
+      continue;
+    }
+    if (!name) continue;
+    const result = parseChunk(chunk, [], ignored);
+    if (result.entity) current.push(result.entity);
+  }
+  flush();
+  return table;
+}
+
+function expandDimension(chunk: EntityChunk, blocks: Map<string, Cad2DEntity[]>, ignored: Record<string, number>): Cad2DEntity[] {
+  const layer = layerName(chunk.pairs);
+  const blockName = first(chunk.pairs, 2)?.trim();
+  const stored = blockName ? blocks.get(blockName) : undefined;
+  if (stored && stored.length > 0) {
+    // Anonymous dimension blocks (*D) store absolute-coordinate graphics (extension
+    // lines, arrows, label). Inline them so dimensions render with zero projection math.
+    return stored.map((entity) => ({ ...entity, layer }));
+  }
+  // Fallback when the block table lacks the reference: synthesize the measured span
+  // from the definition points (13/23, 14/24) plus a label at the text point (11/21).
+  const def1 = pairPoint(chunk.pairs, 13, 23), def2 = pairPoint(chunk.pairs, 14, 24);
+  const anchor = pairPoint(chunk.pairs, 11, 21) ?? pairPoint(chunk.pairs, 10, 20);
+  if (!def1 || !def2 || !anchor) {
+    ignored.DIMENSION = (ignored.DIMENSION || 0) + 1;
+    return [];
+  }
+  const distance = Math.hypot(def2.x - def1.x, def2.y - def1.y);
+  const override = first(chunk.pairs, 1)?.trim();
+  const label = override ? cleanDxfText(override) : formatCadNumber(distance);
+  const out: Cad2DEntity[] = [{ type: 'LINE', layer, a: def1, b: def2 }];
+  if (label) out.push({ type: 'TEXT', layer, point: anchor, text: label, height: Math.max(distance * 0.04, 0.5), rotationDeg: 0 });
+  return out;
+}
+
 function parseChunk(chunk: EntityChunk, following: EntityChunk[], ignored: Record<string, number>): { entity: Cad2DEntity | null; consumed: number } {
   const layer = layerName(chunk.pairs);
   if (chunk.type === 'LINE') {
@@ -273,13 +331,21 @@ export function parseAsciiDxf(text: string): Cad2DDrawing {
   const chunks = chunkEntities(entitiesSection);
   const entities: Cad2DEntity[] = [];
   const ignoredEntityTypes: Record<string, number> = {};
+  const blocks = parseBlockTable(sectionPairs(pairs, 'BLOCKS'), ignoredEntityTypes);
   for (let i = 0; i < chunks.length; i += 1) {
     if (entities.length >= MAX_ENTITIES) throw new Error(`DXF exceeds the built-in ${MAX_ENTITIES.toLocaleString()} entity safety limit.`);
+    if (chunks[i].type === 'DIMENSION') {
+      for (const expanded of expandDimension(chunks[i], blocks, ignoredEntityTypes)) {
+        if (entities.length >= MAX_ENTITIES) break;
+        entities.push(expanded);
+      }
+      continue;
+    }
     const result = parseChunk(chunks[i], chunks.slice(i + 1), ignoredEntityTypes);
     if (result.entity) entities.push(result.entity);
     i += result.consumed;
   }
-  if (entities.length === 0) throw new Error('DXF contains no supported 2D entities. Supported: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT and MTEXT.');
+  if (entities.length === 0) throw new Error('DXF contains no supported 2D entities. Supported: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT, MTEXT and DIMENSION (expanded from BLOCKS).');
   const layers = [...new Set(entities.map((entity) => entity.layer))].sort((a, b) => a.localeCompare(b));
   return { format: 'dxf-ascii', unit: dxfUnit(unitCode), unitCode, entities, layers, bounds: boundsForCadEntities(entities), ignoredEntityTypes };
 }

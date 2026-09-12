@@ -54,3 +54,12 @@ test('binary and unsupported-only DXF fail honestly', () => {
   assert.throws(() => cad.parseAsciiDxf('AutoCAD Binary DXF\r\n'), /Binary DXF/);
   assert.throws(() => cad.parseAsciiDxf('0\nSECTION\n2\nENTITIES\n0\nHATCH\n0\nENDSEC\n0\nEOF\n'), /no supported 2D entities/);
 });
+
+test('DIMENSION expands its anonymous block, with def-point fallback', () => {
+  const blockDxf = `0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\n*D1\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n22\n21\n0\n0\nTEXT\n8\n0\n10\n10\n20\n5\n40\n2.5\n1\n22\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nDIMENSION\n8\n0\n2\n*D1\n10\n11\n20\n0\n11\n10\n21\n2\n13\n0\n23\n0\n14\n22\n24\n0\n0\nDIMENSION\n8\n0\n10\n31\n20\n0\n11\n30\n21\n2\n13\n20\n23\n0\n14\n42\n24\n0\n0\nENDSEC\n0\nEOF\n`;
+  const drawing = cad.parseAsciiDxf(blockDxf);
+  const texts = drawing.entities.filter((e) => e.type === 'TEXT').map((e) => e.text);
+  assert.ok(texts.includes('22'), 'block label inlined, got ' + JSON.stringify(texts));
+  assert.ok(texts.includes('22.00') || texts.includes('22'), 'fallback measurement synthesized, got ' + JSON.stringify(texts));
+  assert.ok(drawing.entities.some((e) => e.type === 'LINE'), 'dimension graphics present');
+});
