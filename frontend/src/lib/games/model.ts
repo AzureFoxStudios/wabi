@@ -11,11 +11,11 @@ export interface LinkFlow { ticket: string; proof: string; authorizeUrl: string;
 export interface Member { id: string; name: string }
 export function steamAppId(key: string): string | null {
   const match = /^steam:([1-9][0-9]{0,9})$/.exec(key);
-  return match && Number(match[1]) <= 4294967295 ? match[1] : null;
+  return match && match[0] === key && Number(match[1]) <= 4294967295 ? match[1] : null;
 }
 export function steamLaunchUrl(key: string): string | null { const id = steamAppId(key); return id ? `steam://run/${id}` : null; }
 export function steamStoreUrl(key: string): string | null { const id = steamAppId(key); return id ? `https://store.steampowered.com/app/${id}/` : null; }
-export function validKey(key: string): boolean { return !!steamAppId(key) || /^local:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(key); }
+export function validKey(key: string): boolean { return !!steamAppId(key) || key.length === 42 && /^local:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(key); }
 function text(value: unknown, max: number, required = false): value is string {
   return typeof value === 'string' && [...value].length <= max && (!required || !!value.trim()) &&
     ![...value].some(c => /\p{Cc}/u.test(c) && c !== '\n' && c !== '\t');
@@ -40,7 +40,7 @@ export function board(value: unknown): GameBoard {
   if (!value || typeof value!=='object') throw new Error('Game board was not returned');
   const b=value as Record<string,unknown>;
   if (typeof b.revision!=='string' || !b.revision || b.revision.length>64 || typeof b.showSteamLink!=='boolean' ||
-      (b.steamId!==null && (typeof b.steamId!=='string' || !/^7656[0-9]{13}$/.test(b.steamId)))) throw new Error('Invalid game board response');
+      (b.steamId!==null && (typeof b.steamId!=='string' || b.steamId.length!==17 || !/^7656[0-9]{13}$/.test(b.steamId)))) throw new Error('Invalid game board response');
   return {revision:b.revision,entries:selections(b.entries),steamId:b.steamId as string|null,showSteamLink:b.showSteamLink};
 }
 export function privateSelection(game: LibraryGame): GameSelection {
