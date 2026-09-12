@@ -304,6 +304,34 @@
 			padding: 0.32rem 0.62rem;
 		}
 
+
+		/* Mobile return-to-latest pill */
+		.mobile-jump-latest {
+			position: absolute;
+			right: 0.75rem;
+			bottom: calc(var(--mobile-nav-height, 56px) + 4.25rem);
+			z-index: 22;
+			display: inline-flex;
+			align-items: center;
+			gap: 0.38rem;
+			min-height: 40px;
+			padding: 0.45rem 0.72rem;
+			border-radius: 999px;
+			border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+			background: color-mix(in srgb, var(--surface-raised) 94%, black 6%);
+			color: var(--text-primary);
+			font: inherit;
+			font-size: var(--text-sm);
+			font-weight: 700;
+			box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+			backdrop-filter: blur(10px);
+			-webkit-backdrop-filter: blur(10px);
+		}
+
+		html[data-keyboard-open='1'] .mobile-jump-latest {
+			bottom: calc(var(--keyboard-inset, 0px) + 4.25rem);
+		}
+
 		/* Hide payment/manual cash buttons on mobile — secondary actions live behind + menu */
 		.input-buttons-right > button {
 			display: none;

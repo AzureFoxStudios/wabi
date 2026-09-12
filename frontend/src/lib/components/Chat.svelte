@@ -69,6 +69,7 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
 	import { formatTypingUsers, getVisibleTypingUsers } from './chat/typing';
 	import { channelPaneInTransition, channelPaneOutTransition } from './chat/transitions';
+	import { isNearMessageBottom } from '$lib/messageViewport';
 
 	const dispatch = createEventDispatcher();
 	type SendChatMessage = (channelId: string, text: string, type: string, opts?: Record<string, unknown>) => void;
@@ -235,7 +236,8 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 
 	// ── Search ──────────────────────────────────────────────────────────────────
 	let chatContainer: HTMLElement;
-	let lastScrollTop = 0;
+	let followLatestMessages = true;
+	let scrollChannelId = '';
 	let searchInput = '';
 	let searchExpanded = false;
 	let searchContainerElement: HTMLElement | null = null;
@@ -279,11 +281,27 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		}
 	}
 
-	async function scrollToBottom() {
+	async function scrollToBottom(force = false) {
+		if (!force && !followLatestMessages) return;
 		await tick();
-		if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+		if (!chatContainer) return;
+		chatContainer.scrollTop = chatContainer.scrollHeight;
+		followLatestMessages = true;
 	}
-	$: if (messages.length) scrollToBottom();
+
+	function handleConversationScroll(target: HTMLElement): void {
+		followLatestMessages = isNearMessageBottom(target);
+		// The composer is structural phone UI. Reading/scrolling messages must
+		// never make the user hunt for the input box again.
+		if ($isMobile) composerVisible = true;
+	}
+
+	$: if ($currentChannel && $currentChannel !== scrollChannelId) {
+		scrollChannelId = $currentChannel;
+		followLatestMessages = true;
+		void scrollToBottom(true);
+	}
+	$: if (messages.length) void scrollToBottom();
 
 	async function runFullHistorySearchBackfill(): Promise<void> {
 		if (!searchInput.trim() || !currentChannelData?.persistMessages || !$currentChannel) return;
@@ -480,20 +498,7 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		class="messages"
 		bind:this={chatContainer}
 		class:surface-hidden={chatSurface !== 'messages' || (currentChannelType === 'lore' && $activeWorkspaceView === 'messages' && projectChannelMode === 'files')}
-		on:scroll={(e) => {
-			// Mobile composer auto-hide on scroll
-			if ($isMobile) {
-				const currentScrollTop = e.currentTarget.scrollTop;
-				const scrollDelta = lastScrollTop - currentScrollTop;
-				// Show when scrolling down or at top, hide when scrolling up
-				if (scrollDelta > 10 || currentScrollTop < 50) {
-					composerVisible = true;
-				} else if (scrollDelta < -10 && !isTextareaFocused) {
-					composerVisible = false;
-				}
-				lastScrollTop = currentScrollTop;
-			}
-		}}
+		on:scroll={(e) => handleConversationScroll(e.currentTarget)}
 	>
 		{#if isLiveChannel}
 			<LiveChannelView channel={currentChannelData} />
@@ -537,6 +542,17 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 			/>
 		{/if}
 	</div>
+
+		{#if $isMobile && !followLatestMessages && channelUsesChatStream && !isLiveChannel && chatSurface === 'messages'}
+			<button
+				type="button"
+				class="mobile-jump-latest"
+				on:click={() => { followLatestMessages = true; void scrollToBottom(true); }}
+				aria-label="Jump to newest messages"
+			>
+				<span aria-hidden="true">↓</span> Newest
+			</button>
+		{/if}
 
 		{#if channelUsesChatStream && !isLiveChannel && chatSurface === 'messages' && !($isMobile && $isInCall)}
 			{#key `${$currentUser?.dbUserId || $currentUser?.id || ''}:${$currentChannel}`}
