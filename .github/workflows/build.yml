@@ -12,6 +12,11 @@ on:
 
 env:
   RUST_BACKTRACE: 1
+  # dtolnay/rust-toolchain@1.93 resolves to the latest 1.93 patch release.
+  # Pin the effective toolchain to that exact release too, otherwise the
+  # repository's `channel = "1.93"` override can select a separate toolchain
+  # that does not have both universal macOS targets installed.
+  RUSTUP_TOOLCHAIN: 1.93.1
 
 # Determinism contract for this workflow:
 #   - Rust is pinned to the same version as rust-toolchain.toml (not @stable).
@@ -48,6 +53,16 @@ jobs:
         with:
           targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      # Tailcat v0.4.0 publishes Linux/Windows release binaries but no macOS
+      # archive. The staging script therefore builds the pinned macOS sidecars
+      # from the exact v0.4.0 commit and needs the Go version required upstream.
+      - name: install Go for Tailcat (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.0'
+          cache: false
+
       - name: install dependencies (ubuntu only)
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
@@ -76,6 +91,15 @@ jobs:
 
       - name: install frontend dependencies (locked)
         run: cd frontend && npm ci --no-audit --no-fund
+
+      - name: stage Tailcat sidecar
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            ./scripts/fetch-tailcat-sidecar.sh aarch64-apple-darwin x86_64-apple-darwin
+          else
+            ./scripts/fetch-tailcat-sidecar.sh
+          fi
 
       - name: build Tauri
         run: bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }}
