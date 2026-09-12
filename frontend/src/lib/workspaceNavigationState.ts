@@ -1,5 +1,6 @@
+import { derived } from 'svelte/store';
 import { createWorkspaceNavigation } from './workspaceNavigation';
-import { currentChannel } from './channelStore';
+import { channels, currentChannel } from './channelStore';
 import { mobileTabQueue } from './mobileTabQueue';
 import { voiceViewOpen } from './voiceView';
 import { currentChatSurface, setWhiteboardSurface } from './whiteboard/whiteboardSurface';
@@ -25,5 +26,18 @@ const navigation = createWorkspaceNavigation({
 	setSurface: setWhiteboardSurface
 });
 
-export const activeWorkspaceView = navigation.activeView;
+// Channel type owns the canonical center-pane surface. A project channel is a
+// project workspace, not a text channel that happens to offer a Project view.
+// This deliberately rebounds temporary/remembered workspace choices back to
+// Project while the selected channel is `lore`. Other channel types keep their
+// existing routing (text -> messages, gallery/forum -> their own channel views,
+// etc.) rather than inheriting project navigation state.
+export const activeWorkspaceView = derived(
+	[navigation.activeView, currentChannel, channels],
+	([$activeView, $currentChannel, $channels]) => {
+		const channel = $channels.find((candidate) => candidate.id === $currentChannel);
+		return channel?.type === 'lore' ? 'lore' : $activeView;
+	}
+);
+
 export const selectWorkspaceView = navigation.select;
