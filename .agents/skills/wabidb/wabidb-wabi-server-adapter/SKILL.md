@@ -326,3 +326,18 @@ cargo test -p wabidb --test domain
 ```
 
 These tests should all pass, demonstrating the key aspects of WabiDB's integration patterns for the wabi-server adapter.
+## Curated game profiles (2026-09-12)
+
+`adapter/game_profiles.rs` owns the additive JSON-v1 `game_profiles` aggregate.
+Do not append fields to postcard account/layout records to extend game boards.
+Every replacement is serialized with `GAME_PROFILE_WRITES`, compares an exact
+opaque revision, validates projection decode bounds **before** submitting a
+`CommandCommit`, and waits for full engine write/application completion. Raw
+profile records contain private Steam association data: never call
+`deliver_event`/subscription fan-out or put them in `user-updated`/presence. REST
+owner and viewer projections are intentionally separate. Account deletion
+cascades the active index. Game-profile writes and group matching take the
+same profile lock; Steam link completion/unlink take runtime lock first and
+profile lock second. Do not invert that order. Matching checks real current
+membership and uses only deliberately shared invitation selections. See
+`docs/plans/2026-09-12-steam-games-release.md` and the real-router/replay tests.
