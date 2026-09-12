@@ -7,6 +7,8 @@
 		<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
 		<circle cx="12" cy="7" r="4"></circle>
 	</svg>
+{:else if id === 'games'}
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="5"/><path d="M7 10v5M4.5 12.5h5M16 11h.01M19 14h.01"/></svg>
 {:else if id === 'audio'}
 	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 		<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>

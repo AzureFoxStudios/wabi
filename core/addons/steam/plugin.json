@@ -1,0 +1,26 @@
+{
+  "id": "steam",
+  "name": "Steam",
+  "version": "0.1.0",
+  "description": "Verified Steam linking and selective game-library import",
+  "backend": {
+    "runtime": "rust",
+    "path": "../../crates/wabi-server",
+    "crate": "wabi-server",
+    "cargo_feature": null
+  },
+  "frontend": {
+    "bundled": true,
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": [],
+      "settingsPages": [
+        "steam"
+      ],
+      "mobileTabs": []
+    }
+  },
+  "permissions": [
+    "network:outbound"
+  ]
+}

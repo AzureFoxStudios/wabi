@@ -59,6 +59,16 @@ pub struct AddonsListResponse {
 fn enabled_addons() -> Vec<AddonCapability> {
     let mut out = Vec::new();
 
+    out.push(AddonCapability {
+        id: "steam".into(), name: "Steam".into(), version: "0.1.0".into(),
+        description: "Verified account linking and private, selective game import".into(),
+        enabled: crate::api::steam::enabled(), backend_runtime: "rust".into(), cargo_feature: None,
+        permissions: vec!["network:outbound".into()],
+        frontend: FrontendInfo { bundled: true, contributions: FrontendContributions {
+            channel_types: vec![], workspace_panels: vec![], settings_pages: vec!["steam".into()], mobile_tabs: vec![],
+        } },
+    });
+
     // mesh — always compiled into wabi-server (non-optional dep)
     out.push(AddonCapability {
         id: "mesh".into(),

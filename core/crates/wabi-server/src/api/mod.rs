@@ -38,3 +38,5 @@ pub mod upload;
 pub mod user;
 pub mod whiteboard;
 mod path_util;
+
+pub mod games;
