@@ -35,3 +35,4 @@ pub mod users;
 pub mod webhooks;
 pub mod whiteboard_docs;
 pub mod wiki;
+pub mod game_profiles;

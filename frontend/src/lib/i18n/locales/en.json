@@ -14,6 +14,7 @@
     "title": "Settings",
     "language": "Language",
     "tabs": {
+      "games": "Games",
       "profile": "Profile",
       "audio": "Audio and Video",
       "notifications": "Notifications",
