@@ -95,8 +95,21 @@ jobs:
       - name: stage Tailcat sidecar
         shell: bash
         run: |
+          set -euo pipefail
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             ./scripts/fetch-tailcat-sidecar.sh aarch64-apple-darwin x86_64-apple-darwin
+
+            ARM64="src-tauri/binaries/tailcat-aarch64-apple-darwin"
+            X64="src-tauri/binaries/tailcat-x86_64-apple-darwin"
+            UNIVERSAL="src-tauri/binaries/tailcat-universal-apple-darwin"
+
+            test -x "$ARM64"
+            test -x "$X64"
+            lipo -create "$ARM64" "$X64" -output "$UNIVERSAL"
+            chmod +x "$UNIVERSAL"
+            lipo -verify_arch arm64 x86_64 "$UNIVERSAL"
+            lipo -info "$UNIVERSAL"
+            file "$UNIVERSAL"
           else
             ./scripts/fetch-tailcat-sidecar.sh
           fi
