@@ -264,3 +264,51 @@ html[data-shell='mobile'] body {
 		transition: none !important;
 	}
 }
+
+
+/* MOBILE-FIRST ROOT NAV — persistent, glanceable, badge-aware */
+@media (max-width: 768px) {
+	.mobile-bottom-nav {
+		transform: translateY(0) !important;
+		opacity: 1 !important;
+		pointer-events: auto !important;
+	}
+
+	.mobile-nav-grabber {
+		display: none !important;
+	}
+
+	.mobile-nav-icon-wrap {
+		position: relative;
+		display: inline-grid;
+		place-items: center;
+	}
+
+	.mobile-nav-badge {
+		position: absolute;
+		top: -7px;
+		right: -13px;
+		min-width: 17px;
+		height: 17px;
+		padding: 0 4px;
+		box-sizing: border-box;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 999px;
+		border: 2px solid var(--surface-raised, #111827);
+		background: var(--color-danger, #ef4444);
+		color: white;
+		font-size: 10px;
+		font-weight: 800;
+		line-height: 1;
+		letter-spacing: 0;
+	}
+
+	/* Keep touch targets stable: root navigation must never require a reveal gesture. */
+	.mobile-bottom-nav button {
+		position: relative;
+		min-width: 0;
+		min-height: 48px;
+	}
+}
