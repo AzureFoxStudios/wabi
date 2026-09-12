@@ -102,6 +102,18 @@ export interface WorkspacePanelPluginRecord {
 
 export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
+		id: 'model-viewport',
+		label: 'CAD & 3D',
+		shortLabel: 'CAD',
+		icon: 'box',
+		component: 'model-viewport',
+		capabilities: ['model-workspace'],
+		defaultDock: 'right',
+		mobileMode: 'fullscreen',
+		source: 'core',
+		sortOrder: 54
+	},
+	{
 		id: 'calls',
 		label: 'Calls',
 		icon: 'headphones',
