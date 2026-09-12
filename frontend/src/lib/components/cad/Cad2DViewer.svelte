@@ -208,7 +208,7 @@
               <polyline points={arc.map((point) => `${point.x},${-point.y}`).join(' ')} class="cad-entity" />
             {:else if entity.type === 'TEXT' || entity.type === 'MTEXT'}
               <text x={entity.point.x} y={-entity.point.y} font-size={entity.height} transform={`rotate(${-entity.rotationDeg} ${entity.point.x} ${-entity.point.y})`} class="cad-text">{entity.text}</text>
-            {:else}
+            {:else if entity.type === 'POINT'}
               <circle cx={entity.point.x} cy={-entity.point.y} r={Math.max(viewBox.width, viewBox.height) / 500} class="cad-point" />
             {/if}
           {/each}
