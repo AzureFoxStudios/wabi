@@ -3,12 +3,15 @@
   import {
     boundsForCadEntities,
     cadArcPoints,
+    cadDashArray,
     cadScreenToDrawingPoint,
+    cadStrokeWidth,
     cadViewportScale,
     formatCadNumber,
     nearestCadSnap,
     parseAsciiDxf,
     type Cad2DDrawing,
+    type Cad2DEntity,
     type CadBounds,
     type CadPoint
   } from '$lib/cad2d';
@@ -64,10 +67,40 @@
     const next = new Set(hiddenLayers);
     if (next.has(layer)) next.delete(layer); else next.add(layer);
     hiddenLayers = next;
+    soloLayer = null;
     clearMeasure();
     resetView();
   }
-  function showAllLayers(): void { hiddenLayers = new Set(); clearMeasure(); resetView(); }
+  function showAllLayers(): void { hiddenLayers = new Set(); soloLayer = null; clearMeasure(); resetView(); }
+  let soloLayer = $state<string | null>(null);
+  function toggleSolo(layer: string): void {
+    if (!drawing) return;
+    if (soloLayer === layer) {
+      soloLayer = null;
+      hiddenLayers = new Set();
+    } else {
+      soloLayer = layer;
+      hiddenLayers = new Set(drawing.layers.filter((name) => name !== layer));
+    }
+    clearMeasure();
+    resetView();
+  }
+  const layerCounts = $derived.by(() => {
+    const counts = new Map<string, number>();
+    for (const entity of drawing?.entities ?? []) counts.set(entity.layer, (counts.get(entity.layer) ?? 0) + 1);
+    return counts;
+  });
+  function cadEntityStyle(entity: Cad2DEntity): string | undefined {
+    const parts: string[] = [];
+    if (entity.color) parts.push(`stroke:${entity.color}`);
+    const dash = cadDashArray(entity.linetype);
+    if (dash) parts.push(`stroke-dasharray:${dash}`);
+    if (entity.weight !== 0) parts.push(`stroke-width:${cadStrokeWidth(entity.weight)}`);
+    return parts.length > 0 ? parts.join(';') : undefined;
+  }
+  function cadFillStyle(entity: Cad2DEntity): string | undefined {
+    return entity.color ? `fill:${entity.color}` : undefined;
+  }
   let collapsedSections = $state<Set<string>>(new Set());
   function toggleSection(section: string): void {
     const next = new Set(collapsedSections);
@@ -159,7 +192,7 @@
     loadAbort?.abort();
     const controller = new AbortController();
     loadAbort = controller;
-    drawing = null; error = ''; loading = true; hiddenLayers = new Set(); clearMeasure(); resetView();
+    drawing = null; error = ''; loading = true; hiddenLayers = new Set(); soloLayer = null; clearMeasure(); resetView();
     void (async () => {
       try {
         if (!/\.dxf(?:$|[?#])/i.test(name) && !/\.dxf(?:$|[?#])/i.test(source)) throw new Error('The built-in 2D CAD reader currently supports ASCII DXF only.');
@@ -169,6 +202,8 @@
         const parsed = parseAsciiDxf(text);
         if (sequence !== loadSequence || controller.signal.aborted) return;
         drawing = parsed;
+        soloLayer = null;
+        hiddenLayers = new Set(Object.entries(parsed.layerStyles).filter(([, style]) => style.off).map(([name]) => name));
       } catch (reason) {
         if (controller.signal.aborted || sequence !== loadSequence) return;
         error = reason instanceof Error ? reason.message : 'Could not read this DXF file.';
@@ -204,18 +239,18 @@
           <rect x={viewBox.x} y={viewBox.y} width={viewBox.width} height={viewBox.height} class="cad-bg" />
           {#each visibleEntities as entity, index (`${entity.layer}-${entity.type}-${index}`)}
             {#if entity.type === 'LINE'}
-              <line x1={entity.a.x} y1={-entity.a.y} x2={entity.b.x} y2={-entity.b.y} class="cad-entity" />
+              <line x1={entity.a.x} y1={-entity.a.y} x2={entity.b.x} y2={-entity.b.y} class="cad-entity" style={cadEntityStyle(entity)} />
             {:else if entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE'}
-              <polyline points={`${entity.points.map((point) => `${point.x},${-point.y}`).join(' ')}${entity.closed ? ` ${entity.points[0].x},${-entity.points[0].y}` : ''}`} class="cad-entity" />
+              <polyline points={`${entity.points.map((point) => `${point.x},${-point.y}`).join(' ')}${entity.closed ? ` ${entity.points[0].x},${-entity.points[0].y}` : ''}`} class="cad-entity" style={cadEntityStyle(entity)} />
             {:else if entity.type === 'CIRCLE'}
-              <circle cx={entity.center.x} cy={-entity.center.y} r={entity.radius} class="cad-entity" />
+              <circle cx={entity.center.x} cy={-entity.center.y} r={entity.radius} class="cad-entity" style={cadEntityStyle(entity)} />
             {:else if entity.type === 'ARC'}
               {@const arc = cadArcPoints(entity)}
-              <polyline points={arc.map((point) => `${point.x},${-point.y}`).join(' ')} class="cad-entity" />
+              <polyline points={arc.map((point) => `${point.x},${-point.y}`).join(' ')} class="cad-entity" style={cadEntityStyle(entity)} />
             {:else if entity.type === 'TEXT' || entity.type === 'MTEXT'}
-              <text x={entity.point.x} y={-entity.point.y} font-size={entity.height} transform={`rotate(${-entity.rotationDeg} ${entity.point.x} ${-entity.point.y})`} class="cad-text">{entity.text}</text>
+              <text x={entity.point.x} y={-entity.point.y} font-size={entity.height} transform={`rotate(${-entity.rotationDeg} ${entity.point.x} ${-entity.point.y})`} class="cad-text" style={cadFillStyle(entity)}>{entity.text}</text>
             {:else if entity.type === 'POINT'}
-              <circle cx={entity.point.x} cy={-entity.point.y} r={Math.max(viewBox.width, viewBox.height) / 500} class="cad-point" />
+              <circle cx={entity.point.x} cy={-entity.point.y} r={Math.max(viewBox.width, viewBox.height) / 500} class="cad-point" style={cadFillStyle(entity)} />
             {/if}
           {/each}
           {#if measureA}<circle cx={measureA.x} cy={-measureA.y} r={Math.max(viewBox.width, viewBox.height) / 260} class="measure-point" />{/if}
@@ -235,7 +270,7 @@
     {#if drawing && !compact}
       <aside class="cad2d-inspector" aria-label="2D CAD drawing inspector">
         <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('drawing')} onclick={() => toggleSection('drawing')}><h3>Drawing</h3><span aria-hidden="true">{collapsedSections.has('drawing') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('drawing')}<dl><div><dt>Width</dt><dd>{formatCadNumber(drawing.bounds.maxX - drawing.bounds.minX)}</dd></div><div><dt>Height</dt><dd>{formatCadNumber(drawing.bounds.maxY - drawing.bounds.minY)}</dd></div><div><dt>Units</dt><dd>{drawing.unit === 'unknown' ? 'Not declared' : drawing.unit}</dd></div></dl>{/if}</section>
-        <section><div class="cad2d-section-head"><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('layers')} onclick={() => toggleSection('layers')}><h3>Layers</h3><span aria-hidden="true">{collapsedSections.has('layers') ? '▸' : '▾'}</span></button>{#if hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>All on</button>{/if}</div>{#if !collapsedSections.has('layers')}<div class="cad2d-layers">{#each drawing.layers as layer}<label><input type="checkbox" checked={!hiddenLayers.has(layer)} onchange={() => toggleLayer(layer)} /><span>{layer}</span></label>{/each}</div>{/if}</section>
+        <section><div class="cad2d-section-head"><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('layers')} onclick={() => toggleSection('layers')}><h3>Layers</h3><span aria-hidden="true">{collapsedSections.has('layers') ? '▸' : '▾'}</span></button>{#if hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>All on</button>{/if}</div>{#if !collapsedSections.has('layers')}<div class="cad2d-layers">{#each drawing.layers as layer}<div class="cad2d-layer-row" class:hidden={hiddenLayers.has(layer)} class:soloed={soloLayer === layer}><button type="button" class="cad2d-layer-eye" aria-label={hiddenLayers.has(layer) ? `Show layer ${layer}` : `Hide layer ${layer}`} aria-pressed={!hiddenLayers.has(layer)} onclick={() => toggleLayer(layer)}><span aria-hidden="true">{hiddenLayers.has(layer) ? '🚫' : '👁'}</span></button><span class="cad2d-layer-chip" style={drawing.layerStyles[layer]?.color ? `background:${drawing.layerStyles[layer].color}` : undefined} aria-hidden="true"></span><span class="cad2d-layer-name" title={layer}>{layer}</span><span class="cad2d-layer-count">{layerCounts.get(layer) ?? 0}</span><button type="button" class="cad2d-layer-solo" aria-label={soloLayer === layer ? `Unisolate layer ${layer}` : `Isolate layer ${layer}`} aria-pressed={soloLayer === layer} title={soloLayer === layer ? 'Show all layers' : 'Isolate this layer'} onclick={() => toggleSolo(layer)}>S</button></div>{/each}</div>{/if}</section>
         <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('coverage')} onclick={() => toggleSection('coverage')}><h3>Reader coverage</h3><span aria-hidden="true">{collapsedSections.has('coverage') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('coverage')}<p>Built-in DXF preview: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT, MTEXT and DIMENSION.</p>{#if ignoredCount > 0}<p>{ignoredCount.toLocaleString()} unsupported entities were skipped. The original file is unchanged.</p>{/if}{/if}</section>
       </aside>
     {/if}
@@ -282,7 +317,19 @@
   .cad2d-section-toggle span { font-size:9px;color:var(--text-muted,#a9b9bc); }
   .cad2d-section-head .cad2d-section-toggle { width:auto;flex:1;min-width:0; }
   .cad2d-layers { display:grid;gap:5px;max-height:220px;overflow:auto; }
-  .cad2d-layers label { display:flex;align-items:center;gap:7px;font-size:10px;min-width:0; }.cad2d-layers span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .cad2d-layer-row { display:flex;align-items:center;gap:7px;font-size:10px;min-width:0;padding:2px 4px;border-radius:5px; }
+  .cad2d-layer-row:hover { background:rgba(120,150,150,.08); }
+  .cad2d-layer-row.hidden .cad2d-layer-name { opacity:.45;text-decoration:line-through; }
+  .cad2d-layer-row.soloed { background:rgba(143,213,196,.12); }
+  .cad2d-layer-eye { all:unset;cursor:pointer;font-size:11px;line-height:1;border-radius:4px; }
+  .cad2d-layer-eye:focus-visible { outline:2px solid var(--accent-primary-color,#78c7b8);outline-offset:2px; }
+  .cad2d-layer-chip { width:10px;height:10px;border-radius:3px;background:var(--text-muted,#a9b9bc);flex:none;border:1px solid rgba(255,255,255,.25); }
+  .cad2d-layer-name { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0; }
+  .cad2d-layer-count { color:var(--text-muted,#a9b9bc);font-size:9px;font-variant-numeric:tabular-nums; }
+  .cad2d-layer-solo { all:unset;cursor:pointer;font-size:9px;font-weight:700;color:var(--text-muted,#a9b9bc);border:1px solid var(--border-subtle,#43535a);border-radius:4px;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;flex:none; }
+  .cad2d-layer-solo:hover { color:inherit;border-color:var(--accent-primary-color,#8fd5c4); }
+  .cad2d-layer-row.soloed .cad2d-layer-solo { color:#0b1317;background:var(--accent-primary-color,#8fd5c4);border-color:transparent; }
+  .cad2d-layers span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
   :is(button,input):focus-visible { outline:2px solid var(--accent-primary-color,#78c7b8);outline-offset:2px; }
   @media (max-width:700px) { .cad2d-shell:not(.compact) .cad2d-main { grid-template-columns:1fr;grid-template-rows:minmax(260px,1fr) minmax(120px,auto);overflow:auto; }.cad2d-inspector { border-left:0;border-top:1px solid var(--border-subtle,#34454b);max-height:230px; }.cad2d-toolbar { align-items:flex-start;flex-direction:column; }.cad2d-actions { justify-content:flex-start; } }
 </style>

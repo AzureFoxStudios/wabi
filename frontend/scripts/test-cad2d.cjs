@@ -8,7 +8,17 @@ const ts = require('typescript');
 
 const source = fs.readFileSync(path.join(__dirname, '../src/lib/cad2d.ts'), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-const box = { exports: {}, require, console, Math, Number, Set, Error };
+function compileModule(relPath) {
+  const modSource = fs.readFileSync(path.join(__dirname, relPath), 'utf8');
+  return ts.transpileModule(modSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+}
+const aciBox = { exports: {}, require, console, Math, Number, Set, Error };
+vm.runInNewContext(compileModule('../src/lib/cadAciColors.ts'), aciBox, { filename: 'cadAciColors.ts' });
+function testRequire(name) {
+  if (name === './cadAciColors') return aciBox.exports;
+  return require(name);
+}
+const box = { exports: {}, require: testRequire, console, Math, Number, Set, Error };
 vm.runInNewContext(compiled, box, { filename: 'cad2d.ts' });
 const cad = box.exports;
 
@@ -62,4 +72,19 @@ test('DIMENSION expands its anonymous block, with def-point fallback', () => {
   assert.ok(texts.includes('22'), 'block label inlined, got ' + JSON.stringify(texts));
   assert.ok(texts.includes('22.00') || texts.includes('22'), 'fallback measurement synthesized, got ' + JSON.stringify(texts));
   assert.ok(drawing.entities.some((e) => e.type === 'LINE'), 'dimension graphics present');
+});
+
+test('ACI colors, linetypes and lineweights resolve with ByLayer inheritance', () => {
+  const styledDxf = `0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n0\nLAYER\n2\nWALLS\n62\n3\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n8\nWALLS\n62\n1\n6\nHIDDEN\n370\n70\n10\n0\n20\n0\n11\n10\n21\n0\n0\nLINE\n8\nWALLS\n10\n0\n20\n5\n11\n10\n21\n5\n0\nENDSEC\n0\nEOF\n`;
+  const drawing = cad.parseAsciiDxf(styledDxf);
+  assert.equal(drawing.layerStyles.WALLS.color, '#00FF00');
+  const [direct, inherited] = drawing.entities;
+  assert.equal(direct.color, '#FF0000');
+  assert.equal(direct.linetype, 'dashed');
+  assert.equal(direct.weight, 2);
+  assert.equal(inherited.color, '#00FF00');
+  assert.equal(inherited.linetype, 'continuous');
+  assert.equal(inherited.weight, 0);
+  assert.equal(cad.cadDashArray('center'), '16 4 3 4');
+  assert.equal(cad.cadDashArray('continuous'), null);
 });
