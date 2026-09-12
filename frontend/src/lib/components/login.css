@@ -6,11 +6,17 @@
 /* ---------- Backdrop (TRANSPARENT so AmbientBackground shows) ---------- */
 
 .login-container {
-	min-height: 100dvh;
+	height: 100dvh;
 	display: flex;
-	align-items: center;
+	/* NOTE: flex-start + margin:auto on .login-shell = safe centering.
+	   align-items:center here clips the TOP of tall content with no way to
+	   scroll to it (Z Fold cover/inner viewports), and min-height let the
+	   box grow past body{overflow:hidden} so overflow-y:auto never engaged. */
+	align-items: flex-start;
 	justify-content: center;
 	overflow-y: auto;
+	overflow-x: hidden;
+	overscroll-behavior-y: contain;
 	padding: clamp(1.25rem, 4vw, 3rem);
 	/* Soft wash only — never opaque. AmbientBackground sits under .app-content-layer. */
 	background:
@@ -25,6 +31,9 @@
 .login-shell {
 	width: min(1180px, 100%);
 	display: block;
+	/* Safe centering partner: centers when content fits, yields full
+	   scroll reach (top AND bottom) when it overflows. */
+	margin: auto;
 }
 
 .login-shell.has-launch {
@@ -896,11 +905,19 @@
 	}
 	.login-title { font-size: clamp(3rem, 6.5vw, 4.4rem); }
 	.login-shell.has-launch { gap: 1.25rem; }
+	/* Fold-class inner widths (~830 CSS px): two minmax columns (360+400px
+	   + gap) overflow horizontally with the left clipped and unreachable.
+	   Stack like mobile. */
+	.login-shell.has-launch {
+		grid-template-columns: 1fr;
+	}
 }
 
 @media (max-width: 768px) {
 	.login-container {
-		align-items: center;
+		/* Centering comes from .login-shell{margin:auto}; center alignment
+		   here would re-introduce the top-clip on overflowing content. */
+		align-items: flex-start;
 		justify-content: center;
 		padding: 1.15rem;
 	}
