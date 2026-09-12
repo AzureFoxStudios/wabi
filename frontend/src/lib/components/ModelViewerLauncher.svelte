@@ -1,117 +1,163 @@
 <script lang="ts">
-	import { onMount, type ComponentType } from 'svelte';
-	import { isDesktopTauri } from '$lib/tauri-platform';
-	import { openNativeModelViewer } from '$lib/tauri-model-viewer';
-	import { hasAddonCapability } from '$lib/addonInventory';
-	import { loadAddon } from '$lib/addons/loader';
+  import { onMount, type Component } from 'svelte';
+  import { isDesktopTauri } from '$lib/tauri-platform';
+  import { openNativeModelViewer } from '$lib/tauri-model-viewer';
+  import { hasAddonCapability } from '$lib/addonInventory';
+  import { loadAddon } from '$lib/addons/loader';
+  import Cad2DViewer from '$lib/components/cad/Cad2DViewer.svelte';
+  import ModelOpenMenu from '$lib/components/ModelOpenMenu.svelte';
+  import {
+    missingModelSupport,
+    modelFamily,
+    modelPreviewKind,
+    safeModelSource,
+    type ModelAsset
+  } from '$lib/modelAttachmentPolicy';
 
-	export let src: string;
-	export let fileName = '3D model';
-	export let height = 320;
-	export let fullBleed = false;
-	export let lazyLoad = true;
-	export let hideUi = false;
+  let {
+    src, fileName = '3D model', height = 320, fullBleed = false, lazyLoad = true, hideUi = $bindable(false)
+  }: {
+    src: string; fileName?: string; height?: number; fullBleed?: boolean; lazyLoad?: boolean; hideUi?: boolean;
+  } = $props();
 
-	// Compile-time constant: true for the desktop Tauri build, false for web.
-	const isTauriBuild = __WABI_IS_TAURI__;
-	const desktop = isDesktopTauri();
+  const isTauriBuild = __WABI_IS_TAURI__;
+  const desktop = isDesktopTauri();
+  let ThreeViewer = $state.raw<Component<any> | null>(null);
+  let resolvingThree = $state(true);
+  let launchError = $state('');
+  let launching = $state(false);
+  let nativeError = $state('');
+  let previewAttempt = $state(0);
+  let cadPreviewActive = $state(false);
+  let openMenu = $state<any>();
 
-	let ThreeViewer: ComponentType | null = null;
-	let resolvingThree = true;
-	let launching = false;
-	let nativeError: string | null = null;
+  const selectionKey = $derived(`${src}\u0000${fileName}`);
+  const previewKind = $derived(modelPreviewKind(fileName));
+  const supportMessage = $derived(missingModelSupport(fileName));
+  const safeSrc = $derived(safeModelSource(src));
+  const family = $derived(modelFamily(fileName));
+  const asset = $derived<ModelAsset>({ src, fileName, source: 'chat' });
 
-	async function resolveThreeViewer() {
-		if (isTauriBuild) {
-			// Desktop: three.js is NOT bundled. Only load it if a server-provided
-			// `model-viewer` addon is available; otherwise the native wgpu viewer
-			// (opened via the button below) is the only renderer.
-			try {
-				if (await hasAddonCapability('model-viewer')) {
-					const instance = await loadAddon('model-viewer');
-					const mod = instance?.frontendModule;
-					if (mod?.default) ThreeViewer = mod.default as ComponentType;
-				}
-			} catch (e) {
-				console.warn('[ModelViewerLauncher] model-viewer addon unavailable:', e);
-			}
-		} else {
-			// Web: three.js is the primary in-page viewer. This dynamic import is
-			// excluded from the Tauri build via the __WABI_IS_TAURI__ dead branch.
-			const mod = await import('$lib/components/plugins/ModelViewer3D.svelte');
-			ThreeViewer = mod.default as ComponentType;
-		}
-		resolvingThree = false;
-	}
+  $effect(() => {
+    // The same dock can display a new asset without remounting this launcher.
+    void selectionKey;
+    nativeError = '';
+    launching = false;
+    cadPreviewActive = !lazyLoad;
+  });
 
-	onMount(resolveThreeViewer);
+  onMount(() => {
+    let gone = false;
+    async function resolve(): Promise<void> {
+      // DXF is rendered by the lightweight 2D reader and unsupported CAD/MMD
+      // stays as an honest compatibility card; neither needs three.js.
+      if (previewKind !== 'mesh-3d') {
+        resolvingThree = false;
+        return;
+      }
+      try {
+        if (isTauriBuild) {
+          // Preserve the native-first desktop boundary. Never remote-import a server URL.
+          if (await hasAddonCapability('model-viewer')) {
+            const instance = await loadAddon('model-viewer');
+            const module = instance?.frontendModule;
+            if (!gone && module?.default) ThreeViewer = module.default as Component<any>;
+          }
+        } else {
+          const module = await import('$lib/components/plugins/ModelViewer3D.svelte');
+          if (!gone) ThreeViewer = module.default as Component<any>;
+        }
+      } catch {
+        if (!gone) launchError = 'The in-page viewer could not be loaded. Close and reopen this preview to retry.';
+      } finally {
+        if (!gone) resolvingThree = false;
+      }
+    }
+    void resolve();
+    return () => { gone = true; };
+  });
 
-	async function launchNative() {
-		launching = true;
-		nativeError = null;
-		const ok = await openNativeModelViewer(src, fileName);
-		if (!ok) nativeError = 'Could not open the native 3D viewer.';
-		launching = false;
-	}
+  async function launchNative(): Promise<void> {
+    if (launching || previewKind !== 'mesh-3d') return;
+    const key = selectionKey;
+    launching = true;
+    nativeError = '';
+    try {
+      const opened = await openNativeModelViewer(src, fileName);
+      if (key === selectionKey && !opened) nativeError = 'The desktop viewer could not open this file. Check that this desktop build supports the format.';
+    } catch {
+      if (key === selectionKey) nativeError = 'The desktop viewer did not open. The original file is unchanged.';
+    } finally {
+      if (key === selectionKey) launching = false;
+    }
+  }
 
-	function onLaunch(e: Event) {
-		e.preventDefault();
-		void launchNative();
-	}
+  function handleContextMenu(event: MouseEvent): void {
+    if (fullBleed || !safeSrc) return;
+    const target = event.target as HTMLElement | null;
+    // Right-drag on the actual 3D canvas must remain camera pan, not file actions.
+    if (target?.closest('canvas')) return;
+    void openMenu?.open(event);
+  }
 </script>
 
-{#if desktop}
-	<div class="native-launch-row">
-		<button class="native-launch-btn" type="button" on:click={onLaunch} disabled={launching}>
-			{launching ? 'Opening…' : 'Open in native 3D viewer'}
-		</button>
-		{#if nativeError}
-			<span class="native-error">{nativeError}</span>
-		{/if}
-	</div>
-{/if}
+<div class="model-launcher" oncontextmenu={handleContextMenu}>
+  {#if !fullBleed && safeSrc}
+    <div class="model-file-actions"><ModelOpenMenu bind:this={openMenu} {asset} showSourceLink /></div>
+  {/if}
 
-{#if !resolvingThree && ThreeViewer}
-	<svelte:component
-		this={ThreeViewer}
-		{src}
-		{fileName}
-		{height}
-		{fullBleed}
-		{lazyLoad}
-		bind:hideUi
-	/>
-{:else if desktop && !resolvingThree && !ThreeViewer}
-	<p class="native-only-hint">Use the native 3D viewer to inspect this model.</p>
-{/if}
+  {#if !safeSrc}
+    <div class="model-support-card" role="alert"><strong>Preview unavailable</strong><p>This attachment does not have a safe model source.</p></div>
+  {:else if supportMessage}
+    <div class="model-support-card">
+      <span class="model-support-label">{family === 'cad' ? 'CAD IMPORTER REQUIRED' : family === 'mmd' ? 'MMD ADD-ON REQUIRED' : 'MODEL SUPPORT REQUIRED'}</span>
+      <strong title={fileName}>{fileName}</strong>
+      <p>{supportMessage}</p>
+    </div>
+  {:else if previewKind === 'cad-2d'}
+    {#if cadPreviewActive}
+      <Cad2DViewer {src} {fileName} {height} compact={!fullBleed} />
+    {:else}
+      <button class="cad-preview-activation" type="button" onclick={() => (cadPreviewActive = true)}>
+        <span>Activate 2D CAD preview</span>
+        <small>{fileName} · ASCII DXF stays read-only</small>
+      </button>
+    {/if}
+  {:else}
+    {#if desktop}
+      <div class="model-native-card">
+        <div class="model-native-copy"><span class="model-native-label">Desktop 3D viewer</span><strong title={fileName}>{fileName}</strong><p>Opens in the native viewer. Available inspection tools depend on your desktop build.</p></div>
+        <button class="model-native-open" type="button" onclick={launchNative} disabled={launching}>{launching ? 'Opening…' : 'Open native viewer'}</button>
+        {#if nativeError}<p class="model-launch-error" role="alert">{nativeError}</p>{/if}
+      </div>
+    {/if}
+
+    {#if !resolvingThree && ThreeViewer}
+      {#key `${selectionKey}\u0000${previewAttempt}`}
+        <ThreeViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi onRetry={() => { previewAttempt += 1; }} />
+      {/key}
+    {:else if !desktop && resolvingThree}
+      <div class="model-launch-status" role="status">Opening model viewer…</div>
+    {:else if !desktop && launchError}
+      <div class="model-launch-status model-launch-error" role="alert">{launchError}</div>
+    {/if}
+  {/if}
+</div>
 
 <style>
-	.native-launch-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin: 0.25rem 0;
-	}
-	.native-launch-btn {
-		background: var(--accent-color, #4f8cff);
-		color: #fff;
-		border: none;
-		border-radius: 6px;
-		padding: 0.4rem 0.75rem;
-		font-size: 0.85rem;
-		cursor: pointer;
-	}
-	.native-launch-btn:disabled {
-		opacity: 0.6;
-		cursor: default;
-	}
-	.native-error {
-		font-size: 0.8rem;
-		color: var(--danger-color, #e5484d);
-	}
-	.native-only-hint {
-		font-size: 0.8rem;
-		opacity: 0.7;
-		margin: 0.25rem 0;
-	}
+  .model-launcher { position:relative;min-width:0; }
+  .model-file-actions { position:absolute;right:8px;top:8px;z-index:12; }
+  .model-native-card,.model-support-card { display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px;margin:10px;border:1px solid var(--border-subtle,#34454b);border-radius:12px;background:var(--surface-base,#172126);color:var(--text-heading,#e7efef);min-width:0; }
+  .model-native-copy,.model-support-card { flex:1 1 200px;min-width:0; }
+  .model-native-label,.model-support-label { display:block;margin-bottom:6px;color:var(--text-muted,#a9b9bc);font-size:10px;letter-spacing:.08em;text-transform:uppercase; }
+  .model-native-copy strong,.model-support-card strong { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px; }
+  .model-native-copy p,.model-support-card p { margin:8px 0 0;color:var(--text-muted,#a9b9bc);line-height:1.55;font-size:12px; }
+  .model-native-open { border:1px solid var(--border-subtle,#34454b);background:var(--surface-raised,#263a3f);color:var(--text-heading,#e7efef);border-radius:8px;padding:10px 14px;min-height:40px;font:inherit;font-size:12px;cursor:pointer; }
+  .model-native-open:focus-visible,.cad-preview-activation:focus-visible { outline:2px solid var(--accent-primary-color,#78c7b8);outline-offset:3px; }
+  .model-native-open:disabled { opacity:.6;cursor:progress; }
+  .model-launch-error { width:100%;color:var(--text-danger,#e5b589);font-size:12px;line-height:1.5;margin:0; }
+  .model-launch-status { padding:20px;color:var(--text-muted,#a9b9bc);font-size:12px; }
+  .model-support-card { display:block;padding-right:52px; }
+  .cad-preview-activation { width:100%;min-height:180px;border:1px solid var(--border-subtle,#34454b);border-radius:10px;background:radial-gradient(circle at 20% 20%,rgba(98,168,156,.15),transparent 45%),var(--surface-app,#10191d);color:var(--text-heading,#e7efef);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:18px; }
+  .cad-preview-activation span { font-size:13px;font-weight:650; }.cad-preview-activation small { color:var(--text-muted,#a9b9bc);font-size:10px;text-align:center; }
 </style>
