@@ -41,7 +41,7 @@ Primary target: Android first for hands-on iteration, while keeping iOS architec
 - [x] Scope push endpoint unsubscribe to the authenticated account.
 - [x] Make test-push UI distinguish HTTP success from actual delivery.
 - [x] Make detached native 3D viewer desktop-only and remove its startup self-test from mobile/release startup.
-- [ ] Replace flag-priority Back handling with an explicit mobile surface stack.
+- [ ] Replace flag-priority Back handling with an explicit mobile surface stack. The source patch has already passed the targeted mobile-shell tests and full pinned Svelte check; commit/push recovery is in progress after an unrelated concurrent branch update rejected the first workflow push.
 - [ ] Audit server switcher/profile/settings/full-screen workspace back paths.
 - [ ] Add real device-safe keyboard/visual viewport acceptance fixtures.
 
