@@ -1,6 +1,7 @@
 import type { Message } from '$lib/socket';
 import { get } from 'svelte/store';
 import { _ } from '$lib/i18n';
+import { isModelAttachmentFile } from '$lib/modelAttachmentPolicy';
 
 export type AlbumAnnouncement = { name: string; kind: 'opened' | 'shared' };
 
@@ -82,9 +83,7 @@ export function getMediaMimeType(fileName?: string): string | null {
 }
 
 export function isModelFile(fileName?: string): boolean {
-	if (!fileName) return false;
-	const ext = fileName.toLowerCase().split('.').pop() || '';
-	return ['glb', 'gltf', 'obj', 'stl'].includes(ext);
+	return isModelAttachmentFile(fileName);
 }
 
 export function isBlendFile(fileName?: string): boolean {
@@ -111,7 +110,7 @@ export function getFileIcon(fileName?: string): string {
 		ppt: '📽️', pptx: '📽️',
 		zip: '📦', rar: '📦', '7z': '📦', tar: '📦', gz: '📦',
 		js: '💻', ts: '💻', py: '💻', java: '💻', cpp: '💻', c: '💻', cs: '💻', html: '💻', css: '💻', json: '💻',
-		blend: '🎨', fbx: '🎨', obj: '🎨', stl: '🎨', psd: '🎨', ai: '🎨', sketch: '🎨'
+		blend: '🎨', fbx: '🎨', obj: '🎨', stl: '🎨', glb: '🧊', gltf: '🧊', dxf: '📐', dwg: '📐', step: '📐', stp: '📐', iges: '📐', igs: '📐', '3mf': '📐', pmx: '🧍', pmd: '🧍', psd: '🎨', ai: '🎨', sketch: '🎨'
 	};
 	return iconMap[ext] || '📎';
 }
@@ -129,7 +128,7 @@ export function getMediaType(url: string): 'image' | 'video' | 'audio' | 'model'
 		if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i.test(pathname)) return 'image';
 		if (/\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v)(\?|#|$)/i.test(pathname)) return 'video';
 		if (/\.(mp3|wav|ogg|weba|webm|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) return 'audio';
-		if (/\.(glb|gltf|obj|stl)(\?|#|$)/i.test(pathname)) return 'model';
+		if (isModelAttachmentFile(pathname)) return 'model';
 	} catch {
 		return null;
 	}
