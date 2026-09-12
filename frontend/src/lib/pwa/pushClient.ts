@@ -1,5 +1,8 @@
 /**
- * Web Push subscription client (PWA).
+ * Web Push subscription client (PWA / browser delivery path).
+ *
+ * Native mobile clients use platform delivery integrations, but this remains
+ * the shared server-side push contract and the browser/PWA implementation.
  */
 import { browser } from '$app/environment';
 import { getApiBase } from '$lib/api/utils';
@@ -10,6 +13,21 @@ const DEVICE_ID_KEY = 'wabi.deviceId';
 export type PushSubscribeResult =
 	| { ok: true; endpoint: string }
 	| { ok: false; reason: string };
+
+export type TestPushServerResult = {
+	ok?: boolean;
+	sent?: number;
+	failed?: number;
+};
+
+export function interpretTestPushResult(payload: TestPushServerResult): { ok: boolean; reason?: string } {
+	const sent = Number.isFinite(payload.sent) ? Math.max(0, Math.floor(payload.sent ?? 0)) : 0;
+	const failed = Number.isFinite(payload.failed) ? Math.max(0, Math.floor(payload.failed ?? 0)) : 0;
+	if (payload.ok === true && sent > 0) return { ok: true };
+	if (sent === 0 && failed === 0) return { ok: false, reason: 'no_registered_delivery_target' };
+	if (sent === 0 && failed > 0) return { ok: false, reason: `delivery_failed:${failed}` };
+	return { ok: false, reason: 'server_reported_no_delivery' };
+}
 
 function getOrCreateDeviceId(): string {
 	if (!browser) return 'server';
@@ -110,9 +128,10 @@ export async function unsubscribeWebPush(): Promise<void> {
 		const sub = await reg.pushManager.getSubscription();
 		if (sub) {
 			const endpoint = sub.endpoint;
-			await sub.unsubscribe().catch(() => {});
 			if (token) {
-				await fetch(`${getApiBase()}/api/push/subscribe`, {
+				// Tell the server first. If the account does not own this endpoint,
+				// do not silently erase the local subscription and hide the mismatch.
+				const res = await fetch(`${getApiBase()}/api/push/subscribe`, {
 					method: 'DELETE',
 					credentials: 'same-origin',
 					headers: {
@@ -120,8 +139,13 @@ export async function unsubscribeWebPush(): Promise<void> {
 						Authorization: `Bearer ${token}`
 					},
 					body: JSON.stringify({ endpoint, deviceId: getOrCreateDeviceId() })
-				}).catch(() => {});
+				});
+				if (!res.ok) {
+					console.warn('[pwa] server rejected push unsubscribe', res.status);
+					return;
+				}
 			}
+			await sub.unsubscribe().catch(() => {});
 		}
 	} catch (err) {
 		console.warn('[pwa] unsubscribe failed', err);
@@ -141,7 +165,9 @@ export async function sendTestPush(): Promise<{ ok: boolean; reason?: string }> 
 			const text = await res.text().catch(() => '');
 			return { ok: false, reason: `${res.status}:${text.slice(0, 120)}` };
 		}
-		return { ok: true };
+		const payload = (await res.json().catch(() => null)) as TestPushServerResult | null;
+		if (!payload) return { ok: false, reason: 'invalid_server_response' };
+		return interpretTestPushResult(payload);
 	} catch (err) {
 		return { ok: false, reason: err instanceof Error ? err.message : 'network' };
 	}
