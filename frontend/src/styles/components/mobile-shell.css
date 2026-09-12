@@ -159,7 +159,6 @@ html[data-shell='mobile'] body {
 		letter-spacing: 0.01em;
 	}
 
-
 	/* ---- Message list density ---- */
 	.messages {
 		padding: 0.35rem var(--mobile-chrome-pad-x) 0.5rem;
@@ -213,7 +212,7 @@ html[data-shell='mobile'] body {
 		border-radius: 12px !important;
 	}
 
-	/* ---- DM hub center layout: stack list full-bleed on phone ---- */
+	/* ---- DM hub: list OR conversation, never a squashed split on phone ---- */
 	.center-dm-layout {
 		display: flex;
 		flex-direction: column;
@@ -221,18 +220,40 @@ html[data-shell='mobile'] body {
 		height: 100%;
 	}
 
-	.center-dm-list {
+	.center-dm-list,
+	.center-dm-thread {
 		flex: 1 1 auto;
 		min-height: 0;
+		width: 100%;
+	}
+
+	.center-dm-list {
 		overflow: auto;
 		-webkit-overflow-scrolling: touch;
 	}
 
 	.center-dm-thread {
-		flex: 1 1 auto;
-		min-height: 0;
 		display: flex;
 		flex-direction: column;
+	}
+
+	/* MainLayout mounts both children for desktop/tablet split layouts. On a
+	   phone the presence of an actual conversation promotes it to the entire
+	   stage; Back returns to the preserved list without remounting that list. */
+	.center-dm-layout:has(.center-dm-thread .dm-conversation) > .center-dm-list {
+		display: none;
+	}
+
+	.center-dm-layout:not(:has(.center-dm-thread .dm-conversation)) > .center-dm-thread {
+		display: none;
+	}
+
+	/* The conversation's Back button is a real navigation affordance on phone;
+	   desktop can keep treating it as a close/move control. */
+	.center-dm-thread .dm-conversation .dm-header-back {
+		width: var(--mobile-touch);
+		height: var(--mobile-touch);
+		min-width: var(--mobile-touch);
 	}
 
 	/* ---- Settings full-bleed feel ---- */
@@ -262,5 +283,52 @@ html[data-shell='mobile'] body {
 	.mobile-right-overlay,
 	.input-wrapper {
 		transition: none !important;
+	}
+}
+
+/* MOBILE-FIRST ROOT NAV — persistent, glanceable, badge-aware */
+@media (max-width: 768px) {
+	.mobile-bottom-nav {
+		transform: translateY(0) !important;
+		opacity: 1 !important;
+		pointer-events: auto !important;
+	}
+
+	.mobile-nav-grabber {
+		display: none !important;
+	}
+
+	.mobile-nav-icon-wrap {
+		position: relative;
+		display: inline-grid;
+		place-items: center;
+	}
+
+	.mobile-nav-badge {
+		position: absolute;
+		top: -7px;
+		right: -13px;
+		min-width: 17px;
+		height: 17px;
+		padding: 0 4px;
+		box-sizing: border-box;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 999px;
+		border: 2px solid var(--surface-raised, #111827);
+		background: var(--color-danger, #ef4444);
+		color: white;
+		font-size: 10px;
+		font-weight: 800;
+		line-height: 1;
+		letter-spacing: 0;
+	}
+
+	/* Keep touch targets stable: root navigation must never require a reveal gesture. */
+	.mobile-bottom-nav button {
+		position: relative;
+		min-width: 0;
+		min-height: 48px;
 	}
 }

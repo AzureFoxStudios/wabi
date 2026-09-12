@@ -50,38 +50,147 @@
 			justify-content: flex-end;
 			min-width: 0;
 			width: auto;
-			gap: 0.45rem;
+			gap: 0.35rem;
 		}
 
-
-		.search-container {
-			flex-direction: row;
-			align-items: center;
-			gap: 0.35rem;
+		.header-action-group {
 			min-width: 0;
-			width: 100%;
-			overflow: visible;
+		}
+
+		/* Calling is a primary phone action, not desktop-only chrome. */
+		.dm-call-actions {
+			display: flex;
+			align-items: center;
+			gap: 0.3rem;
+		}
+
+		.dm-call-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
+			padding: 0;
+			border-radius: 12px;
+		}
+
+		.dm-call-btn svg {
+			width: 20px;
+			height: 20px;
+		}
+
+		/* Keep the text as the button's accessible name while making the phone
+		   header icon-first. */
+		.dm-call-btn > span:not(.dm-call-live) {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			padding: 0;
+			margin: -1px;
+			overflow: hidden;
+			clip: rect(0, 0, 0, 0);
+			white-space: nowrap;
+			border: 0;
+		}
+
+		.dm-call-live {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			padding: 0;
+			margin: -1px;
+			overflow: hidden;
+			clip: rect(0, 0, 0, 0);
+			white-space: nowrap;
+			border: 0;
+		}
+
+		/* Search rests as a one-tap icon. Focusing it expands a full-width
+		   phone search surface over the header instead of squeezing the title
+		   and call buttons into a desktop toolbar. */
+		.search-container {
+			position: relative;
+			flex: 0 0 44px;
+			align-items: center;
+			gap: 0;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
+			overflow: hidden;
+			border-radius: 12px;
+			background: color-mix(in srgb, var(--surface-raised) 30%, transparent);
+			border: 1px solid color-mix(in srgb, var(--border-subtle) 50%, transparent);
+			transition: background var(--duration-fast), border-color var(--duration-fast);
+		}
+
+		.search-container .search-icon {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+			z-index: 1;
+			pointer-events: none;
 		}
 
 		.search-input {
-			min-width: unset;
-			width: 100%;
-			opacity: 1;
-			transform: none;
-			pointer-events: auto;
-			font-size: var(--text-base);
-			padding: 0.36rem 0.55rem 0.36rem 1.7rem;
-			border-radius: var(--radius-md);
-			border-color: var(--border-subtle);
+			position: relative;
+			z-index: 2;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
+			padding: 0;
+			border: 0;
+			outline: 0;
+			background: transparent;
+			color: transparent;
+			caret-color: transparent;
+			font-size: 16px;
+			cursor: pointer;
 		}
 
 		.search-input::placeholder {
+			color: transparent;
+		}
+
+		.search-container.expanded {
+			position: fixed;
+			z-index: 2400;
+			top: max(0.45rem, env(safe-area-inset-top));
+			left: 0.55rem;
+			right: 0.55rem;
+			width: auto;
+			height: 48px;
+			min-width: 0;
+			background: color-mix(in srgb, var(--surface-raised) 96%, black 4%);
+			border-color: color-mix(in srgb, var(--accent-primary-color) 45%, var(--border-subtle));
+			box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38);
+			overflow: visible;
+		}
+
+		.search-container.expanded .search-icon {
+			left: 1.05rem;
+			transform: translateY(-50%);
+		}
+
+		.search-container.expanded .search-input {
+			width: 100%;
+			height: 100%;
+			padding: 0.55rem 0.8rem 0.55rem 2.35rem;
+			color: var(--text-primary);
+			caret-color: currentColor;
+			cursor: text;
+		}
+
+		.search-container.expanded .search-input::placeholder {
 			color: var(--text-secondary);
 		}
 
 		.search-results,
 		.search-history-btn,
-		.dm-call-actions,
 		.experimental-wabidb-toggle {
 			display: none;
 		}
@@ -195,6 +304,34 @@
 
 		.edit-bar, .reply-bar {
 			padding: 0.32rem 0.62rem;
+		}
+
+
+		/* Mobile return-to-latest pill */
+		.mobile-jump-latest {
+			position: absolute;
+			right: 0.75rem;
+			bottom: calc(var(--mobile-nav-height, 56px) + 4.25rem);
+			z-index: 22;
+			display: inline-flex;
+			align-items: center;
+			gap: 0.38rem;
+			min-height: 44px;
+			padding: 0.45rem 0.72rem;
+			border-radius: 999px;
+			border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+			background: color-mix(in srgb, var(--surface-raised) 94%, black 6%);
+			color: var(--text-primary);
+			font: inherit;
+			font-size: var(--text-sm);
+			font-weight: 700;
+			box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+			backdrop-filter: blur(10px);
+			-webkit-backdrop-filter: blur(10px);
+		}
+
+		html[data-keyboard-open='1'] .mobile-jump-latest {
+			bottom: calc(var(--keyboard-inset, 0px) + 4.25rem);
 		}
 
 		/* Hide payment/manual cash buttons on mobile — secondary actions live behind + menu */

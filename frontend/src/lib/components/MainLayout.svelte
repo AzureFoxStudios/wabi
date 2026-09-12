@@ -49,6 +49,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
+	import { formatMobileUnreadBadge, nextMobileBackSurface, sumUnreadConversationCount } from '$lib/mobileShellModel';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
 	// activation. Only .svelte components go lazy; utility-module imports
@@ -75,7 +76,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	// N1: overlay reactive
 	$: showQuickScratchpad = $quickScratchpadOpen;
 
-	$: totalUnreadDMs = 0; // DM-strip: was Object.entries($channelUnreadCounts) for DM channels. Stubbed to 0.
+	$: totalUnreadDMs = sumUnreadConversationCount($channelUnreadCounts, $channels);
+	$: mobileUnreadBadge = formatMobileUnreadBadge(totalUnreadDMs);
 
 	let resizingChannel = false;
 	let resizingRight = false;
@@ -263,19 +265,35 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	function handleMobilePopState(): void {
 		if (!$layoutStore.isMobile) return;
-		if (showSettings) {
-			showSettings = false;
-			return;
+		const surface = nextMobileBackSurface({
+			settingsOpen: showSettings,
+			serverSwitcherOpen: showServerSwitcher,
+			browseOpen: $layoutStore.showMobileChannels,
+			rightOverlayOpen: $layoutStore.rightPanelMode !== 'none',
+			conversationOpen: Boolean($layoutStore.centerDmChannelId)
+		});
+
+		switch (surface) {
+			case 'settings':
+				showSettings = false;
+				return;
+			case 'server-switcher':
+				closeServerSwitcher();
+				return;
+			case 'browse':
+				layoutStore.showMobileChannels.set(false);
+				return;
+			case 'overlay':
+				layoutStore.closeRightPanel();
+				return;
+			case 'conversation':
+				layoutStore.closeCenterDm();
+				activeView = 'dm';
+				return;
+			case 'root':
+			default:
+				if (activeView === 'dm') activeView = 'chat';
 		}
-		if ($layoutStore.showMobileChannels) {
-			layoutStore.showMobileChannels.set(false);
-			return;
-		}
-		if ($layoutStore.rightPanelMode !== 'none') {
-			layoutStore.closeRightPanel();
-			return;
-		}
-		if (activeView === 'dm') activeView = 'chat';
 	}
 
 	function openServerSwitcher(): void {
@@ -287,11 +305,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	onMount(() => {
-		// P3: on mobile the bottom nav starts visible, then auto-hides after
-		// the idle timeout and reappears on interaction (grabber, swipe, touch).
+		// Mobile navigation is structural chrome, not transient decoration.
+		// Keep it present while the phone shell is active; the keyboard and
+		// full-screen call surfaces are the only normal takeovers.
 		if ($layoutStore.isMobile && !$layoutStore.isInCall) {
 			mobileNavVisible = true;
-			scheduleMobileNavIdleHide();
 		}
 
 		mobileTabQueue.registerAddonTab({
@@ -812,20 +830,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	function scheduleMobileNavIdleHide(): void {
-		if (!$layoutStore.isMobile || !mobileNavVisible || $layoutStore.isInCall) return;
-		if (mobileNavIdleTimer) clearTimeout(mobileNavIdleTimer);
-		mobileNavIdleTimer = setTimeout(() => {
-			mobileNavVisible = false;
-			mobileNavIdleTimer = null;
-		}, MOBILE_NAV_IDLE_HIDE_MS);
+		// Intentionally persistent. Older mobile chrome disappeared after
+		// 2.2 seconds, making ordinary reading feel like a hidden-gesture UI.
+		if ($layoutStore.isMobile && !$layoutStore.isInCall) mobileNavVisible = true;
 	}
 
 	function hideMobileNavNow(): void {
-		mobileNavVisible = false;
-		if (mobileNavIdleTimer) {
-			clearTimeout(mobileNavIdleTimer);
-			mobileNavIdleTimer = null;
-		}
+		// Retained for old gesture call sites; root navigation no longer hides
+		// merely because the user pulled or paused.
+		if ($layoutStore.isMobile && !$layoutStore.isInCall) mobileNavVisible = true;
 	}
 
 	function handleMobileNavTouchStart(event: TouchEvent): void {
@@ -897,10 +910,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			clearTimeout(mobileNavIdleTimer);
 			mobileNavIdleTimer = null;
 		}
-	}
-
-	$: if (mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall) {
-		scheduleMobileNavIdleHide();
+	} else if (!mobileNavVisible) {
+		mobileNavVisible = true;
 	}
 </script>
 
@@ -971,7 +982,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			on:touchmove={handleMobileNavTouchMove}
 			on:touchend={handleMobileNavTouchEnd}
 		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 4h16v12H5.17L4 17.17V4z"/><path d="M8 8h8M8 12h5"/></svg>
+			<span class="mobile-nav-icon-wrap">
+				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 4h16v12H5.17L4 17.17V4z"/><path d="M8 8h8M8 12h5"/></svg>
+				{#if mobileUnreadBadge}
+					<span class="mobile-nav-badge" aria-label={`${totalUnreadDMs} unread messages`}>{mobileUnreadBadge}</span>
+				{/if}
+			</span>
 			<span>{$_('shell.mobile.messages')}</span>
 		</button>
 		<button
