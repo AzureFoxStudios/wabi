@@ -1,8 +1,12 @@
+import { ACI_COLORS } from './cadAciColors';
+
 export type Cad2DUnit = 'unitless' | 'in' | 'ft' | 'mm' | 'cm' | 'm' | 'km' | 'yd' | 'unknown';
 
 export interface CadPoint { x: number; y: number }
 export interface CadBounds { minX: number; minY: number; maxX: number; maxY: number }
-export interface CadBaseEntity { layer: string }
+export interface CadBaseEntity { layer: string; color: string | null; linetype: CadLinetype; weight: 0 | 1 | 2 }
+export type CadLinetype = 'continuous' | 'dashed' | 'center' | 'phantom' | 'dotted';
+export interface CadLayerStyle { color: string | null; linetype: CadLinetype; off: boolean }
 export interface CadLineEntity extends CadBaseEntity { type: 'LINE'; a: CadPoint; b: CadPoint }
 export interface CadPolylineEntity extends CadBaseEntity { type: 'LWPOLYLINE' | 'POLYLINE'; points: CadPoint[]; closed: boolean }
 export interface CadCircleEntity extends CadBaseEntity { type: 'CIRCLE'; center: CadPoint; radius: number }
@@ -36,6 +40,7 @@ export interface Cad2DDrawing {
   unitCode: number | null;
   entities: Cad2DEntity[];
   layers: string[];
+  layerStyles: Record<string, CadLayerStyle>;
   bounds: CadBounds;
   ignoredEntityTypes: Record<string, number>;
 }
@@ -158,12 +163,106 @@ function polylinePoints(pairs: DxfPair[]): CadPoint[] {
   return points;
 }
 
+function aciCss(index: number | null): string | null {
+  if (index == null || index < 1 || index > 255) return null;
+  return ACI_COLORS[index] ?? null;
+}
+
+function trueColorCss(raw: number | null): string | null {
+  if (raw == null || !Number.isFinite(raw)) return null;
+  const v = Math.trunc(raw) & 0xffffff;
+  return `#${v.toString(16).padStart(6, '0').toUpperCase()}`;
+}
+
+export function classifyLinetype(name: string | undefined | null): CadLinetype {
+  const n = (name || '').trim().toUpperCase();
+  if (!n || n === 'CONTINUOUS' || n === 'BYLAYER' || n === 'BYBLOCK') return 'continuous';
+  if (n.includes('PHANTOM')) return 'phantom';
+  if (n.includes('CENTER')) return 'center';
+  if (n.includes('DOT')) return 'dotted';
+  return 'dashed';
+}
+
+function weightBucket(raw: number | null): 0 | 1 | 2 {
+  if (raw == null || !Number.isFinite(raw) || raw <= 0) return 0;
+  if (raw >= 70) return 2;
+  if (raw >= 30) return 1;
+  return 0;
+}
+
+export interface CadLayerTableEntry { color: number | null; linetype: string | null; off: boolean }
+
+export function parseLayerTable(tablesPairs: DxfPair[]): Map<string, CadLayerTableEntry> {
+  const table = new Map<string, CadLayerTableEntry>();
+  let inLayerTable = false;
+  let current: { name: string | null; color: number | null; linetype: string | null } | null = null;
+  const flush = () => {
+    if (current?.name) {
+      const color = current.color ?? null;
+      table.set(current.name, { color, linetype: current.linetype, off: color != null && color < 0 });
+    }
+    current = null;
+  };
+  for (let i = 0; i < tablesPairs.length; i += 1) {
+    const pair = tablesPairs[i];
+    if (pair.code === 0) {
+      const marker = pair.value.trim().toUpperCase();
+      if (marker === 'TABLE') {
+        flush();
+        inLayerTable = tablesPairs[i + 1]?.code === 2 && (tablesPairs[i + 1]?.value || '').trim().toUpperCase() === 'LAYER';
+      } else if (marker === 'ENDTAB') {
+        flush();
+        inLayerTable = false;
+      } else if (inLayerTable && marker === 'LAYER') {
+        flush();
+        current = { name: null, color: null, linetype: null };
+      } else {
+        flush();
+      }
+      continue;
+    }
+    if (!inLayerTable || !current) continue;
+    if (pair.code === 2 && current.name == null) current.name = pair.value.trim() || null;
+    else if (pair.code === 62 && current.color == null) current.color = finite(pair.value);
+    else if (pair.code === 6 && current.linetype == null) current.linetype = pair.value.trim() || null;
+  }
+  flush();
+  return table;
+}
+
+function layerStyle(name: string, layers: Map<string, CadLayerTableEntry>): CadLayerStyle {
+  const entry = layers.get(name);
+  const color = entry && entry.color != null ? aciCss(Math.abs(entry.color)) : null;
+  return { color, linetype: classifyLinetype(entry?.linetype), off: entry?.off ?? false };
+}
+
+function resolveStyle(pairs: DxfPair[], layer: string, layers: Map<string, CadLayerTableEntry>): { color: string | null; linetype: CadLinetype; weight: 0 | 1 | 2 } {
+  const fallback = layerStyle(layer, layers);
+  const direct = trueColorCss(firstNumber(pairs, 420)) ?? aciCss(firstNumber(pairs, 62));
+  const rawLinetype = first(pairs, 6)?.trim();
+  const linetype = rawLinetype && rawLinetype.toUpperCase() !== 'BYLAYER'
+    ? classifyLinetype(rawLinetype)
+    : fallback.linetype;
+  return { color: direct ?? fallback.color, linetype, weight: weightBucket(firstNumber(pairs, 370)) };
+}
+
+export function cadStrokeWidth(weight: 0 | 1 | 2): number {
+  return weight === 2 ? 2.8 : weight === 1 ? 1.9 : 1.15;
+}
+
+export function cadDashArray(linetype: CadLinetype): string | null {
+  if (linetype === 'dashed') return '7 4';
+  if (linetype === 'center') return '16 4 3 4';
+  if (linetype === 'phantom') return '16 4 3 4 3 4';
+  if (linetype === 'dotted') return '2 4';
+  return null;
+}
 function pairPoint(pairs: DxfPair[], xCode: number, yCode: number): CadPoint | null {
   const x = firstNumber(pairs, xCode), y = firstNumber(pairs, yCode);
   return x != null && y != null ? { x, y } : null;
 }
 
-function parseBlockTable(blocksPairs: DxfPair[], ignored: Record<string, number>): Map<string, Cad2DEntity[]> {
+function parseBlockTable(blocksPairs: DxfPair[], ignored: Record<string, number>, layers: Map<string, CadLayerTableEntry>): Map<string, Cad2DEntity[]> {
   const table = new Map<string, Cad2DEntity[]>();
   const chunks = chunkEntities(blocksPairs);
   let name: string | null = null;
@@ -184,15 +283,16 @@ function parseBlockTable(blocksPairs: DxfPair[], ignored: Record<string, number>
       continue;
     }
     if (!name) continue;
-    const result = parseChunk(chunk, [], ignored);
+    const result = parseChunk(chunk, [], ignored, layers);
     if (result.entity) current.push(result.entity);
   }
   flush();
   return table;
 }
 
-function expandDimension(chunk: EntityChunk, blocks: Map<string, Cad2DEntity[]>, ignored: Record<string, number>): Cad2DEntity[] {
+function expandDimension(chunk: EntityChunk, blocks: Map<string, Cad2DEntity[]>, ignored: Record<string, number>, layers: Map<string, CadLayerTableEntry>): Cad2DEntity[] {
   const layer = layerName(chunk.pairs);
+  const style = resolveStyle(chunk.pairs, layer, layers);
   const blockName = first(chunk.pairs, 2)?.trim();
   const stored = blockName ? blocks.get(blockName) : undefined;
   if (stored && stored.length > 0) {
@@ -211,24 +311,25 @@ function expandDimension(chunk: EntityChunk, blocks: Map<string, Cad2DEntity[]>,
   const distance = Math.hypot(def2.x - def1.x, def2.y - def1.y);
   const override = first(chunk.pairs, 1)?.trim();
   const label = override ? cleanDxfText(override) : formatCadNumber(distance);
-  const out: Cad2DEntity[] = [{ type: 'LINE', layer, a: def1, b: def2 }];
-  if (label) out.push({ type: 'TEXT', layer, point: anchor, text: label, height: Math.max(distance * 0.04, 0.5), rotationDeg: 0 });
+  const out: Cad2DEntity[] = [{ type: 'LINE', layer, ...style, a: def1, b: def2 }];
+  if (label) out.push({ type: 'TEXT', layer, ...style, point: anchor, text: label, height: Math.max(distance * 0.04, 0.5), rotationDeg: 0 });
   return out;
 }
 
-function parseChunk(chunk: EntityChunk, following: EntityChunk[], ignored: Record<string, number>): { entity: Cad2DEntity | null; consumed: number } {
+function parseChunk(chunk: EntityChunk, following: EntityChunk[], ignored: Record<string, number>, layers: Map<string, CadLayerTableEntry>): { entity: Cad2DEntity | null; consumed: number } {
   const layer = layerName(chunk.pairs);
+  const style = resolveStyle(chunk.pairs, layer, layers);
   if (chunk.type === 'LINE') {
     const x1 = firstNumber(chunk.pairs, 10), y1 = firstNumber(chunk.pairs, 20);
     const x2 = firstNumber(chunk.pairs, 11), y2 = firstNumber(chunk.pairs, 21);
     if ([x1, y1, x2, y2].every((value) => value != null)) {
-      return { entity: { type: 'LINE', layer, a: { x: x1!, y: y1! }, b: { x: x2!, y: y2! } }, consumed: 0 };
+      return { entity: { type: 'LINE', layer, ...style, a: { x: x1!, y: y1! }, b: { x: x2!, y: y2! } }, consumed: 0 };
     }
   } else if (chunk.type === 'LWPOLYLINE') {
     if (chunk.pairs.some((pair) => pair.code === 42 && Math.abs(finite(pair.value) ?? 0) > 1e-12)) ignored.LWPOLYLINE_BULGE = (ignored.LWPOLYLINE_BULGE || 0) + 1;
     const points = polylinePoints(chunk.pairs);
     const flags = firstNumber(chunk.pairs, 70) ?? 0;
-    if (points.length >= 2) return { entity: { type: 'LWPOLYLINE', layer, points, closed: (flags & 1) === 1 }, consumed: 0 };
+    if (points.length >= 2) return { entity: { type: 'LWPOLYLINE', layer, ...style, points, closed: (flags & 1) === 1 }, consumed: 0 };
   } else if (chunk.type === 'POLYLINE') {
     const points: CadPoint[] = [];
     let consumed = 0;
@@ -241,27 +342,27 @@ function parseChunk(chunk: EntityChunk, following: EntityChunk[], ignored: Recor
       if (x != null && y != null) points.push({ x, y });
     }
     const flags = firstNumber(chunk.pairs, 70) ?? 0;
-    if (points.length >= 2) return { entity: { type: 'POLYLINE', layer, points, closed: (flags & 1) === 1 }, consumed };
+    if (points.length >= 2) return { entity: { type: 'POLYLINE', layer, ...style, points, closed: (flags & 1) === 1 }, consumed };
     return { entity: null, consumed };
   } else if (chunk.type === 'CIRCLE') {
     const x = firstNumber(chunk.pairs, 10), y = firstNumber(chunk.pairs, 20), radius = firstNumber(chunk.pairs, 40);
-    if (x != null && y != null && radius != null && radius > 0) return { entity: { type: 'CIRCLE', layer, center: { x, y }, radius }, consumed: 0 };
+    if (x != null && y != null && radius != null && radius > 0) return { entity: { type: 'CIRCLE', layer, ...style, center: { x, y }, radius }, consumed: 0 };
   } else if (chunk.type === 'ARC') {
     const x = firstNumber(chunk.pairs, 10), y = firstNumber(chunk.pairs, 20), radius = firstNumber(chunk.pairs, 40);
     const startDeg = firstNumber(chunk.pairs, 50), endDeg = firstNumber(chunk.pairs, 51);
     if (x != null && y != null && radius != null && radius > 0 && startDeg != null && endDeg != null) {
-      return { entity: { type: 'ARC', layer, center: { x, y }, radius, startDeg, endDeg }, consumed: 0 };
+      return { entity: { type: 'ARC', layer, ...style, center: { x, y }, radius, startDeg, endDeg }, consumed: 0 };
     }
   } else if (chunk.type === 'POINT') {
     const x = firstNumber(chunk.pairs, 10), y = firstNumber(chunk.pairs, 20);
-    if (x != null && y != null) return { entity: { type: 'POINT', layer, point: { x, y } }, consumed: 0 };
+    if (x != null && y != null) return { entity: { type: 'POINT', layer, ...style, point: { x, y } }, consumed: 0 };
   } else if (chunk.type === 'TEXT' || chunk.type === 'MTEXT') {
     const x = firstNumber(chunk.pairs, 10), y = firstNumber(chunk.pairs, 20);
     const height = Math.abs(firstNumber(chunk.pairs, 40) ?? 2.5) || 2.5;
     const rotationDeg = firstNumber(chunk.pairs, 50) ?? 0;
     const rawText = chunk.pairs.filter((pair) => pair.code === 3 || pair.code === 1).map((pair) => pair.value).join('');
     const text = cleanDxfText(rawText);
-    if (x != null && y != null && text) return { entity: { type: chunk.type, layer, point: { x, y }, text, height, rotationDeg }, consumed: 0 };
+    if (x != null && y != null && text) return { entity: { type: chunk.type, layer, ...style, point: { x, y }, text, height, rotationDeg }, consumed: 0 };
   }
   if (!['VERTEX', 'SEQEND'].includes(chunk.type)) ignored[chunk.type] = (ignored[chunk.type] || 0) + 1;
   return { entity: null, consumed: 0 };
@@ -331,23 +432,26 @@ export function parseAsciiDxf(text: string): Cad2DDrawing {
   const chunks = chunkEntities(entitiesSection);
   const entities: Cad2DEntity[] = [];
   const ignoredEntityTypes: Record<string, number> = {};
-  const blocks = parseBlockTable(sectionPairs(pairs, 'BLOCKS'), ignoredEntityTypes);
+  const layerTable = parseLayerTable(sectionPairs(pairs, 'TABLES'));
+  const blocks = parseBlockTable(sectionPairs(pairs, 'BLOCKS'), ignoredEntityTypes, layerTable);
   for (let i = 0; i < chunks.length; i += 1) {
     if (entities.length >= MAX_ENTITIES) throw new Error(`DXF exceeds the built-in ${MAX_ENTITIES.toLocaleString()} entity safety limit.`);
     if (chunks[i].type === 'DIMENSION') {
-      for (const expanded of expandDimension(chunks[i], blocks, ignoredEntityTypes)) {
+      for (const expanded of expandDimension(chunks[i], blocks, ignoredEntityTypes, layerTable)) {
         if (entities.length >= MAX_ENTITIES) break;
         entities.push(expanded);
       }
       continue;
     }
-    const result = parseChunk(chunks[i], chunks.slice(i + 1), ignoredEntityTypes);
+    const result = parseChunk(chunks[i], chunks.slice(i + 1), ignoredEntityTypes, layerTable);
     if (result.entity) entities.push(result.entity);
     i += result.consumed;
   }
   if (entities.length === 0) throw new Error('DXF contains no supported 2D entities. Supported: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT, MTEXT and DIMENSION (expanded from BLOCKS).');
   const layers = [...new Set(entities.map((entity) => entity.layer))].sort((a, b) => a.localeCompare(b));
-  return { format: 'dxf-ascii', unit: dxfUnit(unitCode), unitCode, entities, layers, bounds: boundsForCadEntities(entities), ignoredEntityTypes };
+  const layerStyles: Record<string, CadLayerStyle> = {};
+  for (const name of layers) layerStyles[name] = layerStyle(name, layerTable);
+  return { format: 'dxf-ascii', unit: dxfUnit(unitCode), unitCode, entities, layers, layerStyles, bounds: boundsForCadEntities(entities), ignoredEntityTypes };
 }
 
 export function cadArcPoints(entity: CadArcEntity, maxSegments = 96): CadPoint[] {
