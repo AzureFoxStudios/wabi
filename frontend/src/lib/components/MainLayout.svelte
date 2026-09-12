@@ -48,7 +48,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
-	import { formatMobileUnreadBadge, sumUnreadConversationCount } from '$lib/mobileShellModel';
+	import { formatMobileUnreadBadge, nextMobileBackSurface, sumUnreadConversationCount } from '$lib/mobileShellModel';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
 	// activation. Only .svelte components go lazy; utility-module imports
@@ -264,19 +264,35 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	function handleMobilePopState(): void {
 		if (!$layoutStore.isMobile) return;
-		if (showSettings) {
-			showSettings = false;
-			return;
+		const surface = nextMobileBackSurface({
+			settingsOpen: showSettings,
+			serverSwitcherOpen: showServerSwitcher,
+			browseOpen: $layoutStore.showMobileChannels,
+			rightOverlayOpen: $layoutStore.rightPanelMode !== 'none',
+			conversationOpen: Boolean($layoutStore.centerDmChannelId)
+		});
+
+		switch (surface) {
+			case 'settings':
+				showSettings = false;
+				return;
+			case 'server-switcher':
+				closeServerSwitcher();
+				return;
+			case 'browse':
+				layoutStore.showMobileChannels.set(false);
+				return;
+			case 'overlay':
+				layoutStore.closeRightPanel();
+				return;
+			case 'conversation':
+				layoutStore.closeCenterDm();
+				activeView = 'dm';
+				return;
+			case 'root':
+			default:
+				if (activeView === 'dm') activeView = 'chat';
 		}
-		if ($layoutStore.showMobileChannels) {
-			layoutStore.showMobileChannels.set(false);
-			return;
-		}
-		if ($layoutStore.rightPanelMode !== 'none') {
-			layoutStore.closeRightPanel();
-			return;
-		}
-		if (activeView === 'dm') activeView = 'chat';
 	}
 
 	function openServerSwitcher(): void {
