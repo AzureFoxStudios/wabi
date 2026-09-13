@@ -95,16 +95,22 @@ function logicalEntities(chunks: EntityChunk[]): LogicalEntity[] {
   for (let index = 0; index < chunks.length; index += 1) {
     const root = chunks[index];
     const group: EntityChunk[] = [root];
-    const hasFollowers = root.type === 'POLYLINE' ||
-      (root.type === 'INSERT' && (firstNumber(root.pairs, 66) ?? 0) === 1);
-    if (hasFollowers) {
+    const followerType = root.type === 'POLYLINE'
+      ? 'VERTEX'
+      : root.type === 'INSERT' && (firstNumber(root.pairs, 66) ?? 0) === 1
+        ? 'ATTRIB'
+        : null;
+    if (followerType) {
       for (let cursor = index + 1; cursor < chunks.length; cursor += 1) {
         const next = chunks[cursor];
+        if (next.type === 'SEQEND') {
+          group.push(next);
+          index = cursor;
+          break;
+        }
+        if (next.type !== followerType) break;
         group.push(next);
         index = cursor;
-        if (next.type === 'SEQEND') break;
-        if (root.type === 'POLYLINE' && next.type !== 'VERTEX') break;
-        if (root.type === 'INSERT' && next.type !== 'ATTRIB') break;
       }
     }
     entities.push({ type: root.type, chunks: group });
