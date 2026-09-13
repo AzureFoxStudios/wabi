@@ -38,6 +38,7 @@ wabi-tailcat = { path = "../../addons/tailcat/backend" }
 # WabiDB engine (the new state engine, replacing SpacetimeDB)
 wabidb = { path = "../wabidb" }
 postcard = { version = "1", features = ["alloc"] }
+blake3 = "1"
 
 # Error handling
 anyhow = "1"
