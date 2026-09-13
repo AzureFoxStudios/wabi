@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { computeKeyboardInset, isKeyboardInsetOpen } from './mobileShell';
+import { computeKeyboardInset, isKeyboardInsetOpen } from '../mobileViewport';
 
 describe('mobile shell viewport measurements', () => {
 	test('treats an Android-style IME resize as keyboard space', () => {
