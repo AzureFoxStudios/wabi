@@ -8,6 +8,7 @@ pub mod bots;
 pub mod calls;
 pub mod auth;
 pub mod blobs;
+pub mod cad;
 pub mod channels;
 pub mod emoji;
 pub mod forum;

@@ -1,14 +1,20 @@
 <script lang="ts">
   import { onMount, type Component } from 'svelte';
+  import { get } from 'svelte/store';
+  import { currentChannel } from '$lib/channelStore';
   import { isDesktopTauri } from '$lib/tauri-platform';
   import { openNativeModelViewer } from '$lib/tauri-model-viewer';
   import { hasAddonCapability } from '$lib/addonInventory';
   import { loadAddon } from '$lib/addons/loader';
   import Cad2DViewer from '$lib/components/cad/Cad2DViewer.svelte';
+  import DwgCadViewer from '$lib/components/cad/DwgCadViewer.svelte';
+  import OcctCadViewer from '$lib/components/plugins/OcctCadViewer.svelte';
+  import ThreeMFViewer from '$lib/components/plugins/ThreeMFViewer.svelte';
   import ModelOpenMenu from '$lib/components/ModelOpenMenu.svelte';
   import { openModelAssetAt } from '$lib/modelOpenActions';
   import {
     missingModelSupport,
+    modelExtension,
     modelFamily,
     modelPreviewKind,
     modelWorkspaceLabel,
@@ -24,6 +30,9 @@
 
   const isTauriBuild = __WABI_IS_TAURI__;
   const desktop = isDesktopTauri();
+  // Capture the channel that owned this launcher. A CAD review must not jump
+  // boards merely because the user later changes the active chat channel.
+  const reviewChannelId = get(currentChannel) || null;
   let ThreeViewer = $state.raw<Component<any> | null>(null);
   let resolvingThree = $state(true);
   let launchError = $state('');
@@ -38,6 +47,7 @@
   const supportMessage = $derived(missingModelSupport(fileName));
   const safeSrc = $derived(safeModelSource(src));
   const family = $derived(modelFamily(fileName));
+  const ext = $derived(modelExtension(fileName));
   const asset = $derived<ModelAsset>({ src, fileName, source: 'chat' });
 
   $effect(() => {
@@ -51,8 +61,8 @@
   onMount(() => {
     let gone = false;
     async function resolve(): Promise<void> {
-      // DXF is rendered by the lightweight 2D reader and unsupported CAD/MMD
-      // stays as an honest compatibility card; neither needs three.js.
+      // CAD formats use dedicated adapters and unsupported CAD/MMD stays as an
+      // honest compatibility card; none of those paths need ModelViewer3D here.
       if (previewKind !== 'mesh-3d') {
         resolvingThree = false;
         return;
@@ -126,13 +136,21 @@
       <p>{supportMessage}</p>
     </div>
   {:else if previewKind === 'cad-2d'}
-    {#if cadPreviewActive}
-      <Cad2DViewer {src} {fileName} {height} compact={!fullBleed} />
+    {#if ext === 'dwg'}
+      <DwgCadViewer {src} {fileName} {height} {fullBleed} {lazyLoad} channelId={reviewChannelId} />
+    {:else if cadPreviewActive}
+      <Cad2DViewer {src} {fileName} {height} compact={!fullBleed} channelId={reviewChannelId} />
     {:else}
       <button class="cad-preview-activation" type="button" onclick={() => (cadPreviewActive = true)}>
         <span>Activate 2D CAD preview</span>
         <small>{fileName} · ASCII DXF stays read-only</small>
       </button>
+    {/if}
+  {:else if previewKind === 'cad-3d'}
+    {#if ext === '3mf'}
+      <ThreeMFViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi />
+    {:else}
+      <OcctCadViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi />
     {/if}
   {:else}
     {#if desktop}
