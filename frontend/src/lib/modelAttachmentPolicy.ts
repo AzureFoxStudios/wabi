@@ -1,7 +1,7 @@
 /** File recognition and navigation decisions only. No downloads or renderer imports. */
 export type ModelFamily = 'mesh' | 'cad' | 'mmd' | 'unknown';
 export type CadDimension = '2d' | '3d' | null;
-export type ModelPreviewKind = 'mesh-3d' | 'cad-2d' | null;
+export type ModelPreviewKind = 'mesh-3d' | 'cad-2d' | 'cad-3d' | null;
 export type ModelSource = 'chat' | 'local-temp';
 export interface ModelAsset { src: string; fileName: string; source?: ModelSource }
 export type ModelDestination =
@@ -36,6 +36,7 @@ export function modelPreviewKind(name: string | undefined): ModelPreviewKind {
   const ext = modelExtension(name);
   if (MESH.has(ext)) return 'mesh-3d';
   if (ext === 'dxf') return 'cad-2d';
+  if (ext === '3mf') return 'cad-3d';
   return null;
 }
 export function modelWorkspaceLabel(name: string | undefined): string {
@@ -59,9 +60,9 @@ export function safeModelSource(src: string): string | null {
 export function missingModelSupport(name: string): string | null {
   const family = modelFamily(name);
   const ext = modelExtension(name);
-  if (family === 'mesh' || ext === 'dxf') return null;
+  if (family === 'mesh' || ext === 'dxf' || ext === '3mf') return null;
   if (ext === 'dwg') return 'DWG is recognized as 2D CAD, but this build does not decode proprietary DWG files. This client needs a compatible DWG/CAD adapter, or an ASCII DXF export for the built-in 2D reader.';
-  if (family === 'cad' && cadDimension(name) === '3d') return 'This 3D CAD/manufacturing file needs a compatible 3D CAD importer. The built-in workspace currently previews mesh formats plus ASCII DXF drawings.';
+  if (family === 'cad' && cadDimension(name) === '3d') return 'This 3D CAD/manufacturing file needs an OpenCascade-compatible importer. The built-in workspace currently previews 3MF, mesh formats and ASCII DXF drawings.';
   if (family === 'cad') return 'This CAD file needs a compatible importer. ASCII DXF is the built-in 2D format in this build.';
   if (family === 'mmd') return 'This file needs an MMD adapter. The current viewer does not decode MMD models or motion files.';
   return 'No compatible model or CAD importer is available for this file.';
