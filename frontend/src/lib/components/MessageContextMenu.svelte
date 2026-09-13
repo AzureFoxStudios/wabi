@@ -24,6 +24,7 @@
 	export let onTranslate: (() => void) | undefined = undefined;
 	export let onQuickMention: (() => void) | undefined = undefined;
 	export let onTogglePersonalPin: (() => void) | undefined = undefined;
+	export let onReport: (() => void) | undefined = undefined;
 	export let quickMentionEnabled = true;
 	export let personalPinsEnabled = true;
 	export let isPersonalPinned = false;
@@ -186,6 +187,16 @@
 			disabled: !canCopyText,
 			onSelect: copyText
 		});
+
+		if (onReport && !isOwnMessageByIdentity) {
+			list.push({ id: 'report-divider', type: 'separator' });
+			list.push({
+				id: 'report',
+				label: 'Report message',
+				icon: 'flag',
+				onSelect: onReport
+			});
+		}
 
 		list.push({ id: 'danger-divider', type: 'separator' });
 		list.push({
