@@ -8,6 +8,14 @@ export type ModelDestination =
   | { kind: 'workspace' }
   | { kind: 'dock' };
 
+export type CadImporterKind = 'builtin-dxf' | 'browser-3mf' | 'occt-wasm' | 'server-convert' | 'unavailable';
+export interface CadImportPlan {
+  preferred: CadImporterKind;
+  fallback: CadImporterKind | null;
+  canonicalPreview: 'dxf' | 'scene' | 'glb' | null;
+  availableNow: boolean;
+}
+
 const MESH = new Set(['glb', 'gltf', 'obj', 'stl']);
 const CAD_2D = new Set(['dxf', 'dwg']);
 const CAD_3D = new Set(['step', 'stp', 'iges', 'igs', '3mf']);
@@ -32,11 +40,27 @@ export function cadDimension(name: string | undefined): CadDimension {
   const ext = modelExtension(name);
   return CAD_2D.has(ext) ? '2d' : CAD_3D.has(ext) ? '3d' : null;
 }
+
+/**
+ * One routing table for Wabi's hybrid CAD strategy. Importers may execute in
+ * the browser, desktop helper or server, but every path converges on a viewer
+ * Wabi already owns instead of teaching each renderer every source format.
+ */
+export function cadImportPlan(name: string | undefined): CadImportPlan {
+  const ext = modelExtension(name);
+  if (ext === 'dxf') return { preferred: 'builtin-dxf', fallback: null, canonicalPreview: 'dxf', availableNow: true };
+  if (ext === '3mf') return { preferred: 'browser-3mf', fallback: 'server-convert', canonicalPreview: 'scene', availableNow: true };
+  if (ext === 'dwg') return { preferred: 'server-convert', fallback: null, canonicalPreview: 'dxf', availableNow: false };
+  if (['step', 'stp', 'iges', 'igs'].includes(ext)) return { preferred: 'occt-wasm', fallback: 'server-convert', canonicalPreview: 'glb', availableNow: false };
+  return { preferred: 'unavailable', fallback: null, canonicalPreview: null, availableNow: false };
+}
+
 export function modelPreviewKind(name: string | undefined): ModelPreviewKind {
   const ext = modelExtension(name);
   if (MESH.has(ext)) return 'mesh-3d';
-  if (ext === 'dxf') return 'cad-2d';
-  if (ext === '3mf') return 'cad-3d';
+  const plan = cadImportPlan(name);
+  if (plan.availableNow && plan.preferred === 'builtin-dxf') return 'cad-2d';
+  if (plan.availableNow && plan.preferred === 'browser-3mf') return 'cad-3d';
   return null;
 }
 export function modelWorkspaceLabel(name: string | undefined): string {
@@ -60,9 +84,10 @@ export function safeModelSource(src: string): string | null {
 export function missingModelSupport(name: string): string | null {
   const family = modelFamily(name);
   const ext = modelExtension(name);
-  if (family === 'mesh' || ext === 'dxf' || ext === '3mf') return null;
-  if (ext === 'dwg') return 'DWG is recognized as 2D CAD, but this build does not decode proprietary DWG files. This client needs a compatible DWG/CAD adapter, or an ASCII DXF export for the built-in 2D reader.';
-  if (family === 'cad' && cadDimension(name) === '3d') return 'This 3D CAD/manufacturing file needs an OpenCascade-compatible importer. The built-in workspace currently previews 3MF, mesh formats and ASCII DXF drawings.';
+  const plan = cadImportPlan(name);
+  if (family === 'mesh' || plan.availableNow) return null;
+  if (ext === 'dwg') return 'DWG is recognized as 2D CAD. Its import plan is server conversion to ASCII DXF; this server does not have that converter enabled yet.';
+  if (family === 'cad' && cadDimension(name) === '3d') return 'This 3D CAD/manufacturing file is routed to the OpenCascade importer with server conversion as fallback. That adapter is not enabled in this build yet.';
   if (family === 'cad') return 'This CAD file needs a compatible importer. ASCII DXF is the built-in 2D format in this build.';
   if (family === 'mmd') return 'This file needs an MMD adapter. The current viewer does not decode MMD models or motion files.';
   return 'No compatible model or CAD importer is available for this file.';
