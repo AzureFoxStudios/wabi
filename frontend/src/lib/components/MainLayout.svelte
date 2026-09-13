@@ -48,7 +48,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
-	import { formatMobileUnreadBadge, nextMobileBackSurface, sumUnreadConversationCount } from '$lib/mobileShellModel';
+	import { formatMobileUnreadBadge, nextMobileBackSurface, reconcileMobileSurfaceStack, sumUnreadConversationCount, type MobileBackSurface, type MobileSurfaceState } from '$lib/mobileShellModel';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
 	// activation. Only .svelte components go lazy; utility-module imports
@@ -100,6 +100,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let swipePreviewActive = false;
 	let swipePreviewTarget: 'none' | 'channels' | 'users' = 'none';
 	let swipePreviewOffsetX = 0;
+	let mobileSurfaceStack: MobileBackSurface[] = [];
 	type FriendPresenceSnapshot = {
 		status: User['status'];
 		username: string;
@@ -188,6 +189,35 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		openSettings();
 	}
 
+	function syncMobileSurfaceStack(state: MobileSurfaceState): void {
+		const previous = mobileSurfaceStack;
+		const next = reconcileMobileSurfaceStack(previous, state);
+		if (next === previous) return;
+		mobileSurfaceStack = next;
+
+		const nextTop = nextMobileBackSurface(next);
+		if (nextTop !== 'root' && !previous.includes(nextTop)) {
+			try {
+				history.pushState({ wabiMobileSurface: nextTop }, '');
+			} catch {
+				/* History is best-effort; the in-app stack remains authoritative. */
+			}
+		}
+	}
+
+	$: if ($layoutStore.isMobile) {
+		syncMobileSurfaceStack({
+			workspaceOpen: $activeWorkspaceView !== 'messages',
+			conversationOpen: Boolean($layoutStore.centerDmChannelId),
+			browseOpen: $layoutStore.showMobileChannels,
+			rightOverlayOpen: $layoutStore.rightPanelMode !== 'none',
+			serverSwitcherOpen: showServerSwitcher,
+			settingsOpen: showSettings
+		});
+	} else if (mobileSurfaceStack.length) {
+		mobileSurfaceStack = [];
+	}
+
 	function openSettings(paymentSurface: 'connections' | null = null): void {
 		requestedSettingsPaymentSurface = paymentSurface;
 		showSettings = true;
@@ -198,17 +228,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.closeRightPanel();
 		activeView = 'chat';
 		layoutStore.closeDM();
+		selectWorkspaceView('messages');
+		mobileSurfaceStack = [];
 		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileBrowse(): void {
 		layoutStore.closeRightPanel();
 		layoutStore.showMobileChannels.set(true);
-		try {
-			history.pushState({ wabiMobileSheet: 'browse' }, '');
-		} catch {
-			/* ignore */
-		}
 		scheduleMobileNavIdleHide();
 	}
 
@@ -216,6 +243,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		layoutStore.closeDM();
+		selectWorkspaceView('messages');
 		activeView = 'dm';
 		try {
 			history.pushState({ wabiMobileSheet: 'messages' }, '');
@@ -229,11 +257,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		openSettings();
-		try {
-			history.pushState({ wabiMobileSheet: 'you' }, '');
-		} catch {
-			/* ignore */
-		}
 		scheduleMobileNavIdleHide();
 	}
 
@@ -264,13 +287,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	function handleMobilePopState(): void {
 		if (!$layoutStore.isMobile) return;
-		const surface = nextMobileBackSurface({
-			settingsOpen: showSettings,
-			serverSwitcherOpen: showServerSwitcher,
-			browseOpen: $layoutStore.showMobileChannels,
-			rightOverlayOpen: $layoutStore.rightPanelMode !== 'none',
-			conversationOpen: Boolean($layoutStore.centerDmChannelId)
-		});
+		const surface = nextMobileBackSurface(mobileSurfaceStack);
 
 		switch (surface) {
 			case 'settings':
@@ -288,6 +305,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			case 'conversation':
 				layoutStore.closeCenterDm();
 				activeView = 'dm';
+				return;
+			case 'workspace':
+				selectWorkspaceView('messages');
 				return;
 			case 'root':
 			default:
@@ -779,23 +799,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			return;
 		}
 
-		if (!channelsOpen && !usersOpen && swipeLeft) {
-			layoutStore.showUsersTab();
-			layoutStore.showMobileChannels.set(false);
-			resetTouchSwipe();
-			return;
-		}
-
 		if (usersOpen && swipeRight) {
 			layoutStore.closeRightPanel();
 			layoutStore.showMobileChannels.set(false);
-			resetTouchSwipe();
-			return;
-		}
-
-		if (!channelsOpen && !usersOpen && swipeRight) {
-			layoutStore.showMobileChannels.set(true);
-			layoutStore.closeRightPanel();
 			resetTouchSwipe();
 			return;
 		}
