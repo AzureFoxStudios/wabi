@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import ModelViewer3D from './ModelViewer3D.svelte';
 
 	let {
@@ -23,6 +23,7 @@
 	let converting = $state(false);
 	let previewSrc = $state('');
 	let error = $state('');
+	let retryNonce = $state(0);
 	let generation = 0;
 	const previewFileName = $derived(`${fileName.replace(/\.3mf$/i, '') || '3MF model'}.glb`);
 
@@ -46,10 +47,7 @@
 		previewSrc = '';
 	}
 
-	async function convert3mf(source: string, requestGeneration: number): Promise<void> {
-		if (converting) return;
-		converting = true;
-		error = '';
+	async function convert3mf(source: string, sourceName: string, requestGeneration: number): Promise<void> {
 		let root: any = null;
 		try {
 			const loadModule = async (url: string): Promise<any> => import(/* @vite-ignore */ url);
@@ -62,7 +60,7 @@
 			const loader = new ThreeMFLoader();
 			root = await loader.loadAsync(source);
 			if (requestGeneration !== generation) return;
-			root.name ||= fileName;
+			root.name ||= sourceName;
 			root.updateMatrixWorld?.(true);
 
 			const exporter = new GLTFExporter();
@@ -74,7 +72,6 @@
 			if (requestGeneration !== generation) return;
 			if (!(result instanceof ArrayBuffer)) throw new Error('3MF conversion did not produce a binary glTF preview.');
 
-			revokePreview();
 			previewSrc = URL.createObjectURL(new Blob([result], { type: 'model/gltf-binary' }));
 		} catch (reason) {
 			if (requestGeneration === generation) {
@@ -87,40 +84,35 @@
 	}
 
 	function start(): void {
-		if (started) return;
 		started = true;
-		generation += 1;
-		void convert3mf(src, generation);
 	}
 
 	function retry(): void {
-		revokePreview();
-		error = '';
-		generation += 1;
-		void convert3mf(src, generation);
+		retryNonce += 1;
 	}
 
-	onMount(() => {
-		if (started) {
-			generation += 1;
-			void convert3mf(src, generation);
-		}
+	$effect(() => {
+		const source = src;
+		const sourceName = fileName;
+		const shouldStart = started;
+		const retry = retryNonce;
+		void retry;
+		if (!shouldStart) return;
+
+		const requestGeneration = ++generation;
+		revokePreview();
+		error = '';
+		converting = true;
+		void convert3mf(source, sourceName, requestGeneration);
+
 		return () => {
-			generation += 1;
-			revokePreview();
+			if (generation === requestGeneration) generation += 1;
 		};
 	});
 
-	$effect(() => {
-		// A reused dock can switch assets without remounting this adapter.
-		const source = src;
-		const name = fileName;
-		void name;
-		if (!started) return;
-		revokePreview();
-		error = '';
+	onDestroy(() => {
 		generation += 1;
-		void convert3mf(source, generation);
+		revokePreview();
 	});
 </script>
 
@@ -141,7 +133,7 @@
 				<button type="button" onclick={retry}>Retry import</button>
 			{:else}
 				<strong>Preparing 3MF preview…</strong>
-				<span>{converting ? 'Reading manufacturing geometry and building the cached GLB view.' : 'Starting importer…'}</span>
+				<span>{converting ? 'Reading manufacturing geometry and building the GLB view.' : 'Starting importer…'}</span>
 			{/if}
 		</div>
 	{/if}
@@ -156,5 +148,5 @@
 	.status.error { color:var(--text-danger,#e5b589); }.status.error strong { color:var(--text-heading,#e7efef); }
 	.status button { margin-top:4px;border:1px solid var(--border-subtle,#43535a);border-radius:6px;background:var(--surface-raised,#26343a);color:var(--text-heading,#e7efef);font:inherit;font-size:10px;padding:6px 10px;cursor:pointer; }
 	.source-badge { position:absolute;right:10px;bottom:10px;z-index:5;max-width:min(360px,calc(100% - 20px));overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 7px;border:1px solid rgba(130,155,160,.25);border-radius:6px;background:rgba(10,17,22,.82);color:var(--text-muted,#a9b9bc);font-size:9px;pointer-events:none; }
-	:is(button):focus-visible { outline:2px solid var(--accent-primary-color,#78c7b8);outline-offset:2px; }
+	button:focus-visible { outline:2px solid var(--accent-primary-color,#78c7b8);outline-offset:2px; }
 </style>
