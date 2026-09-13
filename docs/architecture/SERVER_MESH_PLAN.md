@@ -1,111 +1,162 @@
-# Wabi Server Mesh Plan
+# Wabi Multi-Node Runtime Plan
 
-> **Status:** Implementation plan (in progress).
-> **Last revision:** 2026-06-22 (rewritten for Wabidb era; previously described SpacetimeDB-era mesh).
+> **Status:** In progress; this document describes shipped boundaries, not aspirational feature names.
+> **Last revision:** 2026-09-13.
 > **Owner:** Backend / state-plane / runtime workstream.
 
 ## 1. Goal
 
-Give Wabi a real multi-node path so that:
+Give Wabi a bounded multi-node path without turning a small self-hosted community into an active-active distributed database by default.
 
-- one backend dying does not take the whole app down
-- users can connect to a healthy nearby backend when possible
-- call quality improves via nearby TURN/media infrastructure
-- the system stays privacy-clean and does not become a tracking or data-hoarding platform
+The preferred progression is:
 
-## 2. Non-Goals
+1. one **Authority** owns canonical community state;
+2. **Helper nodes** offload bounded work/media/cache jobs;
+3. optional **regional Anchors** proxy public HTTP traffic to the Authority;
+4. encrypted **warm standby** recovery is manual first;
+5. only consider automatic/active-active failover after replication, routing and split-brain controls are proven.
 
-Out of scope:
+Nearby TURN/SFU/media infrastructure is independent from backend-state failover.
 
-- storing audio/video packets in the shared state plane
-- building detailed user tracking, geo history, or behavioral analytics
-- long-term retention of presence, typing, socket routing, or region history
-- turning Wabi into a global surveillance-style control plane
+## 2. Terminology
 
-Privacy rule:
-
-- keep only the minimum coordination data needed for routing, reconnect, and failover
-- use TTL/lease-based ephemeral records wherever possible
-- avoid persisting raw IP addresses or fine-grained location history
+- **Authority** — the canonical Wabi server and WabiDB writer.
+- **Helper** — paired worker with scoped capabilities (CPU, thumbnails, transcode, search, media relay, etc.). Helpers do not become authorities by implication.
+- **Anchor** — stateless regional HTTP proxy to one Authority. It owns no WabiDB state.
+- **Warm standby** — high-trust recovery target for encrypted current/live-state snapshots. Promotion is intentionally manual.
+- **WabiDB replication** — database commit/segment synchronization configured with `WABIDB_PEER_ENDPOINT`; this is not the same thing as Anchor routing or helper heartbeats.
+- **Legacy mesh coordinator / `wabi-mesh` addon** — deprecated prototypes. They are not proof of state replication or failover.
 
 ## 3. Current Baseline
 
-What Wabi has today:
+### 3.1 Authority + helpers
 
-- core durable app state lives in the embedded Wabidb engine (one process per server, per `core/crates/wabidb/src/engine/`)
-- frontend can choose the best file relay and TURN relay by measured latency
-- browser calls remain WebRTC with TURN fallback
-- the `wabidb::replication` module (anti-entropy, snapshot shipping, failover, sync worker) is in place for state-plane mesh; not yet wired into `wabi-server`'s mesh runtime
+The normal `wabi-server` process is the Authority. `--helper-mode` runs the outbound helper-node client and uses the core node registry/job/media infrastructure.
 
-What Wabi does not have today:
+Helper identity, pairing, revocation, heartbeat/reachability and bounded capabilities live in `core/crates/wabi-server/src/nodes/` and related core modules. This is the multi-machine path for ordinary Wabi installations.
 
-- multi-backend Socket.IO fanout (each backend owns its own socket namespace)
-- shared socket ownership across backend nodes
-- shared presence/typing/session coordination across nodes
-- automatic backend failover when one node dies
-- geo-aware backend selection for chat/api traffic
+### 3.2 Regional Anchor runtime
 
-Important distinction:
+`WABI_SERVER_ROLE=anchor` now enters the stateless Anchor router **before** JWT resolution, WabiDB open, upload-directory creation or normal Authority startup. `WABI_AUTHORITY_URL` is required.
 
-- nearest backend helps chat/api latency somewhat
-- nearest TURN/media node helps calls much more
-- file relays are not backend failover
+Current boundary:
 
-## 4. Target Architecture
+- HTTP method/path/query/body/auth forwarding: implemented and tested;
+- local WabiDB state on Anchor: none by design;
+- Authority unavailable: Anchor fails fast with `503 authority unavailable`;
+- native WebSocket upgrade proxying: **not implemented yet**. Socket.IO may fall back to HTTP polling, so do not describe Anchor mode as completed realtime regional fanout.
 
-### 4.1 Edge routing
+### 3.3 WabiDB replication
 
-- one public Wabi domain
-- edge layer routes clients to a healthy backend region
-- selection should prefer health first, then closeness
-- backend selection is independent from TURN/SFU/media selection
+Replication is no longer merely an unused module. When `WABIDB_PEER_ENDPOINT` is configured, `AppState` gives WabiDB a real `ReqwestTransport` and replication config.
 
-### 4.2 State plane (Authority + Anchors)
+The HTTP transport uses:
 
-- **Authority** is the canonical owner of all Wabidb state. Only one Authority per mesh.
-- **Anchor** nodes are stateless regional proxies that forward all reads/writes to the Authority via the Wabidb mesh protocol.
-- Anchors do NOT persist any state. They have no `./data/wabi-server/` directory (or it's empty).
-- Authority mode is set via `WABI_SERVER_ROLE=authority` in `.env`. Anchor mode via `WABI_SERVER_ROLE=anchor`.
+- `/api/v1/sync/pull`
+- `/api/v1/sync/push`
+- `/api/v1/sync/status`
+- `WABI_SYNC_TOKEN` / `x-wabi-sync-token`
+- bounded connect/request timeouts
+- explicit non-2xx failure handling
 
-### 4.3 State replication (Authority + Authority mesh)
+This means replication plumbing is runtime-wired. It **does not** mean Wabi has production failover. Before claiming HA, require a real two-node test covering initial sync, ongoing writes, restart/catch-up, deletion/retention behavior and operator recovery.
 
-For the future: two Authority nodes sharing state via the `wabidb::replication` module.
+### 3.4 Warm standby
 
-- `snapshot_shipping` for initial sync
-- `anti_entropy` for ongoing drift resolution
-- `failover` for promoting an Anchor to Authority if the primary Authority dies
-- `sync_protocol` + `sync_worker` for the wire format and transport
+Encrypted snapshot storage primitives exist, but WabiDB live-state export/import is not complete.
 
-The replication module is implemented in code but not yet wired into the wabi-server runtime mesh (see `wabidb::replication::mod` for the implementation; see `core/crates/wabi-server/src/mesh.rs` for the runtime mesh coordinator).
+Important current behavior:
 
-### 4.4 TURN / SFU / media placement
+- encrypted snapshot envelope receive/store: implemented;
+- Wabi-generated complete live-state export: **not ready**;
+- manual restore/import: **not ready**;
+- manual promotion: **not ready**;
+- automatic promotion/election: intentionally disabled.
 
-- TURN and SFU are deployed close to users
-- Selection is per-call, measured at call start
-- Media is not stored; only routed
-- See `docs/deployment/TURN_SETUP.md`
+The API fails closed instead of returning an encrypted empty payload that looks like a valid backup. `/api/standby/status` exposes the readiness flags.
 
-## 5. Privacy + Operational Posture
+Do not build standby by copying raw event/commit history until deletion/retention semantics are proven safe. Recovery should preserve current retained state, not resurrect deleted history.
 
-- No client telemetry. Backend selection is a user-facing client decision (the client picks which server to connect to); the backend never tracks or influences it.
-- No IP logging. Connection metadata is TTL-ephemeral (lease-based, default 5 min).
-- No cross-backend user tracking. A user is "registered" with each backend independently; the user's own client holds the credential.
-- All mesh coordination is over mTLS with mesh-shared keys (per `WABI_MESH_SHARED_TOKEN` in `.env`).
+### 3.5 Media and relay selection
 
-## 6. Implementation Phases
+The frontend can measure configured relay `/health` latency and independently prefer responsive file, TURN and SFU relays. TURN credentials use the selected relay id. Media placement can therefore be regional even while Authority state remains centralized.
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| P1: Authority + Anchor modes | ✅ Done (in `WABI_SERVER_ROLE`) | Single Authority, multiple stateless Anchors. |
-| P2: State replication | 🚧 Code present, runtime not wired | `wabidb::replication` module implemented; `wabi-server/src/mesh.rs` exposes mesh configuration but doesn't yet drive replication. |
-| P3: Automatic failover | Not started | Blocked on P2. Anchor promotion requires replication to be live. |
-| P4: Geo-aware client selection | Not started | Client-side change, not server-side. Out of scope for this doc. |
+This improves the media path; it is not backend-state failover.
 
-## 7. Cross-References
+## 4. Deprecated / Legacy Paths
 
-- `core/crates/wabidb/src/replication/` — replication module implementation
-- `core/crates/wabidb/src/replication/mod.rs` — module overview
-- `core/crates/wabi-server/src/mesh.rs` — wabi-server mesh runtime
-- `docs/architecture/ARCHITECTURE.md` §6 — multi-server topology overview
-- `docs/deployment/TURN_SETUP.md` — TURN deployment
-- `docs/architecture/WABI_MULTI_SERVER_ARCHITECTURE.md` — user-facing multi-server UX (separate concern: federation, not mesh runtime)
+### 4.1 `core/addons/mesh` / `wabi-mesh`
+
+The old addon is compatibility-only scaffolding. It must not be extended into the production node architecture. `wabi-server` no longer links it as a runtime dependency.
+
+### 4.2 `WABI_MESH_ENABLED` coordinator
+
+`core/crates/wabi-server/src/mesh.rs` is a legacy peer-heartbeat coordinator. Its status now reports `heartbeat_only`, never `synced`.
+
+It is separate from WabiDB replication and the core helper registry. New work should prefer helper-node health for worker/media nodes and WabiDB's replication status for state synchronization rather than adding features to this coordinator.
+
+## 5. What Wabi Does Not Claim Today
+
+- no automatic backend failover;
+- no automatic Authority election;
+- no active-active multi-writer community state;
+- no shared Socket.IO namespace/presence across independent backends;
+- no geo-aware selection of chat/API Authority;
+- no guarantee that an Anchor keeps chat writable while its Authority is down;
+- no production-ready warm-standby restore yet.
+
+## 6. Recommended Deployment Modes
+
+### Small / LAN community
+
+```text
+Clients -> Authority
+              |
+              +-> optional helper computers
+```
+
+Multiple machines on one router should normally be helpers, not multiple pretend Authorities.
+
+### Regional media acceleration
+
+```text
+Bangkok user -> nearby TURN/SFU/media relay --+
+Florida user -> nearby TURN/SFU/media relay --+-> Authority
+SF user      -> nearby TURN/SFU/media relay --+
+```
+
+Chat/API still terminate at the Authority unless a regional Anchor is explicitly deployed.
+
+### Future resilient deployment
+
+```text
+Clients -> regional Anchors -> Authority
+                               |  \
+                               |   +-> helper/media/cache nodes
+                               +----> encrypted warm standby
+```
+
+If the Authority fails, initial recovery target is explicit operator promotion/restore. Do not introduce automatic election until split-brain prevention is designed and tested.
+
+## 7. Acceptance Gates Before Calling This HA
+
+1. **Replication integration test:** two real WabiDB nodes sync retained state both directions with authenticated transport.
+2. **Restart/catch-up test:** stop one node, write on the other, restart and verify convergence.
+3. **Deletion test:** deleted/expired content must not reappear after sync or restore.
+4. **Anchor realtime test:** WebSocket/Socket.IO behavior through an Anchor must be explicitly supported and tested, not assumed from HTTP proxying.
+5. **Standby export/import:** a complete encrypted current-state snapshot can restore a clean node without raw-history resurrection.
+6. **Manual promotion runbook:** operator can promote a tested standby and redirect clients without two writable Authorities.
+7. Only then evaluate automatic failover/election.
+
+## 8. Cross-References
+
+- `core/crates/wabi-server/src/anchor.rs` — stateless regional HTTP proxy
+- `core/crates/wabi-server/src/nodes/` — core helper-node identity/health/capabilities
+- `core/crates/wabi-server/src/replication_transport.rs` — authenticated WabiDB HTTP transport
+- `core/crates/wabi-server/src/api/sync.rs` — replication endpoints
+- `core/crates/wabidb/src/replication/` — replication engine
+- `core/crates/wabi-server/src/standby/` — encrypted standby primitives
+- `core/crates/wabi-server/src/api/standby.rs` — standby readiness/export/restore boundary
+- `frontend/src/lib/relaySelector.ts` — measured relay preference
+- `frontend/src/lib/turnConfig.ts` — selected TURN relay credential path
+- `docs/research/futuresight-multi-anchor-helper-nodes.md` — broader helper/anchor direction
