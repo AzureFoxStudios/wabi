@@ -1,5 +1,5 @@
 /**
- * Mobile / PWA shell attributes on <html>.
+ * Mobile / installed shell attributes on <html>.
  * Sets data-shell + display-mode early so CSS can branch without FOUC thrash.
  */
 import { browser } from '$app/environment';
@@ -9,6 +9,33 @@ import { isStandaloneDisplay } from '$lib/pwa/platform';
 
 let started = false;
 let cleanupFns: Array<() => void> = [];
+
+export type VisualViewportMeasurement = {
+	layoutHeight: number;
+	viewportHeight: number;
+	viewportOffsetTop?: number;
+};
+
+/**
+ * Compute the portion of the layout viewport obscured below the visual viewport.
+ * Keeping this pure lets us regression-test real Android/iOS measurement shapes
+ * without pretending a desktop browser is a physical phone.
+ */
+export function computeKeyboardInset({
+	layoutHeight,
+	viewportHeight,
+	viewportOffsetTop = 0
+}: VisualViewportMeasurement): number {
+	const layout = Number.isFinite(layoutHeight) ? layoutHeight : 0;
+	const viewport = Number.isFinite(viewportHeight) ? viewportHeight : layout;
+	const offset = Number.isFinite(viewportOffsetTop) ? viewportOffsetTop : 0;
+	return Math.max(0, Math.round(layout - viewport - offset));
+}
+
+/** Browser chrome/jitter below this threshold is not treated as an IME. */
+export function isKeyboardInsetOpen(inset: number, minimumInset = 80): boolean {
+	return Number.isFinite(inset) && inset > minimumInset;
+}
 
 function applyShell(compact: boolean): void {
 	if (!browser) return;
@@ -27,10 +54,14 @@ function bindKeyboardInset(): () => void {
 
 	const vv = window.visualViewport;
 	const update = () => {
-		const inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+		const inset = computeKeyboardInset({
+			layoutHeight: window.innerHeight,
+			viewportHeight: vv.height,
+			viewportOffsetTop: vv.offsetTop
+		});
 		const root = document.documentElement;
 		root.style.setProperty('--keyboard-inset', `${inset}px`);
-		if (inset > 80) {
+		if (isKeyboardInsetOpen(inset)) {
 			root.dataset.keyboardOpen = '1';
 		} else {
 			delete root.dataset.keyboardOpen;
