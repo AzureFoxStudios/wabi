@@ -7,11 +7,14 @@
   import { hasAddonCapability } from '$lib/addonInventory';
   import { loadAddon } from '$lib/addons/loader';
   import Cad2DViewer from '$lib/components/cad/Cad2DViewer.svelte';
+  import DwgCadViewer from '$lib/components/cad/DwgCadViewer.svelte';
+  import OcctCadViewer from '$lib/components/plugins/OcctCadViewer.svelte';
   import ThreeMFViewer from '$lib/components/plugins/ThreeMFViewer.svelte';
   import ModelOpenMenu from '$lib/components/ModelOpenMenu.svelte';
   import { openModelAssetAt } from '$lib/modelOpenActions';
   import {
     missingModelSupport,
+    modelExtension,
     modelFamily,
     modelPreviewKind,
     modelWorkspaceLabel,
@@ -44,6 +47,7 @@
   const supportMessage = $derived(missingModelSupport(fileName));
   const safeSrc = $derived(safeModelSource(src));
   const family = $derived(modelFamily(fileName));
+  const ext = $derived(modelExtension(fileName));
   const asset = $derived<ModelAsset>({ src, fileName, source: 'chat' });
 
   $effect(() => {
@@ -57,8 +61,8 @@
   onMount(() => {
     let gone = false;
     async function resolve(): Promise<void> {
-      // DXF/3MF use dedicated CAD readers and unsupported CAD/MMD stays as an
-      // honest compatibility card; none of those paths need ModelViewer3D.
+      // CAD formats use dedicated adapters and unsupported CAD/MMD stays as an
+      // honest compatibility card; none of those paths need ModelViewer3D here.
       if (previewKind !== 'mesh-3d') {
         resolvingThree = false;
         return;
@@ -132,7 +136,9 @@
       <p>{supportMessage}</p>
     </div>
   {:else if previewKind === 'cad-2d'}
-    {#if cadPreviewActive}
+    {#if ext === 'dwg'}
+      <DwgCadViewer {src} {fileName} {height} {fullBleed} {lazyLoad} channelId={reviewChannelId} />
+    {:else if cadPreviewActive}
       <Cad2DViewer {src} {fileName} {height} compact={!fullBleed} channelId={reviewChannelId} />
     {:else}
       <button class="cad-preview-activation" type="button" onclick={() => (cadPreviewActive = true)}>
@@ -141,7 +147,11 @@
       </button>
     {/if}
   {:else if previewKind === 'cad-3d'}
-    <ThreeMFViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi />
+    {#if ext === '3mf'}
+      <ThreeMFViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi />
+    {:else}
+      <OcctCadViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi />
+    {/if}
   {:else}
     {#if desktop}
       <div class="model-native-card">
