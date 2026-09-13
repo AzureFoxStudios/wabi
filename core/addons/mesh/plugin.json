@@ -1,8 +1,8 @@
 {
   "id": "mesh",
-  "name": "Mesh",
+  "name": "Mesh (legacy compatibility)",
   "version": "0.1.0",
-  "description": "Mesh service for multi-node coordination",
+  "description": "Deprecated prototype. Wabi multi-node runtime now lives in core authority/helper/anchor and WabiDB replication paths; do not use this addon for failover or node health.",
   "backend": {
     "runtime": "rust",
     "path": "backend",
