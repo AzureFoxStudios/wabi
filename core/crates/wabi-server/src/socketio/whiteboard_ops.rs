@@ -60,9 +60,44 @@ fn whiteboard_error(socket: &SocketRef, code: &str, message: &str) {
     let _ = socket.emit("whiteboard:error", &json!({ "code": code, "message": message }));
 }
 
-/// Board ids are `channel:<uuid>`. Strip the prefix to check channel membership.
+fn whiteboard_board_error(socket: &SocketRef, board_id: &str, code: &str, message: &str) {
+    let _ = socket.emit("whiteboard:error", &json!({
+        "boardId": board_id,
+        "code": code,
+        "message": message,
+    }));
+}
+
+/// Resolve a collaboration board to the channel that owns its access policy.
+///
+/// Ordinary whiteboards use `channel:<channel-id>`. CAD reviews intentionally
+/// use their own persisted document (`cad-review:<channel-id>:<asset-key>`) so
+/// annotations can never overwrite the channel whiteboard. The asset key is a
+/// short client-derived hash and is validated here only as an opaque room key;
+/// channel membership remains the authorization boundary.
 fn board_to_channel_id(board_id: &str) -> String {
-    board_id.strip_prefix("channel:").unwrap_or(board_id).to_string()
+    if let Some(channel_id) = board_id.strip_prefix("channel:") {
+        return channel_id.to_string();
+    }
+    if let Some(rest) = board_id.strip_prefix("cad-review:") {
+        if let Some((channel_id, asset_key)) = rest.split_once(':') {
+            let key_valid = !asset_key.is_empty()
+                && asset_key.len() <= 64
+                && asset_key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+            if !channel_id.is_empty()
+                && channel_id.len() <= 128
+                && !channel_id.contains(':')
+                && key_valid
+            {
+                return channel_id.to_string();
+            }
+        }
+    }
+    // Unknown/malformed board ids intentionally fall through. The subsequent
+    // channel membership lookup fails closed instead of granting access.
+    board_id.to_string()
 }
 
 /// Whiteboard access check. Routes DM channels to `can_access_dm` like
@@ -157,12 +192,12 @@ async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
 
     let user_id = authenticated_user_id(&socket, &state);
     if user_id <= 0 {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Authentication required");
+        whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "Authentication required");
         return;
     }
 
     if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
-        whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
+        whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
     }
 
@@ -178,7 +213,7 @@ async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
         Ok(None) => (default_document(&board_id), 0),
         Err(e) => {
             warn!("[whiteboard] load failed for {}: {}", board_id, e);
-            whiteboard_error(&socket, "NOT_FOUND", "Failed to load board document");
+            whiteboard_board_error(&socket, &board_id, "NOT_FOUND", "Failed to load board document");
             return;
         }
     };
@@ -198,7 +233,7 @@ async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
     let client_class = data.get("clientClass").and_then(|v| v.as_str()).unwrap_or("web");
 
     if access == "desktop_only" && client_class != "tauri" {
-        whiteboard_error(&socket, "DESKTOP_REQUIRED", "This board is desktop-only");
+        whiteboard_board_error(&socket, &board_id, "DESKTOP_REQUIRED", "This board is desktop-only");
         return;
     }
 
@@ -244,18 +279,18 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
     // Size check (2MB).
     let raw = serde_json::to_vec(&document).unwrap_or_default();
     if raw.len() > WHITEBOARD_MAX_DOCUMENT_BYTES {
-        whiteboard_error(&socket, "PAYLOAD_TOO_LARGE", "Board document exceeds 2MB limit");
+        whiteboard_board_error(&socket, &board_id, "PAYLOAD_TOO_LARGE", "Board document exceeds 2MB limit");
         return;
     }
 
     // Auth + membership.
     let user_id = authenticated_user_id(&socket, &state);
     if user_id <= 0 {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Authentication required");
+        whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "Authentication required");
         return;
     }
     if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
-        whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
+        whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
     }
 
@@ -263,8 +298,9 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
     let client_version = doc_version(&document);
     let current = current_version(&state, &board_id).await;
     if client_version != current {
-        whiteboard_error(
+        whiteboard_board_error(
             &socket,
+            &board_id,
             "VERSION_CONFLICT",
             &format!("Version mismatch: client {}, server {}", client_version, current),
         );
@@ -293,13 +329,14 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
                 }))
                 .await;
             let _ = socket.emit("whiteboard:ack", &json!({
+                "boardId": board_id,
                 "patchId": null,
                 "version": new_version,
             }));
         }
         Err(e) => {
             warn!("[whiteboard] snapshot persist failed for {}: {}", board_id, e);
-            whiteboard_error(&socket, "NOT_FOUND", "Failed to persist board document");
+            whiteboard_board_error(&socket, &board_id, "NOT_FOUND", "Failed to persist board document");
         }
     }
 }
@@ -317,24 +354,24 @@ async fn on_whiteboard_patch(socket: SocketRef, data: Value, state: SioState, io
     // Size check (128KB).
     let raw = serde_json::to_vec(&patch).unwrap_or_default();
     if raw.len() > WHITEBOARD_MAX_LIVE_PAYLOAD_BYTES {
-        whiteboard_error(&socket, "PAYLOAD_TOO_LARGE", "Live payload exceeds 128KB limit");
+        whiteboard_board_error(&socket, &board_id, "PAYLOAD_TOO_LARGE", "Live payload exceeds 128KB limit");
         return;
     }
 
     // Auth + membership.
     let user_id = authenticated_user_id(&socket, &state);
     if user_id <= 0 {
-        whiteboard_error(&socket, "UNAUTHORIZED", "Authentication required");
+        whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "Authentication required");
         return;
     }
     if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
-        whiteboard_error(&socket, "UNAUTHORIZED", "No channel membership");
+        whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
     }
 
     // A patch must carry an op.
     if patch.get("op").is_none() {
-        whiteboard_error(&socket, "READ_ONLY", "Invalid patch: missing op");
+        whiteboard_board_error(&socket, &board_id, "READ_ONLY", "Invalid patch: missing op");
         return;
     }
 
@@ -356,6 +393,7 @@ async fn on_whiteboard_patch(socket: SocketRef, data: Value, state: SioState, io
 
     let version = current_version(&state, &board_id).await;
     let _ = socket.emit("whiteboard:ack", &json!({
+        "boardId": board_id,
         "patchId": patch_id,
         "version": version,
     }));
@@ -373,7 +411,7 @@ async fn on_whiteboard_cursor(socket: SocketRef, data: Value, state: SioState, i
 
     let raw = serde_json::to_vec(&cursor).unwrap_or_default();
     if raw.len() > WHITEBOARD_MAX_LIVE_PAYLOAD_BYTES {
-        whiteboard_error(&socket, "PAYLOAD_TOO_LARGE", "Live payload exceeds 128KB limit");
+        whiteboard_board_error(&socket, &board_id, "PAYLOAD_TOO_LARGE", "Live payload exceeds 128KB limit");
         return;
     }
 
@@ -395,4 +433,21 @@ async fn on_whiteboard_cursor(socket: SocketRef, data: Value, state: SioState, i
             "color": color,
         }))
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::board_to_channel_id;
+
+    #[test]
+    fn resolves_channel_and_cad_review_board_ownership() {
+        assert_eq!(board_to_channel_id("channel:abc-123"), "abc-123");
+        assert_eq!(board_to_channel_id("cad-review:abc-123:1z9x8y7"), "abc-123");
+    }
+
+    #[test]
+    fn malformed_cad_review_ids_fail_closed() {
+        assert_eq!(board_to_channel_id("cad-review:abc-123:"), "cad-review:abc-123:");
+        assert_eq!(board_to_channel_id("cad-review:abc-123:bad/key"), "cad-review:abc-123:bad/key");
+    }
 }
