@@ -2,8 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import {
 	formatMobileUnreadBadge,
 	nextMobileBackSurface,
+	pushMobileSurface,
+	removeMobileSurface,
 	shouldRenderMobileNavigation,
-	sumUnreadConversationCount
+	sumUnreadConversationCount,
+	syncMobileSurface,
+	topMobileBackSurface
 } from './mobileShellModel';
 
 describe('mobile shell model', () => {
@@ -34,7 +38,43 @@ describe('mobile shell model', () => {
 		expect(shouldRenderMobileNavigation({ isMobile: false, isInCall: false })).toBe(false);
 	});
 
-	test('back closes transient surfaces before leaving the conversation', () => {
+	test('ordered surface stack unwinds what was opened last', () => {
+		let stack = pushMobileSurface([], 'conversation');
+		stack = pushMobileSurface(stack, 'browse');
+		stack = pushMobileSurface(stack, 'settings');
+		expect(topMobileBackSurface(stack)).toBe('settings');
+		stack = removeMobileSurface(stack, 'settings');
+		expect(topMobileBackSurface(stack)).toBe('browse');
+		stack = removeMobileSurface(stack, 'browse');
+		expect(topMobileBackSurface(stack)).toBe('conversation');
+	});
+
+	test('reopening a surface moves it to the top without duplicates', () => {
+		let stack = pushMobileSurface([], 'conversation');
+		stack = pushMobileSurface(stack, 'browse');
+		stack = pushMobileSurface(stack, 'conversation');
+		expect(stack).toEqual(['browse', 'conversation']);
+		expect(topMobileBackSurface(stack)).toBe('conversation');
+	});
+
+	test('visibility synchronization preserves unrelated surface ordering', () => {
+		let stack = syncMobileSurface([], 'conversation', true);
+		stack = syncMobileSurface(stack, 'overlay', true);
+		stack = syncMobileSurface(stack, 'browse', true);
+		stack = syncMobileSurface(stack, 'overlay', false);
+		expect(stack).toEqual(['conversation', 'browse']);
+		expect(topMobileBackSurface(stack)).toBe('browse');
+	});
+
+	test('full-screen workspace participates in Back order', () => {
+		let stack = pushMobileSurface([], 'workspace');
+		stack = pushMobileSurface(stack, 'server-switcher');
+		expect(topMobileBackSurface(stack)).toBe('server-switcher');
+		stack = removeMobileSurface(stack, 'server-switcher');
+		expect(topMobileBackSurface(stack)).toBe('workspace');
+	});
+
+	test('legacy boolean helper remains compatible while shell migrates', () => {
 		expect(nextMobileBackSurface({ settingsOpen: true, serverSwitcherOpen: true, browseOpen: true, rightOverlayOpen: true, conversationOpen: true })).toBe('settings');
 		expect(nextMobileBackSurface({ settingsOpen: false, serverSwitcherOpen: true, browseOpen: true, rightOverlayOpen: true, conversationOpen: true })).toBe('server-switcher');
 		expect(nextMobileBackSurface({ settingsOpen: false, serverSwitcherOpen: false, browseOpen: false, rightOverlayOpen: false, conversationOpen: true })).toBe('conversation');
