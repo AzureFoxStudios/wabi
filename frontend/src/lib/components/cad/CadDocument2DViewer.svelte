@@ -30,6 +30,11 @@
   let loadSequence = 0;
 
   const activeView = $derived(viewSet?.views.find((view) => view.id === activeId) ?? viewSet?.views[0] ?? null);
+  const hasViewBar = $derived(Boolean(viewSet && (viewSet.views.length > 1 || viewSet.hasSpatialModel)));
+  const hasRepresentationNote = $derived(Boolean(activeView?.kind === 'model' && activeView.hasSpatialEntities));
+  const contentHeight = $derived(compact
+    ? Math.max(180, height - (hasViewBar ? 42 : 0) - (hasRepresentationNote ? 34 : 0))
+    : height);
   const reviewIdentity = $derived.by(() => {
     if (!activeView) return sourceIdentity || src;
     const base = sourceIdentity || src;
@@ -118,7 +123,7 @@
   {:else if error}
     <div class="document-state error" role="alert"><strong>CAD document preview unavailable</strong><span>{error}</span></div>
   {:else if viewSet && activeView}
-    {#if viewSet.views.length > 1 || viewSet.hasSpatialModel}
+    {#if hasViewBar}
       <div class="document-viewbar" aria-label="CAD document views">
         <div class="view-tabs" role="tablist" aria-label="Model and drawing layouts">
           {#each viewSet.views as view (view.id)}
@@ -131,7 +136,8 @@
               title={view.kind === 'model' && view.hasSpatialEntities ? `${view.name}: spatial model content detected` : view.name}
             >
               <span>{view.name}</span>
-              {#if view.kind === 'model' && view.hasSpatialEntities}<small>2D + 3D</small>
+              {#if view.kind === 'model' && view.hasSpatialEntities}
+                <small>{viewSet.modelDimensionality === 'mixed' ? '2D + 3D' : '3D'}</small>
               {:else if view.kind === 'layout'}<small>Sheet</small>{/if}
             </button>
           {/each}
@@ -144,7 +150,7 @@
       </div>
     {/if}
 
-    {#if activeView.kind === 'model' && activeView.hasSpatialEntities}
+    {#if hasRepresentationNote}
       <div class="representation-note" class:spatial-only={!activeView.previewable2d}>
         <div>
           <strong>{viewSet.modelDimensionality === 'mixed' ? 'Model Space contains both 2D and 3D geometry' : '3D Model Space detected'}</strong>
@@ -163,7 +169,7 @@
         src={previewSrc}
         fileName={viewSet.views.length > 1 ? `${fileName} · ${activeView.name}` : fileName}
         {compact}
-        {height}
+        height={contentHeight}
         {channelId}
         sourceIdentity={reviewIdentity}
         allowConvertedSource
