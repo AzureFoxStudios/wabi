@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 use super::{
-    addons, admin, albums, auth, blobs, bots, calls, channels, emoji, forum, gallery, incidents,
+    addons, admin, albums, auth, blobs, bots, cad, calls, channels, emoji, forum, gallery, incidents,
     jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, public, standby,
     steam, sync, upload, user, wiki,
 };
@@ -54,6 +54,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/nodes", nodes::routes(state.clone()))
         // Blob storage routes (content-addressed)
         .nest("/blobs", blobs::routes(state.clone()))
+        // CAD preview conversion (authenticated, optional helper-backed)
+        .nest("/cad", cad::routes(state.clone()))
         // Mesh coordination routes (multi-node discovery)
         .nest("/mesh", mesh::routes(state.clone()))
         // Break-glass operator routes (loopback + WABI_OPERATOR_SECRET only)
