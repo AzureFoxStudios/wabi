@@ -56,6 +56,10 @@ pub fn run() {
 mod commands;
 mod recording;
 mod tailcat;
+#[cfg(not(mobile))]
+mod lore_local;
+#[cfg(mobile)]
+#[path = "lore_local_mobile.rs"]
 mod lore_local;
 pub mod tailcat_proxy;
 #[cfg(not(mobile))]
