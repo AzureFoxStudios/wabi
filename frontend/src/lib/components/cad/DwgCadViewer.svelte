@@ -2,7 +2,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { getApiBase, fetchWithTimeout, parseApiJson } from '$lib/api/utils';
 	import { getAuthToken } from '$lib/authSession';
-	import Cad2DViewer from './Cad2DViewer.svelte';
+	import CadDocument2DViewer from './CadDocument2DViewer.svelte';
 
 	let {
 		src,
@@ -159,19 +159,18 @@
 	{#if !started}
 		<button class="activate" type="button" onclick={start}>
 			<strong>Activate DWG preview</strong>
-			<span>{fileName} · Wabi converts a temporary copy to read-only DXF on your server</span>
+			<span>{fileName} · Wabi converts a temporary copy, then separates Model Space and drawing layouts</span>
 		</button>
 	{:else if previewSrc}
-		<Cad2DViewer
+		<CadDocument2DViewer
 			src={previewSrc}
 			{fileName}
 			{height}
 			compact={!fullBleed}
 			{channelId}
 			sourceIdentity={src}
-			allowConvertedSource
 		/>
-		{#if fullBleed}<span class="source-badge" title={fileName}>DWG source · LibreDWG preview</span>{/if}
+		{#if fullBleed}<span class="source-badge" title={fileName}>DWG source · LibreDWG document preview</span>{/if}
 	{:else}
 		<div class="status" class:error={!!error} role={error ? 'alert' : 'status'}>
 			{#if error}
@@ -180,7 +179,7 @@
 				<button type="button" onclick={retry}>Retry conversion</button>
 			{:else}
 				<strong>Preparing DWG preview…</strong>
-				<span>{converting ? 'Checking the server converter and building a temporary DXF view.' : 'Starting converter…'}</span>
+				<span>{converting ? 'Checking the server converter and building document views.' : 'Starting converter…'}</span>
 			{/if}
 		</div>
 	{/if}
