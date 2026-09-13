@@ -4,7 +4,7 @@
 //! `reqwest` to call the peer's HTTP sync endpoints (`/api/v1/sync/pull`,
 //! `/api/v1/sync/push`, `/api/v1/sync/status`).
 
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf, time::Duration};
 
 use async_trait::async_trait;
 use wabidb::commit_index::record::CommitIndexEntry;
@@ -13,19 +13,53 @@ use wabidb::replication::SyncTransport;
 
 use crate::api::sync::{PushedSegment, SyncEntry, SyncPullRequest, SyncPullResponse, SyncPushRequest};
 
-/// A `SyncTransport` that uses HTTP calls to replicate with a peer.
-#[derive(Debug)]
+const SYNC_TOKEN_HEADER: &str = "x-wabi-sync-token";
+const SYNC_TIMEOUT: Duration = Duration::from_secs(10);
+const SYNC_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// A `SyncTransport` that uses authenticated HTTP calls to replicate with a peer.
+///
+/// The sync token is intentionally captured once at construction and redacted from
+/// `Debug`: replication must never place operator credentials into logs.
 pub struct ReqwestTransport {
     client: reqwest::Client,
     data_dir: PathBuf,
+    sync_token: Option<String>,
+}
+
+impl fmt::Debug for ReqwestTransport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReqwestTransport")
+            .field("data_dir", &self.data_dir)
+            .field("sync_token", &self.sync_token.as_ref().map(|_| "[REDACTED]"))
+            .finish_non_exhaustive()
+    }
 }
 
 impl ReqwestTransport {
     /// Create a new transport bound to the given data directory.
+    ///
+    /// `WABI_SYNC_TOKEN` must match the peer's sync endpoint configuration.
+    /// An absent token is retained as an explicit runtime error rather than
+    /// silently sending unauthenticated replication requests.
     pub fn new(data_dir: PathBuf) -> Self {
+        let sync_token = std::env::var("WABI_SYNC_TOKEN")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        Self::with_token(data_dir, sync_token)
+    }
+
+    fn with_token(data_dir: PathBuf, sync_token: Option<String>) -> Self {
+        let client = reqwest::Client::builder()
+            .connect_timeout(SYNC_CONNECT_TIMEOUT)
+            .timeout(SYNC_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client: reqwest::Client::new(),
+            client,
             data_dir,
+            sync_token,
         }
     }
 
@@ -33,6 +67,41 @@ impl ReqwestTransport {
         let base = base.trim_end_matches('/');
         let path = path.trim_start_matches('/');
         format!("{base}/{path}")
+    }
+
+    fn authorized(&self, request: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilder> {
+        let token = self.sync_token.as_deref().ok_or_else(|| WabiError::Validation {
+            command: "replication_transport".into(),
+            reason: "WABI_SYNC_TOKEN is required when WABIDB_PEER_ENDPOINT enables replication".into(),
+        })?;
+        Ok(request.header(SYNC_TOKEN_HEADER, token))
+    }
+
+    async fn checked_response(
+        request: reqwest::RequestBuilder,
+        operation: &'static str,
+    ) -> Result<reqwest::Response> {
+        let response = request
+            .send()
+            .await
+            .map_err(|error| Self::io_error(operation, error))?;
+        let status = response.status();
+        if !status.is_success() {
+            // Do not include response bodies: a peer/proxy may echo sensitive
+            // configuration. Status is sufficient for replication diagnostics.
+            return Err(WabiError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("WabiDB replication {operation} returned HTTP {status}"),
+            )));
+        }
+        Ok(response)
+    }
+
+    fn io_error(operation: &'static str, error: reqwest::Error) -> WabiError {
+        WabiError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("WabiDB replication {operation} failed: {error}"),
+        ))
     }
 
     fn read_segments(&self, entry: &CommitIndexEntry) -> Vec<PushedSegment> {
@@ -109,19 +178,12 @@ impl SyncTransport for ReqwestTransport {
     async fn pull(&self, peer_endpoint: &str, since: u64) -> Result<Vec<CommitIndexEntry>> {
         let url = Self::url(peer_endpoint, "/api/v1/sync/pull");
         let req = SyncPullRequest { since_commit_seq: since };
-
-        let resp = self
-            .client
-            .post(&url)
-            .json(&req)
-            .send()
-            .await
-            .map_err(|e| WabiError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-
-        let pull_resp: SyncPullResponse = resp
+        let request = self.authorized(self.client.post(&url).json(&req))?;
+        let response = Self::checked_response(request, "pull").await?;
+        let pull_resp: SyncPullResponse = response
             .json()
             .await
-            .map_err(|e| WabiError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            .map_err(|error| Self::io_error("pull decode", error))?;
 
         let entries: Vec<CommitIndexEntry> = pull_resp
             .entries
@@ -189,36 +251,59 @@ impl SyncTransport for ReqwestTransport {
             entries: sync_entries,
             segments: all_segments,
         };
-
-        let _resp = self
-            .client
-            .post(&url)
-            .json(&req)
-            .send()
-            .await
-            .map_err(|e| WabiError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-
+        let request = self.authorized(self.client.post(&url).json(&req))?;
+        let _ = Self::checked_response(request, "push").await?;
         Ok(())
     }
 
     async fn latest_seq(&self, peer_endpoint: &str) -> Result<u64> {
         let url = Self::url(peer_endpoint, "/api/v1/sync/status");
-
-        let resp: serde_json::Value = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| WabiError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?
+        let request = self.authorized(self.client.get(&url))?;
+        let response = Self::checked_response(request, "status").await?;
+        let body: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| WabiError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            .map_err(|error| Self::io_error("status decode", error))?;
 
-        resp.get("latestCommitSeq")
+        body.get("latestCommitSeq")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| WabiError::Validation {
                 command: "latest_seq".into(),
                 reason: "peer returned invalid /status response".into(),
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replication_requests_require_and_attach_sync_token() {
+        let missing = ReqwestTransport::with_token(PathBuf::from("/tmp/wabi-repl-test"), None);
+        assert!(missing.authorized(missing.client.get("http://127.0.0.1/status")).is_err());
+
+        let transport = ReqwestTransport::with_token(
+            PathBuf::from("/tmp/wabi-repl-test"),
+            Some("test-sync-secret".into()),
+        );
+        let request = transport
+            .authorized(transport.client.get("http://127.0.0.1/status"))
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(
+            request.headers().get(SYNC_TOKEN_HEADER).and_then(|value| value.to_str().ok()),
+            Some("test-sync-secret")
+        );
+        assert!(!format!("{transport:?}").contains("test-sync-secret"));
+    }
+
+    #[test]
+    fn peer_urls_are_joined_without_double_slashes() {
+        assert_eq!(
+            ReqwestTransport::url("https://peer.example/", "/api/v1/sync/status"),
+            "https://peer.example/api/v1/sync/status"
+        );
     }
 }
