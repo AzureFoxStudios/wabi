@@ -37,6 +37,11 @@ fn populate(state: &ProjectionState) {
                 is_deleted: (g * per_group + i) % 10 == 0,
                 is_spoiler: false,
                 files: vec![],
+                encrypted: false,
+                iv: None,
+                ratchet_dh_public: None,
+                pn: None,
+                ns: None,
             };
             let key = msg::encode_key(&ch, &msgi);
             let val = msg::encode_record(&r);
@@ -75,6 +80,11 @@ fn populate(state: &ProjectionState) {
                 encrypted_body_ref: format!("hash_{g}_{i}"),
                 idempotency_key: None,
                 edit_history: vec![],
+                encrypted: false,
+                iv: None,
+                ratchet_dh_public: None,
+                pn: None,
+                ns: None,
             };
             let key = dm::encode_key(&dm_id, &msgi);
             let val = dm::encode_record(&r);

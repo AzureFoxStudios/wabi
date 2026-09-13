@@ -222,6 +222,7 @@ impl WabiStore for WdbAdapter {
         content: &str,
         is_spoiler: bool,
         files: &[wabidb::projections::messages::FileAttachmentRecord],
+        e2ee: &wabidb::engine::wabi_store::E2eeEnvelope,
     ) -> Result<String> {
         use wabidb::projections::messages::{encode_record, MessageRecord};
         let idem = format!(
@@ -247,6 +248,11 @@ impl WabiStore for WdbAdapter {
             is_deleted: false,
             is_spoiler,
             files: files.to_vec(),
+            encrypted: e2ee.encrypted,
+            iv: e2ee.iv.clone(),
+            ratchet_dh_public: e2ee.ratchet_dh_public.clone(),
+            pn: e2ee.pn,
+            ns: e2ee.ns,
         };
         let payload = encode_record(&record);
         let _seq = self
@@ -2859,7 +2865,13 @@ impl WabiStore for WdbAdapter {
         Ok(records.into_iter().map(wabidb::domain::DmRecipient::from).collect())
     }
 
-    async fn send_dm_message(&self, dm_id: &str, author_user_id: u64, content: &str) -> Result<String> {
+    async fn send_dm_message(
+        &self,
+        dm_id: &str,
+        author_user_id: u64,
+        content: &str,
+        e2ee: &wabidb::engine::wabi_store::E2eeEnvelope,
+    ) -> Result<String> {
         use wabidb::projections::dm_messages::{encode_record, DmMessageRecord};
         use wabidb::projections::dm_message_recipients::encode_record as encode_recipient;
         let now = now_micros();
@@ -2872,6 +2884,11 @@ impl WabiStore for WdbAdapter {
             encrypted_body_ref: content.to_string(),
             idempotency_key: None,
             edit_history: vec![],
+            encrypted: e2ee.encrypted,
+            iv: e2ee.iv.clone(),
+            ratchet_dh_public: e2ee.ratchet_dh_public.clone(),
+            pn: e2ee.pn,
+            ns: e2ee.ns,
         };
         let payload = encode_record(&record);
         let seq = self

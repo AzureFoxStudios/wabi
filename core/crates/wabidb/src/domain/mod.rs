@@ -195,6 +195,23 @@ pub struct Message {
     /// File attachments uploaded with the message.
     #[serde(default)]
     pub files: Vec<FileAttachmentRecord>,
+    /// True when `content` holds base64 ciphertext (see
+    /// `docs/specs/dm-e2ee.md`).
+    #[serde(default)]
+    pub encrypted: bool,
+    /// Base64 AES-GCM nonce for the sealed body. `None` for plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iv: Option<String>,
+    /// Base64 X25519 ratchet DH step (Signal `RatchetDHr`). `None` for
+    /// plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ratchet_dh_public: Option<String>,
+    /// Peer ratchet position (Signal `PN`). `None` for plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pn: Option<u64>,
+    /// Sender ratchet position (Signal `Ns`). `None` for plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ns: Option<u64>,
 }
 
 /// A reaction on a message.
@@ -678,6 +695,27 @@ pub struct DmMessage {
     pub author_user_id: u64,
     pub author_device_id: String,
     pub created_at_micros: i64,
+    /// The message body. Plaintext for legacy messages; base64 ciphertext
+    /// when `encrypted` is true.
+    #[serde(default)]
+    pub content: String,
+    /// True when `content` holds base64 ciphertext (see
+    /// `docs/specs/dm-e2ee.md`).
+    #[serde(default)]
+    pub encrypted: bool,
+    /// Base64 AES-GCM nonce for the sealed body. `None` for plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iv: Option<String>,
+    /// Base64 X25519 ratchet DH step (Signal `RatchetDHr`). `None` for
+    /// plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ratchet_dh_public: Option<String>,
+    /// Peer ratchet position (Signal `PN`). `None` for plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pn: Option<u64>,
+    /// Sender ratchet position (Signal `Ns`). `None` for plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ns: Option<u64>,
 }
 
 impl From<crate::projections::dm_messages::DmMessageRecord> for DmMessage {
@@ -688,6 +726,12 @@ impl From<crate::projections::dm_messages::DmMessageRecord> for DmMessage {
             author_user_id: r.author_user_id,
             author_device_id: r.author_device_id,
             created_at_micros: r.created_at_micros,
+            content: r.encrypted_body_ref,
+            encrypted: r.encrypted,
+            iv: r.iv,
+            ratchet_dh_public: r.ratchet_dh_public,
+            pn: r.pn,
+            ns: r.ns,
         }
     }
 }
@@ -953,6 +997,11 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         let s = serde_json::to_string(&m).unwrap();
         let back: Message = serde_json::from_str(&s).unwrap();
@@ -996,6 +1045,11 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         let json = serde_json::to_string(&m).unwrap();
         let back: Message = serde_json::from_str(&json).unwrap();

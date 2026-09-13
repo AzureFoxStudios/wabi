@@ -34,6 +34,40 @@ pub struct MessageRecord {
     /// (defaults to `vec![]` during decode).
     #[serde(default)]
     pub files: Vec<FileAttachmentRecord>,
+    /// True when `encrypted_body_ref` holds base64 ciphertext (see
+    /// `docs/specs/dm-e2ee.md`). Added after the initial schema; missing on
+    /// older on-disk records, which decode via `MessageRecordV1`/`V0` and
+    /// default to `false`.
+    pub encrypted: bool,
+    /// Base64 AES-GCM nonce for the sealed body. `None` for plaintext.
+    pub iv: Option<String>,
+    /// Base64 X25519 ratchet DH step (Signal `RatchetDHr`). `None` for
+    /// plaintext.
+    pub ratchet_dh_public: Option<String>,
+    /// Peer ratchet position (Signal `PN`). `None` for plaintext.
+    pub pn: Option<u64>,
+    /// Sender ratchet position (Signal `Ns`). `None` for plaintext.
+    pub ns: Option<u64>,
+}
+
+/// Pre-E2EE schema (post-`is_spoiler`), used as a fallback so messages
+/// written before the encryption fields existed still decode (defaulting
+/// `encrypted` to `false` and the ratchet fields to `None`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct MessageRecordV1 {
+    pub message_id: String,
+    pub channel_id: String,
+    pub author_user_id: u64,
+    pub author_device_id: String,
+    pub created_at_micros: i64,
+    pub encrypted_body_ref: String,
+    pub idempotency_key: Option<String>,
+    pub edit_history: Vec<(i64, String)>,
+    pub edited_at_micros: Option<i64>,
+    pub is_deleted: bool,
+    pub is_spoiler: bool,
+    #[serde(default)]
+    pub files: Vec<FileAttachmentRecord>,
 }
 
 /// Pre-`is_spoiler` schema, used as a fallback so messages written before
@@ -83,6 +117,11 @@ impl From<MessageRecord> for crate::domain::Message {
                     file_size: f.file_size,
                 })
                 .collect(),
+            encrypted: r.encrypted,
+            iv: r.iv,
+            ratchet_dh_public: r.ratchet_dh_public,
+            pn: r.pn,
+            ns: r.ns,
         }
     }
 }
@@ -110,6 +149,11 @@ impl From<crate::domain::Message> for MessageRecord {
                     file_size: f.file_size,
                 })
                 .collect(),
+            encrypted: m.encrypted,
+            iv: m.iv,
+            ratchet_dh_public: m.ratchet_dh_public,
+            pn: m.pn,
+            ns: m.ns,
         }
     }
 }
@@ -122,35 +166,60 @@ pub fn decode_record(buf: &[u8]) -> Result<MessageRecord> {
     decode_record_lenient(buf)
 }
 
-/// Decode a `MessageRecord`, falling back to the pre-`is_spoiler` schema so
-/// on-disk records written before the field existed still load (with
-/// `is_spoiler` defaulting to `false`).
+/// Decode a `MessageRecord`, falling back through the schema history so
+/// on-disk records written before a field existed still load:
+/// current → `MessageRecordV1` (pre-E2EE) → `MessageRecordV0`
+/// (pre-`is_spoiler`), defaulting newer fields to their plaintext values.
 pub fn decode_record_lenient(buf: &[u8]) -> Result<MessageRecord> {
-    match postcard::from_bytes::<MessageRecord>(buf) {
-        Ok(r) => Ok(r),
-        Err(_) => {
-            let v0 = postcard::from_bytes::<MessageRecordV0>(buf).map_err(|e| {
-                crate::error::WabiError::Corrupt {
-                    location: "messages projection".into(),
-                    detail: format!("postcard decode failed: {e}"),
-                }
-            })?;
-            Ok(MessageRecord {
-                message_id: v0.message_id,
-                channel_id: v0.channel_id,
-                author_user_id: v0.author_user_id,
-                author_device_id: v0.author_device_id,
-                created_at_micros: v0.created_at_micros,
-                encrypted_body_ref: v0.encrypted_body_ref,
-                idempotency_key: v0.idempotency_key,
-                edit_history: v0.edit_history,
-                edited_at_micros: v0.edited_at_micros,
-                is_deleted: v0.is_deleted,
-                is_spoiler: false,
-                files: vec![],
-            })
-        }
+    if let Ok(r) = postcard::from_bytes::<MessageRecord>(buf) {
+        return Ok(r);
     }
+    if let Ok(v1) = postcard::from_bytes::<MessageRecordV1>(buf) {
+        return Ok(MessageRecord {
+            message_id: v1.message_id,
+            channel_id: v1.channel_id,
+            author_user_id: v1.author_user_id,
+            author_device_id: v1.author_device_id,
+            created_at_micros: v1.created_at_micros,
+            encrypted_body_ref: v1.encrypted_body_ref,
+            idempotency_key: v1.idempotency_key,
+            edit_history: v1.edit_history,
+            edited_at_micros: v1.edited_at_micros,
+            is_deleted: v1.is_deleted,
+            is_spoiler: v1.is_spoiler,
+            files: v1.files,
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
+        });
+    }
+    let v0 = postcard::from_bytes::<MessageRecordV0>(buf).map_err(|e| {
+        crate::error::WabiError::Corrupt {
+            location: "messages projection".into(),
+            detail: format!("postcard decode failed: {e}"),
+        }
+    })?;
+    Ok(MessageRecord {
+        message_id: v0.message_id,
+        channel_id: v0.channel_id,
+        author_user_id: v0.author_user_id,
+        author_device_id: v0.author_device_id,
+        created_at_micros: v0.created_at_micros,
+        encrypted_body_ref: v0.encrypted_body_ref,
+        idempotency_key: v0.idempotency_key,
+        edit_history: v0.edit_history,
+        edited_at_micros: v0.edited_at_micros,
+        is_deleted: v0.is_deleted,
+        is_spoiler: false,
+        files: vec![],
+        encrypted: false,
+        iv: None,
+        ratchet_dh_public: None,
+        pn: None,
+        ns: None,
+    })
 }
 
 pub fn encode_key(channel_id: &str, message_id: &str) -> Vec<u8> {
@@ -680,6 +749,8 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
         }
     }
 
@@ -706,6 +777,11 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         let buf = encode_record(&r);
         let decoded = decode_record(&buf).unwrap();
@@ -747,6 +823,65 @@ mod tests {
         assert!(!decoded.is_spoiler);
     }
 
+    /// Records written before the E2EE fields existed (post-`is_spoiler`
+    /// schema, `MessageRecordV1`) must still decode, defaulting
+    /// `encrypted` to `false` and `iv` to `None`.
+    #[test]
+    fn decode_legacy_record_without_e2ee_fields() {
+        let legacy = MessageRecordV1 {
+            message_id: "msg_v1".into(),
+            channel_id: "ch_v1".into(),
+            author_user_id: 7,
+            author_device_id: "dev".into(),
+            created_at_micros: 1_000_000,
+            encrypted_body_ref: "body".into(),
+            idempotency_key: None,
+            edit_history: vec![],
+            edited_at_micros: None,
+            is_deleted: false,
+            is_spoiler: true,
+            files: vec![],
+        };
+        let buf = postcard::to_allocvec(&legacy).unwrap();
+        let decoded = decode_record(&buf).unwrap();
+        assert_eq!(decoded.message_id, "msg_v1");
+        assert!(decoded.is_spoiler);
+        assert!(!decoded.encrypted);
+        assert_eq!(decoded.iv, None);
+    }
+
+    /// An encrypted record round-trips the E2EE envelope fields.
+    #[test]
+    fn encode_decode_encrypted_roundtrip() {
+        let r = MessageRecord {
+            message_id: "msg_enc".into(),
+            channel_id: "ch_enc".into(),
+            author_user_id: 42,
+            author_device_id: "dev_a".into(),
+            created_at_micros: 1_000_000,
+            encrypted_body_ref: "Y2lwaGVydGV4dA==".into(),
+            idempotency_key: None,
+            edit_history: vec![],
+            edited_at_micros: None,
+            is_deleted: false,
+            is_spoiler: false,
+            files: vec![],
+            encrypted: true,
+            iv: Some("bm9uY2U=".into()),
+            ratchet_dh_public: Some("ZGg=".into()),
+            pn: Some(3),
+            ns: Some(4),
+        };
+        let buf = encode_record(&r);
+        let decoded = decode_record(&buf).unwrap();
+        assert_eq!(r, decoded);
+        assert!(decoded.encrypted);
+        assert_eq!(decoded.iv.as_deref(), Some("bm9uY2U="));
+        assert_eq!(decoded.ratchet_dh_public.as_deref(), Some("ZGg="));
+        assert_eq!(decoded.pn, Some(3));
+        assert_eq!(decoded.ns, Some(4));
+    }
+
     fn make_event(seq: u64, event_type: &str, record: &MessageRecord) -> DurableEvent {
         DurableEvent {
             commit_seq: seq,
@@ -770,6 +905,8 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
         }
     }
 
@@ -870,6 +1007,11 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
 
         let event = make_event(1, "message_created", &r);
@@ -915,6 +1057,11 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         let create_event = make_event(1, "message_created", &r);
         proj.apply(&create_event, &state).unwrap();
@@ -1014,6 +1161,11 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         let event = make_event(1, "message_created", &r);
         proj.apply(&event, &state).unwrap();
@@ -1050,6 +1202,11 @@ mod tests {
                 is_deleted: false,
                 is_spoiler: false,
                 files: vec![],
+                encrypted: false,
+                iv: None,
+                ratchet_dh_public: None,
+                pn: None,
+                ns: None,
             };
             proj.apply(&make_event(seq, "message_created", &r), &state)
                 .unwrap();
@@ -1397,6 +1554,8 @@ mod tests {
             is_deleted: deleted,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
         }
     }
 

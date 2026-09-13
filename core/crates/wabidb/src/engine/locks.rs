@@ -997,6 +997,11 @@ mod tests {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         let payload = encode_record(&msg);
         // Writer-stamped ids are kept as-is (only empty legacy ids fall back

@@ -835,7 +835,7 @@ async fn promote_from_message(
     };
     state
         .wdb
-        .send_message(&message.channel_id, auth.user_id as u64, &system_content, false, &[])
+        .send_message(&message.channel_id, auth.user_id as u64, &system_content, false, &[], &wabidb::engine::wabi_store::E2eeEnvelope::default())
         .await?;
 
     info!(channel_id, repo_channel_id, path = %target_path, pending_review, "Attachment promoted to Lore from chat");

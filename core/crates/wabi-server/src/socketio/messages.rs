@@ -125,14 +125,42 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     if is_live {
         message_id = format!("live_{}", uuid::Uuid::new_v4());
     } else {
-        let files: Vec<wabidb::projections::messages::FileAttachmentRecord> = cmd
+        let mut files: Vec<wabidb::projections::messages::FileAttachmentRecord> = cmd
             .get("files")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
-        match state
+        if files.is_empty() {
+            // Single-file uploads send flat fileUrl/fileName/fileSize (no `files`
+            // array). Persist a one-element vec so history reloads render the card.
+            if let (Some(url), Some(name)) = (
+                cmd.get("fileUrl").and_then(|v| v.as_str()),
+                cmd.get("fileName").and_then(|v| v.as_str()),
+            ) {
+                files.push(wabidb::projections::messages::FileAttachmentRecord {
+                    file_url: url.to_string(),
+                    file_name: name.to_string(),
+                    file_size: cmd.get("fileSize").and_then(|v| v.as_u64()).unwrap_or(0),
+                });
+            }
+        }
+        // E2EE envelope: the client seals DM bodies before they hit the wire
+// (see docs/specs/dm-e2ee.md). The server stores the ciphertext + iv
+// opaquely and never holds a key that can decrypt it. Absent fields
+// mean plaintext.
+let e2ee = wabidb::engine::wabi_store::E2eeEnvelope {
+    encrypted: cmd.get("encrypted").and_then(Value::as_bool).unwrap_or(false),
+    iv: cmd.get("iv").and_then(Value::as_str).map(String::from),
+    ratchet_dh_public: cmd
+        .get("ratchetDhPublic")
+        .and_then(Value::as_str)
+        .map(String::from),
+    pn: cmd.get("pn").and_then(Value::as_u64),
+    ns: cmd.get("ns").and_then(Value::as_u64),
+};
+match state
             .app
             .wdb
-            .send_message(&channel_id, user_id_num as u64, &text, is_spoiler, &files)
+            .send_message(&channel_id, user_id_num as u64, &text, is_spoiler, &files, &e2ee)
             .await
         {
             Ok(wdb_id) => {
@@ -325,6 +353,11 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
                     "editedAt": m.edited_at_micros.map(|e| e / 1000),
                     "commitSeq": m.commit_seq,
                     "isDeleted": m.is_deleted,
+                    "encrypted": m.encrypted,
+                    "iv": m.iv,
+                    "ratchetDhPublic": m.ratchet_dh_public,
+                    "pn": m.pn,
+                    "ns": m.ns,
                     "files": m.files.iter().map(|f| json!({
                         "fileUrl": f.file_url,
                         "fileName": f.file_name,
