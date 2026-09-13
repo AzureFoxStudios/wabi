@@ -30,8 +30,8 @@
   import { hitTestElement } from '$lib/whiteboard/coords';
   import type { Point } from '$lib/whiteboard/elementTypes';
 
-  let { src, fileName = 'Drawing.dxf', compact = false, height = 460, channelId = null }:
-    { src: string; fileName?: string; compact?: boolean; height?: number; channelId?: string | null } = $props();
+  let { src, fileName = 'Drawing.dxf', compact = false, height = 460, channelId = null, sourceIdentity = '', allowConvertedSource = false }:
+    { src: string; fileName?: string; compact?: boolean; height?: number; channelId?: string | null; sourceIdentity?: string; allowConvertedSource?: boolean } = $props();
 
   const MAX_DXF_BYTES = 20 * 1024 * 1024;
   let drawing = $state<Cad2DDrawing | null>(null);
@@ -66,7 +66,8 @@
   let reviewRedo = $state<Array<{ kind: 'create'; elements: CadReviewElement[] } | { kind: 'delete'; elements: CadReviewElement[] }>>([]);
   let textPoint = $state<Point | null>(null);
   let textValue = $state('');
-  const reviewMarkerId = $derived(`cad-review-arrow-${cadReviewAssetKey(src, fileName)}`);
+  const reviewSource = $derived(sourceIdentity || src);
+  const reviewMarkerId = $derived(`cad-review-arrow-${cadReviewAssetKey(reviewSource, fileName)}`);
 
   const visibleEntities = $derived(drawing ? drawing.entities.filter((entity) => !hiddenLayers.has(entity.layer)) : []);
   const visibleBounds = $derived(drawing ? boundsForCadEntities(visibleEntities.length ? visibleEntities : drawing.entities) : null);
@@ -369,7 +370,7 @@
     drawing = null; error = ''; loading = true; hiddenLayers = new Set(); soloLayer = null; clearMeasure(); resetView();
     void (async () => {
       try {
-        if (!/\.dxf(?:$|[?#])/i.test(name) && !/\.dxf(?:$|[?#])/i.test(source)) throw new Error('The built-in 2D CAD reader currently supports ASCII DXF only.');
+        if (!allowConvertedSource && !/\.dxf(?:$|[?#])/i.test(name) && !/\.dxf(?:$|[?#])/i.test(source)) throw new Error('The built-in 2D CAD reader currently supports ASCII DXF only.');
         const response = await fetch(source, { signal: controller.signal });
         if (!response.ok) throw new Error(`Could not load DXF (${response.status}).`);
         const text = await readLimited(response, controller.signal);
@@ -390,7 +391,7 @@
 
   $effect(() => {
     if (compact) return;
-    const session = createCadReviewSession({ channelId, src, fileName });
+    const session = createCadReviewSession({ channelId, src: reviewSource, fileName });
     reviewSession = session;
     const unsubscribe = session.subscribe((state) => {
       reviewSync = state;
