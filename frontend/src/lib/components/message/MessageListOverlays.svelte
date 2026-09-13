@@ -2,6 +2,7 @@
 	import { _ } from '$lib/i18n';
 	import type { Message, User } from '$lib/socket';
 	import MessageContextMenu from '../MessageContextMenu.svelte';
+	import ReportMessageDialog from '../ReportMessageDialog.svelte';
 	import ForwardDialog from '../ForwardDialog.svelte';
 	import ConfirmDialog from '../ConfirmDialog.svelte';
 	import ImageLightbox from '../ImageLightbox.svelte';
@@ -61,6 +62,19 @@
 	export let queueBlendImport: (event: CustomEvent<any>) => void | Promise<void>;
 	export let closeEnlargedImage: () => void;
 	export let closeEnlargedVideo: () => void;
+
+	let showReportDialog = false;
+	let reportMessage: Message | null = null;
+	function handleReport() {
+		if (!contextMenuMessage || isOwnMessage(contextMenuMessage)) return;
+		reportMessage = contextMenuMessage;
+		contextMenuVisible = false;
+		showReportDialog = true;
+	}
+	function closeReport() {
+		showReportDialog = false;
+		reportMessage = null;
+	}
 </script>
 
 {#if UserPopoutComponent}
@@ -125,12 +139,14 @@
 		onForward={handleForward}
 		onAddReaction={handleAddReaction}
 		onTranslate={handleTranslate}
+		onReport={handleReport}
 		quickMentionEnabled={quickMentionEnabled}
 		personalPinsEnabled={personalPinsEnabled}
 		isPersonalPinned={isPersonalPinnedMessage(contextMenuMessage.id)}
 	/>
 {/if}
 
+<ReportMessageDialog visible={showReportDialog} message={reportMessage} onClose={closeReport} />
 <ForwardDialog bind:visible={showForwardDialog} bind:message={forwardMessage} />
 
 <ConfirmDialog
