@@ -38,14 +38,61 @@ export function shouldRenderMobileNavigation(options: {
 	return options.isMobile && !options.isInCall && !options.keyboardOpen;
 }
 
-export type MobileBackSurface =
+export type MobileSurface =
 	| 'settings'
 	| 'server-switcher'
 	| 'browse'
 	| 'overlay'
 	| 'conversation'
-	| 'root';
+	| 'workspace';
 
+export type MobileBackSurface = MobileSurface | 'root';
+export type MobileSurfaceStack = readonly MobileSurface[];
+
+/**
+ * Move a surface to the top of the phone Back stack.
+ *
+ * A surface is unique in the stack. Re-opening it makes it the most-recent
+ * surface instead of creating duplicate Back entries.
+ */
+export function pushMobileSurface(
+	stack: MobileSurfaceStack,
+	surface: MobileSurface
+): MobileSurface[] {
+	return [...stack.filter((entry) => entry !== surface), surface];
+}
+
+/** Remove a surface no matter where it sits in the current stack. */
+export function removeMobileSurface(
+	stack: MobileSurfaceStack,
+	surface: MobileSurface
+): MobileSurface[] {
+	return stack.filter((entry) => entry !== surface);
+}
+
+/**
+ * Synchronize a visible surface with the ordered stack without disturbing the
+ * relative order of unrelated surfaces.
+ */
+export function syncMobileSurface(
+	stack: MobileSurfaceStack,
+	surface: MobileSurface,
+	visible: boolean
+): MobileSurface[] {
+	const present = stack.includes(surface);
+	if (visible) return present ? [...stack] : [...stack, surface];
+	return present ? removeMobileSurface(stack, surface) : [...stack];
+}
+
+export function topMobileBackSurface(stack: MobileSurfaceStack): MobileBackSurface {
+	return stack.length > 0 ? stack[stack.length - 1] : 'root';
+}
+
+/**
+ * Compatibility helper for older call sites. New mobile shell code should keep
+ * an explicit ordered stack and use topMobileBackSurface instead of deriving
+ * Back order from a bag of booleans.
+ */
 export function nextMobileBackSurface(state: {
 	settingsOpen: boolean;
 	serverSwitcherOpen: boolean;
@@ -53,10 +100,11 @@ export function nextMobileBackSurface(state: {
 	rightOverlayOpen: boolean;
 	conversationOpen: boolean;
 }): MobileBackSurface {
-	if (state.settingsOpen) return 'settings';
-	if (state.serverSwitcherOpen) return 'server-switcher';
-	if (state.browseOpen) return 'browse';
-	if (state.rightOverlayOpen) return 'overlay';
-	if (state.conversationOpen) return 'conversation';
-	return 'root';
+	let stack: MobileSurface[] = [];
+	stack = syncMobileSurface(stack, 'conversation', state.conversationOpen);
+	stack = syncMobileSurface(stack, 'overlay', state.rightOverlayOpen);
+	stack = syncMobileSurface(stack, 'browse', state.browseOpen);
+	stack = syncMobileSurface(stack, 'server-switcher', state.serverSwitcherOpen);
+	stack = syncMobileSurface(stack, 'settings', state.settingsOpen);
+	return topMobileBackSurface(stack);
 }
