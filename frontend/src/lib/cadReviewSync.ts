@@ -206,10 +206,6 @@ export function createCadReviewSession(options: { channelId?: string | null; src
 		rejoinWhiteboardBoard(boardId);
 	});
 
-	// connected.subscribe emits immediately. If socket state is not ready yet,
-	// reconnect handling above will perform the join when it becomes ready.
-	rejoinWhiteboardBoard(boardId);
-
 	function add(element: CadReviewElement): void {
 		const op: LocalOp = { seq: ++sequence, op: 'create', element: cloneCadReviewElement(element) };
 		pending.push(op);
@@ -241,9 +237,9 @@ export function createCadReviewSession(options: { channelId?: string | null; src
 		},
 		destroy() {
 			if (destroyed) return;
-			destroyed = true;
 			if (saveTimer) clearTimeout(saveTimer);
 			if (joined && pending.length > 0 && saveThroughSeq === null) flushSave();
+			destroyed = true;
 			unsubscribeEvents();
 			unsubscribeConnected();
 			leaveWhiteboard(boardId);
