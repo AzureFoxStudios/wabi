@@ -12,7 +12,7 @@ export type CadImporterKind = 'builtin-dxf' | 'browser-3mf' | 'occt-wasm' | 'ser
 export interface CadImportPlan {
   preferred: CadImporterKind;
   fallback: CadImporterKind | null;
-  canonicalPreview: 'dxf' | 'scene' | 'glb' | null;
+  canonicalPreview: 'dxf' | 'glb' | null;
   availableNow: boolean;
 }
 
@@ -49,7 +49,7 @@ export function cadDimension(name: string | undefined): CadDimension {
 export function cadImportPlan(name: string | undefined): CadImportPlan {
   const ext = modelExtension(name);
   if (ext === 'dxf') return { preferred: 'builtin-dxf', fallback: null, canonicalPreview: 'dxf', availableNow: true };
-  if (ext === '3mf') return { preferred: 'browser-3mf', fallback: 'server-convert', canonicalPreview: 'scene', availableNow: true };
+  if (ext === '3mf') return { preferred: 'browser-3mf', fallback: 'server-convert', canonicalPreview: 'glb', availableNow: true };
   if (ext === 'dwg') return { preferred: 'server-convert', fallback: null, canonicalPreview: 'dxf', availableNow: false };
   if (['step', 'stp', 'iges', 'igs'].includes(ext)) return { preferred: 'occt-wasm', fallback: 'server-convert', canonicalPreview: 'glb', availableNow: false };
   return { preferred: 'unavailable', fallback: null, canonicalPreview: null, availableNow: false };
