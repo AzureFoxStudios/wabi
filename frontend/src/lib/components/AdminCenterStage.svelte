@@ -14,11 +14,15 @@
 	import WorkspacePanelIcon from './WorkspacePanelIcon.svelte';
 	import OverviewSection from './admin/OverviewSection.svelte';
 	import ServerHealthSection from './admin/ServerHealthSection.svelte';
+	import ModerationCenter from './admin/ModerationCenter.svelte';
+	import SafetyRulesPanel from './admin/SafetyRulesPanel.svelte';
+	import StorageCenter from './admin/StorageCenter.svelte';
+	import InfrastructureCenter from './admin/InfrastructureCenter.svelte';
 	import AdminWorkspace from './AdminWorkspace.svelte';
 
 	const icons: Partial<Record<AdminSection, IconName>> = {
-		overview: 'activity', runtime: 'activity', users: 'users', roles: 'admin',
-		channels: 'messages', branding: 'media', settings: 'settings', payments: 'box',
+		overview: 'activity', moderation: 'admin', safety: 'admin', runtime: 'activity', users: 'users', roles: 'admin',
+		channels: 'messages', storage: 'box', infrastructure: 'activity', branding: 'media', settings: 'settings', payments: 'box',
 	};
 	let snapshot = $state.raw(emptyAdminSnapshot());
 	let now = $state(Date.now());
@@ -93,15 +97,15 @@
 </script>
 
 <div class="admin-center-stage admin-workbench">
-	<aside class="admin-sidebar" aria-label="Administration">
+	<aside class="admin-sidebar" aria-label="Server Center">
 		<div class="admin-sidebar-header">
 			<button class="admin-back-btn" onclick={back}>
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 12H5m7 7-7-7 7-7" /></svg>
 				Back to workspace
 			</button>
 		</div>
-		<div class="admin-identity"><strong>Administration</strong><span>{canManageServer(role) ? 'Manage this server' : 'Staff workspace'}</span></div>
-		<nav class="admin-sidebar-nav" aria-label="Admin sections">
+		<div class="admin-identity"><strong>Server Center</strong><span>{canManageServer(role) ? 'Community + operations' : 'Moderation workspace'}</span></div>
+		<nav class="admin-sidebar-nav" aria-label="Server Center sections">
 			{#each sections as item (item.id)}
 				<button class="admin-nav-item" class:admin-nav-active={section === item.id} aria-current={section === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
 					<span class="admin-nav-icon" aria-hidden="true"><WorkspacePanelIcon icon={icons[item.id] ?? 'settings'} /></span>
@@ -112,27 +116,35 @@
 	</aside>
 	<div class="admin-main">
 		<header class="admin-topbar">
-			<div class="admin-heading"><h1>{selected?.label ?? 'Administration'}</h1><p>{selected?.description ?? 'Your server role does not grant access to this workspace.'}</p></div>
-			{#if canManageServer(role)}
+			<div class="admin-heading"><h1>{selected?.label ?? 'Server Center'}</h1><p>{selected?.description ?? 'Your server role does not grant access to this workspace.'}</p></div>
+			{#if canManageServer(role) && (section === 'overview' || section === 'runtime')}
 				<div class="admin-snapshot-controls">
 					<span class:stale>{snapshot.receivedAt ? (stale ? 'Last snapshot ' : 'Updated ') + new Date(snapshot.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No snapshot yet'}</span>
 					<button class="admin-refresh" onclick={() => resource?.refresh()} disabled={snapshot.loading}>{snapshot.loading ? 'Refreshing…' : 'Refresh'}</button>
 				</div>
 			{/if}
 		</header>
-		<main class="admin-content" aria-label={selected?.label ?? 'Administration'}>
+		<main class="admin-content" aria-label={selected?.label ?? 'Server Center'}>
 			{#if snapshot.error && (section === 'overview' || section === 'runtime')}
 				<div class="admin-read-error" role="alert"><strong>Server status unavailable</strong><p>{snapshot.error} {snapshot.stats ? 'The last snapshot is shown below; it is not a current health check.' : ''}</p></div>
 			{/if}
 			<div class="admin-content-inner">
 				{#if section === 'overview'}
 					<OverviewSection stats={snapshot.stats} loading={snapshot.loading} {stale} onNavigate={navigate} />
+				{:else if section === 'moderation'}
+					<ModerationCenter />
+				{:else if section === 'safety'}
+					<SafetyRulesPanel />
+				{:else if section === 'storage'}
+					<StorageCenter />
+				{:else if section === 'infrastructure'}
+					<InfrastructureCenter />
 				{:else if section === 'runtime'}
 					<ServerHealthSection health={snapshot.stats?.extra?.health} loading={snapshot.loading && !snapshot.stats} {stale} expanded />
 				{:else if section}
 				  {#key JSON.stringify([$activeServerUrl, accountId, role, section])}<AdminWorkspace section={workspaceSection} />{/key}
 				{:else}
-					<p class="admin-access-message" role="status">Administration is available to server staff. Your workspace and conversations are unchanged.</p>
+					<p class="admin-access-message" role="status">Server Center is available to server staff. Your workspace and conversations are unchanged.</p>
 				{/if}
 			</div>
 		</main>

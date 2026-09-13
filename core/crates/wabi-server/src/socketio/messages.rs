@@ -91,6 +91,59 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
             return;
         }
     }
+
+    // Server Center deterministic safety rules are intentionally literal.
+    // They are evaluated after identity/access/mute checks but before the
+    // message is committed or broadcast, so clients cannot bypass them by
+    // racing an optimistic UI update. The server owner is exempt to avoid a
+    // typo in a new rule locking out the only recovery authority.
+    if !state.app.is_owner(user_id_num).await {
+        if let Some(rule) = crate::api::server_center::evaluate_safety_rules(&state.app.config.data_dir, &text) {
+            let reason = rule.reason.clone().unwrap_or_else(|| format!("Safety rule: {}", rule.name));
+            match rule.action {
+                crate::api::server_center::SafetyAction::Flag => {
+                    // Flag-only rules deliberately do not punish or suppress the
+                    // message. The trigger remains visible in server logs until
+                    // durable automated case ingestion is enabled.
+                    warn!("[safety] flag rule '{}' matched user {} in {}", rule.name, user_id_num, channel_id);
+                }
+                crate::api::server_center::SafetyAction::Delete => {
+                    warn!("[safety] blocked message from user {} in {} by rule '{}'", user_id_num, channel_id, rule.name);
+                    fail("safety_rule", "rejected", &format!("Message blocked by server safety rule: {}", rule.name));
+                    return;
+                }
+                crate::api::server_center::SafetyAction::Warn => {
+                    warn!("[safety] warning rule '{}' matched user {} in {}", rule.name, user_id_num, channel_id);
+                    fail("safety_warning", "rejected", &reason);
+                    return;
+                }
+                crate::api::server_center::SafetyAction::Timeout => {
+                    let minutes = rule.timeout_minutes.unwrap_or(10).max(1) as i64;
+                    let actor = state.app.owner_user_id.read().await.unwrap_or(user_id_num);
+                    let until_micros = chrono::Utc::now().timestamp_micros().saturating_add(minutes.saturating_mul(60_000_000));
+                    match state.app.wdb.mute_user(&channel_id, actor as u64, user_id_num as u64, until_micros).await {
+                        Ok(()) => fail("safety_timeout", "rejected", &format!("Timed out for {minutes} minute(s): {reason}")),
+                        Err(error) => {
+                            warn!("[safety] timeout rule '{}' failed to mute user {}: {}", rule.name, user_id_num, error);
+                            fail("safety_rule_failed", "rejected", "A server safety rule matched, but its action could not be completed.");
+                        }
+                    }
+                    return;
+                }
+                crate::api::server_center::SafetyAction::Ban => {
+                    let actor = state.app.owner_user_id.read().await.unwrap_or(user_id_num);
+                    match state.app.wdb.ban_user(&channel_id, actor as u64, user_id_num as u64, &reason).await {
+                        Ok(()) => fail("safety_ban", "rejected", &format!("Banned from this channel: {reason}")),
+                        Err(error) => {
+                            warn!("[safety] ban rule '{}' failed to ban user {}: {}", rule.name, user_id_num, error);
+                            fail("safety_rule_failed", "rejected", "A server safety rule matched, but its action could not be completed.");
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+    }
     let stable_id = format!("user-{}", user_id_num);
 
     let color = {

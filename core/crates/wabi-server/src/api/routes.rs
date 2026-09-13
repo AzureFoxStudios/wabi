@@ -8,10 +8,17 @@ use crate::state::AppState;
 
 use super::{
     addons, admin, albums, auth, blobs, bots, cad, calls, channels, emoji, forum, gallery, incidents,
-    jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, public, standby,
-    steam, sync, upload, user, wiki,
+    jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, public, server_center,
+    standby, steam, sync, upload, user, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
+
+fn experimental_replication_enabled() -> bool {
+    std::env::var("WABIDB_EXPERIMENTAL_REPLICATION")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+}
 
 /// Create the main API router with all routes
 pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -48,6 +55,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/calls", calls::routes(state.clone()))
         // Admin routes (policy management, compression, runtime, payments)
         .nest("/admin", admin::routes(state.clone()))
+        // Role-aware operational center (moderation, safety, storage)
+        .nest("/server-center", server_center::routes(state.clone()))
         // Payment routes (non-custodial provider integration)
         .nest("/payments", payments::routes(state.clone()))
         // Helper node registry routes
@@ -56,7 +65,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/blobs", blobs::routes(state.clone()))
         // CAD preview conversion (authenticated, optional helper-backed)
         .nest("/cad", cad::routes(state.clone()))
-        // Mesh coordination routes (multi-node discovery)
+        // Legacy mesh coordination compatibility routes.
         .nest("/mesh", mesh::routes(state.clone()))
         // Break-glass operator routes (loopback + WABI_OPERATOR_SECRET only)
         .nest("/operator", operator::routes(state.clone()))
@@ -70,17 +79,30 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Steam addon routes (opt-in; 404 when STEAM_API_KEY is unset)
         .nest("/steam", steam::routes(state.clone()));
 
-    router
+    let router = router
         // User directory for assignee pickers (kanban board / task panels)
         .route("/users", axum::routing::get(admin::list_users))
         // Media room routing (helper-node SFU assignment)
         .nest("/media", media::routes(state.clone()))
         // Job queue routes
         .nest("/jobs", jobs::routes(state.clone()))
-        // Warm standby snapshot receive route (encrypted envelopes only)
-        .nest("/standby", standby::routes(state.clone()))
-        // Database replication sync (commit index pull/push)
-        .nest("/sync", sync::routes(state.clone()))
+        // Warm standby snapshot receive/status routes. Export/import/promotion
+        // fail closed until a deletion-safe WabiDB live-state path exists.
+        .nest("/standby", standby::routes(state.clone()));
+
+    // The current WabiDB sync worker is not a complete live-replication path.
+    // Do not expose its mutation endpoints merely because WABI_SYNC_TOKEN is
+    // configured. Developer testing must opt in explicitly.
+    let router = if experimental_replication_enabled() {
+        tracing::warn!(
+            "WABIDB_EXPERIMENTAL_REPLICATION is enabled; sync endpoints are experimental and do not provide HA"
+        );
+        router.nest("/sync", sync::routes(state.clone()))
+    } else {
+        router
+    };
+
+    router
         // Whiteboard routes (image upload & file serving)
         .nest("/whiteboard", super::whiteboard::routes(state.clone()))
         // URL preview / image proxy (mounted at /url-preview and /image-proxy)

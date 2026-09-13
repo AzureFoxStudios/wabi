@@ -2,6 +2,7 @@
 
 pub mod addons;
 pub mod admin;
+pub mod server_center;
 pub mod operator;
 pub mod albums;
 pub mod bots;

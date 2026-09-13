@@ -54,6 +54,7 @@ pub mod retention;
 pub mod sequencer;
 pub mod snapshots;
 pub mod storage;
+pub mod stream_identity;
 pub mod stream_log;
 pub mod subscription;
 #[cfg(test)]
