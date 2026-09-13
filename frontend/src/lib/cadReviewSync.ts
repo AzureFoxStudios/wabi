@@ -8,6 +8,7 @@ import {
 	subscribeWhiteboardEvents
 } from '$lib/whiteboard/boardSocket';
 import type { WhiteboardDocument } from '$lib/whiteboard/boardTypes';
+import { toTransportElement } from '$lib/whiteboard/elementTypes';
 import {
 	cadReviewAssetKey,
 	cadReviewBoardId,
@@ -68,7 +69,7 @@ function documentForReview(base: WhiteboardDocument | null, boardId: string, ver
 		boardId,
 		version,
 		updatedAt: Date.now(),
-		elements: cloneCadReviewElements(elements),
+		elements: cloneCadReviewElements(elements).map((element) => toTransportElement(element)),
 		layers: [],
 		activeLayerId: 'cad-review',
 		viewport: { x: 0, y: 0, zoom: 1 },
