@@ -8,6 +8,7 @@
 
 	let canvas: HTMLCanvasElement;
 	let frame = 0;
+	let mounted = false;
 	let reducedMotion = false;
 
 	type Fish = {
@@ -80,13 +81,14 @@
 	}
 
 	function draw(t = 0) {
-		if (!canvas || scene !== 'koi') return;
+		if (!mounted || !canvas) return;
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
 		resize(ctx);
 		const w = canvas.clientWidth;
 		const h = canvas.clientHeight;
 		ctx.clearRect(0, 0, w, h);
+		if (scene !== 'koi') return;
 
 		const pond = ctx.createLinearGradient(0, 0, 0, h);
 		pond.addColorStop(0, '#153f46');
@@ -110,31 +112,44 @@
 		if (!reducedMotion) frame = requestAnimationFrame(draw);
 	}
 
+	function restart() {
+		if (!mounted) return;
+		cancelAnimationFrame(frame);
+		draw(performance.now());
+	}
+
+	$: scene, motion, restart();
+
 	onMount(() => {
+		mounted = true;
 		const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-		const sync = () => {
+		const syncMotion = () => {
 			reducedMotion = media.matches;
-			cancelAnimationFrame(frame);
-			draw(performance.now());
+			restart();
 		};
-		sync();
-		media.addEventListener?.('change', sync);
-		const observer = new ResizeObserver(() => draw(performance.now()));
+		syncMotion();
+		media.addEventListener?.('change', syncMotion);
+		const observer = new ResizeObserver(restart);
 		observer.observe(canvas);
+		restart();
 		return () => {
+			mounted = false;
 			cancelAnimationFrame(frame);
 			observer.disconnect();
-			media.removeEventListener?.('change', sync);
+			media.removeEventListener?.('change', syncMotion);
 		};
 	});
 </script>
 
-{#if scene !== 'none'}
-	<div class="chat-backdrop" aria-hidden="true" style={`--chat-backdrop-dim:${dim};--chat-backdrop-frost:${frost};`}>
-		<canvas bind:this={canvas} class="chat-backdrop-canvas"></canvas>
-		<div class="chat-backdrop-wash"></div>
-	</div>
-{/if}
+<div
+	class="chat-backdrop"
+	class:hidden={scene === 'none'}
+	aria-hidden="true"
+	style={`--chat-backdrop-dim:${dim};--chat-backdrop-frost:${frost};`}
+>
+	<canvas bind:this={canvas} class="chat-backdrop-canvas"></canvas>
+	<div class="chat-backdrop-wash"></div>
+</div>
 
 <style>
 	.chat-backdrop {
@@ -143,6 +158,10 @@
 		z-index: 0;
 		overflow: hidden;
 		pointer-events: none;
+	}
+
+	.chat-backdrop.hidden {
+		display: none;
 	}
 
 	.chat-backdrop-canvas,
