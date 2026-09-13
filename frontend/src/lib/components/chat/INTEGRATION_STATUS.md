@@ -1,0 +1,1 @@
+Backdrop rendering, local persistence, settings UI, reduced-motion behavior, live host, and stacking CSS are implemented on this branch. The remaining wiring is to mount the host in the primary chat component and surface the settings component in the Appearance settings route once those concrete files are located.
