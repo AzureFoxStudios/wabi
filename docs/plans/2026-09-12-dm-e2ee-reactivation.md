@@ -403,4 +403,46 @@ scope) → WS-6 → WS-7.
 
 | Date | Workstream | Commit | Notes |
 |------|-----------|--------|-------|
-| — | — | — | — |
+| 2026-09-13 | WS-1 | `c26a2472` | E2EE envelope (`encrypted`, `iv`, `ratchet_dh_public`, `pn`, `ns`) on `MessageRecord` + `DmMessageRecord` with lenient decode fallbacks (current→V1→V0 / current→V0); threaded through `WabiStore::send_message`/`send_dm_message` (new `E2eeEnvelope` arg), `WdbAdapter`, REST `SendMessageRequest`/`MessageResponse`, socket `message` handler + history WDB fallback, domain `Message`/`DmMessage`. Encrypted round-trip + legacy-decode tests on both projections; all construction sites updated (locks, property tests, benches, bots/lore/contract call sites). |
+
+---
+
+## 6. State note for the next agent (2026-09-13)
+
+**Branch:** `wip/dm-e2ee-reactivation` (from `main`). Push is authorized for this
+branch only. Commits go through the GitHub API (`create_github_commit_from_files`),
+which lands directly on the remote branch — no separate `git push` step.
+
+**Done:**
+- Plan doc committed (`4bcb8ad1`).
+- WS-1 complete (`c26a2472`) — see completion log. The server can now store and
+  reload the full E2EE envelope; a reloaded encrypted message keeps its `iv` +
+  ratchet position. **Not yet compile-verified in a sandbox** (no Rust toolchain
+  here) — the next agent should run `cargo test -p wabidb -p wabi-core -p
+  wabi-server` (or at least `cargo check`) before building on top.
+
+**Key design decision (WS-1):** E2EE rides the **generic** `MessageRecord` path
+for v1, not the dedicated `DmMessageRecord` path. The socket `message` handler
+routes DMs through generic `send_message` today; the dedicated DM path has no
+socket caller, seq-hex ids (violates golden rule 3), and no delivery status.
+Both record types got the same 5 fields so the dedicated path is ready to be
+promoted later (WS-5).
+
+**Wire contract (already in place, client must match in WS-3):**
+- Socket `message` cmd accepts: `encrypted` (bool), `iv` (base64 str),
+  `ratchetDhPublic` (base64 str), `pn` (u64), `ns` (u64). Absent = plaintext.
+- Socket `history` WDB fallback + REST `MessageResponse` return the same five
+  fields so reloads keep the envelope.
+- REST `POST /messages` `SendMessageRequest` accepts the same five fields.
+
+**Next (in order):** WS-0 spec (`docs/specs/dm-e2ee.md` + threat model) →
+WS-2 prekey upload/fetch API (the `dm_identities` registry is already
+implemented + tested server-side; it needs a REST/socket surface + client
+integration) → WS-3 client seal/open wiring (`frontend/src/lib/dm/` TS crypto
+stack exists and is tested) → WS-4 downgrade protection → WS-5 multi-device +
+recovery → WS-6/7 docs + independent review bundle.
+
+**Local scratch copies** live in `/opt/sandbox/workspace/tmp/wabi-e2ee/`
+(fetched from `main` for surgical editing). Re-fetch from the branch before
+editing any file in a future session — they reflect the pre-WS-1 state for
+files not touched here.
