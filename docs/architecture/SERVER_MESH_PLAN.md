@@ -24,7 +24,7 @@ Nearby TURN/SFU/media infrastructure is independent from backend-state failover.
 - **Helper** — paired worker with scoped capabilities (CPU, thumbnails, transcode, search, media relay, etc.). Helpers do not become authorities by implication.
 - **Anchor** — stateless regional HTTP proxy to one Authority. It owns no WabiDB state.
 - **Warm standby** — high-trust recovery target for encrypted current/live-state snapshots. Promotion is intentionally manual.
-- **WabiDB replication** — database commit/segment synchronization configured with `WABIDB_PEER_ENDPOINT`; this is not the same thing as Anchor routing or helper heartbeats.
+- **WabiDB replication** — experimental commit/segment synchronization scaffolding configured with `WABIDB_PEER_ENDPOINT`; this is not the same thing as Anchor routing or helper heartbeats and is not production HA.
 - **Legacy mesh coordinator / `wabi-mesh` addon** — deprecated prototypes. They are not proof of state replication or failover.
 
 ## 3. Current Baseline
@@ -46,9 +46,19 @@ Current boundary:
 - Authority unavailable: Anchor fails fast with `503 authority unavailable`;
 - native WebSocket upgrade proxying: **not implemented yet**. Socket.IO may fall back to HTTP polling, so do not describe Anchor mode as completed realtime regional fanout.
 
-### 3.3 WabiDB replication
+### 3.3 WabiDB replication — experimental only
 
-Replication is no longer merely an unused module. When `WABIDB_PEER_ENDPOINT` is configured, `AppState` gives WabiDB a real `ReqwestTransport` and replication config.
+`AppState` contains a runtime hook for WabiDB's replication configuration when `WABIDB_PEER_ENDPOINT` is present, and the server has an authenticated HTTP `ReqwestTransport`. During this audit we found that the underlying worker is **not a complete live-replication implementation**:
+
+- pulled data is currently commit metadata only; the worker advances a peer watermark without ingesting pulled segment bytes into live projections;
+- pushed segment shipping existed, but stream-id association could select same-numbered segments from the wrong stream; the transport now resolves streams by the commit index's BLAKE3 stream-id hash;
+- receiving pushed segment/index files does not by itself update the running node's in-memory projections;
+- there is no safe active-active writer/election model around commit-sequence conflicts.
+
+Therefore network replication is **disabled by default even when a peer endpoint is configured**. Developer testing additionally requires:
+
+- `WABIDB_EXPERIMENTAL_REPLICATION=true`
+- `WABI_SYNC_TOKEN` matching the peer
 
 The HTTP transport uses:
 
@@ -58,8 +68,9 @@ The HTTP transport uses:
 - `WABI_SYNC_TOKEN` / `x-wabi-sync-token`
 - bounded connect/request timeouts
 - explicit non-2xx failure handling
+- stream-id hash validation while locating shipped segments
 
-This means replication plumbing is runtime-wired. It **does not** mean Wabi has production failover. Before claiming HA, require a real two-node test covering initial sync, ongoing writes, restart/catch-up, deletion/retention behavior and operator recovery.
+This is scaffolding for the acceptance work below, not a production replica. Do not put `WABIDB_EXPERIMENTAL_REPLICATION=true` in normal deployment examples.
 
 ### 3.4 Warm standby
 
@@ -91,12 +102,17 @@ The old addon is compatibility-only scaffolding. It must not be extended into th
 
 ### 4.2 `WABI_MESH_ENABLED` coordinator
 
-`core/crates/wabi-server/src/mesh.rs` is a legacy peer-heartbeat coordinator. Its status now reports `heartbeat_only`, never `synced`.
+`core/crates/wabi-server/src/mesh.rs` is retired. Setting the old `WABI_MESH_ENABLED` path now fails closed with migration guidance rather than starting a heartbeat loop against a nonexistent receiver or reporting fake synchronized state.
 
-It is separate from WabiDB replication and the core helper registry. New work should prefer helper-node health for worker/media nodes and WabiDB's replication status for state synchronization rather than adding features to this coordinator.
+Use:
+
+- core helper nodes for worker/media health;
+- `WABI_SERVER_ROLE=anchor` for a stateless regional HTTP gateway;
+- the explicitly experimental WabiDB path only for replication development.
 
 ## 5. What Wabi Does Not Claim Today
 
+- no production WabiDB state replication;
 - no automatic backend failover;
 - no automatic Authority election;
 - no active-active multi-writer community state;
@@ -140,21 +156,22 @@ If the Authority fails, initial recovery target is explicit operator promotion/r
 
 ## 7. Acceptance Gates Before Calling This HA
 
-1. **Replication integration test:** two real WabiDB nodes sync retained state both directions with authenticated transport.
-2. **Restart/catch-up test:** stop one node, write on the other, restart and verify convergence.
+1. **Replication integration test:** two real WabiDB nodes ship segment bytes, apply them to live projections, and expose the same retained state with authenticated transport.
+2. **Restart/catch-up test:** stop one node, write on the Authority, restart the replica and verify convergence without commit-sequence collisions.
 3. **Deletion test:** deleted/expired content must not reappear after sync or restore.
-4. **Anchor realtime test:** WebSocket/Socket.IO behavior through an Anchor must be explicitly supported and tested, not assumed from HTTP proxying.
-5. **Standby export/import:** a complete encrypted current-state snapshot can restore a clean node without raw-history resurrection.
-6. **Manual promotion runbook:** operator can promote a tested standby and redirect clients without two writable Authorities.
-7. Only then evaluate automatic failover/election.
+4. **Passive-writer rule:** a replica/standby cannot independently accept canonical writes before promotion.
+5. **Anchor realtime test:** WebSocket/Socket.IO behavior through an Anchor must be explicitly supported and tested, not assumed from HTTP proxying.
+6. **Standby export/import:** a complete encrypted current-state snapshot can restore a clean node without raw-history resurrection.
+7. **Manual promotion runbook:** operator can promote a tested standby and redirect clients without two writable Authorities.
+8. Only then evaluate automatic failover/election.
 
 ## 8. Cross-References
 
 - `core/crates/wabi-server/src/anchor.rs` — stateless regional HTTP proxy
 - `core/crates/wabi-server/src/nodes/` — core helper-node identity/health/capabilities
-- `core/crates/wabi-server/src/replication_transport.rs` — authenticated WabiDB HTTP transport
+- `core/crates/wabi-server/src/replication_transport.rs` — authenticated experimental WabiDB HTTP transport
 - `core/crates/wabi-server/src/api/sync.rs` — replication endpoints
-- `core/crates/wabidb/src/replication/` — replication engine
+- `core/crates/wabidb/src/replication/` — replication scaffolding
 - `core/crates/wabi-server/src/standby/` — encrypted standby primitives
 - `core/crates/wabi-server/src/api/standby.rs` — standby readiness/export/restore boundary
 - `frontend/src/lib/relaySelector.ts` — measured relay preference
