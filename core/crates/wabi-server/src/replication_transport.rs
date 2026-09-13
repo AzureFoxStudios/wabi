@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use wabidb::commit_index::record::CommitIndexEntry;
 use wabidb::error::{Result, WabiError};
 use wabidb::replication::SyncTransport;
+use wabidb::stream_identity::stream_id_hash;
 
 use crate::api::sync::{PushedSegment, SyncEntry, SyncPullRequest, SyncPullResponse, SyncPushRequest};
 
@@ -151,9 +152,7 @@ impl ReqwestTransport {
                         continue;
                     };
                     // Never choose a same-numbered segment from the wrong stream.
-                    // StreamRef stores the first 16 bytes of BLAKE3(stream_id).
-                    let hash = blake3::hash(stream_id.as_bytes());
-                    if hash.as_bytes()[..16] != sr.stream_id_hash {
+                    if stream_id_hash(&stream_id) != sr.stream_id_hash {
                         continue;
                     }
                     let seg_path = dir_entry
@@ -193,8 +192,7 @@ impl ReqwestTransport {
             let Some(stream_id) = dir_entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
-            let hash = blake3::hash(stream_id.as_bytes());
-            if hash.as_bytes()[..16] == stream_ref.stream_id_hash {
+            if stream_id_hash(&stream_id) == stream_ref.stream_id_hash {
                 return stream_id;
             }
         }
