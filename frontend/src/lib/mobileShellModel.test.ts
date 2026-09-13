@@ -58,6 +58,17 @@ describe('mobile shell model', () => {
 		expect(nextMobileBackSurface(stack)).toBe('server-switcher');
 	});
 
+	test('discovers surfaces opened outside the root nav without losing existing order', () => {
+		let stack = reconcileMobileSurfaceStack([], { ...closed, conversationOpen: true });
+		stack = reconcileMobileSurfaceStack(stack, {
+			...closed,
+			conversationOpen: true,
+			rightOverlayOpen: true
+		});
+		expect(stack).toEqual(['conversation', 'overlay']);
+		expect(nextMobileBackSurface(stack)).toBe('overlay');
+	});
+
 	test('closing a surface removes it without disturbing older surfaces', () => {
 		const stack = reconcileMobileSurfaceStack(
 			['workspace', 'settings', 'server-switcher'],
