@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
-	import { getApiBase, fetchWithTimeout } from '$lib/api/utils';
+	import { getApiBase, fetchWithTimeout, parseApiJson } from '$lib/api/utils';
 	import { getAuthToken } from '$lib/authSession';
 	import Cad2DViewer from './Cad2DViewer.svelte';
 
@@ -47,7 +47,7 @@
 
 	async function jsonError(response: Response, fallback: string): Promise<string> {
 		try {
-			const payload = await response.clone().json() as { error?: unknown };
+			const payload = await parseApiJson(response.clone()) as { error?: unknown } | null;
 			if (typeof payload?.error === 'string' && payload.error.trim()) return payload.error.trim();
 		} catch { /* fall through */ }
 		try {
@@ -70,7 +70,7 @@
 
 	async function convert(source: string, requestGeneration: number, controller: AbortController): Promise<void> {
 		try {
-			const server = getApiBase();
+			const server = getApiBase().replace(/\/+$/, '');
 			const token = getAuthToken(server);
 			if (!token) throw new Error('Sign in to this Wabi server before converting DWG previews.');
 			const headers = { Authorization: `Bearer ${token}` };
@@ -83,7 +83,10 @@
 			if (!capabilities.ok) {
 				throw new Error(await jsonError(capabilities, `Could not check DWG converter availability (${capabilities.status}).`));
 			}
-			const capabilityPayload = await capabilities.json() as { dwg_to_dxf?: boolean };
+			const capabilityPayload = await parseApiJson(capabilities) as { dwg_to_dxf?: boolean } | null;
+			if (!capabilityPayload) {
+				throw new Error('This Wabi server does not expose the CAD conversion API yet. Update the server before opening DWG previews.');
+			}
 			if (!capabilityPayload.dwg_to_dxf) {
 				throw new Error("This Wabi server does not have LibreDWG's dwg2dxf helper enabled. Install it on the server or point WABI_DWG2DXF_BIN at the helper; the original DWG remains unchanged.");
 			}
