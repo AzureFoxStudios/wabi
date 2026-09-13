@@ -4,9 +4,9 @@
   "version": "0.2.0",
   "description": "Community maps, custom floorplans, points of interest, and collaborative map boards",
   "backend": {
-    "runtime": "builtin",
-    "path": null,
-    "crate": null,
+    "runtime": "rust",
+    "path": "backend",
+    "crate": "wabi-server-map",
     "cargo_feature": null
   },
   "frontend": {
@@ -19,7 +19,6 @@
     "bundled": true
   },
   "permissions": [
-    "network:outbound",
-    "storage:local"
+    "network:outbound"
   ]
 }
