@@ -1,11 +1,9 @@
 import { normalizeServerUrl, resolveServerUrl } from './serverUrl';
 import { clearRefreshToken } from './api/authRefresh';
 
-// 2026-08-27: this module is imported (transitively) by bun:test suites, and
-// the `$app/environment` Vite virtual module poisons the shared module cache
-// when a suite forgot to mock it — every later import of authSession then
-// fails with "export 'setAuthToken' not found" (the long-standing baseline
-// bun/CI `test` failure). Same browser-guard pattern as callAudioGraph.
+// This module is imported transitively by bun:test suites, so keep it free of
+// SvelteKit virtual-module imports. Runtime detection below uses only browser
+// globals and dynamically imports native helpers when needed.
 const browser: boolean = typeof window !== 'undefined' && typeof document !== 'undefined';
 
 const LEGACY_AUTH_TOKEN_KEY = 'authToken';
@@ -52,6 +50,19 @@ function scopedKey(prefix: string, serverScope: string): string {
 	return `${prefix}${encodeURIComponent(serverScope)}`;
 }
 
+function isTauriLikeRuntime(): boolean {
+	if (!browser) return false;
+	const runtime = window as Window & {
+		__TAURI__?: unknown;
+		__TAURI_CORE__?: unknown;
+		__TAURI_INTERNALS__?: unknown;
+	};
+	if (runtime.__TAURI__ || runtime.__TAURI_CORE__ || runtime.__TAURI_INTERNALS__) return true;
+	const { protocol, hostname } = window.location;
+	if (protocol === 'tauri:' || protocol === 'asset:' || hostname === 'tauri.localhost') return true;
+	return typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('tauri');
+}
+
 function safeSessionGet(key: string): string | null {
 	try {
 		return sessionStorage.getItem(key);
@@ -62,11 +73,8 @@ function safeSessionGet(key: string): string | null {
 
 function safeSessionSet(key: string, value: string | null): void {
 	try {
-		if (value) {
-			sessionStorage.setItem(key, value);
-		} else {
-			sessionStorage.removeItem(key);
-		}
+		if (value) sessionStorage.setItem(key, value);
+		else sessionStorage.removeItem(key);
 	} catch {
 		// Ignore storage failures.
 	}
@@ -82,14 +90,27 @@ function safeLocalGet(key: string): string | null {
 
 function safeLocalSet(key: string, value: string | null): void {
 	try {
-		if (value) {
-			localStorage.setItem(key, value);
-		} else {
-			localStorage.removeItem(key);
-		}
+		if (value) localStorage.setItem(key, value);
+		else localStorage.removeItem(key);
 	} catch {
 		// Ignore storage failures.
 	}
+}
+
+function persistentTokenKey(serverUrl?: string | null): string {
+	return scopedKey(PERSISTED_AUTH_TOKEN_KEY_PREFIX, resolveServerScope(serverUrl));
+}
+
+/** Native bootstrap uses this only to migrate old plaintext remember-me state. */
+export function getPlaintextPersistentAuthTokenForMigration(serverUrl?: string | null): string | null {
+	if (!browser) return null;
+	return normalizeSecret(safeLocalGet(persistentTokenKey(serverUrl)));
+}
+
+/** Remove a migrated plaintext remember-me token after native persistence succeeds. */
+export function clearPlaintextPersistentAuthTokenForMigration(serverUrl?: string | null): void {
+	if (!browser) return;
+	safeLocalSet(persistentTokenKey(serverUrl), null);
 }
 
 function hydrateLegacyAuthSecrets(serverUrl?: string | null): void {
@@ -116,7 +137,6 @@ function hydrateLegacyAuthSecrets(serverUrl?: string | null): void {
 			normalizeSecret(safeLocalGet(LEGACY_USERNAME_KEY));
 		const dbUserId = normalizeSecret(safeLocalGet(scopedDbUserIdKey)) || normalizeSecret(safeLocalGet(LEGACY_DB_USER_ID_KEY));
 
-		// Auth tokens remain in session storage under a server-scoped key.
 		safeSessionSet(scopedAuthTokenKey, authToken);
 		safeSessionSet(scopedGuestSessionKey, guestSessionId);
 		safeLocalSet(scopedUsernameKey, username);
@@ -143,7 +163,11 @@ export function getAuthToken(serverUrl?: string | null): string | null {
 	const scope = resolveServerScope(serverUrl);
 	const sessionToken = normalizeSecret(safeSessionGet(scopedKey(SESSION_AUTH_TOKEN_KEY_PREFIX, scope)));
 	if (sessionToken) return sessionToken;
-	// Fall back to persisted (remember me) token, and promote it to session for this session
+
+	// Browser/PWA remember-me remains web storage. Installed Tauri clients are
+	// hydrated from the OS credential store by hooks.client.ts before page
+	// hydration. The localStorage read here exists only for migration from older
+	// installed builds and normal web clients.
 	const persistedToken = normalizeSecret(safeLocalGet(scopedKey(PERSISTED_AUTH_TOKEN_KEY_PREFIX, scope)));
 	if (persistedToken) {
 		safeSessionSet(scopedKey(SESSION_AUTH_TOKEN_KEY_PREFIX, scope), persistedToken);
@@ -162,14 +186,25 @@ export function setAuthToken(token: string | null | undefined, serverUrl?: strin
 export function setPersistentAuthToken(token: string | null | undefined, serverUrl?: string | null): void {
 	if (!browser) return;
 	const normalized = normalizeSecret(token);
-	safeLocalSet(scopedKey(PERSISTED_AUTH_TOKEN_KEY_PREFIX, resolveServerScope(serverUrl)), normalized);
+	const scope = resolveServerScope(serverUrl);
+
+	if (isTauriLikeRuntime()) {
+		// Installed apps never create a new plaintext persistent auth token.
+		// The native helper fails closed: if the OS credential store is missing,
+		// remember-me simply will not survive process death.
+		safeLocalSet(scopedKey(PERSISTED_AUTH_TOKEN_KEY_PREFIX, scope), null);
+		void import('./nativeAuthPersistence')
+			.then(({ persistNativeAuthToken }) => persistNativeAuthToken(normalized, scope))
+			.catch((error) => console.warn('[auth] Native remember-me storage unavailable:', error));
+		return;
+	}
+
+	safeLocalSet(scopedKey(PERSISTED_AUTH_TOKEN_KEY_PREFIX, scope), normalized);
 }
 
 export function clearAuthToken(serverUrl?: string | null): void {
 	setAuthToken(null, serverUrl);
-	if (browser) {
-		safeLocalSet(scopedKey(PERSISTED_AUTH_TOKEN_KEY_PREFIX, resolveServerScope(serverUrl)), null);
-	}
+	if (browser) setPersistentAuthToken(null, serverUrl);
 }
 
 export function getGuestSessionId(serverUrl?: string | null): string | null {
@@ -230,8 +265,6 @@ export function clearStoredIdentity(serverUrl?: string | null): void {
 export function clearAuthSession(serverUrl?: string | null): void {
 	clearAuthToken(serverUrl);
 	clearGuestSessionId(serverUrl);
-	// The refresh token is part of the session: logout must kill it too,
-	// or a 30-day refresh token survives in sessionStorage after "logout".
 	clearRefreshToken(serverUrl);
 	const server = resolveServerScope(serverUrl);
 	sessionGenerations.set(server, authSessionGeneration(server) + 1);
