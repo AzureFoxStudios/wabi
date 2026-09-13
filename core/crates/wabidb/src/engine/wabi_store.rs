@@ -12,6 +12,25 @@ use crate::projections::payments::{
     PaymentAccountLinkRecord, PaymentIntentRecord, PaymentUserBlockRecord,
 };
 
+/// E2EE envelope fields for a DM message (see `docs/specs/dm-e2ee.md`).
+///
+/// When `encrypted` is true, the message body carries base64 ciphertext
+/// produced by the client-side double ratchet; the server stores it
+/// opaquely and never holds a key that can decrypt it. All fields are
+/// `None`/`false` for plaintext messages.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct E2eeEnvelope {
+    pub encrypted: bool,
+    /// Base64 AES-GCM nonce.
+    pub iv: Option<String>,
+    /// Base64 X25519 ratchet DH step (Signal `RatchetDHr`).
+    pub ratchet_dh_public: Option<String>,
+    /// Peer ratchet position (Signal `PN`).
+    pub pn: Option<u64>,
+    /// Sender ratchet position (Signal `Ns`).
+    pub ns: Option<u64>,
+}
+
 /// The storage API trait for WabiDB.
 ///
 /// Domain-level methods for reading and writing data. Implementations
@@ -26,6 +45,9 @@ pub trait WabiStore: Send + Sync {
     // --- writes ---
 
     /// Persist a message in a channel and return its ID.
+    ///
+    /// `e2ee` carries the optional E2EE envelope fields (see
+    /// [`E2eeEnvelope`]); pass `E2eeEnvelope::default()` for plaintext.
     async fn send_message(
         &self,
         channel_id: &str,
@@ -33,6 +55,7 @@ pub trait WabiStore: Send + Sync {
         content: &str,
         is_spoiler: bool,
         files: &[crate::projections::messages::FileAttachmentRecord],
+        e2ee: &E2eeEnvelope,
     ) -> Result<String>;
 
     /// Create a new user. Returns the new user_id.
@@ -844,7 +867,16 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Send a DM message. Returns the new message id.
-    async fn send_dm_message(&self, _dm_id: &str, _author_user_id: u64, _content: &str) -> Result<String> {
+    ///
+    /// `e2ee` carries the optional E2EE envelope fields (see
+    /// [`E2eeEnvelope`]); pass `E2eeEnvelope::default()` for plaintext.
+    async fn send_dm_message(
+        &self,
+        _dm_id: &str,
+        _author_user_id: u64,
+        _content: &str,
+        _e2ee: &E2eeEnvelope,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
@@ -1045,6 +1077,7 @@ impl WabiStore for LocalWabiStore {
         _content: &str,
         _is_spoiler: bool,
         _files: &[crate::projections::messages::FileAttachmentRecord],
+        _e2ee: &E2eeEnvelope,
     ) -> Result<String> {
         // LocalWabiStore is read-only by design (no interior mutability);
         // real writes go through the engine via WdbAdapter.
@@ -1403,7 +1436,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_string_methods_still_work() {
         let store = LocalWabiStore::new();
-        let id = store.send_message("ch_1", 42, "hello", false, &[]).await.unwrap();
+        let id = store.send_message("ch_1", 42, "hello", false, &[], &E2eeEnvelope::default()).await.unwrap();
         assert!(!id.is_empty());
         let _ = store.get_message("any_id").await.unwrap();
         let _ = store.list_messages("ch_1", 10).await.unwrap();

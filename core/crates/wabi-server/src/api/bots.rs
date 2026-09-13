@@ -175,7 +175,7 @@ async fn handle_send_message(
 
     let message_id = state
         .wdb
-        .send_message(&req.channel_id, sender_id, &req.content, is_spoiler, &[])
+        .send_message(&req.channel_id, sender_id, &req.content, is_spoiler, &[], &wabidb::engine::wabi_store::E2eeEnvelope::default())
         .await?;
 
     let message_view = json!({

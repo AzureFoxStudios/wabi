@@ -112,6 +112,7 @@ async fn bindings_and_promotes_survive_restart_and_message_deletion() {
                     file_name: "goku_v1.png".into(),
                     file_size: 1234,
                 }],
+                &wabidb::engine::wabi_store::E2eeEnvelope::default(),
             )
             .await
             .unwrap();

@@ -97,6 +97,16 @@ struct MessageResponse {
     is_spoiler: bool,
     #[serde(default)]
     files: Vec<serde_json::Value>,
+    #[serde(default)]
+    encrypted: bool,
+    #[serde(default)]
+    iv: Option<String>,
+    #[serde(default)]
+    ratchet_dh_public: Option<String>,
+    #[serde(default)]
+    pn: Option<u64>,
+    #[serde(default)]
+    ns: Option<u64>,
 }
 
 /// Convert a WDB typed `Message` to the JSON `MessageResponse` shape.
@@ -127,6 +137,11 @@ fn message_to_response(m: wabidb::domain::Message, username: String) -> MessageR
                 "fileSize": f.file_size,
             }))
             .collect(),
+        encrypted: m.encrypted,
+        iv: m.iv,
+        ratchet_dh_public: m.ratchet_dh_public,
+        pn: m.pn,
+        ns: m.ns,
     }
 }
 
@@ -177,6 +192,17 @@ struct SendMessageRequest {
     message_type: Option<String>,
     #[serde(default)]
     is_spoiler: bool,
+    /// E2EE envelope (see docs/specs/dm-e2ee.md). Absent = plaintext.
+    #[serde(default)]
+    encrypted: bool,
+    #[serde(default)]
+    iv: Option<String>,
+    #[serde(default)]
+    ratchet_dh_public: Option<String>,
+    #[serde(default)]
+    pn: Option<u64>,
+    #[serde(default)]
+    ns: Option<u64>,
 }
 
 async fn send_message(
@@ -213,6 +239,14 @@ async fn send_message(
         .unwrap_or(false);
     let is_spoiler = req.is_spoiler || channel_force_spoiler;
 
+    let e2ee = wabidb::engine::wabi_store::E2eeEnvelope {
+        encrypted: req.encrypted,
+        iv: req.iv.clone(),
+        ratchet_dh_public: req.ratchet_dh_public.clone(),
+        pn: req.pn,
+        ns: req.ns,
+    };
+
     let message_id = if is_live {
         format!("live_{}", uuid::Uuid::new_v4())
     } else {
@@ -222,7 +256,7 @@ async fn send_message(
         // WDB-assigned message_id (format!("msg_{:x}", commit_seq)).
         state
             .wdb
-            .send_message(&req.channel_id, sender_id, &req.content, is_spoiler, &[])
+            .send_message(&req.channel_id, sender_id, &req.content, is_spoiler, &[], &e2ee)
             .await?
     };
 
@@ -289,6 +323,11 @@ async fn send_message(
         edited_at: None,
         is_spoiler,
         files: vec![],
+        encrypted: e2ee.encrypted,
+        iv: e2ee.iv,
+        ratchet_dh_public: e2ee.ratchet_dh_public,
+        pn: e2ee.pn,
+        ns: e2ee.ns,
     }))
 }
 

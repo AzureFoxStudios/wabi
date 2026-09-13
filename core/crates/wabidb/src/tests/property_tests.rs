@@ -100,6 +100,11 @@ proptest! {
             is_deleted: false,
             is_spoiler: false,
             files: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         projection_round_trip(&record);
     }

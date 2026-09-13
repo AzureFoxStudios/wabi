@@ -103,13 +103,19 @@ with its own `dm_message_created` event and `dm_messages` projection.
 fields there is a dual-decode task (golden rule #5).
 
 Note: `send_dm_message` has **no socket caller on `main` today** — the socket
-`message` handler routes everything through the generic `send_message` path. The
-dedicated DM write path (and the `dm_message_recipients` projection) is
-infrastructure built ahead of its wiring. WS-3 must decide: wire DMs onto the
-dedicated `DmMessageRecord` path (preferred — it already models per-device
-authorship and per-recipient delivery), or extend the generic path. **Decision:
-use the dedicated path** — it is the shape the crypto design expects
-(`sender_device_id` / `recipient_device_id` on `DmEnvelope`).
+`message` handler routes everything (including DMs) through the generic
+`send_message` path. The dedicated DM write path (and the
+`dm_message_recipients` projection) is infrastructure built ahead of its
+wiring. **Decision (2026-09-13): E2EE rides the generic path for v1.**
+Rationale: the dedicated path is not production-ready (seq-hex message ids
+instead of UUIDs — the exact class of bug golden rule 3 exists to prevent;
+no socket wiring; no recipient/delivery status yet). Extending the generic
+`MessageRecord` with the full envelope (`encrypted`, `iv`,
+`ratchet_dh_public`, `pn`, `ns`) is a smaller, safer change and keeps the
+existing UUID identity guarantees. The dedicated `DmMessageRecord` gets the
+same fields (done) so it is ready when the DM path is promoted; per-device
+authorship and per-recipient delivery status are deferred to WS-5
+(multi-device), where `dm_message_recipients` will actually be wired.
 
 ### 1.6 The decision that shapes everything
 
@@ -171,8 +177,19 @@ migration. **Target is `DmMessageRecord`** (the dedicated DM path, §1.5), not t
 generic `MessageRecord` — though the generic path gets the same treatment for
 consistency since `MessageView` already exposes the fields.
 
+**Status (2026-09-13): COMPLETE.** All five tasks done — see checkmarks below.
+Implementation note: because the socket `message` handler routes DMs through the
+generic `send_message` path today (the dedicated DM path has no socket caller,
+§1.5), the generic `MessageRecord` was extended with the identical five fields
+(`encrypted`, `iv`, `ratchet_dh_public`, `pn`, `ns`) plus a `MessageRecordV1`
+(pre-E2EE) legacy decode, and the envelope was threaded through
+`WabiStore::send_message` / `send_dm_message` via a new `E2eeEnvelope` struct,
+the REST `SendMessageRequest`/`MessageResponse`, and the socket `message`
+handler + `history` WDB fallback. The dedicated `DmMessageRecord` got the same
+fields so it is ready when the DM path is promoted.
+
 Tasks:
-- [ ] **1.1 Add `iv` + `encrypted` + envelope metadata to `DmMessageRecord`.**
+- [x] **1.1 Add `iv` + `encrypted` + envelope metadata to `DmMessageRecord`.**
   New fields: `encrypted: bool` (default `false`), `iv: Option<String>`,
   `ratchet_dh_public: Option<String>` (base64, the ratchet DH from
   `EncryptedMessage.RatchetDHr`), `pn: Option<u64>`, `ns: Option<u64>`
@@ -181,16 +198,16 @@ Tasks:
   #5**: add a `DmMessageRecordV0` (the current shape) and make
   `decode_record` lenient (`V1 → V0` fallback), defaulting new fields to
   `false`/`None`. Do not mutate `V0`.
-- [ ] **1.2 Same for generic `MessageRecord`** (add `encrypted` + `iv` with a
+- [x] **1.2 Same for generic `MessageRecord`** (add `encrypted` + `iv` with a
   `MessageRecordV1` fallback alongside the existing `V0`), so channel messages
   and the existing `MessageView.encrypted/iv` fields are coherent.
-- [ ] **1.3 Domain types.** Add `encrypted`/`iv` to `wabidb::domain::DmMessage`
+- [x] **1.3 Domain types.** Add `encrypted`/`iv` to `wabidb::domain::DmMessage`
   (currently it drops the body entirely — it has no `content` field) and to
   `wabidb::domain::Message`; update the `From` impls both directions.
-- [ ] **1.4 Adapter + store trait.** Extend `WabiStore::send_dm_message` (and the
+- [x] **1.4 Adapter + store trait.** Extend `WabiStore::send_dm_message` (and the
   `WdbAdapter` impl) to accept the envelope fields; extend the DM read path
   (`get_dm_message`/`list_dm_messages`) to return them.
-- [ ] **1.5 Round-trip tests.** Extend the `dm_messages` projection tests and
+- [x] **1.5 Round-trip tests.** Extend the `dm_messages` projection tests and
   `crates/wabi-core/tests/message_types.rs`: a record with
   `encrypted == true` + `iv` + ratchet fields encodes → decodes → preserves;
   a pre-change on-disk row decodes with `encrypted == false`, `iv == None`.

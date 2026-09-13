@@ -951,7 +951,7 @@ async fn socket_discovery_sync_and_message_mutations_obey_private_membership() {
     let public = channel(&state, outsider, ChannelKind::Text).await;
     let message = state
         .wdb
-        .send_message(&dm, member, "private canary", false, &[])
+        .send_message(&dm, member, "private canary", false, &[], &wabidb::engine::wabi_store::E2eeEnvelope::default())
         .await
         .unwrap();
     state.session_messages.write().await.insert(

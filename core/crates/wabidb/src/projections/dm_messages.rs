@@ -12,6 +12,37 @@ pub struct DmMessageRecord {
     pub author_user_id: u64,
     pub author_device_id: String,
     pub created_at_micros: i64,
+    /// The message body. Plaintext for legacy messages; base64 ciphertext
+    /// when `encrypted` is true.
+    pub encrypted_body_ref: String,
+    pub idempotency_key: Option<String>,
+    pub edit_history: Vec<(i64, String)>,
+    /// True when `encrypted_body_ref` holds base64 ciphertext produced by the
+    /// DM double-ratchet (see `docs/specs/dm-e2ee.md`). Added after the
+    /// initial schema; missing on older on-disk records, which decode via
+    /// `DmMessageRecordV0` and default to `false`.
+    pub encrypted: bool,
+    /// Base64 AES-GCM nonce for the sealed body. `None` for plaintext.
+    pub iv: Option<String>,
+    /// Base64 X25519 ratchet DH ratchet step (Signal `RatchetDHr`), present
+    /// when the sender ratcheted the chain. `None` for plaintext.
+    pub ratchet_dh_public: Option<String>,
+    /// Peer ratchet position (Signal `PN`). `None` for plaintext.
+    pub pn: Option<u64>,
+    /// Sender ratchet position (Signal `Ns`). `None` for plaintext.
+    pub ns: Option<u64>,
+}
+
+/// Pre-E2EE schema, used as a fallback so DM messages written before the
+/// encryption fields existed still decode (defaulting `encrypted` to
+/// `false` and the ratchet fields to `None`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct DmMessageRecordV0 {
+    pub dm_id: String,
+    pub message_id: String,
+    pub author_user_id: u64,
+    pub author_device_id: String,
+    pub created_at_micros: i64,
     pub encrypted_body_ref: String,
     pub idempotency_key: Option<String>,
     pub edit_history: Vec<(i64, String)>,
@@ -28,10 +59,39 @@ pub fn encode_record(r: &DmMessageRecord) -> Vec<u8> {
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<DmMessageRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "dm_messages projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    decode_record_lenient(buf)
+}
+
+/// Decode a `DmMessageRecord`, falling back to the pre-E2EE schema so
+/// on-disk records written before the encryption fields existed still load
+/// (with `encrypted` defaulting to `false` and the ratchet fields `None`).
+pub fn decode_record_lenient(buf: &[u8]) -> Result<DmMessageRecord> {
+    match postcard::from_bytes::<DmMessageRecord>(buf) {
+        Ok(r) => Ok(r),
+        Err(_) => {
+            let v0 = postcard::from_bytes::<DmMessageRecordV0>(buf).map_err(|e| {
+                crate::error::WabiError::Corrupt {
+                    location: "dm_messages projection".into(),
+                    detail: format!("postcard decode failed: {e}"),
+                }
+            })?;
+            Ok(DmMessageRecord {
+                dm_id: v0.dm_id,
+                message_id: v0.message_id,
+                author_user_id: v0.author_user_id,
+                author_device_id: v0.author_device_id,
+                created_at_micros: v0.created_at_micros,
+                encrypted_body_ref: v0.encrypted_body_ref,
+                idempotency_key: v0.idempotency_key,
+                edit_history: v0.edit_history,
+                encrypted: false,
+                iv: None,
+                ratchet_dh_public: None,
+                pn: None,
+                ns: None,
+            })
+        }
+    }
 }
 
 pub fn encode_key(dm_id: &str, message_id: &str) -> Vec<u8> {
@@ -140,6 +200,11 @@ mod tests {
             encrypted_body_ref: "hash123".into(),
             idempotency_key: None,
             edit_history: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         let buf = encode_record(&r);
         let decoded = decode_record(&buf).unwrap();
@@ -160,6 +225,11 @@ mod tests {
             encrypted_body_ref: "hash123".into(),
             idempotency_key: None,
             edit_history: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
 
         let event = DurableEvent {
@@ -204,6 +274,11 @@ mod tests {
             encrypted_body_ref: "hash123".into(),
             idempotency_key: None,
             edit_history: vec![],
+            encrypted: false,
+            iv: None,
+            ratchet_dh_public: None,
+            pn: None,
+            ns: None,
         };
         let event = DurableEvent {
             commit_seq: 1,
@@ -252,11 +327,11 @@ mod tests {
         let state = ProjectionState::new();
         let proj = DmMessagesProjection;
         for i in 1..=3 {
-            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 100 + i, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![] };
+            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 100 + i, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![], encrypted: false, iv: None, ratchet_dh_public: None, pn: None, ns: None };
             proj.apply(&DurableEvent { commit_seq: i, stream_id: "dm_01".into(), event_type: "dm_message_created".into(), payload: encode_record(&r) }, &state).unwrap();
         }
         // A message in another DM must not appear.
-        let other = DmMessageRecord { dm_id: "dm_99".into(), message_id: "msg_99".into(), author_user_id: 200, author_device_id: "dev".into(), created_at_micros: 1, encrypted_body_ref: "h".into(), idempotency_key: None, edit_history: vec![] };
+        let other = DmMessageRecord { dm_id: "dm_99".into(), message_id: "msg_99".into(), author_user_id: 200, author_device_id: "dev".into(), created_at_micros: 1, encrypted_body_ref: "h".into(), idempotency_key: None, edit_history: vec![], encrypted: false, iv: None, ratchet_dh_public: None, pn: None, ns: None };
         proj.apply(&DurableEvent { commit_seq: 9, stream_id: "dm_99".into(), event_type: "dm_message_created".into(), payload: encode_record(&other) }, &state).unwrap();
 
         let results = proj.query(&state, &DmMessagesFilter { dm_id: Some("dm_01".into()), ..Default::default() }).unwrap();
@@ -269,7 +344,7 @@ mod tests {
         let state = ProjectionState::new();
         let proj = DmMessagesProjection;
         for i in 1..=3 {
-            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 7, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![] };
+            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 7, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![], encrypted: false, iv: None, ratchet_dh_public: None, pn: None, ns: None };
             proj.apply(&DurableEvent { commit_seq: i, stream_id: "dm_01".into(), event_type: "dm_message_created".into(), payload: encode_record(&r) }, &state).unwrap();
         }
         let results = proj.query(&state, &DmMessagesFilter { dm_id: Some("dm_01".into()), author_id: Some(7), ..Default::default() }).unwrap();
@@ -285,10 +360,62 @@ mod tests {
         let state = ProjectionState::new();
         let proj = DmMessagesProjection;
         for i in 1..=4 {
-            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 7, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![] };
+            let r = DmMessageRecord { dm_id: "dm_01".into(), message_id: format!("msg_{i:02}"), author_user_id: 7, author_device_id: "dev".into(), created_at_micros: (i * 1_000_000) as i64, encrypted_body_ref: "hash".into(), idempotency_key: None, edit_history: vec![], encrypted: false, iv: None, ratchet_dh_public: None, pn: None, ns: None };
             proj.apply(&DurableEvent { commit_seq: i, stream_id: "dm_01".into(), event_type: "dm_message_created".into(), payload: encode_record(&r) }, &state).unwrap();
         }
         let results = proj.query(&state, &DmMessagesFilter { dm_id: Some("dm_01".into()), author_id: None, limit: Some(2) }).unwrap();
         assert_eq!(results.len(), 2);
+    }
+
+    /// Records written before the E2EE fields existed must still decode
+    /// (defaulting `encrypted` to `false` and the ratchet fields to `None`)
+    /// so existing on-disk DM data survives the schema addition.
+    #[test]
+    fn decode_legacy_record_without_e2ee_fields() {
+        let legacy = DmMessageRecordV0 {
+            dm_id: "dm_legacy".into(),
+            message_id: "msg_legacy".into(),
+            author_user_id: 7,
+            author_device_id: "dev".into(),
+            created_at_micros: 1_000_000,
+            encrypted_body_ref: "plaintext body".into(),
+            idempotency_key: None,
+            edit_history: vec![],
+        };
+        let buf = postcard::to_allocvec(&legacy).unwrap();
+        let decoded = decode_record(&buf).unwrap();
+        assert_eq!(decoded.dm_id, "dm_legacy");
+        assert!(!decoded.encrypted);
+        assert_eq!(decoded.iv, None);
+        assert_eq!(decoded.ratchet_dh_public, None);
+        assert_eq!(decoded.pn, None);
+        assert_eq!(decoded.ns, None);
+    }
+
+    /// An encrypted record round-trips all E2EE envelope fields.
+    #[test]
+    fn encode_decode_encrypted_roundtrip() {
+        let r = DmMessageRecord {
+            dm_id: "dm_01".into(),
+            message_id: "msg_01".into(),
+            author_user_id: 100,
+            author_device_id: "dev_a".into(),
+            created_at_micros: 2_000_000,
+            encrypted_body_ref: "Y2lwaGVydGV4dA==".into(),
+            idempotency_key: None,
+            edit_history: vec![],
+            encrypted: true,
+            iv: Some("bm9uY2U=".into()),
+            ratchet_dh_public: Some("ZGg=".into()),
+            pn: Some(3),
+            ns: Some(4),
+        };
+        let buf = encode_record(&r);
+        let decoded = decode_record(&buf).unwrap();
+        assert_eq!(r, decoded);
+        assert!(decoded.encrypted);
+        assert_eq!(decoded.iv.as_deref(), Some("bm9uY2U="));
+        assert_eq!(decoded.pn, Some(3));
+        assert_eq!(decoded.ns, Some(4));
     }
 }
