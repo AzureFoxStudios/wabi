@@ -705,20 +705,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			return;
 		}
 
-		// Chat stage: preview opening whichever side user drags toward.
-		if (deltaX > 0) {
-			swipePreviewTarget = 'channels';
-			swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
-			swipePreviewActive = true;
-			return;
-		}
-
-		if (deltaX < 0) {
-			swipePreviewTarget = 'users';
-			swipePreviewOffsetX = Math.max(-width, Math.min(0, deltaX));
-			swipePreviewActive = true;
-			return;
-		}
+		// Opening side panels is edge-only. Central horizontal drags belong to chat content.
 	}
 
 	function handleTouchEnd(event: TouchEvent): void {
@@ -745,12 +732,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 			if (!mobileNavVisible && startedNearBottom && swipeUp) {
 				mobileNavVisible = true;
-				resetTouchSwipe();
-				return;
-			}
-
-			if (mobileNavVisible && swipeDown) {
-				mobileNavVisible = false;
 				resetTouchSwipe();
 				return;
 			}
