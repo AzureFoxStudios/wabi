@@ -1,7 +1,8 @@
-//! Mesh coordination service for multi-node integration
+//! Legacy peer-heartbeat coordination for multi-node experiments.
 //!
-//! Provides node discovery, heartbeat management, and coordination
-//! for distributed Wabi deployments.
+//! This is not state replication, backend failover, or geo routing. Durable
+//! state replication lives in WabiDB; helper identity/health lives in the core
+//! node registry; regional Anchor mode is a stateless authority proxy.
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -32,6 +33,8 @@ pub struct MeshService {
 pub struct MeshStatus {
     pub peers: Vec<String>,
     pub is_primary: bool,
+    /// Compatibility field retained for older admin clients. It describes this
+    /// coordinator only; it is never evidence that WabiDB state is replicated.
     pub sync_status: String,
 }
 
@@ -51,7 +54,7 @@ impl MeshService {
         service.start_heartbeat_loop();
 
         info!(
-            "Mesh service initialized with {} peers",
+            "Legacy peer-heartbeat coordinator initialized with {} configured peers; this does not provide state failover",
             service.peer_ids.len()
         );
 
@@ -60,7 +63,6 @@ impl MeshService {
 
     fn start_heartbeat_loop(&self) {
         let config = self.config.clone();
-        let _peer_ids = self.peer_ids.clone();
         let presence = Arc::clone(&self.presence);
 
         tokio::spawn(async move {
@@ -70,7 +72,7 @@ impl MeshService {
                 interval.tick().await;
 
                 if let Err(e) = Self::send_heartbeat(&config).await {
-                    warn!("Failed to send heartbeat: {}", e);
+                    warn!("Failed to send peer heartbeat: {}", e);
                 }
 
                 let mut presence_guard = presence.write().await;
@@ -125,7 +127,7 @@ impl MeshService {
         MeshStatus {
             peers: self.peer_ids.clone(),
             is_primary: presence.is_primary,
-            sync_status: "synced".to_string(),
+            sync_status: "heartbeat_only".to_string(),
         }
     }
 
