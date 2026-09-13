@@ -13,6 +13,7 @@ export interface CadImportPlan {
   preferred: CadImporterKind;
   fallback: CadImporterKind | null;
   canonicalPreview: 'dxf' | 'glb' | null;
+  /** True when this Wabi build has the adapter. Runtime helpers may still be optional. */
   availableNow: boolean;
 }
 
@@ -50,8 +51,8 @@ export function cadImportPlan(name: string | undefined): CadImportPlan {
   const ext = modelExtension(name);
   if (ext === 'dxf') return { preferred: 'builtin-dxf', fallback: null, canonicalPreview: 'dxf', availableNow: true };
   if (ext === '3mf') return { preferred: 'browser-3mf', fallback: 'server-convert', canonicalPreview: 'glb', availableNow: true };
-  if (ext === 'dwg') return { preferred: 'server-convert', fallback: null, canonicalPreview: 'dxf', availableNow: false };
-  if (['step', 'stp', 'iges', 'igs'].includes(ext)) return { preferred: 'occt-wasm', fallback: 'server-convert', canonicalPreview: 'glb', availableNow: false };
+  if (ext === 'dwg') return { preferred: 'server-convert', fallback: null, canonicalPreview: 'dxf', availableNow: true };
+  if (['step', 'stp', 'iges', 'igs'].includes(ext)) return { preferred: 'occt-wasm', fallback: 'server-convert', canonicalPreview: 'glb', availableNow: true };
   return { preferred: 'unavailable', fallback: null, canonicalPreview: null, availableNow: false };
 }
 
@@ -59,8 +60,9 @@ export function modelPreviewKind(name: string | undefined): ModelPreviewKind {
   const ext = modelExtension(name);
   if (MESH.has(ext)) return 'mesh-3d';
   const plan = cadImportPlan(name);
-  if (plan.availableNow && plan.preferred === 'builtin-dxf') return 'cad-2d';
-  if (plan.availableNow && plan.preferred === 'browser-3mf') return 'cad-3d';
+  if (!plan.availableNow) return null;
+  if (plan.canonicalPreview === 'dxf') return 'cad-2d';
+  if (plan.canonicalPreview === 'glb') return 'cad-3d';
   return null;
 }
 export function modelWorkspaceLabel(name: string | undefined): string {
@@ -83,11 +85,8 @@ export function safeModelSource(src: string): string | null {
 }
 export function missingModelSupport(name: string): string | null {
   const family = modelFamily(name);
-  const ext = modelExtension(name);
   const plan = cadImportPlan(name);
   if (family === 'mesh' || plan.availableNow) return null;
-  if (ext === 'dwg') return 'DWG is recognized as 2D CAD. Its import plan is server conversion to ASCII DXF; this server does not have that converter enabled yet.';
-  if (family === 'cad' && cadDimension(name) === '3d') return 'This 3D CAD/manufacturing file is routed to the OpenCascade importer with server conversion as fallback. That adapter is not enabled in this build yet.';
   if (family === 'cad') return 'This CAD file needs a compatible importer. ASCII DXF is the built-in 2D format in this build.';
   if (family === 'mmd') return 'This file needs an MMD adapter. The current viewer does not decode MMD models or motion files.';
   return 'No compatible model or CAD importer is available for this file.';
