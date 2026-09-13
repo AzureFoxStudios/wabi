@@ -1,0 +1,1 @@
+TODO: mount ChatBackdropHost in the primary chat surface and expose ChatBackdropSettings from the Appearance settings panel. Remove this note after integration.
