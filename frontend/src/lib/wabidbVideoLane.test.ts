@@ -165,11 +165,16 @@ beforeEach(() => {
 	wabidbRemoteVideoStreams.set(new Map());
 });
 
-function makeLane(): WabidbVideoLane {
+function makeLane(extra?: { jitterBufferTargetMs?: number; gapRecoveryTimeoutMs?: number }): WabidbVideoLane {
 	return new WabidbVideoLane({
 		sessionId: 'channel:c1',
 		userId: '2',
-		socket: { id: 'sock-self', emit: () => {} }
+		socket: { id: 'sock-self', emit: () => {} },
+		// Immediate-decode mode: these tests assert synchronous decode on
+		// arrival. The buffered path (default 150ms playout delay) is
+		// covered by the jitter-buffer suite below.
+		jitterBufferTargetMs: 0,
+		...extra
 	});
 }
 
@@ -186,7 +191,7 @@ function screenEnvelopeFrom(userId: string, seq: number, bytes: Uint8Array) {
 describe('wabidb video lane receiver display path', () => {
 	test('session lanes isolate same-user decoding and preserve another session on revocation', async () => {
 		const first = makeLane();
-		const second = new WabidbVideoLane({ sessionId: 'channel:other', userId: '2', socket: { id: 'self', emit() {} } });
+		const second = new WabidbVideoLane({ sessionId: 'channel:other', userId: '2', socket: { id: 'self', emit() {} }, jitterBufferTargetMs: 0 });
 		const envelope = { ...screenEnvelopeFrom('3', 0, new Uint8Array([1]))[0], senderSocket: 'peer' };
 		first.handleRemoteEnvelope(envelope);
 		const firstStream = get(wabidbRemoteVideoStreams).get('user-3:screen');
@@ -290,5 +295,100 @@ describe('wabidb video lane receiver display path', () => {
 		expect(get(wabidbRemoteVideoStreams).has('user-4:screen')).toBe(true);
 		lane.stopAll();
 		expect(get(wabidbRemoteVideoStreams).has('user-4:screen')).toBe(false);
+	});
+});
+
+/**
+ * Jitter-buffer + loss-recovery suite (receiver). The relay has no
+ * NACK/FEC, so the receiver must (a) absorb arrival jitter with a small
+ * playout delay and (b) recover from a lost frame by dropping to the next
+ * keyframe. These tests run the BUFFERED path (jitterBufferTargetMs > 0).
+ */
+
+function envWith(userId: string, seq: number, keyFrame: boolean): any {
+	const e = splitFrameIntoChunks('channel:c1', userId, seq, new Uint8Array([1, 2, 3]), {
+		codec: 'vp8', width: 640, height: 360, keyFrame, source: 'screen'
+	})[0];
+	return { ...e, senderSocket: 'peer' };
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((r) => setTimeout(r, ms));
+}
+
+describe('wabidb video lane jitter buffer + loss recovery', () => {
+	test('a keyframe is held until the playout target, then decoded', async () => {
+		const lane = makeLane({ jitterBufferTargetMs: 100 });
+		const before = FakeVideoDecoder.instances.length;
+		lane.handleRemoteEnvelope(envWith('3', 0, true));
+		// Not decoded immediately — the playout delay holds it.
+		expect(FakeVideoDecoder.instances.length).toBe(before);
+		expect(lane.diag.receiver.framesDecoded).toBe(0);
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(1);
+		expect(FakeVideoDecoder.instances.length).toBe(before + 1);
+		lane.stopAll();
+	});
+
+	test('a delta after a gap is held; the next keyframe recodes and resumes', async () => {
+		const lane = makeLane({ jitterBufferTargetMs: 100 });
+		const before = FakeVideoDecoder.instances.length;
+		lane.handleRemoteEnvelope(envWith('3', 0, true)); // seq 0 keyframe
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(1);
+		// seq 2 arrives but seq 1 was lost — the delta is undecodable and
+		// must NOT be decoded (feeding it would corrupt the decoder).
+		lane.handleRemoteEnvelope(envWith('3', 2, false));
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(1);
+		// The next keyframe (seq 3) recovers: it is decodable regardless of
+		// the gap, so playout resumes from it.
+		lane.handleRemoteEnvelope(envWith('3', 3, true));
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(2);
+		lane.stopAll();
+	});
+
+	test('a keyframe-waiting buffer flushes after the gap-recovery timeout', async () => {
+		const lane = makeLane({ jitterBufferTargetMs: 100, gapRecoveryTimeoutMs: 120 });
+		const before = FakeVideoDecoder.instances.length;
+		lane.handleRemoteEnvelope(envWith('3', 0, true));
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(1);
+		// A delta with a gap, and NO keyframe ever arrives. The buffer must
+		// flush (hold the last good frame) rather than wait forever.
+		lane.handleRemoteEnvelope(envWith('3', 5, false));
+		await sleep(220);
+		expect(lane.diag.receiver.framesDecoded).toBe(1);
+		// The stale delta was flushed — a fresh keyframe now decodes cleanly.
+		lane.handleRemoteEnvelope(envWith('3', 6, true));
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(2);
+		lane.stopAll();
+	});
+
+	test('a sender restart (seq regression to 0) resets and decodes the new keyframe', async () => {
+		const lane = makeLane({ jitterBufferTargetMs: 100 });
+		const before = FakeVideoDecoder.instances.length;
+		lane.handleRemoteEnvelope(envWith('3', 0, true));
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(1);
+		// Sender restarts: a new stream begins at seq 0 with a keyframe.
+		// The seq regression is the restart signal — decode immediately.
+		lane.handleRemoteEnvelope(envWith('3', 0, true));
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(2);
+		lane.stopAll();
+	});
+
+	test('stopAll clears the playout timer and pending buffers', async () => {
+		const lane = makeLane({ jitterBufferTargetMs: 100 });
+		lane.handleRemoteEnvelope(envWith('3', 0, true));
+		// Buffer is non-empty (frame held for playout).
+		lane.stopAll();
+		// No crash, and a frame arriving after stop is ignored.
+		lane.handleRemoteEnvelope(envWith('3', 1, false));
+		await sleep(160);
+		expect(lane.diag.receiver.framesDecoded).toBe(0);
 	});
 });
