@@ -64,3 +64,24 @@ export interface CommunityNodeAnnouncementsPolicy {
   onlineTemplate: string;
   offlineTemplate: string;
 }
+
+export type SafetyRuleMatch = 'contains' | 'equals' | 'starts_with' | 'ends_with';
+export type SafetyRuleAction = 'flag' | 'delete' | 'warn' | 'timeout' | 'ban';
+
+export interface SafetyRule {
+  id: string;
+  enabled: boolean;
+  name: string;
+  pattern: string;
+  match: SafetyRuleMatch;
+  caseSensitive: boolean;
+  action: SafetyRuleAction;
+  timeoutMinutes: number | null;
+  reason: string | null;
+}
+
+export interface SafetyRulesPolicy {
+  enabled: boolean;
+  rules: SafetyRule[];
+  defaultFlagChannelId: string | null;
+}
