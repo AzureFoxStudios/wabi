@@ -1,13 +1,18 @@
-//! Legacy peer-heartbeat coordination for multi-node experiments.
+//! Retired legacy peer-heartbeat coordinator.
 //!
-//! This is not state replication, backend failover, or geo routing. Durable
-//! state replication lives in WabiDB; helper identity/health lives in the core
-//! node registry; regional Anchor mode is a stateless authority proxy.
+//! `WABI_MESH_ENABLED` used to initialize an experimental coordinator that
+//! posted to `/api/mesh/heartbeat`, but no receiver route exists in the current
+//! server. Leaving that loop active creates noisy 404s and, worse, suggests a
+//! state/failover feature exists when it does not.
+//!
+//! Current multi-node paths are deliberately separate:
+//! - helper identity/health/capabilities: `nodes/`
+//! - WabiDB state replication: `WABIDB_PEER_ENDPOINT` + `WABI_SYNC_TOKEN`
+//! - regional HTTP gateway: `WABI_SERVER_ROLE=anchor`
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshConfig {
@@ -33,101 +38,29 @@ pub struct MeshService {
 pub struct MeshStatus {
     pub peers: Vec<String>,
     pub is_primary: bool,
-    /// Compatibility field retained for older admin clients. It describes this
-    /// coordinator only; it is never evidence that WabiDB state is replicated.
+    /// Compatibility field retained for older admin clients. It must never be
+    /// interpreted as WabiDB replication health.
     pub sync_status: String,
 }
 
 impl MeshService {
-    pub async fn new(config: MeshConfig, peer_ids: Vec<String>) -> anyhow::Result<Self> {
-        let presence = MeshPresence {
-            peer_heartbeats: std::collections::HashMap::new(),
-            is_primary: config.is_primary,
-        };
-
-        let service = Self {
-            config,
-            peer_ids,
-            presence: Arc::new(RwLock::new(presence)),
-        };
-
-        service.start_heartbeat_loop();
-
-        info!(
-            "Legacy peer-heartbeat coordinator initialized with {} configured peers; this does not provide state failover",
-            service.peer_ids.len()
-        );
-
-        Ok(service)
-    }
-
-    fn start_heartbeat_loop(&self) {
-        let config = self.config.clone();
-        let presence = Arc::clone(&self.presence);
-
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
-
-            loop {
-                interval.tick().await;
-
-                if let Err(e) = Self::send_heartbeat(&config).await {
-                    warn!("Failed to send peer heartbeat: {}", e);
-                }
-
-                let mut presence_guard = presence.write().await;
-                let now = chrono::Utc::now().timestamp();
-
-                let dead_threshold = now - 15;
-                presence_guard.peer_heartbeats.retain(|node_id, last_seen| {
-                    if *last_seen < dead_threshold {
-                        warn!("Peer {} marked as dead (no heartbeat)", node_id);
-                        false
-                    } else {
-                        true
-                    }
-                });
-            }
-        });
-    }
-
-    async fn send_heartbeat(config: &MeshConfig) -> anyhow::Result<()> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(3))
-            .build()?;
-
-        let payload = serde_json::json!({
-            "node_id": config.node_id,
-            "is_primary": config.is_primary,
-            "timestamp": chrono::Utc::now().timestamp(),
-        });
-
-        for peer in &config.mesh_peers {
-            let url = format!("{}/api/mesh/heartbeat", peer.trim_end_matches('/'));
-            match client.post(&url).json(&payload).send().await {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        debug!("Heartbeat sent to peer {}", peer);
-                    } else {
-                        warn!("Heartbeat to {} returned status {}", peer, resp.status());
-                    }
-                }
-                Err(e) => {
-                    warn!("Heartbeat to {} failed: {}", peer, e);
-                }
-            }
-        }
-
-        Ok(())
+    /// The old `WABI_MESH_ENABLED` coordinator is intentionally retired.
+    ///
+    /// Returning an error lets existing startup code degrade to `None` while
+    /// logging one actionable warning instead of starting a heartbeat loop to
+    /// an endpoint that does not exist.
+    pub async fn new(_config: MeshConfig, _peer_ids: Vec<String>) -> anyhow::Result<Self> {
+        Err(anyhow::anyhow!(
+            "WABI_MESH_ENABLED is retired: use helper nodes for worker/media health, WABIDB_PEER_ENDPOINT + WABI_SYNC_TOKEN for state replication, or WABI_SERVER_ROLE=anchor for a regional HTTP gateway"
+        ))
     }
 
     pub async fn get_status(&self) -> MeshStatus {
         let presence = self.presence.read().await;
-
         MeshStatus {
             peers: self.peer_ids.clone(),
             is_primary: presence.is_primary,
-            sync_status: "heartbeat_only".to_string(),
+            sync_status: "retired".to_string(),
         }
     }
 
@@ -140,32 +73,51 @@ impl MeshService {
     pub async fn is_peer_alive(&self, node_id: &str) -> bool {
         let presence = self.presence.read().await;
         let last_seen = presence.peer_heartbeats.get(node_id);
-
         match last_seen {
-            Some(timestamp) => {
-                let now = chrono::Utc::now().timestamp();
-                now - *timestamp < 15
-            }
+            Some(timestamp) => chrono::Utc::now().timestamp() - *timestamp < 15,
             None => false,
         }
     }
 
+    #[allow(dead_code)]
     pub async fn record_heartbeat(&self, node_id: &str, timestamp: i64) {
         let mut presence = self.presence.write().await;
         presence.peer_heartbeats.insert(node_id.to_string(), timestamp);
-        debug!("Recorded heartbeat from peer {}", node_id);
     }
 
     #[allow(dead_code)]
     pub async fn get_alive_peers(&self) -> Vec<String> {
         let presence = self.presence.read().await;
         let now = chrono::Utc::now().timestamp();
-
         presence
             .peer_heartbeats
             .iter()
             .filter(|(_, timestamp)| now - **timestamp < 15)
             .map(|(node_id, _)| node_id.clone())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn legacy_mesh_runtime_fails_closed_with_migration_guidance() {
+        let error = MeshService::new(
+            MeshConfig {
+                node_id: "legacy-node".into(),
+                is_primary: true,
+                mesh_enabled: true,
+                mesh_peers: vec!["https://peer.example".into()],
+            },
+            vec!["https://peer.example".into()],
+        )
+        .await
+        .err()
+        .expect("legacy coordinator must remain disabled");
+        let message = error.to_string();
+        assert!(message.contains("WABIDB_PEER_ENDPOINT"));
+        assert!(message.contains("WABI_SERVER_ROLE=anchor"));
     }
 }
