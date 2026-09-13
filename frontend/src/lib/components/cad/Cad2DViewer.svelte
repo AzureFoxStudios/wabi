@@ -18,6 +18,7 @@
   import {
     CAD_REVIEW_COLORS,
     CAD_REVIEW_WIDTHS,
+    cadReviewAssetKey,
     createCadReviewShape,
     createCadReviewStroke,
     createCadReviewText,
@@ -65,7 +66,7 @@
   let reviewRedo = $state<Array<{ kind: 'create'; elements: CadReviewElement[] } | { kind: 'delete'; elements: CadReviewElement[] }>>([]);
   let textPoint = $state<Point | null>(null);
   let textValue = $state('');
-  const reviewMarkerId = `cad-review-arrow-${Math.random().toString(36).slice(2, 9)}`;
+  const reviewMarkerId = $derived(`cad-review-arrow-${cadReviewAssetKey(src, fileName)}`);
 
   const visibleEntities = $derived(drawing ? drawing.entities.filter((entity) => !hiddenLayers.has(entity.layer)) : []);
   const visibleBounds = $derived(drawing ? boundsForCadEntities(visibleEntities.length ? visibleEntities : drawing.entities) : null);
@@ -182,8 +183,10 @@
 
   function setReviewMode(enabled: boolean): void {
     reviewMode = enabled;
-    measureMode = false;
-    clearMeasure();
+    if (enabled) {
+      measureMode = false;
+      clearMeasure();
+    }
     if (!enabled) {
       chooseReviewTool('pen');
       textPoint = null;
