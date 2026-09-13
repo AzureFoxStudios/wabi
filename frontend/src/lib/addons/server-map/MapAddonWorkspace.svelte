@@ -1,5 +1,5 @@
 <script lang="ts">
-	import CoreMapWorkspace from '$lib/components/MapWorkspace.svelte';
+	import MapWorkspace from './MapWorkspace.svelte';
 	import MapTokenBoard from './MapTokenBoard.svelte';
 	import { focusedMapLayerId, focusedMapPlace } from '$lib/mapWorkspace';
 
@@ -9,7 +9,7 @@
 
 <div class="maps-addon-shell" class:compact={variant === 'compact'}>
 	<div class="map-surface">
-		<CoreMapWorkspace {variant} {initialPlaceId} />
+		<MapWorkspace {variant} {initialPlaceId} />
 	</div>
 	{#if variant !== 'detached'}
 		<aside class="board-rail">
