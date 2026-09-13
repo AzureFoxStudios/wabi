@@ -6,7 +6,7 @@
   import { openNativeModelViewer } from '$lib/tauri-model-viewer';
   import { hasAddonCapability } from '$lib/addonInventory';
   import { loadAddon } from '$lib/addons/loader';
-  import Cad2DViewer from '$lib/components/cad/Cad2DViewer.svelte';
+  import CadDocument2DViewer from '$lib/components/cad/CadDocument2DViewer.svelte';
   import DwgCadViewer from '$lib/components/cad/DwgCadViewer.svelte';
   import OcctCadViewer from '$lib/components/plugins/OcctCadViewer.svelte';
   import ThreeMFViewer from '$lib/components/plugins/ThreeMFViewer.svelte';
@@ -139,11 +139,11 @@
     {#if ext === 'dwg'}
       <DwgCadViewer {src} {fileName} {height} {fullBleed} {lazyLoad} channelId={reviewChannelId} />
     {:else if cadPreviewActive}
-      <Cad2DViewer {src} {fileName} {height} compact={!fullBleed} channelId={reviewChannelId} />
+      <CadDocument2DViewer {src} {fileName} {height} compact={!fullBleed} channelId={reviewChannelId} />
     {:else}
       <button class="cad-preview-activation" type="button" onclick={() => (cadPreviewActive = true)}>
-        <span>Activate 2D CAD preview</span>
-        <small>{fileName} · ASCII DXF stays read-only</small>
+        <span>Activate CAD document preview</span>
+        <small>{fileName} · Wabi separates Model Space and Paper Space layouts when present</small>
       </button>
     {/if}
   {:else if previewKind === 'cad-3d'}
