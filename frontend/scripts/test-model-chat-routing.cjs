@@ -17,19 +17,32 @@ for (const ext of ['glb','gltf','obj','stl']) test(`mesh ${ext}`, () => assert.e
 for (const ext of ['step','stp','iges','igs','3mf']) test(`3D CAD ${ext}`, () => { assert.equal(policy.modelFamily(`x.${ext}`), 'cad'); assert.equal(policy.cadDimension(`x.${ext}`), '3d'); });
 for (const ext of ['pmx','pmd','vmd','vpd']) test(`MMD ${ext}`, () => assert.equal(policy.modelFamily(`x.${ext}`), 'mmd'));
 
-test('DXF is built-in 2D CAD while DWG remains gated', () => {
+test('DXF and DWG share the 2D workspace while keeping distinct importers', () => {
   assert.equal(policy.cadDimension('drawing.dxf'), '2d');
   assert.equal(policy.modelPreviewKind('drawing.dxf'), 'cad-2d');
   assert.equal(policy.missingModelSupport('drawing.dxf'), null);
-  assert.match(policy.missingModelSupport('drawing.dwg'), /DWG/);
+  assert.equal(policy.cadImportPlan('drawing.dxf').preferred, 'builtin-dxf');
+
+  assert.equal(policy.cadDimension('drawing.dwg'), '2d');
+  assert.equal(policy.modelPreviewKind('drawing.dwg'), 'cad-2d');
+  assert.equal(policy.missingModelSupport('drawing.dwg'), null);
+  assert.equal(policy.cadImportPlan('drawing.dwg').preferred, 'server-convert');
+  assert.equal(policy.cadImportPlan('drawing.dwg').canonicalPreview, 'dxf');
+  assert.equal(policy.cadImportPlan('drawing.dwg').availableNow, true);
 });
 
-test('3MF is CAD but has a dedicated built-in browser preview', () => {
-  assert.equal(policy.modelFamily('part.3mf'), 'cad');
-  assert.equal(policy.cadDimension('part.3mf'), '3d');
+test('3MF, STEP and IGES converge on Wabi 3D previews with format-specific importers', () => {
   assert.equal(policy.modelPreviewKind('part.3mf'), 'cad-3d');
   assert.equal(policy.missingModelSupport('part.3mf'), null);
-  assert.match(policy.missingModelSupport('part.step'), /OpenCascade/);
+  assert.equal(policy.cadImportPlan('part.3mf').preferred, 'browser-3mf');
+  for (const ext of ['step','stp','iges','igs']) {
+    const name = `part.${ext}`;
+    assert.equal(policy.modelPreviewKind(name), 'cad-3d');
+    assert.equal(policy.missingModelSupport(name), null);
+    assert.equal(policy.cadImportPlan(name).preferred, 'occt-wasm');
+    assert.equal(policy.cadImportPlan(name).canonicalPreview, 'glb');
+    assert.equal(policy.cadImportPlan(name).availableNow, true);
+  }
 });
 
 test('signed URLs are preserved and unsafe protocols rejected', () => {
