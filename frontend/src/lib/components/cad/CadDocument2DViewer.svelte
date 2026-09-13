@@ -34,7 +34,9 @@
     if (!activeView) return sourceIdentity || src;
     const base = sourceIdentity || src;
     const asset = cadReviewAssetKey(base, fileName);
-    return `cadview://${asset}/${encodeURIComponent(activeView.id)}`;
+    // Use an opaque custom URL form so cadReviewAssetKey keeps both the source
+    // asset token and the selected Model/Layout id when normalizing identity.
+    return `cad-view:${asset}:${encodeURIComponent(activeView.id)}`;
   });
 
   async function readLimited(response: Response, signal: AbortSignal): Promise<string> {
