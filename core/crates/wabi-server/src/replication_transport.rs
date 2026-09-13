@@ -3,6 +3,10 @@
 //! Implements the `SyncTransport` trait from `wabidb::replication` using
 //! `reqwest` to call the peer's HTTP sync endpoints (`/api/v1/sync/pull`,
 //! `/api/v1/sync/push`, `/api/v1/sync/status`).
+//!
+//! The current WabiDB worker does not yet ingest pulled segment data into live
+//! projections, so network replication is deliberately experimental. Merely
+//! setting a peer endpoint must not turn a production server into a half-replica.
 
 use std::{fmt, path::PathBuf, time::Duration};
 
@@ -40,8 +44,8 @@ impl ReqwestTransport {
     /// Create a new transport bound to the given data directory.
     ///
     /// `WABI_SYNC_TOKEN` must match the peer's sync endpoint configuration.
-    /// An absent token is retained as an explicit runtime error rather than
-    /// silently sending unauthenticated replication requests.
+    /// `WABIDB_EXPERIMENTAL_REPLICATION=true` is additionally required because
+    /// the current engine worker does not yet provide complete live convergence.
     pub fn new(data_dir: PathBuf) -> Self {
         let sync_token = std::env::var("WABI_SYNC_TOKEN")
             .ok()
@@ -63,6 +67,13 @@ impl ReqwestTransport {
         }
     }
 
+    fn experimental_runtime_enabled() -> bool {
+        std::env::var("WABIDB_EXPERIMENTAL_REPLICATION")
+            .ok()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+    }
+
     fn url(base: &str, path: &str) -> String {
         let base = base.trim_end_matches('/');
         let path = path.trim_start_matches('/');
@@ -70,6 +81,20 @@ impl ReqwestTransport {
     }
 
     fn authorized(&self, request: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilder> {
+        self.authorized_with_runtime(request, Self::experimental_runtime_enabled())
+    }
+
+    fn authorized_with_runtime(
+        &self,
+        request: reqwest::RequestBuilder,
+        experimental_enabled: bool,
+    ) -> Result<reqwest::RequestBuilder> {
+        if !experimental_enabled {
+            return Err(WabiError::Validation {
+                command: "replication_transport".into(),
+                reason: "network replication is incomplete and disabled by default; WABIDB_EXPERIMENTAL_REPLICATION=true is required for developer testing and must not be treated as HA".into(),
+            });
+        }
         let token = self.sync_token.as_deref().ok_or_else(|| WabiError::Validation {
             command: "replication_transport".into(),
             reason: "WABI_SYNC_TOKEN is required when WABIDB_PEER_ENDPOINT enables replication".into(),
@@ -111,7 +136,7 @@ impl ReqwestTransport {
         let mut segments = Vec::new();
 
         for sr in &entry.event_refs {
-            let key = (sr.stream_kind, sr.segment_id);
+            let key = (sr.stream_id_hash, sr.stream_kind, sr.segment_id);
             if seen.contains(&key) {
                 continue;
             }
@@ -122,25 +147,35 @@ impl ReqwestTransport {
 
             if let Ok(read_dir) = std::fs::read_dir(&streams_dir) {
                 for dir_entry in read_dir.flatten() {
-                    let events_dir = dir_entry.path().join("events");
-                    let seg_path = events_dir.join(format!("{:08}.wseg", sr.segment_id));
-                    if seg_path.exists() {
-                        let mut buf = Vec::new();
-                        if std::fs::File::open(&seg_path)
-                            .and_then(|mut f| f.read_to_end(&mut buf))
-                            .is_ok()
-                        {
-                            if let Some(stream_id) = dir_entry.file_name().to_str() {
-                                segments.push(PushedSegment {
-                                    stream_id: stream_id.to_string(),
-                                    stream_kind: sr.stream_kind,
-                                    segment_id: sr.segment_id,
-                                    data: buf,
-                                });
-                            }
-                        }
-                        break;
+                    let Some(stream_id) = dir_entry.file_name().to_str().map(str::to_owned) else {
+                        continue;
+                    };
+                    // Never choose a same-numbered segment from the wrong stream.
+                    // StreamRef stores the first 16 bytes of BLAKE3(stream_id).
+                    let hash = blake3::hash(stream_id.as_bytes());
+                    if hash.as_bytes()[..16] != sr.stream_id_hash {
+                        continue;
                     }
+                    let seg_path = dir_entry
+                        .path()
+                        .join("events")
+                        .join(format!("{:08}.wseg", sr.segment_id));
+                    if !seg_path.exists() {
+                        continue;
+                    }
+                    let mut buf = Vec::new();
+                    if std::fs::File::open(&seg_path)
+                        .and_then(|mut file| file.read_to_end(&mut buf))
+                        .is_ok()
+                    {
+                        segments.push(PushedSegment {
+                            stream_id,
+                            stream_kind: sr.stream_kind,
+                            segment_id: sr.segment_id,
+                            data: buf,
+                        });
+                    }
+                    break;
                 }
             }
         }
@@ -148,7 +183,25 @@ impl ReqwestTransport {
         segments
     }
 
-    fn entry_to_sync_entry(entry: &CommitIndexEntry) -> SyncEntry {
+    fn stream_id_for_ref(&self, stream_ref: &wabidb::commit_index::record::StreamRef) -> String {
+        let kind_name = wabidb::sequencer::stream_kind_dir_name(stream_ref.stream_kind);
+        let streams_dir = self.data_dir.join("streams").join(kind_name);
+        let Ok(read_dir) = std::fs::read_dir(streams_dir) else {
+            return String::new();
+        };
+        for dir_entry in read_dir.flatten() {
+            let Some(stream_id) = dir_entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let hash = blake3::hash(stream_id.as_bytes());
+            if hash.as_bytes()[..16] == stream_ref.stream_id_hash {
+                return stream_id;
+            }
+        }
+        String::new()
+    }
+
+    fn entry_to_sync_entry(&self, entry: &CommitIndexEntry) -> SyncEntry {
         SyncEntry {
             commit_seq: entry.commit_seq,
             timestamp_micros: entry.timestamp_micros,
@@ -161,7 +214,7 @@ impl ReqwestTransport {
                 use crate::api::sync::StreamRefEntry;
                 StreamRefEntry {
                     stream_id_hash: hex::encode(r.stream_id_hash),
-                    stream_id: String::new(),
+                    stream_id: self.stream_id_for_ref(r),
                     stream_kind: r.stream_kind,
                     segment_id: r.segment_id,
                     offset: r.offset,
@@ -244,7 +297,7 @@ impl SyncTransport for ReqwestTransport {
         for entry in &entries {
             let mut segments = self.read_segments(entry);
             all_segments.append(&mut segments);
-            sync_entries.push(Self::entry_to_sync_entry(entry));
+            sync_entries.push(self.entry_to_sync_entry(entry));
         }
 
         let req = SyncPushRequest {
@@ -279,16 +332,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replication_requests_require_and_attach_sync_token() {
+    fn replication_requests_require_explicit_experimental_opt_in_and_sync_token() {
         let missing = ReqwestTransport::with_token(PathBuf::from("/tmp/wabi-repl-test"), None);
-        assert!(missing.authorized(missing.client.get("http://127.0.0.1/status")).is_err());
+        assert!(missing
+            .authorized_with_runtime(missing.client.get("http://127.0.0.1/status"), false)
+            .is_err());
+        assert!(missing
+            .authorized_with_runtime(missing.client.get("http://127.0.0.1/status"), true)
+            .is_err());
 
         let transport = ReqwestTransport::with_token(
             PathBuf::from("/tmp/wabi-repl-test"),
             Some("test-sync-secret".into()),
         );
         let request = transport
-            .authorized(transport.client.get("http://127.0.0.1/status"))
+            .authorized_with_runtime(transport.client.get("http://127.0.0.1/status"), true)
             .unwrap()
             .build()
             .unwrap();
