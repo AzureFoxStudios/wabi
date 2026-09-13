@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import MapTokenOverlay from '../MapTokenOverlay.svelte';
 	import {
 		clampNormalized,
 		resolvePoiMarkerGlyph,
@@ -114,6 +115,7 @@
 							{/if}
 						</button>
 					{/each}
+					<MapTokenOverlay placeId={stagePlace?.id || null} layerId={stageMapLayers.length ? (stagePois[0]?.layerId || null) : null} {viewRotation} />
 				</div>
 			</div>
 			<div class="compass-overlay" aria-hidden="true">
