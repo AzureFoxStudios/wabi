@@ -24,6 +24,14 @@ test('DXF is built-in 2D CAD while DWG remains gated', () => {
   assert.match(policy.missingModelSupport('drawing.dwg'), /DWG/);
 });
 
+test('3MF is CAD but has a dedicated built-in browser preview', () => {
+  assert.equal(policy.modelFamily('part.3mf'), 'cad');
+  assert.equal(policy.cadDimension('part.3mf'), '3d');
+  assert.equal(policy.modelPreviewKind('part.3mf'), 'cad-3d');
+  assert.equal(policy.missingModelSupport('part.3mf'), null);
+  assert.match(policy.missingModelSupport('part.step'), /OpenCascade/);
+});
+
 test('signed URLs are preserved and unsafe protocols rejected', () => {
   const signed = 'https://files.example/model.stl?token=secret';
   assert.equal(policy.safeModelSource(signed), signed);
