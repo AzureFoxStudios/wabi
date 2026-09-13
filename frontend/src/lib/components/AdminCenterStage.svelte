@@ -28,6 +28,8 @@
 	const sections = $derived(adminSectionsFor(role));
 	const section = $derived(resolveAdminSection($adminSection, role));
 	const selected = $derived(sections.find(item => item.id === section));
+	const knownAdminSections = new Set(['all', 'users', 'roles', 'channels', 'gates', 'payments', 'runtime', 'branding', 'settings']);
+	const workspaceSection = $derived<'all' | 'users' | 'roles' | 'channels' | 'gates' | 'payments' | 'runtime' | 'branding' | 'settings'>(knownAdminSections.has(section as string) ? (section as any) : 'all');
 	const stale = $derived(Boolean(snapshot.stats && (snapshot.error || !snapshot.receivedAt || now - snapshot.receivedAt > 90_000)));
 
 	$effect(() => {
@@ -128,7 +130,7 @@
 				{:else if section === 'runtime'}
 					<ServerHealthSection health={snapshot.stats?.extra?.health} loading={snapshot.loading && !snapshot.stats} {stale} expanded />
 				{:else if section}
-					{#key JSON.stringify([$activeServerUrl, accountId, role, section])}<AdminWorkspace {section} />{/key}
+				  {#key JSON.stringify([$activeServerUrl, accountId, role, section])}<AdminWorkspace section={workspaceSection} />{/key}
 				{:else}
 					<p class="admin-access-message" role="status">Administration is available to server staff. Your workspace and conversations are unchanged.</p>
 				{/if}
