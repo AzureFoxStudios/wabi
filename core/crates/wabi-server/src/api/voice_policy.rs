@@ -9,7 +9,7 @@
 
 use axum::{
     extract::{Path as AxumPath, State},
-    routing::get,
+    routing::get as route_get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -248,7 +248,7 @@ pub fn remove(data_dir: &str, channel_id: &str) -> Result<(), String> {
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route("/{channel_id}", get(get_policy_route).put(put_policy_route))
+        .route("/{channel_id}", route_get(get_policy_route).put(put_policy_route))
         .with_state(state)
 }
 
