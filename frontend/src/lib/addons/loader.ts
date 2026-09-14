@@ -303,6 +303,7 @@ async function getEnabledAddonIds(): Promise<string[]> {
 	} catch (err) {
 		console.warn('[Addons] Failed to get enabled addon IDs:', err);
 		return [];
+	}
 }
 
 /**
