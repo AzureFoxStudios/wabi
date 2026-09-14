@@ -29,6 +29,7 @@ export const pinnedChannels = writable<Channel[]>([]);
 export const currentChannel = writable<string>('general');
 
 const LAST_CHANNEL_STORAGE_KEY = 'wabi:last-channel';
+const hydratedVoicePolicies = new Set<string>();
 
 export function readLastChannel(): string | null {
 	if (typeof localStorage === 'undefined') return null;
@@ -58,6 +59,43 @@ function updatePinnedChannels(): void {
 	const allChannels = get(channels);
 	pinnedChannels.set(allChannels.filter((channel) => channel.pinnedBy && channel.pinnedBy.length > 0));
 }
+
+function voicePolicyKey(channelId: string): string {
+	return `${getServerUrl()}|${channelId}`;
+}
+
+async function fetchVoicePolicy(channelId: string): Promise<void> {
+	const token = getAuthToken();
+	if (!token) return;
+	const key = voicePolicyKey(channelId);
+	if (hydratedVoicePolicies.has(key)) return;
+	hydratedVoicePolicies.add(key);
+	try {
+		const response = await fetch(`${getServerUrl()}/api/voice-policy/${encodeURIComponent(channelId)}`, {
+			method: 'GET',
+			credentials: 'include',
+			headers: { Authorization: `Bearer ${token}` }
+		});
+		if (!response.ok) throw new Error(`voice policy fetch failed (${response.status})`);
+		const payload = await response.json() as { voiceSettings?: Channel['voiceSettings'] };
+		if (payload.voiceSettings) {
+			channels.update((list) => list.map((channel) =>
+				channel.id === channelId ? { ...channel, voiceSettings: payload.voiceSettings } : channel
+			));
+		}
+	} catch (error) {
+		hydratedVoicePolicies.delete(key);
+		console.warn('[channelStore] Failed to hydrate voice policy:', channelId, error);
+	}
+}
+
+/** Voice policy is Authority-owned and restart-safe. Hydrate it independently
+ * of legacy channel rows until the policy moves into WabiDB proper. */
+channels.subscribe((list) => {
+	for (const channel of list) {
+		if (channel.type === 'voice') void fetchVoicePolicy(channel.id);
+	}
+});
 
 export function joinChannel(channelId: string): void {
 	const sock = getSocket();
@@ -213,6 +251,20 @@ async function persistRetentionChoice(channelId: string, value: string | number 
 	if (!response.ok) throw new Error(data.error || `Retention could not be saved (${response.status}).`);
 }
 
+async function persistVoicePolicy(channelId: string, value: NonNullable<Channel['voiceSettings']>): Promise<Channel['voiceSettings']> {
+	const token = getAuthToken();
+	if (!token) throw new Error('Sign in again before changing voice settings.');
+	const response = await fetch(`${getServerUrl()}/api/voice-policy/${encodeURIComponent(channelId)}`, {
+		method: 'PUT',
+		credentials: 'include',
+		headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ voiceSettings: value })
+	});
+	const data = await response.json().catch(() => ({}));
+	if (!response.ok) throw new Error(data.error || `Voice settings could not be saved (${response.status}).`);
+	return data.voiceSettings as Channel['voiceSettings'];
+}
+
 export async function updateChannelSettings(channelId: string, settings: {
 	name?: string;
 	description?: string;
@@ -234,6 +286,16 @@ export async function updateChannelSettings(channelId: string, settings: {
 			await persistRetentionChoice(channelId, settings.autoDeleteAfter);
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : 'Retention could not be saved.', 'error');
+			return;
+		}
+	}
+
+	if (settings.voiceSettings !== undefined) {
+		try {
+			settings.voiceSettings = await persistVoicePolicy(channelId, settings.voiceSettings);
+			hydratedVoicePolicies.add(voicePolicyKey(channelId));
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Voice settings could not be saved.', 'error');
 			return;
 		}
 	}
