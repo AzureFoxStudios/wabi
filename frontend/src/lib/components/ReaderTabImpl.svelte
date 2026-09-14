@@ -24,8 +24,7 @@
 		addReaderBookmark, removeReaderBookmark, addReaderNote, removeReaderNote
 	} from '$lib/readerLibrary';
 	import { countReaderCodeLines } from '$lib/readerCode';
-	import { currentChannel } from '$lib/channelStore';
-	import { parseLoreChannelId } from '$lib/api/lore';
+	import { channels, currentChannel } from '$lib/channelStore';
 	import { openLoreSurface } from '$lib/loreWorkspace';
 
 	let root = $state<HTMLElement | null>(null);
@@ -84,7 +83,7 @@
 	const notes = $derived(record?.notes || []);
 	const currentBookmark = $derived(bookmarks.find((mark) => mark.anchor.block === lastAnchor.block && Math.abs(mark.anchor.offset - lastAnchor.offset) < 0.05));
 	const minutes = $derived(Math.max(1, Math.ceil(wordCount / 220)));
-	const hasProjectContext = $derived(Boolean(parseLoreChannelId($currentChannel)));
+	const hasProjectContext = $derived($channels.some((channel) => channel.id === $currentChannel && channel.type === 'lore'));
 	const displayTitle = $derived(isCodeDocument
 		? ($readerSelection?.title || 'Untitled source')
 		: ($readerSelection?.title || '').replace(/\.(txt|text|md|markdown|html|htm)$/i, '').replace(/_/g, ' '));
@@ -93,7 +92,7 @@
 		if (!browser) return;
 		const media = window.matchMedia('(prefers-color-scheme: dark)');
 		systemDark = media.matches;
-		const update = (event: MediaQueryListEvent) => { systemDark = event.matches; };
+		const update = (event: MediaQueryListEvent) => { systemDark = media.matches; };
 		media.addEventListener('change', update);
 		try { layout = localStorage.getItem('wabi:reader:layout:v1') === 'paged' ? 'paged' : 'scroll'; } catch { /* optional preference */ }
 		return () => media.removeEventListener('change', update);
@@ -130,7 +129,7 @@
 				if (cancelled) return;
 				wordCount = content ? countWords(content.textContent || '') : 0;
 				outline = content ? prepareReaderDocument(content) : [];
-				codeBlocks = content ? prepareReaderCodeBlocks(content, selection.content, selection.format, selection.language, projectContext) : [];
+				codeBlocks = content ? prepareReaderCodeBlocks(content, selection.format, selection.language, projectContext) : [];
 				if (content && codeBlocks.length) await highlightReaderCodeBlocks(content);
 				if (cancelled) return;
 				blocks = content ? readerBlocks(content) : Array.from(view.querySelectorAll<HTMLElement>('.reader-image-page'));
