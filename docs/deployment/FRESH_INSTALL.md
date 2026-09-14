@@ -121,6 +121,10 @@ For the full decision tree, see [../NETWORKING.md](../NETWORKING.md).
 
 Do not run every media service by default.
 
+**Setup invariant:** adding scalable calls must not turn Wabi into a manual media-stack assembly project. The reference media backend and any future replacement must have a one-command operator path through Wabi's normal packaging. It is acceptable for that command to start multiple containers internally; it is not acceptable to require an ordinary administrator to compile SFU workers, hand-author ICE configuration, manually wire TURN, or depend on a Wabi-operated SaaS account.
+
+See [../architecture/MEDIA_BACKEND_AND_CERTIFICATION.md](../architecture/MEDIA_BACKEND_AND_CERTIFICATION.md) for the provider-neutral media contract, CGNAT model, certification gates, and the LiveKit 1.x / candidate generation-2 strategy.
+
 ### coturn
 
 If your selected call/WebRTC path needs TURN, set the required TURN configuration and start the profile:
@@ -133,7 +137,11 @@ See [TURN_SETUP.md](TURN_SETUP.md).
 
 ### LiveKit SFU
 
-Only enable the `sfu` profile when you intentionally configure that path.
+Only enable the `sfu` profile when you intentionally configure that path. LiveKit is the planned Wabi 1.x reference SFU once the integration satisfies the media certification gates; it is not a required hosted service.
+
+### Future mediasoup-rust backend
+
+mediasoup-rust is a candidate for a later media architecture generation, not a shipped fresh-install requirement. If adopted, Wabi must package its Rust controller and mediasoup worker so the simple operator path remains one command. Advanced operators may still expose lower-level configuration deliberately.
 
 ### SRT media gateway
 
