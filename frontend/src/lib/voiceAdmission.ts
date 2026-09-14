@@ -1,7 +1,20 @@
 import type { Socket } from 'socket.io-client';
+import { isMuted } from './callingStateStores';
 
 type AdmissionSocket = Pick<Socket, 'id' | 'connected' | 'on' | 'off' | 'emit'>;
-type Reply = { channelId?: string; requestId?: string; error?: string; message?: string; established?: boolean };
+export type VoiceAdmissionReply = {
+  channelId?: string;
+  requestId?: string;
+  error?: string;
+  message?: string;
+  established?: boolean;
+  listeningOnly?: boolean;
+  mutedOnEntry?: boolean;
+  serverMuted?: boolean;
+  serverDeafened?: boolean;
+  policyListenOnly?: boolean;
+};
+type Reply = VoiceAdmissionReply;
 let nextRequest = 0;
 
 /** Control-plane admission must finish before either media transport starts.
@@ -13,9 +26,22 @@ export async function requestVoiceAdmission(
   ensureMembership: (channelId: string) => Promise<unknown>,
   signal?: AbortSignal,
   timeoutMs = 10_000,
-): Promise<void> {
-  await requestAdmission(socket, channelId, listeningOnly ? 'voice-channel-subscribe' : 'voice-channel-join',
-    'voice-channel-admitted', 'voice-channel-error', {}, ensureMembership, signal, timeoutMs);
+): Promise<VoiceAdmissionReply> {
+  const reply = await requestAdmission(
+    socket,
+    channelId,
+    listeningOnly ? 'voice-channel-subscribe' : 'voice-channel-join',
+    'voice-channel-admitted',
+    'voice-channel-error',
+    {},
+    ensureMembership,
+    signal,
+    timeoutMs,
+  );
+  if (!listeningOnly && (reply.mutedOnEntry || reply.serverMuted || reply.policyListenOnly)) {
+    isMuted.set(true);
+  }
+  return reply;
 }
 
 export function requestGroupCallAnswer(
