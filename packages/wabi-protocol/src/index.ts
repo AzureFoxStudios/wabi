@@ -38,6 +38,7 @@ export type { UserLeftEvent } from './generated/UserLeftEvent';
 export type { UserStatus } from './generated/UserStatus';
 export type { UserView } from './generated/UserView';
 export type { VoiceBitrateMode } from './generated/VoiceBitrateMode';
+export type { VoiceEntryMode } from './generated/VoiceEntryMode';
 export type { VoiceChannelParticipantView } from './generated/VoiceChannelParticipantView';
 export type { VoiceChannelStateEvent } from './generated/VoiceChannelStateEvent';
 export type { VoiceChannelSettings } from './generated/VoiceChannelSettings';
