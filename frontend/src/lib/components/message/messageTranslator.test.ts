@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { isAutoTranslationCandidateText } from '$lib/addons/translatorAuto';
 import {
 	defaultTranslatorSettings,
 	getTranslatorSettings,
@@ -33,13 +34,19 @@ describe('Translator Assist settings', () => {
 		).toBe('http://127.0.0.1:5000/translate');
 	});
 
-	test('self-hosted mode permits explicit http(s) endpoints only', () => {
+	test('self-hosted mode requires explicit HTTPS', () => {
 		expect(
 			sanitizeTranslatorProviderUrl(
 				'https://translate.example.com/translate',
 				'libretranslate-self-hosted'
 			)
 		).toBe('https://translate.example.com/translate');
+		expect(
+			sanitizeTranslatorProviderUrl(
+				'http://translate.example.com/translate',
+				'libretranslate-self-hosted'
+			)
+		).toBe('');
 		expect(
 			sanitizeTranslatorProviderUrl('javascript:alert(1)', 'libretranslate-self-hosted')
 		).toBe('');
@@ -68,5 +75,18 @@ describe('automatic translation rules', () => {
 			shouldAutoTranslateDetectedLanguage('ja', { ...autoSettings, mode: 'on-demand' })
 		).toBe(false);
 		expect(shouldAutoTranslateDetectedLanguage('ja', { ...autoSettings, mode: 'off' })).toBe(false);
+	});
+
+	test('candidate filter skips commands, code-only, URLs, and mention-only posts', () => {
+		expect(isAutoTranslationCandidateText('/ban @someone')).toBe(false);
+		expect(isAutoTranslationCandidateText('```const x = 1;```')).toBe(false);
+		expect(isAutoTranslationCandidateText('https://example.com/foo')).toBe(false);
+		expect(isAutoTranslationCandidateText('@someone')).toBe(false);
+	});
+
+	test('candidate filter accepts normal multilingual chat', () => {
+		expect(isAutoTranslationCandidateText('明日の会議は午後3時からです。')).toBe(true);
+		expect(isAutoTranslationCandidateText('พรุ่งนี้เจอกันตอนบ่ายสามนะ')).toBe(true);
+		expect(isAutoTranslationCandidateText('😂 hello there')).toBe(true);
 	});
 });
