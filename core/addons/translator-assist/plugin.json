@@ -1,0 +1,27 @@
+{
+  "id": "translator-assist",
+  "name": "Translator Assist",
+  "version": "0.2.0",
+  "description": "Optional local-first message translation using user-controlled LibreTranslate endpoints",
+  "backend": null,
+  "frontend": {
+    "bundled": true,
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": [],
+      "settingsPages": [
+        "translator-assist"
+      ],
+      "mobileTabs": []
+    }
+  },
+  "permissions": [
+    "network:outbound"
+  ],
+  "privacy": {
+    "defaultMode": "off",
+    "serverProxy": false,
+    "publicCloudProvider": false,
+    "notes": "Message text is sent only from the client to the translator endpoint the user explicitly selected. Local mode is restricted to loopback."
+  }
+}
