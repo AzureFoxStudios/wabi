@@ -51,10 +51,12 @@
 			},
 		};
 		themeStore.setThemeAmbient(next);
-		try {
-			localStorage.setItem(LOCAL_KEY, String(distortion));
-		} catch {
-			// Local persistence is best-effort; registered users also save server-side.
+		if (!getAuthToken()) {
+			try {
+				localStorage.setItem(LOCAL_KEY, String(distortion));
+			} catch {
+				// Guest-local persistence is best-effort.
+			}
 		}
 		return next;
 	}
@@ -101,10 +103,12 @@
 			distortion = saved;
 			return;
 		}
-		try {
-			distortion = clamp(Number(localStorage.getItem(LOCAL_KEY)));
-		} catch {
-			distortion = 0;
+		if (!getAuthToken()) {
+			try {
+				distortion = clamp(Number(localStorage.getItem(LOCAL_KEY)));
+			} catch {
+				distortion = 0;
+			}
 		}
 	});
 </script>
