@@ -75,8 +75,10 @@
 		try {
 			const ambient = applyLive();
 			if (getAuthToken()) {
-				// save_theme replaces the stored theme object with the submitted keys,
-				// so send the complete theme snapshot rather than only screen state.
+				// The server stores CRT state beside the ambient preference, but the
+				// renderer treats it as a global post-process independent of ambient.
+				// save_theme replaces the stored theme object with submitted keys, so
+				// send the complete theme snapshot rather than only screen state.
 				await saveThemePreferences({
 					theme_id: $themeStore.themeId,
 					custom_theme: $themeStore.customTheme,
