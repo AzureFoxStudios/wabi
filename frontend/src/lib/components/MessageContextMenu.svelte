@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
+	import { getTranslatorSettings } from '$lib/components/message/messageTranslator';
 	import { _ } from '$lib/i18n';
 
 	export let message: Message;
@@ -63,7 +64,8 @@
 		const list: ContextMenuItem[] = [{ id: 'reply', label: get(_)('context_menu.reply'), icon: 'message-circle', onSelect: onReply }];
 		if (quickMentionEnabled && onQuickMention && !isOwnMessageByIdentity) list.push({ id: 'quick-mention', label: get(_)('context_menu.quick_mention'), icon: 'message-circle', onSelect: onQuickMention });
 		if (onAddReaction) list.push({ id: 'react', label: get(_)('context_menu.add_reaction'), icon: 'smile', onSelect: onAddReaction });
-		if (onTranslate && canCopyText) list.push({ id: 'translate', label: get(_)('context_menu.translate'), icon: 'languages', onSelect: onTranslate });
+		const translatorEnabled = getTranslatorSettings().mode !== 'off';
+		if (translatorEnabled && onTranslate && canCopyText) list.push({ id: 'translate', label: get(_)('context_menu.translate'), icon: 'languages', onSelect: onTranslate });
 		if (hasFile && onDownload) list.push({ id: 'download', label: get(_)('context_menu.download'), icon: 'download', onSelect: onDownload });
 		if (hasFile && onAddToAlbum) list.push({ id: 'add-to-album', label: get(_)('context_menu.add_to_album'), icon: 'archive', onSelect: onAddToAlbum });
 		if (hasFile && onPromoteToLore) list.push({ id: 'promote-to-lore', label: 'Promote to Lore…', icon: 'archive', onSelect: onPromoteToLore });
