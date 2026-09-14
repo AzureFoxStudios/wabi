@@ -12,7 +12,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::auth_extractor::AuthUser;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
@@ -185,6 +185,47 @@ async fn send_message(
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<MessageResponse>> {
     crate::channel_access::require_access(&state, auth.user_id, &req.channel_id).await?;
+
+    // The REST/TUI path obeys the exact same local safety policy as Socket.IO.
+    // Private DMs/groups remain reports-only unless the operator explicitly
+    // opts server-readable private content into automation.
+    let channel_kind = state.wdb.get_channel_kind(&req.channel_id).await;
+    let is_private_conversation = matches!(channel_kind.as_deref(), Some("dm" | "group"));
+    if !state.is_owner(auth.user_id).await {
+        if let Some(rule) = crate::api::server_center::evaluate_safety_rules(
+            &state.config.data_dir,
+            &req.content,
+            is_private_conversation,
+        ) {
+            let reason = rule.reason.clone().unwrap_or_else(|| format!("Safety rule: {}", rule.name));
+            match rule.action {
+                crate::api::server_center::SafetyAction::Flag => {
+                    tracing::warn!("[safety] REST flag rule '{}' matched user {} in {}", rule.name, auth.user_id, req.channel_id);
+                }
+                crate::api::server_center::SafetyAction::Delete => {
+                    return Err(AppError::Forbidden(format!("Message blocked by server safety rule: {}", rule.name)));
+                }
+                crate::api::server_center::SafetyAction::Warn => {
+                    return Err(AppError::Forbidden(reason));
+                }
+                crate::api::server_center::SafetyAction::Timeout => {
+                    let minutes = rule.timeout_minutes.unwrap_or(10).max(1) as i64;
+                    let actor = state.owner_user_id.read().await.unwrap_or(auth.user_id);
+                    let until_micros = chrono::Utc::now().timestamp_micros().saturating_add(minutes.saturating_mul(60_000_000));
+                    state.wdb.mute_user(&req.channel_id, actor as u64, auth.user_id as u64, until_micros).await
+                        .map_err(|error| AppError::Internal(format!("safety timeout failed: {error}")))?;
+                    return Err(AppError::Forbidden(format!("Timed out for {minutes} minute(s): {reason}")));
+                }
+                crate::api::server_center::SafetyAction::Ban => {
+                    let actor = state.owner_user_id.read().await.unwrap_or(auth.user_id);
+                    state.wdb.ban_user(&req.channel_id, actor as u64, auth.user_id as u64, &reason).await
+                        .map_err(|error| AppError::Internal(format!("safety ban failed: {error}")))?;
+                    return Err(AppError::Forbidden(format!("Banned from this channel: {reason}")));
+                }
+            }
+        }
+    }
+
     let sender_id = auth.user_id as u64;
     let sender_username = auth.username;
     let message_type = req.message_type.unwrap_or_else(|| "text".into());
