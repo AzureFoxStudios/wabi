@@ -24,8 +24,9 @@ export function getConfig(): TranslatorSettings {
 }
 
 export async function onInit(): Promise<void> {
-	// No service, model, worker, or network connection is started merely by
-	// loading the addon. Translation requests remain user-driven.
+	// Merely loading the addon starts no translator service, model, worker, or
+	// network request. Requests begin only after the user chooses on-demand or
+	// automatic translation in their local settings.
 }
 
 export async function onDisable(): Promise<void> {
