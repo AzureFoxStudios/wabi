@@ -4,23 +4,25 @@
 One physical Media Node can pair independently with many Wabi Authorities. Each
 Authority issues its own node id/secret. This controller keeps those credentials
 isolated, heartbeats outbound to every Authority, advertises one physical SFU to
-each, claims only media_relay jobs, and activates tenant-scoped rooms at the
-configured SFU endpoint.
+each, claims only media_relay jobs, activates tenant-scoped rooms, and mints
+short-lived backend tokens without handing SFU root secrets to an Authority.
 
 This is intentionally dependency-free (Python stdlib only) so the operator path
-can later be wrapped by one Compose profile/command without introducing a hosted
+can be wrapped by one Compose profile/command without introducing a hosted
 control plane.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
 import secrets
 import signal
-import sys
 import threading
 import time
 from typing import Any
@@ -33,6 +35,8 @@ USER_AGENT = "wabi-media-node/1"
 DEFAULT_HEARTBEAT_SECONDS = 30.0
 DEFAULT_POLL_SECONDS = 5.0
 DEFAULT_TIMEOUT_SECONDS = 20.0
+DEFAULT_MEDIA_TOKEN_TTL_SECONDS = 600
+MAX_MEDIA_TOKEN_TTL_SECONDS = 3600
 
 
 class ControllerError(RuntimeError):
@@ -154,6 +158,19 @@ def http_json(
     return decoded
 
 
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def sign_hs256_jwt(claims: dict[str, Any], secret: str) -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    encoded_header = _b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    encoded_claims = _b64url(json.dumps(claims, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{encoded_header}.{encoded_claims}".encode("ascii")
+    signature = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    return f"{encoded_header}.{encoded_claims}.{_b64url(signature)}"
+
+
 class MediaProfile:
     def __init__(self, config: dict[str, Any]):
         self.display_name = str(config.get("name") or "Wabi Media Node").strip()
@@ -187,6 +204,23 @@ class MediaProfile:
         if self.poll_seconds < 1:
             raise ControllerError("pollSeconds must be at least 1")
 
+        # Root backend credentials stay on the Media Node. Authorities request a
+        # short-lived scoped token through the outbound job channel instead.
+        self.livekit_api_key = os.environ.get("LIVEKIT_API_KEY", "").strip()
+        self.livekit_api_secret = os.environ.get("LIVEKIT_API_SECRET", "").strip()
+
+    def ensure_token_signing_ready(self) -> None:
+        if self.provider != "livekit":
+            return
+        if not self.livekit_api_key or not self.livekit_api_secret:
+            raise ControllerError(
+                "LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required on a LiveKit Media Node"
+            )
+        if self.sharing == "shared" and (
+            self.livekit_api_key == "disabled" or self.livekit_api_secret == "disabled"
+        ):
+            raise ControllerError("shared Media Nodes may not use the placeholder LiveKit key")
+
     def advertisement(self) -> dict[str, Any]:
         return {
             "provider": self.provider,
@@ -201,6 +235,72 @@ class MediaProfile:
             # later layer; unknown is more honest than fake zeroes.
             "activeRooms": None,
             "activeParticipants": None,
+        }
+
+    def mint_livekit_token(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_token_signing_ready()
+        if self.provider != "livekit":
+            raise ControllerError(f"provider {self.provider!r} cannot mint a LiveKit token")
+
+        external_room = payload.get("externalRoomName")
+        identity = payload.get("identity")
+        if not isinstance(external_room, str) or not external_room:
+            raise ControllerError("mint_token job missing externalRoomName")
+        if not isinstance(identity, str) or not identity:
+            raise ControllerError("mint_token job missing identity")
+
+        display_name = payload.get("displayName")
+        if not isinstance(display_name, str) or not display_name.strip():
+            display_name = identity
+        display_name = display_name.strip()[:128]
+
+        grants = payload.get("grants") or {}
+        if not isinstance(grants, dict):
+            raise ControllerError("mint_token grants must be an object")
+        can_publish = bool(grants.get("canPublish", False))
+        can_subscribe = bool(grants.get("canSubscribe", True))
+        can_publish_data = bool(grants.get("canPublishData", True))
+        raw_sources = grants.get("canPublishSources") or []
+        if not isinstance(raw_sources, list):
+            raise ControllerError("canPublishSources must be an array")
+        allowed_sources = {"camera", "microphone", "screen_share", "screen_share_audio"}
+        sources = [
+            source
+            for source in raw_sources
+            if isinstance(source, str) and source in allowed_sources
+        ]
+        if not can_publish:
+            sources = []
+
+        ttl = payload.get("ttlSeconds", DEFAULT_MEDIA_TOKEN_TTL_SECONDS)
+        if not isinstance(ttl, int) or isinstance(ttl, bool):
+            ttl = DEFAULT_MEDIA_TOKEN_TTL_SECONDS
+        ttl = max(60, min(ttl, MAX_MEDIA_TOKEN_TTL_SECONDS))
+        now = int(time.time())
+        claims = {
+            "iss": self.livekit_api_key,
+            "sub": identity,
+            "name": display_name,
+            "nbf": now - 5,
+            "iat": now,
+            "exp": now + ttl,
+            "video": {
+                "roomJoin": True,
+                "room": external_room,
+                "canPublish": can_publish,
+                "canSubscribe": can_subscribe,
+                "canPublishData": can_publish_data,
+                "canPublishSources": sources,
+            },
+        }
+        token = sign_hs256_jwt(claims, self.livekit_api_secret)
+        return {
+            "token": token,
+            "url": self.sfu_endpoint,
+            "roomName": external_room,
+            "identity": identity,
+            "relayName": self.display_name,
+            "source": "relay",
         }
 
 
@@ -317,18 +417,20 @@ class AuthoritySession:
             },
         )
 
-    def activate_room(self, payload: dict[str, Any]) -> dict[str, Any]:
-        room_id = payload.get("roomId")
-        if not isinstance(room_id, str) or not room_id:
-            raise ControllerError("media_relay job missing roomId")
+    def _validate_target(self, payload: dict[str, Any]) -> None:
         assigned = payload.get("assignedNodeId")
         if assigned is not None and assigned != self.node_id:
             raise ControllerError("media_relay job is targeted at a different node")
+
+    def activate_room(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._validate_target(payload)
+        room_id = payload.get("roomId")
+        if not isinstance(room_id, str) or not room_id:
+            raise ControllerError("activate_room job missing roomId")
         tenant = payload.get("tenantNamespace")
         external_room = payload.get("externalRoomName")
         if not isinstance(external_room, str) or not external_room:
-            # Legacy transition only. New shared-node jobs always provide this.
-            external_room = room_id
+            external_room = room_id  # legacy transition only
 
         http_json(
             "POST",
@@ -347,6 +449,10 @@ class AuthoritySession:
             "provider": self.profile.provider,
             "sfuEndpoint": self.profile.sfu_endpoint,
         }
+
+    def mint_token(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._validate_target(payload)
+        return self.profile.mint_livekit_token(payload)
 
     def run(self) -> None:
         log(f"{self.label}: session started as node {self.node_id}")
@@ -384,22 +490,29 @@ class AuthoritySession:
         if not isinstance(job_id, str) or not job_id:
             raise ControllerError("claimed job missing jobId")
         if kind != "media_relay" or not isinstance(payload, dict):
-            # The Authority should never send another kind because the registered
-            # capability is MediaRelay only. Fail closed if the contract changes.
             self.report_job(job_id, False, error_message="unsupported job for media node")
             return
 
+        operation = payload.get("operation") or "activate_room"
         try:
-            result = self.activate_room(payload)
+            if operation == "activate_room":
+                result = self.activate_room(payload)
+            elif operation == "mint_token":
+                result = self.mint_token(payload)
+            else:
+                raise ControllerError(f"unsupported media operation: {operation}")
         except Exception as exc:
             self.report_job(job_id, False, error_message=str(exc)[:500])
             raise
         else:
             self.report_job(job_id, True, result_payload=result)
-            log(
-                f"{self.label}: activated room {result['roomId']} "
-                f"as {result['externalRoomName']}"
-            )
+            if operation == "activate_room":
+                log(
+                    f"{self.label}: activated room {result['roomId']} "
+                    f"as {result['externalRoomName']}"
+                )
+            else:
+                log(f"{self.label}: minted scoped token for {result['identity']}")
 
 
 def pair_authority(
@@ -488,16 +601,21 @@ def main() -> int:
         return 2
 
     if args.check:
+        token_state = "ready" if (profile.livekit_api_key and profile.livekit_api_secret) else "not configured"
         log(
             f"config valid: provider={profile.provider} endpoint={profile.sfu_endpoint} "
-            f"authorities={len(authorities)}"
+            f"authorities={len(authorities)} token-signing={token_state}"
         )
         return 0
 
+    try:
+        profile.ensure_token_signing_ready()
+    except ControllerError as exc:
+        log(str(exc))
+        return 2
+
     state_dir = Path(args.state_dir)
     store = PairingStore(state_dir / "pairings.json")
-    # Persist the physical key even before the first successful join so retries
-    # do not present a different machine identity.
     if not store.path.exists():
         atomic_write_private_json(store.path, store.data)
 
