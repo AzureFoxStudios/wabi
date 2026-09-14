@@ -30,11 +30,12 @@ export interface ThemeColors {
 	textMutedRgb: string;
 
 	// Accent colors
-	accent: string;            // Gradient string for backgrounds
+	accent: string;            // Solid accent color (gradients live in ThemeGradients.accent)
 	accentHex: string;         // Solid color of accent (palette.accent)
 	accentSecondaryHex: string;// Solid color of secondary accent (palette.accentSecondary)
 	accentRgb: string;
 	accentHover: string;
+	textOnAccent: string;      // Readable foreground for solid-accent fills (luminance-derived)
 
 	// UI colors
 	uiBgLight: string;
