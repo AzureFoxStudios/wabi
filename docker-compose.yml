@@ -208,6 +208,12 @@ services:
       - media-node
     user: "1000:1000"
     working_dir: /app
+    environment:
+      # These root SFU credentials are deliberately present on the Media Node
+      # controller and LiveKit only. Wabi Authorities receive scoped join tokens,
+      # never LIVEKIT_API_SECRET.
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
     volumes:
       - ./scripts/wabi-media-node.py:/app/wabi-media-node.py:ro,z
       - ${WABI_MEDIA_NODE_CONFIG:-./wabi.media-node.json}:/config/wabi.media-node.json:ro,z
