@@ -1,9 +1,9 @@
 # Addon Plugin Schema
 
-Canonical schema for `core/addons/*/plugin.json`. Every Rust addon MUST conform.
+Canonical schema for `core/addons/*/plugin.json`.
 
-**Status:** Locked for Wave 0 / A1 (2026-08-01).  
-**Next:** A2 exposes these via `GET /api/addons`. A3 wires frontend capability checks. A5 deletes the dead Node/`.wabip` layer.
+**Status:** Locked for Wave 0 / A1 (2026-08-01), extended for frontend-only bundled addons in September 2026.  
+**Next:** A2 exposes server capabilities via `GET /api/addons`. A3 wires frontend capability checks. A5 deletes the dead Node/`.wabip` layer.
 
 ---
 
@@ -38,6 +38,8 @@ Canonical schema for `core/addons/*/plugin.json`. Every Rust addon MUST conform.
 }
 ```
 
+A frontend-only addon uses `"backend": null`. This is preferable to inventing a no-op server service merely to satisfy the manifest shape.
+
 ---
 
 ## Field reference
@@ -48,11 +50,11 @@ Canonical schema for `core/addons/*/plugin.json`. Every Rust addon MUST conform.
 | `name` | string | yes | Human display name (admin UI, settings). |
 | `version` | string | yes | Semver string. |
 | `description` | string | yes | One-line summary. |
-| `backend` | object | yes | Backend runtime config. |
-| `backend.runtime` | string | yes | Currently `"rust"` only. Future: node/python/wasm if ever supported. |
-| `backend.path` | string | yes | Path to backend source from addon root (usually `"backend"`). |
-| `backend.crate` | string | yes | Cargo package name (`Cargo.toml` `[package].name`). |
-| `backend.cargo_feature` | string \| null | yes | Feature flag on `wabi-server`, or `null` if always compiled (e.g. mesh). |
+| `backend` | object \| null | yes | Backend runtime config, or `null` for a genuinely frontend-only addon. |
+| `backend.runtime` | string | when backend exists | Currently `"rust"` only. Future: node/python/wasm if ever supported. |
+| `backend.path` | string | when backend exists | Path to backend source from addon root (usually `"backend"`). |
+| `backend.crate` | string | when backend exists | Cargo package name (`Cargo.toml` `[package].name`). |
+| `backend.cargo_feature` | string \| null | when backend exists | Feature flag on `wabi-server`, or `null` if always compiled (e.g. mesh). |
 | `frontend` | object | yes | Frontend integration block (may be empty contributions). |
 | `frontend.contributions` | object | yes | Contribution maps; empty arrays are valid. |
 | `frontend.contributions.channelTypes` | string[] | yes | Channel types this addon adds (e.g. `"lore"`). |
@@ -67,21 +69,23 @@ Canonical schema for `core/addons/*/plugin.json`. Every Rust addon MUST conform.
 ## Rules
 
 1. `id` is stable. Do not rename without a migration note.
-2. `backend.cargo_feature` is `null` for always-on crates; a string for optional feature-gated crates.
+2. `backend.cargo_feature` is `null` for always-on backend crates; a string for optional feature-gated crates; the entire `backend` field is `null` for frontend-only addons.
 3. `frontend.contributions` arrays may be empty today — schema must still exist so A3/A6 can fill later.
 4. `frontend.bundled` is `false` unless a static frontend loader entry is expected.
 5. Never remote-`import(manifest.frontendEntry)` — frontend code loads only via static bundled maps (Finding 14).
 6. Canonical path is **`core/addons/*/plugin.json` only**.
+7. Do not add a fake backend to a client-only addon. Keeping backend authority out of a feature is a valid security boundary.
 
 ---
 
-## Canonical addons (A1)
+## Canonical addons (A1+)
 
 | id | crate | cargo_feature | permissions |
 |----|-------|---------------|-------------|
 | `lore` | `wabi-lore` | `wabi-lore` | network:outbound, filesystem:read, filesystem:write |
 | `mesh` | `wabi-mesh` | `null` | network:outbound |
 | `webhooks` | `wabi-webhooks` | `wabi-webhooks` | network:outbound |
+| `translator-assist` | frontend-only | n/a | network:outbound |
 
 `persistence-disk` has no `plugin.json` yet (Cargo crate only) — out of A1 scope.
 
@@ -105,7 +109,8 @@ See `archive/addons-dead-node-layer/README.md`.
 python3 -c "import json; [json.load(open(f)) for f in [
   'core/addons/lore/plugin.json',
   'core/addons/mesh/plugin.json',
-  'core/addons/webhooks/plugin.json'
+  'core/addons/webhooks/plugin.json',
+  'core/addons/translator-assist/plugin.json'
 ]]; print('ok')"
 ```
 
@@ -125,4 +130,5 @@ Required keys on every manifest: `id`, `name`, `version`, `description`, `backen
 
 ## Changelog
 
+- **2026-09-14** — Frontend-only bundled addons may declare `backend: null`; Translator Assist is the first canonical example.
 - **2026-08-01** — Schema locked. lore/mesh/webhooks aligned.
