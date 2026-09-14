@@ -205,7 +205,6 @@ async fn put_privacy(
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "Could not save privacy policy");
     }
     drop(guard);
-    // Connected members can refresh the visible room contract immediately.
     if let Some(io) = state.sio.read().await.clone() {
         let _ = io.broadcast().emit("privacy-policy-updated", &json!({
             "privateContentAutomation": policy.private_content_automation,
@@ -249,7 +248,16 @@ async fn put_safety(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CreateReportInput { channel_id: String, message_id: String, reason: String, comment: Option<String> }
+struct CreateReportInput {
+    channel_id: String,
+    message_id: String,
+    reason: String,
+    comment: Option<String>,
+    /// Plaintext intentionally disclosed by a participant reporting an E2EE
+    /// message. Ignored for server-readable messages so clients cannot replace
+    /// authoritative evidence with fabricated text.
+    disclosed_snapshot: Option<String>,
+}
 
 struct ReportEvidence {
     snapshot: String,
@@ -273,8 +281,6 @@ async fn report_evidence(state: &Arc<AppState>, channel_id: &str, message_id: &s
         Ok(Some(_)) => return Err(json_error(StatusCode::BAD_REQUEST, "Message does not belong to that channel")),
         Ok(None) => {}
         Err(error) => {
-            // A Live message is intentionally absent from WabiDB. If the
-            // authoritative session copy exists, reporting can still preserve it.
             tracing::debug!(%error, message_id, "durable report lookup unavailable; checking live session evidence");
         }
     }
@@ -301,15 +307,33 @@ async fn create_report(
     if let Err(error) = crate::channel_access::require_access(&state, auth.user_id, &input.channel_id).await {
         return error.into_response();
     }
-    let evidence = match report_evidence(&state, &input.channel_id, &input.message_id).await {
+    let mut evidence = match report_evidence(&state, &input.channel_id, &input.message_id).await {
         Ok(evidence) => evidence,
         Err(response) => return response,
     };
     let reason: String = input.reason.trim().chars().take(80).collect();
     if reason.is_empty() { return json_error(StatusCode::BAD_REQUEST, "Choose a report reason"); }
     let comment = input.comment.map(|s| s.trim().chars().take(1000).collect::<String>()).filter(|s| !s.is_empty());
+
+    let source = if crate::api::e2ee::is_ciphertext(&evidence.snapshot) {
+        // The server can prove which ciphertext/message/user was reported, but
+        // by design cannot prove that the participant-disclosed plaintext is a
+        // decryption of that ciphertext. Preserve and label it as disclosure,
+        // never as server-verified plaintext.
+        let disclosed = input.disclosed_snapshot
+            .map(|s| s.trim().chars().take(12_000).collect::<String>())
+            .filter(|s| !s.is_empty());
+        let Some(disclosed) = disclosed else {
+            return json_error(StatusCode::BAD_REQUEST, "Reporting an E2EE message requires explicit plaintext disclosure from your client");
+        };
+        evidence.snapshot = disclosed;
+        "user_report_e2ee_disclosure"
+    } else {
+        "user_report"
+    };
+
     let report = ModerationReport {
-        id: uuid::Uuid::new_v4().to_string(), source: "user_report".into(),
+        id: uuid::Uuid::new_v4().to_string(), source: source.into(),
         channel_id: input.channel_id, message_id: input.message_id,
         message_snapshot: evidence.snapshot, message_was_deleted: evidence.deleted,
         author_user_id: evidence.author_user_id, author_username: evidence.author_username,
