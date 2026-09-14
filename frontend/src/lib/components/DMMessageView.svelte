@@ -8,6 +8,8 @@
 	import GroupAvatar from './GroupAvatar.svelte';
 	import NotesWorkspace from './NotesWorkspace.svelte';
 	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
+	import LongMessagePreview from './message/LongMessagePreview.svelte';
+	import { shouldPromoteLongMessage } from './message/longMessagePreview';
 	import type { User, Message, Channel, MessageEntity } from '$lib/socket';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import { parseMessage } from '$lib/markdown';
@@ -94,9 +96,8 @@
 	$: dmSplitLargeMessagesEnabled = composerEnhancementSettings.splitLargeMessagesEnabled;
 	$: dmSplitLargeMessagesChunkSize = composerEnhancementSettings.splitLargeMessagesChunkSize;
 	$: dmWriteUpperCaseEnabled = composerEnhancementSettings.writeUpperCaseEnabled;
-	$: dmInputMaxLength = dmSplitLargeMessagesEnabled
-		? composerEnhancementSettings.splitLargeMessagesInputMaxLength
-		: dmSplitLargeMessagesChunkSize;
+	$: dmInputMaxLength = composerEnhancementSettings.splitLargeMessagesInputMaxLength;
+	$: dmLongMessageContextLabel = isGroup ? channel?.name || 'Group DM' : `DM with ${otherUser.username}`;
 	$: unicodeEmojisEnabled = $unicodeEmojiSettingsStore.enabled;
 	$: dmCharCount = messageInput.length;
 	$: dmCharCounterVisible = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.7;
@@ -246,7 +247,7 @@
 		const before = messageInput.slice(0, mentionTokenStart);
 		const after = messageInput.slice(caret);
 		const mentionText = `@${selected.value}`;
-		const needsTrailingSpace = after.length === 0 || !/^[\\s.,!?;:)]/.test(after);
+		const needsTrailingSpace = after.length === 0 || !/^[\s.,!?;:)]/.test(after);
 		const insertion = needsTrailingSpace ? `${mentionText} ` : mentionText;
 		const nextMessageInput = before + insertion + after;
 		const nextCursor = (before + insertion).length;
@@ -645,6 +646,13 @@
 										{/if}
 									</div>
 								</div>
+							{:else if shouldPromoteLongMessage(msg.type, msg.text)}
+								<LongMessagePreview
+									message={msg}
+									text={msg.text}
+									contextLabel={dmLongMessageContextLabel}
+									spoiler={Boolean(msg.isSpoiler)}
+								/>
 							{:else}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<!-- svelte-ignore a11y-no-static-element-interactions -->
