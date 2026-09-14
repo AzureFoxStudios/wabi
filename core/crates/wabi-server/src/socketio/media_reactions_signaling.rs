@@ -60,6 +60,39 @@ mod media_reactions_legacy {
     pub(super) async fn recording_departure_rooms(state: &SioState, entry: &RecordingPresenceEntry) -> Vec<String> {
         recording_presence_departure_rooms(state, entry).await
     }
+
+    // These two helpers historically lived in the flat socketio_impl include
+    // namespace and are still called by direct_calls.rs / voice_channels.rs /
+    // group_calls.rs. Keep the implementation in the private legacy module,
+    // but deliberately re-export it through uniquely named bridge functions so
+    // consumers do not need to include the entire legacy file (which would
+    // duplicate every handler symbol in this facade).
+    pub(super) async fn leave_channel_room_if_unrostered(
+        socket: &SocketRef,
+        state: &SioState,
+        channel_id: &str,
+    ) {
+        leave_wabidb_channel_room_if_unrostered(socket, state, channel_id).await;
+    }
+
+    pub(super) fn dm_room_key(my_id: &str, peer_id: &str) -> String {
+        dm_media_room_key(my_id, peer_id)
+    }
+}
+
+// Compatibility bridge for sibling flat include! files. Only the helpers they
+// depended on are restored to the parent namespace; legacy handlers remain
+// namespaced above, preventing E0428 duplicate-definition collisions.
+async fn leave_wabidb_channel_room_if_unrostered(
+    socket: &SocketRef,
+    state: &SioState,
+    channel_id: &str,
+) {
+    media_reactions_legacy::leave_channel_room_if_unrostered(socket, state, channel_id).await;
+}
+
+fn dm_media_room_key(my_id: &str, peer_id: &str) -> String {
+    media_reactions_legacy::dm_room_key(my_id, peer_id)
 }
 
 #[allow(dead_code)]
