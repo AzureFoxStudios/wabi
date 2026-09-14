@@ -13,7 +13,8 @@ import {
 	connectionState,
 	callTransportState,
 	isVideoOff,
-	isDeafened
+	isDeafened,
+	isMuted
 } from './callingStateStores';
 import {
 	cancelLivekitTokenRefresh,
@@ -115,20 +116,19 @@ function requireDeps(): LivekitDeps {
 	return deps;
 }
 
-/** LiveKit identities are deliberately opaque-ish `user:<db-id>` values. Wabi's
- * call/roster surfaces use the stable `user-<db-id>` form, so normalize at the
- * media boundary instead of leaking backend identity syntax through the UI. */
+/** Media identities are per device (`user:<id>:device:<opaque>`), while Wabi's
+ * social/roster identity is account-stable (`user-<id>`). Collapse the media
+ * suffix at this boundary so two devices do not evict each other in LiveKit. */
 function normalizeLivekitIdentity(identity: string): string {
 	if (identity.startsWith('user:')) {
-		return `user-${identity.slice('user:'.length)}`;
+		const accountId = identity.slice('user:'.length).split(':', 1)[0];
+		return `user-${accountId}`;
 	}
 	return identity;
 }
 
-/** Decode only enough of our own short-lived JWT to avoid asking the SDK to
- * publish when the Authority deliberately granted listener/server-muted access.
- * This is convenience, never authorization: LiveKit still enforces the signed
- * grant server-side. Fail closed if the payload cannot be inspected. */
+/** Backward-compatible fallback for older Authorities that do not return
+ * explicit grant metadata. Authorization still lives in the signed token. */
 function livekitTokenAllowsPublishing(token: string): boolean {
 	try {
 		const part = token.split('.')[1];
@@ -315,11 +315,10 @@ function removeLivekitTrack(identity: string, source: Track.Source): void {
 	rebuildLivekitRemoteStores();
 }
 
-function identityForStableUserId(userId: string): string | null {
-	for (const identity of livekitRemotePublications.keys()) {
-		if (normalizeLivekitIdentity(identity) === userId) return identity;
-	}
-	return null;
+function identitiesForStableUserId(userId: string): string[] {
+	return [...livekitRemotePublications.keys()].filter(
+		(identity) => normalizeLivekitIdentity(identity) === userId
+	);
 }
 
 function shouldSubscribeCamera(identity: string): boolean {
@@ -330,15 +329,9 @@ function shouldSubscribeCamera(identity: string): boolean {
 }
 
 function wantsPublication(identity: string, publication: RemoteTrackPublication): boolean {
-	if (publication.source === Track.Source.Microphone) {
-		return !get(isDeafened);
-	}
-	if (publication.source === Track.Source.Camera) {
-		return shouldSubscribeCamera(identity);
-	}
-	if (publication.source === Track.Source.ScreenShare) {
-		return livekitViewedScreens.has(identity);
-	}
+	if (publication.source === Track.Source.Microphone) return !get(isDeafened);
+	if (publication.source === Track.Source.Camera) return shouldSubscribeCamera(identity);
+	if (publication.source === Track.Source.ScreenShare) return livekitViewedScreens.has(identity);
 	if (publication.source === Track.Source.ScreenShareAudio) {
 		return livekitViewedScreens.has(identity) && !get(isDeafened);
 	}
@@ -361,9 +354,7 @@ function applyPublicationPolicy(identity: string, publication: RemoteTrackPublic
 
 function applyAllPublicationPolicies(): void {
 	for (const [identity, publications] of livekitRemotePublications.entries()) {
-		for (const publication of publications.values()) {
-			applyPublicationPolicy(identity, publication);
-		}
+		for (const publication of publications.values()) applyPublicationPolicy(identity, publication);
 	}
 }
 
@@ -374,8 +365,6 @@ function registerParticipantPublications(participant: RemoteParticipant): void {
 	}
 }
 
-/** Re-evaluate what this client should actually receive. Called after deafen,
- * participant-count changes and active-speaker changes. */
 export function syncLivekitReceivePolicy(): void {
 	if (!livekitRoom) return;
 	applyAllPublicationPolicies();
@@ -383,42 +372,41 @@ export function syncLivekitReceivePolicy(): void {
 }
 
 /** Explicit camera-interest hook for focused/pinned/visible UI surfaces. Large
- * rooms do not automatically receive every camera. */
+ * rooms do not automatically receive every camera. Same-account devices share
+ * one Wabi identity, so apply interest to every matching device publication. */
 export function setLivekitCameraInterest(userId: string, interested: boolean): void {
-	const identity = identityForStableUserId(userId);
-	if (!identity) return;
-	if (interested) livekitExplicitCameraInterest.add(identity);
-	else livekitExplicitCameraInterest.delete(identity);
-	const publication = livekitRemotePublications.get(identity)?.get(Track.Source.Camera);
-	if (publication) applyPublicationPolicy(identity, publication);
+	for (const identity of identitiesForStableUserId(userId)) {
+		if (interested) livekitExplicitCameraInterest.add(identity);
+		else livekitExplicitCameraInterest.delete(identity);
+		const publication = livekitRemotePublications.get(identity)?.get(Track.Source.Camera);
+		if (publication) applyPublicationPolicy(identity, publication);
+	}
 }
 
-/** Subscribe to the sharer's screen video and (unless deafened) share audio. */
+/** Subscribe to all screen publications from this Wabi account. */
 export function viewLivekitScreenShare(userId: string): void {
-	const identity = identityForStableUserId(userId);
-	if (!identity) return;
-	livekitViewedScreens.add(identity);
-	for (const source of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) {
-		const publication = livekitRemotePublications.get(identity)?.get(source);
-		if (publication) applyPublicationPolicy(identity, publication);
+	for (const identity of identitiesForStableUserId(userId)) {
+		livekitViewedScreens.add(identity);
+		for (const source of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) {
+			const publication = livekitRemotePublications.get(identity)?.get(source);
+			if (publication) applyPublicationPolicy(identity, publication);
+		}
 	}
 	rebuildLivekitRemoteStores();
 }
 
-/** Stop receiving the remote screen while keeping its publication metadata so
- * the View affordance remains available until the sharer actually stops. */
 export function hideLivekitScreenShare(userId: string): void {
-	const identity = identityForStableUserId(userId);
-	if (!identity) return;
-	livekitViewedScreens.delete(identity);
-	const media = livekitParticipantMedia.get(identity);
-	if (media) {
-		media.screenVideoTrack = null;
-		media.screenAudioTrack = null;
-	}
-	for (const source of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) {
-		const publication = livekitRemotePublications.get(identity)?.get(source);
-		if (publication) applyPublicationPolicy(identity, publication);
+	for (const identity of identitiesForStableUserId(userId)) {
+		livekitViewedScreens.delete(identity);
+		const media = livekitParticipantMedia.get(identity);
+		if (media) {
+			media.screenVideoTrack = null;
+			media.screenAudioTrack = null;
+		}
+		for (const source of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) {
+			const publication = livekitRemotePublications.get(identity)?.get(source);
+			if (publication) applyPublicationPolicy(identity, publication);
+		}
 	}
 	rebuildLivekitRemoteStores();
 }
@@ -513,7 +501,9 @@ export async function connectLivekitSfu(
 		}
 	};
 	const tokenResponse = await createLivekitAccessToken(channelId, localDisplayName);
-	const tokenCanPublish = livekitTokenAllowsPublishing(tokenResponse.token);
+	const tokenCanPublish = tokenResponse.canPublish ?? livekitTokenAllowsPublishing(tokenResponse.token);
+	const tokenCanPublishMicrophone = tokenResponse.canPublishMicrophone ?? tokenCanPublish;
+	if (tokenResponse.mutedOnEntry || tokenResponse.serverMuted) isMuted.set(true);
 	check();
 	console.log(
 		`[Calling] LiveKit target: ${tokenResponse.source === 'relay' ? tokenResponse.relayName || `relay ${tokenResponse.relayId}` : 'origin'} (${tokenResponse.url})`
@@ -593,9 +583,6 @@ export async function connectLivekitSfu(
 		});
 		check();
 
-		// TrackPublished is metadata, not a guarantee that every pre-existing
-		// publication generated an event during connect. Seed policy from the
-		// authoritative participant publication maps after connection as well.
 		for (const participant of room.remoteParticipants.values()) {
 			registerParticipantPublications(participant);
 		}
@@ -605,15 +592,15 @@ export async function connectLivekitSfu(
 		if (tokenResponse.token) {
 			scheduleLivekitTokenRefresh(channelId, localDisplayName, tokenResponse.token);
 		}
-		if (tokenCanPublish) {
+		if (tokenCanPublishMicrophone) {
 			await room.localParticipant.setMicrophoneEnabled(
 				requireDeps().shouldSendAudioToChannel(channelId)
 			);
 			check();
-			if (!get(isVideoOff)) {
-				await room.localParticipant.setCameraEnabled(true);
-				check();
-			}
+		}
+		if (tokenCanPublish && !get(isVideoOff)) {
+			await room.localParticipant.setCameraEnabled(true);
+			check();
 		}
 		livekitRoom = room;
 		livekitChannelId = channelId;
@@ -623,7 +610,7 @@ export async function connectLivekitSfu(
 			...state,
 			activeTransport: 'sfu',
 			isFallback: false,
-			reason: tokenCanPublish ? 'livekit_connected' : 'livekit_connected_listen_only',
+			reason: tokenResponse.listeningOnly ? 'livekit_connected_listen_only' : 'livekit_connected',
 			gatewayMediaPlaneStatus: 'ready'
 		}));
 	} catch (error) {
