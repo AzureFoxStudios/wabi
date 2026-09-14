@@ -3,7 +3,7 @@ use wabi_core::{
     ChannelCreatedEvent, ChannelType, ChannelUpdatedEvent, ChannelView, ConversationUserSummary,
     DirectMessageChannelEvent, GroupAvatarUpdatedEvent, GroupCreatedEvent, GroupMemberAddedEvent,
     GroupMemberRemovedEvent, MessageRetentionDuration, UserLeftEvent,
-    UserStatus, UserView, UsernameFont, VoiceBitrateMode, VoiceChannelSettings,
+    UserStatus, UserView, UsernameFont, VoiceBitrateMode, VoiceChannelSettings, VoiceEntryMode,
 };
 
 #[test]
@@ -108,6 +108,7 @@ fn channel_view_serializes_current_channel_payload_shape() {
             bitrate_mode: Some(VoiceBitrateMode::Standard),
             user_limit: Some(8),
             force_solo: Some(true),
+            entry_mode: Some(VoiceEntryMode::Muted),
         }),
         topic: None,
     };
@@ -141,7 +142,8 @@ fn channel_view_serializes_current_channel_payload_shape() {
             "voiceSettings": {
                 "bitrateMode": "standard",
                 "userLimit": 8,
-                "forceSolo": true
+                "forceSolo": true,
+                "entryMode": "muted"
             }
         })
     );
@@ -200,6 +202,7 @@ fn channel_updated_event_serializes_current_settings_update_payload_shape() {
             bitrate_mode: Some(VoiceBitrateMode::High),
             user_limit: Some(12),
             force_solo: Some(false),
+            entry_mode: Some(VoiceEntryMode::Open),
         }),
         topic: None,
     };
@@ -217,7 +220,8 @@ fn channel_updated_event_serializes_current_settings_update_payload_shape() {
             "voiceSettings": {
                 "bitrateMode": "high",
                 "userLimit": 12,
-                "forceSolo": false
+                "forceSolo": false,
+                "entryMode": "open"
             }
         })
     );
@@ -427,4 +431,5 @@ fn serde_strings_match_current_workspace_contract() {
         serde_json::from_str::<VoiceBitrateMode>("\"auto\"").unwrap(),
         VoiceBitrateMode::Auto
     );
+    assert_eq!(serde_json::to_string(&VoiceEntryMode::ListenOnly).unwrap(), "\"listen_only\"");
 }
