@@ -14,21 +14,20 @@
 # host-built binary instead, mount ./target/release/wabi-server over
 # /wabi-server (read-only) and restart the container.
 #
-# Secrets are OPTIONAL: with no .env at all, first boot auto-generates the JWT
-# secret and the WabiDB root key and persists them inside ./data/wabi-server.
-# Set WABI_JWT_KEY / WABIDB_ROOT_KEY in .env only if you manage secrets
-# externally (env always overrides the persisted files).
+# Secrets are OPTIONAL for the core Authority: with no .env at all, first boot
+# auto-generates the JWT secret and WabiDB root key and persists them inside
+# ./data/wabi-server. Optional media infrastructure has its own requirements.
 #
 # Default `docker compose up -d` brings up only wabi-server.
-# Optional services (coturn, media-gateway, livekit, tunnels) live under
-# compose profiles so the default stays minimal.
+# Optional services (coturn, media-gateway, livekit, tunnels, shared media node)
+# live under compose profiles so the default stays minimal.
 #
 # Security posture:
 # - wabi-server runs as UID/GID 1000 (non-root)
 # - No privileged: true, no cap_add, no host network anywhere
 # - All bind-mounts are scoped to the project tree (./data, ./uploads, ./plugins)
 # - Dev-only defaults for non-secret config (ports, paths, intervals)
-# - Cross-platform: works on Linux and Windows (Docker Desktop runs Linux VM)
+# - Cross-platform: works in the normal Docker/Podman model
 
 services:
   # ---------------------------------------------------------------- core ----
@@ -61,11 +60,9 @@ services:
       - WABI_BLACKLIST_FILE=/data/blacklist.txt
     volumes:
       # Engine data directory (wabidb streams, commit index, snapshots, blobs,
-      # plus the auto-generated jwt_secret and root_key on first boot)
+      # plus the auto-generated jwt_secret and root_key)
       - ./data/wabi-server:/data:Z,U
-      # User uploads (chat media)
       - ./uploads:/app/uploads:Z,U
-      # Hot-loaded plugins
       - ./plugins:/app/plugins:Z,U
     command: ["--data-dir", "/data", "--host", "0.0.0.0", "--port", "3000"]
     healthcheck:
@@ -116,7 +113,9 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------- media (optional) ----
-  # Profile: turn - standalone TURN server (coturn)
+  # Profile: turn - standalone TURN server (coturn).
+  # It is intentionally independently runnable: a public Media Node does not
+  # need to run a Wabi Authority on the same machine.
   coturn:
     build:
       context: ./turn-server
@@ -138,19 +137,11 @@ services:
       - ./data:/wabi-data:ro,z
     entrypoint: ["/bin/sh", "/usr/local/bin/docker-entrypoint.sh"]
     environment:
-      # Selected coturn must receive an explicit reachable address. Leave empty
-      # when unselected so core-only Compose still parses without TURN settings.
       - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-}
       - TURN_REALM=${TURN_REALM:-localhost}
-      # TURN HMAC key - REQUIRED when the turn profile runs. Not interpolated
-      # with :? (that breaks `compose config`/`up` for everyone, even without
-      # the profile); the coturn entrypoint refuses to start without it.
-      # Generate: openssl rand -base64 32
+      # TURN remains fail-closed until a secret is deliberately configured.
       - TURN_HMAC_KEY=${TURN_HMAC_KEY:-}
       - WABI_AUTOGEN_PATH=/wabi-data/.wabi-autogen
-    depends_on:
-      wabi-server:
-        condition: service_healthy
     restart: unless-stopped
 
   # Profile: srt-gateway - media gateway for SRT ingest
@@ -179,17 +170,55 @@ services:
       - wabi-server
     restart: unless-stopped
 
-  # Profile: sfu - standalone Selective Forwarding Unit (LiveKit)
+  # Profiles:
+  #   sfu        - standalone reference SFU
+  #   media-node - reference SFU as part of a shared Wabi Media Node
+  #
+  # LiveKit 7881 is ICE/TCP. WebRTC UDP is handled through a configured UDP mux
+  # port (7882 by default) so bridge-mode Compose does not need a 10k-port range.
   livekit:
-    image: docker.io/livekit/livekit-server:v1.8.3
+    image: docker.io/livekit/livekit-server:v1.13.6
     container_name: wabi-livekit
     profiles:
       - sfu
+      - media-node
     user: "1000:1000"
-    command: >
-      --bind 0.0.0.0
-      --keys ${LIVEKIT_API_KEY:-disabled}:${LIVEKIT_API_SECRET:-disabled}
+    command: ["--bind", "0.0.0.0"]
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-disabled}: ${LIVEKIT_API_SECRET:-disabled}"
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: ${LIVEKIT_UDP_PORT:-7882}
+          use_external_ip: true
     ports:
-      - "7880:7880"
-      - "7881:7881/udp"
+      - "${LIVEKIT_HTTP_PORT:-7880}:7880/tcp"
+      - "${LIVEKIT_TCP_PORT:-7881}:7881/tcp"
+      - "${LIVEKIT_UDP_PORT:-7882}:${LIVEKIT_UDP_PORT:-7882}/udp"
+    restart: unless-stopped
+
+  # Profile: media-node - one physical Media Node serving one or more independent
+  # Authorities. The same profile starts LiveKit above. Point the controller's
+  # config at the public/TLS endpoint clients should actually use.
+  wabi-media-node:
+    image: docker.io/library/python:3.13-alpine
+    container_name: wabi-media-node
+    profiles:
+      - media-node
+    user: "1000:1000"
+    working_dir: /app
+    volumes:
+      - ./scripts/wabi-media-node.py:/app/wabi-media-node.py:ro,z
+      - ${WABI_MEDIA_NODE_CONFIG:-./wabi.media-node.json}:/config/wabi.media-node.json:ro,z
+      - ./data/wabi-media-node:/data:Z,U
+    command:
+      - python3
+      - /app/wabi-media-node.py
+      - --config
+      - /config/wabi.media-node.json
+      - --state-dir
+      - /data
+    depends_on:
+      - livekit
     restart: unless-stopped
