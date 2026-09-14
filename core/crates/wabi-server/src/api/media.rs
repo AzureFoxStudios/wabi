@@ -1,38 +1,32 @@
-//! Media room HTTP API (Phase 4 routing registry).
+//! Media room HTTP API and Authority-side media broker.
 //!
-//! Routes:
-//! - POST /api/media/rooms — create room for a channel
-//! - GET  /api/media/rooms/{room_id} — get room info
-//! - GET  /api/media/rooms/by-channel/{channel_id} — find room
-//! - POST /api/media/rooms/{room_id}/assign — (admin) assign node
-//! - POST /api/media/rooms/{room_id}/active — (node) confirm active
-//! - POST /api/media/rooms/{room_id}/close — close room
-//! - GET  /api/media/rooms/{room_id}/endpoint — get active connection endpoint
-//!
-//! DOES NOT contain actual SFU/WebRTC logic. That's the calling layer.
+//! The Authority owns membership/policy and room placement. Shared Media Nodes
+//! own backend root credentials and packet infrastructure. LiveKit join tokens
+//! are therefore minted on the assigned Media Node through the authenticated
+//! outbound job channel, never from a root SFU secret copied into the Authority.
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{sync::Arc, time::{Duration, Instant}};
+use wabidb::engine::wabi_store::WabiStore;
 
 use crate::api::auth::handle_turn_credentials;
 use crate::api::media_node_catalog;
 use crate::auth_extractor::AuthUser;
-use crate::media::MediaRoomError;
+use crate::jobs::JobStatus;
+use crate::media::{MediaRoom, MediaRoomError, MediaRoomStatus};
 use crate::nodes::{NodeCapability, NodeStatus};
 use crate::state::AppState;
 
 const NODE_SECRET_HEADER: &str = "x-wabi-node-secret";
-
-// ---------------------------------------------------------------------------
-// Request / response types
-// ---------------------------------------------------------------------------
+const MEDIA_TOKEN_WAIT: Duration = Duration::from_secs(15);
+const MEDIA_TOKEN_POLL: Duration = Duration::from_millis(75);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,7 +43,7 @@ fn default_max_participants() -> u32 {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoomResponse {
-    pub room: crate::media::MediaRoom,
+    pub room: MediaRoom,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,70 +68,60 @@ pub struct MarkActiveRequest {
     pub sfu_endpoint: String,
 }
 
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LivekitTokenRequest {
+    pub channel_id: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        // Client wants to create / join a room for a channel
         .route("/rooms", post(create_room))
-        // List non-closed rooms
         .route("/rooms", get(list_rooms))
-        // Lookup by room id
         .route("/rooms/{room_id}", get(get_room))
-        // Lookup by channel
         .route("/rooms/by-channel/{channel_id}", get(find_by_channel))
-        // Admin assigns a media node to a room
         .route("/rooms/{room_id}/assign", post(assign_room))
-        // Media node confirms it is active
         .route("/rooms/{room_id}/active", post(mark_active))
-        // Close a room
         .route("/rooms/{room_id}/close", post(close_room))
-        // Client asks: where do I connect?
         .route("/rooms/{room_id}/endpoint", get(get_endpoint))
-        // TURN ephemeral credentials
+        .route("/livekit/token", post(create_livekit_token))
         .route("/turn-credentials", get(handle_turn_credentials))
-        // Media runtime snapshot
         .route("/runtime", get(media_runtime_snapshot))
         .with_state(state)
 }
-
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
 
 async fn create_room(
     State(state): State<Arc<AppState>>,
     _auth: AuthUser,
     Json(req): Json<CreateRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    // 1. Create the room (or return existing). MediaRoomRegistry owns a stable,
-    // random tenant namespace so shared nodes never depend on a human-configured
-    // server/channel name for isolation.
+    let room = ensure_media_room(&state, req.channel_id, req.max_participants).await?;
+    Ok(Json(RoomResponse { room }))
+}
+
+async fn ensure_media_room(
+    state: &Arc<AppState>,
+    channel_id: String,
+    max_participants: u32,
+) -> Result<MediaRoom, MediaApiError> {
+    // create_room is idempotent for an open channel room and also performs the
+    // lazy migration that gives pre-shared-node rows their tenant namespace.
     let mut room = state
         .media_registry
-        .create_room(req.channel_id, req.max_participants)
+        .create_room(channel_id, max_participants.max(1))
         .await
         .map_err(MediaApiError::from)?;
 
-    // 2. Prefer media nodes that have explicitly advertised backend endpoint,
-    // capacity and drain state. Region is a hint only; WABI_MEDIA_PREFERRED_REGION
-    // exists for early/operator routing until client latency measurements land.
-    if room.status == crate::media::MediaRoomStatus::Pending {
+    let mut assigned_now = false;
+    if room.status == MediaRoomStatus::Pending {
         let nodes = state.node_registry.list_nodes().await;
         let catalog = media_node_catalog::global(&state.config.data_dir);
-        let preferred_region = std::env::var("WABI_MEDIA_PREFERRED_REGION")
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
+        let preferred_region = preferred_media_region();
         let advertisements = catalog.list().await;
         let selected = catalog
-            .select(
-                &nodes,
-                room.max_participants,
-                preferred_region.as_deref(),
-            )
+            .select(&nodes, room.max_participants, preferred_region.as_deref())
             .await;
 
         let assignment = if let Some(selected) = selected {
@@ -150,10 +134,9 @@ async fn create_room(
             );
             Some((selected.node_id, Some(selected.endpoint)))
         } else {
-            // Backwards compatibility: old helpers that have never advertised
-            // media capacity may still be used. A node that DID advertise is not
-            // eligible for this escape hatch, otherwise a full/draining node
-            // could be selected in direct contradiction to its advertisement.
+            // Legacy helpers that never advertised media metadata remain usable.
+            // Once a node advertises drain/capacity state, do not bypass that
+            // declaration through this compatibility path.
             nodes
                 .iter()
                 .find(|node| {
@@ -172,55 +155,59 @@ async fn create_room(
         };
 
         if let Some((node_id, endpoint)) = assignment {
-            match state
+            room = state
                 .media_registry
                 .assign_room(&room.room_id, &node_id, endpoint)
                 .await
-            {
-                Ok(assigned) => {
-                    tracing::info!(
-                        "[media] Auto-assigned tenant={} room={} to node {}",
-                        room.tenant_namespace,
-                        room.room_id,
-                        node_id
-                    );
-                    room = assigned;
-                }
-                Err(e) => {
-                    tracing::warn!("[media] Auto-assignment failed: {}", e);
-                }
-            }
+                .map_err(MediaApiError::from)?;
+            assigned_now = true;
+            tracing::info!(
+                "[media] auto-assigned tenant={} room={} to node {}",
+                room.tenant_namespace,
+                room.room_id,
+                node_id
+            );
         }
     }
 
-    // 3. If the room is now Assigned, drop a MediaRelay job into the queue.
-    // A helper must use externalRoomName for backend/SFU identity and keep the
-    // tenant namespace attached to any future credential/token issuance.
-    if room.status == crate::media::MediaRoomStatus::Assigned && room.assigned_node_id.is_some() {
-        state
-            .job_queue
-            .submit(crate::jobs::SubmitJobRequest {
-                kind: crate::jobs::JobKind::MediaRelay,
-                payload: serde_json::json!({
-                    "tenantNamespace": room.tenant_namespace,
-                    "roomId": room.room_id,
-                    "externalRoomName": room.external_room_name,
-                    "channelId": room.channel_id,
-                    "assignedNodeId": room.assigned_node_id,
-                    "maxParticipants": room.max_participants,
-                }),
-                max_retries: 3,
-            })
-            .await;
-        tracing::info!(
-            "[media] Submitted tenant-scoped MediaRelay job tenant={} room={} external={}",
-            room.tenant_namespace,
-            room.room_id,
-            room.external_room_name
-        );
+    if assigned_now {
+        submit_media_operation(state, &room, "activate_room", serde_json::json!({})).await?;
     }
+    Ok(room)
+}
 
-    Ok(Json(RoomResponse { room }))
+async fn submit_media_operation(
+    state: &Arc<AppState>,
+    room: &MediaRoom,
+    operation: &str,
+    extra: serde_json::Value,
+) -> Result<crate::jobs::Job, MediaApiError> {
+    let assigned_node_id = room
+        .assigned_node_id
+        .clone()
+        .ok_or(MediaApiError::Unavailable)?;
+    let mut payload = serde_json::json!({
+        "operation": operation,
+        "tenantNamespace": room.tenant_namespace,
+        "roomId": room.room_id,
+        "externalRoomName": room.external_room_name,
+        "channelId": room.channel_id,
+        "assignedNodeId": assigned_node_id,
+        "maxParticipants": room.max_participants,
+    });
+    if let (Some(target), Some(source)) = (payload.as_object_mut(), extra.as_object()) {
+        for (key, value) in source {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(state
+        .job_queue
+        .submit(crate::jobs::SubmitJobRequest {
+            kind: crate::jobs::JobKind::MediaRelay,
+            payload,
+            max_retries: 2,
+        })
+        .await)
 }
 
 async fn get_room(
@@ -255,7 +242,6 @@ async fn assign_room(
     Path(room_id): Path<String>,
     Json(req): Json<AssignRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    // Admin-only: node assignment shapes where client media is routed.
     if !state.is_admin(auth.user_id).await {
         return Err(MediaApiError::Forbidden);
     }
@@ -264,6 +250,7 @@ async fn assign_room(
         .assign_room(&room_id, &req.node_id, req.sfu_endpoint)
         .await
         .map_err(MediaApiError::from)?;
+    submit_media_operation(&state, &room, "activate_room", serde_json::json!({})).await?;
     Ok(Json(RoomResponse { room }))
 }
 
@@ -299,7 +286,6 @@ async fn close_room(
     auth: AuthUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    // Admin-only: closing a room tears down routing for a live call.
     if !state.is_admin(auth.user_id).await {
         return Err(MediaApiError::Forbidden);
     }
@@ -314,13 +300,11 @@ async fn close_room(
 async fn list_rooms(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-) -> Result<Json<Vec<crate::media::MediaRoom>>, MediaApiError> {
-    // Admin-only: the registry enumerates every live call's routing.
+) -> Result<Json<Vec<MediaRoom>>, MediaApiError> {
     if !state.is_admin(auth.user_id).await {
         return Err(MediaApiError::Forbidden);
     }
-    let rooms = state.media_registry.list_rooms().await;
-    Ok(Json(rooms))
+    Ok(Json(state.media_registry.list_rooms().await))
 }
 
 async fn get_endpoint(
@@ -337,9 +321,139 @@ async fn get_endpoint(
     }))
 }
 
-// ---------------------------------------------------------------------------
-// Media runtime snapshot
-// ---------------------------------------------------------------------------
+async fn create_livekit_token(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<LivekitTokenRequest>,
+) -> Result<Json<serde_json::Value>, MediaApiError> {
+    if auth.user_id <= 0 || auth.is_bot {
+        return Err(MediaApiError::Forbidden);
+    }
+    crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
+        .await
+        .map_err(|_| MediaApiError::Forbidden)?;
+
+    let room = ensure_media_room(&state, req.channel_id.clone(), default_max_participants()).await?;
+    let node_id = room
+        .assigned_node_id
+        .clone()
+        .ok_or(MediaApiError::Unavailable)?;
+
+    // Shared-node token brokering requires an authenticated advertisement so an
+    // old generic helper can never receive a root-secret operation by accident.
+    let advertisement = media_node_catalog::global(&state.config.data_dir)
+        .get(&node_id)
+        .await
+        .ok_or(MediaApiError::Unavailable)?;
+    if advertisement.advertisement.provider != "livekit"
+        || !advertisement.advertisement.accepting_new_rooms
+    {
+        return Err(MediaApiError::Unavailable);
+    }
+
+    let server_muted = state
+        .wdb
+        .is_user_muted(&req.channel_id, auth.user_id as u64)
+        .await
+        .unwrap_or(false);
+    let server_deafened = state
+        .wdb
+        .is_user_deafened(&req.channel_id, auth.user_id as u64)
+        .await
+        .unwrap_or(false);
+    let can_publish = !server_muted;
+    let can_subscribe = !server_deafened;
+    let publish_sources = if can_publish {
+        serde_json::json!(["microphone", "camera", "screen_share", "screen_share_audio"])
+    } else {
+        serde_json::json!([])
+    };
+    let display_name = req
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(auth.username.as_str())
+        .chars()
+        .take(128)
+        .collect::<String>();
+    let identity = format!("user:{}", auth.user_id);
+
+    let job = submit_media_operation(
+        &state,
+        &room,
+        "mint_token",
+        serde_json::json!({
+            "identity": identity,
+            "displayName": display_name,
+            "ttlSeconds": 600,
+            "grants": {
+                "canPublish": can_publish,
+                "canSubscribe": can_subscribe,
+                "canPublishData": true,
+                "canPublishSources": publish_sources,
+            }
+        }),
+    )
+    .await?;
+
+    let deadline = Instant::now() + MEDIA_TOKEN_WAIT;
+    loop {
+        let current = state
+            .job_queue
+            .list_jobs(None)
+            .await
+            .into_iter()
+            .find(|candidate| candidate.job_id == job.job_id)
+            .ok_or(MediaApiError::Internal)?;
+        match current.status {
+            JobStatus::Completed => {
+                let result = current.result_payload.ok_or(MediaApiError::Internal)?;
+                validate_livekit_token_result(&result, &room, &identity)?;
+                return Ok(Json(result));
+            }
+            JobStatus::DeadLettered | JobStatus::Failed | JobStatus::Cancelled => {
+                tracing::warn!(
+                    job_id = current.job_id,
+                    error = ?current.error_message,
+                    "media token job failed"
+                );
+                return Err(MediaApiError::Unavailable);
+            }
+            JobStatus::Pending | JobStatus::Running => {}
+        }
+        if Instant::now() >= deadline {
+            return Err(MediaApiError::Unavailable);
+        }
+        tokio::time::sleep(MEDIA_TOKEN_POLL).await;
+    }
+}
+
+fn validate_livekit_token_result(
+    result: &serde_json::Value,
+    room: &MediaRoom,
+    identity: &str,
+) -> Result<(), MediaApiError> {
+    let object = result.as_object().ok_or(MediaApiError::Internal)?;
+    let has_token = object.get("token").and_then(|v| v.as_str()).is_some_and(|v| !v.is_empty());
+    let url_ok = object.get("url").and_then(|v| v.as_str()).is_some_and(|v| {
+        v.starts_with("wss://") || v.starts_with("ws://") || v.starts_with("https://") || v.starts_with("http://")
+    });
+    let room_ok = object.get("roomName").and_then(|v| v.as_str()) == Some(room.external_room_name.as_str());
+    let identity_ok = object.get("identity").and_then(|v| v.as_str()) == Some(identity);
+    if has_token && url_ok && room_ok && identity_ok {
+        Ok(())
+    } else {
+        Err(MediaApiError::Internal)
+    }
+}
+
+fn preferred_media_region() -> Option<String> {
+    std::env::var("WABI_MEDIA_PREFERRED_REGION")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -441,20 +555,35 @@ async fn media_runtime_snapshot(
     State(state): State<Arc<AppState>>,
 ) -> Json<ServerMediaRuntimePayload> {
     let config = &state.config;
-    // Startup validates selected TURN configuration. Treat manually constructed
-    // incomplete states as unconfigured, never as a healthy advertised relay.
     let turn_endpoint = config.turn_endpoint().ok().flatten();
     let turn_configured = turn_endpoint.is_some();
 
-    let livekit_configured = tokio::process::Command::new("livekit-server")
+    // Prefer a healthy advertised shared Media Node. An explicit LIVEKIT_URL
+    // remains a compatibility path for a directly configured self-hosted SFU.
+    let nodes = state.node_registry.list_nodes().await;
+    let selected = media_node_catalog::global(&state.config.data_dir)
+        .select(&nodes, 1, preferred_media_region().as_deref())
+        .await
+        .filter(|selection| selection.provider == "livekit");
+    let configured_url = selected
+        .as_ref()
+        .map(|selection| selection.endpoint.clone())
+        .or_else(|| {
+            std::env::var("LIVEKIT_URL")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        });
+    let local_binary = tokio::process::Command::new("livekit-server")
         .arg("--version")
         .output()
         .await
         .ok()
-        .map(|o| o.status.success())
-        .unwrap_or_default();
+        .is_some_and(|output| output.status.success());
+    let livekit_configured = configured_url.is_some() || local_binary;
+    let livekit_ready = configured_url.is_some();
 
-    let payload = ServerMediaRuntimePayload {
+    Json(ServerMediaRuntimePayload {
         media: Some(ServerMediaRuntimeMediaPayload {
             local_enhanced_enabled: true,
             srt_gateway_enabled: false,
@@ -478,11 +607,11 @@ async fn media_runtime_snapshot(
             }),
             livekit: Some(ServerMediaRuntimeLivekitPayload {
                 configured: livekit_configured,
-                url: None,
+                url: configured_url,
             }),
             sfu: Some(ServerMediaRuntimeSfuPayload {
-                provider: livekit_configured.then(|| "livekit"),
-                enabled: livekit_configured,
+                provider: livekit_ready.then_some("livekit"),
+                enabled: livekit_ready,
             }),
             booster_relay: Some(ServerMediaRuntimeBoosterRelayPayload {
                 requested_mode: "off",
@@ -502,21 +631,16 @@ async fn media_runtime_snapshot(
             srt_direct_browser_supported: false,
             message: None,
         }),
-    };
-
-    Json(payload)
+    })
 }
-
-// ---------------------------------------------------------------------------
-// Error type
-// ---------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub enum MediaApiError {
     Registry(MediaRoomError),
     NotFound,
-    /// Authorization rejection for an admin action or media-node callback.
     Forbidden,
+    Unavailable,
+    Internal,
 }
 
 impl From<MediaRoomError> for MediaApiError {
@@ -527,7 +651,7 @@ impl From<MediaRoomError> for MediaApiError {
 
 impl IntoResponse for MediaApiError {
     fn into_response(self) -> axum::response::Response {
-        let (status, body) = match &self {
+        let (status, body) = match self {
             MediaApiError::Registry(MediaRoomError::NotFound) | MediaApiError::NotFound => {
                 (StatusCode::NOT_FOUND, "room not found")
             }
@@ -545,6 +669,8 @@ impl IntoResponse for MediaApiError {
                 (StatusCode::INTERNAL_SERVER_ERROR, "registry io error")
             }
             MediaApiError::Forbidden => (StatusCode::FORBIDDEN, "not authorized for media action"),
+            MediaApiError::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "media node unavailable"),
+            MediaApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "invalid media-node response"),
         };
         (status, body).into_response()
     }
