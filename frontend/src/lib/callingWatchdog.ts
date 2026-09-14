@@ -5,19 +5,11 @@
  * drain/reconnect heal happened to fire — no demotion, no promotion, no
  * health signal anywhere.
  *
- * Now:
- *  - Relay disconnect ⇒ one bounded reconnect attempt (the underlying client
- *    already retries; the watchdog waits a grace window and checks whether it
- *    actually recovered) ⇒ if still dead, DEMOTE to the next chain link.
- *  - While demoted on a fallback, the primary is probed periodically; on
- *    recovery the call is PROMOTED back (auto for listen-only contexts,
- *    surfaced for explicit user action otherwise — the caller decides via the
- *    onPromote callback's return).
- *
- * The watchdog owns callTransportState.checkedAt freshness so stale badges
- * are distinguishable from live ones.
+ * The watchdog may move between Authority-observable transports automatically.
+ * Direct P2P is a different trust boundary: server mute/deafen cannot be hard
+ * enforced once browsers exchange RTP directly, so a watchdog MUST NOT silently
+ * demote into P2P unless the owning call explicitly opts into that behaviour.
  */
-import { get } from 'svelte/store';
 import { callTransportState } from './callingStateStores';
 import { chainForMode } from './callingFallback';
 import type { EffectiveCallTransport } from './mediaRuntime';
@@ -33,6 +25,11 @@ export interface WatchdogOptions {
 	disconnectCurrent?: () => Promise<void>;
 	/** True when auto-promotion back to the primary is acceptable. */
 	autoPromoteOk?: () => boolean;
+	/**
+	 * Explicit trust-boundary opt-in. Defaults false so community voice never
+	 * becomes unenforceable direct RTP merely because a relay disappeared.
+	 */
+	allowP2pDemotion?: boolean;
 	/** Grace window before declaring the primary dead (ms). */
 	graceMs?: number;
 	/** Probe interval while demoted (ms). */
@@ -71,10 +68,18 @@ class TransportWatchdog {
 		}
 	}
 
+	private chain(opts: WatchdogOptions): EffectiveCallTransport[] {
+		const chain = chainForMode(opts.mode);
+		return opts.allowP2pDemotion === true ? chain : chain.filter((transport) => transport !== 'p2p');
+	}
+
 	start(opts: WatchdogOptions): void {
 		this.stop();
 		this.opts = opts;
-		this.primary = chainForMode(opts.mode)[0];
+		const chain = this.chain(opts);
+		// Preserve the current transport as primary when a strict chain becomes
+		// empty (e.g. p2p-only passed accidentally without explicit opt-in).
+		this.primary = chain[0] ?? opts.active;
 		this.current = opts.active;
 		this.emit('monitoring');
 		callTransportState.update((st) => ({ ...st, checkedAt: Date.now() }));
@@ -124,14 +129,14 @@ class TransportWatchdog {
 			return;
 		}
 
-		// Still dead: demote to the next link in the chain after the current one.
-		const chain = chainForMode(opts.mode);
+		// Still dead: demote to the next permitted link after the current one.
+		const chain = this.chain(opts);
 		const idx = chain.indexOf(this.current);
-		const next = chain[idx + 1];
+		const next = idx >= 0 ? chain[idx + 1] : undefined;
 		try {
 			await opts.disconnectCurrent?.();
 			if (this.opts !== opts) return;
-			if (!next) throw new Error('no further fallback');
+			if (!next) throw new Error('no permitted fallback transport');
 			await opts.connect(next);
 			if (this.opts !== opts) return;
 			this.current = next;
@@ -144,7 +149,6 @@ class TransportWatchdog {
 			}));
 			this.emit('demoted');
 
-			// If we're now below the primary, schedule promotion probes.
 			if (next !== this.primary && this.current === next) {
 				const probeMs = opts.probeIntervalMs ?? PROBE_DEFAULT_MS;
 				if (this.timer !== null) clearInterval(this.timer);
@@ -152,7 +156,7 @@ class TransportWatchdog {
 			}
 		} catch (error) {
 			if (this.opts !== opts) return;
-			console.error('[Watchdog] Demotion failed — no usable transport:', error);
+			console.error('[Watchdog] Demotion failed — no usable permitted transport:', error);
 			callTransportState.update((st) => ({
 				...st,
 				reason: 'all_transports_lost',
@@ -166,15 +170,10 @@ class TransportWatchdog {
 		const opts = this.opts;
 		if (!opts || this.state !== 'demoted' || this.current === this.primary) return;
 		try {
-			if (opts.autoPromoteOk && !opts.autoPromoteOk()) return; // stay demoted; user can switch manually
-			// Probe by establishing the candidate: a healthy /ws control socket
-			// is not evidence of a joined media room. One attempt at a time.
+			if (opts.autoPromoteOk && !opts.autoPromoteOk()) return;
 			this.emit('promoting');
 			await opts.connect(this.primary);
 			if (this.opts !== opts) return;
-			// disconnectCurrent belongs to the ORIGINAL failed primary. It
-			// must never tear down the just-created replacement. The media
-			// owner selects peer reception after playback readiness evidence.
 			this.current = this.primary;
 			callTransportState.update((st) => ({
 				...st,
@@ -189,15 +188,11 @@ class TransportWatchdog {
 		} catch (error) {
 			if (this.opts !== opts) return;
 			this.emit('demoted');
-			// Primary still not ready; keep probing quietly.
 			console.debug('[Watchdog] Promotion attempt failed:', error);
 		}
 	}
 
-	/**
-	 * Health probe supplied by the media-room owner. Missing evidence is
-	 * unhealthy; the /ws control connection alone cannot establish readiness.
-	 */
+	/** Missing evidence is unhealthy; the /ws control connection alone cannot establish readiness. */
 	private async probe(): Promise<boolean> {
 		const opts = this.opts;
 		if (!opts) return false;
