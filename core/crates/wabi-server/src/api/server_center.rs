@@ -1,8 +1,9 @@
-//! Server Center APIs: moderation inbox, deterministic safety rules and storage inspection.
+//! Server Center APIs: moderation inbox, deterministic safety rules, privacy policy and storage inspection.
 //!
 //! This module intentionally keeps the first version small and transparent:
-//! reports preserve a server-side message snapshot, safety rules are explicit
-//! string matches, and destructive storage deletion is owner-only.
+//! reports preserve an explicitly submitted server-side message snapshot, safety
+//! rules are literal string matches, privacy choices are explicit, and destructive
+//! storage deletion is owner-only.
 
 use std::{collections::HashMap, path::{Path as FsPath, PathBuf}, sync::Arc};
 
@@ -71,6 +72,35 @@ impl Default for SafetyPolicy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivacyPolicy {
+    /// New community channels inherit this. Existing channels keep their own
+    /// retention setting until an admin deliberately changes them.
+    pub default_retention: String,
+    /// DMs/groups are server-readable today, but content automation does not
+    /// inspect them unless this is deliberately enabled.
+    pub private_content_automation: bool,
+    /// Local-only policy marker. Wabi does not upload analytics to a central service.
+    pub analytics_mode: String,
+    /// External content processing remains opt-in and must come from declared integrations.
+    pub external_processing: String,
+    /// Reporting is the explicit act that preserves a message snapshot as evidence.
+    pub report_evidence_preservation: String,
+}
+
+impl Default for PrivacyPolicy {
+    fn default() -> Self {
+        Self {
+            default_retention: "24h".into(),
+            private_content_automation: false,
+            analytics_mode: "off".into(),
+            external_processing: "none".into(),
+            report_evidence_preservation: "explicit_report".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReportStatus {
     Open,
@@ -117,6 +147,8 @@ pub struct ModerationReport {
 struct ServerCenterData {
     #[serde(default)]
     safety: SafetyPolicy,
+    #[serde(default)]
+    privacy: PrivacyPolicy,
     #[serde(default)]
     reports: Vec<ModerationReport>,
 }
@@ -171,6 +203,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     )));
 
     Router::new()
+        .route("/privacy", get(get_privacy).put(put_privacy))
         .route("/safety", get(get_safety).put(put_safety))
         .route("/reports", get(list_reports).post(create_report))
         .route("/reports/mine", get(list_my_reports))
@@ -196,6 +229,43 @@ async fn staff_auth(headers: &HeaderMap, state: &Arc<AppState>) -> Result<(i64, 
         return Err(json_error(StatusCode::FORBIDDEN, "Staff access required"));
     }
     Ok((auth.user_id, auth.username))
+}
+
+async fn get_privacy(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Extension(store): Extension<Arc<RwLock<ServerCenterStore>>>,
+) -> Response {
+    if let Err(resp) = crate::api::admin::admin_auth(&headers, &state).await { return resp; }
+    Json(json!({ "policy": store.read().await.data.privacy.clone() })).into_response()
+}
+
+async fn put_privacy(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Extension(store): Extension<Arc<RwLock<ServerCenterStore>>>,
+    Json(policy): Json<PrivacyPolicy>,
+) -> Response {
+    if let Err(resp) = crate::api::admin::admin_auth(&headers, &state).await { return resp; }
+    if !matches!(policy.default_retention.as_str(), "live" | "1h" | "24h" | "7d" | "30d" | "forever") {
+        return json_error(StatusCode::BAD_REQUEST, "Unknown default retention value");
+    }
+    if !matches!(policy.analytics_mode.as_str(), "off" | "local_aggregate") {
+        return json_error(StatusCode::BAD_REQUEST, "Unknown analytics mode");
+    }
+    if !matches!(policy.external_processing.as_str(), "none" | "declared_integrations") {
+        return json_error(StatusCode::BAD_REQUEST, "Unknown external processing mode");
+    }
+    if policy.report_evidence_preservation != "explicit_report" {
+        return json_error(StatusCode::BAD_REQUEST, "Reported evidence must remain explicit");
+    }
+    let mut guard = store.write().await;
+    guard.data.privacy = policy.clone();
+    if let Err(error) = guard.persist() {
+        tracing::error!(%error, "failed to persist Server Center privacy policy");
+        return json_error(StatusCode::SERVICE_UNAVAILABLE, "Could not save privacy policy");
+    }
+    Json(json!({ "policy": policy })).into_response()
 }
 
 async fn get_safety(
@@ -464,12 +534,27 @@ async fn delete_storage_file(
     Json(json!({ "success": true, "filename": filename, "removedFromDisk": removed, "revoked": true })).into_response()
 }
 
-/// Evaluate the first enabled deterministic safety rule against plain text.
-/// The caller decides how to enforce the returned action.
-pub fn evaluate_safety_rules(data_dir: &str, content: &str) -> Option<SafetyRule> {
+fn read_server_center_data(data_dir: &str) -> Option<ServerCenterData> {
     let path = PathBuf::from(data_dir).join("server_center.json");
-    let data = std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<ServerCenterData>(&bytes).ok())?;
+    std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<ServerCenterData>(&bytes).ok())
+}
+
+/// Retention assigned to newly created community channels. Existing channels
+/// are intentionally not rewritten when this changes.
+pub fn privacy_default_retention(data_dir: &str) -> String {
+    read_server_center_data(data_dir)
+        .map(|data| data.privacy.default_retention)
+        .unwrap_or_else(|| PrivacyPolicy::default().default_retention)
+}
+
+/// Evaluate the first enabled deterministic safety rule against plain text.
+/// Private server-readable conversations are reports-only by default and must
+/// be explicitly opted into automation. Future true E2EE content must never be
+/// routed through this server-side evaluator.
+pub fn evaluate_safety_rules(data_dir: &str, content: &str, private_conversation: bool) -> Option<SafetyRule> {
+    let data = read_server_center_data(data_dir)?;
     if !data.safety.enabled { return None; }
+    if private_conversation && !data.privacy.private_content_automation { return None; }
     data.safety.rules.into_iter().find(|rule| {
         if !rule.enabled || rule.pattern.is_empty() { return false; }
         let (haystack, needle) = if rule.case_sensitive {
@@ -490,11 +575,8 @@ pub fn evaluate_safety_rules(data_dir: &str, content: &str) -> Option<SafetyRule
 mod tests {
     use super::*;
 
-    #[test]
-    fn deterministic_rule_matching_is_literal_and_predictable() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("server_center.json");
-        let data = ServerCenterData {
+    fn rule_data(private_content_automation: bool) -> ServerCenterData {
+        ServerCenterData {
             safety: SafetyPolicy {
                 enabled: true,
                 default_flag_channel_id: None,
@@ -504,10 +586,26 @@ mod tests {
                     timeout_minutes: None, reason: Some("literal test".into()),
                 }],
             },
+            privacy: PrivacyPolicy { private_content_automation, ..PrivacyPolicy::default() },
             reports: vec![],
-        };
-        std::fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
-        assert!(evaluate_safety_rules(dir.path().to_str().unwrap(), "banme").is_some());
-        assert!(evaluate_safety_rules(dir.path().to_str().unwrap(), "banme please").is_none());
+        }
+    }
+
+    #[test]
+    fn deterministic_rule_matching_is_literal_and_predictable() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("server_center.json"), serde_json::to_vec(&rule_data(false)).unwrap()).unwrap();
+        assert!(evaluate_safety_rules(dir.path().to_str().unwrap(), "banme", false).is_some());
+        assert!(evaluate_safety_rules(dir.path().to_str().unwrap(), "banme please", false).is_none());
+    }
+
+    #[test]
+    fn private_automation_is_opt_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server_center.json");
+        std::fs::write(&path, serde_json::to_vec(&rule_data(false)).unwrap()).unwrap();
+        assert!(evaluate_safety_rules(dir.path().to_str().unwrap(), "banme", true).is_none());
+        std::fs::write(&path, serde_json::to_vec(&rule_data(true)).unwrap()).unwrap();
+        assert!(evaluate_safety_rules(dir.path().to_str().unwrap(), "banme", true).is_some());
     }
 }
