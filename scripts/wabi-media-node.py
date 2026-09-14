@@ -4,8 +4,9 @@
 One physical Media Node can pair independently with many Wabi Authorities. Each
 Authority issues its own node id/secret. This controller keeps those credentials
 isolated, heartbeats outbound to every Authority, advertises one physical SFU to
-each, claims only media_relay jobs, activates tenant-scoped rooms, and mints
-short-lived backend tokens without handing SFU root secrets to an Authority.
+each, claims only media_relay jobs, activates tenant-scoped rooms, mints
+short-lived backend tokens, and applies runtime participant permission changes
+without handing SFU root secrets to an Authority.
 
 This is intentionally dependency-free (Python stdlib only) so the operator path
 can be wrapped by one Compose profile/command without introducing a hosted
@@ -27,16 +28,17 @@ import threading
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 STATE_VERSION = 1
 USER_AGENT = "wabi-media-node/1"
 DEFAULT_HEARTBEAT_SECONDS = 30.0
-DEFAULT_POLL_SECONDS = 5.0
+DEFAULT_POLL_SECONDS = 1.0
 DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_MEDIA_TOKEN_TTL_SECONDS = 600
 MAX_MEDIA_TOKEN_TTL_SECONDS = 3600
+ALLOWED_PUBLISH_SOURCES = {"camera", "microphone", "screen_share", "screen_share_audio"}
 
 
 class ControllerError(RuntimeError):
@@ -122,10 +124,7 @@ def http_json(
     allow_no_content: bool = False,
 ) -> dict[str, Any] | None:
     encoded = None
-    request_headers = {
-        "Accept": "application/json",
-        "User-Agent": USER_AGENT,
-    }
+    request_headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
     if body is not None:
         encoded = json.dumps(body, separators=(",", ":")).encode("utf-8")
         request_headers["Content-Type"] = "application/json"
@@ -171,6 +170,33 @@ def sign_hs256_jwt(claims: dict[str, Any], secret: str) -> str:
     return f"{encoded_header}.{encoded_claims}.{_b64url(signature)}"
 
 
+def _validated_grants(payload: dict[str, Any]) -> tuple[bool, bool, bool, list[str]]:
+    grants = payload.get("grants") or {}
+    if not isinstance(grants, dict):
+        raise ControllerError("media grants must be an object")
+    can_publish = bool(grants.get("canPublish", False))
+    can_subscribe = bool(grants.get("canSubscribe", True))
+    can_publish_data = bool(grants.get("canPublishData", True))
+    raw_sources = grants.get("canPublishSources") or []
+    if not isinstance(raw_sources, list):
+        raise ControllerError("canPublishSources must be an array")
+    sources = [
+        source for source in raw_sources
+        if isinstance(source, str) and source in ALLOWED_PUBLISH_SOURCES
+    ]
+    if not can_publish:
+        sources = []
+    return can_publish, can_subscribe, can_publish_data, sources
+
+
+def _livekit_http_base(endpoint: str) -> str:
+    parsed = urlsplit(endpoint)
+    scheme = {"wss": "https", "ws": "http"}.get(parsed.scheme, parsed.scheme)
+    if scheme not in {"http", "https"} or not parsed.netloc:
+        raise ControllerError("LiveKit endpoint cannot be converted to an HTTP API URL")
+    return urlunsplit((scheme, parsed.netloc, "", "", "")).rstrip("/")
+
+
 class MediaProfile:
     def __init__(self, config: dict[str, Any]):
         self.display_name = str(config.get("name") or "Wabi Media Node").strip()
@@ -191,21 +217,15 @@ class MediaProfile:
             raise ControllerError("capacity must be a JSON object")
         self.max_rooms = optional_positive_int(capacity, "maxRooms")
         self.max_participants = optional_positive_int(capacity, "maxParticipants")
-        self.max_participants_per_room = optional_positive_int(
-            capacity, "maxParticipantsPerRoom"
-        )
+        self.max_participants_per_room = optional_positive_int(capacity, "maxParticipantsPerRoom")
 
-        self.heartbeat_seconds = float(
-            config.get("heartbeatSeconds", DEFAULT_HEARTBEAT_SECONDS)
-        )
+        self.heartbeat_seconds = float(config.get("heartbeatSeconds", DEFAULT_HEARTBEAT_SECONDS))
         self.poll_seconds = float(config.get("pollSeconds", DEFAULT_POLL_SECONDS))
         if self.heartbeat_seconds < 5:
             raise ControllerError("heartbeatSeconds must be at least 5")
         if self.poll_seconds < 1:
             raise ControllerError("pollSeconds must be at least 1")
 
-        # Root backend credentials stay on the Media Node. Authorities request a
-        # short-lived scoped token through the outbound job channel instead.
         self.livekit_api_key = os.environ.get("LIVEKIT_API_KEY", "").strip()
         self.livekit_api_secret = os.environ.get("LIVEKIT_API_SECRET", "").strip()
 
@@ -231,8 +251,6 @@ class MediaProfile:
             "maxRooms": self.max_rooms,
             "maxParticipants": self.max_participants,
             "maxParticipantsPerRoom": self.max_participants_per_room,
-            # Do not invent runtime occupancy. Hard admission accounting is a
-            # later layer; unknown is more honest than fake zeroes.
             "activeRooms": None,
             "activeParticipants": None,
         }
@@ -248,30 +266,12 @@ class MediaProfile:
             raise ControllerError("mint_token job missing externalRoomName")
         if not isinstance(identity, str) or not identity:
             raise ControllerError("mint_token job missing identity")
-
         display_name = payload.get("displayName")
         if not isinstance(display_name, str) or not display_name.strip():
             display_name = identity
         display_name = display_name.strip()[:128]
 
-        grants = payload.get("grants") or {}
-        if not isinstance(grants, dict):
-            raise ControllerError("mint_token grants must be an object")
-        can_publish = bool(grants.get("canPublish", False))
-        can_subscribe = bool(grants.get("canSubscribe", True))
-        can_publish_data = bool(grants.get("canPublishData", True))
-        raw_sources = grants.get("canPublishSources") or []
-        if not isinstance(raw_sources, list):
-            raise ControllerError("canPublishSources must be an array")
-        allowed_sources = {"camera", "microphone", "screen_share", "screen_share_audio"}
-        sources = [
-            source
-            for source in raw_sources
-            if isinstance(source, str) and source in allowed_sources
-        ]
-        if not can_publish:
-            sources = []
-
+        can_publish, can_subscribe, can_publish_data, sources = _validated_grants(payload)
         ttl = payload.get("ttlSeconds", DEFAULT_MEDIA_TOKEN_TTL_SECONDS)
         if not isinstance(ttl, int) or isinstance(ttl, bool):
             ttl = DEFAULT_MEDIA_TOKEN_TTL_SECONDS
@@ -302,6 +302,58 @@ class MediaProfile:
             "relayName": self.display_name,
             "source": "relay",
         }
+
+    def _room_admin_token(self, room: str) -> str:
+        self.ensure_token_signing_ready()
+        now = int(time.time())
+        return sign_hs256_jwt(
+            {
+                "iss": self.livekit_api_key,
+                "sub": "wabi-media-node-admin",
+                "nbf": now - 5,
+                "iat": now,
+                "exp": now + 60,
+                "video": {"roomAdmin": True, "room": room},
+            },
+            self.livekit_api_secret,
+        )
+
+    def update_livekit_participant_permissions(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.provider != "livekit":
+            raise ControllerError(f"provider {self.provider!r} cannot update LiveKit permissions")
+        room = payload.get("externalRoomName")
+        identity = payload.get("identity")
+        if not isinstance(room, str) or not room:
+            raise ControllerError("permission update missing externalRoomName")
+        if not isinstance(identity, str) or not identity:
+            raise ControllerError("permission update missing identity")
+        can_publish, can_subscribe, can_publish_data, sources = _validated_grants(payload)
+        body = {
+            "room": room,
+            "identity": identity,
+            "permission": {
+                "canPublish": can_publish,
+                "canSubscribe": can_subscribe,
+                "canPublishData": can_publish_data,
+                "canPublishSources": sources,
+            },
+        }
+        url = f"{_livekit_http_base(self.sfu_endpoint)}/twirp/livekit.RoomService/UpdateParticipant"
+        try:
+            http_json(
+                "POST",
+                url,
+                body,
+                {"Authorization": f"Bearer {self._room_admin_token(room)}"},
+            )
+        except HttpStatusError as exc:
+            # A moderation event can race a participant that has not connected
+            # yet or just disconnected. Future join tokens already carry the
+            # new durable Wabi policy, so 'not found' is safely idempotent.
+            if exc.status == 404 or "not found" in exc.body.lower():
+                return {"acknowledged": True, "participantPresent": False, "identity": identity}
+            raise
+        return {"acknowledged": True, "participantPresent": True, "identity": identity}
 
 
 class PairingStore:
@@ -364,17 +416,16 @@ class AuthoritySession:
         return {"x-wabi-node-secret": self.node_secret}
 
     def heartbeat(self) -> None:
-        body = {
-            "load": {},
-            "reachability": "public_reachable",
-            "endpoint": self.profile.sfu_endpoint,
-            "capabilities": ["media_relay"],
-            "lanReachableAt": None,
-        }
         http_json(
             "POST",
             f"{self.url}/api/nodes/{quote(self.node_id, safe='')}/heartbeat",
-            body,
+            {
+                "load": {},
+                "reachability": "public_reachable",
+                "endpoint": self.profile.sfu_endpoint,
+                "capabilities": ["media_relay"],
+                "lanReachableAt": None,
+            },
             self.node_headers,
         )
 
@@ -430,15 +481,12 @@ class AuthoritySession:
         tenant = payload.get("tenantNamespace")
         external_room = payload.get("externalRoomName")
         if not isinstance(external_room, str) or not external_room:
-            external_room = room_id  # legacy transition only
+            external_room = room_id
 
         http_json(
             "POST",
             f"{self.url}/api/media/rooms/{quote(room_id, safe='')}/active",
-            {
-                "nodeId": self.node_id,
-                "sfuEndpoint": self.profile.sfu_endpoint,
-            },
+            {"nodeId": self.node_id, "sfuEndpoint": self.profile.sfu_endpoint},
             self.node_headers,
         )
         return {
@@ -454,6 +502,10 @@ class AuthoritySession:
         self._validate_target(payload)
         return self.profile.mint_livekit_token(payload)
 
+    def update_participant_permissions(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._validate_target(payload)
+        return self.profile.update_livekit_participant_permissions(payload)
+
     def run(self) -> None:
         log(f"{self.label}: session started as node {self.node_id}")
         next_heartbeat = 0.0
@@ -467,7 +519,6 @@ class AuthoritySession:
                 if now >= next_advertisement:
                     self.advertise()
                     next_advertisement = now + self.profile.heartbeat_seconds
-
                 job = self.claim_job()
                 if job:
                     self.handle_job(job)
@@ -478,9 +529,8 @@ class AuthoritySession:
                 log(f"{self.label}: HTTP error: {exc}")
             except ControllerError as exc:
                 log(f"{self.label}: {exc}")
-            except Exception as exc:  # keep another Authority from taking down the node
+            except Exception as exc:
                 log(f"{self.label}: unexpected error: {type(exc).__name__}: {exc}")
-
             self.stop.wait(self.profile.poll_seconds)
 
     def handle_job(self, job: dict[str, Any]) -> None:
@@ -499,6 +549,8 @@ class AuthoritySession:
                 result = self.activate_room(payload)
             elif operation == "mint_token":
                 result = self.mint_token(payload)
+            elif operation == "update_participant_permissions":
+                result = self.update_participant_permissions(payload)
             else:
                 raise ControllerError(f"unsupported media operation: {operation}")
         except Exception as exc:
@@ -507,12 +559,11 @@ class AuthoritySession:
         else:
             self.report_job(job_id, True, result_payload=result)
             if operation == "activate_room":
-                log(
-                    f"{self.label}: activated room {result['roomId']} "
-                    f"as {result['externalRoomName']}"
-                )
-            else:
+                log(f"{self.label}: activated room {result['roomId']} as {result['externalRoomName']}")
+            elif operation == "mint_token":
                 log(f"{self.label}: minted scoped token for {result['identity']}")
+            else:
+                log(f"{self.label}: refreshed media permissions for {result['identity']}")
 
 
 def pair_authority(
@@ -531,14 +582,17 @@ def pair_authority(
         return None
 
     label = str(authority.get("name") or profile.display_name).strip()
-    body = {
-        "token": token.strip(),
-        "displayName": label,
-        "publicKey": store.physical_public_key,
-        "reachability": "public_reachable",
-        "endpoint": profile.sfu_endpoint,
-    }
-    response = http_json("POST", f"{url}/api/nodes/join", body)
+    response = http_json(
+        "POST",
+        f"{url}/api/nodes/join",
+        {
+            "token": token.strip(),
+            "displayName": label,
+            "publicKey": store.physical_public_key,
+            "reachability": "public_reachable",
+            "endpoint": profile.sfu_endpoint,
+        },
+    )
     if not response:
         raise ControllerError(f"{url}: empty join response")
     node = response.get("node")
