@@ -56,6 +56,7 @@ pub struct VoiceChannelPolicy {
 /// because one account can have several devices with different admission modes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VoiceAdmission {
+    pub channel_id: String,
     pub user_id: i64,
     pub socket_id: String,
     pub listening_only: bool,
@@ -84,7 +85,8 @@ fn admissions() -> &'static RwLock<AdmissionMap> {
     ADMISSIONS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-pub fn record_admission(channel_id: &str, admission: VoiceAdmission) {
+pub fn record_admission(channel_id: &str, mut admission: VoiceAdmission) {
+    admission.channel_id = channel_id.to_string();
     admissions()
         .write()
         .expect("voice admission registry")
@@ -117,7 +119,7 @@ pub fn admission_for(channel_id: &str, user_id: i64, socket_id: &str) -> Option<
         .expect("voice admission registry")
         .get(channel_id)
         .and_then(|channel| channel.get(socket_id))
-        .filter(|admission| admission.user_id == user_id)
+        .filter(|admission| admission.user_id == user_id && admission.channel_id == channel_id)
         .cloned()
 }
 
@@ -401,6 +403,7 @@ mod tests {
         record_admission(
             "voice-a",
             VoiceAdmission {
+                channel_id: "voice-a".into(),
                 user_id: 7,
                 socket_id: "sock-a".into(),
                 listening_only: true,
@@ -409,7 +412,8 @@ mod tests {
                 server_deafened: false,
             },
         );
-        assert!(admission_for("voice-a", 7, "sock-a").is_some());
+        let admission = admission_for("voice-a", 7, "sock-a").expect("admission");
+        assert_eq!(admission.channel_id, "voice-a");
         assert!(admission_for("voice-a", 8, "sock-a").is_none());
         assert!(admission_for("voice-a", 7, "sock-b").is_none());
         remove_admission("voice-a", "sock-a");
