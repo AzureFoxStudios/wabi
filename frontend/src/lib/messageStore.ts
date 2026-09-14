@@ -14,7 +14,7 @@ import { authSessionGeneration, getGuestSessionId, onAuthSessionCleared } from '
 import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { messageDeliveries, UNCONFIRMED_MESSAGE } from './messageDelivery';
 import { MESSAGE_QUEUE_OWNERSHIP_ERROR } from './wabidb/queue/groupPolicy';
-import { encryptMessageForChannel } from './e2ee';
+import { E2EE_MESSAGE_PREFIX, encryptMessageForChannel, prepareIncomingE2eeMessage } from './e2ee';
 import { showToast } from './toast';
 
 export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
@@ -23,6 +23,42 @@ export const lastReadMessageId = writable<string | null>(null);
 export const channelUnreadCounts = writable<Record<string, number>>({});
 
 const channelSliceStores = new Map<string, Writable<Message[]>>();
+const e2eeHydrating = new Set<string>();
+
+/**
+ * One receive boundary for live messages, history, reconnects and edits. The
+ * socket layer is allowed to carry opaque ciphertext, but render/search/context
+ * code downstream sees only authenticated plaintext or a safe failure marker.
+ */
+channelMessages.subscribe((state) => {
+	for (const [channelId, messages] of Object.entries(state)) {
+		for (const message of messages) {
+			const ciphertext = typeof message?.text === 'string' ? message.text : '';
+			if (!ciphertext.startsWith(E2EE_MESSAGE_PREFIX)) continue;
+			const key = `${channelId}|${message.id}|${message.clientMessageId || ''}|${ciphertext}`;
+			if (e2eeHydrating.has(key)) continue;
+			e2eeHydrating.add(key);
+			void prepareIncomingE2eeMessage(channelId, message)
+				.then((prepared) => {
+					channelMessages.update((current) => {
+						const list = current[channelId];
+						if (!list) return current;
+						let changed = false;
+						const next = list.map((candidate) => {
+							const sameIdentity = candidate.id === message.id ||
+								(Boolean(candidate.clientMessageId) && candidate.clientMessageId === message.clientMessageId);
+							if (!sameIdentity || candidate.text !== ciphertext) return candidate;
+							changed = true;
+							return prepared;
+						});
+						return changed ? { ...current, [channelId]: next } : current;
+					});
+				})
+				.catch((error) => console.warn('[e2ee] Message hydration failed', error))
+				.finally(() => e2eeHydrating.delete(key));
+		}
+	}
+});
 
 export function channelMessagesStore(channelId: string): Writable<Message[]> {
 	if (!channelId) return writable([]);
@@ -109,9 +145,6 @@ export async function sendMessage(
 	const db = getWabiDB();
 	if (!sock && !(db && !online)) return { ok: false, reason: 'no_socket' };
 
-	// Resolve the privacy mode before writing anything to the durable outbound
-	// queue. In an E2EE room that queue contains only the ciphertext envelope;
-	// plaintext remains in this in-memory optimistic row/draft on the endpoint.
 	let wireText = trimmed;
 	let wireType: MessageType = type;
 	let wireOptions: Record<string, unknown> = options;
@@ -164,7 +197,7 @@ export async function sendMessage(
 		...(attachmentStorage !== undefined ? { attachmentStorage } : {}),
 		...(encrypted !== undefined ? { encrypted } : {}),
 		...(iv !== undefined ? { iv } : {}),
-		...(e2eeEpoch !== null ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch } as any : {})
+		...(e2eeEpoch !== null ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch } : {})
 	};
 	appendOptimisticMessage(channelId, optimisticMessage);
 
