@@ -252,7 +252,7 @@
 					</label>
 				</div>
 				<div class="runtime-note">
-					Composer max length: {splitLargeMessagesEnabled ? splitLargeMessagesInputMaxLength : splitLargeMessagesChunkSize} characters.
+					Composer max length: {splitLargeMessagesInputMaxLength} characters. {splitLargeMessagesEnabled ? `Messages are split into chunks of up to ${splitLargeMessagesChunkSize} characters.` : 'Long posts stay intact and switch to Reader previews after 2,000 characters.'}
 				</div>
 			</div>
 		{/if}
