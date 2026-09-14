@@ -1,14 +1,6 @@
 /**
  * channelStore.ts
- * Channel state management and operations
- *
- * Extracted from socket-manager.ts for modularity.
- * Manages:
- * - Channel list and metadata
- * - Current channel tracking
- * - Pinned channels
- * - Channel archive pagination
- * - Channel operations (create, delete, subscribe, etc.)
+ * Svelte store and helpers for Wabi channel state.
  */
 
 import { writable, get } from 'svelte/store';
@@ -97,6 +89,24 @@ channels.subscribe((list) => {
 	}
 });
 
+/** SocketManager already carries the general channel-updated surface, but voice
+ * policy currently lives outside the WabiDB channel row. Converge its dedicated
+ * broadcast here, in the module that owns the separate hydration lifecycle. */
+let policySocket: Socket | null = null;
+const onVoicePolicyBroadcast = (payload: { channelId?: string; voiceSettings?: Channel['voiceSettings'] }) => {
+	if (!payload?.channelId || !payload.voiceSettings) return;
+	hydratedVoicePolicies.add(voicePolicyKey(payload.channelId));
+	channels.update((list) => list.map((channel) =>
+		channel.id === payload.channelId ? { ...channel, voiceSettings: payload.voiceSettings } : channel
+	));
+};
+socket.subscribe((next) => {
+	if (policySocket === next) return;
+	policySocket?.off('channel-updated', onVoicePolicyBroadcast);
+	policySocket = next;
+	policySocket?.on('channel-updated', onVoicePolicyBroadcast);
+});
+
 export function joinChannel(channelId: string): void {
 	const sock = getSocket();
 	if (!sock || !channelId) return;
@@ -127,8 +137,8 @@ export function switchChannel(channelId: string): void {
 					return next;
 				});
 			});
+			}
 		}
-	}
 	joinChannel(channelId);
 }
 
@@ -279,8 +289,6 @@ export async function updateChannelSettings(channelId: string, settings: {
 	const sock = getSocket();
 	if (!sock) return;
 
-	// Retention is privacy-sensitive. Persist the exact choice before publishing
-	// the optimistic/socket settings update so Live/1h/etc. survive restarts.
 	if (settings.autoDeleteAfter !== undefined) {
 		try {
 			await persistRetentionChoice(channelId, settings.autoDeleteAfter);
