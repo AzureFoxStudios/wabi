@@ -73,6 +73,15 @@ type WabiLivekitShareStream = MediaStream & {
 	__wabiLivekitShareViewing?: boolean;
 };
 
+// Deafen is a routing decision, not just an output-volume toggle. Re-evaluate
+// remote microphone + screen-audio subscriptions immediately when it changes.
+let lastLivekitDeafened = get(isDeafened);
+isDeafened.subscribe((deafened) => {
+	if (deafened === lastLivekitDeafened) return;
+	lastLivekitDeafened = deafened;
+	if (livekitRoom) queueMicrotask(() => syncLivekitReceivePolicy());
+});
+
 // ============================================================================
 // Getters / Setters
 // ============================================================================
@@ -114,6 +123,23 @@ function normalizeLivekitIdentity(identity: string): string {
 		return `user-${identity.slice('user:'.length)}`;
 	}
 	return identity;
+}
+
+/** Decode only enough of our own short-lived JWT to avoid asking the SDK to
+ * publish when the Authority deliberately granted listener/server-muted access.
+ * This is convenience, never authorization: LiveKit still enforces the signed
+ * grant server-side. Fail closed if the payload cannot be inspected. */
+function livekitTokenAllowsPublishing(token: string): boolean {
+	try {
+		const part = token.split('.')[1];
+		if (!part) return false;
+		const normalized = part.replace(/-/g, '+').replace(/_/g, '/');
+		const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+		const payload = JSON.parse(atob(padded)) as { video?: { canPublish?: boolean } };
+		return payload.video?.canPublish !== false;
+	} catch {
+		return false;
+	}
 }
 
 function participantMedia(identity: string, username = identity) {
@@ -487,6 +513,7 @@ export async function connectLivekitSfu(
 		}
 	};
 	const tokenResponse = await createLivekitAccessToken(channelId, localDisplayName);
+	const tokenCanPublish = livekitTokenAllowsPublishing(tokenResponse.token);
 	check();
 	console.log(
 		`[Calling] LiveKit target: ${tokenResponse.source === 'relay' ? tokenResponse.relayName || `relay ${tokenResponse.relayId}` : 'origin'} (${tokenResponse.url})`
@@ -578,13 +605,15 @@ export async function connectLivekitSfu(
 		if (tokenResponse.token) {
 			scheduleLivekitTokenRefresh(channelId, localDisplayName, tokenResponse.token);
 		}
-		await room.localParticipant.setMicrophoneEnabled(
-			requireDeps().shouldSendAudioToChannel(channelId)
-		);
-		check();
-		if (!get(isVideoOff)) {
-			await room.localParticipant.setCameraEnabled(true);
+		if (tokenCanPublish) {
+			await room.localParticipant.setMicrophoneEnabled(
+				requireDeps().shouldSendAudioToChannel(channelId)
+			);
 			check();
+			if (!get(isVideoOff)) {
+				await room.localParticipant.setCameraEnabled(true);
+				check();
+			}
 		}
 		livekitRoom = room;
 		livekitChannelId = channelId;
@@ -594,7 +623,7 @@ export async function connectLivekitSfu(
 			...state,
 			activeTransport: 'sfu',
 			isFallback: false,
-			reason: 'livekit_connected',
+			reason: tokenCanPublish ? 'livekit_connected' : 'livekit_connected_listen_only',
 			gatewayMediaPlaneStatus: 'ready'
 		}));
 	} catch (error) {
