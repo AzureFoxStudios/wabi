@@ -18,7 +18,7 @@
 	border-radius: 8px;
 	background: #171b1d;
 	color: #e7e9e8;
-	font: 0.78em/1.62 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+	font: 0.78em/var(--reader-line-height, 1.62) var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 	white-space: pre;
 	tab-size: 4;
 	box-shadow: inset 0 1px 0 #ffffff0a;
