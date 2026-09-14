@@ -206,16 +206,17 @@ export function openReaderDocument(
 ): void {
 	const normalizedTitle = title.trim() || 'Untitled Document';
 	const normalizedContent = content.replace(/\r\n/g, '\n');
+	const resolvedLanguage = format === 'code' ? (language || inferReaderCodeLanguage(normalizedTitle)) : language;
 	const entry: ReaderDocumentSelection = {
 		id: makeReaderId(),
-		docKey: computeDocumentKey(normalizedTitle, normalizedContent, format, language),
+		docKey: computeDocumentKey(normalizedTitle, normalizedContent, format, resolvedLanguage),
 		title: normalizedTitle,
 		content: normalizedContent,
 		format,
 		updatedAt: Date.now(),
 		source,
 		contentType: 'text',
-		...(language ? { language } : {})
+		...(resolvedLanguage ? { language: resolvedLanguage } : {})
 	};
 	openReaderSelection(entry);
 }
