@@ -17,15 +17,10 @@ use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
-/// Map domain ChannelKind → stable frontend wire string.
-/// Prefer explicit arms over Debug::fmt so renames don't silently break clients.
 fn channel_kind_to_type(kind: wabidb::domain::ChannelKind, asset_storage: bool) -> String {
     use wabidb::domain::ChannelKind::*;
     let s = match kind {
-        Text => {
-            // Legacy: some older asset_storage channels were Text+flag.
-            if asset_storage { "lore" } else { "text" }
-        }
+        Text => if asset_storage { "lore" } else { "text" },
         Voice => "voice",
         Dm => "dm",
         GroupDm => "group",
@@ -136,9 +131,6 @@ impl CreateChannelRequest {
 
 fn default_channel_type() -> String { "text".to_string() }
 
-/// Apply one exact retention label to runtime state, coarse WabiDB backup policy,
-/// and the exact sidecar. The sidecar is what preserves sub-day/Live semantics
-/// across restarts; WabiDB's current policy only stores whole days.
 async fn apply_channel_retention(
     state: &AppState,
     channel_id: &str,
@@ -160,9 +152,6 @@ async fn apply_channel_retention(
             .ok_or_else(|| AppError::BadRequest("Unsupported retention duration".into()))?;
         state.channel_auto_delete_ms.write().await.insert(channel_id.to_string(), ms);
         state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), label.clone());
-        // Whole-day WabiDB retention is only a conservative backup. Round UP,
-        // never down: after a partial recovery it must not delete sooner than
-        // the explicit choice. The exact sidecar/reaper handles the real TTL.
         let days = ((ms.saturating_add(86_400_000 - 1)) / 86_400_000).max(1) as u32;
         state.wdb.upsert_channel_retention(channel_id, days, actor_user_id).await?;
     }
@@ -190,19 +179,22 @@ async fn set_channel_retention(
     Path(id): Path<String>,
     Json(req): Json<SetRetentionRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    if !state.is_admin(auth.user_id).await {
-        return Err(AppError::Unauthorized("only admins can change channel retention".into()));
-    }
     let channel = state.wdb.get_channel(&id).await?
         .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
     if crate::channel_access::is_conversation(channel.channel_kind) {
-        return Err(AppError::BadRequest("Private-conversation retention is not a server-admin channel setting".into()));
+        // Private retention is a participant choice, not an admin-surveillance
+        // privilege. Keep the existing DM/group behavior while making the exact
+        // choice restart-safe.
+        crate::channel_access::require_access(&state, auth.user_id, &id).await?;
+    } else if !state.is_admin(auth.user_id).await {
+        return Err(AppError::Unauthorized("only admins can change community-channel retention".into()));
     }
+
     let retention = apply_channel_retention(&state, &id, auth.user_id as u64, &req.retention).await?;
     if let Some(io) = state.sio.read().await.clone() {
         let _ = io.broadcast().emit("channel-updated", &serde_json::json!({
-            "channelId": id,
-            "autoDeleteAfter": retention,
+            "channelId": &id,
+            "autoDeleteAfter": &retention,
         })).await;
     }
     Ok(Json(serde_json::json!({ "channelId": id, "retention": retention })))
