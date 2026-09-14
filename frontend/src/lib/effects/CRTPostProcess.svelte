@@ -150,7 +150,7 @@
 	</defs>
 </svg>
 
-<div class="crt-overlay" aria-hidden="true">
+<div class="crt-overlay" aria-hidden="true" class:reduced={reducedMotion}>
 	<div class="crt-vignette"></div>
 	<div class="crt-scanlines"></div>
 	<div class="crt-phosphor"></div>
@@ -248,6 +248,12 @@
 		mix-blend-mode: soft-light;
 	}
 
+	.crt-overlay.reduced,
+	.crt-overlay.reduced .crt-scanlines,
+	.crt-overlay.reduced .crt-sync-roll {
+		animation: none;
+	}
+
 	@keyframes crt-scan-roll {
 		from { transform: translateY(0); }
 		to { transform: translateY(4px); }
@@ -264,13 +270,5 @@
 		94.5% { opacity: 1; }
 		97.2% { opacity: var(--crt-flicker-soft-opacity, 1); }
 		97.8% { opacity: 1; }
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.crt-overlay,
-		.crt-scanlines,
-		.crt-sync-roll {
-			animation: none !important;
-		}
 	}
 </style>
