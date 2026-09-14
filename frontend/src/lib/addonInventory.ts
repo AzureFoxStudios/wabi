@@ -63,7 +63,12 @@ const frontendAddonModules = import.meta.glob([
 ]);
 
 /** Bundled frontend allowlist IDs (must match loader.ts BUNDLED_ADDON_LOADERS). */
-const BUNDLED_FRONTEND_IDS = new Set(['youtube-sync', 'spotify-sync', 'steam']);
+const BUNDLED_FRONTEND_IDS = new Set([
+	'youtube-sync',
+	'spotify-sync',
+	'steam',
+	'translator-assist'
+]);
 
 function detectBuiltinFrontendAddonIds(): Set<string> {
 	const ids = new Set<string>(BUNDLED_FRONTEND_IDS);
@@ -187,7 +192,6 @@ export function hasAddonCapability(addonId: string): Promise<boolean> {
 								.toLowerCase() === normalizedId && plugin.enabled !== false
 					);
 				}
-			}
 		} finally {
 			// A negative result must NOT be cached forever: the inventory
 			// fetch can race the very first page load (stale shell, flaky
