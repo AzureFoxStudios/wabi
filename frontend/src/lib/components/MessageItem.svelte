@@ -68,7 +68,10 @@
 		const visible = isNearViewport;
 		const manualTranslation = translatedText;
 		const isOwn = ownMessage;
+		const messageType = String(message.type || '');
 		if (!visible || manualTranslation || isOwn || settings.mode !== 'auto') return;
+		if (messageType !== 'text' && messageType !== 'gif') return;
+		if (message.localCard || message.userId === 'local-directions') return;
 		void runAutoTranslation(text, settings);
 	});
 
