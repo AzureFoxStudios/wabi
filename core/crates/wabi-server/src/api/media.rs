@@ -13,7 +13,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -27,6 +27,8 @@ use crate::auth_extractor::AuthUser;
 use crate::media::MediaRoomError;
 use crate::nodes::{NodeCapability, NodeStatus};
 use crate::state::AppState;
+
+const NODE_SECRET_HEADER: &str = "x-wabi-node-secret";
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -267,13 +269,23 @@ async fn assign_room(
 
 async fn mark_active(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
+    headers: HeaderMap,
     Path(room_id): Path<String>,
     Json(req): Json<MarkActiveRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    if !state.is_admin(auth.user_id).await {
+    let node_secret = headers
+        .get(NODE_SECRET_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .ok_or(MediaApiError::Forbidden)?;
+    let node = state
+        .node_registry
+        .authenticate_node(&req.node_id, node_secret)
+        .await
+        .map_err(|_| MediaApiError::Forbidden)?;
+    if !node.capabilities.contains(&NodeCapability::MediaRelay) {
         return Err(MediaApiError::Forbidden);
     }
+
     let room = state
         .media_registry
         .mark_active(&room_id, &req.node_id, req.sfu_endpoint)
@@ -503,7 +515,7 @@ async fn media_runtime_snapshot(
 pub enum MediaApiError {
     Registry(MediaRoomError),
     NotFound,
-    /// Admin-gate rejection (SEC-2, 2026-08-25).
+    /// Authorization rejection for an admin action or media-node callback.
     Forbidden,
 }
 
@@ -532,7 +544,7 @@ impl IntoResponse for MediaApiError {
                 tracing::error!("media room io error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "registry io error")
             }
-            MediaApiError::Forbidden => (StatusCode::FORBIDDEN, "admin role required"),
+            MediaApiError::Forbidden => (StatusCode::FORBIDDEN, "not authorized for media action"),
         };
         (status, body).into_response()
     }
