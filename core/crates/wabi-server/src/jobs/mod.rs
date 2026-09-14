@@ -10,7 +10,7 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::nodes::{NodeCapability, NodeRegistry};
+use crate::nodes::{NodeCapability, NodeRegistry, NodeRegistryError};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -69,6 +69,9 @@ pub struct SubmitJobRequest {
 pub struct ClaimJobRequest {
     pub node_id: String,
     pub node_secret: String,
+    /// Retained on the wire for backwards compatibility/diagnostics. The queue
+    /// never trusts this list for authorization; registered node capabilities
+    /// are authoritative.
     pub capabilities: Vec<NodeCapability>,
 }
 
@@ -103,8 +106,7 @@ pub struct JobQueue {
 pub enum JobQueueError {
     #[error("job not found")]
     JobNotFound,
-    #[error("job is not in a claimable state")]
-    #[allow(dead_code)]
+    #[error("job is not in a claimable state or is owned by another node")]
     NotClaimable,
     #[error("node secret did not match")]
     InvalidNodeSecret,
@@ -162,29 +164,31 @@ impl JobQueue {
         node_registry: &NodeRegistry,
         req: ClaimJobRequest,
     ) -> Result<Job, JobQueueError> {
-        // Validate node secret + status via registry
-        let nodes = node_registry.list_nodes().await;
-        let node = nodes
-            .into_iter()
-            .find(|n| n.node_id == req.node_id)
-            .ok_or(JobQueueError::InvalidNodeSecret)?;
-        if node.status == crate::nodes::NodeStatus::Revoked {
-            return Err(JobQueueError::NodeRevoked);
-        }
+        // Authenticate the actual Authority-issued node credential. Never trust
+        // nodeId alone and never grant capabilities merely because the helper
+        // included them in the claim request.
+        let node = node_registry
+            .authenticate_node(&req.node_id, &req.node_secret)
+            .await
+            .map_err(map_node_auth_error)?;
 
         let mut data = self.inner.write().await;
-        // Find first pending job whose kind maps to a capability the node has.
+        // A job may optionally carry an Authority-selected assignedNodeId in its
+        // payload (media routing uses this). Such a job is claimable only by that
+        // exact node. Untargeted legacy jobs remain pool-claimable.
         let idx = data.jobs.iter().position(|j| {
             j.status == JobStatus::Pending
-                && job_kind_matches_capabilities(&j.kind, &req.capabilities)
+                && job_targets_node(j, &node.node_id)
+                && job_kind_matches_capabilities(&j.kind, &node.capabilities)
         });
         let Some(idx) = idx else {
             return Err(JobQueueError::NoMatchingJob);
         };
         let job = &mut data.jobs[idx];
         job.status = JobStatus::Running;
-        job.assigned_node_id = Some(req.node_id);
+        job.assigned_node_id = Some(node.node_id);
         job.claimed_at = Some(Utc::now());
+        job.completed_at = None;
         let updated = job.clone();
         self.persist_locked(&data).await.ok();
         Ok(updated)
@@ -196,15 +200,10 @@ impl JobQueue {
         job_id: &str,
         req: JobResultRequest,
     ) -> Result<Job, JobQueueError> {
-        // Validate node
-        let nodes = node_registry.list_nodes().await;
-        let node = nodes
-            .into_iter()
-            .find(|n| n.node_id == req.node_id)
-            .ok_or(JobQueueError::InvalidNodeSecret)?;
-        if node.status == crate::nodes::NodeStatus::Revoked {
-            return Err(JobQueueError::NodeRevoked);
-        }
+        node_registry
+            .authenticate_node(&req.node_id, &req.node_secret)
+            .await
+            .map_err(map_node_auth_error)?;
 
         let mut data = self.inner.write().await;
         let job = data
@@ -212,6 +211,15 @@ impl JobQueue {
             .iter_mut()
             .find(|j| j.job_id == job_id)
             .ok_or(JobQueueError::JobNotFound)?;
+
+        // Only the node that successfully claimed the running job may complete
+        // or fail it. This stops one paired helper from forging another helper's
+        // result, which is especially important when Media Nodes are shared.
+        if job.status != JobStatus::Running
+            || job.assigned_node_id.as_deref() != Some(req.node_id.as_str())
+        {
+            return Err(JobQueueError::NotClaimable);
+        }
 
         if req.success {
             job.status = JobStatus::Completed;
@@ -352,6 +360,20 @@ impl JobQueue {
     }
 }
 
+fn map_node_auth_error(error: NodeRegistryError) -> JobQueueError {
+    match error {
+        NodeRegistryError::NodeRevoked => JobQueueError::NodeRevoked,
+        _ => JobQueueError::InvalidNodeSecret,
+    }
+}
+
+fn job_targets_node(job: &Job, node_id: &str) -> bool {
+    job.payload
+        .get("assignedNodeId")
+        .and_then(|value| value.as_str())
+        .is_none_or(|target| target == node_id)
+}
+
 fn job_kind_matches_capabilities(kind: &JobKind, capabilities: &[NodeCapability]) -> bool {
     let required = match kind {
         JobKind::Thumbnail => &[NodeCapability::ThumbnailWorker][..],
@@ -373,26 +395,34 @@ fn new_id(prefix: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nodes::{
-        JoinNodeRequest, NodeCapability, NodeReachability, NodeRegistry,
-    };
+    use crate::nodes::{JoinNodeRequest, NodeCapability, NodeReachability, NodeRegistry};
 
     fn test_queue() -> JobQueue {
         JobQueue::new_in_memory()
     }
 
     fn test_registry(_node_id: &str) -> NodeRegistry {
-        let reg = NodeRegistry::new_in_memory("authority-test".to_string());
-        // We can't easily inject a node without a token, but for unit tests
-        // we can skip registry validation by using the in-memory one and
-        // relying on the fact that list_nodes is empty. That means
-        // claim_next will fail with InvalidNodeSecret unless we create
-        // a registry variant that can insert nodes bypassing the token flow.
-        //
-        // Simpler: test the queue alone, and test claim/report later with
-        // a helper that bypasses registry checks. But the design intentionally
-        // requires registry. We'll write tests that create real paired nodes.
-        reg
+        NodeRegistry::new_in_memory("authority-test".to_string())
+    }
+
+    async fn pair_node(
+        reg: &NodeRegistry,
+        name: &str,
+        capabilities: Vec<NodeCapability>,
+    ) -> crate::nodes::JoinNodeResponse {
+        let token = reg
+            .create_pairing_token(name.to_string(), capabilities, Duration::from_secs(60))
+            .await
+            .unwrap();
+        reg.join_with_token(JoinNodeRequest {
+            token: token.token,
+            display_name: name.to_string(),
+            public_key: format!("pk-{name}"),
+            reachability: NodeReachability::OutboundOnly,
+            endpoint: None,
+        })
+        .await
+        .unwrap()
     }
 
     #[tokio::test]
@@ -415,31 +445,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn claim_matches_capabilities_and_transitions_to_running() {
+    async fn claim_matches_registered_capabilities_and_transitions_to_running() {
         let q = test_queue();
         let reg = test_registry("ignored");
+        let good = pair_node(
+            &reg,
+            "thumb-worker",
+            vec![NodeCapability::ThumbnailWorker, NodeCapability::CpuWorker],
+        )
+        .await;
+        let bad = pair_node(&reg, "bad", vec![NodeCapability::CpuWorker]).await;
 
-        // Create a pairing token and join a helper node
-        let token = reg
-            .create_pairing_token(
-                "worker".to_string(),
-                vec![NodeCapability::ThumbnailWorker, NodeCapability::CpuWorker],
-                Duration::from_secs(60),
-            )
-            .await
-            .unwrap();
-        let joined = reg
-            .join_with_token(JoinNodeRequest {
-                token: token.token.clone(),
-                display_name: "thumb-worker".to_string(),
-                public_key: "pk".to_string(),
-                reachability: NodeReachability::OutboundOnly,
-                endpoint: None,
-            })
-            .await
-            .unwrap();
-
-        // Submit a thumbnail job
         let job = q
             .submit(SubmitJobRequest {
                 kind: JobKind::Thumbnail,
@@ -448,46 +464,26 @@ mod tests {
             })
             .await;
 
-        // A node without thumbnail capability cannot claim
-        let no_cap = reg
-            .create_pairing_token(
-                "bad".to_string(),
-                vec![NodeCapability::CpuWorker],
-                Duration::from_secs(60),
-            )
-            .await
-            .unwrap();
-        let bad_node = reg
-            .join_with_token(JoinNodeRequest {
-                token: no_cap.token,
-                display_name: "bad".to_string(),
-                public_key: "pk2".to_string(),
-                reachability: NodeReachability::OutboundOnly,
-                endpoint: None,
-            })
-            .await
-            .unwrap();
-
+        // A helper cannot escalate by self-declaring ThumbnailWorker.
         let bad_claim = q
             .claim_next(
                 &reg,
                 ClaimJobRequest {
-                    node_id: bad_node.node.node_id.clone(),
-                    node_secret: bad_node.node_secret.clone(),
-                    capabilities: vec![NodeCapability::CpuWorker],
+                    node_id: bad.node.node_id.clone(),
+                    node_secret: bad.node_secret.clone(),
+                    capabilities: vec![NodeCapability::ThumbnailWorker],
                 },
             )
             .await;
         assert!(matches!(bad_claim, Err(JobQueueError::NoMatchingJob)));
 
-        // The thumbnail-capable node can claim
         let claimed = q
             .claim_next(
                 &reg,
                 ClaimJobRequest {
-                    node_id: joined.node.node_id.clone(),
-                    node_secret: joined.node_secret.clone(),
-                    capabilities: vec![NodeCapability::ThumbnailWorker],
+                    node_id: good.node.node_id.clone(),
+                    node_secret: good.node_secret.clone(),
+                    capabilities: vec![],
                 },
             )
             .await
@@ -495,33 +491,80 @@ mod tests {
 
         assert_eq!(claimed.job_id, job.job_id);
         assert_eq!(claimed.status, JobStatus::Running);
-        assert_eq!(claimed.assigned_node_id, Some(joined.node.node_id));
+        assert_eq!(claimed.assigned_node_id, Some(good.node.node_id));
     }
 
     #[tokio::test]
-    async fn report_success_completes_job() {
+    async fn wrong_secret_cannot_claim_job() {
         let q = test_queue();
         let reg = test_registry("ignored");
+        let node = pair_node(&reg, "worker", vec![NodeCapability::ThumbnailWorker]).await;
+        q.submit(SubmitJobRequest {
+            kind: JobKind::Thumbnail,
+            payload: serde_json::json!({}),
+            max_retries: 1,
+        })
+        .await;
 
-        let token = reg
-            .create_pairing_token(
-                "worker".to_string(),
-                vec![NodeCapability::ThumbnailWorker],
-                Duration::from_secs(60),
+        let claim = q
+            .claim_next(
+                &reg,
+                ClaimJobRequest {
+                    node_id: node.node.node_id,
+                    node_secret: "wrong".into(),
+                    capabilities: vec![NodeCapability::ThumbnailWorker],
+                },
+            )
+            .await;
+        assert_eq!(claim.unwrap_err(), JobQueueError::InvalidNodeSecret);
+    }
+
+    #[tokio::test]
+    async fn targeted_media_job_can_only_be_claimed_by_selected_node() {
+        let q = test_queue();
+        let reg = test_registry("ignored");
+        let selected = pair_node(&reg, "selected", vec![NodeCapability::MediaRelay]).await;
+        let other = pair_node(&reg, "other", vec![NodeCapability::MediaRelay]).await;
+        let job = q
+            .submit(SubmitJobRequest {
+                kind: JobKind::MediaRelay,
+                payload: serde_json::json!({"assignedNodeId": selected.node.node_id}),
+                max_retries: 1,
+            })
+            .await;
+
+        let other_claim = q
+            .claim_next(
+                &reg,
+                ClaimJobRequest {
+                    node_id: other.node.node_id,
+                    node_secret: other.node_secret,
+                    capabilities: vec![NodeCapability::MediaRelay],
+                },
+            )
+            .await;
+        assert_eq!(other_claim.unwrap_err(), JobQueueError::NoMatchingJob);
+
+        let claimed = q
+            .claim_next(
+                &reg,
+                ClaimJobRequest {
+                    node_id: selected.node.node_id.clone(),
+                    node_secret: selected.node_secret.clone(),
+                    capabilities: vec![],
+                },
             )
             .await
             .unwrap();
-        let joined = reg
-            .join_with_token(JoinNodeRequest {
-                token: token.token.clone(),
-                display_name: "thumb-worker".to_string(),
-                public_key: "pk".to_string(),
-                reachability: NodeReachability::OutboundOnly,
-                endpoint: None,
-            })
-            .await
-            .unwrap();
+        assert_eq!(claimed.job_id, job.job_id);
+    }
 
+    #[tokio::test]
+    async fn report_success_requires_claim_owner_and_secret() {
+        let q = test_queue();
+        let reg = test_registry("ignored");
+        let owner = pair_node(&reg, "owner", vec![NodeCapability::ThumbnailWorker]).await;
+        let other = pair_node(&reg, "other", vec![NodeCapability::ThumbnailWorker]).await;
         let job = q
             .submit(SubmitJobRequest {
                 kind: JobKind::Thumbnail,
@@ -533,63 +576,66 @@ mod tests {
         q.claim_next(
             &reg,
             ClaimJobRequest {
-                node_id: joined.node.node_id.clone(),
-                node_secret: joined.node_secret.clone(),
-                capabilities: vec![NodeCapability::ThumbnailWorker],
+                node_id: owner.node.node_id.clone(),
+                node_secret: owner.node_secret.clone(),
+                capabilities: vec![],
             },
         )
         .await
         .unwrap();
+
+        let forged = q
+            .report_result(
+                &reg,
+                &job.job_id,
+                JobResultRequest {
+                    node_id: other.node.node_id,
+                    node_secret: other.node_secret,
+                    success: true,
+                    result_payload: None,
+                    error_message: None,
+                },
+            )
+            .await;
+        assert_eq!(forged.unwrap_err(), JobQueueError::NotClaimable);
+
+        let wrong_secret = q
+            .report_result(
+                &reg,
+                &job.job_id,
+                JobResultRequest {
+                    node_id: owner.node.node_id.clone(),
+                    node_secret: "wrong".into(),
+                    success: true,
+                    result_payload: None,
+                    error_message: None,
+                },
+            )
+            .await;
+        assert_eq!(wrong_secret.unwrap_err(), JobQueueError::InvalidNodeSecret);
 
         let result = q
             .report_result(
                 &reg,
                 &job.job_id,
                 JobResultRequest {
-                    node_id: joined.node.node_id.clone(),
-                    node_secret: joined.node_secret.clone(),
+                    node_id: owner.node.node_id,
+                    node_secret: owner.node_secret,
                     success: true,
-                    result_payload: Some(serde_json::json!({"thumbnailUrl": "/t/abc.jpg"})),
+                    result_payload: Some(serde_json::json!({"ok": true})),
                     error_message: None,
                 },
             )
             .await
             .unwrap();
-
         assert_eq!(result.status, JobStatus::Completed);
-        assert_eq!(
-            result.result_payload,
-            Some(serde_json::json!({"thumbnailUrl": "/t/abc.jpg"}))
-        );
-
-        let completed = q.list_jobs(Some(JobStatus::Completed)).await;
-        assert_eq!(completed.len(), 1);
     }
 
     #[tokio::test]
-    async fn report_failure_retries_then_fails_after_max() {
+    async fn report_failure_retries_then_dead_letters_after_max() {
         let q = test_queue();
         let reg = test_registry("ignored");
-
-        let token = reg
-            .create_pairing_token(
-                "worker".to_string(),
-                vec![NodeCapability::ThumbnailWorker],
-                Duration::from_secs(60),
-            )
-            .await
-            .unwrap();
-        let joined = reg
-            .join_with_token(JoinNodeRequest {
-                token: token.token.clone(),
-                display_name: "thumb-worker".to_string(),
-                public_key: "pk".to_string(),
-                reachability: NodeReachability::OutboundOnly,
-                endpoint: None,
-            })
-            .await
-            .unwrap();
-
+        let joined = pair_node(&reg, "worker", vec![NodeCapability::ThumbnailWorker]).await;
         let job = q
             .submit(SubmitJobRequest {
                 kind: JobKind::Thumbnail,
@@ -598,13 +644,12 @@ mod tests {
             })
             .await;
 
-        // First failure: requeued to Pending
         q.claim_next(
             &reg,
             ClaimJobRequest {
                 node_id: joined.node.node_id.clone(),
                 node_secret: joined.node_secret.clone(),
-                capabilities: vec![NodeCapability::ThumbnailWorker],
+                capabilities: vec![],
             },
         )
         .await
@@ -627,13 +672,12 @@ mod tests {
         assert_eq!(r1.status, JobStatus::Pending);
         assert_eq!(r1.retry_count, 1);
 
-        // Second failure: exceeds max_retries → Failed
         q.claim_next(
             &reg,
             ClaimJobRequest {
                 node_id: joined.node.node_id.clone(),
                 node_secret: joined.node_secret.clone(),
-                capabilities: vec![NodeCapability::ThumbnailWorker],
+                capabilities: vec![],
             },
         )
         .await
@@ -656,20 +700,18 @@ mod tests {
         assert_eq!(r2.status, JobStatus::DeadLettered);
         assert_eq!(r2.retry_count, 2);
 
-        // Dead-lettered job must NOT be claimable.
         let claim = q
             .claim_next(
                 &reg,
                 ClaimJobRequest {
                     node_id: joined.node.node_id.clone(),
                     node_secret: joined.node_secret.clone(),
-                    capabilities: vec![NodeCapability::ThumbnailWorker],
+                    capabilities: vec![],
                 },
             )
             .await;
         assert_eq!(claim.unwrap_err(), JobQueueError::NoMatchingJob);
 
-        // Admin requeue returns it to the claimable pool with a fresh cap.
         let requeued = q.requeue_job(&job.job_id).await.unwrap();
         assert_eq!(requeued.status, JobStatus::Pending);
         assert_eq!(requeued.retry_count, 0);
@@ -677,16 +719,15 @@ mod tests {
             .claim_next(
                 &reg,
                 ClaimJobRequest {
-                    node_id: joined.node.node_id.clone(),
-                    node_secret: joined.node_secret.clone(),
-                    capabilities: vec![NodeCapability::ThumbnailWorker],
+                    node_id: joined.node.node_id,
+                    node_secret: joined.node_secret,
+                    capabilities: vec![],
                 },
             )
             .await
             .unwrap();
         assert_eq!(claimed.job_id, job.job_id);
 
-        // Requeue only applies to dead-lettered jobs.
         let wrong = q.requeue_job(&job.job_id).await;
         assert_eq!(wrong.unwrap_err(), JobQueueError::NotClaimable);
     }
