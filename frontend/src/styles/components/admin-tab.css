@@ -135,14 +135,14 @@
 .admin-badge-chip-x { color: var(--text-muted); font-size: 0.85rem; line-height: 1; }
 .admin-user-name { font-size: 0.84rem; font-weight: 600; color: var(--text-heading); }
 .admin-role-badge, .admin-guest-badge { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.12rem 0.35rem; border-radius: 999px; border: 1px solid var(--border-subtle); color: var(--text-secondary); }
-.admin-guest-badge { background: var(--accent-warning-soft, rgba(var(--color-warning-rgb, 255, 193, 7), 0.12)); border-color: rgba(var(--color-warning-rgb, 255, 193, 7), 0.35); }
-.admin-payment-block-badge { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.12rem 0.35rem; border-radius: 999px; border: 1px solid rgba(var(--color-danger-rgb, 244, 67, 54), 0.45); color: var(--text-danger, #ff8a80); background: rgba(var(--color-danger-rgb, 244, 67, 54), 0.12); }
+.admin-guest-badge { background: var(--accent-warning-soft, rgba(var(--color-warning-rgb, 245, 158, 11), 0.12)); border-color: rgba(var(--color-warning-rgb, 245, 158, 11), 0.35); }
+.admin-payment-block-badge { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.12rem 0.35rem; border-radius: 999px; border: 1px solid rgba(var(--color-danger-rgb, 239, 68, 68), 0.45); color: var(--text-danger, #ef4444); background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.12); }
 .admin-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0.45rem; }
 .admin-btn { height: 26px; padding: 0 0.5rem; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-base); color: var(--text-secondary); font-size: 0.72rem; font-weight: 600; cursor: pointer; }
 .admin-btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-heading); }
 .admin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.admin-btn.danger:hover:not(:disabled) { color: var(--color-danger, #f44336); border-color: rgba(var(--color-danger-rgb, 244, 67, 54), 0.4); background: rgba(var(--color-danger-rgb, 244, 67, 54), 0.08); }
-.admin-btn.warning:hover:not(:disabled) { color: var(--text-warning, #ffb74d); border-color: rgba(var(--color-warning-rgb), 0.45); background: rgba(var(--color-warning-rgb), 0.12); }
+.admin-btn.danger:hover:not(:disabled) { color: var(--color-danger, #ef4444); border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.4); background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.08); }
+.admin-btn.warning:hover:not(:disabled) { color: var(--text-warning, #f59e0b); border-color: rgba(var(--color-warning-rgb), 0.45); background: rgba(var(--color-warning-rgb), 0.12); }
 .admin-icon-btn {
 	width: 28px;
 	height: 28px;
