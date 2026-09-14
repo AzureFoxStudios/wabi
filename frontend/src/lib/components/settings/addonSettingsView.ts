@@ -9,19 +9,17 @@ import {
 /**
  * A render snapshot, not callbacks that read mutable component state. Section
  * children also include legacy Svelte components: their props must change when
- * the query, selected section, or asynchronously detected inventory changes.
- * Deriving this snapshot keeps those dependencies explicit without remounting
- * sections (and losing their unfinished local edits).
+ * the query or selected section changes. Bundled client-side addons such as
+ * Translator Assist remain discoverable here even while their runtime mode is
+ * disabled; turning the addon on is itself a local setting.
  */
 export function createAddonSettingsView(
 	query: string,
 	activeSection: AddonSectionId | null,
-	translatorDetected: boolean
+	_translatorDetected: boolean
 ) {
 	const tokens = tokenizeAddonSearchQuery(query);
-	const isAvailable = (id: string) =>
-		Object.hasOwn(LOCAL_ADDON_CONTROL_META, id) &&
-		(id !== 'translator_addon' || translatorDetected);
+	const isAvailable = (id: string) => Object.hasOwn(LOCAL_ADDON_CONTROL_META, id);
 	const available = Object.keys(LOCAL_ADDON_CONTROL_META).filter(isAvailable);
 	const matches = new Set(
 		available.filter((id) => addonControlMatches(id, tokens, isAvailable))
