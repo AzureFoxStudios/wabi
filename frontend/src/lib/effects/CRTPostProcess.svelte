@@ -31,6 +31,9 @@
 	$: if (mounted) {
 		const root = document.documentElement;
 		const active = strength > 0.002;
+		const flickerAlpha = Math.pow(strength, 1.4) * 0.12;
+		const glassAlpha = strength * 0.12;
+		const vignetteAlpha = strength * 0.52;
 		root.classList.toggle('wabi-crt-active', active);
 		root.style.setProperty('--crt-strength', String(strength));
 		root.style.setProperty('--crt-contrast', String(1 + strength * 0.09));
@@ -38,10 +41,13 @@
 		root.style.setProperty('--crt-brightness', String(1 - strength * 0.035));
 		root.style.setProperty('--crt-scanline-alpha', String(strength * 0.24));
 		root.style.setProperty('--crt-mask-alpha', String(strength * 0.13));
-		root.style.setProperty('--crt-vignette-alpha', String(strength * 0.52));
-		root.style.setProperty('--crt-glass-alpha', String(strength * 0.12));
+		root.style.setProperty('--crt-vignette-alpha', String(vignetteAlpha));
+		root.style.setProperty('--crt-vignette-edge-alpha', String(vignetteAlpha * 0.35));
+		root.style.setProperty('--crt-glass-alpha', String(glassAlpha));
+		root.style.setProperty('--crt-glass-edge-alpha', String(glassAlpha * 0.45));
 		root.style.setProperty('--crt-roll-alpha', String(Math.pow(strength, 1.7) * 0.18));
-		root.style.setProperty('--crt-flicker-alpha', String(Math.pow(strength, 1.4) * 0.12));
+		root.style.setProperty('--crt-flicker-hard-opacity', String(1 - flickerAlpha));
+		root.style.setProperty('--crt-flicker-soft-opacity', String(1 - flickerAlpha * 0.55));
 	}
 
 	function handleStorage(event: StorageEvent): void {
@@ -62,7 +68,8 @@
 			for (const name of [
 				'--crt-strength', '--crt-contrast', '--crt-saturation', '--crt-brightness',
 				'--crt-scanline-alpha', '--crt-mask-alpha', '--crt-vignette-alpha',
-				'--crt-glass-alpha', '--crt-roll-alpha', '--crt-flicker-alpha'
+				'--crt-vignette-edge-alpha', '--crt-glass-alpha', '--crt-glass-edge-alpha',
+				'--crt-roll-alpha', '--crt-flicker-hard-opacity', '--crt-flicker-soft-opacity'
 			]) root.style.removeProperty(name);
 		}
 	});
@@ -151,6 +158,7 @@
 			contrast(var(--crt-contrast, 1))
 			saturate(var(--crt-saturation, 1))
 			brightness(var(--crt-brightness, 1));
+		will-change: filter;
 	}
 
 	.crt-overlay {
@@ -221,8 +229,8 @@
 
 	.crt-glass {
 		background:
-			linear-gradient(110deg, rgb(255 255 255 / var(--crt-glass-alpha, 0)), transparent 18%, transparent 72%, rgb(120 170 255 / calc(var(--crt-glass-alpha, 0) * 0.45))),
-			radial-gradient(ellipse at 50% 45%, transparent 65%, rgb(0 0 0 / calc(var(--crt-vignette-alpha, 0) * 0.35)) 100%);
+			linear-gradient(110deg, rgb(255 255 255 / var(--crt-glass-alpha, 0)), transparent 18%, transparent 72%, rgb(120 170 255 / var(--crt-glass-edge-alpha, 0))),
+			radial-gradient(ellipse at 50% 45%, transparent 65%, rgb(0 0 0 / var(--crt-vignette-edge-alpha, 0)) 100%);
 		mix-blend-mode: soft-light;
 	}
 
@@ -238,9 +246,9 @@
 
 	@keyframes crt-flicker {
 		0%, 93%, 100% { opacity: 1; }
-		94% { opacity: calc(1 - var(--crt-flicker-alpha, 0)); }
+		94% { opacity: var(--crt-flicker-hard-opacity, 1); }
 		94.5% { opacity: 1; }
-		97.2% { opacity: calc(1 - var(--crt-flicker-alpha, 0) * 0.55); }
+		97.2% { opacity: var(--crt-flicker-soft-opacity, 1); }
 		97.8% { opacity: 1; }
 	}
 
