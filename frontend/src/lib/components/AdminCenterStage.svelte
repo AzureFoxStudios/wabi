@@ -16,12 +16,13 @@
 	import ServerHealthSection from './admin/ServerHealthSection.svelte';
 	import ModerationCenter from './admin/ModerationCenter.svelte';
 	import SafetyRulesPanel from './admin/SafetyRulesPanel.svelte';
+	import PrivacyCenter from './admin/PrivacyCenter.svelte';
 	import StorageCenter from './admin/StorageCenter.svelte';
 	import InfrastructureCenter from './admin/InfrastructureCenter.svelte';
 	import AdminWorkspace from './AdminWorkspace.svelte';
 
 	const icons: Partial<Record<AdminSection, IconName>> = {
-		overview: 'activity', moderation: 'admin', safety: 'admin', runtime: 'activity', users: 'users', roles: 'admin',
+		overview: 'activity', moderation: 'admin', safety: 'admin', privacy: 'settings', runtime: 'activity', users: 'users', roles: 'admin',
 		channels: 'messages', storage: 'box', infrastructure: 'activity', branding: 'media', settings: 'settings', payments: 'box',
 	};
 	let snapshot = $state.raw(emptyAdminSnapshot());
@@ -135,6 +136,8 @@
 					<ModerationCenter />
 				{:else if section === 'safety'}
 					<SafetyRulesPanel />
+				{:else if section === 'privacy'}
+					<PrivacyCenter />
 				{:else if section === 'storage'}
 					<StorageCenter />
 				{:else if section === 'infrastructure'}
