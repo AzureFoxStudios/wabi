@@ -1,5 +1,6 @@
 import type { Socket } from 'socket.io-client';
 import { isMuted } from './callingStateStores';
+import { rememberVoiceAdmission } from './voiceAdmissionState';
 
 type AdmissionSocket = Pick<Socket, 'id' | 'connected' | 'on' | 'off' | 'emit'>;
 export type VoiceAdmissionReply = {
@@ -12,7 +13,6 @@ export type VoiceAdmissionReply = {
   mutedOnEntry?: boolean;
   serverMuted?: boolean;
   serverDeafened?: boolean;
-  policyListenOnly?: boolean;
 };
 type Reply = VoiceAdmissionReply;
 let nextRequest = 0;
@@ -38,7 +38,12 @@ export async function requestVoiceAdmission(
     signal,
     timeoutMs,
   );
-  if (!listeningOnly && (reply.mutedOnEntry || reply.serverMuted || reply.policyListenOnly)) {
+  const admission = rememberVoiceAdmission(channelId, reply);
+  // This is only the local initial control state. The Authority remains the
+  // security boundary and separately enforces publish/subscribe permissions.
+  // A muted-on-entry user may self-unmute; a server-muted/listen-only user may
+  // click controls but the transport grant remains fail-closed.
+  if (!listeningOnly && (admission.mutedOnEntry || admission.serverMuted || admission.listeningOnly)) {
     isMuted.set(true);
   }
   return reply;
