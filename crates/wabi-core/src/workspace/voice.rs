@@ -4,6 +4,16 @@ use ts_rs::TS;
 
 use super::VoiceBitrateMode;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", ts(export))]
+pub enum VoiceEntryMode {
+    Open,
+    Muted,
+    ListenOnly,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +25,8 @@ pub struct VoiceChannelSettings {
     pub user_limit: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force_solo: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_mode: Option<VoiceEntryMode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
