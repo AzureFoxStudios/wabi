@@ -5,9 +5,20 @@
 	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
 	import { getLoreBinding, parseLoreChannelId, type LoreChannelBinding } from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
+	import { activeServerUrl } from '$lib/serverUrl';
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import type { User } from '$lib/socket';
 	import type { WorkspaceViewKey } from './types';
+
+	type ChannelPrivacySummary = {
+		channelId: string;
+		retention: string;
+		confidentiality: 'server_readable';
+		e2ee: boolean;
+		privateConversation: boolean;
+		automatedContentRules: boolean;
+		reportsPreserveEvidence: boolean;
+	};
 
 	export let isDMChannel = false;
 	export let workspaceSurfaceLabel: string | null = null;
@@ -32,6 +43,40 @@
 			loreBinding = null;
 		}
 	}
+
+	let privacySummary: ChannelPrivacySummary | null = null;
+	let privacyRequestKey = '';
+	$: {
+		const key = `${$activeServerUrl}|${currentChannel}`;
+		if (currentChannel && key !== privacyRequestKey) {
+			privacyRequestKey = key;
+			void refreshPrivacySummary(currentChannel, key);
+		}
+	}
+
+	async function refreshPrivacySummary(channelId: string, requestKey: string): Promise<void> {
+		privacySummary = null;
+		const token = getAuthToken($activeServerUrl);
+		if (!token) return;
+		try {
+			const response = await fetch(`${$activeServerUrl}/api/privacy/channels/${encodeURIComponent(channelId)}`, {
+				headers: { Authorization: `Bearer ${token}` },
+				credentials: 'include'
+			});
+			if (!response.ok) return;
+			const value = await response.json();
+			if (`${$activeServerUrl}|${currentChannel}` === requestKey) privacySummary = value;
+		} catch {
+			// Privacy badges fail closed by disappearing; never invent a policy.
+		}
+	}
+
+	function retentionLabel(value: string): string {
+		if (value === 'live') return 'Live · not retained';
+		if (value === 'forever') return 'Forever';
+		return value;
+	}
+
 	export let dmCallTargetUser: User | null = null;
 	export let dmDirectCallActive = false;
 	export let dmDirectCallPending = false;
@@ -70,6 +115,26 @@
 		</h2>
 		{#if !isDMChannel && workspaceHeaderSubtitle}
 			<p class="channel-description">{workspaceHeaderSubtitle}</p>
+		{/if}
+		{#if selectedWorkspaceView === 'messages' && privacySummary}
+			<span
+				class="spoiler-channel-badge"
+				title={privacySummary.retention === 'live'
+					? 'Messages in this room are session-only. The server can still read them while they are live.'
+					: `Message retention for this room: ${privacySummary.retention}.`}
+			>◷ {retentionLabel(privacySummary.retention)}</span>
+			<span
+				class="spoiler-channel-badge"
+				title="This conversation is server-readable today. Wabi does not claim end-to-end encryption for this room."
+			>Server-readable</span>
+			{#if privacySummary.privateConversation}
+				<span
+					class="spoiler-channel-badge"
+					title={privacySummary.automatedContentRules
+						? 'This server has explicitly opted private conversations into local automated content rules.'
+						: 'Automated content rules do not inspect this private conversation. Participants can explicitly report messages to server staff.'}
+				>{privacySummary.automatedContentRules ? 'Private · local rules on' : 'Private · reports only'}</span>
+			{/if}
 		{/if}
 		{#if forceSpoiler}
 			<span class="spoiler-channel-badge" title="Every message in this channel is hidden until clicked.">🔒 Spoilers</span>
