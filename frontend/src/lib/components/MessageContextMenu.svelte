@@ -58,9 +58,12 @@
 		catch (error) { console.error('Failed to copy message text:', error); }
 	}
 
-	$: items = buildItems();
+	// `visible` is intentionally an explicit dependency. Translator settings live
+	// in localStorage, so reopening the menu must rebuild actions after an Add-ons
+	// settings change without requiring a page reload.
+	$: items = buildItems(visible);
 
-	function buildItems(): ContextMenuItem[] {
+	function buildItems(_menuVisible: boolean): ContextMenuItem[] {
 		const list: ContextMenuItem[] = [{ id: 'reply', label: get(_)('context_menu.reply'), icon: 'message-circle', onSelect: onReply }];
 		if (quickMentionEnabled && onQuickMention && !isOwnMessageByIdentity) list.push({ id: 'quick-mention', label: get(_)('context_menu.quick_mention'), icon: 'message-circle', onSelect: onQuickMention });
 		if (onAddReaction) list.push({ id: 'react', label: get(_)('context_menu.add_reaction'), icon: 'smile', onSelect: onAddReaction });
