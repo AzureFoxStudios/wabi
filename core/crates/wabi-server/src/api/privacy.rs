@@ -51,20 +51,18 @@ fn string_field(value: &serde_json::Value, key: &str, fallback: &str) -> String 
 }
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    // Rehydrate exact Live/sub-day/Forever choices before normal traffic has a
+    // chance to rely on the coarse whole-day WabiDB compatibility policy.
+    super::retention_policy::hydrate_runtime(state.clone());
     Router::new()
         .route("/", axum::routing::get(summary))
         .route("/channels/{channel_id}", axum::routing::get(channel_summary))
         .with_state(state)
 }
 
-async fn summary(
-    State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
-) -> Json<PrivacySummary> {
+async fn summary(State(state): State<Arc<AppState>>, _auth: AuthUser) -> Json<PrivacySummary> {
     let privacy = privacy_value(&state.config.data_dir);
     Json(PrivacySummary {
-        // Until the independently verified E2EE acceptance project ships,
-        // signed-in users must be told the server is part of the trust boundary.
         confidentiality: "server_readable",
         e2ee_available: false,
         private_content_automation: bool_field(&privacy, "privateContentAutomation", false),
@@ -85,9 +83,6 @@ async fn channel_summary(
     let privacy = privacy_value(&state.config.data_dir);
     let private_automation = bool_field(&privacy, "privateContentAutomation", false);
 
-    // The exact sidecar wins because WabiDB's current retention policy is
-    // whole-day only. Fall back to WabiDB for older channels created before
-    // the sidecar existed, then to the product's historical 24h default.
     let retention = if let Some(label) = super::retention_policy::label(&state.config.data_dir, &channel_id) {
         label
     } else {
