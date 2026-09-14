@@ -94,11 +94,16 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
 
     // Server Center deterministic safety rules are intentionally literal.
     // They are evaluated after identity/access/mute checks but before the
-    // message is committed or broadcast, so clients cannot bypass them by
-    // racing an optimistic UI update. The server owner is exempt to avoid a
-    // typo in a new rule locking out the only recovery authority.
+    // message is committed or broadcast. Private DMs/groups are reports-only
+    // unless the operator explicitly opts them into server-side automation.
+    // The server owner is exempt to avoid a typo locking out recovery authority.
     if !state.app.is_owner(user_id_num).await {
-        if let Some(rule) = crate::api::server_center::evaluate_safety_rules(&state.app.config.data_dir, &text) {
+        let is_private_conversation = matches!(channel_kind.as_deref(), Some("dm" | "group"));
+        if let Some(rule) = crate::api::server_center::evaluate_safety_rules(
+            &state.app.config.data_dir,
+            &text,
+            is_private_conversation,
+        ) {
             let reason = rule.reason.clone().unwrap_or_else(|| format!("Safety rule: {}", rule.name));
             match rule.action {
                 crate::api::server_center::SafetyAction::Flag => {
