@@ -28,13 +28,16 @@ describe('Translator Assist settings', () => {
 		expect(resolveTranslatorProviderUrl('libretranslate-self-hosted')).toBe('');
 	});
 
-	test('local mode refuses a remote provider URL', () => {
+	test('local mode is pinned to the Wabi loopback translator endpoint', () => {
 		expect(
 			sanitizeTranslatorProviderUrl('https://translate.example.com/translate', 'libretranslate-local')
 		).toBe('http://127.0.0.1:5000/translate');
+		expect(
+			sanitizeTranslatorProviderUrl('http://localhost:9999/not-a-translator', 'libretranslate-local')
+		).toBe('http://127.0.0.1:5000/translate');
 	});
 
-	test('self-hosted mode requires explicit HTTPS', () => {
+	test('self-hosted mode requires explicit HTTPS without embedded credentials', () => {
 		expect(
 			sanitizeTranslatorProviderUrl(
 				'https://translate.example.com/translate',
@@ -44,6 +47,12 @@ describe('Translator Assist settings', () => {
 		expect(
 			sanitizeTranslatorProviderUrl(
 				'http://translate.example.com/translate',
+				'libretranslate-self-hosted'
+			)
+		).toBe('');
+		expect(
+			sanitizeTranslatorProviderUrl(
+				'https://user:secret@translate.example.com/translate',
 				'libretranslate-self-hosted'
 			)
 		).toBe('');
