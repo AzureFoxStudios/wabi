@@ -247,7 +247,7 @@
 		const before = messageInput.slice(0, mentionTokenStart);
 		const after = messageInput.slice(caret);
 		const mentionText = `@${selected.value}`;
-		const needsTrailingSpace = after.length === 0 || !/^[\s.,!?;:)]/.test(after);
+		const needsTrailingSpace = after.length === 0 || !/^[\\s.,!?;:)]/.test(after);
 		const insertion = needsTrailingSpace ? `${mentionText} ` : mentionText;
 		const nextMessageInput = before + insertion + after;
 		const nextCursor = (before + insertion).length;
