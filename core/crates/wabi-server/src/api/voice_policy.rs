@@ -1,10 +1,11 @@
-//! Persistent, transport-neutral voice-channel policy.
+//! Persistent, transport-neutral voice-channel policy plus volatile admission state.
 //!
 //! Voice policy belongs to the Wabi Authority, not LiveKit/mediasoup/P2P. The
 //! current WabiDB Channel record does not yet carry voice-specific settings, so
 //! this small authority-owned registry makes the existing settings real and
 //! restart-safe without coupling the media work to a storage-schema migration.
-//! A future WabiDB migration can preserve this JSON contract unchanged.
+//! Admission state is intentionally NOT persisted: it is bound to a live
+//! Socket.IO connection and exists only to authorize realtime transports.
 
 use axum::{
     extract::{Path as AxumPath, State},
@@ -50,6 +51,19 @@ pub struct VoiceChannelPolicy {
     pub entry_mode: VoiceEntryMode,
 }
 
+/// Authoritative result of one Socket.IO voice admission. The HTTP/SFU broker
+/// must match channel + user + socket; account identity alone is insufficient
+/// because one account can have several devices with different admission modes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VoiceAdmission {
+    pub user_id: i64,
+    pub socket_id: String,
+    pub listening_only: bool,
+    pub muted_on_entry: bool,
+    pub server_muted: bool,
+    pub server_deafened: bool,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VoicePolicyFile {
@@ -58,10 +72,53 @@ struct VoicePolicyFile {
 }
 
 type StoreCache = HashMap<PathBuf, VoicePolicyFile>;
+type AdmissionMap = HashMap<String, HashMap<String, VoiceAdmission>>;
 
 fn cache() -> &'static RwLock<StoreCache> {
     static CACHE: OnceLock<RwLock<StoreCache>> = OnceLock::new();
     CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn admissions() -> &'static RwLock<AdmissionMap> {
+    static ADMISSIONS: OnceLock<RwLock<AdmissionMap>> = OnceLock::new();
+    ADMISSIONS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+pub fn record_admission(channel_id: &str, admission: VoiceAdmission) {
+    admissions()
+        .write()
+        .expect("voice admission registry")
+        .entry(channel_id.to_string())
+        .or_default()
+        .insert(admission.socket_id.clone(), admission);
+}
+
+pub fn remove_admission(channel_id: &str, socket_id: &str) {
+    let mut guard = admissions().write().expect("voice admission registry");
+    if let Some(channel) = guard.get_mut(channel_id) {
+        channel.remove(socket_id);
+        if channel.is_empty() {
+            guard.remove(channel_id);
+        }
+    }
+}
+
+pub fn remove_socket_admissions(socket_id: &str) {
+    let mut guard = admissions().write().expect("voice admission registry");
+    guard.retain(|_, channel| {
+        channel.remove(socket_id);
+        !channel.is_empty()
+    });
+}
+
+pub fn admission_for(channel_id: &str, user_id: i64, socket_id: &str) -> Option<VoiceAdmission> {
+    admissions()
+        .read()
+        .expect("voice admission registry")
+        .get(channel_id)
+        .and_then(|channel| channel.get(socket_id))
+        .filter(|admission| admission.user_id == user_id)
+        .cloned()
 }
 
 fn store_path(data_dir: &str) -> PathBuf {
@@ -290,6 +347,7 @@ fn persist(path: &Path, store: &VoicePolicyFile) -> Result<(), String> {
 #[cfg(test)]
 pub fn clear_cache_for_tests() {
     cache().write().expect("voice policy cache").clear();
+    admissions().write().expect("voice admission registry").clear();
 }
 
 #[cfg(test)]
@@ -335,5 +393,26 @@ mod tests {
         assert_eq!(stored.entry_mode, VoiceEntryMode::ListenOnly);
         assert!(update_from_value(&dir, "voice-a", &serde_json::json!({ "userLimit": 0 })).is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn admission_is_bound_to_exact_user_and_socket() {
+        clear_cache_for_tests();
+        record_admission(
+            "voice-a",
+            VoiceAdmission {
+                user_id: 7,
+                socket_id: "sock-a".into(),
+                listening_only: true,
+                muted_on_entry: false,
+                server_muted: false,
+                server_deafened: false,
+            },
+        );
+        assert!(admission_for("voice-a", 7, "sock-a").is_some());
+        assert!(admission_for("voice-a", 8, "sock-a").is_none());
+        assert!(admission_for("voice-a", 7, "sock-b").is_none());
+        remove_admission("voice-a", "sock-a");
+        assert!(admission_for("voice-a", 7, "sock-a").is_none());
     }
 }
