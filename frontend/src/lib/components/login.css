@@ -100,15 +100,19 @@
 
 .login-logo {
 	height: min(280px, 26vh);
+	max-width: 100%;
+	object-fit: contain;
 	margin-bottom: 1.5rem;
-	filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.45));
+	/* drop-shadow follows the artwork's alpha — never draw a box/ring around
+	   the img rect (transparent or broken logos would show a hollow frame) */
+	filter: drop-shadow(0 12px 32px rgba(0, 0, 0, 0.5));
 	animation: logoFadeIn 0.65s ease-out;
 	transition: height 0.3s ease, margin-bottom 0.3s ease;
 }
 
 /* Only the original black Wabi mark needs invert. Host logos stay as uploaded. */
 .login-logo.login-logo-invert {
-	filter: invert(1) drop-shadow(0 8px 28px rgba(0, 0, 0, 0.45));
+	filter: invert(1) drop-shadow(0 12px 32px rgba(0, 0, 0, 0.5));
 }
 
 .login-container.has-atmosphere {
@@ -388,12 +392,13 @@
 .auth-btn {
 	width: 100%;
 	box-sizing: border-box;
-	padding: 0.95rem 1.15rem;
-	font-size: var(--font-size-lg);
+	min-height: 2.75rem;
+	padding: 0.6rem 1.15rem;
+	font-size: 0.9375rem;
 	font-weight: var(--font-weight-bold);
-	border-radius: var(--radius-lg);
+	border-radius: var(--radius-md);
 	cursor: pointer;
-	border: none;
+	border: 1px solid transparent;
 	text-align: center;
 	text-decoration: none;
 	display: inline-flex;
@@ -407,7 +412,8 @@
 		box-shadow var(--duration-fast) var(--ease-out),
 		background var(--duration-fast) var(--ease-out),
 		border-color var(--duration-fast) var(--ease-out),
-		color var(--duration-fast) var(--ease-out);
+		color var(--duration-fast) var(--ease-out),
+		filter var(--duration-fast) var(--ease-out);
 }
 
 .auth-btn:disabled {
@@ -420,21 +426,20 @@
 }
 
 .auth-btn-primary {
-	background: linear-gradient(135deg, var(--accent-secondary-color), var(--accent-primary-color));
+	background: var(--accent-primary-color);
 	color: var(--text-on-accent, var(--text-heading));
 	box-shadow:
-		0 12px 32px color-mix(in srgb, var(--accent-secondary-color) 28%, transparent),
-		inset 0 1px 0 rgba(255, 255, 255, 0.22);
+		0 8px 24px color-mix(in srgb, var(--accent-primary-color) 24%, transparent),
+		inset 0 1px 0 rgba(255, 255, 255, 0.18);
 	margin-top: 0.25rem;
 }
 
 .auth-btn-primary:hover:not(:disabled) {
 	transform: translateY(-1px);
+	filter: brightness(1.08);
 	box-shadow:
-		0 0 0 1px color-mix(in srgb, var(--accent-primary-color) 28%, transparent),
-		0 18px 40px color-mix(in srgb, var(--accent-secondary-color) 34%, transparent),
-		0 8px 20px rgba(0, 0, 0, 0.22),
-		inset 0 1px 0 rgba(255, 255, 255, 0.28);
+		0 12px 32px color-mix(in srgb, var(--accent-primary-color) 32%, transparent),
+		inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 .auth-btn-secondary {
@@ -537,10 +542,16 @@
 }
 
 .guest-extras {
-	display: flex;
-	flex-direction: column;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
 	gap: 0.55rem;
 	margin-top: 0.55rem;
+}
+
+@media (max-width: 400px) {
+	.guest-extras {
+		grid-template-columns: 1fr;
+	}
 }
 
 .guest-expand {
@@ -570,55 +581,50 @@
 .field-row {
 	display: flex;
 	align-items: center;
-	justify-content: center;
 	width: 100%;
 }
 
+/* Left-aligned with the fields above — one alignment column */
 .remember-row {
 	display: inline-flex;
 	align-items: center;
-	justify-content: center;
 	gap: 0.6rem;
-	margin: 0 auto;
+	margin: 0;
 	color: var(--text-secondary);
 	font-size: var(--font-size-base);
-	text-align: center;
+	text-align: left;
 	cursor: pointer;
 	user-select: none;
 }
 
-.remember-row input[type='checkbox'] {
-	width: 18px;
-	height: 18px;
-	min-width: 18px;
+.remember-row:hover {
+	color: var(--text-heading);
+}
+
+/* Guard .ui-check/.ui-radio against the wide `.login-box input` base rule;
+   visuals (fill, checkmark, focus) come from controls.css */
+.login-box .ui-check,
+.login-box .ui-radio {
+	width: 1.125rem;
+	height: 1.125rem;
+	min-width: 1.125rem;
 	min-height: 0;
-	margin: 0;
 	padding: 0;
-	flex: 0 0 18px;
-	border-radius: var(--radius-sm);
-	border: 1.5px solid color-mix(in srgb, var(--accent-primary-color) 32%, transparent);
-	background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
-	accent-color: var(--accent-secondary-color);
+	flex: 0 0 auto;
+	border: 1.5px solid var(--border-strong, rgba(255, 255, 255, 0.3));
+	border-radius: var(--radius-sm, 4px);
+	background: var(--surface-input, rgba(255, 255, 255, 0.04));
 	box-shadow: none;
-	cursor: pointer;
-	appearance: none;
-	-webkit-appearance: none;
-	transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
+	-webkit-text-fill-color: initial;
 }
 
-.remember-row input[type='checkbox']:hover {
-	border-color: color-mix(in srgb, var(--accent-primary-color) 52%, transparent);
-	background: color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
+.login-box .ui-radio {
+	border-radius: 50%;
 }
 
-.remember-row input[type='checkbox']:focus-visible {
-	outline: 2px solid color-mix(in srgb, var(--accent-secondary-color) 70%, transparent);
-	outline-offset: 2px;
-}
-
-.remember-row input[type='checkbox']:checked {
-	background: var(--accent-secondary-color);
-	border-color: var(--accent-secondary-color);
+html[data-neutral-branding] .remember-row .ui-check:checked {
+	background: var(--neutral-accent);
+	border-color: var(--neutral-accent-strong);
 }
 
 /* ---------- Error ---------- */
@@ -1015,11 +1021,6 @@ html[data-neutral-branding] .auth-btn-primary:hover:not(:disabled) {
 html[data-neutral-branding] .auth-btn-secondary {
 	background: color-mix(in srgb, var(--neutral-accent) 9%, transparent);
 	border-color: color-mix(in srgb, var(--neutral-accent) 24%, transparent);
-}
-
-html[data-neutral-branding] .remember-row input[type='checkbox']:checked {
-	background: var(--neutral-accent);
-	border-color: var(--neutral-accent-strong);
 }
 
 html[data-neutral-branding] .handle-prefix {
