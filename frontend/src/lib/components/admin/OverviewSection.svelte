@@ -67,6 +67,7 @@
 	const destinations: Array<{ section: AdminSection; label: string; description: string }> = [
 		{ section: 'moderation', label: 'Moderation inbox', description: 'Reports, case comments and staff triage' },
 		{ section: 'safety', label: 'Safety rules', description: 'Literal trigger → action automation' },
+		{ section: 'privacy', label: 'Privacy & retention', description: 'Ephemeral, durable and private-space policy by choice' },
 		{ section: 'storage', label: 'Storage', description: 'See what uploads are actually using disk' },
 		{ section: 'infrastructure', label: 'Infrastructure', description: 'Relays, helpers and heartbeat health' },
 		{ section: 'users', label: 'People', description: 'Roles, account recovery and member context' },
@@ -109,7 +110,7 @@
 				<div><span class="card-kicker">Community health</span><h2 id="admin-moderation-heading">Moderation</h2></div>
 				<button class="admin-refresh" onclick={() => onNavigate('moderation')}>Open inbox</button>
 			</header>
-			<p class="admin-home-description">Reports now have a real inbox with preserved message evidence, assignment, resolution state and private staff comments. Snapshot counters below are shown only when the server reports them.</p>
+			<p class="admin-home-description">Reports have a real inbox with preserved message evidence, assignment, resolution state and private staff comments. Snapshot counters below are shown only when the server reports them.</p>
 			<div class="admin-summary-grid admin-moderation-grid">
 				<div class="admin-summary"><span>Open reports</span><strong class="admin-stat-value">{formatCount(openReports)}</strong><small>{openReports === null ? 'Open the inbox for live cases' : openReports === 0 ? 'Snapshot queue is clear' : 'Awaiting moderator review'}</small></div>
 				<div class="admin-summary"><span>Banned accounts</span><strong class="admin-stat-value">{formatCount(bannedUsers)}</strong><small>{bannedUsers === null ? 'Not in this snapshot' : 'Recorded enforcement total'}</small></div>
