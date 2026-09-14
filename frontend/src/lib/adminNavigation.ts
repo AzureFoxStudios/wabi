@@ -2,6 +2,7 @@ export type AdminSection =
 	| 'overview'
 	| 'moderation'
 	| 'safety'
+	| 'privacy'
 	| 'users'
 	| 'roles'
 	| 'channels'
@@ -18,6 +19,7 @@ export const ADMIN_SECTIONS: Array<{ id: ActiveAdminSection; label: string; desc
 	{ id: 'overview', label: 'Overview', description: 'Community health, server health and things that need attention', group: 'Server' },
 	{ id: 'moderation', label: 'Moderation', description: 'Reports, staff actions and moderation triage', group: 'Safety', staff: true },
 	{ id: 'safety', label: 'Safety rules', description: 'Simple automatic rules, filters and escalation behavior', group: 'Safety' },
+	{ id: 'privacy', label: 'Privacy & retention', description: 'Choose retention, private-space automation and local data boundaries', group: 'Safety' },
 	{ id: 'users', label: 'People', description: 'Members, roles, account recovery and moderation context', group: 'People', staff: true },
 	{ id: 'roles', label: 'Roles', description: 'Understand and manage the built-in permission levels', group: 'People' },
 	{ id: 'channels', label: 'Channels', description: 'Browse server channels and open their workspaces', group: 'Server' },
