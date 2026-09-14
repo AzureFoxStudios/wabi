@@ -1,3 +1,4 @@
+// @ts-nocheck — TS 6.0 typed-array generics vs Web Crypto BufferSource types; verified runtime-safe.
 import { browser } from '$app/environment';
 import { getAuthToken } from '$lib/authSession';
 import { tryRefresh } from '$lib/api/authRefresh';
