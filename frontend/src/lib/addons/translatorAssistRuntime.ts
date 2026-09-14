@@ -80,7 +80,9 @@ export async function requestLanguageDetection(
 		referrerPolicy: 'no-referrer',
 		body: JSON.stringify({ q: input })
 	});
-	if (!response.ok) return undefined;
+	if (!response.ok) {
+		throw new Error(`Language detection failed (${response.status})`);
+	}
 	const raw = await response.text();
 	try {
 		const parsed = JSON.parse(raw);
