@@ -15,8 +15,7 @@ import {
  */
 export function createAddonSettingsView(
 	query: string,
-	activeSection: AddonSectionId | null,
-	_translatorDetected: boolean
+	activeSection: AddonSectionId | null
 ) {
 	const tokens = tokenizeAddonSearchQuery(query);
 	const isAvailable = (id: string) => Object.hasOwn(LOCAL_ADDON_CONTROL_META, id);
