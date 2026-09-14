@@ -178,22 +178,21 @@ export function normalizeTranslatorLanguageCode(value: unknown, fallback: string
 }
 
 export function sanitizeTranslatorProviderUrl(raw: string, model: TranslatorModelId): string {
-	const candidate = raw.trim() || resolveTranslatorProviderUrl(model);
+	if (model === 'libretranslate-local') {
+		// Local mode is intentionally not a generic localhost fetcher. Users who
+		// need another endpoint should select the explicit self-hosted provider.
+		return resolveTranslatorProviderUrl('libretranslate-local');
+	}
+
+	const candidate = raw.trim();
 	if (!candidate) return '';
 	try {
 		const url = new URL(candidate);
-		if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
-		const host = url.hostname.toLowerCase();
-		const loopback = host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1';
-		if (model === 'libretranslate-local') {
-			if (!loopback) return resolveTranslatorProviderUrl('libretranslate-local');
-		} else if (url.protocol !== 'https:') {
-			// Remote automatic translation can disclose a large amount of chat text.
-			// Require transport encryption for the self-hosted provider path.
-			return '';
-		}
+		if (url.protocol !== 'https:') return '';
+		if (url.username || url.password) return '';
+		url.hash = '';
 		return url.toString();
 	} catch {
-		return resolveTranslatorProviderUrl(model);
+		return '';
 	}
 }
