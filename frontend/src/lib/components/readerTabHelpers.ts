@@ -23,9 +23,15 @@ export function renderReaderPlainText(content: string): string {
 		.map((block) => `<p>${block.split('\n').map(escapeReaderHtml).join('<br>')}</p>`).join('\n');
 }
 
+export function renderReaderCode(content: string): string {
+	const normalized = content.replace(/\r\n?/g, '\n');
+	return `<pre data-reader-code-document="true"><code>${escapeReaderHtml(normalized)}</code></pre>`;
+}
+
 export function renderReaderHtml(content: string, format: ReaderDocumentFormat): string {
 	if (!content.trim()) return '<p>No content loaded yet.</p>';
 	if (format === 'text') return renderReaderPlainText(content);
+	if (format === 'code') return renderReaderCode(content);
 	// DOMPurify is browser-only; never emit unsanitized HTML during SSR.
 	if (typeof DOMPurify.sanitize !== 'function') return renderReaderPlainText(content);
 	const html = format === 'markdown' ? readerMarkdown.parse(content, { async: false }) : content;
