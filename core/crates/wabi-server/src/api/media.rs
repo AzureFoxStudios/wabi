@@ -13,8 +13,11 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::{Duration, Instant}};
-use wabidb::engine::wabi_store::WabiStore;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use wabidb::{domain::ChannelKind, engine::wabi_store::WabiStore};
 
 use crate::api::auth::handle_turn_credentials;
 use crate::api::media_node_catalog;
@@ -94,9 +97,14 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 
 async fn create_room(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Json(req): Json<CreateRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
+    // Media room creation is not a discovery endpoint. Prove current channel
+    // access before allocating shared-node resources.
+    crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
+        .await
+        .map_err(|_| MediaApiError::Forbidden)?;
     let room = ensure_media_room(&state, req.channel_id, req.max_participants).await?;
     Ok(Json(RoomResponse { room }))
 }
@@ -142,7 +150,9 @@ async fn ensure_media_room(
                 .find(|node| {
                     node.status == NodeStatus::Online
                         && node.capabilities.contains(&NodeCapability::MediaRelay)
-                        && !advertisements.iter().any(|record| record.node_id == node.node_id)
+                        && !advertisements
+                            .iter()
+                            .any(|record| record.node_id == node.node_id)
                 })
                 .map(|node| {
                     let endpoint = node
@@ -188,10 +198,10 @@ async fn submit_media_operation(
         .ok_or(MediaApiError::Unavailable)?;
     let mut payload = serde_json::json!({
         "operation": operation,
-        "tenantNamespace": room.tenant_namespace,
-        "roomId": room.room_id,
-        "externalRoomName": room.external_room_name,
-        "channelId": room.channel_id,
+        "tenantNamespace": room.tenant_namespace.clone(),
+        "roomId": room.room_id.clone(),
+        "externalRoomName": room.external_room_name.clone(),
+        "channelId": room.channel_id.clone(),
         "assignedNodeId": assigned_node_id,
         "maxParticipants": room.max_participants,
     });
@@ -225,9 +235,12 @@ async fn get_room(
 
 async fn find_by_channel(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(channel_id): Path<String>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
+    crate::channel_access::require_access(&state, auth.user_id, &channel_id)
+        .await
+        .map_err(|_| MediaApiError::Forbidden)?;
     let room = state
         .media_registry
         .find_by_channel(&channel_id)
@@ -329,9 +342,12 @@ async fn create_livekit_token(
     if auth.user_id <= 0 || auth.is_bot {
         return Err(MediaApiError::Forbidden);
     }
-    crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
+    let channel = crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
         .await
         .map_err(|_| MediaApiError::Forbidden)?;
+    if channel.channel_kind != ChannelKind::Voice {
+        return Err(MediaApiError::Forbidden);
+    }
 
     let room = ensure_media_room(&state, req.channel_id.clone(), default_max_participants()).await?;
     let node_id = room
@@ -384,7 +400,7 @@ async fn create_livekit_token(
         &room,
         "mint_token",
         serde_json::json!({
-            "identity": identity,
+            "identity": identity.clone(),
             "displayName": display_name,
             "ttlSeconds": 600,
             "grants": {
@@ -435,12 +451,22 @@ fn validate_livekit_token_result(
     identity: &str,
 ) -> Result<(), MediaApiError> {
     let object = result.as_object().ok_or(MediaApiError::Internal)?;
-    let has_token = object.get("token").and_then(|v| v.as_str()).is_some_and(|v| !v.is_empty());
-    let url_ok = object.get("url").and_then(|v| v.as_str()).is_some_and(|v| {
-        v.starts_with("wss://") || v.starts_with("ws://") || v.starts_with("https://") || v.starts_with("http://")
-    });
-    let room_ok = object.get("roomName").and_then(|v| v.as_str()) == Some(room.external_room_name.as_str());
-    let identity_ok = object.get("identity").and_then(|v| v.as_str()) == Some(identity);
+    let has_token = object
+        .get("token")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| !value.is_empty());
+    let url_ok = object
+        .get("url")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| {
+            value.starts_with("wss://")
+                || value.starts_with("ws://")
+                || value.starts_with("https://")
+                || value.starts_with("http://")
+        });
+    let room_ok = object.get("roomName").and_then(|value| value.as_str())
+        == Some(room.external_room_name.as_str());
+    let identity_ok = object.get("identity").and_then(|value| value.as_str()) == Some(identity);
     if has_token && url_ok && room_ok && identity_ok {
         Ok(())
     } else {
@@ -561,8 +587,9 @@ async fn media_runtime_snapshot(
     // Prefer a healthy advertised shared Media Node. An explicit LIVEKIT_URL
     // remains a compatibility path for a directly configured self-hosted SFU.
     let nodes = state.node_registry.list_nodes().await;
+    let preferred_region = preferred_media_region();
     let selected = media_node_catalog::global(&state.config.data_dir)
-        .select(&nodes, 1, preferred_media_region().as_deref())
+        .select(&nodes, 1, preferred_region.as_deref())
         .await
         .filter(|selection| selection.provider == "livekit");
     let configured_url = selected
@@ -668,9 +695,15 @@ impl IntoResponse for MediaApiError {
                 tracing::error!("media room io error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "registry io error")
             }
-            MediaApiError::Forbidden => (StatusCode::FORBIDDEN, "not authorized for media action"),
-            MediaApiError::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "media node unavailable"),
-            MediaApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "invalid media-node response"),
+            MediaApiError::Forbidden => {
+                (StatusCode::FORBIDDEN, "not authorized for media action")
+            }
+            MediaApiError::Unavailable => {
+                (StatusCode::SERVICE_UNAVAILABLE, "media node unavailable")
+            }
+            MediaApiError::Internal => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "invalid media-node response")
+            }
         };
         (status, body).into_response()
     }
