@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, OnceLock},
 };
 use tokio::sync::RwLock;
@@ -181,12 +181,15 @@ impl MediaNodeCatalog {
             if !ad.accepting_new_rooms || !has_capacity(ad, requested_participants) {
                 continue;
             }
-            let endpoint = ad
+            let Some(endpoint) = ad
                 .sfu_endpoint
                 .as_ref()
                 .or(node.endpoint.as_ref())
-                .filter(|value| !value.trim().is_empty())?
-                .clone();
+                .filter(|value| !value.trim().is_empty())
+                .cloned()
+            else {
+                continue;
+            };
 
             let mut score = reachability_score(&node.reachability);
             if preferred_region
