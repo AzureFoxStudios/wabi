@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
@@ -7,7 +8,8 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { hasAddonCapability } from '$lib/addonInventory';
-	import type { User } from '$lib/socket';
+	import { getSocket, type User } from '$lib/socket';
+	import { showToast } from '$lib/toast';
 	import type { WorkspaceViewKey } from './types';
 
 	type ChannelPrivacySummary = {
@@ -76,6 +78,23 @@
 		if (value === 'forever') return 'Forever';
 		return value;
 	}
+
+	onMount(() => {
+		const socket = getSocket();
+		if (!socket) return;
+		const refreshPolicy = () => {
+			// Policy changes are not silent: refresh the visible contract now and
+			// tell the member that the operator changed the server privacy policy.
+			if (currentChannel) {
+				const key = `${$activeServerUrl}|${currentChannel}`;
+				privacyRequestKey = key;
+				void refreshPrivacySummary(currentChannel, key);
+			}
+			showToast('Server privacy policy changed. The room privacy labels have been refreshed.', 'info');
+		};
+		socket.on('privacy-policy-updated', refreshPolicy);
+		return () => { socket.off('privacy-policy-updated', refreshPolicy); };
+	});
 
 	export let dmCallTargetUser: User | null = null;
 	export let dmDirectCallActive = false;
