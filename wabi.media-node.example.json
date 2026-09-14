@@ -1,0 +1,27 @@
+{
+  "name": "Community Call Helper",
+  "provider": "livekit",
+  "sfuEndpoint": "wss://calls.example.org",
+  "region": "singapore",
+  "sharing": "shared",
+  "acceptingNewRooms": true,
+  "heartbeatSeconds": 30,
+  "pollSeconds": 5,
+  "capacity": {
+    "maxRooms": 100,
+    "maxParticipants": 1000,
+    "maxParticipantsPerRoom": 100
+  },
+  "authorities": [
+    {
+      "name": "Friends Wabi",
+      "url": "https://friends.example.org",
+      "pairingToken": "PASTE_ONE_TIME_MEDIA_RELAY_PAIRING_TOKEN_HERE"
+    },
+    {
+      "name": "Art Club Wabi",
+      "url": "https://art.example.org",
+      "pairingToken": "PASTE_A_DIFFERENT_ONE_TIME_PAIRING_TOKEN_HERE"
+    }
+  ]
+}
