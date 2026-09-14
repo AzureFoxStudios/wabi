@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -12,6 +15,13 @@ SPEC = importlib.util.spec_from_file_location("wabi_media_node", SCRIPT)
 assert SPEC and SPEC.loader
 media_node = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(media_node)
+
+
+def decode_jwt_payload(token: str) -> dict:
+    parts = token.split(".")
+    assert len(parts) == 3
+    payload = parts[1] + "=" * (-len(parts[1]) % 4)
+    return json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
 
 
 class MediaNodeControllerTests(unittest.TestCase):
@@ -151,6 +161,54 @@ class MediaNodeControllerTests(unittest.TestCase):
                     "assignedNodeId": "node-b",
                 }
             )
+
+    def test_livekit_token_is_scoped_to_exact_room_identity_and_grants(self):
+        with mock.patch.dict(
+            os.environ,
+            {"LIVEKIT_API_KEY": "test-key", "LIVEKIT_API_SECRET": "test-secret"},
+            clear=False,
+        ):
+            profile = media_node.MediaProfile(self.profile_config())
+            before = int(time.time())
+            result = profile.mint_livekit_token(
+                {
+                    "externalRoomName": "wabi-tenant-123-room-456",
+                    "identity": "user:42",
+                    "displayName": "Alice",
+                    "ttlSeconds": 900,
+                    "grants": {
+                        "canPublish": False,
+                        "canSubscribe": True,
+                        "canPublishData": True,
+                        # A muted caller cannot smuggle sources through the list.
+                        "canPublishSources": ["microphone", "camera"],
+                    },
+                }
+            )
+
+        claims = decode_jwt_payload(result["token"])
+        self.assertEqual(claims["iss"], "test-key")
+        self.assertEqual(claims["sub"], "user:42")
+        self.assertEqual(claims["name"], "Alice")
+        self.assertEqual(claims["video"]["room"], "wabi-tenant-123-room-456")
+        self.assertTrue(claims["video"]["roomJoin"])
+        self.assertFalse(claims["video"]["canPublish"])
+        self.assertTrue(claims["video"]["canSubscribe"])
+        self.assertEqual(claims["video"]["canPublishSources"], [])
+        self.assertGreaterEqual(claims["exp"], before + 895)
+        self.assertLessEqual(claims["exp"], before + 905)
+        self.assertEqual(result["roomName"], "wabi-tenant-123-room-456")
+        self.assertEqual(result["url"], "wss://calls.example.test")
+
+    def test_shared_livekit_node_rejects_placeholder_root_credentials(self):
+        with mock.patch.dict(
+            os.environ,
+            {"LIVEKIT_API_KEY": "disabled", "LIVEKIT_API_SECRET": "disabled"},
+            clear=False,
+        ):
+            profile = media_node.MediaProfile(self.profile_config())
+            with self.assertRaises(media_node.ControllerError):
+                profile.ensure_token_signing_ready()
 
 
 if __name__ == "__main__":
