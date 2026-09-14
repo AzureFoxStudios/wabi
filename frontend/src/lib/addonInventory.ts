@@ -192,6 +192,7 @@ export function hasAddonCapability(addonId: string): Promise<boolean> {
 								.toLowerCase() === normalizedId && plugin.enabled !== false
 					);
 				}
+			}
 		} finally {
 			// A negative result must NOT be cached forever: the inventory
 			// fetch can race the very first page load (stale shell, flaky
