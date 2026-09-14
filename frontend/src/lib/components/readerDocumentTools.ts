@@ -1,7 +1,6 @@
 import Prism, { ensurePrismGrammars } from '$lib/prism';
 import {
 	countReaderCodeLines,
-	extractReaderFenceLanguages,
 	normalizeReaderCodeLanguage,
 	readerCodeLanguageLabel,
 	readerCodePreview
@@ -98,20 +97,17 @@ function removeLanguageClasses(element: Element): void {
 }
 
 /**
- * Turns rendered <pre><code> nodes into navigable Reader code blocks.
- * Language metadata is recovered from the original Markdown because Reader's
- * HTML sanitizer deliberately removes source-provided class attributes.
+ * Turns sanitized <pre><code> nodes into navigable Reader code blocks.
+ * Markdown's renderer emits only a normalized data-reader-language attribute;
+ * arbitrary source classes remain forbidden by the Reader sanitizer.
  */
 export function prepareReaderCodeBlocks(
 	root: HTMLElement,
-	source: string,
 	format: ReaderDocumentFormat,
 	documentLanguage?: string,
 	includeProjectAction = false
 ): ReaderCodeBlock[] {
-	const fenceLanguages = format === 'markdown' ? extractReaderFenceLanguages(source) : [];
 	const codeBlocks: ReaderCodeBlock[] = [];
-	let fencedIndex = 0;
 
 	root.querySelectorAll<HTMLPreElement>('pre').forEach((pre, index) => {
 		const code = pre.querySelector<HTMLElement>('code');
@@ -120,7 +116,7 @@ export function prepareReaderCodeBlocks(
 		pre.querySelector('.reader-code-header')?.remove();
 		const text = code.textContent || '';
 		const language = normalizeReaderCodeLanguage(
-			format === 'code' ? documentLanguage : fenceLanguages[fencedIndex++]
+			format === 'code' ? documentLanguage : pre.dataset.readerLanguage
 		);
 		const id = pre.id || `reader-code-${index + 1}`;
 		const lineCount = countReaderCodeLines(text);
@@ -142,12 +138,11 @@ export function prepareReaderCodeBlocks(
 			copy.type = 'button';
 			copy.className = 'reader-code-copy';
 			copy.textContent = 'Copy';
-			copy.setAttribute('aria-label', `Copy ${label} code block`);
 		}
+		copy.setAttribute('aria-label', `Copy ${label} code block`);
 
-		const header = document.createElement('div');
+		const header = document.createElement('span');
 		header.className = 'reader-code-header';
-		header.setAttribute('aria-hidden', 'false');
 		const meta = document.createElement('span');
 		meta.className = 'reader-code-meta';
 		const languageLabel = document.createElement('strong');
