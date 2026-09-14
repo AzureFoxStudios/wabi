@@ -2,6 +2,7 @@ import {
 	normalizeTranslatorLanguageCode,
 	sanitizeTranslatorProviderUrl,
 	type TranslationResult,
+	type TranslatorProbeResult,
 	type TranslatorSettings
 } from '$lib/components/message/messageTranslator';
 
@@ -29,7 +30,7 @@ export async function requestTranslationDetailed(
 	if (!providerUrl) {
 		throw new Error(
 			settings.model === 'libretranslate-self-hosted'
-				? 'Set your self-hosted LibreTranslate URL in Add-ons settings'
+				? 'Set a valid HTTPS LibreTranslate URL in Add-ons settings'
 				: 'Local LibreTranslate is not configured'
 		);
 	}
@@ -62,10 +63,7 @@ export async function requestTranslationDetailed(
 	return result;
 }
 
-/**
- * Detect language directly against the selected LibreTranslate instance.
- * Auto mode uses this before deciding whether a message needs translation.
- */
+/** Detect language directly against the selected LibreTranslate instance. */
 export async function requestLanguageDetection(
 	text: string,
 	settings: TranslatorSettings
@@ -74,7 +72,7 @@ export async function requestLanguageDetection(
 	if (!input) return undefined;
 	const providerUrl = sanitizeTranslatorProviderUrl(settings.providerUrl, settings.model);
 	if (!providerUrl) return undefined;
-	const detectUrl = resolveDetectUrl(providerUrl);
+	const detectUrl = resolveSiblingEndpoint(providerUrl, 'detect');
 	const response = await fetchWithTimeout(detectUrl, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -93,6 +91,61 @@ export async function requestLanguageDetection(
 			: undefined;
 	} catch {
 		return undefined;
+	}
+}
+
+/** Lightweight setup check. No message text is sent. */
+export async function probeTranslatorProvider(
+	settings: TranslatorSettings
+): Promise<TranslatorProbeResult> {
+	const providerUrl = sanitizeTranslatorProviderUrl(settings.providerUrl, settings.model);
+	if (!providerUrl) {
+		return {
+			ok: false,
+			message:
+				settings.model === 'libretranslate-self-hosted'
+					? 'Enter a valid HTTPS LibreTranslate endpoint first.'
+					: 'Local translator URL is invalid.'
+		};
+	}
+
+	try {
+		const response = await fetchWithTimeout(resolveSiblingEndpoint(providerUrl, 'languages'), {
+			method: 'GET',
+			headers: { Accept: 'application/json' },
+			credentials: 'omit',
+			referrerPolicy: 'no-referrer'
+		});
+		if (!response.ok) {
+			return { ok: false, message: `Translator responded with HTTP ${response.status}.` };
+		}
+		const payload = await response.json().catch(() => null);
+		const languages = Array.isArray(payload)
+			? payload
+					.map((entry) =>
+						typeof entry?.code === 'string'
+							? normalizeTranslatorLanguageCode(entry.code, '')
+							: ''
+					)
+					.filter(Boolean)
+			: [];
+		return {
+			ok: true,
+			message:
+				languages.length > 0
+					? `Translator ready — ${languages.length} language${languages.length === 1 ? '' : 's'} available.`
+					: 'Translator ready.',
+			languages
+		};
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : 'Connection failed';
+		return {
+			ok: false,
+			message:
+				settings.model === 'libretranslate-local'
+					? `No local LibreTranslate service answered at 127.0.0.1:5000 (${detail}).`
+					: `Could not reach the self-hosted translator (${detail}).`
+		};
 	}
 }
 
@@ -123,12 +176,14 @@ function parseTranslationResponse(raw: string): TranslationResult {
 	}
 }
 
-function resolveDetectUrl(translateUrl: string): string {
+function resolveSiblingEndpoint(translateUrl: string, endpoint: 'detect' | 'languages'): string {
 	const url = new URL(translateUrl);
-	url.pathname = url.pathname.replace(/\/translate\/?$/, '/detect');
-	if (!url.pathname.endsWith('/detect')) {
-		url.pathname = `${url.pathname.replace(/\/$/, '')}/detect`;
+	url.pathname = url.pathname.replace(/\/translate\/?$/, `/${endpoint}`);
+	if (!url.pathname.endsWith(`/${endpoint}`)) {
+		url.pathname = `${url.pathname.replace(/\/$/, '')}/${endpoint}`;
 	}
+	url.search = '';
+	url.hash = '';
 	return url.toString();
 }
 
