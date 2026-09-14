@@ -75,6 +75,15 @@ describe('automatic translation rules', () => {
 		expect(shouldAutoTranslateDetectedLanguage('th', autoSettings)).toBe(false);
 	});
 
+	test('always skips the configured target language', () => {
+		expect(
+			shouldAutoTranslateDetectedLanguage('en', {
+				...autoSettings,
+				understoodLanguages: ['th']
+			})
+		).toBe(false);
+	});
+
 	test('allows an unrecognized language in auto mode', () => {
 		expect(shouldAutoTranslateDetectedLanguage('ja', autoSettings)).toBe(true);
 	});
