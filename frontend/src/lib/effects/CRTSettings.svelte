@@ -142,7 +142,7 @@
 	</div>
 
 	<div class="crt-note">
-		The same control increases tube warp, RGB separation, bloom, phosphor mask, scanlines, vignette, flicker, and sync instability together. Reduced-motion mode keeps the static distortion but stops the rolling/flicker animations.
+		This is one deliberately coupled tube-health control: it increases geometry warp, RGB separation, bloom, phosphor mask, scanlines, vignette, flicker, and sync instability together. 100% is intentionally excessive. Reduced-motion mode keeps the static distortion but stops motion effects.
 	</div>
 
 	<div class="setting-item">
