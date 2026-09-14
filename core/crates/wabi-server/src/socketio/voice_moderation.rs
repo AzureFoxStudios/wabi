@@ -22,26 +22,24 @@ async fn require_voice_moderator(
     Some(user_id)
 }
 
-fn target_voice_participants(
+async fn target_voice_participants(
     state: &SioState,
     channel_id: &str,
     stable_id: &str,
-) -> impl std::future::Future<Output = Vec<VoiceParticipant>> + '_ {
-    async move {
-        state
-            .voice_channels
-            .read()
-            .await
-            .get(channel_id)
-            .map(|members| {
-                members
-                    .iter()
-                    .filter(|participant| participant.stable_id == stable_id)
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
+) -> Vec<VoiceParticipant> {
+    state
+        .voice_channels
+        .read()
+        .await
+        .get(channel_id)
+        .map(|members| {
+            members
+                .iter()
+                .filter(|participant| participant.stable_id == stable_id)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 async fn refresh_target_media_permissions(
