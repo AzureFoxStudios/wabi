@@ -54,7 +54,7 @@ export function getTranslatorSettings(): TranslatorSettings {
 			model
 		);
 		const targetLang = normalizeTranslatorLanguageCode(parsed?.targetLang, 'en');
-		const understoodLanguages = normalizeLanguageList(parsed?.understoodLanguages, [targetLang]);
+		const understoodLanguages = normalizeUnderstoodLanguages(parsed?.understoodLanguages, targetLang);
 
 		return {
 			mode,
@@ -94,7 +94,7 @@ export function saveTranslatorSettings(settings: TranslatorSettings): void {
 		providerUrl: sanitizeTranslatorProviderUrl(settings.providerUrl, model),
 		sourceLang: 'auto',
 		targetLang,
-		understoodLanguages: normalizeLanguageList(settings.understoodLanguages, [targetLang]),
+		understoodLanguages: normalizeUnderstoodLanguages(settings.understoodLanguages, targetLang),
 		useProxy: false
 	};
 	localStorage.setItem(TRANSLATOR_SETTINGS_KEY, JSON.stringify(normalized));
@@ -115,6 +115,7 @@ export function shouldAutoTranslateDetectedLanguage(
 	const detected = normalizeTranslatorLanguageCode(detectedLanguage, '');
 	if (!detected) return false;
 	const understood = new Set(settings.understoodLanguages.map((code) => code.toLowerCase()));
+	understood.add(normalizeTranslatorLanguageCode(settings.targetLang, 'en'));
 	return !understood.has(detected.toLowerCase());
 }
 
@@ -169,6 +170,10 @@ function normalizeLanguageList(value: unknown, fallback: string[]): string[] {
 		.map((entry) => normalizeTranslatorLanguageCode(entry, ''))
 		.filter(Boolean);
 	return [...new Set(normalized.length > 0 ? normalized : fallback)];
+}
+
+function normalizeUnderstoodLanguages(value: unknown, targetLang: string): string[] {
+	return [...new Set([...normalizeLanguageList(value, [targetLang]), targetLang])];
 }
 
 export function normalizeTranslatorLanguageCode(value: unknown, fallback: string): string {
