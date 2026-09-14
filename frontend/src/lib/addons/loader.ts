@@ -21,7 +21,8 @@ const loadedAddons = new Map<string, AddonInstance>();
 const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
 	'steam': () => import('$lib/games/GamesSettingsEntry.svelte'),
 	'youtube-sync': () => import('$lib/components/plugins/YouTubeWatchEmbed.svelte'),
-	'spotify-sync': () => import('$lib/components/plugins/SpotifyControlsEmbed.svelte')
+	'spotify-sync': () => import('$lib/components/plugins/SpotifyControlsEmbed.svelte'),
+	'translator-assist': () => import('$lib/addons/translatorAssist')
 };
 
 const LOCAL_MANIFESTS: Record<string, AddonManifest> = {
@@ -38,6 +39,13 @@ const LOCAL_MANIFESTS: Record<string, AddonManifest> = {
 		name: 'Spotify Sync',
 		version: '1.0.0',
 		frontendEntry: 'bundled:spotify-sync',
+		dependencies: []
+	},
+	'translator-assist': {
+		id: 'translator-assist',
+		name: 'Translator Assist',
+		version: '0.2.0',
+		frontendEntry: 'bundled:translator-assist',
 		dependencies: []
 	}
 };
@@ -295,7 +303,6 @@ async function getEnabledAddonIds(): Promise<string[]> {
 	} catch (err) {
 		console.warn('[Addons] Failed to get enabled addon IDs:', err);
 		return [];
-	}
 }
 
 /**
