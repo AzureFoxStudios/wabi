@@ -134,7 +134,7 @@
 		<!-- Cross-project timeline -->
 		<section class="insight-card gantt-card">
 			<h3>Timeline — all projects</h3>
-			<GanttChart selectedProjectId={null} />
+			<GanttChart selectedProjectId={null} showHeader={false} />
 		</section>
 	</div>
 </div>
@@ -178,22 +178,26 @@
 		color: var(--text-muted, #9999ff);
 	}
 
-	/* Status chips */
+	/* Status chips — grid so labels never cram at narrow card widths */
 	.status-chips {
-		display: flex;
-		flex-wrap: wrap;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 		gap: 8px;
 	}
 	.status-chip {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
-		padding: 4px 11px;
+		gap: 7px;
+		padding: 6px 11px;
 		border-radius: 999px;
 		font-size: 12px;
 		color: var(--text-heading, #e0e0ff);
 		background: color-mix(in srgb, var(--chip-color) 12%, transparent);
 		border: 1px solid color-mix(in srgb, var(--chip-color) 32%, transparent);
+	}
+	.status-chip strong {
+		margin-left: auto;
+		font-variant-numeric: tabular-nums;
 	}
 	.status-dot {
 		width: 8px;
