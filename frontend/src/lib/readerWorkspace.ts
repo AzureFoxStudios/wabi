@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 import { mobileTabQueue } from '$lib/mobileTabQueue';
+import { inferReaderCodeLanguage, isReaderCodeFile } from '$lib/readerCode';
 
 export const READER_ADDON_ID = 'reader';
 
@@ -10,12 +11,12 @@ const MAX_READER_HISTORY = 10;
 
 /*
  * Reader Types
- * 
+ *
  * These types mirror wabi-core Rust definitions for the web client.
  * Future: Import from @wabi/core when wabi-core is published and
  * TypeScript bindings are generated. Keep in sync with:
  *   - crates/wabi-core/src/reader.rs (future)
- * 
+ *
  * Types that should eventually live in wabi-core:
  * - ReaderDocumentFormat, ReaderDocumentSource, ReaderTheme
  * - ReaderFontFamily, ReaderContentWidth, ReaderContentType
@@ -23,7 +24,7 @@ const MAX_READER_HISTORY = 10;
  * - ReaderDocumentSelection, ReaderPreferences
  */
 
-export type ReaderDocumentFormat = 'markdown' | 'html' | 'text';
+export type ReaderDocumentFormat = 'markdown' | 'html' | 'text' | 'code';
 export type ReaderDocumentSource = 'local-temp' | 'pasted' | 'generated' | 'chat' | 'notes';
 export type ReaderTheme = 'auto' | 'paper' | 'sepia' | 'night';
 export type ReaderFontFamily = 'serif' | 'sans';
@@ -48,6 +49,7 @@ export interface ReaderDocumentSelection {
 	updatedAt: number;
 	source: ReaderDocumentSource;
 	contentType: ReaderContentType;
+	language?: string;
 	images?: ImagePage[];
 }
 
@@ -142,9 +144,10 @@ function hashString(value: string): string {
 function computeDocumentKey(
 	title: string,
 	content: string,
-	format: ReaderDocumentFormat
+	format: ReaderDocumentFormat,
+	language = ''
 ): string {
-	const seed = `${format}:${title.trim().toLowerCase()}:${content.length}:${content.slice(0, 256)}`;
+	const seed = `${format}:${language}:${title.trim().toLowerCase()}:${content.length}:${content.slice(0, 256)}`;
 	return `rdoc-${hashString(seed)}`;
 }
 
@@ -152,6 +155,7 @@ function inferReaderFormat(fileName: string): ReaderDocumentFormat {
 	const normalized = fileName.toLowerCase();
 	if (normalized.endsWith('.md') || normalized.endsWith('.markdown')) return 'markdown';
 	if (normalized.endsWith('.html') || normalized.endsWith('.htm')) return 'html';
+	if (isReaderCodeFile(fileName)) return 'code';
 	return 'text';
 }
 
@@ -197,26 +201,35 @@ export function openReaderDocument(
 	title: string,
 	content: string,
 	format: ReaderDocumentFormat = 'markdown',
-	source: ReaderDocumentSource = 'generated'
+	source: ReaderDocumentSource = 'generated',
+	language?: string
 ): void {
 	const normalizedTitle = title.trim() || 'Untitled Document';
 	const normalizedContent = content.replace(/\r\n/g, '\n');
 	const entry: ReaderDocumentSelection = {
 		id: makeReaderId(),
-		docKey: computeDocumentKey(normalizedTitle, normalizedContent, format),
+		docKey: computeDocumentKey(normalizedTitle, normalizedContent, format, language),
 		title: normalizedTitle,
 		content: normalizedContent,
 		format,
 		updatedAt: Date.now(),
 		source,
-		contentType: 'text'
+		contentType: 'text',
+		...(language ? { language } : {})
 	};
 	openReaderSelection(entry);
 }
 
 export async function openTemporaryReaderFile(file: File): Promise<void> {
 	const content = await file.text();
-	openReaderDocument(file.name || 'Imported Document', content, inferReaderFormat(file.name), 'local-temp');
+	const format = inferReaderFormat(file.name);
+	openReaderDocument(
+		file.name || 'Imported Document',
+		content,
+		format,
+		'local-temp',
+		format === 'code' ? inferReaderCodeLanguage(file.name) : undefined
+	);
 }
 
 export function openReaderImageDocument(
@@ -243,7 +256,7 @@ export function openReaderImageDocument(
 export async function openReaderImagesFromFiles(title: string, files: FileList): Promise<void> {
 	const images: ImagePage[] = [];
 	const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-	
+
 	for (let i = 0; i < files.length; i++) {
 		const file = files[i];
 		const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
@@ -257,7 +270,7 @@ export async function openReaderImagesFromFiles(title: string, files: FileList):
 			});
 		}
 	}
-	
+
 	if (images.length > 0) {
 		updateReaderPreferences({ readingDirection: 'horizontal' });
 		openReaderImageDocument(title || 'Image Gallery', images, 'local-temp');
