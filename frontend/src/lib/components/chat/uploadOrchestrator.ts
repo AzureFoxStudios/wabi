@@ -46,12 +46,18 @@ export interface UploadMessageSpec {
 	options: Record<string, unknown>;
 }
 
+/** E2EE v1 is intentionally limited to DMs and private group conversations. */
+export function channelSupportsE2eeAttachments(channelType: string): boolean {
+	return channelType === 'dm' || channelType === 'group';
+}
+
 export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise<UploadMessageSpec> {
 	const assertCurrent = () => { if (ctx.isCurrent && !ctx.isCurrent()) throw new Error('Upload context changed'); };
 	assertCurrent();
 	const {
 		files,
 		channelId,
+		channelType,
 		authToken,
 		messageInput,
 		replyToId,
@@ -70,6 +76,7 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 	let completedFiles = 0;
 	const uploadedFiles: UploadedFileRecord[] = [];
 	let e2eeUpload = false;
+	const e2eeEligible = channelSupportsE2eeAttachments(channelType);
 
 	for (const file of files) {
 		assertCurrent();
@@ -78,18 +85,22 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 		let persistentResume = true;
 		let videoCompression = getCompressionMetadata(file);
 
-		// This helper returns null for server-readable rooms. For an E2EE room it
-		// encrypts fixed-size authenticated chunks before a byte reaches /upload;
-		// the server sees an opaque .wabi filename and application/octet-stream.
-		const encrypted = await encryptAttachmentForChannel(channelId, file);
-		if (encrypted) {
-			e2eeUpload = true;
-			uploadFile = encrypted.file;
-			attachmentEncryption = encrypted.metadata;
-			persistentResume = false;
-			// Video transcode/thumbnail helpers require plaintext and therefore do
-			// not run on operator-blind attachments.
-			videoCompression = undefined;
+		// E2EE status is meaningful only for DMs/private group conversations.
+		// Shared/public channels must never be forced through the private-room
+		// status endpoint: that endpoint deliberately rejects non-conversations.
+		// For eligible conversations we remain fail-closed — an E2EE/status error
+		// aborts rather than quietly uploading plaintext.
+		if (e2eeEligible) {
+			const encrypted = await encryptAttachmentForChannel(channelId, file);
+			if (encrypted) {
+				e2eeUpload = true;
+				uploadFile = encrypted.file;
+				attachmentEncryption = encrypted.metadata;
+				persistentResume = false;
+				// Video transcode/thumbnail helpers require plaintext and therefore do
+				// not run on operator-blind attachments.
+				videoCompression = undefined;
+			}
 		}
 
 		const result = await uploadFileResumable(
