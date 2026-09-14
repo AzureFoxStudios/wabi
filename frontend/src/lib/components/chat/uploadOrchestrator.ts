@@ -3,6 +3,7 @@ import type { MessageEntity } from '$lib/socket';
 import type { MediaAlbumScopeType } from '$lib/api';
 import { createMediaAlbum, addMediaAlbumItem } from '$lib/api';
 import { encryptAttachmentForChannel, type E2eeAttachmentMeta } from '$lib/e2ee';
+import { shouldAttemptE2eeForChannelType } from '$lib/e2eeChannelPolicy';
 import {
 	uploadFileResumable,
 	type AttachmentStorageMetadata,
@@ -46,11 +47,6 @@ export interface UploadMessageSpec {
 	options: Record<string, unknown>;
 }
 
-/** E2EE v1 is intentionally limited to DMs and private group conversations. */
-export function channelSupportsE2eeAttachments(channelType: string): boolean {
-	return channelType === 'dm' || channelType === 'group';
-}
-
 export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise<UploadMessageSpec> {
 	const assertCurrent = () => { if (ctx.isCurrent && !ctx.isCurrent()) throw new Error('Upload context changed'); };
 	assertCurrent();
@@ -76,7 +72,7 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 	let completedFiles = 0;
 	const uploadedFiles: UploadedFileRecord[] = [];
 	let e2eeUpload = false;
-	const e2eeEligible = channelSupportsE2eeAttachments(channelType);
+	const e2eeEligible = shouldAttemptE2eeForChannelType(channelType);
 
 	for (const file of files) {
 		assertCurrent();
