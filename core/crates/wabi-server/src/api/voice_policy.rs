@@ -1,20 +1,28 @@
 //! Persistent, transport-neutral voice-channel policy.
 //!
-//! Voice policy belongs to the Wabi Authority, not LiveKit/mediasoup/P2P.  The
+//! Voice policy belongs to the Wabi Authority, not LiveKit/mediasoup/P2P. The
 //! current WabiDB Channel record does not yet carry voice-specific settings, so
 //! this small authority-owned registry makes the existing settings real and
 //! restart-safe without coupling the media work to a storage-schema migration.
 //! A future WabiDB migration can preserve this JSON contract unchanged.
 
+use axum::{
+    extract::{Path as AxumPath, State},
+    routing::get,
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
-    sync::{OnceLock, RwLock},
+    sync::{Arc, OnceLock, RwLock},
 };
+use wabidb::engine::wabi_store::WabiStore;
+
+use crate::{auth_extractor::AuthUser, error::AppError, state::AppState};
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -177,6 +185,58 @@ pub fn remove(data_dir: &str, channel_id: &str) -> Result<(), String> {
         persist(&path, store)?;
     }
     Ok(())
+}
+
+pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/{channel_id}", get(get_policy_route).put(put_policy_route))
+        .with_state(state)
+}
+
+async fn get_policy_route(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    AxumPath(channel_id): AxumPath<String>,
+) -> Result<Json<Value>, AppError> {
+    let channel = crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
+    if channel.channel_kind != wabidb::domain::ChannelKind::Voice {
+        return Err(AppError::BadRequest("voice policy only applies to voice channels".into()));
+    }
+    let policy = get(&state.config.data_dir, &channel_id);
+    Ok(Json(json!({ "channelId": channel_id, "voiceSettings": policy })))
+}
+
+async fn put_policy_route(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    AxumPath(channel_id): AxumPath<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    if !state.is_admin(auth.user_id).await {
+        return Err(AppError::Unauthorized("only admins can change voice policy".into()));
+    }
+    let channel = state
+        .wdb
+        .get_channel(&channel_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Channel {channel_id} not found")))?;
+    if channel.channel_kind != wabidb::domain::ChannelKind::Voice {
+        return Err(AppError::BadRequest("voice policy only applies to voice channels".into()));
+    }
+    let settings = body.get("voiceSettings").unwrap_or(&body);
+    let policy = update_from_value(&state.config.data_dir, &channel_id, settings)
+        .map_err(AppError::BadRequest)?;
+
+    if let Some(io) = state.sio.read().await.clone() {
+        let _ = io
+            .broadcast()
+            .emit(
+                "channel-updated",
+                &json!({ "channelId": channel_id, "voiceSettings": policy }),
+            )
+            .await;
+    }
+    Ok(Json(json!({ "channelId": channel_id, "voiceSettings": policy })))
 }
 
 fn validate(policy: &VoiceChannelPolicy) -> Result<(), String> {
