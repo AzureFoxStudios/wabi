@@ -161,6 +161,35 @@ fn default_channel_type() -> String {
     "text".to_string()
 }
 
+async fn apply_new_channel_privacy_default(state: &AppState, channel_id: &str, actor_user_id: u64) {
+    let retention = crate::api::server_center::privacy_default_retention(&state.config.data_dir);
+    match retention.as_str() {
+        "live" => {
+            state.channel_auto_delete_ms.write().await.remove(channel_id);
+            state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), "live".into());
+            // No durable message writes occur while the channel is live. Keep
+            // the durable retention record neutral rather than inventing history.
+            let _ = state.wdb.upsert_channel_retention(channel_id, 0, actor_user_id).await;
+        }
+        "forever" => {
+            state.channel_auto_delete_ms.write().await.remove(channel_id);
+            state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), "forever".into());
+            let _ = state.wdb.upsert_channel_retention(channel_id, 0, actor_user_id).await;
+        }
+        label => {
+            let (ms, days) = match label {
+                "1h" => (3_600_000u64, 0u32),
+                "7d" => (7 * 86_400_000u64, 7u32),
+                "30d" => (30 * 86_400_000u64, 30u32),
+                _ => (86_400_000u64, 1u32), // privacy policy validation makes 24h the fallback
+            };
+            state.channel_auto_delete_ms.write().await.insert(channel_id.to_string(), ms);
+            state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), label.to_string());
+            let _ = state.wdb.upsert_channel_retention(channel_id, days, actor_user_id).await;
+        }
+    }
+}
+
 async fn create_channel(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -239,23 +268,9 @@ async fn create_channel(
         )
         .await?;
 
-    // Product default: ephemeral 24h retention (keep-forever is opt-in later).
-    // Text/voice chat should not retain indefinitely unless the operator chooses.
-    const DEFAULT_CHANNEL_AUTO_DELETE_MS: u64 = 24 * 60 * 60 * 1000;
-    state
-        .channel_auto_delete_ms
-        .write()
-        .await
-        .insert(channel_id.clone(), DEFAULT_CHANNEL_AUTO_DELETE_MS);
-    state
-        .channel_auto_delete_label
-        .write()
-        .await
-        .insert(channel_id.clone(), "24h".to_string());
-    let _ = state
-        .wdb
-        .upsert_channel_retention(&channel_id, 1, auth.user_id as u64)
-        .await;
+    // New community channels inherit the operator's explicit privacy/retention
+    // default. Existing channels are never rewritten when that default changes.
+    apply_new_channel_privacy_default(&state, &channel_id, auth.user_id as u64).await;
 
     // `description` is in the WDB Channel domain type yet — dropped for v1.
     let _ = req.description;
