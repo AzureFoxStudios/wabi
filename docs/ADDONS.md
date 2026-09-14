@@ -12,16 +12,19 @@ Features compiled into `wabi-server` / the normal frontend are part of Wabi's co
 
 ### 2. Curated integrations / addons
 
-Curated integrations live under `core/addons/`, `addons/`, or related feature packages. They may be compiled Rust crates, bundled/sample packages, or optional bridges to an external tool.
+Curated integrations live under `core/addons/`, `addons/`, or related feature packages. They may be compiled Rust crates, bundled frontend-only packages, sample packages, or optional bridges to an external tool.
 
 They are **not automatically runtime-installable untrusted plugins**.
 
 Examples:
 
+- **Translator Assist** — optional frontend-only translation. It is off by default, lazy-loads its translation runtime, bundles no language models, and sends translation requests directly to a user-controlled local or self-hosted LibreTranslate endpoint rather than through the Wabi Authority. See [`addons/TRANSLATOR_ASSIST.md`](addons/TRANSLATOR_ASSIST.md).
 - **Lore** — optional project/version-control integration; Wabi supplies the workspace/integration, while the backend depends on the external Lore service/tooling.
 - **Tailcat private access** — optional transport integration for private reachability.
 - **Webhooks/payments/media helpers** — scoped integrations with their own trust/deployment boundaries.
 - **Legacy mesh addon** — compatibility/history only. It is **not** the current production multi-node mechanism and should not be enabled as a path to HA.
+
+A curated frontend-only addon may legitimately declare `"backend": null` in its canonical manifest. Do not create a fake Authority service merely to make a client-local feature look like a backend addon.
 
 ### 3. Runtime plugins
 
@@ -94,7 +97,8 @@ Good extension behavior:
 - handles narrow/mobile layouts;
 - clearly labels external/network actions;
 - degrades cleanly when the backend/helper is absent;
-- does not misrepresent local drafts as published/shared state.
+- does not misrepresent local drafts as published/shared state;
+- avoids loading large optional runtimes/models until the user actually enables the feature.
 
 ## Backend extensions
 
