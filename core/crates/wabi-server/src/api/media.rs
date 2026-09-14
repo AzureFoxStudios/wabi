@@ -21,11 +21,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::api::auth::handle_turn_credentials;
+use crate::auth_extractor::AuthUser;
 use crate::media::MediaRoomError;
 use crate::nodes::NodeCapability;
 use crate::state::AppState;
-use crate::api::auth::handle_turn_credentials;
-use crate::auth_extractor::AuthUser;
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -109,15 +109,18 @@ async fn create_room(
     _auth: AuthUser,
     Json(req): Json<CreateRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    // 1. Create the room (or return existing)
+    // 1. Create the room (or return existing). MediaRoomRegistry owns a stable,
+    // random tenant namespace so shared nodes never depend on a human-configured
+    // server/channel name for isolation.
     let mut room = state
         .media_registry
         .create_room(req.channel_id, req.max_participants)
         .await
         .map_err(MediaApiError::from)?;
 
-    // 2. If room is Pending and an online MediaRelay node exists, auto-assign it
-    //    Phase 4 skeleton: no actual SFU wiring, but the registry assignment is real.
+    // 2. If room is Pending and an online MediaRelay node exists, auto-assign it.
+    // This remains a routing skeleton; tenant scope is now real and is carried
+    // into the helper job so a shared node can isolate backend room identity.
     if room.status == crate::media::MediaRoomStatus::Pending {
         if let Some(node) = state
             .node_registry
@@ -136,7 +139,8 @@ async fn create_room(
             {
                 Ok(assigned) => {
                     tracing::info!(
-                        "[media] Auto-assigned room {} to node {} (phase-4 skeleton)",
+                        "[media] Auto-assigned tenant={} room={} to node {}",
+                        room.tenant_namespace,
                         room.room_id,
                         node.node_id
                     );
@@ -149,21 +153,31 @@ async fn create_room(
         }
     }
 
-    // 3. If the room is now Assigned, drop a MediaRelay job into the queue
-    //    so the helper can claim it (Phase 4C skeleton — no actual SFU).
+    // 3. If the room is now Assigned, drop a MediaRelay job into the queue.
+    // A helper must use externalRoomName for backend/SFU identity and keep the
+    // tenant namespace attached to any future credential/token issuance.
     if room.status == crate::media::MediaRoomStatus::Assigned && room.assigned_node_id.is_some() {
         state
             .job_queue
             .submit(crate::jobs::SubmitJobRequest {
                 kind: crate::jobs::JobKind::MediaRelay,
                 payload: serde_json::json!({
+                    "tenantNamespace": room.tenant_namespace,
                     "roomId": room.room_id,
+                    "externalRoomName": room.external_room_name,
                     "channelId": room.channel_id,
+                    "assignedNodeId": room.assigned_node_id,
+                    "maxParticipants": room.max_participants,
                 }),
                 max_retries: 3,
             })
             .await;
-        tracing::info!("[media] Submitted MediaRelay job for room={}", room.room_id,);
+        tracing::info!(
+            "[media] Submitted tenant-scoped MediaRelay job tenant={} room={} external={}",
+            room.tenant_namespace,
+            room.room_id,
+            room.external_room_name
+        );
     }
 
     Ok(Json(RoomResponse { room }))
@@ -425,15 +439,13 @@ async fn media_runtime_snapshot(
                 effective_mode: "off",
                 self_hosted: true,
                 self_advertisement: None,
-                components: Some(
-                    ServerMediaRuntimeBoosterRelayComponentsPayload {
-                        turn_configured: turn_configured,
-                        sfu_configured: livekit_configured,
-                        gateway_configured: false,
-                        gateway_healthy: false,
-                        gateway_media_plane_ready: false,
-                    },
-                ),
+                components: Some(ServerMediaRuntimeBoosterRelayComponentsPayload {
+                    turn_configured,
+                    sfu_configured: livekit_configured,
+                    gateway_configured: false,
+                    gateway_healthy: false,
+                    gateway_media_plane_ready: false,
+                }),
             }),
         }),
         notes: Some(ServerMediaRuntimeNotesPayload {
@@ -473,7 +485,7 @@ impl IntoResponse for MediaApiError {
                 (StatusCode::CONFLICT, "room already exists")
             }
             MediaApiError::Registry(MediaRoomError::InvalidState) => {
-                (StatusCode::CONFLICT, "invalid room state for this action")
+                (StatusCode::CONFLICT, "room is not in a state that allows this action")
             }
             MediaApiError::Registry(MediaRoomError::InvalidNode) => {
                 (StatusCode::BAD_REQUEST, "invalid node for room")
