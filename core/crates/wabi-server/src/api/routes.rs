@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 use super::{
-    addons, admin, albums, auth, blobs, bots, cad, calls, channels, emoji, forum, gallery, incidents,
+    addons, admin, albums, auth, blobs, bots, cad, calls, channels, e2ee, emoji, forum, gallery, incidents,
     jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
     standby, steam, sync, upload, user, wiki,
 };
@@ -37,6 +37,9 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/user", user::routes(state.clone()))
         // Member-visible privacy/retention contract
         .nest("/privacy", privacy::routes(state.clone()))
+        // Operator-blind private-room device/key registry. The server stores
+        // public device keys + wrapped room keys only, never room plaintext keys.
+        .nest("/e2ee", e2ee::routes(state.clone()))
         // Channel routes
         .nest("/channels", channels::routes(state.clone()))
         // Message routes
