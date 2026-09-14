@@ -1,8 +1,8 @@
-import { get } from 'svelte/store';
 import { _ } from '$lib/i18n';
 import type { MessageEntity } from '$lib/socket';
 import type { MediaAlbumScopeType } from '$lib/api';
 import { createMediaAlbum, addMediaAlbumItem } from '$lib/api';
+import { encryptAttachmentForChannel, type E2eeAttachmentMeta } from '$lib/e2ee';
 import {
 	uploadFileResumable,
 	type AttachmentStorageMetadata,
@@ -15,12 +15,7 @@ export type UploadedFileRecord = {
 	fileSize: number;
 	mimeType?: string | null;
 	attachmentStorage?: AttachmentStorageMetadata;
-	attachmentEncryption?: {
-		scheme: 'dm-e2ee-v1';
-		iv: string;
-		mimeType?: string;
-		originalSize?: number;
-	};
+	attachmentEncryption?: E2eeAttachmentMeta;
 };
 
 export interface UploadOrchestratorContext {
@@ -57,9 +52,6 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 	const {
 		files,
 		channelId,
-		channelType,
-		dmChannelId,
-		dmOtherDbUserId,
 		authToken,
 		messageInput,
 		replyToId,
@@ -74,35 +66,29 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 		onProgress
 	} = ctx;
 
-	const dmPrivacyMode = channelType === 'dm' && dmChannelId ? null : null;
-	const requiresEncrypted = channelType === 'dm' && dmPrivacyMode !== 'open';
-	const canEncrypt = requiresEncrypted && !!dmOtherDbUserId && !!authToken && false;
-
 	const totalFiles = files.length;
 	let completedFiles = 0;
-
 	const uploadedFiles: UploadedFileRecord[] = [];
+	let e2eeUpload = false;
 
 	for (const file of files) {
 		assertCurrent();
 		let uploadFile = file;
-		let attachmentEncryption: UploadedFileRecord['attachmentEncryption'];
+		let attachmentEncryption: E2eeAttachmentMeta | undefined;
 		let persistentResume = true;
 		let videoCompression = getCompressionMetadata(file);
 
-		if (canEncrypt && authToken && dmOtherDbUserId) {
-			const encrypted = await null;
-			if (!encrypted) {
-				throw new Error(get(_)('chat.upload.e2ee_failed'));
-			}
-			uploadFile = encrypted.encryptedFile;
-			attachmentEncryption = {
-				scheme: 'dm-e2ee-v1',
-				iv: encrypted.iv,
-				mimeType: encrypted.mimeType,
-				originalSize: encrypted.originalSize
-			};
+		// This helper returns null for server-readable rooms. For an E2EE room it
+		// encrypts fixed-size authenticated chunks before a byte reaches /upload;
+		// the server sees an opaque .wabi filename and application/octet-stream.
+		const encrypted = await encryptAttachmentForChannel(channelId, file);
+		if (encrypted) {
+			e2eeUpload = true;
+			uploadFile = encrypted.file;
+			attachmentEncryption = encrypted.metadata;
 			persistentResume = false;
+			// Video transcode/thumbnail helpers require plaintext and therefore do
+			// not run on operator-blind attachments.
 			videoCompression = undefined;
 		}
 
@@ -120,6 +106,9 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 		assertCurrent();
 		completedFiles++;
 
+		// Original filename/MIME/size live only inside the encrypted message
+		// payload when E2EE is active. The upload endpoint already saw only the
+		// opaque encrypted File above.
 		uploadedFiles.push({
 			fileUrl: result.fileUrl,
 			fileName: file.name,
@@ -130,11 +119,17 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 		});
 	}
 
+	// Albums are server-side indexes containing attachment names/captions. Do
+	// not quietly punch a metadata hole through E2EE; encrypted albums can be a
+	// separate feature later.
+	if (e2eeUpload && createAlbum) {
+		throw new Error('Shared albums are not available inside an E2EE conversation because the current album index is server-readable.');
+	}
+
 	let createdAlbumName: string | null = null;
 	if (createAlbum && authToken && albumScopeType && albumScopeId) {
 		assertCurrent();
 		if (targetAlbumId != null) {
-			// Add to an existing album in this scope.
 			for (const f of uploadedFiles) {
 				assertCurrent();
 				await addMediaAlbumItem(authToken, targetAlbumId, {
