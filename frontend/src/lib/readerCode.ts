@@ -1,10 +1,8 @@
 const LANGUAGE_ALIASES: Record<string, string> = {
 	js: 'javascript',
-	jsx: 'javascript',
 	mjs: 'javascript',
 	cjs: 'javascript',
 	ts: 'typescript',
-	tsx: 'typescript',
 	py: 'python',
 	rb: 'ruby',
 	sh: 'bash',
@@ -29,7 +27,9 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 
 const LANGUAGE_LABELS: Record<string, string> = {
 	javascript: 'JavaScript',
+	jsx: 'JSX',
 	typescript: 'TypeScript',
+	tsx: 'TSX',
 	python: 'Python',
 	java: 'Java',
 	c: 'C',
@@ -54,6 +54,8 @@ const LANGUAGE_LABELS: Record<string, string> = {
 	php: 'PHP',
 	dart: 'Dart',
 	r: 'R',
+	docker: 'Dockerfile',
+	makefile: 'Makefile',
 	plain: 'Plain text'
 };
 
@@ -108,9 +110,20 @@ export function isReaderCodeFile(fileName: string): boolean {
 /** Languages declared by Markdown fenced code blocks, in rendered block order. */
 export function extractReaderFenceLanguages(source: string): string[] {
 	const languages: string[] = [];
-	const expression = /^ {0,3}(`{3,}|~{3,})[\t ]*([^\s`~{]+)?[^\n]*$/gm;
-	for (const match of source.matchAll(expression)) {
-		languages.push(normalizeReaderCodeLanguage(match[2]));
+	let openFence: { marker: '`' | '~'; length: number } | null = null;
+	for (const line of source.replace(/\r\n?/g, '\n').split('\n')) {
+		const match = line.match(/^ {0,3}(`{3,}|~{3,})(?:[\t ]*([^\s`~{]+))?.*$/);
+		if (!match) continue;
+		const fence = match[1];
+		const marker = fence[0] as '`' | '~';
+		if (!openFence) {
+			openFence = { marker, length: fence.length };
+			languages.push(normalizeReaderCodeLanguage(match[2]));
+			continue;
+		}
+		if (marker !== openFence.marker || fence.length < openFence.length) continue;
+		const afterFence = line.slice(line.indexOf(fence) + fence.length).trim();
+		if (!afterFence) openFence = null;
 	}
 	return languages;
 }
