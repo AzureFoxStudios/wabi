@@ -3,9 +3,6 @@
 //! Phase 1 routes are authority-owned helper-node management. They are not
 //! federation and not the old `wabi-mesh` addon.
 
-#[path = "media_node_catalog.rs"]
-mod media_node_catalog;
-
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -17,9 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 
-use media_node_catalog::MediaNodeAdvertisement;
-
 use crate::{
+    api::media_node_catalog::{self, MediaNodeAdvertisement},
     error::{AppError, Result},
     nodes::{
         JoinNodeRequest, JoinNodeResponse, NodeCapability, NodeHeartbeatRequest, NodePairingToken,
