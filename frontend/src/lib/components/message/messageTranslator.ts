@@ -17,6 +17,13 @@ export type TranslationResult = {
 	detectedLanguage?: string;
 };
 
+export type TranslatorProbeResult = {
+	ok: boolean;
+	message: string;
+	languages?: string[];
+};
+
+export const TRANSLATOR_SETTINGS_CHANGED_EVENT = 'wabi:translator-settings-changed';
 const TRANSLATOR_SETTINGS_KEY = 'addon.translator_assist.settings';
 
 export function resolveTranslatorProviderUrl(model: string): string {
@@ -91,6 +98,9 @@ export function saveTranslatorSettings(settings: TranslatorSettings): void {
 		useProxy: false
 	};
 	localStorage.setItem(TRANSLATOR_SETTINGS_KEY, JSON.stringify(normalized));
+	window.dispatchEvent(
+		new CustomEvent(TRANSLATOR_SETTINGS_CHANGED_EVENT, { detail: normalized })
+	);
 }
 
 export function isTranslatorEnabled(settings = getTranslatorSettings()): boolean {
@@ -137,6 +147,13 @@ export async function requestLanguageDetection(
 	return runtime.requestLanguageDetection(text, settings);
 }
 
+export async function probeTranslatorProvider(
+	settings: TranslatorSettings
+): Promise<TranslatorProbeResult> {
+	const runtime = await import('$lib/addons/translatorAssistRuntime');
+	return runtime.probeTranslatorProvider(settings);
+}
+
 export async function clearTranslationCache(): Promise<void> {
 	const runtime = await import('$lib/addons/translatorAssistRuntime');
 	runtime.clearTranslationCache();
@@ -166,11 +183,14 @@ export function sanitizeTranslatorProviderUrl(raw: string, model: TranslatorMode
 	try {
 		const url = new URL(candidate);
 		if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+		const host = url.hostname.toLowerCase();
+		const loopback = host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1';
 		if (model === 'libretranslate-local') {
-			const host = url.hostname.toLowerCase();
-			if (host !== '127.0.0.1' && host !== 'localhost' && host !== '[::1]' && host !== '::1') {
-				return resolveTranslatorProviderUrl('libretranslate-local');
-			}
+			if (!loopback) return resolveTranslatorProviderUrl('libretranslate-local');
+		} else if (url.protocol !== 'https:') {
+			// Remote automatic translation can disclose a large amount of chat text.
+			// Require transport encryption for the self-hosted provider path.
+			return '';
 		}
 		return url.toString();
 	} catch {
