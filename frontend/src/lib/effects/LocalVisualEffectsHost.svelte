@@ -4,9 +4,10 @@
 </script>
 
 <!--
-	Root mount for user-owned, local visual effects.
-	Screen/post-process effects live here too so they can affect the fully
-	composed Wabi viewport rather than being tied to one chat background.
+	Root mount for user-owned local visual effects.
+	Pointer effects render as overlays; CRT is a true screen post-process that
+	filters the fully composed document so backgrounds and interface geometry
+	share one distorted display surface.
 -->
 <MouseFeeler />
 <CRTPostProcess />
