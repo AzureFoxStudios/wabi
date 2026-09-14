@@ -7,6 +7,8 @@
 
 	let localDistortion = 0;
 	let mounted = false;
+	let reducedMotion = false;
+	let motionQuery: MediaQueryList | null = null;
 
 	function clamp(value: number): number {
 		return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
@@ -55,14 +57,23 @@
 		if (event.key === LOCAL_KEY) localDistortion = readLocal();
 	}
 
+	function handleMotionChange(event: MediaQueryListEvent): void {
+		reducedMotion = event.matches;
+	}
+
 	onMount(() => {
 		localDistortion = readLocal();
+		motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+		reducedMotion = motionQuery.matches;
+		motionQuery.addEventListener('change', handleMotionChange);
 		mounted = true;
 		window.addEventListener('storage', handleStorage);
 	});
 
 	onDestroy(() => {
 		if (typeof window !== 'undefined') window.removeEventListener('storage', handleStorage);
+		motionQuery?.removeEventListener('change', handleMotionChange);
+		motionQuery = null;
 		if (typeof document !== 'undefined') {
 			const root = document.documentElement;
 			root.classList.remove('wabi-crt-active');
@@ -92,12 +103,14 @@
 				seed="19"
 				result="tubeNoise"
 			>
-				<animate
-					attributeName="baseFrequency"
-					values="0.002 0.065;0.0028 0.095;0.0017 0.078;0.002 0.065"
-					dur="8.5s"
-					repeatCount="indefinite"
-				/>
+				{#if !reducedMotion}
+					<animate
+						attributeName="baseFrequency"
+						values="0.002 0.065;0.0028 0.095;0.0017 0.078;0.002 0.065"
+						dur="8.5s"
+						repeatCount="indefinite"
+					/>
+				{/if}
 			</feTurbulence>
 			<!-- Mostly horizontal deflection, with a smaller vertical wobble. -->
 			<feColorMatrix
