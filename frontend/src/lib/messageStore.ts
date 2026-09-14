@@ -1,13 +1,6 @@
 /**
  * messageStore.ts
  * Core message state and operations
- *
- * Extracted from socket-manager.ts for modularity.
- * Manages:
- * - Channel message lists
- * - Unread message tracking
- * - Message CRUD operations (edit, delete, pin)
- * - Optimistic message updates
  */
 
 import { writable, get, type Writable } from 'svelte/store';
@@ -21,20 +14,9 @@ import { authSessionGeneration, getGuestSessionId, onAuthSessionCleared } from '
 import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { messageDeliveries, UNCONFIRMED_MESSAGE } from './messageDelivery';
 import { MESSAGE_QUEUE_OWNERSHIP_ERROR } from './wabidb/queue/groupPolicy';
+import { encryptMessageForChannel } from './e2ee';
+import { showToast } from './toast';
 
-// ============================================================================
-// STORES
-// ============================================================================
-
-// God-store fix (perf audit finding #2): `channelMessages` remains ONE map so
-// all existing `$channelMessages[id]` subscribers keep working unchanged.
-// Scoped invalidation is provided by `channelMessagesStore(id)` below: a
-// per-channel writable that re-emits ONLY when that channel's array reference
-// changes. Our mutators guarantee untouched channels keep their previous
-// array reference, so a component subscribed to channel A never re-runs its
-// reactive blocks when channel B receives a message. High-traffic message
-// lists are migrated to the scoped store; low-frequency readers stay on the
-// compat map.
 export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
 export const unreadCount = writable(0);
 export const lastReadMessageId = writable<string | null>(null);
@@ -42,11 +24,6 @@ export const channelUnreadCounts = writable<Record<string, number>>({});
 
 const channelSliceStores = new Map<string, Writable<Message[]>>();
 
-/**
- * Per-channel view of `channelMessages`. Emits only when THIS channel's
- * array identity changes (which is exactly what our mutators preserve).
- * Subscribe once per (component, channelId); safe to call every derive pass.
- */
 export function channelMessagesStore(channelId: string): Writable<Message[]> {
 	if (!channelId) return writable([]);
 	let store = channelSliceStores.get(channelId);
@@ -56,8 +33,6 @@ export function channelMessagesStore(channelId: string): Writable<Message[]> {
 		let prev: Message[] = get(store);
 		const unsub = channelMessages.subscribe((map) => {
 			const next = map[channelId];
-			// Reference guard: skip emission when this channel didn't change.
-			// (`next` may be undefined after channel deletion -> emit empty.)
 			if ((next || []) !== prev && !(next === undefined && prev.length === 0)) {
 				prev = next || [];
 				store!.set(prev);
@@ -68,14 +43,7 @@ export function channelMessagesStore(channelId: string): Writable<Message[]> {
 	return store;
 }
 
-/** Drop a channel's scoped store (call when the channel is deleted/left). */
-export function dropChannelMessagesStore(channelId: string): void {
-	channelSliceStores.delete(channelId);
-}
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
+export function dropChannelMessagesStore(channelId: string): void { channelSliceStores.delete(channelId); }
 
 function createClientMessageId(channelId: string): string {
 	return `optimistic:${channelId}:${Date.now()}:${Math.random().toString(36).substring(7)}`;
@@ -88,67 +56,35 @@ function computeOptimisticDeletionTime(channelId: string, timestamp: number): nu
 }
 
 function appendOptimisticMessage(channelId: string, message: Message): void {
-	channelMessages.update((msgs) => ({
-		...msgs,
-		[channelId]: [...(msgs[channelId] || []), message]
-	}));
+	channelMessages.update((msgs) => ({ ...msgs, [channelId]: [...(msgs[channelId] || []), message] }));
 }
-
 function removeOptimisticMessage(channelId: string, messageId: string): void {
-	channelMessages.update((msgs) => ({
-		...msgs,
-		[channelId]: (msgs[channelId] || []).filter((m) => m.id !== messageId)
-	}));
+	channelMessages.update((msgs) => ({ ...msgs, [channelId]: (msgs[channelId] || []).filter((m) => m.id !== messageId) }));
 }
-
-function updateOptimisticMessage(
-	channelId: string,
-	matcher: (message: Message) => boolean,
-	patch: Partial<Message>
-): void {
+function updateOptimisticMessage(channelId: string, matcher: (message: Message) => boolean, patch: Partial<Message>): void {
 	channelMessages.update((msgs) => {
 		const existing = msgs[channelId] || [];
 		let changed = false;
-
 		const nextMessages = existing.map((message) => {
 			if (!matcher(message)) return message;
 			changed = true;
-			return {
-				...message,
-				...patch
-			};
+			return { ...message, ...patch };
 		});
-		if (!changed) return msgs;
-		return {
-			...msgs,
-			[channelId]: nextMessages
-		};
+		return changed ? { ...msgs, [channelId]: nextMessages } : msgs;
 	});
 }
 
-// ============================================================================
-// PUBLIC API - Message Operations
-// ============================================================================
-
 export function markMessagesAsRead(): void {
 	const sock = getSocket();
-	if (!sock) return;
-	sock.emit('mark-messages-as-read');
+	if (sock) sock.emit('mark-messages-as-read');
 }
 
 export function markChannelAsRead(channelId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-
 	const messages = get(channelMessages)[channelId] || [];
-	if (messages.length > 0) {
-		const lastMessage = messages[messages.length - 1];
-		lastReadMessageId.set(lastMessage.id);
-	}
-
+	if (messages.length > 0) lastReadMessageId.set(messages[messages.length - 1].id);
 	sock.emit('mark-channel-as-read', { channelId });
-	// Read the prior count BEFORE zeroing — decrementing after the reset
-	// always subtracts 0, letting the global unread badge drift upward.
 	const prior = get(channelUnreadCounts)[channelId] || 0;
 	channelUnreadCounts.update((counts) => ({ ...counts, [channelId]: 0 }));
 	unreadCount.update((count) => Math.max(0, count - prior));
@@ -158,10 +94,6 @@ export type SendMessageResult =
 	| { ok: true; clientMessageId: string; queuedOffline?: boolean }
 	| { ok: false; reason: 'no_socket' | 'empty' | 'no_channel' | 'queue_failed' };
 
-/**
- * Hand off a chat message to the transport or durable local queue. ok is NOT
- * server acceptance: the optimistic row owns visible receipt/failure state.
- */
 export async function sendMessage(
 	channelId: string,
 	content: string,
@@ -169,47 +101,42 @@ export async function sendMessage(
 	options: Record<string, unknown> = {}
 ): Promise<SendMessageResult> {
 	if (!channelId || !groupMembership.acceptsContent(channelId)) return { ok: false, reason: 'no_channel' };
-
 	const trimmed = content.trim();
-	// Non-text types (gif/file/emoji) may have empty text with media in options.
 	if (!trimmed && type === 'text') return { ok: false, reason: 'empty' };
 
 	const sock = getSocket();
 	const online = get(connected);
 	const db = getWabiDB();
-	// Offline with local queue: allow enqueue without a live socket.
-	if (!sock && !(db && !online)) {
-		return { ok: false, reason: 'no_socket' };
+	if (!sock && !(db && !online)) return { ok: false, reason: 'no_socket' };
+
+	// Resolve the privacy mode before writing anything to the durable outbound
+	// queue. In an E2EE room that queue contains only the ciphertext envelope;
+	// plaintext remains in this in-memory optimistic row/draft on the endpoint.
+	let wireText = trimmed;
+	let wireType: MessageType = type;
+	let wireOptions: Record<string, unknown> = options;
+	let e2eeEpoch: number | null = null;
+	try {
+		const encrypted = await encryptMessageForChannel(channelId, trimmed, type, options);
+		if (encrypted) {
+			wireText = encrypted.wireText;
+			wireType = encrypted.wireType as MessageType;
+			wireOptions = encrypted.wireOptions;
+			e2eeEpoch = encrypted.epoch;
+		}
+	} catch (error) {
+		showToast(error instanceof Error ? error.message : 'Could not encrypt this message.', 'error');
+		return { ok: false, reason: 'queue_failed' };
 	}
 
 	const clientMessageId = createClientMessageId(channelId);
 	const me = get(currentUser);
-	// Prefer stable user-<dbId> so optimistic rows match server echoes and isOwnMessage.
 	const stableId =
-		(typeof me?.dbUserId === 'number' && me.dbUserId > 0
-			? `user-${me.dbUserId}`
-			: null) ||
-		me?.id ||
-		sock?.id ||
-		'local';
-
-	// Only lift known message fields from options — avoid polluting the row with
-	// upload metadata keys the renderer does not expect on text messages.
+		(typeof me?.dbUserId === 'number' && me.dbUserId > 0 ? `user-${me.dbUserId}` : null) ||
+		me?.id || sock?.id || 'local';
 	const {
-		replyTo,
-		isSpoiler,
-		entities,
-		gifUrl,
-		emojiUrl,
-		emojiName,
-		fileUrl,
-		fileName,
-		fileSize,
-		files,
-		attachmentEncryption,
-		attachmentStorage,
-		encrypted,
-		iv
+		replyTo, isSpoiler, entities, gifUrl, emojiUrl, emojiName, fileUrl, fileName,
+		fileSize, files, attachmentEncryption, attachmentStorage, encrypted, iv
 	} = options as Partial<Message>;
 
 	const optimisticMessage: Message = {
@@ -236,13 +163,13 @@ export async function sendMessage(
 		...(attachmentEncryption !== undefined ? { attachmentEncryption } : {}),
 		...(attachmentStorage !== undefined ? { attachmentStorage } : {}),
 		...(encrypted !== undefined ? { encrypted } : {}),
-		...(iv !== undefined ? { iv } : {})
+		...(iv !== undefined ? { iv } : {}),
+		...(e2eeEpoch !== null ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch } as any : {})
 	};
-
 	appendOptimisticMessage(channelId, optimisticMessage);
 
 	if (db && !online) {
-		const realm = groupMembership.realm();
+		const groupRealm = groupMembership.realm();
 		const lease = groupMembership.tracks(channelId) ? groupMembership.capture(channelId) : null;
 		const server = normalizeServerUrl(getServerUrl());
 		const generation = authSessionGeneration(server);
@@ -252,12 +179,12 @@ export async function sendMessage(
 			if (normalizeServerUrl(clearedServer) === server) sessionCurrent = false;
 		});
 		const canUpdate = () => sessionCurrent && authSessionGeneration(server) === generation && normalizeServerUrl(getServerUrl()) === server &&
-			groupMembership.realm() === realm && getGuestSessionId() === guest && (!lease || groupMembership.current(lease));
+			groupMembership.realm() === groupRealm && getGuestSessionId() === guest && (!lease || groupMembership.current(lease));
 		try {
 			await db.enqueue({
 				scopeId: 'corechat',
 				type: 'send-message',
-				payload: { ...options, channelId, text: trimmed, type, clientMessageId }
+				payload: { ...wireOptions, channelId, text: wireText, type: wireType, clientMessageId }
 			});
 			if (canUpdate()) updateOptimisticMessage(
 				channelId,
@@ -265,9 +192,6 @@ export async function sendMessage(
 					!messageDeliveries.has(getSocket() ?? {}, { channelId, clientMessageId }),
 				{ deliveryState: 'queued', deliveryError: undefined }
 			);
-			// Reconnect may have drained before the IndexedDB transaction committed.
-			// Request another serialized pass; a queue handoff is still successful
-			// if dispatch later fails. Recheck the session after the module await.
 			if (canUpdate() && get(connected)) {
 				void import('./wabidb/drain').then(({ drainOutboundQueue }) => {
 					if (canUpdate() && get(connected)) return drainOutboundQueue();
@@ -286,18 +210,15 @@ export async function sendMessage(
 		} finally { unsubscribe(); }
 	}
 
-	// sock is defined here (guarded above unless offline queue path returned).
 	_trackMessageDelivery(sock!, channelId, clientMessageId);
 	try {
-		sock!.emit('message', { ...options, channelId, text: trimmed, type, clientMessageId });
+		sock!.emit('message', { ...wireOptions, channelId, text: wireText, type: wireType, clientMessageId });
 	} catch {
-		// A transport exception cannot establish whether bytes reached the server.
 		messageDeliveries.unconfirm(sock!, { channelId, clientMessageId });
 	}
 	return { ok: true, clientMessageId };
 }
 
-/** Shared online/offline attempt lifetime, independent of composer mounts. */
 export function _trackMessageDelivery(sock: object, channelId: string, clientMessageId: string,
 	onUnknown: () => void = () => {}): void {
 	const realm = groupMembership.realm();
@@ -322,45 +243,40 @@ export function _trackMessageDelivery(sock: object, channelId: string, clientMes
 export async function editMessage(channelId: string, messageId: string, newText: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
-	// Optimistic UI — server will confirm via message-edited or edit-error
-	updateOptimisticMessage(
-		channelId,
-		(m) => m.id === messageId,
-		{ text: newText, isEdited: true }
-	);
+	updateOptimisticMessage(channelId, (m) => m.id === messageId, { text: newText, isEdited: true });
+
+	let wireText = newText;
+	try {
+		const encrypted = await encryptMessageForChannel(channelId, newText, 'text', {});
+		if (encrypted) wireText = encrypted.wireText;
+	} catch (error) {
+		showToast(error instanceof Error ? error.message : 'Could not encrypt this edit.', 'error');
+		return;
+	}
+
 	const db = getWabiDB();
 	const online = get(connected);
 	if (db && !online) {
 		await db.enqueue({
 			scopeId: 'corechat',
 			type: 'edit-message',
-			payload: { channelId, messageId, newText }
+			payload: { channelId, messageId, newText: wireText }
 		});
-		updateOptimisticMessage(
-			channelId,
-			(m) => m.id === messageId,
-			{ deliveryState: 'failed', deliveryError: 'Queued — will send when online' }
-		);
+		updateOptimisticMessage(channelId, (m) => m.id === messageId,
+			{ deliveryState: 'failed', deliveryError: 'Queued — will send when online' });
 		return;
 	}
-	sock.emit('edit-message', { channelId, messageId, newText });
+	sock.emit('edit-message', { channelId, messageId, newText: wireText });
 }
 
 export async function deleteMessage(channelId: string, messageId: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
-
-	// Remove immediately from the open channel view (Discord-style hard delete in UI).
-	// Server confirms via message-deleted; edit/delete-error can restore if needed.
 	removeOptimisticMessage(channelId, messageId);
 	const db = getWabiDB();
 	const online = get(connected);
 	if (db && !online) {
-		await db.enqueue({
-			scopeId: 'corechat',
-			type: 'delete-message',
-			payload: { channelId, messageId }
-		});
+		await db.enqueue({ scopeId: 'corechat', type: 'delete-message', payload: { channelId, messageId } });
 		return;
 	}
 	sock.emit('delete-message', { channelId, messageId });
@@ -372,41 +288,19 @@ export async function togglePinMessage(channelId: string, messageId: string): Pr
 	const db = getWabiDB();
 	const online = get(connected);
 	if (db && !online) {
-		await db.enqueue({
-			scopeId: 'corechat',
-			type: 'toggle-pin-message',
-			payload: { channelId, messageId }
-		});
+		await db.enqueue({ scopeId: 'corechat', type: 'toggle-pin-message', payload: { channelId, messageId } });
 		return;
 	}
 	sock.emit('toggle-pin-message', { channelId, messageId });
 }
 
-// ============================================================================
-// INTERNAL EXPORTS FOR SOCKET-MANAGER
-// ============================================================================
-
 export function _incrementUnreadCount(channelId: string, messageId: string): void {
-	channelUnreadCounts.update((counts) => ({
-		...counts,
-		[channelId]: (counts[channelId] || 0) + 1
-	}));
+	channelUnreadCounts.update((counts) => ({ ...counts, [channelId]: (counts[channelId] || 0) + 1 }));
 	unreadCount.update((count) => count + 1);
 	lastReadMessageId.set(messageId);
 }
-
-export function _appendOptimisticMessage(channelId: string, message: Message): void {
-	appendOptimisticMessage(channelId, message);
-}
-
-export function _removeOptimisticMessage(channelId: string, messageId: string): void {
-	removeOptimisticMessage(channelId, messageId);
-}
-
-export function _updateOptimisticMessage(
-	channelId: string,
-	matcher: (message: Message) => boolean,
-	patch: Partial<Message>
-): void {
+export function _appendOptimisticMessage(channelId: string, message: Message): void { appendOptimisticMessage(channelId, message); }
+export function _removeOptimisticMessage(channelId: string, messageId: string): void { removeOptimisticMessage(channelId, messageId); }
+export function _updateOptimisticMessage(channelId: string, matcher: (message: Message) => boolean, patch: Partial<Message>): void {
 	updateOptimisticMessage(channelId, matcher, patch);
 }
