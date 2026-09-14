@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { themeStore } from '$lib/theme/themeStore';
+	import { getAuthToken } from '$lib/authSession';
 
 	const LOCAL_KEY = 'wabi-crt-distortion';
 
@@ -12,7 +13,7 @@
 	}
 
 	function readLocal(): number {
-		if (typeof localStorage === 'undefined') return 0;
+		if (typeof localStorage === 'undefined' || getAuthToken()) return 0;
 		const value = Number(localStorage.getItem(LOCAL_KEY));
 		return clamp(value);
 	}
