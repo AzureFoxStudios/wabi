@@ -8,7 +8,7 @@ use crate::state::AppState;
 
 use super::{
     addons, admin, albums, auth, blobs, bots, cad, calls, channels, emoji, forum, gallery, incidents,
-    jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, public, server_center,
+    jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
     standby, steam, sync, upload, user, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
@@ -35,6 +35,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/games", super::games::routes(state.clone()))
         // User routes
         .nest("/user", user::routes(state.clone()))
+        // Member-visible privacy/retention contract
+        .nest("/privacy", privacy::routes(state.clone()))
         // Channel routes
         .nest("/channels", channels::routes(state.clone()))
         // Message routes
@@ -55,7 +57,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/calls", calls::routes(state.clone()))
         // Admin routes (policy management, compression, runtime, payments)
         .nest("/admin", admin::routes(state.clone()))
-        // Role-aware operational center (moderation, safety, storage)
+        // Role-aware operational center (moderation, safety, privacy, storage)
         .nest("/server-center", server_center::routes(state.clone()))
         // Payment routes (non-custodial provider integration)
         .nest("/payments", payments::routes(state.clone()))
