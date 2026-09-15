@@ -1,5 +1,38 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { onDestroy } from 'svelte';
 	import ReaderDocumentWorkbench from './ReaderDocumentWorkbench.svelte';
+	import { activeServerUrl } from '$lib/serverUrl';
+	import { currentUser } from '$lib/presenceIdentity';
+	import { getAuthToken, getGuestSessionId, getStoredDbUserId, onAuthSessionCleared } from '$lib/authSession';
+	import { activateReaderDocumentScope } from '$lib/readerDocuments';
+	import { getReaderAnonymousDeviceId, makeReaderDocumentScope } from '$lib/readerDocumentScope';
+
+	let activeScope = '';
+	let authBoundary = 0;
+	const stopAuthBoundary = onAuthSessionCleared(() => { authBoundary += 1; });
+	onDestroy(stopAuthBoundary);
+
+	$: if (browser) {
+		// Recompute on server, connected identity, and explicit logout/session boundaries.
+		authBoundary;
+		const server = $activeServerUrl;
+		const token = getAuthToken(server);
+		const registeredUserId = token
+			? ($currentUser?.dbUserId ?? getStoredDbUserId(server))
+			: null;
+		const guestSessionId = registeredUserId ? null : getGuestSessionId(server);
+		const identity = registeredUserId
+			? `user:${registeredUserId}`
+			: guestSessionId
+				? `guest:${guestSessionId}`
+				: `device:${getReaderAnonymousDeviceId()}`;
+		const nextScope = makeReaderDocumentScope(server, identity);
+		if (nextScope !== activeScope) {
+			activeScope = nextScope;
+			void activateReaderDocumentScope(nextScope);
+		}
+	}
 </script>
 
 <ReaderDocumentWorkbench />
