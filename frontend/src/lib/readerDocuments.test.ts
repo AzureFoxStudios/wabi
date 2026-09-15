@@ -10,6 +10,7 @@ import {
 	type ReaderLocalDocument
 } from './readerDocuments';
 import { makeReaderDocumentScope, normalizeReaderDocumentServerScope } from './readerDocumentScope';
+import { readerSourceDocumentKey } from './readerWorkspace';
 import type { ReaderDocumentSelection } from './readerWorkspace';
 
 function selection(overrides: Partial<ReaderDocumentSelection> = {}): ReaderDocumentSelection {
@@ -46,6 +47,12 @@ describe('Reader local-first document model', () => {
 			.not.toBe(makeReaderDocumentScope('https://wabi.example', 'user:2'));
 		expect(makeReaderDocumentScope('https://wabi.example', 'user:1'))
 			.not.toBe(makeReaderDocumentScope('https://other.example', 'user:1'));
+	});
+
+	test('chat and note source ids stay distinct even when content hashes collide', () => {
+		expect(readerSourceDocumentKey('chat', 'message-a', 'same-content-key')).toBe('chat:message-a');
+		expect(readerSourceDocumentKey('chat', 'message-b', 'same-content-key')).toBe('chat:message-b');
+		expect(readerSourceDocumentKey('notes', 'notes-panel:note-a', 'same-content-key')).toBe('notes:notes-panel:note-a');
 	});
 
 	test('editing advances the local revision without mutating the source snapshot', () => {
