@@ -147,6 +147,33 @@ async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn wait_for_shutdown() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            info!("Received Ctrl+C, starting graceful shutdown...");
+        }
+        _ = terminate => {
+            info!("Received SIGTERM, starting graceful shutdown...");
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -234,6 +261,28 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Regional anchors are intentionally stateless. Branch before resolving JWT
+    // secrets, opening WabiDB, or creating upload/data directories. An anchor is
+    // an HTTP gateway to one canonical authority, not a hidden second authority.
+    let server_role = ServerRole::from_env();
+    if server_role == ServerRole::Anchor {
+        let authority_url = std::env::var("WABI_AUTHORITY_URL")
+            .ok()
+            .map(|value| value.trim().trim_end_matches('/').to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("WABI_AUTHORITY_URL is required when WABI_SERVER_ROLE=anchor"))?;
+        let app = crate::anchor::create_anchor_router(authority_url.clone())?;
+        let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], args.port));
+        let listener = TcpListener::bind(addr).await?;
+        info!("📡 Starting stateless regional anchor on port {}", args.port);
+        info!("↪ Authority: {}", authority_url);
+        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+            .with_graceful_shutdown(wait_for_shutdown())
+            .await?;
+        info!("Anchor shut down gracefully");
+        return Ok(());
+    }
+
     // Compute uploads_dir and blacklist_file before data_dir is consumed.
     // Accept both the legacy UPLOADS_DIR name and the WABI_-prefixed alias so
     // container configs don't silently fall back to data_dir/uploads (which is
@@ -243,7 +292,6 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| format!("{}/uploads", args.data_dir));
     let blacklist_file = std::env::var("WABI_BLACKLIST_FILE")
         .unwrap_or_else(|_| format!("{}/blacklist.txt", args.data_dir));
-    let server_role = ServerRole::from_env();
     let authority_url = std::env::var("WABI_AUTHORITY_URL").ok();
 
     let jwt_secret = resolve_jwt_secret(&args.data_dir);
@@ -679,37 +727,8 @@ async fn main() -> anyhow::Result<()> {
     info!("🔌 API: http://localhost:{}/api", config.port);
     info!("🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)");
 
-    // Graceful shutdown signal
-    let shutdown_signal = async {
-        let ctrl_c = async {
-            signal::ctrl_c()
-                .await
-                .expect("failed to install Ctrl+C handler");
-        };
-
-        #[cfg(unix)]
-        let terminate = async {
-            signal::unix::signal(signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler")
-                .recv()
-                .await;
-        };
-
-        #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
-
-        tokio::select! {
-            _ = ctrl_c => {
-                info!("Received Ctrl+C, starting graceful shutdown...");
-            }
-            _ = terminate => {
-                info!("Received SIGTERM, starting graceful shutdown...");
-            }
-        }
-    };
-
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal)
+        .with_graceful_shutdown(wait_for_shutdown())
         .await?;
 
     info!("Server shut down gracefully");

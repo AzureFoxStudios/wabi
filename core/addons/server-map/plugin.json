@@ -1,0 +1,24 @@
+{
+  "id": "server-map",
+  "name": "Maps",
+  "version": "0.2.0",
+  "description": "Community maps, custom floorplans, points of interest, and collaborative map boards",
+  "backend": {
+    "runtime": "rust",
+    "path": "backend",
+    "crate": "wabi-server-map",
+    "cargo_feature": null
+  },
+  "frontend": {
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": ["map"],
+      "settingsPages": [],
+      "mobileTabs": ["server-map"]
+    },
+    "bundled": true
+  },
+  "permissions": [
+    "network:outbound"
+  ]
+}
