@@ -15,7 +15,7 @@
 		: `Message from ${message.user}`;
 
 	function openInReader(): void {
-		openReaderDocument(readerTitle, text, 'markdown', 'chat');
+		openReaderDocument(readerTitle, text, 'markdown', 'chat', undefined, String(message.id));
 	}
 </script>
 

@@ -13,8 +13,7 @@ import { createCpuCanvas, type CpuCanvas } from './cpu';
  *
  * Rendered via the shared WebGL renderer into an offscreen canvas that is
  * blitted onto the ambient 2D canvas each frame. When WebGL is unavailable,
- * falls back to a low-res CPU renderer of the same math (the pixelated look
- * survives the resolution drop).
+ * falls back to a reduced-resolution CPU renderer of the same math.
  */
 
 /**
@@ -25,6 +24,12 @@ import { createCpuCanvas, type CpuCanvas } from './cpu';
  * speed=1 → authentic in-game feel, 0.5 → half game pace, 2 → double.
  */
 const GAME_PACE = 0.2;
+const GPU_FRAME_INTERVAL_MS = 1000 / 60;
+const CPU_FRAME_INTERVAL_MS = 40;
+// The old 6x fallback made every CPU sample a huge nearest-neighbour block.
+// 4x stays meaningfully cheaper than full resolution while landing much
+// closer to the shader's own ~3-4 CSS px quantization at common displays.
+const CPU_FALLBACK_DIVISOR = 4;
 
 const FRAG_SRC = `
 precision highp float;
@@ -160,6 +165,7 @@ export class JokerEffect implements AmbientEffect {
 	name = 'Joker';
 	description = 'The iconic paint swirl from Joker — a pixelated spinning flow field in red, blue, and black.';
 	usesWebGL = true;
+	frameIntervalMs = CPU_FRAME_INTERVAL_MS;
 
 	private renderer: WebGLRenderer | null = null;
 	private cpu: CpuCanvas | null = null;
@@ -185,16 +191,18 @@ export class JokerEffect implements AmbientEffect {
 		this.H = window.innerHeight;
 		this.canvas = canvas;
 		this.host2d = canvas.getContext('2d');
+		this.frameIntervalMs = CPU_FRAME_INTERVAL_MS;
 
 		const renderer = createWebGLRenderer(FRAG_SRC, 'joker');
 		if (renderer.ready) {
 			renderer.setSize(this.W * this.dpr, this.H * this.dpr);
 			this.renderer = renderer;
 			this.cpu = null;
+			this.frameIntervalMs = GPU_FRAME_INTERVAL_MS;
 		} else {
 			this.renderer = null;
-			this.cpu = createCpuCanvas(canvas, this.W, this.H, 6);
-			console.warn('[JokerEffect] WebGL unavailable — falling back to a low-res CPU renderer.');
+			this.cpu = createCpuCanvas(canvas, this.W, this.H, CPU_FALLBACK_DIVISOR);
+			console.warn('[JokerEffect] WebGL unavailable — falling back to a reduced-quality CPU renderer.');
 		}
 	}
 
@@ -233,7 +241,7 @@ export class JokerEffect implements AmbientEffect {
 			if (uSpinAmount) gl.uniform1f(uSpinAmount, 0.25 * size);
 			if (uSpinSpeed) gl.uniform1f(uSpinSpeed, 2 * speed);
 			if (uMoveSpeed) gl.uniform1f(uMoveSpeed, 7 * speed);
-			// dpr scaling keeps the pixel blocks a constant CSS size
+			// dpr scaling keeps the shader's quantization fine on dense displays.
 			if (uPixelFilter) gl.uniform1f(uPixelFilter, (745 / size) * this.dpr);
 
 			renderer.draw();
@@ -272,7 +280,7 @@ export class JokerEffect implements AmbientEffect {
 		if (this.renderer) {
 			this.renderer.setSize(width * this.dpr, height * this.dpr);
 		} else if (this.cpu && this.canvas) {
-			this.cpu = createCpuCanvas(this.canvas, width, height, 6) ?? this.cpu;
+			this.cpu = createCpuCanvas(this.canvas, width, height, CPU_FALLBACK_DIVISOR) ?? this.cpu;
 		}
 	}
 
@@ -283,5 +291,6 @@ export class JokerEffect implements AmbientEffect {
 		this.host2d = null;
 		this.canvas = null;
 		this.time = 0;
+		this.frameIntervalMs = CPU_FRAME_INTERVAL_MS;
 	}
 }

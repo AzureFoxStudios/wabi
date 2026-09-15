@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Wabi Desktop App - Self-hosted Discord alternative"
 authors = ["Ronin"]
 license = "MIT"
-repository = "https://github.com/lethalchip/wabi"
+repository = "https://github.com/AzureFoxStudios/wabi"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88.0"
 
 [lib]
 name = "app_lib"
@@ -31,6 +31,8 @@ sha2 = "0.10"
 notify = "8.2"
 anyhow = "1"
 base64 = "0.22"
+keyring = { version = "4.2.0", default-features = false, features = ["cli"] }
+keyring-core = "1.0.0"
 
 # Tailcat private access (tunnel + local forwarder for the webview)
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "process", "time", "sync", "fs"] }
@@ -42,6 +44,10 @@ http-body = "1"
 http-body-util = "0.1"
 bytes = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+ndk-context = "0.1.1"
 
 # The detached native 3D viewer is a desktop surface. Mobile uses the in-app
 # viewport, so do not pull wgpu/winit/gltf and their native window stack into
