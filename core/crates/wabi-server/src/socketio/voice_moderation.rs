@@ -60,7 +60,7 @@ async fn refresh_target_media_permissions(
         };
         admission.server_muted = server_muted;
         admission.server_deafened = server_deafened;
-        crate::api::voice_policy::record_admission(admission.clone());
+        crate::api::voice_policy::record_admission(channel_id, admission.clone());
         if let Err(error) = crate::api::media_permissions::refresh_participant_permissions(
             &state.app,
             &admission,

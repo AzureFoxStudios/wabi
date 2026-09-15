@@ -95,6 +95,12 @@ fn dm_media_room_key(my_id: &str, peer_id: &str) -> String {
     media_reactions_legacy::dm_room_key(my_id, peer_id)
 }
 
+async fn scoped_signaling_consent(
+    state: &SioState, socket: &SocketRef, target: Option<&str>, data: &Value,
+) -> bool {
+    media_reactions_legacy::scoped_signaling_consent(state, socket, target, data).await
+}
+
 #[allow(dead_code)]
 async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     media_reactions_legacy::join_wabidb_call(socket, data, state, io).await;
