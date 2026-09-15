@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
+	import { openGames } from '$lib/games/navigation';
 	import { showToast } from '$lib/toast';
 
 	import type { User } from '$lib/socket';
@@ -42,6 +43,9 @@
 </script>
 
 <div class="actions">
+  {#if user?.dbUserId}
+    <button class="action-btn secondary" on:click={() => openGames({profileId: String(user!.dbUserId),label:user!.username})}>Games</button>
+  {/if}
 	{#if !isOwnProfile}
 		<button class="action-btn primary" on:click={onOpenDM}>
 			<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">

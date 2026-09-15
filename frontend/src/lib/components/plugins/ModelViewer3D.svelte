@@ -2,6 +2,9 @@
   import { onMount } from 'svelte';
   import ModelViewerShell from './ModelViewerShell.svelte';
   import ModelViewerSettingsMenu from './ModelViewerSettingsMenu.svelte';
+  import ModelInspectorPanel from './model-viewer/ModelInspectorPanel.svelte';
+  import { createModelInspectorRuntime, type ModelInspectorRuntime } from './modelInspectorRuntime';
+  import { EMPTY_INSPECTOR, frameDistance, extensionOf, modelFormatMessage, formatLength, type ModelUnit, type InspectorSnapshot, type ModelView } from './modelInspector';
   import {
     clearOverlayLines,
     clearRigOverlays,
@@ -19,37 +22,38 @@
     type ViewMode
   } from './modelViewerHelpers';
 
-  export let src: string;
-  export let fileName = '3D model';
-  export let height = 320;
-  export let fullBleed = false;
-  export let lazyLoad = true;
-  export let hideUi = false;
+  let {
+    src, fileName = '3D model', height = 320, fullBleed = false, lazyLoad = true,
+    hideUi = $bindable(false), onRetry
+  }: {
+    src: string; fileName?: string; height?: number; fullBleed?: boolean; lazyLoad?: boolean;
+    hideUi?: boolean; onRetry?: () => void;
+  } = $props();
 
   const THREE_BASE = 'https://esm.sh/three@0.181.1';
 
-  let host: HTMLDivElement;
-  let canvas: HTMLCanvasElement;
-  let error: string | null = null;
+  let host = $state<HTMLDivElement>();
+  let canvas = $state<HTMLCanvasElement>();
+  let error = $state<string | null>(null);
   let disposed = false;
-  let hasStarted = false;
-  let loadingViewer = false;
-  let menuOpen = false;
-  let threadMode: ThreadMode = 'auto';
-  let threadingNotice = '';
-  let viewMode: ViewMode = 'textured';
-  let showGrid = true;
-  let showAxes = false;
-  let showRig = true;
-  let showDebugStats = false;
-  let debugStats = '';
-  let rigStatusNote = '';
-  let autoRotate = false;
-  let animationClipOptions: Array<{ index: number; name: string; duration: number }> = [];
-  let selectedAnimationIndex = 0;
-  let animationPlaying = true;
-  let animationSpeed = 1;
-  let animationLoopMode: AnimationLoopMode = 'repeat';
+  let hasStarted = $state(false);
+  let loadingViewer = $state(false);
+  let menuOpen = $state(false);
+  let threadMode = $state<ThreadMode>('auto');
+  let threadingNotice = $state('');
+  let viewMode = $state<ViewMode>('textured');
+  let showGrid = $state(true);
+  let showAxes = $state(false);
+  let showRig = $state(true);
+  let showDebugStats = $state(false);
+  let debugStats = $state('');
+  let rigStatusNote = $state('');
+  let autoRotate = $state(false);
+  let animationClipOptions = $state<Array<{ index: number; name: string; duration: number }>>([]);
+  let selectedAnimationIndex = $state(0);
+  let animationPlaying = $state(true);
+  let animationSpeed = $state(1);
+  let animationLoopMode = $state<AnimationLoopMode>('repeat');
 
   let applyViewModeRuntime: ((mode: ViewMode) => void) | null = null;
   let toggleGridRuntime: ((visible: boolean) => void) | null = null;
@@ -61,8 +65,20 @@
   let setAnimationPlayingRuntime: ((playing: boolean) => void) | null = null;
   let setAnimationSpeedRuntime: ((speed: number) => void) | null = null;
   let setAnimationLoopRuntime: ((mode: AnimationLoopMode) => void) | null = null;
-  let startViewer: () => void = () => {};
-  let isFullscreen = false;
+  let startViewer = $state<() => void>(() => {});
+  let stopPreview = $state<() => void>(() => {});
+  let inspector = $state.raw<ModelInspectorRuntime | null>(null);
+  let inspectorSnapshot = $state.raw<InspectorSnapshot>({ ...EMPTY_INSPECTOR });
+  let inspectorOpen = $state(false);
+  let sourceUnit = $state<ModelUnit>('model');
+  let displayUnit = $state<ModelUnit>('model');
+  let fullscreenError = $state('');
+  const measurementLabel = $derived(inspectorSnapshot.measuring
+    ? inspectorSnapshot.distance === null
+      ? inspectorSnapshot.measurePoints ? 'Pick a second point on the mesh' : 'Pick a point on the mesh'
+      : `Approx. ${formatLength(inspectorSnapshot.distance, sourceUnit, displayUnit)}`
+    : '');
+  let isFullscreen = $state(false);
 
   async function shouldUseWorker(ext: string): Promise<boolean> {
     const decision = await resolveWorkerDecision(src, ext, threadMode);
@@ -108,13 +124,18 @@
   function handleAnimationClipChange(event: Event): void {
     const value = Number.parseInt((event.target as HTMLSelectElement).value, 10);
     if (!Number.isFinite(value)) return;
+    inspector?.clearMeasurement();
+    inspector?.select(null);
     selectedAnimationIndex = value;
     setAnimationClipRuntime?.(value);
   }
 
   function toggleAnimationPlayback(): void {
-    animationPlaying = !animationPlaying;
-    setAnimationPlayingRuntime?.(animationPlaying);
+    const next = !animationPlaying;
+    inspector?.clearMeasurement();
+    inspector?.select(null);
+    animationPlaying = next;
+    setAnimationPlayingRuntime?.(next);
   }
 
   function handleAnimationSpeedChange(event: Event): void {
@@ -140,22 +161,43 @@
     if (hideUi) menuOpen = false;
   }
 
-  function toggleFullscreen(): void {
+  async function toggleFullscreen(): Promise<void> {
     if (!host) return;
-    if (isFullscreen) {
-      document.exitFullscreen?.();
-    } else {
-      host.requestFullscreen?.();
+    fullscreenError = '';
+    try {
+      if (document.fullscreenElement === host) await document.exitFullscreen();
+      else if (host.requestFullscreen) await host.requestFullscreen();
+      else fullscreenError = 'Fullscreen is not available in this browser.';
+    } catch {
+      fullscreenError = 'Fullscreen was not allowed. The normal viewer is still available.';
     }
-    isFullscreen = !isFullscreen;
+    syncFullscreen();
   }
 
-  function handleWindowClick(): void {
-    if (menuOpen) menuOpen = false;
+  function syncFullscreen(): void { isFullscreen = !!host && document.fullscreenElement === host; }
+  function toggleInspector(): void { inspectorOpen = !inspectorOpen; menuOpen = false; }
+  function toggleDisplay(): void { menuOpen = !menuOpen; inspectorOpen = false; }
+  function handleViewerKey(event: KeyboardEvent): void {
+    if (!host?.contains(document.activeElement) || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === 'Escape' && (menuOpen || inspectorOpen)) {
+      menuOpen = false; inspectorOpen = false; canvas?.focus(); event.preventDefault(); return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('input, select, textarea, [contenteditable=true]')) return;
+    if (event.key.toLowerCase() === 'f') { inspector?.fit(); event.preventDefault(); }
+    const views: Record<string, ModelView> = { '0': 'iso', '1': 'front', '3': 'right', '7': 'top' };
+    if (Object.hasOwn(views, event.key)) { inspector?.setView(views[event.key]); event.preventDefault(); }
   }
 
   onMount(() => {
     threadMode = getThreadMode();
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    const pauseForInspection = () => {
+      autoRotate = false;
+      if (controls) controls.autoRotate = false;
+      if (activeAction) { activeAction.paused = true; animationPlaying = false; }
+    };
+    let rejectWorker: ((reason: Error) => void) | null = null;
 
     let renderer: any;
     let scene: any;
@@ -372,16 +414,32 @@
       const material = new THREE.ShaderMaterial({
         side: THREE.DoubleSide,
         toneMapped: false,
+        clipping: true,
         vertexShader: `
+          #include <common>
+          #include <morphtarget_pars_vertex>
+          #include <skinning_pars_vertex>
+          #include <clipping_planes_pars_vertex>
           varying vec3 vNormal;
           void main() {
-            vNormal = normalize(normalMatrix * normal);
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            #include <beginnormal_vertex>
+            #include <morphnormal_vertex>
+            #include <skinbase_vertex>
+            #include <skinnormal_vertex>
+            #include <defaultnormal_vertex>
+            vNormal = normalize(transformedNormal);
+            #include <begin_vertex>
+            #include <morphtarget_vertex>
+            #include <skinning_vertex>
+            #include <project_vertex>
+            #include <clipping_planes_vertex>
           }
         `,
         fragmentShader: `
+          #include <clipping_planes_pars_fragment>
           varying vec3 vNormal;
           void main() {
+            #include <clipping_planes_fragment>
             vec3 n = normalize(vNormal);
             vec3 frontColor = 0.5 * (n + 1.0);
             vec3 backColor = vec3(1.0, 0.22, 0.22);
@@ -396,7 +454,7 @@
 
     const createWireframeOnlyMaterial = () => {
       const material = new THREE.MeshBasicMaterial({
-        color: 0x0a0a0a,
+        color: 0xb8d4d1,
         wireframe: true
       });
       runtimeMaterials.push(material);
@@ -483,7 +541,12 @@
     };
 
     const dispose = () => {
+      if (disposed) return;
       disposed = true;
+      rejectWorker?.(new Error('Preview stopped'));
+      rejectWorker = null;
+      inspector?.dispose();
+      inspector = null;
       if (frameHandle) cancelAnimationFrame(frameHandle);
       controls?.dispose?.();
       clearOverlayLines(overlayLines);
@@ -498,6 +561,10 @@
         mesh.geometry?.dispose?.();
         disposeMaterialLike(mesh.material);
       }
+      grid?.geometry?.dispose?.();
+      disposeMaterialLike(grid?.material);
+      axes?.geometry?.dispose?.();
+      disposeMaterialLike(axes?.material);
       renderer?.dispose?.();
       worker?.terminate?.();
       mixer?.stopAllAction?.();
@@ -518,20 +585,31 @@
       if (box.isEmpty()) return;
       const size = box.getSize(new ThreeNs.Vector3());
       const center = box.getCenter(new ThreeNs.Vector3());
-      const maxSize = Math.max(size.x, size.y, size.z);
-      const distance = maxSize * 1.6 || 2;
-
-      camera.position.set(center.x + distance, center.y + distance * 0.45, center.z + distance);
-      camera.near = Math.max(distance / 100, 0.01);
-      camera.far = Math.max(distance * 100, 1000);
+      const stage = canvas?.parentElement;
+      const aspect = stage ? Math.max(stage.clientWidth, 1) / Math.max(stage.clientHeight, 1) : 1;
+      camera.aspect = aspect;
+      const distance = frameDistance(size, camera.fov, aspect);
+      if (distance === null) throw new Error('This model has invalid or excessively large bounds.');
+      const direction = new ThreeNs.Vector3(1, 0.65, 1).normalize();
+      camera.position.copy(center).addScaledVector(direction, distance);
+      camera.near = Math.max(distance / 1000, 1e-7);
+      camera.far = Math.max(distance * 100, 1);
+      controls.minDistance = Math.max(distance / 1000, 1e-7);
+      controls.maxDistance = distance * 50;
       camera.updateProjectionMatrix();
 
       controls.target.copy(center);
       controls.update();
     };
 
+    const releaseLateObject = (object: any) => {
+      object.traverse?.((child: any) => { child.geometry?.dispose?.(); disposeMaterialLike(child.material); });
+    };
+
     const start = async () => {
       try {
+        const formatError = modelFormatMessage(fileName);
+        if (formatError) throw new Error(formatError);
         const loadModule = async (url: string): Promise<any> => import(/* @vite-ignore */ url);
 
         THREE = await loadModule(THREE_BASE);
@@ -572,11 +650,12 @@
         controls.autoRotate = autoRotate;
         controls.autoRotateSpeed = 1.0;
 
-        const ext = (fileName.split('.').pop() || '').toLowerCase();
+        const ext = extensionOf(fileName);
         threadingNotice = '';
         const addLoadedObject = (object: any) => {
           loadedRoot = object;
           scene.add(object);
+          object.updateMatrixWorld(true);
           const objectBounds = new THREE.Box3().setFromObject(object);
           const objectSize = objectBounds.getSize(new THREE.Vector3());
           const maxObjectSize = Math.max(objectSize.x, objectSize.y, objectSize.z) || 1;
@@ -700,9 +779,10 @@
             threadingNotice = 'Worker parse not available for this format. Falling back to main-thread.';
           }
           const { GLTFLoader } = await loadModule(`${THREE_BASE}/examples/jsm/loaders/GLTFLoader`);
+          if (disposed) return;
           const loader = new GLTFLoader();
           const gltf = await loader.loadAsync(src);
-          if (disposed) return;
+          if (disposed) { releaseLateObject(gltf.scene); return; }
           addLoadedObject(gltf.scene);
           animationClips = Array.isArray(gltf.animations) ? gltf.animations : [];
           animationClipOptions = animationClips.map((clip: any, index: number) => ({
@@ -721,20 +801,30 @@
             threadingNotice = 'Worker parse not available for this format. Falling back to main-thread.';
           }
           const { OBJLoader } = await loadModule(`${THREE_BASE}/examples/jsm/loaders/OBJLoader`);
+          if (disposed) return;
           const loader = new OBJLoader();
           const obj = await loader.loadAsync(src);
-          if (disposed) return;
+          if (disposed) { releaseLateObject(obj); return; }
           addLoadedObject(obj);
         } else if (ext === 'stl') {
           const useWorker = await shouldUseWorker(ext);
+          if (disposed) return;
           if (useWorker) {
             worker = new Worker(new URL('./model-loader.worker.ts', import.meta.url), { type: 'module' });
             const workerResult = await new Promise<any>((resolve, reject) => {
-              worker?.addEventListener('message', (ev: MessageEvent<any>) => resolve(ev.data), { once: true });
-              worker?.addEventListener('error', (ev: ErrorEvent) => reject(new Error(ev.message)), { once: true });
+              const timer = window.setTimeout(() => finish(new Error('STL parsing timed out. Try a smaller model.')), 60_000);
+              const finish = (error: Error | null, data?: any) => {
+                window.clearTimeout(timer);
+                worker?.terminate(); worker = null; rejectWorker = null;
+                if (error) reject(error); else resolve(data);
+              };
+              rejectWorker = (error) => finish(error);
+              worker?.addEventListener('message', (ev: MessageEvent<any>) => finish(null, ev.data), { once: true });
+              worker?.addEventListener('error', (ev: ErrorEvent) => finish(new Error(ev.message)), { once: true });
               worker?.postMessage({ type: 'parse-stl', src });
             });
 
+            if (disposed) return;
             if (!workerResult?.ok) {
               throw new Error(workerResult?.error || 'Worker STL parse failed');
             }
@@ -754,34 +844,47 @@
             }
 
             const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
-            meshes.push(mesh);
-            loadedRoot = mesh;
-            scene.add(mesh);
-            fitCameraToObject(mesh, THREE);
+            mesh.name = fileName;
+            addLoadedObject(mesh);
           } else {
             const { STLLoader } = await loadModule(`${THREE_BASE}/examples/jsm/loaders/STLLoader`);
+            if (disposed) return;
             const loader = new STLLoader();
             const geometry = await loader.loadAsync(src);
-            if (disposed) return;
+            if (disposed) { geometry.dispose(); return; }
             const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
-            meshes.push(mesh);
-            loadedRoot = mesh;
-            scene.add(mesh);
-            fitCameraToObject(mesh, THREE);
+            mesh.name = fileName;
+            addLoadedObject(mesh);
           }
         } else {
           error = `Unsupported model format: .${ext || 'unknown'}`;
           return;
         }
 
+        if (disposed || !canvas || !loadedRoot) return;
         applyViewMode(viewMode);
+        inspector = createModelInspectorRuntime({
+          THREE, root: loadedRoot, scene, camera, controls, renderer, canvas,
+          onChange: (snapshot) => { inspectorSnapshot = snapshot; }, onInspect: pauseForInspection
+        });
 
         const resize = () => {
-          if (!host || !renderer || !camera) return;
-          const width = Math.max(host.clientWidth, 1);
-          const nextHeight = fullBleed ? Math.max(host.clientHeight, 180) : Math.max(height, 180);
+          if (disposed || !canvas?.parentElement || !renderer || !camera) return;
+          const stage = canvas.parentElement;
+          const width = Math.max(stage.clientWidth, 1);
+          const nextHeight = Math.max(stage.clientHeight, 1);
+          const nextAspect = width / nextHeight;
+          const referenceSize = { x: 1, y: 1, z: 1 };
+          const oldFit = frameDistance(referenceSize, camera.fov, camera.aspect);
+          const newFit = frameDistance(referenceSize, camera.fov, nextAspect);
+          if (oldFit && newFit && controls && Math.abs(camera.aspect - nextAspect) > 0.0001) {
+            const ratio = newFit / oldFit;
+            camera.position.sub(controls.target).multiplyScalar(ratio).add(controls.target);
+            camera.near *= ratio; camera.far *= ratio;
+            controls.minDistance *= ratio; controls.maxDistance *= ratio;
+          }
           renderer.setSize(width, nextHeight, false);
-          camera.aspect = width / nextHeight;
+          camera.aspect = nextAspect;
           camera.updateProjectionMatrix();
         };
 
@@ -799,13 +902,16 @@
         };
 
         const resizeObserver = new ResizeObserver(resize);
-        resizeObserver.observe(host);
+        resizeObserver.observe(canvas.parentElement!);
         resize();
         animate();
 
         return () => resizeObserver.disconnect();
       } catch (e) {
-        error = e instanceof Error ? e.message : 'Failed to initialize 3D viewer';
+        if (!disposed) {
+          error = e instanceof Error ? e.message : 'Failed to initialize 3D viewer';
+          dispose();
+        }
       }
     };
 
@@ -816,13 +922,21 @@
       loadingViewer = true;
       start()
         .then((cleanup) => {
-          if (typeof cleanup === 'function') stopResizeWatch = cleanup;
+          if (typeof cleanup === 'function') {
+            if (disposed) cleanup(); else stopResizeWatch = cleanup;
+          }
         })
         .finally(() => {
           loadingViewer = false;
         });
     };
     startViewer = runStart;
+    stopPreview = () => {
+      stopResizeWatch?.();
+      dispose();
+      loadingViewer = false;
+      error = 'Preview stopped. Any outstanding file downloads may finish, but their result will not be displayed.';
+    };
 
     if (!lazyLoad) {
       runStart();
@@ -830,68 +944,49 @@
 
     return () => {
       startViewer = () => {};
+      stopPreview = () => {};
+      document.removeEventListener('fullscreenchange', syncFullscreen);
       stopResizeWatch?.();
       dispose();
     };
   });
 </script>
 
-<svelte:window on:click={handleWindowClick} on:keydown={(e) => e.key === 'Escape' && isFullscreen && toggleFullscreen()} />
+<svelte:window onkeydown={handleViewerKey} />
 
 <ModelViewerShell
-  {viewMode}
-  {hideUi}
-  {loadingViewer}
-  {hasStarted}
-  {fileName}
-  {error}
-  {fullBleed}
-  bind:host
-  onStartViewer={startViewer}
-  onViewModeChange={setViewMode}
-  onToggleHideUi={toggleHideUi}
-  onToggleFullscreen={toggleFullscreen}
-  bind:isFullscreen
+  {viewMode} {hideUi} {loadingViewer} {hasStarted} {fileName} {error} {fullBleed} {height}
+  {isFullscreen} {fullscreenError} {inspectorOpen} settingsOpen={menuOpen}
+  ready={!!inspector && !loadingViewer && !error} {measurementLabel} bind:host
+  onStartViewer={startViewer} onViewModeChange={setViewMode} onToggleHideUi={toggleHideUi}
+  onToggleFullscreen={toggleFullscreen} onToggleInspector={toggleInspector} onToggleSettings={toggleDisplay}
+  onFitView={() => inspector?.fit()} onViewPreset={(view) => inspector?.setView(view)}
+  onRetry={modelFormatMessage(fileName) ? undefined : onRetry} onStopPreview={stopPreview}
 >
-  <canvas slot="canvas" bind:this={canvas} aria-label={`3D model viewer for ${fileName}`}></canvas>
-
-  <svelte:fragment slot="settings-menu">
+  {#snippet canvasContent()}
+    <canvas bind:this={canvas} tabindex="0" aria-label={`3D model ${fileName}. Drag to orbit. F fits the view. 0 isometric, 1 front, 3 right, 7 top.`}></canvas>
+  {/snippet}
+  {#snippet inspectorContent()}
+    {#if inspector}<ModelInspectorPanel snapshot={inspectorSnapshot} runtime={inspector} {fileName} bind:sourceUnit bind:displayUnit />{/if}
+  {/snippet}
+  {#snippet settingsMenu()}
     <ModelViewerSettingsMenu
-      bind:menuOpen
-      {autoRotate}
-      {showGrid}
-      {showAxes}
-      {showRig}
-      {showDebugStats}
-      {animationClipOptions}
-      bind:selectedAnimationIndex
-      {animationPlaying}
-      {animationSpeed}
-      bind:animationLoopMode
-      bind:threadMode
-      onToggleAutoRotate={toggleAutoRotate}
-      onResetView={resetView}
-      onToggleGrid={toggleGrid}
-      onToggleAxes={toggleAxes}
-      onToggleRig={toggleRig}
-      onToggleDebugStats={toggleDebugStats}
-      onAnimationClipChange={handleAnimationClipChange}
-      onToggleAnimationPlayback={toggleAnimationPlayback}
-      onAnimationLoopModeChange={handleAnimationLoopModeChange}
-      onAnimationSpeedChange={handleAnimationSpeedChange}
+      {autoRotate} {showGrid} {showAxes} {showRig} {showDebugStats} {animationClipOptions}
+      bind:selectedAnimationIndex {animationPlaying} {animationSpeed} bind:animationLoopMode bind:threadMode
+      onToggleAutoRotate={toggleAutoRotate} onResetView={resetView} onToggleGrid={toggleGrid}
+      onToggleAxes={toggleAxes} onToggleRig={toggleRig} onToggleDebugStats={toggleDebugStats}
+      onAnimationClipChange={handleAnimationClipChange} onToggleAnimationPlayback={toggleAnimationPlayback}
+      onAnimationLoopModeChange={handleAnimationLoopModeChange} onAnimationSpeedChange={handleAnimationSpeedChange}
       onThreadModeChange={handleThreadModeChange}
     />
-  </svelte:fragment>
-
-  <svelte:fragment slot="notes">
-    {#if !hideUi && threadingNotice}
-      <div class="threading-note">{threadingNotice}</div>
+  {/snippet}
+  {#snippet notes()}
+    {#if !hideUi && (threadingNotice || showDebugStats || showRig && rigStatusNote)}
+      <details class="mv-diagnostics"><summary>Viewer information</summary>
+        {#if threadingNotice}<p>{threadingNotice}</p>{/if}
+        {#if showRig && rigStatusNote}<p>{rigStatusNote}</p>{/if}
+        {#if showDebugStats && debugStats}<p>{debugStats}</p>{/if}
+      </details>
     {/if}
-    {#if !hideUi && showRig && rigStatusNote}
-      <div class="rig-note">{rigStatusNote}</div>
-    {/if}
-    {#if !hideUi && showDebugStats && debugStats}
-      <div class="debug-note">{debugStats}</div>
-    {/if}
-  </svelte:fragment>
+  {/snippet}
 </ModelViewerShell>

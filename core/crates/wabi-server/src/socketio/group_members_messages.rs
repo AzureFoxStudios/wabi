@@ -43,7 +43,6 @@ async fn on_edit_message(socket: SocketRef, data: Value, state: SioState, io: So
         None => return,
     };
 
-    // Auth check — must have a real user account
     let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "edit-error").await else { return; };
     if !message_in_channel(&state, &channel_id, &message_id).await {
         let _ = socket.emit("edit-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
@@ -51,58 +50,57 @@ async fn on_edit_message(socket: SocketRef, data: Value, state: SioState, io: So
     }
     let my_user_id = identity.user_id;
     let my_username = identity.username;
-    let is_admin = if my_user_id > 0 {
-        state.app.is_admin(my_user_id).await
-    } else {
-        false
+
+    // An E2EE edit is a fresh signed ciphertext envelope for the current room
+    // epoch. Plaintext/stale epochs are rejected exactly like a new message.
+    let e2ee = match crate::api::e2ee::validate_outbound_message(
+        &state.app, &channel_id, my_user_id, &new_text,
+    ).await {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = socket.emit("edit-error", &json!({ "messageId": message_id, "error": error }));
+            return;
+        }
     };
 
-    // Authorize: admin, registered owner, or guest editing their own session message
-    if !is_admin {
-        let mut allowed = false;
-        // Session cache identity check (covers guests + live messages)
-        {
-            let session = state.app.session_messages.read().await;
-            if let Some(msgs) = session.get(&channel_id) {
-                if let Some(m) = msgs.iter().find(|m| m.get("id").and_then(|v| v.as_str()) == Some(message_id.as_str())) {
-                    let author = m.get("user").and_then(|v| v.as_str()).unwrap_or("");
-                    let author_uid = m.get("userId").and_then(|v| v.as_str()).unwrap_or("");
-                    if (!my_username.is_empty() && author == my_username)
-                        || author_uid == socket.id.to_string()
-                        || (my_user_id > 0 && author_uid == format!("user-{}", my_user_id))
-                    {
-                        allowed = true;
-                    }
+    let is_admin = my_user_id > 0 && state.app.is_admin(my_user_id).await;
+    let mut owns_message = false;
+
+    // Session cache identity check covers live messages and guests.
+    {
+        let session = state.app.session_messages.read().await;
+        if let Some(msgs) = session.get(&channel_id) {
+            if let Some(m) = msgs.iter().find(|m| m.get("id").and_then(|v| v.as_str()) == Some(message_id.as_str())) {
+                let author = m.get("user").and_then(|v| v.as_str()).unwrap_or("");
+                let author_uid = m.get("userId").and_then(|v| v.as_str()).unwrap_or("");
+                if (!my_username.is_empty() && author == my_username)
+                    || author_uid == socket.id.to_string()
+                    || (my_user_id > 0 && author_uid == format!("user-{}", my_user_id))
+                {
+                    owns_message = true;
                 }
             }
         }
-        if !allowed && my_user_id > 0 {
-            match state.app.wdb.get_message_typed(&message_id).await {
-                Ok(Some(m)) => {
-                    if m.author_user_id == my_user_id as u64 {
-                        allowed = true;
-                    } else {
-                        warn!("[sio] edit-message: user {} not authorized to edit message {} (owned by {})", my_user_id, message_id, m.author_user_id);
-                        let _ = socket.emit("edit-error", &json!({ "messageId": message_id, "error": "Cannot edit others' messages" }));
-                        return;
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!("Failed to check message ownership: {}", e);
-                }
-            }
-        }
-        if !allowed {
-            let _ = socket.emit(
-                "edit-error",
-                &json!({ "messageId": message_id, "error": "Not allowed to edit this message" }),
-            );
-            return;
+    }
+    if !owns_message && my_user_id > 0 {
+        match state.app.wdb.get_message_typed(&message_id).await {
+            Ok(Some(m)) => owns_message = m.author_user_id == my_user_id as u64,
+            Ok(None) => {}
+            Err(e) => warn!("Failed to check message ownership: {}", e),
         }
     }
 
-    // Update live session cache first (source of truth for open clients)
+    // Server staff never rewrite another participant's encrypted plaintext.
+    // For server-readable rooms, retain the established admin edit behavior.
+    if (e2ee && !owns_message) || (!e2ee && !is_admin && !owns_message) {
+        warn!("[sio] edit-message: user {} not authorized to edit message {}", my_user_id, message_id);
+        let _ = socket.emit(
+            "edit-error",
+            &json!({ "messageId": message_id, "error": "Cannot edit others' messages" }),
+        );
+        return;
+    }
+
     let mut found_in_session = false;
     {
         let mut session = state.app.session_messages.write().await;
@@ -111,6 +109,7 @@ async fn on_edit_message(socket: SocketRef, data: Value, state: SioState, io: So
                 if m.get("id").and_then(|v| v.as_str()) == Some(message_id.as_str()) {
                     m["text"] = json!(new_text);
                     m["isEdited"] = json!(true);
+                    if e2ee { m["encrypted"] = json!(true); }
                     found_in_session = true;
                     break;
                 }
@@ -118,45 +117,22 @@ async fn on_edit_message(socket: SocketRef, data: Value, state: SioState, io: So
         }
     }
 
-    // Persist to WDB when present (may miss legacy session-only ids)
-    match state
-        .app
-        .wdb
-        .edit_message(&message_id, my_user_id as u64, &new_text)
-        .await
-    {
+    match state.app.wdb.edit_message(&message_id, my_user_id as u64, &new_text).await {
         Ok(()) => {}
         Err(e) => {
             if !found_in_session {
-                warn!(
-                    "[sio] edit-message: failed to edit message {} (not in session either): {}",
-                    message_id, e
-                );
-                let _ = socket.emit(
-                    "edit-error",
-                    &json!({ "messageId": message_id, "error": "Message not found" }),
-                );
+                warn!("[sio] edit-message: failed to edit message {} (not in session either): {}", message_id, e);
+                let _ = socket.emit("edit-error", &json!({ "messageId": message_id, "error": "Message not found" }));
                 return;
             }
-            warn!(
-                "[sio] edit-message: WDB miss for {} (session updated): {}",
-                message_id, e
-            );
+            warn!("[sio] edit-message: WDB miss for {} (session updated): {}", message_id, e);
         }
     }
 
-    // Broadcast message-edited to all clients in the channel
-    let _ = io
-        .to(channel_id.clone())
-        .emit(
-            "message-edited",
-            &json!({
-                "channelId": channel_id,
-                "messageId": message_id,
-                "newText": new_text,
-            }),
-        )
-        .await;
+    let _ = io.to(channel_id.clone()).emit(
+        "message-edited",
+        &json!({ "channelId": channel_id, "messageId": message_id, "newText": new_text, "encrypted": e2ee }),
+    ).await;
 }
 
 /// Toggle the pinned state of a message. Only the server owner or an admin
@@ -190,7 +166,6 @@ async fn on_toggle_pin(socket: SocketRef, data: Value, state: SioState, io: Sock
         return;
     }
 
-    // Toggle is_pinned on the live session message (source of truth for clients)
     let mut new_pinned = false;
     {
         let mut session = state.app.session_messages.write().await;
@@ -206,16 +181,8 @@ async fn on_toggle_pin(socket: SocketRef, data: Value, state: SioState, io: Sock
         }
     }
 
-    // Broadcast the new pinned state to every client in the channel
-    let _ = io
-        .to(channel_id.clone())
-        .emit(
-            "message-pinned",
-            &json!({
-                "channelId": channel_id,
-                "messageId": message_id,
-                "isPinned": new_pinned,
-            }),
-        )
-        .await;
+    let _ = io.to(channel_id.clone()).emit(
+        "message-pinned",
+        &json!({ "channelId": channel_id, "messageId": message_id, "isPinned": new_pinned }),
+    ).await;
 }
