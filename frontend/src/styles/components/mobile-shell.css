@@ -127,6 +127,12 @@ html[data-shell='mobile'] body {
 		box-shadow: 0 0 40px rgba(0, 0, 0, 0.45);
 	}
 
+	/* Offscreen sheets must not darken the active workspace. */
+	.channel-sidebar-container:not(.mobile-visible):not(.preview-visible),
+	.mobile-right-overlay:not(.visible):not(.preview-visible) {
+		box-shadow: none;
+	}
+
 	html[data-keyboard-open='1'] .channel-sidebar-container,
 	html[data-keyboard-open='1'] .mobile-right-overlay {
 		height: calc(100dvh - var(--keyboard-inset, 0px));

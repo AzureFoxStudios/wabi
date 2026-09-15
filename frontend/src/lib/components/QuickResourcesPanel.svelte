@@ -8,11 +8,8 @@
 		dmOtherUser
 	} from '$lib/layoutStoreStates';
 	import { channelMessages, currentUser, sendMessage, joinChannel, type Message, type User } from '$lib/socket';
-	import {
-		getQuickScratchpadStorageKey,
-		readScratchpadText,
-		writeScratchpadText
-	} from '$lib/notesStore';
+	import QuickScratchpad from './QuickScratchpad.svelte';
+	let scratchpad: { openFull: () => void } | undefined;
 
 	export let parentHeight = 600;
 
@@ -30,35 +27,6 @@
 	let quickResizeStartY = 0;
 	let quickResizeStartHeight = QUICK_DEFAULT_HEIGHT;
 	let activeTab: MicroTab = 'notes';
-
-	// --- Scratchpad (inline notes; not full N1–N4 workspace) ---
-	let loadedStorageKey = '';
-	let scratchpadText = '';
-	let saveState: 'saved' | 'unsaved' = 'saved';
-	let persistTimer: ReturnType<typeof setTimeout> | null = null;
-	const SAVE_DELAY_MS = 650;
-
-	$: storageKey = getQuickScratchpadStorageKey($currentUser?.id);
-	$: if (storageKey && storageKey !== loadedStorageKey) {
-		if (persistTimer) {
-			clearTimeout(persistTimer);
-			persistTimer = null;
-		}
-		loadedStorageKey = storageKey;
-		scratchpadText = readScratchpadText(storageKey);
-		saveState = 'saved';
-	}
-
-	function updateScratchpad(value: string): void {
-		scratchpadText = value;
-		saveState = 'unsaved';
-		if (persistTimer) clearTimeout(persistTimer);
-		persistTimer = setTimeout(() => {
-			writeScratchpadText(storageKey, value);
-			saveState = 'saved';
-			persistTimer = null;
-		}, SAVE_DELAY_MS);
-	}
 
 	// --- Compact DM slot: prefer pinned aux, else active right-panel DM ---
 	// Never bind NOTES_DM_ID (__keep_notes__) — openNotes() would hijack this slot.
@@ -103,7 +71,7 @@
 	}
 
 	function openFullNotes(): void {
-		layoutStore.openNotes();
+		scratchpad?.openFull();
 	}
 
 	function openFullDms(): void {
@@ -122,14 +90,7 @@
 
 	onDestroy(() => {
 		stopQuickResize();
-		if (persistTimer) {
-			clearTimeout(persistTimer);
-			persistTimer = null;
-		}
-		if (saveState === 'unsaved' && storageKey) {
-			writeScratchpadText(storageKey, scratchpadText);
-			saveState = 'saved';
-		}
+
 	});
 
 	function startQuickResize(event: MouseEvent): void {
@@ -264,22 +225,7 @@
 
 		<div class="quick-body">
 			{#if activeTab === 'notes'}
-				<section class="micro-notes" aria-label="Quick notes">
-					<textarea
-						class="micro-notes-input"
-						value={scratchpadText}
-						on:input={(event) =>
-							updateScratchpad((event.currentTarget as HTMLTextAreaElement).value)}
-						placeholder="Quick note — auto-saves."
-						spellcheck="true"
-					></textarea>
-					<div class="micro-footer">
-						<span class:dirty={saveState === 'unsaved'}>
-							{saveState === 'saved' ? 'Saved' : 'Unsaved'}
-						</span>
-						<span class="micro-hint">Scratchpad · not full notes workspace</span>
-					</div>
-				</section>
+				<QuickScratchpad bind:this={scratchpad} showFull={false} />
 			{:else}
 				<section class="micro-dm" aria-label="Quick DM">
 					{#if !microDmChannelId || !microDmOther}
@@ -515,47 +461,11 @@
 		overflow: hidden;
 	}
 
-	.micro-notes,
 	.micro-dm {
 		flex: 1;
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
-	}
-
-	.micro-notes-input {
-		flex: 1;
-		min-height: 0;
-		width: 100%;
-		resize: none;
-		border: none;
-		outline: none;
-		background: transparent;
-		color: var(--text-heading);
-		padding: 0.65rem 0.75rem;
-		font-size: 0.82rem;
-		line-height: 1.5;
-		font-family: inherit;
-	}
-
-	.micro-notes-input::placeholder {
-		color: var(--text-muted);
-	}
-
-	.micro-footer {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.35rem 0.75rem 0.5rem;
-		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
-		font-size: 0.68rem;
-		color: var(--text-secondary);
-		flex-shrink: 0;
-	}
-
-	.micro-footer .dirty {
-		color: color-mix(in srgb, var(--color-warning, #f59e0b) 78%, var(--text-heading) 22%);
 	}
 
 	.micro-hint {

@@ -4,7 +4,6 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
 	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
-	import { getDmNotesStorageKey } from '$lib/notesStore';
 	import GroupAvatar from './GroupAvatar.svelte';
 	import NotesWorkspace from './NotesWorkspace.svelte';
 	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
@@ -88,7 +87,6 @@
 	$: isGroup = channel?.type === 'group';
 	$: activeConversationChannel = channel || $channels.find((entry) => entry.id === channelId);
 	$: messages = $channelMessages[channelId] || [];
-	$: dmNotesStorageKey = getDmNotesStorageKey(channelId, $currentUser?.id);
 	$: dmNotesTitle = isGroup ? 'Group Notes' : 'DM Notes';
 	$: composerEnhancementSettings = $composerEnhancementSettingsStore;
 	$: dmSpellcheckEnabled = composerEnhancementSettings.spellcheckEnabled;
@@ -714,7 +712,7 @@
 			<div class="dm-notes-panel">
 				<NotesWorkspace
 					title={dmNotesTitle}
-					storageKey={dmNotesStorageKey}
+					contextChannelId={channelId}
 					emptyMessage="No notes in this conversation yet."
 					placeholder="Write a note specific to this DM..."
 				/>
