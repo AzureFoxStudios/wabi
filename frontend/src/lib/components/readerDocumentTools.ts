@@ -1,3 +1,12 @@
+import Prism, { ensurePrismGrammars } from '$lib/prism';
+import {
+	countReaderCodeLines,
+	normalizeReaderCodeLanguage,
+	readerCodeLanguageLabel,
+	readerCodePreview
+} from '$lib/readerCode';
+import type { ReaderDocumentFormat } from '$lib/readerWorkspace';
+
 export interface ReaderAnchor {
 	block: number;
 	offset: number;
@@ -8,6 +17,14 @@ export interface ReaderHeading {
 	id: string;
 	label: string;
 	level: number;
+}
+
+export interface ReaderCodeBlock {
+	id: string;
+	language: string;
+	label: string;
+	lineCount: number;
+	preview: string;
 }
 
 export interface ReaderSearchMatch {
@@ -71,6 +88,105 @@ export function prepareReaderDocument(root: HTMLElement): ReaderHeading[] {
 		pre.prepend(button);
 	});
 	return outline;
+}
+
+function removeLanguageClasses(element: Element): void {
+	for (const className of Array.from(element.classList)) {
+		if (className.startsWith('language-')) element.classList.remove(className);
+	}
+}
+
+/**
+ * Turns sanitized <pre><code> nodes into navigable Reader code blocks.
+ * Markdown's renderer emits only a normalized data-reader-language attribute;
+ * arbitrary source classes remain forbidden by the Reader sanitizer.
+ */
+export function prepareReaderCodeBlocks(
+	root: HTMLElement,
+	format: ReaderDocumentFormat,
+	documentLanguage?: string,
+	includeProjectAction = false
+): ReaderCodeBlock[] {
+	const codeBlocks: ReaderCodeBlock[] = [];
+
+	root.querySelectorAll<HTMLPreElement>('pre').forEach((pre, index) => {
+		const code = pre.querySelector<HTMLElement>('code');
+		if (!code) return;
+
+		pre.querySelector('.reader-code-header')?.remove();
+		const text = code.textContent || '';
+		const language = normalizeReaderCodeLanguage(
+			format === 'code' ? documentLanguage : pre.dataset.readerLanguage
+		);
+		const id = pre.id || `reader-code-${index + 1}`;
+		const lineCount = countReaderCodeLines(text);
+		const label = readerCodeLanguageLabel(language);
+
+		pre.id = id;
+		pre.dataset.readerCode = language;
+		pre.classList.add('reader-code-block');
+		removeLanguageClasses(pre);
+		removeLanguageClasses(code);
+		if (language !== 'plain') {
+			pre.classList.add(`language-${language}`);
+			code.classList.add(`language-${language}`);
+		}
+
+		let copy = pre.querySelector<HTMLButtonElement>('.reader-code-copy');
+		if (!copy) {
+			copy = document.createElement('button');
+			copy.type = 'button';
+			copy.className = 'reader-code-copy';
+			copy.textContent = 'Copy';
+		}
+		copy.setAttribute('aria-label', `Copy ${label} code block`);
+
+		const header = document.createElement('span');
+		header.className = 'reader-code-header';
+		const meta = document.createElement('span');
+		meta.className = 'reader-code-meta';
+		const languageLabel = document.createElement('strong');
+		languageLabel.className = 'reader-code-language';
+		languageLabel.textContent = label;
+		const lines = document.createElement('span');
+		lines.textContent = `${lineCount.toLocaleString()} ${lineCount === 1 ? 'line' : 'lines'}`;
+		meta.append(languageLabel, lines);
+		const actions = document.createElement('span');
+		actions.className = 'reader-code-actions';
+		if (includeProjectAction) {
+			const project = document.createElement('button');
+			project.type = 'button';
+			project.className = 'reader-code-project';
+			project.textContent = 'Project';
+			project.setAttribute('aria-label', 'Open project workspace');
+			actions.append(project);
+		}
+		actions.append(copy);
+		header.append(meta, actions);
+		pre.prepend(header);
+
+		codeBlocks.push({ id, language, label, lineCount, preview: readerCodePreview(text) });
+	});
+
+	return codeBlocks;
+}
+
+/** Apply Prism after sanitization and DOM enhancement; source code remains text-only input. */
+export async function highlightReaderCodeBlocks(root: HTMLElement): Promise<void> {
+	await ensurePrismGrammars();
+	root.querySelectorAll<HTMLPreElement>('pre.reader-code-block').forEach((pre) => {
+		const language = normalizeReaderCodeLanguage(pre.dataset.readerCode);
+		if (language === 'plain') return;
+		const grammar = Prism.languages[language];
+		const code = pre.querySelector<HTMLElement>('code');
+		if (!grammar || !code) return;
+		const text = code.textContent || '';
+		try {
+			code.innerHTML = Prism.highlight(text, grammar, language);
+		} catch (error) {
+			console.warn('[Reader] Prism highlighting failed:', language, error);
+		}
+	});
 }
 
 export function readerBlocks(root: HTMLElement): HTMLElement[] {
@@ -152,7 +268,7 @@ export function highlightReaderSearch(root: HTMLElement, query: string): HTMLEle
 	if (!query.trim()) return [];
 	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
 		acceptNode(node) {
-			return node.parentElement?.closest('button,script,style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+			return node.parentElement?.closest('button,script,style,.reader-code-header') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
 		}
 	});
 	const nodes: { node: Text; start: number; end: number }[] = [];
