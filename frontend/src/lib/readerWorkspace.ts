@@ -53,7 +53,7 @@ export interface ReaderDocumentSelection {
 	images?: ImagePage[];
 	/** Stable native Wabi document identity, when this selection is document-backed. */
 	documentId?: string;
-	/** Original Reader/source identity for local working copies. */
+	/** Stable identity of the source entity (message/note/etc.) for local working copies. */
 	sourceDocKey?: string;
 }
 
@@ -167,6 +167,15 @@ function computeDocumentKey(
 	return `rdoc-${hashString(seed)}`;
 }
 
+export function readerSourceDocumentKey(
+	source: ReaderDocumentSource,
+	sourceId: string | null | undefined,
+	fallbackDocKey: string
+): string {
+	const stableId = String(sourceId || '').trim();
+	return stableId ? `${source}:${stableId}` : fallbackDocKey;
+}
+
 function inferReaderFormat(fileName: string): ReaderDocumentFormat {
 	const normalized = fileName.toLowerCase();
 	if (normalized.endsWith('.md') || normalized.endsWith('.markdown')) return 'markdown';
@@ -218,14 +227,17 @@ export function openReaderDocument(
 	content: string,
 	format: ReaderDocumentFormat = 'markdown',
 	source: ReaderDocumentSource = 'generated',
-	language?: string
+	language?: string,
+	sourceId?: string
 ): void {
 	const normalizedTitle = title.trim() || 'Untitled Document';
 	const normalizedContent = content.replace(/\r\n/g, '\n');
 	const resolvedLanguage = format === 'code' ? (language || inferReaderCodeLanguage(normalizedTitle)) : language;
+	const docKey = computeDocumentKey(normalizedTitle, normalizedContent, format, resolvedLanguage);
 	const entry: ReaderDocumentSelection = {
 		id: makeReaderId(),
-		docKey: computeDocumentKey(normalizedTitle, normalizedContent, format, resolvedLanguage),
+		docKey,
+		sourceDocKey: readerSourceDocumentKey(source, sourceId, docKey),
 		title: normalizedTitle,
 		content: normalizedContent,
 		format,
