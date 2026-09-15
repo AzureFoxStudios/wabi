@@ -52,10 +52,11 @@
 		}}
 	>
 		<div class="modal-header">
-			<h2>{editingEvent ? 'Edit Event' : 'Add New Event'}</h2>
-			<button class="close-btn" on:click={closeModal}>&times;</button>
+			<h2>{editingEvent?.recurring ? 'Edit recurring series' : editingEvent ? 'Edit Event' : 'Add New Event'}</h2>
+			<button class="close-btn" aria-label="Close event editor" on:click={closeModal}>&times;</button>
 		</div>
 		<form on:submit|preventDefault={handleSubmit}>
+			{#if editingEvent?.recurring}<p>Changes apply to every occurrence in this series.</p>{/if}
 			<div class="form-group">
 				<label for="title">Title *</label>
 				<input id="title" type="text" bind:value={formTitle} placeholder="Event title" required />
@@ -110,7 +111,8 @@
 						</select>
 					</div>
 					<div class="form-group">
-						<label for="interval">Every N:</label>
+						{#if formRecurringFrequency === 'monthly' || formRecurringFrequency === 'yearly'}<p>Months or years without this date are skipped.</p>{/if}
+					<label for="interval">Every N:</label>
 						<input id="interval" type="number" bind:value={formRecurringInterval} min="1" max="99" />
 					</div>
 				</div>

@@ -24,6 +24,7 @@
 	} from '$lib/business/plannerUsers';
 	import { onMount } from 'svelte';
 	import { showToast } from '$lib/toast';
+	import { occurrencesForRange } from '$lib/business/calendarOccurrences';
 	import { buildCalendarEventData } from '$lib/business/calendarForm';
 
 	// Props
@@ -143,21 +144,20 @@
 	$: eventsByDay = (() => {
 		void $calendarEvents;
 		const map = new Map<string, CalendarEvent[]>();
+		const visibleDays = getDaysInMonth(currentMonth);
+		const first = visibleDays[0], last = visibleDays[visibleDays.length - 1];
 		for (const event of $calendarEvents) {
-			const start = new Date(event.startDate);
-			const end = event.endDate ? new Date(event.endDate) : start;
-			// Clamp multi-day span to a reasonable window around current month
-			const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-			const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-			// Cap span length so pathological multi-year events don't hang
-			let steps = 0;
-			while (cursor <= endDay && steps < 62) {
-				const key = dayKey(cursor);
-				const list = map.get(key);
-				if (list) list.push(event);
-				else map.set(key, [event]);
-				cursor.setDate(cursor.getDate() + 1);
-				steps += 1;
+			for (const occurrence of occurrencesForRange(event, first, last)) {
+				const start = new Date(occurrence.start), end = new Date(occurrence.end);
+				const cursor = new Date(Math.max(first.getTime(), new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()));
+				const endDay = new Date(Math.min(last.getTime(), new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime()));
+				const displayed = { ...event, startDate: occurrence.start, endDate: occurrence.end };
+				while (cursor <= endDay) {
+					const key = dayKey(cursor);
+					const list = map.get(key);
+					if (list) list.push(displayed); else map.set(key, [displayed]);
+					cursor.setDate(cursor.getDate() + 1);
+				}
 			}
 		}
 		for (const list of map.values()) {
@@ -271,7 +271,10 @@
 		showEventModal = true;
 	}
 
-	function openEditModal(event: CalendarEvent) {
+	function openEditModal(displayed: CalendarEvent) {
+		// Occurrence clicks edit the original series, never replace its starting date.
+		const event = $calendarEvents.find(item => item.id === displayed.id);
+		if (!event) return;
 		editingEvent = event;
 		formTitle = event.title;
 		formDescription = event.description || '';

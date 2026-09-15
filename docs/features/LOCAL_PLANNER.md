@@ -28,7 +28,7 @@ Conflict recovery downloads include multiple snapshots under a recovery envelope
 
 ## Remaining limits
 
-- Recurrence form values save correctly and disabling recurrence clears the rule. Displaying expanded recurring occurrences still needs implementation and acceptance.
+- Daily, weekly, monthly and yearly occurrences render in the visible calendar and upcoming-event summary. Clicking an occurrence edits the original series; months/years without its date are skipped. Display computation is bounded to 366-day ranges and spans. Independent occurrence-edit controls remain unavailable.
 - Whole-Planner design, accessibility, zoom and physical-device acceptance remain open.
 - Server sync has no implemented protocol. Settings and compatibility methods report it unavailable and perform no speculative network writes.
 - Local IndexedDB storage is not end-to-end encryption or an Authority backup. Keep device exports separately when needed.
