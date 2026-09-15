@@ -5,6 +5,7 @@ import {
 	createOrUpdateReaderSuggestion,
 	createReaderDocumentRecord,
 	isReaderDocumentChanged,
+	shouldFinalizeReaderDocumentSave,
 	type ReaderLocalDocument
 } from './readerDocuments';
 import type { ReaderDocumentSelection } from './readerWorkspace';
@@ -42,6 +43,15 @@ describe('Reader local-first document model', () => {
 		expect(edited.originalContent).toContain('Original body');
 		expect(edited.revision).toBe(1);
 		expect(isReaderDocumentChanged(edited)).toBe(true);
+	});
+
+	test('an older persistence completion cannot finalize over a newer local edit', () => {
+		const original = createReaderDocumentRecord(selection(), 'wdoc-test', 100);
+		const first = applyReaderDocumentEdit(original, { content: 'first local edit' }, 200);
+		const newer = applyReaderDocumentEdit(first, { content: 'newer local edit' }, 201);
+		expect(shouldFinalizeReaderDocumentSave(first, first)).toBe(true);
+		expect(shouldFinalizeReaderDocumentSave(newer, first)).toBe(false);
+		expect(shouldFinalizeReaderDocumentSave(newer, newer)).toBe(true);
 	});
 
 	test('suggestions are separate from canonical content until accepted', () => {
