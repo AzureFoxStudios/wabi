@@ -36,6 +36,13 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-msvc,x86_64-apple-darwin
 
+      - name: Setup Go for Tailcat (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.0'
+          cache: false
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -47,6 +54,19 @@ jobs:
 
       - name: Install frontend dependencies (locked)
         run: cd frontend && npm ci --no-audit --no-fund
+
+      # Tauri externalBin requires target-suffixed files under
+      # src-tauri/binaries. Linux/Windows use checksum-pinned v0.4.0 release
+      # assets; macOS v0.4.0 has no binary asset, so the staging script builds
+      # both macOS architectures from the exact pinned upstream commit.
+      - name: Stage Tailcat sidecar
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            ./scripts/fetch-tailcat-sidecar.sh aarch64-apple-darwin x86_64-apple-darwin
+          else
+            ./scripts/fetch-tailcat-sidecar.sh
+          fi
 
       # STATIC_BUILD=1 emits the adapter-static SPA (index.html); the default
       # build is adapter-node and produces nothing Tauri can serve. Use the

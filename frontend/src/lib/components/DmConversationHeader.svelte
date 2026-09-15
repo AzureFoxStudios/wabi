@@ -15,6 +15,7 @@
   import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
   import type { ContextMenuItem } from '$lib/context-menu/types';
   import { LatestIntent } from '$lib/latestIntent';
+  import { openGames } from '$lib/games/navigation';
 
   export let channel: Channel | null;
   export let otherUser: User | null = null;
@@ -85,6 +86,7 @@
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect(); menuX = rect.right; menuY = rect.bottom + 4;
     menuItems = [
       { id: 'pin', label: get(pinnedDmIdsStore).includes(target.id) ? 'Unpin conversation' : 'Pin conversation', icon: 'pin', onSelect: () => togglePinnedDm(target.id) },
+      { id: 'header-find-game', label: 'What can we play?', icon: 'smile', onSelect: () => openGames({ channelId: target.id, tab: 'match' }) },
       { id: 'privacy', label: 'Privacy and hosting', icon: 'settings', onSelect: () => { showPrivacy = !showPrivacy; } },
       { id: 'window', label: 'Open in separate window', onSelect: () => { openDetachedPanel({ kind: 'channel-chat', channelId: target.id, channelName: name }); } }
     ];

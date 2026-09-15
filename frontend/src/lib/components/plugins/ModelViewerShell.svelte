@@ -1,70 +1,117 @@
 <script lang="ts">
-	type ViewMode = 'textured' | 'normal' | 'wireframe-lines';
-
-	export let viewMode: ViewMode;
-	export let hideUi: boolean;
-	export let loadingViewer: boolean;
-	export let hasStarted: boolean;
-	export let fileName: string;
-	export let error: string | null;
-	export let fullBleed: boolean;
-	export let host: HTMLDivElement | null = null;
-	export let onStartViewer: () => void;
-	export let onViewModeChange: (mode: ViewMode) => void;
-	export let onToggleHideUi: () => void;
-	export let onToggleFullscreen: (() => void) | null = null;
-	export let isFullscreen = false;
+  import type { Snippet } from 'svelte';
+  import type { ModelView } from './modelInspector';
+  type ViewMode = 'textured' | 'normal' | 'wireframe-lines';
+  let {
+    viewMode, hideUi, loadingViewer, hasStarted, fileName, error, fullBleed, height = 320,
+    host = $bindable<HTMLDivElement>(), isFullscreen = false, inspectorOpen = false, settingsOpen = false,
+    ready = false, fullscreenError = '', measurementLabel = '',
+    onStartViewer, onViewModeChange, onToggleHideUi, onToggleFullscreen, onToggleInspector,
+    onToggleSettings, onFitView, onViewPreset, onRetry, onStopPreview,
+    canvasContent, settingsMenu, inspectorContent, notes
+  }: {
+    viewMode: ViewMode; hideUi: boolean; loadingViewer: boolean; hasStarted: boolean;
+    fileName: string; error: string | null; fullBleed: boolean; height?: number; host?: HTMLDivElement;
+    isFullscreen?: boolean; inspectorOpen?: boolean; settingsOpen?: boolean; ready?: boolean;
+    fullscreenError?: string; measurementLabel?: string;
+    onStartViewer: () => void; onViewModeChange: (mode: ViewMode) => void;
+    onToggleHideUi: () => void; onToggleFullscreen?: () => void; onToggleInspector: () => void;
+    onToggleSettings: () => void; onFitView: () => void; onViewPreset: (view: ModelView) => void;
+    onRetry?: () => void; onStopPreview?: () => void;
+    canvasContent: Snippet; settingsMenu?: Snippet; inspectorContent?: Snippet; notes?: Snippet;
+  } = $props();
+  const viewOptions: Array<[ViewMode, string]> = [['textured', 'Shaded'], ['normal', 'Normals'], ['wireframe-lines', 'Wireframe']];
 </script>
 
-<div class="model-viewer" class:full-bleed={fullBleed} bind:this={host}>
-	{#if error}
-		<div class="model-error">{error}</div>
-	{:else}
-		<slot name="canvas" />
-		{#if !hasStarted}
-			<button
-				type="button"
-				class="activation-overlay"
-				on:click={onStartViewer}
-			>
-				<span class="activation-title">Click to load 3D preview</span>
-				<span class="activation-subtitle">{fileName}</span>
-			</button>
-		{/if}
-		{#if loadingViewer}
-			<div class="loading-overlay">Loading 3D preview...</div>
-		{/if}
+<div class="model-viewer mv-shell" class:full-bleed={fullBleed} class:mv-focus={hideUi}
+  style:--mv-height={`${Math.max(180, height)}px`} bind:this={host}>
+  {#if !hideUi}
+    <header class="mv-heading">
+      <div class="mv-file-heading">
+        <span class="mv-file-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z M4 7.5l8 4.5 8-4.5 M12 12v9 M8 5.3l8 4.5" /></svg>
+        </span>
+        <div><p class="mv-eyebrow">Model workspace</p><h3 title={fileName}>{fileName}</h3></div>
+      </div>
+      <span class="mv-badge">Read-only</span>
+    </header>
+    {#if hasStarted && !error}
+      <div class="mv-toolbar">
+        <div class="mv-segment" role="group" aria-label="Model appearance">
+          {#each viewOptions as [mode, label]}
+            <button type="button" aria-pressed={viewMode === mode} disabled={!ready}
+              onclick={() => onViewModeChange(mode)}>{label}</button>
+          {/each}
+        </div>
+        <div class="mv-tool-group" role="group" aria-label="View controls">
+          <button type="button" class="mv-button" disabled={!ready} onclick={onFitView} title="Frame selection or model (F)">Fit view</button>
+          <button type="button" class="mv-button" disabled={!ready} aria-expanded={inspectorOpen} onclick={onToggleInspector}>Inspect</button>
+          <button type="button" class="mv-button" disabled={!ready} aria-expanded={settingsOpen} onclick={onToggleSettings}>Display</button>
+          <button type="button" class="mv-button" onclick={onToggleHideUi}>Focus</button>
+          {#if onToggleFullscreen}
+            <button type="button" class="mv-icon-button" onclick={onToggleFullscreen}
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                {#if isFullscreen}<path d="M9 3v6H3m12-6v6h6M9 21v-6H3m12 6v-6h6" />
+                {:else}<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />{/if}
+              </svg>
+            </button>
+          {/if}
+        </div>
+      </div>
+    {/if}
+  {/if}
 
-		{#if hasStarted && !hideUi}
-			<div class="overlay-controls overlay-left" role="group" on:click|stopPropagation on:keydown|stopPropagation>
-				<button type="button" class="view-btn" class:active={viewMode === 'textured'} on:click={() => onViewModeChange('textured')}>Textured</button>
-				<button type="button" class="view-btn" class:active={viewMode === 'normal'} on:click={() => onViewModeChange('normal')}>Normal</button>
-				<button type="button" class="view-btn" class:active={viewMode === 'wireframe-lines'} on:click={() => onViewModeChange('wireframe-lines')}>Wireframe Lines</button>
-			</div>
-
-			<div class="overlay-controls overlay-right" role="group" on:click|stopPropagation on:keydown|stopPropagation>
-				<button type="button" class="settings-fab" on:click={onToggleHideUi}>Hide UI</button>
-				{#if onToggleFullscreen}
-					<button type="button" class="view-btn" class:active={isFullscreen} on:click={onToggleFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
-						{#if isFullscreen}
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8V5h2M5 5l7 7M19 8V5h-2M19 5l-7 7M5 16v3h2M5 19l7-7m7 7v-3h-2m0 0l-7 7"></path></svg>
-						{:else}
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3c-1.5 0-2.9.6-4 1.6S3 7 3 8.5V14c0 2.8 2.2 5 5 5h3v-2H8c-2.2 0-4-1.8-4-4V8.5c0-1.9 1.6-3.5 3.5-3.5H11V6H8zM16 11h7v1h-3v7h-1v-3h-2v3H12v-7H9v-1h3V8h1v3h3z"></path></svg>
-						{/if}
-					</button>
-				{/if}
-				<slot name="settings-menu" />
-			</div>
-		{/if}
-		{#if hasStarted && hideUi}
-			<div class="overlay-controls overlay-right minimal-toggle" role="group" on:click|stopPropagation on:keydown|stopPropagation>
-				<button type="button" class="settings-fab" on:click={onToggleHideUi}>Show UI</button>
-			</div>
-		{/if}
-
-		{#if !hideUi}
-			<div class="viewer-hint">Drag to rotate, wheel to zoom, right-drag to pan</div>
-		{/if}
-		<slot name="notes" />
-	{/if}
+  <div class="mv-body" class:mv-with-panel={!hideUi && ready && (inspectorOpen || settingsOpen)}>
+    <div class="mv-stage" aria-busy={loadingViewer}>
+      {@render canvasContent()}
+      {#if error}
+        <div class="mv-state-card mv-state-error" role="alert">
+          <span class="mv-state-symbol" aria-hidden="true">!</span>
+          <h4>Preview unavailable</h4><p>{error}</p>
+          <p class="mv-muted">The original file has not been changed.</p>
+          {#if onRetry}<button type="button" class="mv-button mv-primary" onclick={onRetry}>Try again</button>{/if}
+        </div>
+      {:else if !hasStarted}
+        <div class="mv-state-card">
+          <p class="mv-eyebrow">3D preview</p><h4>Take a closer look.</h4>
+          <p>Inspect geometry, isolate parts, and check mesh dimensions without changing the file.</p>
+          <button type="button" class="mv-button mv-primary" onclick={onStartViewer}>Load preview</button>
+          <span class="mv-muted">GLB · glTF · OBJ · STL</span>
+        </div>
+      {:else if loadingViewer}
+        <div class="mv-state-card" role="status">
+          <span class="mv-spinner" aria-hidden="true"></span><h4>Opening model…</h4>
+          <p>Preparing geometry and materials.</p>
+          {#if onStopPreview}<button type="button" class="mv-button" onclick={onStopPreview}>Stop preview</button>{/if}
+        </div>
+      {/if}
+      {#if hideUi}
+        <button type="button" class="mv-button mv-focus-return" onclick={onToggleHideUi}>Show controls</button>
+      {/if}
+      {#if ready && !hideUi}
+        <div class="mv-view-presets" role="group" aria-label="Standard camera views">
+          <button type="button" class="mv-button" onclick={() => onViewPreset('iso')} title="Perspective isometric view (0)">Iso</button>
+          <button type="button" class="mv-button" onclick={() => onViewPreset('front')} title="Front view (1)">Front</button>
+          <button type="button" class="mv-button" onclick={() => onViewPreset('right')} title="Right view (3)">Right</button>
+          <button type="button" class="mv-button" onclick={() => onViewPreset('top')} title="Top view (7)">Top</button>
+        </div>
+      {/if}
+      {#if measurementLabel && ready && !hideUi}<div class="mv-measure-overlay" role="status">{measurementLabel}</div>{/if}
+    </div>
+    {#if !hideUi && ready && inspectorOpen && inspectorContent}
+      <aside class="mv-inspector" aria-label="Mesh inspector">{@render inspectorContent()}</aside>
+    {:else if !hideUi && ready && settingsOpen && settingsMenu}
+      <aside class="mv-inspector" aria-label="Display settings">{@render settingsMenu()}</aside>
+    {/if}
+  </div>
+  {#if !hideUi}
+    <footer class="mv-footer">
+      <span class="mv-status"><span class="mv-status-dot" class:mv-status-ready={ready}></span>{error ? 'Not loaded' : loadingViewer ? 'Loading' : ready ? 'Mesh preview' : 'Ready to open'}</span>
+      <span class="mv-navigation-hint">Drag to orbit · Scroll / pinch to zoom · Right-drag to pan</span>
+      <span>Source unchanged</span>
+    </footer>
+    {#if fullscreenError}<p class="mv-feedback" role="status">{fullscreenError}</p>{/if}
+    {#if notes}{@render notes()}{/if}
+  {/if}
 </div>
