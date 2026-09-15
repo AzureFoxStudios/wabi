@@ -1,74 +1,149 @@
-# Wabi Privacy & Operator Responsibility Stance
+# Wabi Privacy and Operator Responsibility
 
-> Informational positioning for docs/README. Not legal advice.
->
-> **Current implementation status (2026-07-29):** Wabi DMs and private rooms are not end-to-end encrypted. Their text and attachments must be treated as server-readable. E2EE language in design documents is a future requirement, not a current product claim.
+**Status:** current product/privacy boundary  
+**Updated:** 2026-09-14  
+**Not legal advice.** Laws and operator obligations vary by jurisdiction.
 
-## Running a Wabi server means running a community — for real
+Wabi's privacy model starts with **self-hosting and explicit trust boundaries**, not with the claim that the server cannot see anything.
 
-There is no company upstream. No Trust & Safety team is coming. When you run a Wabi instance, *you* are the provider: your server, your community, your responsibility. Depending on where you live, that can include legal obligations most Discord server owners have never had to think about, because Discord handled it for them. Nobody handles it for you.
+A Wabi community chooses its own server and operator instead of being required to put community data into a central Wabi service. That is meaningful privacy and autonomy — but the operator is still part of the trust model.
 
-Choose moderators like it matters, because it does. A mod who doesn't know how to handle a serious report isn't a mod — they're a liability you appointed. Wabi ships the tools: reporting pipelines, evidence preservation, escalation guides. Using them is your job.
+## The short version
 
-Private spaces currently rely on server access controls and transport encryption; the server operator may be able to read their contents. Public spaces are yours to govern. Govern them.
+- Wabi does not require a central Wabi account or global identity service.
+- Independent Wabi servers do not federate or share account databases.
+- The server operator controls the instance and its durable data.
+- **DMs and private rooms are not end-to-end encrypted today. Their text and attachments must be treated as server-readable.**
+- Retention and confidentiality are separate. “Deleted later” or “not written to disk” does not mean “hidden from the server.”
+- Optional proxies, tunnels, DERP relays, media services, external tools, and plugins add their own trust boundaries.
 
-## Two independent privacy axes
+## Self-hosting changes who is trusted
 
-Do not treat "encrypted" and "ephemeral" as the same property.
+When you run a Wabi server, you are operating a community service for the people who use it. There is no upstream Wabi Trust & Safety team moderating your instance, recovering your data, or making local legal/compliance choices for you.
 
-| Conversation type | Confidentiality | Retention |
+That means operators should:
+
+- choose owners/admins/moderators carefully;
+- protect server secrets and backups;
+- understand which optional providers can observe traffic or metadata;
+- keep software updated and review plugins before enabling them;
+- define retention/moderation rules appropriate for the community;
+- understand any legal obligations that apply where they operate.
+
+Wabi should provide useful moderation, reporting, audit, export, and recovery tools without pretending the software author operates the community.
+
+## Confidentiality and retention are different axes
+
+| Space / state | Confidentiality today | Retention |
 |---|---|---|
-| Default public channel | Server-readable | Memory-only (not retained by default) |
-| Archived public channel | Server-readable | Timed or durable (owner-controlled key) |
-| DM | Server-readable today; E2EE is unshipped | Policy-dependent |
-| Private room | Server-readable today; E2EE is unshipped | Policy-dependent |
+| Live/ephemeral public chat | Server-readable while live | Not durably retained by that mode |
+| Timed public chat | Server-readable | Durable until retention/deletion policy removes it |
+| Forever/archived public chat | Server-readable | Durable until explicitly removed |
+| DM | **Server-readable; E2EE unshipped** | Policy/implementation dependent |
+| Private/group room | **Server-readable; E2EE unshipped** | Policy/implementation dependent |
+| Presence/typing/transient call state | Server/runtime-visible | Intended to be transient |
+| Client-local preferences/effects | Device-local unless a feature explicitly syncs them | Local lifecycle |
 
-- **Ephemeral public chat** is operator-readable while live and not retained by default. It is *not* private from the server operator. Describe it as "ephemeral and not retained," never as operator-blind.
-- **Only E2EE** hides content from the server operator. Merely avoiding disk writes does not accomplish that.
-- **Persisted public channels and current DMs/private rooms** must be treated as operator-readable. A future E2EE implementation must keep client private keys outside the server-controlled key hierarchy.
+A memory-only message can still be read by the server process while it exists. Call it **ephemeral/not retained**, not “private from the operator.”
 
-## Regulatory note (accurate as of 2026-07-09)
+Only a correctly implemented end-to-end encrypted path can remove the server operator from the content-confidentiality boundary.
 
-The EU "Chat Control"/CSAM Regulation is **not enacted**. The Council adopted a negotiating position on 2025-11-26; the current text removes mandatory detection and states the regulation must not weaken E2EE, require decryption, or create access to E2EE data. A voluntary-scanning derogation expired 2026-04-03; on 2026-07-02 the Council proposed reinstating it through 2028-04-03, but Parliament has not approved, amended, or rejected it.
+## E2EE is a future acceptance project, not current marketing
 
-Wabi's privacy design does not depend on the regulation's status. The durable rule is: if the servers can decrypt private messages under normal operation, they can eventually be breached, abused, subpoenaed, or compelled. Design the capability out of the system rather than relying on policy promises.
+Wabi contains encryption/security design work, but the current DM/private-room send path is not an independently verified E2EE system.
 
-## CSAM and abuse reporting
+Before Wabi can claim operator-blind private messaging, tests must cover at least:
 
-Wabi separates public and private spaces and gives operators the tools to act on a "punish the bad actor" model.
+1. plaintext is never accepted/stored as the private-message payload;
+2. server data plus server-held keys cannot decrypt message content;
+3. attachments are encrypted end to end as well as message text;
+4. device/key changes produce a visible security event;
+5. multi-device and recovery behavior does not quietly escrow private keys to the server;
+6. plaintext does not leak into logs, traces, errors, search indexes, previews, moderation hooks, or backups;
+7. downgrade to plaintext cannot happen silently;
+8. retention/deletion semantics are defined for ciphertext, keys, attachments, indexes, and backups.
 
-**Public spaces:** operators moderate, may use precise tools like hash matching (PhotoDNA/NCMEC lists) for public image uploads if they choose, and report criminals to law enforcement, who prosecute the individual.
+Until that entire path ships and is verified, docs and UI must say **server-readable**.
 
-**Private spaces (DMs / private rooms):** currently server-readable and not equivalent to a sealed letter. Do not promise operator blindness until an independently verified E2EE send/receive and attachment path ships.
+## Independent servers, not federation
 
-**The software author:** responsible for building good tools, not for what strangers do with self-hosted instances. Publishing general-purpose, non-criminal-marketed encryption software has strong protection; that protection is strongest when Wabi does not operate servers and gives operators legitimate safety tooling.
+A Wabi client can save and switch among multiple Wabi servers. Each server has its own accounts, roles, data, operator, and security policy.
 
-Concrete commitments:
-- User reporting is first-class; a report → quarantine → preserve → escalate pipeline is built into the admin panel.
-- Optional hash-check integration is allowed for public channels only. Future E2EE spaces must remain outside server-side content inspection.
-- No AI classifiers on private content. Do not build the hook.
-- Evidence-friendly bans and public-space metadata retention support operator criminal referrals. Current DMs are not operator-blind.
+There is no global username registry and no server-to-server identity graph. Two accounts with the same handle on two servers are unrelated unless the user/client deliberately presents them together.
+
+Any future cross-server friend convenience should remain client-owned/non-federated unless Wabi intentionally adopts a new protocol and threat model.
+
+## Optional infrastructure changes the trust chain
+
+### Reverse proxies and tunnels
+
+A reverse proxy, VPS, or Cloudflare Tunnel can hide the origin or simplify HTTPS. It does not create E2EE. Depending on configuration/provider, it may observe connection metadata or terminate TLS.
+
+### Tailcat / DERP
+
+Private-access transport solves reachability. It does not grant Wabi membership and it does not make current DMs operator-blind. Public DERP relays are an additional infrastructure provider; operators can choose self-hosted relay infrastructure when that matters.
+
+### TURN / SFU / media helpers
+
+TURN, LiveKit/SFU, SRT gateway, and other media helpers handle some portion of media transport when enabled. Their deployment/operator becomes part of that transport's trust/metadata boundary.
+
+### External integrations
+
+Lore, optional CAD conversion helpers, future game/service integrations, and similar features should be treated as separate tools with their own permissions and data flows. A feature being inside Wabi's UI does not erase the external system's trust boundary.
+
+### Plugins
+
+Runtime backend plugins are operator-installed code. Checksums, signatures, scanning, audit logs, and declared permissions reduce risk, but until the sandbox/permission boundary is independently proven, do not treat an arbitrary backend plugin as hostile code that Wabi can safely contain.
+
+## Local-first customization
+
+Wabi deliberately keeps some customization device-local. Local visual effects, imported pointer textures/shaders, and similar preferences should not require uploading personal assets to the community server merely to customize one user's client.
+
+Local does not automatically mean secret from the local machine user/OS; it means the feature does not need server persistence unless explicitly designed otherwise.
 
 ## Deployment trust boundary
 
-The Rust origin should bind to loopback or a private container network by default. Public exposure requires an HTTPS reverse proxy (Caddy, nginx, Traefik) or an encrypted tunnel. A tunnel solves reachability and transport encryption; it does **not** create E2EE. Current DM contents remain inside the server/transport trust boundary.
+For public deployments:
 
-Production checklist:
-- Origin port not published to `0.0.0.0` publicly by default.
-- Separate development and production Compose profiles.
-- External `wss://` required; secure cookies.
-- Clear proxy-header trust documentation.
-- Startup warning or refusal when explicitly configured for public insecure operation.
+- expose Wabi through a properly configured TLS endpoint or encrypted private-access path;
+- keep loopback/operator-recovery interfaces private;
+- do not expose experimental sync/standby mutation surfaces as ordinary public APIs;
+- keep secrets/backups outside world-readable paths;
+- use `/livez` for process liveness and `/readyz` for application readiness;
+- treat plugins and optional helper services as additional attack surface.
 
-## Acceptance tests before any privacy claim
+See [NETWORKING.md](NETWORKING.md), [SECURITY-MODEL.md](SECURITY-MODEL.md), and [deployment/BACKUP_AND_RECOVERY.md](deployment/BACKUP_AND_RECOVERY.md).
 
-1. Memory-only canary: a unique string produces zero durable-storage writes.
-2. Restart: memory-only messages disappear after restart.
-3. Persistence: an opted-in public message survives restart and is readable by the server.
-4. DM downgrade: the server rejects plaintext submitted to a DM.
-5. Server-blind: database contents plus all server keys cannot decrypt a DM.
-6. Attachment: stored DM blobs are ciphertext, unrecognizable by file signature.
-7. Logging: canary plaintext does not appear in logs, traces, errors, or metrics.
-8. Key-change: replacing a device key produces a visible warning.
-9. Retention: expired content disappears from projections, media, indexes, and eventually backups.
-10. Network: production configuration exposes only the TLS endpoint.
+## Moderation and abuse handling
+
+Self-hosting does not mean “no rules.” Operators need tools to act on abuse in the spaces they control.
+
+Product principles:
+
+- user reporting and incident handling should be first-class;
+- moderation should be attributable and auditable where practical;
+- public/server-readable content can support operator moderation according to the server's policy;
+- future true E2EE spaces must not quietly gain a server-side content classifier/backdoor;
+- evidence preservation/export should be explicit rather than an invisible universal surveillance mode;
+- already delivered content cannot be magically recalled from another user's device.
+
+## Data recovery is part of privacy
+
+A privacy-respecting system that loses its encryption key or corrupts the only copy of community data is still a bad system.
+
+Operators should take protected backups of `data/wabi-server/`, uploads, and externally managed secrets and periodically prove those backups can be restored. Experimental replication/warm standby is **not** a replacement for backups today.
+
+See [deployment/BACKUP_AND_RECOVERY.md](deployment/BACKUP_AND_RECOVERY.md).
+
+## Durable privacy rule
+
+Prefer removing unnecessary capability from the system over promising that a powerful capability will never be abused.
+
+That means:
+
+- no mandatory central Wabi service;
+- no hidden global identity graph;
+- no E2EE claim while the server can decrypt the content;
+- no private-content AI scanning hook by default;
+- no accidental experimental sync/write surface exposed as production infrastructure;
+- no silent external-service dependency where an operator believes the deployment is fully local.

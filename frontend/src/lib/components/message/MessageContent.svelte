@@ -4,6 +4,8 @@
 	import type { Channel, FileAttachment, Message } from '$lib/socket';
 	import MessageFileContent from './MessageFileContent.svelte';
 	import MessageLinkEmbeds from './MessageLinkEmbeds.svelte';
+	import LongMessagePreview from './LongMessagePreview.svelte';
+	import { shouldPromoteLongMessage } from './longMessagePreview';
 	import {
 		formatDirectionsExpiry,
 		getDirectionsMeta,
@@ -19,7 +21,7 @@
 	import UnfurlCard from '$lib/components/UnfurlCard.svelte';
 	import SteamJoinButton from '$lib/components/plugins/SteamJoinButton.svelte';
 	import type { MessageEntity } from '$lib/socket';
-import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
+	import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 
 	export let message: Message;
 	export let messageText: string;
@@ -88,8 +90,11 @@ import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 	const OBJECT_ENTITY_KINDS = new Set(['forum_post', 'wiki_page', 'gallery_work', 'place']);
 
 	$: firstObjectEntity = findFirstObjectEntity(message.entities ?? []);
-	$: loreChannel = channels.find((channel) => channel.id === currentChannel)?.type === 'lore';
+	$: currentChannelRecord = channels.find((channel) => channel.id === currentChannel);
+	$: loreChannel = currentChannelRecord?.type === 'lore';
 	$: chatCitations = loreChannel ? parseChatCitations(messageText) : [];
+	$: isLongReaderMessage = shouldPromoteLongMessage(message.type, messageText);
+	$: longMessageContextLabel = currentChannelRecord?.name ? `#${currentChannelRecord.name}` : 'Chat';
 
 	function parseChatCitations(text: string): Array<{ path: string; startLine?: number; endLine?: number; channelId: string }> {
 		const citations: Array<{ path: string; startLine?: number; endLine?: number; channelId: string }> = [];
@@ -316,6 +321,13 @@ import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 		{/if}
 	{:else if message.type === 'emoji' && message.emojiUrl}
 		<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+	{:else if isLongReaderMessage}
+		<LongMessagePreview
+			{message}
+			text={messageText}
+			contextLabel={longMessageContextLabel}
+			spoiler={effectiveSpoiler}
+		/>
 	{:else}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -330,16 +342,18 @@ import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 		</div>
 	{/if}
 
-	<MessageLinkEmbeds
-		{message}
-		{messageText}
-		{currentChannel}
-		{channels}
-		{displayEnhancementSettingsStore}
-		{LinkPreviewComponent}
-		{ensureLinkPreviewLoaded}
-		{onOpenModelInDedicatedTab}
-	/>
+	{#if !isLongReaderMessage}
+		<MessageLinkEmbeds
+			{message}
+			{messageText}
+			{currentChannel}
+			{channels}
+			{displayEnhancementSettingsStore}
+			{LinkPreviewComponent}
+			{ensureLinkPreviewLoaded}
+			{onOpenModelInDedicatedTab}
+		/>
+	{/if}
 
 	{#if firstObjectEntity}
 		<UnfurlCard entity={firstObjectEntity} />
