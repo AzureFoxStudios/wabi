@@ -8,7 +8,39 @@ A user should be able to import a picture or a tiny shader from their own comput
 
 The pointer feeler is the first surface using this system. It is intentionally not a special-case package format; it is the first client of a broader visual-effects host.
 
-## Two lightweight effect kinds
+## Pointer settings and built-in worlds
+
+Appearance has a separate **Pointer Effects** section. It owns device-local
+settings under the existing `wabi.mouse-feeler.v1` key. Selecting or reshuffling a
+pointer effect never changes a theme's ambient background, and changing a theme
+never replaces the selected pointer effect. This implementation does not add a
+theme-owned pointer preset mode.
+
+The catalog keeps three families side by side:
+
+- **Basics:** triangles, dots, grid, sparkles, and glow without texture.
+- **Little Worlds:** all 28 scattered-object worlds, including Suits, Creature
+  Garden, Tabletop, Artist Desk, Notebook, Tiny Worlds and their creature/game/
+  fantasy/desk companions. Scatter Climb Icons and Arcane remain distinct from
+  connected Climb Route and Arcane Circle.
+- **Connected Worlds:** Lattice, branching Climb Route, Arcane Circle, Rune Wall,
+  Maze, Water Ripples and Sand. Water and sand are analytic visual effects,
+  not physical fluid/grain simulations.
+
+Scatter uses original outline motifs with deterministic cell seeds. Spacing,
+rotation, scale, density pockets, companions and occasional larger hero motifs
+vary. World coordinates stay fixed as the reveal moves or the viewport changes;
+only changing the seed reshuffles the composition.
+
+Glow strength, effect strength, radius, pattern scale, idle delay, fade, trail
+length and trail strength stay independently adjustable. Density, material
+detail, settle speed, response and maze curvature appear for applicable effects.
+**Draw a sample sweep** runs the selected production effect across a settings
+sample area without changing preferences or generating fake input events.
+Physical movement starts a fresh stroke; Escape, stop, blur, hidden tabs,
+disabling the effect and reduced-motion/coarse-pointer restrictions cancel it.
+
+## Two lightweight imported effect kinds
 
 ### Image effects
 
@@ -18,6 +50,10 @@ Users can import PNG, WebP, JPEG, GIF, or SVG directly. No manifest is required.
 - Rendered as a visual texture only.
 - SVG is parsed before storage and rejects scripts, event handlers, external resource references, and embedded executable content.
 - Current pointer surface tiles the image beneath the reveal mask.
+- Images must decode before storage and fit the dimension/pixel budget. New
+  imports preserve rectangular aspect ratios; old square `tileSize` records
+  remain supported. SVGs are static artwork: executable/animated content,
+  external references, namespace tricks and escaped CSS resources are rejected.
 
 ### Shader effects
 
@@ -43,9 +79,18 @@ uniform vec2 u_velocity;   // pointer velocity in CSS pixels/second
 uniform float u_time;      // seconds since shader load
 uniform float u_active;    // 1 while active, 0 while paused
 uniform vec3 u_accent;     // current Wabi accent, normalized 0..1
+uniform int u_trail_count; // 0..12 recent samples
+uniform vec4 u_trail[12];  // x, y (bottom-left CSS pixels), age seconds, speed
 ```
 
 The settings UI can download a starter shader containing this contract.
+Imported shaders define their own pattern size and interpretation of history;
+the scale and trail-strength sliders are disabled for them. Global radius,
+glow/effect strength, idle/fade and supplied history duration still apply.
+The fourth trail component is negative for a stroke break (`-(1 + speed)`).
+Shaders return straight-alpha colors; the wrapper premultiplies RGB for WebGL
+composition. The imported shader retains its last frame while the pointer layer
+fades, then stops. Compile/context failures are reported in Pointer Effects.
 
 ## Storage
 
@@ -96,3 +141,30 @@ This keeps a frog texture a frog texture instead of turning it into a privileged
 Pointer effects must remain feeler-sized compositor surfaces. Do not return to a full-screen masked/blended layer that repaints on every pointer event.
 
 Shader canvases should remain small, cap device-pixel ratio, avoid style/layout reads inside the animation loop, and stop rendering when the surface becomes idle.
+
+Built-in history is capped at 12 samples. The newest position remains exact,
+including subpixel movement; older samples cover time even on high-polling mice.
+Input and drawing use `performance.now()`; a fresh event is not dropped just
+because its timestamp is later than a browser RAF timestamp. Long jumps and
+idle gaps break strokes. Dynamic surfaces cap each backing dimension at 1024
+pixels and DPR at 1.25; very distant old trail samples may be cropped to keep
+that budget. Seeded connected geometry is cached independently of pointer motion.
+
+## Verification
+
+From `frontend/`:
+
+```sh
+npm ci --no-audit --no-fund
+bun test src/lib/effects
+bun run check
+STATIC_BUILD=1 npm run build
+node scripts/local-visual-effects-browser-smoke.mjs
+node scripts/pointer-effects-browser-smoke.mjs
+```
+
+The browser suites use a headful Chromium process with isolated local test data,
+compiled production Svelte components, real mouse events, Canvas/WebGL pixels,
+and IndexedDB. They do not connect to a deployed Wabi server. The executable can
+be selected with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`. Native Tauri and physical
+device acceptance remain separate from these checks.
