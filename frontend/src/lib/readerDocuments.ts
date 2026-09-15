@@ -470,7 +470,7 @@ async function hydrateScope(scopeId: string): Promise<void> {
 			Promise.resolve(readLocalDocuments(FALLBACK_PREFIX, scopeId))
 		]);
 		if (scopeId !== activeScopeId) return;
-		const recovery = readLocalDocuments(RECOVERY_PREFIX, scopeId);
+		const recovery = Object.values(mergeNewest(readLocalDocuments(RECOVERY_PREFIX, scopeId)));
 		const committed = mergeNewest([...indexed, ...fallback]);
 		const merged = { ...committed };
 		const recoveredIds = new Set<string>();
@@ -520,6 +520,11 @@ export async function activateReaderDocumentScope(scopeId: string): Promise<void
 export async function hydrateReaderDocuments(): Promise<void> {
 	if (!activeScopeId) await activateReaderDocumentScope('local-default');
 	else if (!get(readerDocumentsHydrated)) await hydrateScope(activeScopeId);
+}
+
+export function readerWorkingCopyDocumentId(selection: ReaderDocumentSelection): string {
+	const sourceDocKey = selection.sourceDocKey || selection.docKey;
+	return `wdoc-local-${encodeURIComponent(sourceDocKey)}`;
 }
 
 export function createReaderDocumentRecord(
@@ -671,7 +676,7 @@ export async function ensureReaderDocument(selection: ReaderDocumentSelection): 
 	if (existing) return existing;
 	const document = createReaderDocumentRecord(
 		selection,
-		selection.documentId || randomId('wdoc')
+		selection.documentId || readerWorkingCopyDocumentId(selection)
 	);
 	readerDocuments.update((current) => ({ ...current, [document.documentId]: document }));
 	safeLocalSet(recoveryStorageKey(document.scopeId, document.documentId), JSON.stringify(document));
