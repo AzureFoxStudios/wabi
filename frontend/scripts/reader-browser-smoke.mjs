@@ -7,8 +7,8 @@ import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { chromium } from 'playwright';
 
-// Uses the production Reader, parser, preferences, library, and CSS. Only the
-// surrounding tab queue is stubbed: this test never contacts a Wabi server.
+// Uses the production Reader, parser, preferences, library, code helpers and CSS.
+// Only surrounding app navigation/project context is stubbed; this test never contacts a Wabi server.
 // Run on Linux: npx svelte-kit sync && xvfb-run -a node scripts/reader-browser-smoke.mjs
 const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = await mkdtemp(path.join(frontend, '.reader-smoke-'));
@@ -27,8 +27,9 @@ try {
 	for (const relative of [
 		'src/lib/components/ReaderTabImpl.svelte', 'src/lib/components/ReaderImportSheet.svelte',
 		'src/lib/components/ReaderIcon.svelte', 'src/lib/components/readerTabHelpers.ts',
-		'src/lib/components/readerDocumentTools.ts', 'src/lib/readerWorkspace.ts',
-		'src/lib/readerLibrary.ts', 'src/styles/components/reader-tab.css'
+		'src/lib/components/readerDocumentTools.ts', 'src/lib/components/readerCode.css',
+		'src/lib/readerWorkspace.ts', 'src/lib/readerLibrary.ts', 'src/lib/readerCode.ts',
+		'src/lib/prism.ts', 'src/styles/components/reader-tab.css'
 	]) {
 		await mkdir(path.dirname(path.join(fixture, relative)), { recursive: true });
 		await copyFile(path.join(frontend, relative), path.join(fixture, relative));
@@ -38,6 +39,8 @@ try {
 	} }));
 	await writeFile(path.join(fixture, 'environment.js'), 'export const browser = true; export const dev = true; export const building = false;');
 	await writeFile(path.join(fixture, 'tabQueue.js'), 'export const mobileTabQueue = { openAddonTab() {} };');
+	await writeFile(path.join(fixture, 'channelStore.js'), `import { writable } from 'svelte/store'; export const currentChannel = writable('general'); export const channels = writable([]);`);
+	await writeFile(path.join(fixture, 'loreWorkspace.js'), 'export const openLoreSurface = () => {};');
 	await writeFile(path.join(fixture, 'main.js'), `
 		import { mount } from 'svelte';
 		import { get } from 'svelte/store';
@@ -65,6 +68,8 @@ try {
 		resolve: { dedupe: ['svelte'], alias: [
 			{ find: '$app/environment', replacement: path.join(fixture, 'environment.js') },
 			{ find: '$lib/mobileTabQueue', replacement: path.join(fixture, 'tabQueue.js') },
+			{ find: '$lib/channelStore', replacement: path.join(fixture, 'channelStore.js') },
+			{ find: '$lib/loreWorkspace', replacement: path.join(fixture, 'loreWorkspace.js') },
 			{ find: '$lib', replacement: path.join(fixture, 'src/lib') }
 		] },
 		optimizeDeps: { rolldownOptions: { tsconfig: false } },
@@ -104,7 +109,7 @@ try {
 	passed.push('real component mounts with functional empty state');
 
 	const paragraph = 'The path through the valley opened into a broad stretch of morning light. A reader should be able to stay here for a while, following a thought without fighting the page. Comfortable lines, clear paragraphs, and a steady place to return are more useful than a crowded toolbar.';
-	const book = '# A Place to Read\n\nA quiet **turning** point begins this book.\n\n```js\nconst answer = 42;\n```\n\n' +
+	const book = '# A Place to Read\n\nA quiet **turning** point begins this book.\n\n    const unlabeled = true;\n\n```js\nconst answer = 42;\n```\n\n' +
 		Array.from({ length: 80 }, (_, chapter) => `## Chapter ${chapter + 1}\n\n` + Array.from({ length: 24 }, (_, index) => `Passage ${chapter + 1}.${index + 1}. ${paragraph}`).join('\n\n')).join('\n\n') +
 		'\n\n## Final chapter\n\nAnother quiet **turning** point.\n\nEND OF LONG-FORM FIXTURE.\n\n<script>window.readerXss = true</script>';
 	const openBook = async () => {
@@ -127,8 +132,16 @@ try {
 	assert.equal(initial.xss, undefined);
 	assert.equal(await page.locator('.reader-document-body script').count(), 0);
 	assert.equal(await page.locator('.reader-outline-item').count(), 82);
+	assert.equal(await page.locator('.reader-code-block').count(), 2);
+	assert.equal(await page.locator('.reader-code-block').nth(0).getAttribute('data-reader-code'), 'plain');
+	assert.equal(await page.locator('.reader-code-block').nth(1).getAttribute('data-reader-code'), 'javascript');
+	assert.ok(await page.locator('.reader-code-block').nth(1).locator('.token.keyword').count() > 0, 'fenced JavaScript should be syntax highlighted');
+	await page.getByRole('button', { name: 'Code', exact: true }).click();
+	assert.equal(await page.locator('.reader-code-nav-item').count(), 2);
+	assert.match(await page.locator('.reader-code-nav-item').nth(1).innerText(), /JavaScript/);
+	await page.getByRole('button', { name: 'Contents', exact: true }).click();
 	await capture('02-long-form-reading.png');
-	passed.push('100k+ word document: full-height scrolling, isolated contrast, true contents and sanitized HTML');
+	passed.push('100k+ word document: full-height scrolling, isolated contrast, true contents, sanitized HTML and correctly ordered highlighted code');
 
 	await page.locator('.reader-viewport').focus();
 	await page.keyboard.press('Control+f');
@@ -200,6 +213,17 @@ try {
 	await page.keyboard.press('Escape');
 	assert.equal(await page.locator('.reader-focused').count(), 0);
 	passed.push('font changes preserve the anchor; focus mode enters and exits by keyboard');
+
+	const source = 'export function greet(name: string) {\n\treturn `Hello ${name}`;\n}\n\nconsole.log(greet("Wabi"));\n';
+	await page.locator('.reader-hidden-input').first().setInputFiles({ name: 'reader-sample.ts', mimeType: 'text/typescript', buffer: Buffer.from(source) });
+	await page.locator('.reader-code-document').waitFor();
+	await page.waitForTimeout(300);
+	assert.equal(await page.locator('.reader-code-block').getAttribute('data-reader-code'), 'typescript');
+	assert.ok(await page.locator('.reader-code-block .token.keyword').count() > 0, 'source file should be syntax highlighted');
+	assert.equal(await page.getByRole('button', { name: 'Switch to paged reading', exact: true }).count(), 0, 'source files must stay in continuous scroll');
+	assert.equal(await page.locator('.reader-code-nav-item').count(), 1);
+	assert.equal(await page.getByRole('button', { name: 'Open project workspace', exact: true }).count(), 0, 'project handoff must not appear without project context');
+	passed.push('source files open as read-only highlighted code with code navigation and continuous scrolling');
 
 	if (await page.getByRole('button', { name: 'Close document sidebar', exact: true }).count()) await page.getByRole('button', { name: 'Close document sidebar', exact: true }).click();
 	for (const width of [390, 320]) {
