@@ -177,6 +177,20 @@ function isLocalPreviewHost(): boolean {
 	});
 </script>
 
+<svelte:head>
+	<meta name="description" content="Wabi is an open-source, self-hostable communication workspace for small communities and teams, with chat, calls, collaborative tools, and extensible workspaces." />
+	<meta property="og:site_name" content="Wabi" />
+	<meta property="og:type" content="website" />
+	<meta property="og:title" content="Wabi — self-hosted communication and collaboration" />
+	<meta property="og:description" content="An open-source, self-hostable communication workspace for small communities and teams." />
+	<meta property="og:image" content="https://wabi.chat/screenshot-wide.png" />
+	<meta property="og:image:alt" content="Wabi communication workspace interface" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="Wabi — self-hosted communication and collaboration" />
+	<meta name="twitter:description" content="An open-source, self-hostable communication workspace for small communities and teams." />
+	<meta name="twitter:image" content="https://wabi.chat/screenshot-wide.png" />
+</svelte:head>
+
 <AmbientBackground />
 <div class="app-content-layer">
 	<ConnectionBadge />
