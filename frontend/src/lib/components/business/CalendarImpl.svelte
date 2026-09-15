@@ -23,6 +23,8 @@
 		ensurePlannerDirectory
 	} from '$lib/business/plannerUsers';
 	import { onMount } from 'svelte';
+	import { showToast } from '$lib/toast';
+	import { buildCalendarEventData } from '$lib/business/calendarForm';
 
 	// Props
 	export let isReadOnly = false;
@@ -325,34 +327,30 @@
 	}
 
 	function handleSubmit() {
-		if (!formTitle.trim() || !formStartDate) return;
-
-		const startDate = new Date(formStartDate);
-		if (!formAllDay && formStartTime) {
-			const [hours, minutes] = formStartTime.split(':');
-			startDate.setHours(parseInt(hours), parseInt(minutes));
+		if (!formTitle.trim() || !formStartDate) {
+			showToast('Title and start date are required', 'error');
+			return;
 		}
 
-		const eventData: any = {
-			title: formTitle.trim(),
-			description: formDescription.trim() || undefined,
-			startDate: startDate.getTime(),
-			endDate: formEndDate ? new Date(formEndDate).getTime() : undefined,
-			allDay: formAllDay,
-			color: formColor,
-			createdBy: $currentUser?.id || 'unknown',
-			signatures: draftSignatures.length > 0 ? [...draftSignatures] : undefined,
-			// Legacy single-signer mirror (first signer's name) for older clients.
-			signedBy: draftSignatures.length > 0 ? draftSignatures[0].name : undefined
-		};
+		const { eventData, errors } = buildCalendarEventData({
+			formTitle,
+			formDescription,
+			formStartDate,
+			formStartTime,
+			formEndDate,
+			formAllDay,
+			formColor,
+			formRecurring,
+			formRecurringFrequency,
+			formRecurringInterval,
+			formRecurringEndDate,
+			draftSignatures,
+			currentUserId: $currentUser?.id || 'unknown'
+		});
 
-		// Add recurring data if enabled
-		if (formRecurring) {
-			eventData.recurring = {
-				frequency: formRecurringFrequency,
-				interval: formRecurringInterval,
-				endDate: formRecurringEndDate ? new Date(formRecurringEndDate).getTime() : undefined
-			};
+		if (!eventData) {
+			showToast(errors[0], 'error');
+			return;
 		}
 
 		if (editingEvent) {
