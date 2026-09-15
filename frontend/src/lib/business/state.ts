@@ -1,4 +1,13 @@
-import { writable } from 'svelte/store';
+import { writable, type Updater } from 'svelte/store';
+import { canWritePlanner } from './writeGate';
+
+function ownedStore<T>(initial: T) {
+	const store = writable(initial);
+	return { subscribe: store.subscribe,
+		set(value: T) { if (canWritePlanner()) store.set(value); },
+		update(update: Updater<T>) { if (canWritePlanner()) store.update(update); }
+	};
+}
 import type {
 	Todo,
 	KanbanColumn,
@@ -22,16 +31,16 @@ export const DEFAULT_KANBAN_COLUMNS: KanbanColumn[] = [
 	{ id: 'archived', label: 'Archived', color: '#475569', visible: false }
 ];
 
-export const todos = writable<Todo[]>([]);
-export const calendarEvents = writable<CalendarEvent[]>([]);
-export const diaryEntries = writable<DiaryEntry[]>([]);
-export const projects = writable<Project[]>([]);
-export const sprints = writable<Sprint[]>([]);
-export const kanbanColumns = writable<KanbanColumn[]>(DEFAULT_KANBAN_COLUMNS);
+export const todos = ownedStore<Todo[]>([]);
+export const calendarEvents = ownedStore<CalendarEvent[]>([]);
+export const diaryEntries = ownedStore<DiaryEntry[]>([]);
+export const projects = ownedStore<Project[]>([]);
+export const sprints = ownedStore<Sprint[]>([]);
+export const kanbanColumns = ownedStore<KanbanColumn[]>(DEFAULT_KANBAN_COLUMNS);
 
-export const resources = writable<Resource[]>([]);
-export const tags = writable<Tag[]>([]);
-export const graphEdges = writable<GraphEdge[]>([]);
+export const resources = ownedStore<Resource[]>([]);
+export const tags = ownedStore<Tag[]>([]);
+export const graphEdges = ownedStore<GraphEdge[]>([]);
 
 export const currentView = writable<DashboardView>('overview');
 export const selectedDate = writable<number>(Date.now());

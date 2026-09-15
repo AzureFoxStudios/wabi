@@ -1,325 +1,43 @@
-import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import { getSocket } from '$lib/socket';
-import { getServerUrl } from '$lib/serverUrl';
-import { getAuthToken } from '$lib/authSession';
-import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from './snapshot';
-import { sanitizeBusinessData } from './validation';
 
-type BusinessSyncMode = 'manual' | 'auto';
+export const businessSyncAvailable = writable<boolean>(false);
 
-/**
- * Server sync capability — probed once per session.
- *
- * The Rust backend has NEVER shipped /api/business/get|sync (verified across
- * full git history, 2026-08-21). The engine below is real but its endpoints
- * are not; probing keeps us honest: when a future backend lands the routes,
- * the probe flips this store and sync starts working with zero frontend
- * changes. Until then the UI must say "On this device", not pretend.
- */
-export const businessSyncAvailable = writable<boolean | null>(null); // null = unprobed
-
-let capabilityProbed = false;
-
-/** Probe GET /api/business/get once; cache the verdict for the session. */
 export async function probeBusinessSyncCapability(): Promise<boolean> {
-	if (!browser || capabilityProbed) {
-		let known: boolean | null = null;
-		businessSyncAvailable.subscribe((v) => (known = v))();
-		return known === true;
-	}
-	capabilityProbed = true;
-	const token = getAuthToken();
-	if (!token) {
-		businessSyncAvailable.set(false);
-		return false;
-	}
-	try {
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), 4000);
-		let response: Response;
-		try {
-			response = await fetch(`${getServerUrl()}/api/business/get`, {
-				method: 'GET',
-				headers: { Authorization: `Bearer ${token}` },
-				signal: controller.signal
-			});
-		} finally {
-			clearTimeout(timeout);
-		}
-		const available = response.ok;
-		businessSyncAvailable.set(available);
-		logSync(`[BusinessSync] Capability probe: server sync ${available ? 'available' : 'unavailable'} (${response.status})`);
-		return available;
-	} catch {
-		businessSyncAvailable.set(false);
-		logSync('[BusinessSync] Capability probe failed (offline or unreachable)');
-		return false;
-	}
+	return false;
 }
 
-// Sync state
-let isSyncing = false;
-let isOnline = browser && navigator.onLine;
-let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
-const DEBOUNCE_MS = 1000;
-const BUSINESS_SYNC_MODE_KEY = 'wabi_business_sync_mode';
-const BUSINESS_SYNC_DEBUG_KEY = 'wabi_debug_business_sync';
-let pendingRemoteUpdate = false;
-
-function logSync(...args: unknown[]): void {
-	if (!browser) return;
-	if (localStorage.getItem(BUSINESS_SYNC_DEBUG_KEY) !== 'true') return;
-	console.log(...args);
+export function getBusinessSyncMode(): 'manual' | 'auto' {
+	return 'manual';
 }
 
-export function getBusinessSyncMode(): BusinessSyncMode {
-	if (!browser) return 'manual';
-	const mode = localStorage.getItem(BUSINESS_SYNC_MODE_KEY);
-	return mode === 'auto' ? 'auto' : 'manual';
-}
-
-export function setBusinessSyncMode(mode: BusinessSyncMode): void {
-	if (!browser) return;
-	localStorage.setItem(BUSINESS_SYNC_MODE_KEY, mode);
-}
-
-function isManualSyncMode(): boolean {
-	return getBusinessSyncMode() === 'manual';
+export function setBusinessSyncMode(mode: 'manual' | 'auto'): void {
+	// No-op: server business sync does not exist; mode cannot be enabled.
 }
 
 export function hasPendingRemoteBusinessUpdate(): boolean {
-	return pendingRemoteUpdate;
-}
-
-function hasAuthToken(): boolean {
-	return browser && !!getAuthToken();
+	return false;
 }
 
 export async function pullFromServer(): Promise<boolean> {
-	if (!browser || isSyncing || !hasAuthToken()) return false;
-
-	try {
-		isSyncing = true;
-		const serverUrl = getServerUrl();
-		const token = getAuthToken();
-
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), 8000);
-		let response;
-		try {
-			response = await fetch(`${serverUrl}/api/business/get`, {
-				method: 'GET',
-				headers: {
-					'Content-Type': 'application/json',
-					...(token ? { Authorization: `Bearer ${token}` } : {})
-				},
-				credentials: 'include',
-				signal: controller.signal
-			});
-		} finally {
-			clearTimeout(timeout);
-		}
-
-		if (!response.ok) {
-			throw new Error('Failed to fetch business data from server');
-		}
-
-		const result = await response.json();
-
-		if (result.success && result.data) {
-			applyBusinessDataSnapshot(sanitizeBusinessData({
-				...getBusinessDataSnapshot(),
-				...result.data
-			}));
-			pendingRemoteUpdate = false;
-			logSync('[BusinessSync] Pulled business data from server');
-			return true;
-		}
-
-		return false;
-	} catch (error) {
-		console.error('[BusinessSync] Failed to pull from server:', error);
-		return false;
-	} finally {
-		isSyncing = false;
-	}
+	return false;
 }
 
 export async function pushToServer(): Promise<boolean> {
-	if (!browser || isSyncing || !hasAuthToken()) return false;
-
-	try {
-		isSyncing = true;
-		const serverUrl = getServerUrl();
-		const token = getAuthToken();
-		const guestCode = sessionStorage.getItem('guestAccessCode');
-
-		const data = getBusinessDataSnapshot();
-
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), 8000);
-		let response;
-		try {
-			response = await fetch(`${serverUrl}/api/business/sync`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					...(token ? { Authorization: `Bearer ${token}` } : {}),
-					...(guestCode && !token ? { 'X-Guest-Code': guestCode } : {})
-				},
-				credentials: 'include',
-				body: JSON.stringify(data),
-				signal: controller.signal
-			});
-		} finally {
-			clearTimeout(timeout);
-		}
-
-		if (!response.ok) {
-			throw new Error('Failed to sync business data to server');
-		}
-
-		const result = await response.json();
-		if (result.success) {
-			logSync('[BusinessSync] Pushed business data to server');
-			return true;
-		}
-
-		return false;
-	} catch (error) {
-		console.error('[BusinessSync] Failed to push to server:', error);
-		return false;
-	} finally {
-		isSyncing = false;
-	}
+	return false;
 }
 
 export async function sync(pullFirst = false): Promise<boolean> {
-	if (!isOnline || !hasAuthToken()) {
-		return false;
-	}
-
-	logSync('[BusinessSync] Syncing business data', { pullFirst });
-
-	if (pullFirst) {
-		const pulled = await pullFromServer();
-		const pushed = await pushToServer();
-		return pulled || pushed;
-	}
-
-	const pushed = await pushToServer();
-	return pushed;
+	return false;
 }
 
 export function triggerSync(): void {
-	if (!browser || !isOnline || !hasAuthToken() || isManualSyncMode()) return;
-
-	if (debounceTimeout) {
-		clearTimeout(debounceTimeout);
-	}
-
-	debounceTimeout = setTimeout(() => {
-		sync(false);
-	}, DEBOUNCE_MS);
+	// No-op: no server protocol exists for business sync.
 }
 
-function handleOnline() {
-	isOnline = true;
-	logSync('[BusinessSync] Connection restored');
-	if (!isManualSyncMode()) {
-		sync(true);
-	}
+export function initSync(): void {
+	// No-op: no server protocol exists for business sync.
 }
 
-function handleOffline() {
-	isOnline = false;
-	logSync('[BusinessSync] Connection lost, working offline');
-}
-
-let currentSocketId: string | null = null;
-let listenerCleanup: (() => void) | null = null;
-
-function setupSocketListeners() {
-	if (!browser) return;
-
-	try {
-		const sock = getSocket();
-		if (!sock) return;
-
-		if (currentSocketId === sock.id && listenerCleanup) {
-			return;
-		}
-
-		if (listenerCleanup) {
-			listenerCleanup();
-			listenerCleanup = null;
-		}
-
-		const handleBusinessUpdate = (data: unknown) => {
-			logSync('[BusinessSync] Real-time business update received', data);
-			pendingRemoteUpdate = true;
-			if (!isManualSyncMode()) {
-				pullFromServer();
-			}
-		};
-
-		sock.on('business-data-updated', handleBusinessUpdate);
-
-		listenerCleanup = () => {
-			sock.off('business-data-updated', handleBusinessUpdate);
-		};
-
-		currentSocketId = sock.id;
-		logSync('[BusinessSync] Socket listeners initialized for socket', sock.id);
-	} catch (error) {
-		console.error('[BusinessSync] Failed to setup Socket.io listeners:', error);
-	}
-}
-
-export function initSync() {
-	if (!browser) return;
-
-	if (!hasAuthToken()) {
-		logSync('[BusinessSync] No auth token, skipping sync init');
-		businessSyncAvailable.set(false);
-		return;
-	}
-
-	window.addEventListener('online', handleOnline);
-	window.addEventListener('offline', handleOffline);
-	setupSocketListeners();
-
-	// Probe capability first: if the backend has no business routes (current
-	// reality), stay local-only and never fire doomed sync traffic.
-	void probeBusinessSyncCapability().then((available) => {
-		if (!available) {
-			logSync('[BusinessSync] Server sync unavailable — staying device-local');
-			return;
-		}
-		if (isOnline && !isManualSyncMode()) {
-			logSync('[BusinessSync] Online - performing initial sync');
-			sync(true);
-		} else {
-			logSync('[BusinessSync] Manual mode enabled or offline - not auto-syncing on init');
-		}
-	});
-}
-
-export function cleanupSync() {
-	if (!browser) return;
-
-	window.removeEventListener('online', handleOnline);
-	window.removeEventListener('offline', handleOffline);
-
-	if (debounceTimeout) {
-		clearTimeout(debounceTimeout);
-		debounceTimeout = null;
-	}
-
-	if (listenerCleanup) {
-		listenerCleanup();
-		listenerCleanup = null;
-	}
-	currentSocketId = null;
+export function cleanupSync(): void {
+	// No-op: no server protocol exists for business sync.
 }
