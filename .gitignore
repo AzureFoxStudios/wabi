@@ -97,7 +97,12 @@ data/server_owner.json
 data/storage-manifest.json
 data/blacklist.txt
 data/projections/
+# Server-managed runtime state (mutates on every bot registration/rotation)
+data/bots.json
 .env.save
+
+# Rotated server logs (dated names dodge the *.log rule)
+logs/
 
 # Local backups / restore snapshots
 backups/

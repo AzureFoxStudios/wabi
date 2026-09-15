@@ -5,11 +5,12 @@
 	 * keep using the CSS `--background-image-url` path on `.chat-container`;
 	 * CSS backgrounds cannot play video, so those need this element.
 	 *
-	 * Positioned as the first child of `.chat-container` (z-index 0, same
-	 * layer as the ambient canvas): paints above the container fill, below
-	 * `.messages` / panels which follow it in DOM order.
+	 * ChatBackdropHost shares this same first-child background layer for
+	 * generated scenes such as the koi pond. Keeping both mechanisms here
+	 * means Chat.svelte does not need to know which kind of backdrop is active.
 	 */
 	import { themeStore } from '../theme/themeStore';
+	import ChatBackdropHost from './chat/ChatBackdropHost.svelte';
 
 	const VIDEO_EXT_RE = /\.(mp4|webm|mov)(\?|$)/i;
 
@@ -19,6 +20,8 @@
 	$: opacity = bg?.opacity ?? 0.3;
 	$: blur = bg?.blur ?? 0;
 </script>
+
+<ChatBackdropHost />
 
 {#if isVideo}
 	<video
