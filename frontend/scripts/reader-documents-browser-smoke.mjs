@@ -47,9 +47,11 @@ try {
 	await writeFile(path.join(fixture, 'serverUrl.js'), `import { writable } from 'svelte/store'; export const activeServerUrl = writable('https://one.example');`);
 	await writeFile(path.join(fixture, 'presenceIdentity.js'), `import { writable } from 'svelte/store'; export const currentUser = writable({ dbUserId: 7 });`);
 	await writeFile(path.join(fixture, 'authSession.js'), `
+		let storedDbUserId = 7;
 		export const getAuthToken = () => 'token';
 		export const getGuestSessionId = () => null;
-		export const getStoredDbUserId = () => 7;
+		export const getStoredDbUserId = () => storedDbUserId;
+		export const setStoredTestDbUserId = (id) => { storedDbUserId = id; };
 		export const onAuthSessionCleared = () => () => {};
 	`);
 	await writeFile(path.join(fixture, 'main.js'), `
@@ -61,6 +63,7 @@ try {
 		import { readerDocuments, readerDocumentSaveState, readerDocumentConflicts, readerDocumentScope } from ${file('src/lib/readerDocuments.ts')};
 		import { currentUser } from ${file('presenceIdentity.js')};
 		import { activeServerUrl } from ${file('serverUrl.js')};
+		import { setStoredTestDbUserId } from ${file('authSession.js')};
 		updateReaderPreferences({ theme: 'paper', fontSize: 18 });
 		mount(Reader, { target: document.getElementById('app') });
 		const openSource = (sourceId, title, content) => openReaderDocument(title, content, 'markdown', 'chat', undefined, sourceId);
@@ -83,7 +86,7 @@ try {
 				};
 			},
 			openSource,
-			setUser(id) { currentUser.set({ dbUserId: id }); },
+			setUser(id) { setStoredTestDbUserId(id); currentUser.set({ dbUserId: id }); },
 			setServer(url) { activeServerUrl.set(url); }
 		};
 	`);
