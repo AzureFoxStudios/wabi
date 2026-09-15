@@ -4,6 +4,7 @@
 	import ReaderDocumentWorkbench from './ReaderDocumentWorkbench.svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { currentUser } from '$lib/presenceIdentity';
+	import { accountTokenSubject } from '$lib/apiRequest';
 	import { getAuthToken, getGuestSessionId, getStoredDbUserId, onAuthSessionCleared } from '$lib/authSession';
 	import { activateReaderDocumentScope } from '$lib/readerDocuments';
 	import { clearReaderSelection } from '$lib/readerWorkspace';
@@ -19,19 +20,17 @@
 		authBoundary;
 		const server = $activeServerUrl;
 		const token = getAuthToken(server);
-		// Stored identity is itself server-scoped. Prefer it while changing servers,
-		// because the connected presence store can briefly still describe the old
-		// server until the new socket finishes authentication.
+		// The JWT subject and stored DB id are both server-scoped. Prefer them
+		// over connected presence because that store can briefly still describe
+		// the previous server during a server switch.
+		const tokenSubject = accountTokenSubject(token);
 		const storedUserId = getStoredDbUserId(server);
-		const registeredUserId = token
-			? (storedUserId ?? $currentUser?.dbUserId ?? null)
+		const registeredIdentity = token
+			? (tokenSubject ? `subject:${tokenSubject}` : storedUserId ? `user:${storedUserId}` : $currentUser?.dbUserId ? `user:${$currentUser.dbUserId}` : null)
 			: null;
-		const guestSessionId = registeredUserId ? null : getGuestSessionId(server);
-		const identity = registeredUserId
-			? `user:${registeredUserId}`
-			: guestSessionId
-				? `guest:${guestSessionId}`
-				: `device:${getReaderAnonymousDeviceId()}`;
+		const guestSessionId = registeredIdentity ? null : getGuestSessionId(server);
+		const identity = registeredIdentity
+			?? (guestSessionId ? `guest:${guestSessionId}` : `device:${getReaderAnonymousDeviceId()}`);
 		const nextScope = makeReaderDocumentScope(server, identity);
 		if (nextScope !== activeScope) {
 			const crossingIdentityBoundary = activeScope !== '';
