@@ -113,6 +113,8 @@ function randomId(prefix: string): string {
 	return `${prefix}-${uuid}`;
 }
 
+const writerId = randomId('writer');
+
 function normalizeScopeId(scopeId: string | null | undefined): string {
 	return String(scopeId || '').trim() || 'local-default';
 }
@@ -141,6 +143,10 @@ function runtimeKey(scopeId: string, documentId: string): string {
 
 function storageKey(prefix: string, scopeId: string, documentId: string): string {
 	return `${prefix}${encodeURIComponent(scopeId)}:${documentId}`;
+}
+
+function recoveryStorageKey(scopeId: string, documentId: string): string {
+	return `${RECOVERY_PREFIX}${encodeURIComponent(scopeId)}:${documentId}:${writerId}`;
 }
 
 function toStored(record: ReaderLocalDocument): StoredReaderDocument {
@@ -220,8 +226,6 @@ function openReaderDocumentsDb(): Promise<IDBDatabase | null> {
 			const request = indexedDB.open(DB_NAME, DB_VERSION);
 			request.onupgradeneeded = () => {
 				const db = request.result;
-				// V1 was never shipped and keyed only by documentId. Recreate the
-				// store so a document can be isolated by server/account scope.
 				if (db.objectStoreNames.contains(STORE_NAME)) db.deleteObjectStore(STORE_NAME);
 				const store = db.createObjectStore(STORE_NAME, { keyPath: 'storageId' });
 				store.createIndex('scopeId', 'scopeId', { unique: false });
@@ -254,11 +258,6 @@ async function idbGetScope(scopeId: string): Promise<ReaderLocalDocument[]> {
 	});
 }
 
-/**
- * IndexedDB read-write transactions are serialized across tabs/windows. Doing
- * the revision check and put in the same transaction makes this a real CAS,
- * not just a per-tab promise chain.
- */
 async function idbCompareAndPut(record: ReaderLocalDocument): Promise<PersistResult> {
 	const db = await openReaderDocumentsDb();
 	if (!db) return { status: 'unavailable' };
@@ -372,7 +371,6 @@ function mergeNewest(records: ReaderLocalDocument[]): Record<string, ReaderLocal
 	return merged;
 }
 
-/** True only when the persisted snapshot is still the latest local mutation. */
 export function shouldFinalizeReaderDocumentSave(
 	current: ReaderLocalDocument | null | undefined,
 	persisted: ReaderLocalDocument
@@ -380,7 +378,6 @@ export function shouldFinalizeReaderDocumentSave(
 	return Boolean(current && current.documentId === persisted.documentId && current.updatedAt === persisted.updatedAt);
 }
 
-/** Pure guard used by tests and the IndexedDB CAS path. */
 export function hasReaderDocumentWriteConflict(
 	currentStorageRevision: number | null | undefined,
 	candidateStorageRevision: number
@@ -484,8 +481,6 @@ async function hydrateScope(scopeId: string): Promise<void> {
 				merged[pending.documentId] = pending;
 				recoveredIds.add(pending.documentId);
 				if (durable && pending.storageRevision !== durable.storageRevision) conflictedIds.add(pending.documentId);
-			} else {
-				safeLocalRemove(storageKey(RECOVERY_PREFIX, scopeId, pending.documentId));
 			}
 		}
 		readerDocuments.set(merged);
@@ -584,8 +579,6 @@ async function persistSnapshot(record: ReaderLocalDocument): Promise<void> {
 	if (result.status === 'conflict') {
 		setSaveState(record.documentId, 'error', record.scopeId);
 		setConflict(record.documentId, result.current?.storageRevision ?? 0, record.scopeId);
-		// Keep the recovery mirror intact. The other window's durable state is not
-		// overwritten, and this window's local edits remain recoverable.
 		return;
 	}
 	if (result.status !== 'saved') {
@@ -621,7 +614,7 @@ async function persistSnapshot(record: ReaderLocalDocument): Promise<void> {
 		if (!shouldFinalizeReaderDocumentSave(latest, record)) return documents;
 		return { ...documents, [saved.documentId]: saved };
 	});
-	safeLocalRemove(storageKey(RECOVERY_PREFIX, saved.scopeId, saved.documentId));
+	safeLocalRemove(recoveryStorageKey(saved.scopeId, saved.documentId));
 	setConflict(saved.documentId, null);
 	setSaveState(saved.documentId, 'saved');
 }
@@ -640,10 +633,7 @@ function enqueuePersist(record: ReaderLocalDocument): Promise<void> {
 function schedulePersist(record: ReaderLocalDocument): void {
 	const key = runtimeKey(record.scopeId, record.documentId);
 	if (discardingDocuments.has(key)) return;
-	const mirrored = safeLocalSet(
-		storageKey(RECOVERY_PREFIX, record.scopeId, record.documentId),
-		JSON.stringify(record)
-	);
+	const mirrored = safeLocalSet(recoveryStorageKey(record.scopeId, record.documentId), JSON.stringify(record));
 	setSaveState(record.documentId, mirrored || typeof indexedDB !== 'undefined' ? 'dirty' : 'error', record.scopeId);
 	const existing = saveTimers.get(key);
 	if (existing) clearTimeout(existing);
@@ -663,7 +653,7 @@ export async function flushReaderDocument(documentId: string): Promise<void> {
 		saveTimers.delete(key);
 	}
 	if (discardingDocuments.has(key)) return;
-	safeLocalSet(storageKey(RECOVERY_PREFIX, record.scopeId, documentId), JSON.stringify(record));
+	safeLocalSet(recoveryStorageKey(record.scopeId, documentId), JSON.stringify(record));
 	try {
 		await enqueuePersist(record);
 	} catch {
@@ -684,7 +674,7 @@ export async function ensureReaderDocument(selection: ReaderDocumentSelection): 
 		selection.documentId || randomId('wdoc')
 	);
 	readerDocuments.update((current) => ({ ...current, [document.documentId]: document }));
-	safeLocalSet(storageKey(RECOVERY_PREFIX, document.scopeId, document.documentId), JSON.stringify(document));
+	safeLocalSet(recoveryStorageKey(document.scopeId, document.documentId), JSON.stringify(document));
 	await enqueuePersist(document);
 	return get(readerDocuments)[document.documentId] || document;
 }
@@ -882,7 +872,7 @@ export async function discardReaderDocument(documentId: string): Promise<void> {
 			return next;
 		});
 		setConflict(documentId, null, record.scopeId);
-		safeLocalRemove(storageKey(RECOVERY_PREFIX, record.scopeId, documentId));
+		safeLocalRemove(recoveryStorageKey(record.scopeId, documentId));
 		if (durableDeleted || fallbackDeleted) broadcastDeleted(record.scopeId, documentId);
 	} finally {
 		discardingDocuments.delete(key);
