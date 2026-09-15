@@ -22,9 +22,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::api::auth::handle_turn_credentials;
+use crate::api::media_node_catalog;
 use crate::auth_extractor::AuthUser;
 use crate::media::MediaRoomError;
-use crate::nodes::NodeCapability;
+use crate::nodes::{NodeCapability, NodeStatus};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -118,23 +119,60 @@ async fn create_room(
         .await
         .map_err(MediaApiError::from)?;
 
-    // 2. If room is Pending and an online MediaRelay node exists, auto-assign it.
-    // This remains a routing skeleton; tenant scope is now real and is carried
-    // into the helper job so a shared node can isolate backend room identity.
+    // 2. Prefer media nodes that have explicitly advertised backend endpoint,
+    // capacity and drain state. Region is a hint only; WABI_MEDIA_PREFERRED_REGION
+    // exists for early/operator routing until client latency measurements land.
     if room.status == crate::media::MediaRoomStatus::Pending {
-        if let Some(node) = state
-            .node_registry
-            .find_online_node_with_capability(NodeCapability::MediaRelay)
-            .await
-        {
-            let endpoint = node
-                .lan_reachable_at
-                .as_ref()
-                .or(node.endpoint.as_ref())
-                .cloned();
+        let nodes = state.node_registry.list_nodes().await;
+        let catalog = media_node_catalog::global(&state.config.data_dir);
+        let preferred_region = std::env::var("WABI_MEDIA_PREFERRED_REGION")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let advertisements = catalog.list().await;
+        let selected = catalog
+            .select(
+                &nodes,
+                room.max_participants,
+                preferred_region.as_deref(),
+            )
+            .await;
+
+        let assignment = if let Some(selected) = selected {
+            tracing::info!(
+                "[media] selected advertised node={} provider={} region={:?} shared={:?}",
+                selected.node_id,
+                selected.provider,
+                selected.region,
+                selected.sharing
+            );
+            Some((selected.node_id, Some(selected.endpoint)))
+        } else {
+            // Backwards compatibility: old helpers that have never advertised
+            // media capacity may still be used. A node that DID advertise is not
+            // eligible for this escape hatch, otherwise a full/draining node
+            // could be selected in direct contradiction to its advertisement.
+            nodes
+                .iter()
+                .find(|node| {
+                    node.status == NodeStatus::Online
+                        && node.capabilities.contains(&NodeCapability::MediaRelay)
+                        && !advertisements.iter().any(|record| record.node_id == node.node_id)
+                })
+                .map(|node| {
+                    let endpoint = node
+                        .lan_reachable_at
+                        .as_ref()
+                        .or(node.endpoint.as_ref())
+                        .cloned();
+                    (node.node_id.clone(), endpoint)
+                })
+        };
+
+        if let Some((node_id, endpoint)) = assignment {
             match state
                 .media_registry
-                .assign_room(&room.room_id, &node.node_id, endpoint)
+                .assign_room(&room.room_id, &node_id, endpoint)
                 .await
             {
                 Ok(assigned) => {
@@ -142,7 +180,7 @@ async fn create_room(
                         "[media] Auto-assigned tenant={} room={} to node {}",
                         room.tenant_namespace,
                         room.room_id,
-                        node.node_id
+                        node_id
                     );
                     room = assigned;
                 }
