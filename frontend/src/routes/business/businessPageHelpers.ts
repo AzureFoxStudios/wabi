@@ -1,7 +1,8 @@
 import { browser } from '$app/environment';
 import { getAuthToken } from '$lib/authSession';
 import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from '$lib/business/snapshot';
-import { sanitizeBusinessData } from '$lib/business/validation';
+import { parsePlannerBackup, mergePlannerBackup } from '$lib/business/backup';
+import { capturePlannerSession, flushBusinessStorage } from '$lib/business/deviceStorage';
 import { grantLocalMockGuestAccess, isLocalMockApiMode } from '$lib/localMockApi';
 import { switchChannel } from '$lib/socket';
 import { showToast } from '$lib/toast';
@@ -78,7 +79,9 @@ export function computeQuickStats(
 }
 
 export function exportBusinessData(): void {
+	const captured = capturePlannerSession();
 	const data = {
+		sourceScope: captured.session.scope,
 		...getBusinessDataSnapshot(),
 		exportedAt: new Date().toISOString(),
 		version: '1.0'
@@ -93,26 +96,27 @@ export function exportBusinessData(): void {
 }
 
 export function importBusinessData(data: unknown): void {
-	applyBusinessDataSnapshot(sanitizeBusinessData(data));
+	const captured = capturePlannerSession();
+	const incoming = parsePlannerBackup(JSON.stringify(data), captured.session.scope);
+	applyBusinessDataSnapshot(mergePlannerBackup(getBusinessDataSnapshot(), incoming).data);
 }
 
-export function handleImportFileInput(event: Event, onImport: (data: unknown) => void): void {
+export async function handleImportFileInput(event: Event, onImport: (data: unknown) => void): Promise<void> {
 	const input = event.target as HTMLInputElement;
 	const file = input.files?.[0];
-	if (!file) return;
-	const reader = new FileReader();
-	reader.onload = (e) => {
-		try {
-			const data = JSON.parse(e.target?.result as string);
-			onImport(data);
-			showToast('Data imported successfully!', 'info');
-		} catch (error) {
-			console.error('Import error:', error);
-			showToast('Failed to import data. Please check the file format.', 'error');
-		}
-	};
-	reader.readAsText(file);
 	input.value = '';
+	if (!file) return;
+	try {
+		const captured = capturePlannerSession();
+		if (file.size > 20 * 1024 * 1024) throw new Error('Planner imports must be at most 20 MB.');
+		const text = await file.text();
+		parsePlannerBackup(text, captured.session.scope);
+		const data = JSON.parse(text);
+		if (!captured.isCurrent()) throw new Error('Your Planner account changed. Select the file again.');
+		onImport(data);
+		const saved = await flushBusinessStorage();
+		if (captured.isCurrent()) showToast(saved ? 'Planner import saved.' : 'Import remains in your draft; saving failed.', saved ? 'info' : 'error');
+	} catch (error) { showToast(error instanceof Error ? error.message : 'Planner import failed.', 'error'); }
 }
 
 export function handleChatChannelSwitch(channelId: string): void {

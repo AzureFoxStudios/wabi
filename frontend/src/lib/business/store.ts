@@ -1,6 +1,5 @@
 import { derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { startupMark, startupMeasure } from '$lib/startupProfiler';
 import type {
 	Todo,
 	TodoStatus,
@@ -13,11 +12,8 @@ import type {
 	Tag,
 	GraphEdge
 } from './types';
-import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from './snapshot';
-import { parseBusinessDataJson } from './validation';
 import { generateId } from './utils';
 import { addResource, addGraphEdge } from './resourceStore';
-import { isPersistSuppressed, setPersistFlush } from './persistGate';
 import {
 	DEFAULT_KANBAN_COLUMNS,
 	todos,
@@ -61,135 +57,9 @@ export { addProject, updateProject, deleteProject, getSubProjects } from './proj
 
 export { generateId } from './utils';
 
-// Local storage persistence
-const STORAGE_KEY = 'business_data';
-let syncInitScheduled = false;
-let storageLoaded = false;
-
-/**
- * Load persisted business data from localStorage. Runs automatically once on
- * module import; Planner and Business surfaces may call this again on mount to
- * guarantee hydration — the guard makes repeat calls a cheap no-op.
- */
-export function reloadFromStorage() {
-	if (!browser || storageLoaded) return;
-	storageLoaded = true;
-	try {
-		const saved = localStorage.getItem(STORAGE_KEY);
-		if (saved) {
-			applyBusinessDataSnapshot(parseBusinessDataJson(saved));
-		}
-	} catch (e) {
-		console.error('Failed to load business data from localStorage:', e);
-	}
-}
-
-function saveToStorage() {
-	if (!browser) return;
-	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(getBusinessDataSnapshot()));
-	} catch (e) {
-		console.error('Failed to save business data to localStorage:', e);
-	}
-}
-
-/** Coalesce rapid writes (drag, multi-field edits) — full snapshot stringify is not free. */
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-const SAVE_DEBOUNCE_MS = 250;
-
-function scheduleSaveToStorage() {
-	if (!browser || isPersistSuppressed()) return;
-	if (saveTimer) clearTimeout(saveTimer);
-	saveTimer = setTimeout(() => {
-		saveTimer = null;
-		if (!isPersistSuppressed()) saveToStorage();
-	}, SAVE_DEBOUNCE_MS);
-}
-
-/** Flush pending debounced save immediately (e.g. before unload / end of batch). */
-export function flushBusinessStorage(): void {
-	if (!browser) return;
-	if (saveTimer) {
-		clearTimeout(saveTimer);
-		saveTimer = null;
-	}
-	if (!isPersistSuppressed()) saveToStorage();
-}
-
-// When a batch snapshot apply finishes, persist once.
-setPersistFlush(() => {
-	if (browser) flushBusinessStorage();
-});
-
-// Auto-save on changes
-if (browser) {
-	// Ready flag prevents store subscriptions from triggering sync during init
-	let ready = false;
-
-	reloadFromStorage();
-
-	// Save to localStorage and trigger sync on any data change
-	const syncOnChange = () => {
-		if (isPersistSuppressed()) return;
-		scheduleSaveToStorage();
-		if (ready) {
-			import('./sync').then(({ triggerSync }) => triggerSync());
-		}
-	};
-
-	todos.subscribe(syncOnChange);
-	calendarEvents.subscribe(syncOnChange);
-	diaryEntries.subscribe(syncOnChange);
-	projects.subscribe(syncOnChange);
-	sprints.subscribe(syncOnChange);
-	kanbanColumns.subscribe(() => {
-		if (!isPersistSuppressed()) scheduleSaveToStorage();
-	});
-
-	// Knowledge Graph subscriptions
-	resources.subscribe(syncOnChange);
-	tags.subscribe(syncOnChange);
-	graphEdges.subscribe(syncOnChange);
-
-	// All subscriptions registered and storage loaded — enable sync
-	ready = true;
-
-	// Persist any pending debounce if the tab is closing / backgrounded.
-	window.addEventListener('pagehide', () => flushBusinessStorage());
-	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'hidden') flushBusinessStorage();
-	});
-
-	// Initialize sync engine during idle time so first paint/socket init stay responsive.
-	const scheduleSyncInit = () => {
-		if (syncInitScheduled) return;
-		syncInitScheduled = true;
-		const run = () => {
-			startupMark('business:sync:init:start');
-			import('./sync').then(({ initSync }) => {
-				initSync();
-				startupMark('business:sync:init:end');
-				startupMeasure('business:sync:init', 'business:sync:init:start', 'business:sync:init:end');
-			});
-		};
-		const ric = (window as Window & {
-			requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-		}).requestIdleCallback;
-		if (ric) {
-			ric(run, { timeout: 2500 });
-			return;
-		}
-		setTimeout(run, 800);
-	};
-	scheduleSyncInit();
-
-	// Initialize sample data only when explicitly enabled in development.
-	// This prevents accidental overwrites/noise in real business workspaces.
-	const enableSampleData = import.meta.env.DEV && localStorage.getItem('enableBusinessSampleData') === 'true';
-	if (enableSampleData) {
-		initializeSampleData();
-	}
-}
+export { reloadFromStorage, flushBusinessStorage } from './deviceStorage';
+import { reloadFromStorage } from './deviceStorage';
+if (browser) reloadFromStorage();
 
 // Initialize sample data for demo/testing
 function initializeSampleData() {
