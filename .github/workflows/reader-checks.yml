@@ -7,6 +7,7 @@ on:
       - 'frontend/package-lock.json'
       - 'frontend/src/lib/components/Reader*.svelte'
       - 'frontend/src/lib/components/reader*.ts'
+      - 'frontend/src/lib/components/reader*.css'
       - 'frontend/src/lib/reader*.ts'
       - 'frontend/src/styles/components/reader-tab.css'
       - 'frontend/scripts/reader-browser-smoke.mjs'
@@ -40,7 +41,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Reader unit tests
         working-directory: frontend
-        run: bun test src/lib/components/readerDocumentTools.test.ts
+        run: bun test src/lib/components/readerDocumentTools.test.ts src/lib/readerCode.test.ts
       # Vite's native dependency resolver also visits the parent project.
       # Its tsconfig extends the generated Kit configuration, even though
       # the Reader fixture itself uses an isolated, minimal tsconfig.

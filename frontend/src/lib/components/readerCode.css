@@ -1,0 +1,175 @@
+/* Reader code presentation is intentionally scoped to Reader so Prism does not
+   impose chat/editor styling on the rest of Wabi. */
+.reader-redesign.reader-code-document .reader-paper {
+	max-width: min(100%, 1180px);
+}
+
+.reader-redesign.reader-code-document .reader-prose {
+	max-width: none;
+}
+
+.reader-redesign .reader-prose pre.reader-code-block {
+	position: relative;
+	max-width: 100%;
+	margin: 1.5em 0;
+	padding: 46px 18px 18px;
+	overflow: auto;
+	border: 1px solid color-mix(in srgb, var(--reader-ink) 22%, var(--reader-paper));
+	border-radius: 8px;
+	background: #171b1d;
+	color: #e7e9e8;
+	font: 0.78em/var(--reader-line-height, 1.62) var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+	white-space: pre;
+	tab-size: 4;
+	box-shadow: inset 0 1px 0 #ffffff0a;
+}
+
+.reader-redesign .reader-prose pre.reader-code-block code {
+	display: block;
+	min-width: max-content;
+	padding: 0;
+	border-radius: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-shadow: none;
+}
+
+.reader-redesign .reader-code-header {
+	position: absolute;
+	inset: 0 0 auto 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 36px;
+	padding: 6px 8px 6px 12px;
+	border-bottom: 1px solid #ffffff16;
+	background: #202629;
+	color: #b8c2bf;
+	font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
+	letter-spacing: 0;
+	white-space: normal;
+}
+
+.reader-redesign .reader-code-meta,
+.reader-redesign .reader-code-actions,
+.reader-redesign .reader-code-nav-top {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	min-width: 0;
+}
+
+.reader-redesign .reader-code-language {
+	color: #eef3f0;
+	font-weight: 650;
+}
+
+.reader-redesign .reader-code-actions {
+	flex: 0 0 auto;
+	gap: 5px;
+}
+
+.reader-redesign .reader-code-header .reader-code-copy,
+.reader-redesign .reader-code-header .reader-code-project {
+	position: static;
+	inset: auto;
+	min-height: 25px;
+	padding: 3px 8px;
+	border: 1px solid #ffffff20;
+	border-radius: 5px;
+	background: #2a3336;
+	color: #dbe2df;
+	font: 11px/1.3 var(--font-sans, system-ui, sans-serif) !important;
+	cursor: pointer;
+}
+
+.reader-redesign .reader-code-header :is(.reader-code-copy, .reader-code-project):hover {
+	background: #364145;
+	color: #ffffff;
+}
+
+.reader-redesign .reader-code-header :is(.reader-code-copy, .reader-code-project):focus-visible {
+	outline: 2px solid var(--reader-green);
+	outline-offset: 2px;
+}
+
+.reader-redesign .reader-code-nav-list {
+	display: grid;
+	gap: 6px;
+}
+
+.reader-redesign .reader-code-nav-item {
+	display: grid;
+	gap: 5px;
+	width: 100%;
+	padding: 10px 11px;
+	border: 1px solid transparent;
+	border-radius: 7px;
+	background: transparent;
+	color: var(--reader-chrome-muted);
+	text-align: start;
+	cursor: pointer;
+}
+
+.reader-redesign .reader-code-nav-item:hover,
+.reader-redesign .reader-code-nav-item.active {
+	border-color: var(--reader-chrome-border);
+	background: var(--reader-chrome-raised);
+	color: var(--reader-chrome-text);
+}
+
+.reader-redesign .reader-code-nav-item.active {
+	border-inline-start-color: var(--reader-green);
+}
+
+.reader-redesign .reader-code-nav-top {
+	justify-content: space-between;
+}
+
+.reader-redesign .reader-code-nav-top small {
+	flex: 0 0 auto;
+	color: var(--reader-chrome-muted);
+	font-size: 10px;
+}
+
+.reader-redesign .reader-code-nav-preview {
+	display: block;
+	overflow: hidden;
+	color: inherit;
+	font: 11px/1.45 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.reader-redesign .reader-code-project-handoff {
+	width: 100%;
+	margin-bottom: 8px;
+}
+
+/* Prism tokens — intentionally local to Reader code blocks. */
+.reader-redesign .reader-code-block .token.comment,
+.reader-redesign .reader-code-block .token.prolog,
+.reader-redesign .reader-code-block .token.doctype,
+.reader-redesign .reader-code-block .token.cdata { color: #7f9f72; }
+.reader-redesign .reader-code-block .token.punctuation { color: #d4d4d4; }
+.reader-redesign .reader-code-block :is(.token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol, .token.deleted) { color: #b5cea8; }
+.reader-redesign .reader-code-block :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted) { color: #ce9178; }
+.reader-redesign .reader-code-block :is(.token.operator, .token.entity, .token.url) { color: #d4d4d4; }
+.reader-redesign .reader-code-block :is(.token.atrule, .token.attr-value, .token.keyword) { color: #c586c0; }
+.reader-redesign .reader-code-block :is(.token.function, .token.class-name) { color: #dcdcaa; }
+.reader-redesign .reader-code-block :is(.token.regex, .token.important, .token.variable) { color: #d16969; }
+.reader-redesign .reader-code-block :is(.token.important, .token.bold) { font-weight: 700; }
+.reader-redesign .reader-code-block .token.italic { font-style: italic; }
+
+@media (max-width: 720px) {
+	.reader-redesign .reader-prose pre.reader-code-block {
+		margin-inline: -12px;
+		border-radius: 6px;
+		font-size: 0.74em;
+	}
+	.reader-redesign .reader-code-meta > span {
+		display: none;
+	}
+}
