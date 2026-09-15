@@ -57,17 +57,16 @@ describe('add-on settings render snapshots', () => {
 		}
 	});
 
-	test('late translator inventory updates matching content and counts consistently', () => {
-		const before = createAddonSettingsView('translator', 'chat', false);
+	test('translator settings stay discoverable regardless of runtime detection', () => {
+		const undetected = createAddonSettingsView('translator', 'chat', false);
+		expect(undetected.visibleLocalAddonControlCount).toBe(1);
+		expect(undetected.localAddonControlMatches('translator_addon')).toBe(true);
+		expect(undetected.isAddonSectionOpen('utilities')).toBe(true);
 		const detected = createAddonSettingsView('translator', 'chat', true);
-		expect(before.visibleLocalAddonControlCount).toBe(0);
-		expect(before.isAddonSectionOpen('utilities')).toBe(false);
-		expect(detected.availableLocalAddonControlCount).toBe(before.availableLocalAddonControlCount + 1);
-		expect(detected.visibleLocalAddonControlCount).toBe(1);
+		expect(detected.availableLocalAddonControlCount).toBe(undetected.availableLocalAddonControlCount);
+		expect(detected.visibleLocalAddonControlCount).toBe(undetected.visibleLocalAddonControlCount);
 		expect(detected.localAddonControlMatches('translator_addon')).toBe(true);
-		expect(detected.isAddonSectionOpen('utilities')).toBe(true);
-		expect(detected.addonSectionMatchCount('utilities')).toBe(1);
-		expect(before.localAddonControlMatches('translator_addon')).toBe(false);
+		expect(detected.addonSectionMatchCount('utilities')).toBe(undetected.addonSectionMatchCount('utilities'));
 	});
 
 	test('unknown, removed, and nonmatching controls do not advertise phantom matches', () => {

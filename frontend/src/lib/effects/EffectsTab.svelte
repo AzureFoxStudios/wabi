@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { effectsRegistry } from './registry';
 	import MouseFeelerSettings from './MouseFeelerSettings.svelte';
+	import CRTSettings from './CRTSettings.svelte';
 	import { themeStore } from '$lib/theme/themeStore';
 	import { THEMES } from '$lib/theme/themes';
 	import { getAuthToken } from '$lib/authSession';
@@ -101,6 +102,8 @@
 		try {
 			// Persist under `theme_ambient` — the backend whitelists this key and
 			// it round-trips through themeStore so the state restores on reload.
+			// Preserve screen-level state (CRT, future post-processes) while
+			// replacing the background-effect portion of the preference.
 			const ambient = {
 				effect: selectedEffect,
 				color: effectColor,
@@ -110,11 +113,20 @@
 				size: effectSize,
 				speed: effectSpeed,
 				globalOverride: applyGlobally,
-				state: isJoker ? { joker: jokerState } : undefined,
+				state: {
+					...($themeStore.themeAmbient?.state ?? {}),
+					...(isJoker ? { joker: jokerState } : {}),
+				},
 			};
 			themeStore.setThemeAmbient(ambient);
 			const prefs: Record<string, unknown> = {
 				theme_id: $themeStore.themeId,
+				custom_theme: $themeStore.customTheme,
+				uniform_font_enabled: $themeStore.uniformFontEnabled ? 1 : 0,
+				uniform_font_family: $themeStore.uniformFontFamily,
+				uniform_font_size: $themeStore.uniformFontSize,
+				uniform_font_weight: $themeStore.uniformFontWeight,
+				uniform_font_style: $themeStore.uniformFontStyle,
 				theme_ambient: ambient,
 			};
 			if (getAuthToken()) {
@@ -334,6 +346,7 @@
 	</div>
 </div>
 
+<CRTSettings />
 <MouseFeelerSettings />
 
 <style>

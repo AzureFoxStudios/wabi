@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import catalog from '../../static/openmoji/emojis.json';
 import { REACTION_EMOJI_PAGE_SIZE, filterReactionEmojis, getReactionEmojiLabel } from './reactionEmojiOptions';
 import { getEmojiSearchTerms } from './emoji-store';
+import { isEssentialEmoji } from './emoji-library';
 import type { Emoji } from './socket-types';
 
 const bundled = catalog as Emoji[];
@@ -32,14 +33,17 @@ describe('reaction emoji choices', () => {
 	test('excludes stickers and preserves the selected source', () => {
 		const entries = [...bundled, custom, sticker];
 		expect(filterReactionEmojis(entries, '', 'custom')).toEqual([custom]);
-		expect(filterReactionEmojis(entries, '', 'bundled')).toEqual(bundled);
+		const bundledResults = filterReactionEmojis(entries, '', 'bundled');
+		expect(bundledResults).toHaveLength(bundled.length);
+		expect(bundledResults.every((emoji) => !emoji.isCustom)).toBe(true);
 		expect(filterReactionEmojis(entries, '', 'all')).toHaveLength(bundled.length + 1);
 	});
 
-	test('caps the initial rendered set and retains original identifiers', () => {
+	test('puts useful everyday reactions in the first rendered page instead of catalog order', () => {
 		const results = filterReactionEmojis(bundled, '', 'all');
 		expect(results.slice(0, REACTION_EMOJI_PAGE_SIZE)).toHaveLength(40);
-		expect(results[0]).toBe(bundled[0]);
+		expect(isEssentialEmoji(results[0])).toBe(true);
+		expect(results[0]?.id).not.toBe(bundled[0]?.id);
 	});
 
 	test('keeps custom display names and searches readable shortcodes', () => {

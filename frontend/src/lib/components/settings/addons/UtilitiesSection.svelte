@@ -2,6 +2,14 @@
 	import { get } from 'svelte/store';
 	import { emojis } from '$lib/socket';
 	import { chatAliasesStore, chatFilterStore, customQuoteSettingsStore, addChatAlias, removeChatAlias, resetCustomQuoteTemplate, setChatFilterSettings, setCustomQuoteTemplate, updateChatAlias, type ChatAliasEntry, type ChatFilterMode } from '$lib/chatEnhancements';
+	import {
+		getTranslatorSettings,
+		probeTranslatorProvider,
+		resolveTranslatorProviderUrl,
+		saveTranslatorSettings,
+		type TranslatorMode,
+		type TranslatorModelId
+	} from '$lib/components/message/messageTranslator';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
 	import type { AddonSectionId } from '../addonSettingsRegistry';
 
@@ -9,57 +17,88 @@
 	export let isAddonSectionOpen: (section: AddonSectionId) => boolean;
 	export let toggleAddonSection: (section: AddonSectionId) => void;
 	export let addonSectionMatchCount: (section: AddonSectionId) => number;
+	// Kept for call-site compatibility. Translator Assist is a bundled client addon,
+	// so discoverability no longer depends on an archived/runtime backend package.
 	export let translatorAddonDetected: boolean;
 
-	const TRANSLATOR_SETTINGS_KEY = 'addon.translator_assist.settings';
-	type TranslatorModelId = 'libretranslate-local' | 'libretranslate-public';
-	const TRANSLATOR_MODEL_OPTIONS: Array<{ id: TranslatorModelId; label: string; providerUrl: string }> = [
-		{ id: 'libretranslate-local', label: 'LibreTranslate (Local)', providerUrl: 'http://127.0.0.1:5000/translate' },
-		{ id: 'libretranslate-public', label: 'LibreTranslate (Public)', providerUrl: 'https://libretranslate.com/translate' }
+	const TRANSLATOR_MODEL_OPTIONS: Array<{ id: TranslatorModelId; label: string }> = [
+		{ id: 'libretranslate-local', label: 'LibreTranslate on this device' },
+		{ id: 'libretranslate-self-hosted', label: 'Self-hosted LibreTranslate' }
 	];
+	const LOCAL_TRANSLATOR_DOCKER_COMMAND =
+		'docker run -d --name wabi-translate --restart unless-stopped -p 127.0.0.1:5000:5000 libretranslate/libretranslate:latest';
 
+	let translatorMode: TranslatorMode = 'off';
 	let translatorModel: TranslatorModelId = 'libretranslate-local';
+	let translatorProviderUrl = resolveTranslatorProviderUrl('libretranslate-local');
 	let translatorTargetLang = 'en';
+	let translatorUnderstoodLanguages = 'en';
 	let translatorSettingsSavedAt = '';
+	let translatorProbeState: 'idle' | 'checking' | 'ok' | 'error' = 'idle';
+	let translatorProbeMessage = '';
 	let chatAliasTriggerDraft = '';
 	let chatAliasReplacementDraft = '';
 	let quoteTemplateDraft = '';
 
 	function loadTranslatorAddonSettings(): void {
-		try {
-			const raw = localStorage.getItem(TRANSLATOR_SETTINGS_KEY);
-			if (!raw) return;
-			const parsed = JSON.parse(raw);
-			const parsedModel = typeof parsed?.model === 'string' ? parsed.model : '';
-			if (parsedModel === 'libretranslate-local' || parsedModel === 'libretranslate-public') {
-				translatorModel = parsedModel;
-			} else {
-				const providerUrl = typeof parsed?.providerUrl === 'string' ? parsed.providerUrl.trim() : '';
-				if (providerUrl === 'https://libretranslate.com/translate') {
-					translatorModel = 'libretranslate-public';
-				} else {
-					translatorModel = 'libretranslate-local';
-				}
-			}
-			translatorTargetLang = typeof parsed?.targetLang === 'string' ? parsed.targetLang : 'en';
-		} catch {
-			// Ignore malformed local settings
-		}
+		const settings = getTranslatorSettings();
+		translatorMode = settings.mode;
+		translatorModel = settings.model;
+		translatorProviderUrl = settings.providerUrl;
+		translatorTargetLang = settings.targetLang;
+		translatorUnderstoodLanguages = settings.understoodLanguages.join(', ');
 	}
 	loadTranslatorAddonSettings();
 
 	function saveTranslatorAddonSettings(): void {
-		const selectedModel = TRANSLATOR_MODEL_OPTIONS.find((option) => option.id === translatorModel) || TRANSLATOR_MODEL_OPTIONS[0];
-		const payload = {
-			mode: 'on-demand',
-			model: selectedModel.id,
-			providerUrl: selectedModel.providerUrl,
+		const understoodLanguages = translatorUnderstoodLanguages
+			.split(',')
+			.map((value) => value.trim())
+			.filter(Boolean);
+		const providerUrl = translatorModel === 'libretranslate-local'
+			? resolveTranslatorProviderUrl('libretranslate-local')
+			: translatorProviderUrl.trim();
+		saveTranslatorSettings({
+			mode: translatorMode,
+			model: translatorModel,
+			providerUrl,
 			sourceLang: 'auto',
 			targetLang: translatorTargetLang.trim() || 'en',
-			useProxy: true
-		};
-		localStorage.setItem(TRANSLATOR_SETTINGS_KEY, JSON.stringify(payload));
+			understoodLanguages,
+			useProxy: false
+		});
+		translatorProviderUrl = getTranslatorSettings().providerUrl;
 		translatorSettingsSavedAt = new Date().toLocaleTimeString();
+		translatorProbeState = 'idle';
+		translatorProbeMessage = '';
+	}
+
+	function handleTranslatorModelChange(): void {
+		if (translatorModel === 'libretranslate-local') {
+			translatorProviderUrl = resolveTranslatorProviderUrl('libretranslate-local');
+		} else if (translatorProviderUrl === resolveTranslatorProviderUrl('libretranslate-local')) {
+			translatorProviderUrl = '';
+		}
+		saveTranslatorAddonSettings();
+	}
+
+	async function checkTranslatorProvider(): Promise<void> {
+		saveTranslatorAddonSettings();
+		translatorProbeState = 'checking';
+		translatorProbeMessage = 'Checking translator…';
+		const result = await probeTranslatorProvider(getTranslatorSettings());
+		translatorProbeState = result.ok ? 'ok' : 'error';
+		translatorProbeMessage = result.message;
+	}
+
+	async function copyLocalTranslatorCommand(): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(LOCAL_TRANSLATOR_DOCKER_COMMAND);
+			translatorProbeState = 'ok';
+			translatorProbeMessage = 'Local translator command copied.';
+		} catch {
+			window.prompt('Copy this command:', LOCAL_TRANSLATOR_DOCKER_COMMAND);
+		}
 	}
 
 	function addChatAliasFromDraft(): void {
@@ -146,32 +185,89 @@
 	{#if isAddonSectionOpen('utilities')}
 	<div class="addon-accordion-body" id="addon-section-utilities">
 		{#if localAddonControlMatches('translator_addon')}
-			{#if translatorAddonDetected}
-				<div class="setting-item-full">
-					<div class="setting-info">
-						<span class="setting-label">Translator Assist Settings</span>
-						<span class="setting-description">Pick a translator model and target language. Source language is auto-detected.</span>
-					</div>
-					<div class="upload-limit-grid">
-						<label class="upload-limit-row">
-							<span>Model</span>
-							<select bind:value={translatorModel} class="theme-select" on:change={saveTranslatorAddonSettings}>
-								{#each TRANSLATOR_MODEL_OPTIONS as modelOption}
-									<option value={modelOption.id}>{modelOption.label}</option>
-								{/each}
-							</select>
-						</label>
-						<label class="upload-limit-row">
-							<span>Target language</span>
-							<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" on:blur={saveTranslatorAddonSettings} />
-						</label>
-					</div>
-					<div class="runtime-note">Settings save automatically.</div>
-					{#if translatorSettingsSavedAt}
-						<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
-					{/if}
+			<div class="setting-item-full">
+				<div class="setting-info">
+					<span class="setting-label">Translator Assist</span>
+					<span class="setting-description">Optional, local-first message translation. Wabi does not proxy message text through the server.</span>
 				</div>
-			{/if}
+				<div class="upload-limit-grid">
+					<label class="upload-limit-row">
+						<span>Mode</span>
+						<select bind:value={translatorMode} class="theme-select" on:change={saveTranslatorAddonSettings}>
+							<option value="off">Off</option>
+							<option value="on-demand">Translate when asked</option>
+							<option value="auto">Automatic — translate languages I don't understand</option>
+						</select>
+					</label>
+					<label class="upload-limit-row">
+						<span>Provider</span>
+						<select bind:value={translatorModel} class="theme-select" on:change={handleTranslatorModelChange}>
+							{#each TRANSLATOR_MODEL_OPTIONS as modelOption}
+								<option value={modelOption.id}>{modelOption.label}</option>
+							{/each}
+						</select>
+					</label>
+					{#if translatorModel === 'libretranslate-self-hosted'}
+						<label class="upload-limit-row">
+							<span>Translator endpoint</span>
+							<input
+								type="url"
+								bind:value={translatorProviderUrl}
+								placeholder="https://translate.example.com/translate"
+								on:blur={saveTranslatorAddonSettings}
+							/>
+						</label>
+					{/if}
+					<label class="upload-limit-row">
+						<span>Translate into</span>
+						<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" on:blur={saveTranslatorAddonSettings} />
+					</label>
+					<label class="upload-limit-row">
+						<span>Languages I understand</span>
+						<input type="text" maxlength="96" bind:value={translatorUnderstoodLanguages} placeholder="en, th" on:blur={saveTranslatorAddonSettings} />
+					</label>
+				</div>
+
+				{#if translatorModel === 'libretranslate-local'}
+					<div class="runtime-note">
+						Local mode connects only to <code>127.0.0.1:5000</code>. Wabi does not bundle the translation service or its language models.
+					</div>
+					<div class="runtime-note">
+						One-command Docker setup: <code>{LOCAL_TRANSLATOR_DOCKER_COMMAND}</code>
+					</div>
+					<div class="settings-row-actions">
+						<button class="action-btn secondary" type="button" on:click={copyLocalTranslatorCommand}>Copy setup command</button>
+						<button class="action-btn secondary" type="button" on:click={checkTranslatorProvider} disabled={translatorProbeState === 'checking'}>
+							{translatorProbeState === 'checking' ? 'Checking…' : 'Check translator'}
+						</button>
+					</div>
+				{:else}
+					<div class="runtime-note">
+						Self-hosted mode connects directly from your client to an HTTPS LibreTranslate endpoint you chose. The Wabi Authority never relays the message text.
+					</div>
+					<div class="settings-row-actions">
+						<button class="action-btn secondary" type="button" on:click={checkTranslatorProvider} disabled={translatorProbeState === 'checking'}>
+							{translatorProbeState === 'checking' ? 'Checking…' : 'Check translator'}
+						</button>
+					</div>
+				{/if}
+
+				{#if translatorMode === 'auto'}
+					<div class="runtime-note">
+						Automatic mode considers incoming text only when it enters or approaches your viewport. It skips your own messages, commands, code-only/URL-only posts, and languages listed above. A remote self-hosted provider receives the visible message text needed for detection and translation.
+					</div>
+				{:else if translatorMode === 'off'}
+					<div class="runtime-note">Translator Assist is off. Translation controls stay out of chat and no translation requests are made.</div>
+				{/if}
+				{#if translatorProbeMessage}
+					<div class="runtime-note" role="status">
+						{translatorProbeState === 'ok' ? '✓' : translatorProbeState === 'error' ? '!' : ''} {translatorProbeMessage}
+					</div>
+				{/if}
+				{#if translatorSettingsSavedAt}
+					<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
+				{/if}
+			</div>
 		{/if}
 
 		{#if localAddonControlMatches('chat_aliases')}
