@@ -76,8 +76,10 @@ interface PersistUnavailable {
 type PersistResult = PersistSaved | PersistConflict | PersistUnavailable;
 
 const DB_NAME = 'wabi-reader-documents';
-const DB_VERSION = 2;
-const STORE_NAME = 'documents';
+const DB_VERSION = 3;
+const LEGACY_STORE_NAME = 'documents';
+const STORE_NAME = 'documents-v3';
+const MIGRATION_STORE_NAME = 'migration-v3';
 const FALLBACK_PREFIX = 'wabi:reader:document:v2:';
 const RECOVERY_PREFIX = 'wabi:reader:document-recovery:v2:';
 const SAVE_DEBOUNCE_MS = 120;
@@ -89,10 +91,14 @@ export const readerDocumentSaveState = writable<Record<string, ReaderLocalSaveSt
 export const readerDocumentConflicts = writable<Record<string, number>>({});
 export const readerStoragePersistent = writable<boolean | null>(null);
 export const readerDocumentScope = writable('');
+export const readerStorageError = writable<string | null>(null);
+export const readerRecoveryAvailable = writable({ legacyDocuments: 0, localSources: 0 });
 
 let hydratePromise: Promise<void> | null = null;
 let hydratingScope = '';
 let activeScopeId = '';
+let scopeEpoch = 0;
+let hydratingEpoch = -1;
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 let lastTimestamp = 0;
 let broadcastChannel: BroadcastChannel | null = null;
@@ -139,10 +145,6 @@ function storageId(scopeId: string, documentId: string): string {
 
 function runtimeKey(scopeId: string, documentId: string): string {
 	return `${scopeId}\u0000${documentId}`;
-}
-
-function storageKey(prefix: string, scopeId: string, documentId: string): string {
-	return `${prefix}${encodeURIComponent(scopeId)}:${documentId}`;
 }
 
 function recoveryStorageKey(scopeId: string, documentId: string): string {
@@ -218,44 +220,134 @@ function readLocalDocuments(prefix: string, scopeId: string): ReaderLocalDocumen
 	return records;
 }
 
+function validScopedLegacyRecord(value: unknown): value is StoredReaderDocument {
+	if (!value || typeof value !== 'object') return false;
+	const row = value as StoredReaderDocument;
+	return row.v === 1 && typeof row.scopeId === 'string' && !!row.scopeId.trim() && row.scopeId !== 'local-default' &&
+		typeof row.documentId === 'string' && !!row.documentId && row.storageId === storageId(row.scopeId, row.documentId) &&
+		typeof row.title === 'string' && typeof row.content === 'string' && typeof row.originalTitle === 'string' && typeof row.originalContent === 'string' &&
+		typeof row.sourceDocKey === 'string' && ['markdown', 'html', 'text', 'code'].includes(row.format) &&
+		['local-temp', 'pasted', 'generated', 'chat', 'notes', 'document'].includes(row.source) &&
+		['working-copy', 'native'].includes(row.kind) && ['private', 'shared', 'live'].includes(row.shareState) &&
+		Number.isSafeInteger(row.revision) && row.revision >= 0 && Number.isSafeInteger(row.storageRevision) && row.storageRevision >= 0 &&
+		Number.isFinite(row.updatedAt) && Number.isFinite(row.createdAt) && Array.isArray(row.suggestions) && Array.isArray(row.comments);
+}
+
 function openReaderDocumentsDb(): Promise<IDBDatabase | null> {
-	if (!browser || typeof indexedDB === 'undefined') return Promise.resolve(null);
+	if (!browser || typeof indexedDB === 'undefined') {
+		readerStorageError.set('Reader storage is unavailable. Keep or download your unsaved writing before leaving.');
+		return Promise.resolve(null);
+	}
 	if (dbPromise) return dbPromise;
-	dbPromise = new Promise((resolve) => {
+	const pending = new Promise<IDBDatabase | null>((resolve) => {
+		let abandoned = false;
+		const failed = (message: string) => { abandoned = true; readerStorageError.set(message); resolve(null); };
 		try {
 			const request = indexedDB.open(DB_NAME, DB_VERSION);
-			request.onupgradeneeded = () => {
+			request.onupgradeneeded = (event) => {
 				const db = request.result;
-				if (db.objectStoreNames.contains(STORE_NAME)) db.deleteObjectStore(STORE_NAME);
-				const store = db.createObjectStore(STORE_NAME, { keyPath: 'storageId' });
-				store.createIndex('scopeId', 'scopeId', { unique: false });
-				store.createIndex('sourceDocKey', 'sourceDocKey', { unique: false });
+				// Never delete or reinterpret the original store: v1 ownership is ambiguous.
+				if (!db.objectStoreNames.contains(STORE_NAME)) {
+					const migration = db.createObjectStore(MIGRATION_STORE_NAME, { keyPath: 'id' });
+					migration.add({ id: 'source-version', version: event.oldVersion });
+					const store = db.createObjectStore(STORE_NAME, { keyPath: 'storageId' });
+					store.createIndex('scopeId', 'scopeId', { unique: false });
+					store.createIndex('sourceDocKey', 'sourceDocKey', { unique: false });
+					if (event.oldVersion >= 2 && db.objectStoreNames.contains(LEGACY_STORE_NAME)) {
+						const cursor = request.transaction!.objectStore(LEGACY_STORE_NAME).openCursor();
+						cursor.onsuccess = () => {
+							const entry = cursor.result;
+							if (!entry) return;
+							if (validScopedLegacyRecord(entry.value)) store.add(entry.value);
+							entry.continue();
+						};
+					}
+				}
 			};
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => resolve(null);
-			request.onblocked = () => resolve(null);
-		} catch {
-			resolve(null);
-		}
+			request.onsuccess = () => {
+				const db = request.result;
+				if (abandoned) { db.close(); return; }
+				db.onversionchange = () => { db.close(); if (dbPromise === pending) dbPromise = null; };
+				db.onclose = () => { if (dbPromise === pending) dbPromise = null; };
+				resolve(db);
+			};
+			request.onerror = () => failed('Reader storage could not be opened. Retry or download recovery sources.');
+			request.onblocked = () => failed('Close other Wabi windows, then retry Reader storage. Your older documents remain intact.');
+		} catch { failed('Reader storage is unavailable. Download your writing before leaving.'); }
 	});
-	return dbPromise;
+	dbPromise = pending;
+	void pending.then(db => { if (!db && dbPromise === pending) dbPromise = null; });
+	return pending;
 }
 
 async function idbGetScope(scopeId: string): Promise<ReaderLocalDocument[]> {
 	const db = await openReaderDocumentsDb();
-	if (!db) return [];
-	return new Promise((resolve) => {
+	if (!db) throw new Error('Reader storage is unavailable. Retry or download your writing before leaving.');
+	return new Promise((resolve, reject) => {
 		try {
 			const tx = db.transaction(STORE_NAME, 'readonly');
-			const store = tx.objectStore(STORE_NAME);
-			const index = store.index('scopeId');
-			const request = index.getAll(scopeId);
-			request.onsuccess = () => resolve((request.result || []).map((record) => fromStored(record as StoredReaderDocument)));
-			request.onerror = () => resolve([]);
-		} catch {
-			resolve([]);
-		}
+			const request = tx.objectStore(STORE_NAME).index('scopeId').getAll(scopeId);
+			let rows: ReaderLocalDocument[] = [];
+			request.onsuccess = () => { rows = (request.result || []).map(record => fromStored(record as StoredReaderDocument)); };
+			tx.oncomplete = () => resolve(rows);
+			tx.onerror = tx.onabort = () => reject(new Error('Reader documents could not be read. Your existing writing has been kept.'));
+		} catch (error) { reject(error); }
 	});
+}
+
+/** Raw legacy material is exposed only through an explicit recovery/download action. */
+export async function exportReaderRecoverySources(): Promise<string> {
+	const capturedScope = activeScopeId, capturedEpoch = scopeEpoch;
+	const db = await openReaderDocumentsDb();
+	const legacyDocuments = await new Promise<unknown[]>((resolve, reject) => {
+		if (!db || !db.objectStoreNames.contains(LEGACY_STORE_NAME)) { resolve([]); return; }
+		const hasMetadata = db.objectStoreNames.contains(MIGRATION_STORE_NAME);
+		const tx = db.transaction(hasMetadata ? [LEGACY_STORE_NAME, MIGRATION_STORE_NAME] : [LEGACY_STORE_NAME], 'readonly');
+		let migratedFrom = 0;
+		if (hasMetadata) {
+			const metadata = tx.objectStore(MIGRATION_STORE_NAME).get('source-version');
+			metadata.onsuccess = () => { migratedFrom = metadata.result?.version ?? 0; };
+		}
+		const request = tx.objectStore(LEGACY_STORE_NAME).getAll();
+		let rows: unknown[] = [];
+		request.onsuccess = () => {
+			rows = request.result.filter((row: unknown) => {
+				if (!row || typeof row !== 'object') return true;
+				const owner = (row as { scopeId?: unknown }).scopeId;
+				if (typeof owner === 'string' && owner && owner !== 'local-default' && owner !== capturedScope) return false;
+				// Valid scoped v2 records were copied atomically; they need no recovery notice.
+				return migratedFrom < 2 || !validScopedLegacyRecord(row);
+			});
+		};
+		tx.oncomplete = () => resolve(rows);
+		tx.onerror = tx.onabort = () => reject(new Error('Could not read preserved Reader documents.'));
+	});
+	const localSources: { key: string; raw: string }[] = [];
+	// Include earlier key versions too; do not assign their contents to an account.
+	for (let index = 0; index < localStorage.length; index++) {
+		const key = localStorage.key(index);
+		if (!key || !/^wabi:reader:document(?:-recovery)?:v\d+:/.test(key)) continue;
+		if (/^wabi:reader:document(?:-recovery)?:v2:/.test(key) && !key.startsWith(`${FALLBACK_PREFIX}${encodeURIComponent(capturedScope)}:`) && !key.startsWith(`${RECOVERY_PREFIX}${encodeURIComponent(capturedScope)}:`)) continue;
+		const raw = localStorage.getItem(key);
+		if (raw !== null) {
+			try {
+				const owner = JSON.parse(raw)?.scopeId;
+				if (typeof owner === 'string' && owner && owner !== 'local-default' && owner !== capturedScope) continue;
+			} catch { /* Malformed source bytes remain available for explicit recovery. */ }
+			localSources.push({ key, raw });
+		}
+	}
+	if (capturedScope !== activeScopeId || capturedEpoch !== scopeEpoch) throw new Error('The Reader account changed. Reopen recovery in the intended account.');
+	readerRecoveryAvailable.set({ legacyDocuments: legacyDocuments.length, localSources: localSources.length });
+	return JSON.stringify({ format: 'wabi-reader-recovery', version: 1, databaseUnavailable: !db, legacyDocuments, localSources }, null, 2);
+}
+
+async function refreshRecoveryAvailability(): Promise<void> {
+	try { await exportReaderRecoverySources(); } catch { /* The storage error remains visible; no source is removed. */ }
+}
+
+export async function retryReaderDocumentStorage(): Promise<void> {
+	if (activeScopeId) await hydrateScope(activeScopeId);
 }
 
 async function idbCompareAndPut(record: ReaderLocalDocument): Promise<PersistResult> {
@@ -320,42 +412,6 @@ async function idbCompareAndDelete(record: ReaderLocalDocument): Promise<boolean
 			resolve(false);
 		}
 	});
-}
-
-function fallbackCompareAndPut(record: ReaderLocalDocument): PersistResult {
-	const key = storageKey(FALLBACK_PREFIX, record.scopeId, record.documentId);
-	const raw = safeLocalGet(key);
-	let current: ReaderLocalDocument | null = null;
-	if (raw) {
-		try { current = normalizeDocument(JSON.parse(raw) as ReaderLocalDocument); }
-		catch { current = null; }
-	}
-	const currentRevision = current?.storageRevision ?? 0;
-	if ((current && currentRevision !== record.storageRevision) || (!current && record.storageRevision !== 0)) {
-		return { status: 'conflict', current };
-	}
-	const saved: ReaderLocalDocument = {
-		...record,
-		storageRevision: currentRevision + 1,
-		lastLocalSaveAt: now()
-	};
-	return safeLocalSet(key, JSON.stringify(saved))
-		? { status: 'saved', record: saved }
-		: { status: 'unavailable' };
-}
-
-function fallbackCompareAndDelete(record: ReaderLocalDocument): boolean {
-	const key = storageKey(FALLBACK_PREFIX, record.scopeId, record.documentId);
-	const raw = safeLocalGet(key);
-	if (!raw) return true;
-	try {
-		const current = normalizeDocument(JSON.parse(raw) as ReaderLocalDocument);
-		if (current.storageRevision !== record.storageRevision) return false;
-	} catch {
-		return false;
-	}
-	safeLocalRemove(key);
-	return true;
 }
 
 function mergeNewest(records: ReaderLocalDocument[]): Record<string, ReaderLocalDocument> {
@@ -443,6 +499,8 @@ function clearScopeRuntimeState(): void {
 	readerDocumentSaveState.set({});
 	readerDocumentConflicts.set({});
 	readerDocumentsHydrated.set(false);
+	readerRecoveryAvailable.set({ legacyDocuments: 0, localSources: 0 });
+	readerStorageError.set(null);
 }
 
 export async function requestReaderPersistentStorage(): Promise<boolean | null> {
@@ -462,22 +520,25 @@ export async function requestReaderPersistentStorage(): Promise<boolean | null> 
 }
 
 async function hydrateScope(scopeId: string): Promise<void> {
-	if (hydratingScope === scopeId && hydratePromise) return hydratePromise;
+	const epoch = scopeEpoch;
+	if (hydratingScope === scopeId && hydratingEpoch === epoch && hydratePromise) return hydratePromise;
 	hydratingScope = scopeId;
+	hydratingEpoch = epoch;
 	hydratePromise = (async () => {
-		const [indexed, fallback] = await Promise.all([
-			idbGetScope(scopeId),
-			Promise.resolve(readLocalDocuments(FALLBACK_PREFIX, scopeId))
-		]);
-		if (scopeId !== activeScopeId) return;
-		const recovery = Object.values(mergeNewest(readLocalDocuments(RECOVERY_PREFIX, scopeId)));
-		const committed = mergeNewest([...indexed, ...fallback]);
+		const indexed = await idbGetScope(scopeId);
+		if (scopeId !== activeScopeId || epoch !== scopeEpoch) return;
+		const runtimeStates = get(readerDocumentSaveState);
+		const runtimeDrafts = Object.values(get(readerDocuments)).filter(record => record.scopeId === scopeId && ['dirty', 'saving', 'error'].includes(runtimeStates[record.documentId]));
+		const runtimeIds = new Set(runtimeDrafts.map(record => record.documentId));
+		const recovery = [...Object.values(mergeNewest(readLocalDocuments(RECOVERY_PREFIX, scopeId))), ...runtimeDrafts];
+		const committed = mergeNewest(indexed);
+		// Old fallback writes were not atomic. They remain available through explicit recovery export, never overlaid on durable documents.
 		const merged = { ...committed };
 		const recoveredIds = new Set<string>();
 		const conflictedIds = new Set<string>();
 		for (const pending of recovery) {
 			const durable = committed[pending.documentId];
-			if (!durable || pending.updatedAt >= durable.updatedAt) {
+			if (runtimeIds.has(pending.documentId) || !durable || pending.updatedAt >= durable.updatedAt) {
 				merged[pending.documentId] = pending;
 				recoveredIds.add(pending.documentId);
 				if (durable && pending.storageRevision !== durable.storageRevision) conflictedIds.add(pending.documentId);
@@ -495,12 +556,19 @@ async function hydrateScope(scopeId: string): Promise<void> {
 		readerDocumentSaveState.set(states);
 		readerDocumentConflicts.set(conflicts);
 		readerDocumentsHydrated.set(true);
+		readerStorageError.set(null);
+		void refreshRecoveryAvailability();
 		void requestReaderPersistentStorage();
 	})();
 	try {
 		await hydratePromise;
+	} catch (error) {
+		if (scopeId === activeScopeId && epoch === scopeEpoch) {
+			readerStorageError.set(get(readerStorageError) || (error instanceof Error ? error.message : 'Reader storage could not be read.'));
+			void refreshRecoveryAvailability();
+		}
 	} finally {
-		if (hydratingScope === scopeId) {
+		if (hydratingScope === scopeId && hydratingEpoch === epoch) {
 			hydratingScope = '';
 			hydratePromise = null;
 		}
@@ -510,10 +578,13 @@ async function hydrateScope(scopeId: string): Promise<void> {
 export async function activateReaderDocumentScope(scopeId: string): Promise<void> {
 	const normalized = normalizeScopeId(scopeId);
 	if (normalized === activeScopeId && get(readerDocumentsHydrated)) return;
-	activeScopeId = normalized;
-	readerDocumentScope.set(normalized);
-	clearScopeRuntimeState();
-	setupBroadcastChannel(normalized);
+	if (activeScopeId !== normalized) {
+		scopeEpoch++;
+		activeScopeId = normalized;
+		readerDocumentScope.set(normalized);
+		clearScopeRuntimeState();
+		setupBroadcastChannel(normalized);
+	}
 	await hydrateScope(normalized);
 }
 
@@ -577,8 +648,7 @@ async function persistSnapshot(record: ReaderLocalDocument): Promise<void> {
 	const candidate: ReaderLocalDocument = { ...record, storageRevision: expectedRevision };
 	if (live && live.updatedAt <= record.updatedAt) setSaveState(record.documentId, 'saving', record.scopeId);
 
-	let result = await idbCompareAndPut(candidate);
-	if (result.status === 'unavailable') result = fallbackCompareAndPut(candidate);
+	const result = await idbCompareAndPut(candidate);
 	if (discardingDocuments.has(key)) return;
 
 	if (result.status === 'conflict') {
@@ -592,7 +662,7 @@ async function persistSnapshot(record: ReaderLocalDocument): Promise<void> {
 	}
 
 	const saved = result.record;
-	safeLocalRemove(storageKey(FALLBACK_PREFIX, saved.scopeId, saved.documentId));
+	// Preserve previous non-atomic fallback sources for explicit recovery.
 	broadcastSaved(saved);
 	if (saved.scopeId !== activeScopeId) return;
 	const current = get(readerDocuments)[saved.documentId];
@@ -865,7 +935,11 @@ export async function discardReaderDocument(documentId: string): Promise<void> {
 		const inFlight = persistChains.get(key);
 		if (inFlight) await inFlight.catch(() => {});
 		const durableDeleted = await idbCompareAndDelete(record);
-		const fallbackDeleted = fallbackCompareAndDelete(record);
+		if (!durableDeleted) {
+			setSaveState(documentId, 'error', record.scopeId);
+			throw new Error('The document could not be discarded. Its draft and recovery copy were kept.');
+		}
+		if (record.scopeId !== activeScopeId) return;
 		readerDocuments.update((current) => {
 			const next = { ...current };
 			delete next[documentId];
@@ -878,7 +952,7 @@ export async function discardReaderDocument(documentId: string): Promise<void> {
 		});
 		setConflict(documentId, null, record.scopeId);
 		safeLocalRemove(recoveryStorageKey(record.scopeId, documentId));
-		if (durableDeleted || fallbackDeleted) broadcastDeleted(record.scopeId, documentId);
+		if (durableDeleted) broadcastDeleted(record.scopeId, documentId);
 	} finally {
 		discardingDocuments.delete(key);
 		persistChains.delete(key);

@@ -72,9 +72,8 @@ try {
 	await center.getByRole('textbox', { name: 'Note title', exact: true }).fill('Arrival');
 	await center.getByRole('textbox', { name: 'Note text', exact: true }).fill('A calm place to begin.\n\nSee [[Next steps|what comes next]].');
 	await center.getByRole('status').filter({ hasText: 'Saved on this device' }).waitFor();
-	await center.getByRole('button', { name: 'New note', exact: true }).first().click();
-	await page.waitForFunction(() => document.querySelector('.chat-surface input[aria-label="Note title"]')?.value.startsWith('Untitled note'));
-	await center.getByRole('textbox', { name: 'Note title', exact: true }).fill('Next steps');
+	await center.getByRole('button', { name: 'Create Next steps', exact: true }).click();
+	await page.waitForFunction(() => document.querySelector('.chat-surface input[aria-label="Note title"]')?.value === 'Next steps');
 	await center.getByRole('textbox', { name: 'Note text', exact: true }).fill('Invite a few people. Keep the experience clear.');
 	await center.getByRole('status').filter({ hasText: 'Saved on this device' }).waitFor();
 	await center.locator('.note-links').getByRole('button', { name: 'Arrival', exact: true }).click();
@@ -85,11 +84,67 @@ try {
 	await center.getByRole('status').filter({ hasText: 'Saved on this device' }).waitFor();
 	await center.locator('.note-links').getByRole('button', { name: 'Arrival', exact: true }).click();
 	await page.waitForFunction(() => document.querySelector('.chat-surface input[aria-label="Note title"]')?.value === 'Arrival');
-	assert.ok((await center.getByRole('textbox', { name: 'Note text', exact: true }).inputValue()).includes('[[First pilot|what comes next]]'));
+	assert.ok((await center.getByRole('textbox', { name: 'Note text', exact: true }).innerText()).includes('[[First pilot|what comes next]]'));
 	const editorBox = await center.getByRole('textbox', { name: 'Note text', exact: true }).boundingBox();
 	assert.ok(editorBox.height > 300, 'editor uses available center height');
 	await page.screenshot({ path: `${scratch}/notebook-desktop.png` });
+	const archivePromise = page.waitForEvent('download');
+	await center.getByRole('button', { name: 'Export Markdown archive', exact: true }).click();
+	const archive = await archivePromise;
+	assert.equal(archive.suggestedFilename(), 'wabi-notebook-markdown.tar');
+	await archive.saveAs(`${scratch}/notebook.tar`);
+	// Accept completion through the actual editor keyboard path.
+	const textEditor = center.getByRole('textbox', { name: 'Note text', exact: true });
+	await textEditor.press('Control+End');
+	await textEditor.press('Enter');
+	await textEditor.pressSequentially('[[Fir');
+	await page.getByRole('option').filter({ hasText: 'First pilot' }).waitFor();
+	await textEditor.press('Enter');
+	assert.ok((await textEditor.innerText()).includes('[[First pilot]]'));
+	await center.getByRole('status').filter({ hasText: 'Saved on this device' }).waitFor();
+	await center.getByRole('button', { name: 'Read note', exact: true }).click();
+	await page.screenshot({ path: `${scratch}/notebook-reading.png` });
+	await center.getByRole('article', { name: 'Note reading view' }).getByRole('link', { name: 'what comes next', exact: true }).click();
+	await page.waitForFunction(() => document.querySelector('.chat-surface input[aria-label="Note title"]')?.value === 'First pilot');
+	await center.getByRole('button', { name: 'Edit note', exact: true }).click();
+	await center.locator('.note-links').getByRole('button', { name: 'Arrival', exact: true }).click();
+	await page.waitForFunction(() => document.querySelector('.chat-surface input[aria-label="Note title"]')?.value === 'Arrival');
+	const sanitized = await page.evaluate(async () => {
+		const { renderNote } = await import('/src/lib/notes/render.ts');
+		const element = document.createElement('div');
+		element.innerHTML = renderNote('<img src=x onerror="window.noteAttack=1"><script>window.noteAttack=1</script> [bad](javascript:alert(1)) `[[literal]]` [[First pilot|safe]]');
+		return { dangerous: element.querySelectorAll('img,script,[onerror],a[href^="javascript:"]').length, links: element.querySelectorAll('a[href^="#wabi-note-"]').length, literal: element.querySelector('code')?.textContent };
+	});
+	assert.deepEqual(sanitized, { dangerous: 0, links: 1, literal: '[[literal]]' });
+	await center.getByText('Note actions', { exact: true }).click();
+	await center.getByRole('button', { name: 'Open a copy in Reader', exact: true }).click();
+	await page.getByRole('button', { name: 'Return to note', exact: true }).click();
+	await page.waitForFunction(() => document.querySelector('.chat-surface input[aria-label="Note title"]')?.value === 'Arrival');
 
+	// Reusing a deleted title requires an explicit reconnect in the real UI.
+	await page.evaluate(async () => {
+		const { get } = await import('/node_modules/svelte/src/store/index-client.js');
+		const { notebookOwner } = await import('/src/lib/notes/scope.ts');
+		const { LocalNotebook } = await import('/src/lib/notes/db.ts');
+		const { openNotesSurface } = await import('/src/lib/notesWorkspace.ts');
+		const owner = get(notebookOwner).owner;
+		const book = new LocalNotebook(owner);
+		const old = await book.create('Reused destination', 'Original');
+		const source = await book.create('Reconnect fixture', '[[Reused destination]]');
+		const removed = await book.setTrashed(old.id, old.revision, true);
+		await book.permanentlyDelete(old.id, removed.revision);
+		const replacement = await book.create('Reused destination', 'Replacement');
+		const { announceNotebookChange } = await import('/src/lib/notes/editor.ts');
+		announceNotebookChange(owner.scopeId);
+		openNotesSurface({ scopeId: owner.scopeId, noteId: source.id });
+		return { sourceId: source.id, targetId: replacement.id };
+	});
+	await center.getByRole('button', { name: 'Reconnect to Reused destination', exact: true }).click();
+	await center.locator('.note-links').getByRole('button', { name: 'Reused destination', exact: true }).click();
+	await page.waitForFunction(() => document.querySelector('.chat-surface input[aria-label="Note title"]')?.value === 'Reused destination');
+	assert.equal(await textEditor.innerText(), 'Replacement');
+	await center.locator('.note-row').filter({ has: page.locator('strong', { hasText: /^Arrival$/ }) }).click();
+	await page.waitForFunction(() => document.querySelector('.chat-surface input[aria-label="Note title"]')?.value === 'Arrival');
 	await center.getByText('Note actions', { exact: true }).click();
 	await center.getByRole('button', { name: 'Move to Trash', exact: true }).click();
 	await center.getByRole('button', { name: 'Restore note', exact: true }).click();
@@ -127,7 +182,7 @@ try {
 	await scratchpad.fill('Keep this thought beside the main workspace.');
 	await page.locator('.quick-scratchpad .scratchpad-footer').getByRole('status').filter({ hasText: 'Saved on this device' }).waitFor();
 	await page.getByRole('button', { name: 'Full', exact: true }).first().click();
-	await page.waitForFunction(() => document.querySelector('.chat-surface textarea[aria-label="Note text"]')?.value === 'Keep this thought beside the main workspace.');
+	await page.waitForFunction(() => document.querySelector('.chat-surface [aria-label="Note text"]')?.textContent === 'Keep this thought beside the main workspace.');
 	await center.getByRole('textbox', { name: 'Note text', exact: true }).fill('The full editor and scratchpad share this note.');
 	await center.getByRole('status').filter({ hasText: 'Saved on this device' }).waitFor();
 	await page.waitForFunction(() => document.querySelector('textarea[aria-label="Scratchpad text"]')?.value === 'The full editor and scratchpad share this note.');
@@ -142,7 +197,7 @@ try {
 	assert.equal(await page.locator('.mobile-right-overlay').evaluate(node => getComputedStyle(node).boxShadow), 'none', 'light theme keeps the closed sheet shadow hidden');
 	await page.screenshot({ path: `${scratch}/notebook-mobile-light.png` });
 	assert.deepEqual(errors, [], 'no uncaught application errors');
-	console.log(`PASS: note creation, save acknowledgement, follow/backlinks, atomic alias rename, editor height, trash/restore, search, shared scratchpad Full, mobile. Screenshots: ${scratch}`);
+	console.log(`PASS: note creation, save acknowledgement, follow/backlinks, atomic alias rename, editor height, completion, safe reading view, explicit reconnect, Reader return, portable archive download, trash/restore, search, shared scratchpad Full, mobile. Screenshots: ${scratch}`);
 } catch (error) {
 	console.error('Notebook UI fixture:', scratch);
 	if (page) {
