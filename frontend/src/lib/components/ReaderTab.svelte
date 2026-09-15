@@ -6,6 +6,7 @@
 	import { currentUser } from '$lib/presenceIdentity';
 	import { getAuthToken, getGuestSessionId, getStoredDbUserId, onAuthSessionCleared } from '$lib/authSession';
 	import { activateReaderDocumentScope } from '$lib/readerDocuments';
+	import { clearReaderSelection } from '$lib/readerWorkspace';
 	import { getReaderAnonymousDeviceId, makeReaderDocumentScope } from '$lib/readerDocumentScope';
 
 	let activeScope = '';
@@ -29,7 +30,9 @@
 				: `device:${getReaderAnonymousDeviceId()}`;
 		const nextScope = makeReaderDocumentScope(server, identity);
 		if (nextScope !== activeScope) {
+			const crossingIdentityBoundary = activeScope !== '';
 			activeScope = nextScope;
+			if (crossingIdentityBoundary) clearReaderSelection();
 			void activateReaderDocumentScope(nextScope);
 		}
 	}
