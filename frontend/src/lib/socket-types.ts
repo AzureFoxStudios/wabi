@@ -67,6 +67,15 @@ export interface Message extends Omit<ProtocolMessageView, MessageOptionalProtoc
   deliveryState?: 'queued' | 'sending' | 'failed';
   deliveryError?: string;
   deliveryOutcome?: 'rejected' | 'unknown';
+  /** True only after the endpoint recognized a Wabi E2EE envelope. */
+  e2ee?: boolean;
+  /** End-to-end sender signature + AES-GCM authentication result. */
+  e2eeVerified?: boolean;
+  /** Room-key epoch used for this message. */
+  e2eeEpoch?: number;
+  e2eeSenderDeviceId?: string;
+  /** Local-only failure detail. Ciphertext is never rendered as message text. */
+  e2eeError?: string;
   localCard?: {
     kind: 'directions';
     placeId: string;
@@ -116,20 +125,12 @@ export interface User {
   highestRole?: Exclude<ProtocolUserView['highestRole'], null>;
   roleColor?: ProtocolUserView['roleColor'];
   usernameFont?: Exclude<ProtocolUserView['usernameFont'], null>;
-  /// True when this is a bot service account (BOT badge in message headers).
   isBot?: boolean;
-  /// False for guest accounts (no password) — set on roster views.
   isRegistered?: boolean;
-  /** Assignable badges (server `user_badges` projection), joined with catalog metadata. */
   badges?: UserBadge[];
 }
 
-/** One assignable badge as delivered on `user-badges-updated` / user views. */
-export interface UserBadge {
-  id: string;
-  icon: string;
-  label: string;
-}
+export interface UserBadge { id: string; icon: string; label: string; }
 
 export type VoiceChannelSettings = ProtocolVoiceChannelSettings;
 
@@ -166,7 +167,6 @@ export interface Channel extends Omit<ProtocolChannelView, ChannelOptionalProtoc
   isBreakout?: Exclude<ProtocolChannelView['isBreakout'], null>;
   breakoutIndex?: Exclude<ProtocolChannelView['breakoutIndex'], null>;
   members?: Exclude<ProtocolChannelView['members'], null>;
-  /** Server-authoritative group owner and lossless WabiDB membership revision. */
   ownerId?: string;
   membershipRevision?: string;
   otherUser?: User;
