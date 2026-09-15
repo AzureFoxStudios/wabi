@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import CodeMirrorEditor from '$lib/editor/CodeMirrorEditor.svelte';
+	import { exportPortableNotebook } from '$lib/notes/portable';
+	import { renderNote } from '$lib/notes/render';
+	import { parseNoteLinks } from '$lib/notes/links';
+	import { noteCompletionExtension } from '$lib/notes/completion';
 	import { writable, get } from 'svelte/store';
 	import { notebookOwner, chooseOfflineNotebook } from '$lib/notes/scope';
 	import { LocalNotebook } from '$lib/notes/db';
@@ -9,12 +14,14 @@
 	import { openReaderDocument } from '$lib/readerWorkspace';
 	import { NOTE_COLORS } from '$lib/notesStore';
 	import { notesOpenRequest } from '$lib/notesWorkspace';
+	import { readerNoteSourceId } from '$lib/notes/readerBridge';
 	import { parseNotebookBackup, serializeNotebookBackup, MAX_NOTEBOOK_BACKUP_BYTES, type NotebookBackup } from '$lib/notes/backup';
 
 	let { title = 'Notes', emptyMessage = 'Keep personal notes, links, and reminders on this device.', placeholder = 'Write a note…', showHeader = true, compact = false, contextChannelId }:
 		{ title?: string; emptyMessage?: string; placeholder?: string; showHeader?: boolean; compact?: boolean; contextChannelId?: string } = $props();
 	let book = $state<LocalNotebook | null>(null);
 	let notes = $state<NotebookNote[]>([]);
+	const completion = noteCompletionExtension(() => notes);
 	let editor = $state<NoteEditor | null>(null);
 	const emptyDraft = writable<NoteDraft | null>(null);
 	const draftStore = $derived(editor?.state ?? emptyDraft);
@@ -23,6 +30,8 @@
 	let busy = $state(false);
 	let opening = $state(false);
 	let search = $state('');
+	let reading = $state(false);
+	const renderedNote = $derived(reading ? renderNote($draftStore?.text ?? '') : '');
 	let trash = $state(false);
 	let showList = $state(true);
 	let width = $state(0);
@@ -48,7 +57,7 @@
 	$effect(() => {
 		const request = $notesOpenRequest;
 		const current = book;
-		if (!compact && !contextChannelId && request && current?.owner.scopeId === request.scopeId) untrack(() => { void openNote(request.noteId); });
+		if (!compact && !contextChannelId && request && current?.owner.scopeId === request.scopeId) untrack(() => { notesOpenRequest.set(null); void openNote(request.noteId); });
 	});
 
 	$effect(() => {
@@ -108,6 +117,47 @@
 		while (notes.some(note => note.normalizedTitle === candidate.normalize('NFKC').toLowerCase())) candidate = `${base} ${suffix++}`;
 		return candidate;
 	}
+	async function createLinkedNote(link: NotebookLink) {
+		if (!book || !editor || busy || link.targetId !== null) return;
+		const current = book, active = editor;
+		busy = true;
+		try {
+			if (get(active.state).dirty && !await active.save()) return;
+			if (book !== current || editor !== active || !current.owner.isCurrent()) return;
+			const reference = parseNoteLinks(get(active.state).note.text).find(reference => reference.normalizedTitle === link.normalizedTitle);
+			if (!reference) return;
+			const note = await current.create(reference.title, '', contextChannelId);
+			announceNotebookChange(current.owner.scopeId);
+			if (book === current && editor === active) await openNote(note.id);
+		} catch (failure) { if (book === current) error = failure instanceof Error ? failure.message : 'Could not create the linked note.'; }
+		finally { busy = false; }
+	}
+	async function reconnectLink(link: NotebookLink, target: NotebookNote) {
+		if (!book || !editor || busy) return;
+		const current = book, active = editor;
+		busy = true;
+		try {
+			if (get(active.state).dirty && !await active.save()) return;
+			if (book !== current || editor !== active || !current.owner.isCurrent()) return;
+			const note = get(active.state).note;
+			await current.relink(note.id, note.revision, link.normalizedTitle, target.id);
+			await active.refresh(); announceNotebookChange(current.owner.scopeId);
+		} catch (failure) { if (book === current) error = failure instanceof Error ? failure.message : 'Could not reconnect this link.'; }
+		finally { busy = false; }
+	}
+	function followRenderedLink(event: MouseEvent) {
+		const anchor = (event.target as HTMLElement).closest('a');
+		if (!anchor) return;
+		const href = anchor.getAttribute('href') || '';
+		const match = /^#wabi-note-(\d+)$/.exec(href);
+		if (!match) { anchor.target = '_blank'; anchor.rel = 'noopener noreferrer'; return; }
+		event.preventDefault();
+		const reference = parseNoteLinks($draftStore?.text ?? '')[Number(match[1])];
+		const link = outgoing.find(link => link.normalizedTitle === reference?.normalizedTitle);
+		const target = notes.find(note => note.id === link?.targetId);
+		if (target && target.trashedAt === null) void openNote(target.id);
+		else error = 'This link has no available saved note. Check its title or restore its target from Trash.';
+	}
 	async function createNote() {
 		if (!book || busy) return;
 		busy = true;
@@ -137,7 +187,7 @@
 		} catch (failure) { error = failure instanceof Error ? failure.message : 'Could not save this change.'; }
 		finally { busy = false; }
 	}
-	function download(name: string, text: string, type = 'text/markdown') {
+	function download(name: string, text: string | Uint8Array<ArrayBuffer>, type = 'text/markdown') {
 		const url = URL.createObjectURL(new Blob([text], { type }));
 		const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click();
 		setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -176,12 +226,15 @@
 		} catch (failure) { error = (failure as Error).message; }
 		finally { busy = false; }
 	}
-	async function exportNotebook() {
+	async function exportNotebook(portable = false) {
 		if (!book) return;
 		const current = book;
 		try {
 			const backup = await current.exportBackup();
-			if (book === current && current.owner.isCurrent()) download('wabi-notebook.json', serializeNotebookBackup(backup), 'application/json');
+			if (book === current && current.owner.isCurrent()) {
+				if (portable) download('wabi-notebook-markdown.tar', exportPortableNotebook(backup), 'application/x-tar');
+				else download('wabi-notebook.json', serializeNotebookBackup(backup), 'application/json');
+			}
 		}
 		catch (failure) { error = (failure as Error).message; }
 	}
@@ -238,7 +291,7 @@
 							{#if loading}<p class="list-empty">Opening local notes…</p>{:else if !visible.length}<div class="list-empty"><p>{trash ? 'Trash is empty.' : search ? 'No matching notes.' : emptyMessage}</p>{#if !trash && !search}<button onclick={createNote} disabled={busy}>Create your first note</button>{/if}</div>{/if}
 							{#each visible as note (note.id)}<button class="note-row" class:selected={$draftStore?.note.id === note.id} onclick={() => openNote(note.id)} style:border-left-color={note.color || 'transparent'}><strong>{note.pinned ? '• ' : ''}{note.title}</strong><span>{note.text.trim().slice(0, 90) || 'Empty note'}</span><small>{new Date(note.updatedAt).toLocaleDateString()}</small></button>{/each}
 						</div>
-						<div class="notebook-transfer"><button onclick={exportNotebook}>Back up saved notes</button><button onclick={() => { recoverOpen = !recoverOpen; }}>Import and recovery</button></div>
+						<div class="notebook-transfer"><button onclick={() => exportNotebook()}>Back up saved notes</button><button onclick={() => exportNotebook(true)}>Export Markdown archive</button><button onclick={() => { recoverOpen = !recoverOpen; }}>Import and recovery</button></div>
 					</aside>
 				{/if}
 				{#if !narrow}<!-- Keyboard-adjustable WAI-ARIA window splitter. -->
@@ -247,13 +300,15 @@
 				{#if !narrow || (!showList && editor)}
 					<main class="note-editor" aria-label="Note editor" aria-busy={opening} inert={opening}>
 						{#if editor && $draftStore}
-							<div class="editor-tools">{#if narrow}<button onclick={() => { showList = true; }}>All notes</button>{/if}{#if history.length}<button onclick={() => { const id = history.at(-1)!; history = history.slice(0, -1); void openNote(id, false); }}>Back</button>{/if}<span class="save-status" role="status">{$draftStore.status === 'saved' ? 'Saved on this device' : $draftStore.status === 'saving' ? 'Saving…' : $draftStore.status === 'conflict' ? 'Conflicting changes' : $draftStore.status === 'failed' ? 'Could not save' : 'Unsaved changes'}</span><button onclick={() => download('note.md', editor!.downloadText())}>Download</button></div>
+							<div class="editor-tools">{#if narrow}<button onclick={() => { showList = true; }}>All notes</button>{/if}{#if history.length}<button onclick={() => { const id = history.at(-1)!; history = history.slice(0, -1); void openNote(id, false); }}>Back</button>{/if}<button aria-pressed={reading} onclick={() => { reading = !reading; }}>{reading ? 'Edit note' : 'Read note'}</button><span class="save-status" role="status">{$draftStore.status === 'saved' ? 'Saved on this device' : $draftStore.status === 'saving' ? 'Saving…' : $draftStore.status === 'conflict' ? 'Conflicting changes' : $draftStore.status === 'failed' ? 'Could not save' : 'Unsaved changes'}</span><button onclick={() => download('note.md', editor!.downloadText())}>Download</button></div>
 							{#if $draftStore.error}<div class="notice" role="alert"><span>{$draftStore.error}</span><button disabled={busy} onclick={() => recoverDraft()}>Save recovery copy</button>{#if $draftStore.status === 'failed'}<button onclick={() => editor?.save()}>Retry save</button>{/if}<button onclick={async () => { if (window.confirm('Replace this draft with the saved version? Download or save a recovery copy first to keep your changes.')) try { await editor?.useSavedVersion(); } catch (failure) { error = (failure as Error).message; } }}>Use saved version</button></div>{/if}
 							{#if $draftStore.note.trashedAt !== null}<div class="notice"><span>This note is in Trash.</span><button onclick={() => changeNote('restore')}>Restore note</button><button onclick={() => changeNote('delete')}>Delete permanently</button></div>{/if}
 							<input class="note-title" aria-label="Note title" value={$draftStore.title} maxlength="200" disabled={busy || opening || $draftStore.note.trashedAt !== null} oninput={event => editor?.update({ title: event.currentTarget.value })}/>
-							<textarea class="note-text" aria-label="Note text" value={$draftStore.text} {placeholder} spellcheck="true" disabled={busy || opening || $draftStore.note.trashedAt !== null} oninput={event => editor?.update({ text: event.currentTarget.value })}></textarea>
-							<div class="note-links"><span>Link notes with [[Title]]</span>{#each outgoing as link}{@const target = notes.find(note => note.id === link.targetId)}<button disabled={!target || target.trashedAt !== null} onclick={() => target && openNote(target.id)}>{target?.title || link.normalizedTitle}{!target ? ' · missing' : target.trashedAt !== null ? ' · in Trash' : ''}</button>{/each}{#if incoming.length}<span>Linked from</span>{#each incoming as link}{@const source = notes.find(note => note.id === link.sourceId)}{#if source && source.trashedAt === null}<button onclick={() => openNote(source.id)}>{source.title}</button>{/if}{/each}{/if}</div>
-							<footer><details class="note-actions" bind:this={actionMenu}><summary>Note actions</summary><div class="note-actions-menu"><button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => changeNote('pin')}>{$draftStore.note.pinned ? 'Unpin' : 'Pin'}</button><select aria-label="Note color" value={$draftStore.note.color || ''} disabled={busy || opening || $draftStore.note.trashedAt !== null} onchange={event => changeNote('pin', event.currentTarget.value)}><option value="">No color</option>{#each NOTE_COLORS as color, index}<option value={color}>{colorNames[index]}</option>{/each}</select><button onclick={() => openReaderDocument($draftStore!.title, $draftStore!.text, 'markdown', 'notes', undefined, `wabi-note:${book!.owner.scopeId}:${$draftStore!.note.id}`)}>Open a copy in Reader</button><button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => changeNote('trash')}>Move to Trash</button></div></details></footer>
+							<div class="note-text" class:reading>{#key editor?.id}<CodeMirrorEditor code={$draftStore.text} language="markdown" prose ariaLabel="Note text" readonly={busy || opening || $draftStore.note.trashedAt !== null} customExtensions={completion} onupdate={text => editor?.update({ text })} />{/key}</div>
+							{#if reading}<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+							<article class="note-reading" aria-label="Note reading view" onclick={followRenderedLink}>{@html renderedNote}</article>{/if}
+							<div class="note-links"><span>Link notes with [[Title]]</span>{#each outgoing as link}{@const target = notes.find(note => note.id === link.targetId)}<button disabled={!target || target.trashedAt !== null} onclick={() => target && openNote(target.id)}>{target?.title || link.normalizedTitle}{!target ? ' · missing' : target.trashedAt !== null ? ' · in Trash' : ''}</button>{#if !target && link.targetId === null}<button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => createLinkedNote(link)}>Create {parseNoteLinks($draftStore.text).find(reference => reference.normalizedTitle === link.normalizedTitle)?.title ?? link.normalizedTitle}</button>{/if}{#if !target && link.targetId}{@const replacement = notes.find(note => note.normalizedTitle === link.normalizedTitle && note.trashedAt === null)}{#if replacement}<button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => reconnectLink(link, replacement)}>Reconnect to {replacement.title}</button>{/if}{/if}{/each}{#if incoming.length}<span>Linked from</span>{#each incoming as link}{@const source = notes.find(note => note.id === link.sourceId)}{#if source && source.trashedAt === null}<button onclick={() => openNote(source.id)}>{source.title}</button>{/if}{/each}{/if}</div>
+							<footer><details class="note-actions" bind:this={actionMenu}><summary>Note actions</summary><div class="note-actions-menu"><button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => changeNote('pin')}>{$draftStore.note.pinned ? 'Unpin' : 'Pin'}</button><select aria-label="Note color" value={$draftStore.note.color || ''} disabled={busy || opening || $draftStore.note.trashedAt !== null} onchange={event => changeNote('pin', event.currentTarget.value)}><option value="">No color</option>{#each NOTE_COLORS as color, index}<option value={color}>{colorNames[index]}</option>{/each}</select><button onclick={() => openReaderDocument($draftStore!.title, $draftStore!.text, 'markdown', 'notes', undefined, readerNoteSourceId(book!.owner.scopeId, $draftStore!.note.id))}>Open a copy in Reader</button><button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => changeNote('trash')}>Move to Trash</button></div></details></footer>
 						{:else}<div class="notebook-empty"><h3>A place to think</h3><p>Open a note or start a new one. Your writing stays in this browser, separate from shared conversations.</p></div>{/if}
 					</main>
 				{/if}
@@ -270,7 +325,7 @@
 	h2, h3, p { margin: 0; } h2 { font-size: 1.2rem; } header p { margin-top: 4px; font-size: .8rem; color: var(--text-secondary); }
 	button, input, select { font: inherit; color: inherit; } button, select { min-height: 36px; border: 1px solid var(--border-subtle); background: var(--surface-raised); border-radius: var(--radius-md); padding: 6px 10px; cursor: pointer; font-size: .8rem; }
 	button:hover:not(:disabled) { background: var(--surface-hover); } button:disabled { opacity: .5; cursor: default; }
-	button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, .note-splitter:focus-visible { outline: 2px solid var(--accent-primary-color); outline-offset: -2px; }
+	button:focus-visible, input:focus-visible, select:focus-visible, .note-splitter:focus-visible { outline: 2px solid var(--accent-primary-color); outline-offset: -2px; }
 	.notebook-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
 	.note-list { flex: 0 0 var(--note-list-width); min-height: 0; display: flex; flex-direction: column; background: var(--surface-sunken); }
 	.list-tools { display: flex; gap: 6px; padding: 12px; } .list-tools input { width: 100%; min-width: 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 8px; background: var(--surface-base); font-size: .85rem; }
@@ -282,7 +337,13 @@
 	.note-editor { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 	.editor-tools, footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 18px; flex-shrink: 0; } .save-status { flex: 1; font-size: .75rem; color: var(--text-secondary); }
 	.note-title { flex-shrink: 0; width: 100%; border: 0; border-radius: 0; background: transparent; padding: 14px 24px 12px; font-size: 1.6rem; font-weight: 650; color: var(--text-heading); }
-	.note-text { flex: 1; min-height: 120px; max-height: none; resize: none; width: 100%; border: 0; border-radius: 0; background: transparent; color: var(--text-primary); padding: 8px 24px 24px; font: 1rem/1.7 var(--font-sans, sans-serif); }
+	.note-text.reading { display: none; }
+	.note-reading { flex: 1; min-height: 120px; overflow: auto; padding: 8px 24px 24px; line-height: 1.7; overflow-wrap: anywhere; }
+	.note-reading :global(pre) { overflow: auto; padding: 12px; background: var(--surface-sunken); }
+	.note-reading :global(a) { color: color-mix(in srgb, var(--accent-primary-color) 30%, var(--text-primary)); text-decoration: underline; }
+	.note-reading :global(table) { border-collapse: collapse; }
+	.note-reading :global(td), .note-reading :global(th) { border: 1px solid var(--border-subtle); padding: 6px 10px; }
+	.note-text { display: flex; flex-direction: column; flex: 1; min-height: 120px; max-height: none; resize: none; width: 100%; border: 0; border-radius: 0; background: transparent; color: var(--text-primary); padding: 8px 24px 24px; font: 1rem/1.7 var(--font-sans, sans-serif); }
 	.note-links { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-height: 110px; overflow-y: auto; padding: 10px 18px; border-top: 1px solid var(--border-subtle); font-size: .75rem; color: var(--text-secondary); } footer { border-top: 1px solid var(--border-subtle); }
 	.note-actions { position: relative; } .note-actions summary { cursor: pointer; min-height: 36px; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); font-size: .8rem; } .note-actions summary:focus-visible { outline: 2px solid var(--accent-primary-color); } .note-actions-menu { position: absolute; bottom: calc(100% + 8px); left: 0; display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: min(250px, 75vw); padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: var(--shadow-lg); z-index: var(--z-dropdown, 20); }
 	.notebook-empty { margin: auto; padding: 32px; max-width: 450px; text-align: center; } .notebook-empty p { color: var(--text-secondary); margin-top: 12px; line-height: 1.6; } .notebook-empty button { margin-top: 16px; }

@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { notebookOwner } from '$lib/notes/scope';
+	import { LocalNotebook } from '$lib/notes/db';
+	import { parseReaderNoteSource } from '$lib/notes/readerBridge';
+	import { openNotesSurface } from '$lib/notesWorkspace';
 	import ReaderTabImpl from './ReaderTabImpl.svelte';
 	import {
 		openReaderStableDocument,
@@ -19,7 +24,12 @@
 		readerDocuments,
 		readerDocumentsHydrated,
 		readerDocumentSaveState,
+		readerDocumentScope,
 		readerStoragePersistent,
+		readerStorageError,
+		readerRecoveryAvailable,
+		exportReaderRecoverySources,
+		retryReaderDocumentStorage,
 		rejectReaderSuggestion,
 		removeReaderDocumentComment,
 		setReaderDocumentCommentResolved,
@@ -49,6 +59,8 @@
 	$: openSuggestionCount = activeDocument?.suggestions.filter((suggestion) => suggestion.status === 'open').length || 0;
 	$: unresolvedCommentCount = activeDocument?.comments.filter((comment) => !comment.resolved).length || 0;
 	$: canWork = Boolean(selection && selection.contentType !== 'images');
+	$: sourceNote = parseReaderNoteSource(selection?.sourceDocKey || activeDocument?.sourceDocKey);
+	$: canReturnToNote = sourceNote && sourceNote.scopeId === $notebookOwner.owner?.scopeId;
 	$: selectionIdentity = selection
 		? `${selection.id}|${selection.documentId || selection.docKey}`
 		: '';
@@ -109,14 +121,18 @@
 
 	async function documentForCurrentSelection(): Promise<ReaderLocalDocument | null> {
 		if (!selection || selection.contentType === 'images') return null;
-		const document = await ensureReaderDocument(selection);
+		const current = selection;
+		const document = await ensureReaderDocument(current);
+		if (get(readerSelection)?.id !== current.id) return null;
 		activeDocumentId = document.documentId;
 		return document;
 	}
 
 	async function enterMode(nextMode: ReaderWorkMode): Promise<void> {
 		if (nextMode === 'read') {
+			const current = selection?.id;
 			if (activeDocumentId) await flushReaderDocument(activeDocumentId);
+			if (get(readerSelection)?.id !== current) return;
 			const document = activeDocumentId ? documentMap[activeDocumentId] : null;
 			if (document && showingLocalDraft) syncPreview(document.title, document.content);
 			mode = 'read';
@@ -188,18 +204,22 @@
 
 	async function promoteCurrentDocument(): Promise<void> {
 		if (!activeDocumentId) return;
+		const current = selection?.id;
 		const promoted = promoteReaderDocument(activeDocumentId);
 		if (!promoted) return;
 		await flushReaderDocument(promoted.documentId);
+		if (get(readerSelection)?.id !== current) return;
 		openLocalDocument(promoted);
 	}
 
 	async function discardCurrentWorkingCopy(): Promise<void> {
 		if (!activeDocument || activeDocument.kind !== 'working-copy') return;
+		const current = selection?.id;
 		const title = activeDocument.originalTitle;
 		const content = activeDocument.originalContent;
 		const id = activeDocument.documentId;
 		await discardReaderDocument(id);
+		if (get(readerSelection)?.id !== current || get(readerDocuments)[id]) return;
 		activeDocumentId = null;
 		mode = 'read';
 		showingLocalDraft = false;
@@ -249,6 +269,32 @@
 		if (age < 86_400_000) return `${Math.floor(age / 3_600_000)}h ago`;
 		return new Date(timestamp).toLocaleDateString();
 	}
+	async function returnToNote(): Promise<void> {
+		const target = sourceNote, owner = $notebookOwner.owner, current = selection?.id;
+		if (!target || !owner || owner.scopeId !== target.scopeId) return;
+		if (activeDocumentId) {
+			const id = activeDocumentId;
+			await flushReaderDocument(id);
+			if (get(readerDocumentSaveState)[id] === 'error') { remoteNotice = 'Your Reader copy has unsaved changes. Download it or retry saving before returning to Notes.'; return; }
+		}
+		if (get(readerSelection)?.id !== current || !owner.isCurrent()) return;
+		try {
+			const note = await new LocalNotebook(owner).get(target.noteId);
+			if (get(readerSelection)?.id !== current || !owner.isCurrent()) return;
+			if (!note) { remoteNotice = 'The original note was deleted. This Reader copy is still available.'; return; }
+			openNotesSurface(target);
+		} catch (error) { remoteNotice = error instanceof Error ? error.message : 'Could not reopen the original note.'; }
+	}
+	async function downloadRecovery(): Promise<void> {
+		const scope = get(readerDocumentScope), identity = get(notebookOwner);
+		try {
+			const raw = await exportReaderRecoverySources();
+			if (get(readerDocumentScope) !== scope || get(notebookOwner) !== identity) return;
+			const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
+			const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'wabi-reader-recovery.json'; anchor.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		} catch (error) { remoteNotice = error instanceof Error ? error.message : 'Could not export Reader recovery sources.'; }
+	}
 </script>
 
 <div class="reader-workbench" class:has-selection={Boolean(selection)}>
@@ -280,6 +326,7 @@
 		{/if}
 
 		<div class="reader-document-actions">
+			{#if canReturnToNote}<button type="button" class="reader-action-emphasis" on:click={returnToNote}>Return to note</button>{/if}
 			{#if activeDocument}
 				<span class="reader-local-save" class:error={saveState === 'error'}>{saveLabel()}</span>
 				{#if activeDocument.kind === 'working-copy'}
@@ -322,6 +369,12 @@
 			</div>
 		</div>
 	</div>
+	{#if $readerStorageError}
+		<div class="reader-storage-notice" role="alert"><span>{$readerStorageError}</span><button type="button" on:click={() => retryReaderDocumentStorage()}>Retry device storage</button><button type="button" on:click={downloadRecovery}>Download recovery sources</button></div>
+	{/if}
+	{#if $readerRecoveryAvailable.legacyDocuments || $readerRecoveryAvailable.localSources}
+		<div class="reader-storage-notice"><span>Older Reader writing is preserved. Unassigned records need an explicit account choice before import.</span><button type="button" on:click={downloadRecovery}>Download older writing</button></div>
+	{/if}
 
 	{#if remoteNotice}
 		<div class="reader-remote-notice" role="status">
@@ -428,6 +481,11 @@
 </div>
 
 <style>
+	.reader-storage-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px; color: var(--text-primary); background: var(--surface-raised); border-bottom: 1px solid var(--border-subtle); font-size: .85rem; line-height: 1.5; }
+	.reader-storage-notice span { flex: 1 1 240px; }
+	.reader-storage-notice button { min-height: 36px; padding: 6px 10px; color: inherit; background: var(--surface-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); cursor: pointer; }
+	.reader-storage-notice button:focus-visible { outline: 2px solid var(--accent-primary-color); }
+	@media (pointer: coarse) { .reader-storage-notice button { min-height: 44px; } }
 	.reader-workbench {
 		height: 100%;
 		min-height: 0;

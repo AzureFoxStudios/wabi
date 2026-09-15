@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-15
 
-**Status:** core candidate implemented and under combined validation. Transactional notebooks, scoped drafts/recovery, wiki-link indexes, legacy recovery, JSON backup/import, shared scratchpad and profile annotation safety are implemented. Markdown completion/reading view, explicit relink UI, portable Markdown bundle, Reader return control and legacy profile mapping remain open. See [local Notes guide](../features/LOCAL_NOTES.md) and the campaign execution ledger; this is not a deployment claim.
+**Status:** core candidate implemented and under combined validation. Transactional notebooks, scoped drafts/recovery, wiki-link indexes, legacy recovery, JSON backup/import, shared scratchpad and profile annotation safety are implemented. Markdown completion/reading view, missing-target creation, explicit reconnect, portable Markdown archive and Reader return are now implemented with scoped browser evidence. Legacy profile mapping, multipart backups and the full device/DM acceptance matrix remain open. See [local Notes guide](../features/LOCAL_NOTES.md) and the campaign execution ledger; this is not a deployment claim.
 
 **Parent:** [Production finish campaign](2026-09-15-production-finish-campaign.md), N01–N05
 
@@ -44,7 +44,7 @@ Suggested database name: `wabi-local-notes`. Use an explicit database version an
 
 Use existing server normalization; do not lowercase case-sensitive endpoint paths. Reuse stable account/session primitives from the current auth implementation. The browser WabiDB facade's CRUD methods are currently scaffolds; its working outbound-queue database is a separate responsibility.
 
-Reader provides useful revision/save/broadcast patterns, but copy only verified behavior. Its existing upgrade callback and non-atomic localStorage fallback need separate review under campaign T03.
+Reader provides useful revision/save/broadcast patterns, but copy only verified behavior. Campaign T03 now preserves legacy stores through an additive v3 migration and removes non-atomic localStorage save fallbacks; recovery sources remain explicit and account-filtered.
 
 ### Save operation
 

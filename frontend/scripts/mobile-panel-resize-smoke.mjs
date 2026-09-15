@@ -80,7 +80,7 @@ try {
 		await page.waitForFunction(() => document.documentElement.dataset.shell === 'mobile');
 		await page.screenshot({ path: `${scratch}/notes-mobile-${width}.png` });
 		assert.equal(await page.locator('.mobile-right-overlay.visible').count(), 0, 'resizing must not open a mobile panel');
-		assert.equal(await editor.inputValue(), 'Keep this note visible when the window narrows.');
+		assert.equal(await editor.innerText(), 'Keep this note visible when the window narrows.');
 		assert.ok(await receivesPointer(editor), 'the note editor remains reachable');
 		assert.ok(await receivesPointer(page.locator('.workspace-trigger')), 'workspace navigation remains reachable');
 		assert.deepEqual(await readSavedDock(page), desktopDock, 'resize preserves the saved desktop dock');
@@ -92,7 +92,7 @@ try {
 	await lastWorkspace.scrollIntoViewIfNeeded();
 	assert.ok(await receivesPointer(lastWorkspace), 'the open workspace picker stays above mobile navigation');
 	await picker.getByRole('button', { name: 'Notes', exact: true }).click();
-	assert.equal(await editor.inputValue(), 'Keep this note visible when the window narrows.');
+	assert.equal(await editor.innerText(), 'Keep this note visible when the window narrows.');
 	// Open the actual mobile panel through the existing shared action, then use
 	// the normal Chat button to close it. Neither action is a desktop unpin.
 	await page.evaluate(async () => (await import('/src/lib/layoutStore.ts')).layoutStore.showUsersTab());

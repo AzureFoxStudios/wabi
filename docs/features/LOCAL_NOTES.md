@@ -22,7 +22,7 @@ Trash reserves note titles and has no automatic expiry. Restore keeps identity. 
 
 Use `[[Title]]` or `[[Title|label]]`. Link targets and backlinks appear below the editor. Titles are unique after Unicode NFKC normalization, whitespace normalization and lowercase comparison. Renaming updates incoming links atomically while preserving aliases. Code, escaped brackets and raw HTML do not become notebook links.
 
-Links retain target UUIDs. Deleting a target and creating another note with the same title does not silently redirect existing links. Missing and trashed targets are visibly unavailable. The storage service supports explicit relinking; the user-facing relink picker remains part of the next Notes finishing pass.
+Links retain target UUIDs. Deleting a target and creating another note with the same title does not silently redirect existing links. Missing and trashed targets are visibly unavailable. Use **Reconnect to …** to explicitly attach a deleted target’s link to a replacement with the same title. A never-resolved link offers **Create …**. Type `[[` in the Markdown editor for keyboard suggestions; **Read note** shows formatted text and clickable local links. Code remains literal, executable HTML is removed, and remote images are shown as text without fetching them.
 
 ## Recovering older writing
 
@@ -38,13 +38,16 @@ Imports are additive. Existing records are kept; conflicting titles receive suff
 
 This candidate supports a maximum **20 MB UTF-8 JSON backup**, 10,000 notes and 100,000 indexed references. Export validates the same limits as import and refuses to create an unsupported file. If a notebook exceeds those limits, download individual notes; multipart backups remain future work. Keep downloaded files private if their contents are sensitive.
 
-**Open a copy in Reader** copies the current text under a stable note source identity. Reader edits do not write back to the note. A dedicated return-to-note control, portable Markdown bundle export, and Markdown editor completion remain unfinished.
+**Open a copy in Reader** copies the current text under a stable note source identity. Reader edits do not write back to the note. **Return to note** opens the original UUID in the same notebook; missing originals and unsaved Reader copies produce a visible notice. Reader upgrades preserve old document stores and migrate only verifiably scoped records. Ambiguous legacy writing stays available through explicit recovery downloads; failed device writes never become successful localStorage saves.
+
+**Export Markdown archive** downloads a `.tar` archive. Extract it to get active notes in `notes/`, retained Trash in `trash/`, relative Markdown links, and `notebook.json` for restoring Wabi metadata. Missing target identities remain unresolved. UUID suffixes keep filenames distinct and portable. Import the extracted JSON through Notes; archive import itself is not supported. The same saved-note backup limits apply.
 
 ## Acceptance evidence
 
 - `frontend/scripts/notes-storage-browser-smoke.mjs`: real IndexedDB, two-window writes, additive upgrades, link identity/rename, trash, failed drafts, reload recovery, legacy migration, backup remapping and a typing-during-rename regression.
+- `frontend/scripts/reader-storage-upgrade-browser-smoke.mjs`: additive v1/v2 upgrades, account filtering, blocked retry, failed writes/discard, recovery exports and retained runtime drafts.
 - `frontend/scripts/notes-scope-browser-smoke.mjs`: account/server/path boundaries, logout and switching fences, guest identity, explicit offline storage failure.
-- `frontend/scripts/notes-workspace-browser-smoke.mjs`: isolated Authority and headful workspace journeys, editor height, shared scratchpad and mobile rendering.
+- `frontend/scripts/notes-workspace-browser-smoke.mjs`: isolated Authority and headful workspace journeys, editor height, keyboard completion, missing-target creation, safe reading links, explicit reconnect, Reader return, archive download, shared scratchpad and mobile rendering.
 - `frontend/scripts/profile-notes-browser-smoke.mjs` and `profile-popout-browser-smoke.mjs`: scoped annotation transactions and actual profile UI save/reopen/clear/failure/download behavior.
 
 These checks do not certify physical devices, browser storage eviction behavior, native webviews, a production deploy, or the whole release campaign.
