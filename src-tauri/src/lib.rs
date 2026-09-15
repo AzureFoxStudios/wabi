@@ -13,8 +13,11 @@ pub fn run() {
             .build(),
         )?;
       }
-      // DEBUG SELF-TEST: spawn the native viewer with a generated cube so the
-      // wgpu window appears without needing the frontend. Remove after verification.
+
+      // The detached wgpu model-viewer self-test is intentionally desktop-only
+      // and debug-only. Mobile uses the in-app viewport and must never spawn a
+      // second native rendering window during ordinary startup.
+      #[cfg(all(debug_assertions, not(mobile)))]
       if std::env::var("WABI_SKIP_VIEWER_TEST").is_err() {
         std::thread::spawn(|| {
           crate::viewer::dlog("DEBUG: thread spawned, building cube");
@@ -55,4 +58,5 @@ mod recording;
 mod tailcat;
 mod lore_local;
 pub mod tailcat_proxy;
+#[cfg(not(mobile))]
 mod viewer;
