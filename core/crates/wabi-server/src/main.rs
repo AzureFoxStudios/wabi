@@ -241,7 +241,7 @@ async fn main() -> anyhow::Result<()> {
         };
         let display_name = std::env::var("HOSTNAME")
             .unwrap_or_else(|_| format!("wabi-helper-{}", uuid::Uuid::new_v4().simple()));
-        let jwt_secret = resolve_jwt_secret(&args.data_dir);
+        let jwt_secret = resolve_jwt_secret(&args.data_dir)?;
         helper_client::run_helper(
             primary_url,
             args.pairing_token,
@@ -294,7 +294,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| format!("{}/blacklist.txt", args.data_dir));
     let authority_url = std::env::var("WABI_AUTHORITY_URL").ok();
 
-    let jwt_secret = resolve_jwt_secret(&args.data_dir);
+    let jwt_secret = resolve_jwt_secret(&args.data_dir)?;
 
     let turn = TurnStartupConfig::from_env().map_err(anyhow::Error::msg)?;
 

@@ -1,7 +1,7 @@
 # Backup and Recovery
 
 **Status:** canonical conservative runbook for the current single-Authority deployment.  
-**Updated:** 2026-09-14
+**Updated:** 2026-09-15
 
 This document intentionally describes the boring recovery path that can be reasoned about today. It does **not** treat experimental WabiDB replication or warm-standby endpoints as backups.
 
@@ -136,3 +136,18 @@ Wabi should not call a multi-node arrangement “HA” until all of the followin
 - failure injection showing the surviving node does not silently diverge.
 
 Automatic election/failover comes **after** a safe manual recovery path, not before it.
+
+
+## Candidate first-boot and disposable restore gate
+
+The production-finish candidate persists a generated JWT secret even when the data directory does not yet exist. Generated JWT and WabiDB root keys are written with restricted permissions, flushed, and published without replacing an existing key. A failed write, unreadable file or invalid persisted key stops startup; it does not silently choose a different key. Explicit environment overrides retain precedence. Recover original key material or repair storage access before restarting a failed instance.
+
+For an embedded Authority built from the candidate, run:
+
+```bash
+node scripts/authority-backup-restore-smoke.mjs --binary /absolute/path/to/wabi-server
+```
+
+The script creates private disposable directories and loopback-only processes. It registers an owner, retains a message forever, completes an upload, stops the writer, copies the full data/uploads trees, restarts the original, restores the snapshot into another directory, and verifies both old and newly written messages/uploads through a second restart. Original session identity and key-file hashes must remain stable; post-snapshot messages must not appear in the restored snapshot. No operator secrets or live data directories are read. A report records the tested binary hash and limits.
+
+This is a same-binary disposable-state gate. It does not certify upgrade from a previous release, a hosted-data backup, external key recovery, unfinished uploads, proxies, helpers, or an independent clean host. Those rehearsals remain separate. `scripts/state-plane-backup.mjs` and `state-plane-restore.mjs` are legacy STDB tooling; do not use them as embedded WabiDB backup instructions.
