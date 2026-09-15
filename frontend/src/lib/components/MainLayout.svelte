@@ -5,7 +5,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
 	import { centerPanelView, centerDmOtherUser, centerGroupChannel, focusMode } from '$lib/layoutStoreStates';
-	import { armPeekDismiss, cancelPeekDismiss } from '$lib/rightPeekGestures';
+	import { armPeekDismiss, cancelPeekDismiss, peekAnimationGate, setPeekPointerInside } from '$lib/rightPeekGestures';
 	import { registerPluginWorkspacePanels } from '$lib/workspacePanels';
 	import { fetchPluginInventory } from '$lib/addonInventory';
 	import Chat from '$lib/components/Chat.svelte';
@@ -99,6 +99,29 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let swipePreviewActive = false;
 	let swipePreviewTarget: 'none' | 'channels' | 'users' = 'none';
 	let swipePreviewOffsetX = 0;
+	// Right-panel peek retract: when the peek collapses, keep the zone mounted
+	// briefly to play the slide-out instead of yanking it from the DOM.
+	// (Legacy reactivity — this file is not runes-mode.)
+	let peekClosing = false;
+	let peekClosingTimer: ReturnType<typeof setTimeout> | null = null;
+	let prevRightPanelMode: 'none' | 'peek' | 'pinned' | null = null;
+	$: trackRightPanelMode($layoutStore.rightPanelMode);
+	function trackRightPanelMode(mode: 'none' | 'peek' | 'pinned') {
+		if (mode !== 'none') {
+			if (peekClosingTimer) {
+				clearTimeout(peekClosingTimer);
+				peekClosingTimer = null;
+			}
+			peekClosing = false;
+		} else if (prevRightPanelMode === 'peek' || prevRightPanelMode === 'pinned') {
+			peekClosing = true;
+			peekClosingTimer = setTimeout(() => {
+				peekClosingTimer = null;
+				peekClosing = false;
+			}, 210);
+		}
+		prevRightPanelMode = mode;
+	}
 	type FriendPresenceSnapshot = {
 		status: User['status'];
 		username: string;
@@ -1078,17 +1101,23 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	       tabs (peek slide-in carries them with it); a standalone strip serves the
 	       closed (mode = none) cabinet state. -->
 	{#if !$layoutStore.isMobile}
-		{#if $layoutStore.rightPanelMode !== 'none'}
+		{#if $layoutStore.rightPanelMode !== 'none' || peekClosing}
+			<!-- Pointer moving anywhere inside the zone cancels a pending
+			     dismissal: stub mouseleave arms it, and the zone's mouseenter
+			     will not re-fire for a pointer that never left the zone. -->
 			<div
 				class="right-panel-zone"
 				class:peek={$layoutStore.rightPanelMode === 'peek'}
+				class:closing={peekClosing && $layoutStore.rightPanelMode === 'none'}
 				class:stub-right={$layoutStore.stubSide === 'right'}
 				class:stub-left={$layoutStore.stubSide === 'left'}
 				style:width="{$layoutStore.rightPanelWidth}px"
 				style:flex-basis="{$layoutStore.rightPanelWidth}px"
 				style:max-width="min(744px, 55vw)"
-				on:mouseenter={cancelPeekDismiss}
-				on:mouseleave={armPeekDismiss}
+				use:peekAnimationGate
+				on:mouseenter={() => setPeekPointerInside(true)}
+				on:mouseleave={() => { setPeekPointerInside(false); armPeekDismiss(); }}
+				on:pointermove={cancelPeekDismiss}
 			>
 				<div class="right-panel-body">
 					{#if $layoutStore.rightPanelMode === 'pinned'}
