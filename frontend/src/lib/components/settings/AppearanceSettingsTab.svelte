@@ -7,6 +7,7 @@
 	import BackgroundImageEditor from '../BackgroundImageEditor.svelte';
 	import UniformFontMode from '../UniformFontMode.svelte';
 	import EffectsTab from '$lib/effects/EffectsTab.svelte';
+	import PointerEffectsTab from '$lib/effects/PointerEffectsTab.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
 		homeLayout,
@@ -498,6 +499,9 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Pointer effects are device preferences, independent of theme tuning. -->
+<PointerEffectsTab />
 
 <!-- Performance -->
 <div class="settings-section">
