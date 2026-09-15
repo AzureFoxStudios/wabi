@@ -167,10 +167,23 @@ Use a common acceptance record: **entry → create/import → edit/use → save/
 | C01 — Two real network paths | Two real clients on different networks using the advertised default transport; explicit optional TURN/SFU fallback test where offered. | Microphone/output, mute/deafen, camera, screen share and supported sound capture work; transport/fallback labels match actual behavior. |
 | C02 — Failure and ownership | Disconnect/reconnect, network change, capture permission denial/cancellation, leave/rejoin, kick/removal, logout and concurrent call surfaces. | No unauthorized audience, resurrected session or lingering capture; controls affect the displayed session; recovery stays understandable. |
 | C03 — Pilot room capacity | Agree a small declared room size, initially test six participants on representative equipment; measure CPU, memory, latency and quality. | Publish only the size/combinations actually verified; larger media goals remain separate. |
-| C04 — Desktop distribution | Install and upgrade supported Windows/macOS/Linux packages; notifications, local file access, sidecars, detached windows, signing/notarization where applicable. | Real installation and lifecycle evidence for each advertised platform; compiled artifacts alone do not certify native behavior. |
+| C04 — Desktop distribution | First pilot: install and upgrade Linux/Windows packages; notifications, local file access, sidecars and detached windows. Apple platforms are outside this pilot's acceptance target; existing capabilities remain intact. | Real installation and lifecycle evidence for each advertised platform; compiled artifacts alone do not certify native behavior. |
 | C05 — Mobile boundary | Accept mobile web/PWA as a distinct surface. Offer native Android/iOS only after build, install, device/network/audio/background tests pass. | The supported-client table distinguishes mobile web from native certification; no shrunken desktop-only interaction path. |
 
 Physical microphones, Bluetooth routes, external phones/networks and independent human use require actual devices and participants. Keep these cards open until evidence exists; automation is not a substitute.
+
+### Available pilot hardware (user-confirmed, September 15)
+
+| Device | Available coverage | Evidence still needed |
+| --- | --- | --- |
+| Two Bazzite computers | Linux desktop/browser | Installed browser versions, audio/camera equipment and actual call results |
+| ironin Mint computer | Microphone and camera; read-only SSH access succeeded, reporting Linux Mint 22.3 | Browser session, capture permissions, actual audio/video and screen sharing |
+| Tim Mint computer | Additional Linux host; preserve its existing hosting role | Suitability for a separate client test without disrupting hosted Wabi |
+| Tim's Windows 10 and partner's Windows 10/11 access | Windows browser/native pilot candidates | Actual installed clients and lifecycle/calling results |
+| Redmi A7 | Mobile web/PWA candidate | Android/browser versions, touch/layout, capture and background/reconnect results |
+| Void's computer | Possible Windows 11, unconfirmed and unavailable until return | Availability and OS confirmation |
+
+A second network/participant has not yet been confirmed. Redmi cellular data may provide a separate route if available; SSH connectivity alone does not prove independent public calling paths. Device access is not a hardware acceptance result. No OS reinstall is planned, and connection addresses are intentionally kept out of repository documentation.
 
 ## Wave 6 — make release and self-hosting repeatable
 
@@ -279,6 +292,7 @@ Behavior and limits are in [Local Notes](../features/LOCAL_NOTES.md). Remaining 
 - **Release manifest:** reads identity from the real binary, requires a release profile and matching client/server revisions, then hashes binary/frontend bytes. Rejects symbolic links and output/input collisions. CI stamps the actual checkout revision and uploads the manifest with the binary; Compose forwards the optional source argument. Unknown local revisions stay explicitly unavailable.
 - **Checks so far:** 801 frontend tests pass with 3 existing skips; focused public metadata Rust handler test passes; four independent manifest-fixture tests pass (matching bytes, wrong server revision/debug profile, mismatched client revision, symlink rejection). Exact stamped build, CLI side effects, actual manifest and rendered About acceptance follow on the committed source.
 - Operator contract: [Build identity](../deployment/BUILD_IDENTITY.md). This is not publication, signing or deployment certification.
+- **Exact candidate checked:** source `ff714c556a369ea0bb341c1b852650ec95ce5dc0` built successfully as a stamped static frontend and release Authority. The actual binary's build-info command passed the manifest side-effect check; its revision matched all 270 frontend files in the generated manifest. The stopped backup/restore/restart fixture passed using that release binary and expected revision. Local evidence: `/tmp/wabi-ff714c55-release-manifest.json` and `/tmp/wabi-authority-restore-RPn0lm/report.json`. Rendered About and matching container/deployed identity acceptance remain pending.
 
 ## Interface-review coverage
 
@@ -309,3 +323,11 @@ Rejected alternatives: resetting operator branding for a screenshot; a second No
 **Interface verdict:** the opening public-entry and mobile-navigation repairs have scoped browser evidence. Whole-product release remains blocked by the known Notes data risks and incomplete workspace acceptance. Full workspace, 200% zoom, physical touch/keyboard, motion-at-10%-speed and performance acceptance remain open; the completed narrow checks do not certify them.
 
 **Campaign verdict:** in progress. The plan covers the finish line; acceptance is earned card by card and again on the final candidate.
+
+## Helper-assisted calendar and pilot checklist batch
+
+- User requested free-model helpers for easy and medium implementation wins, with short bounded prompts and batch review. OpenCode Ling's free endpoint passed a literal-response smoke check. Separate workers owned calendar code and the device checklist; no paid fallback was selected.
+- Calendar form dates now use local calendar components, reject invalid dates/times and end-before-start, and explicitly clear recurrence when disabled. Review tightened types and recurrence validation. This does not implement recurrence expansion or repair Planner account/storage/import ownership.
+- Validation: 28 targeted tests pass under `TZ=America/Los_Angeles`; frontend check reports zero errors and 167 existing warnings, and the static production build passes. Physical/browser calendar acceptance remains pending.
+- [Pilot device checklist](../testing/PILOT_DEVICE_CHECKLIST.md) records planned hardware pairings, capture/reconnect/permission checks and separate native/self-hosted acceptance. All physical results remain untested.
+- The calendar provider became unavailable after writing its patch; final repairs and checks were completed locally. No push, merge or deployment occurred.
