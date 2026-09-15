@@ -13,6 +13,7 @@ import type {
 	GraphEdge
 } from './types';
 import { generateId } from './utils';
+import { occurrencesForRange } from './calendarOccurrences';
 import { addResource, addGraphEdge } from './resourceStore';
 import {
 	DEFAULT_KANBAN_COLUMNS,
@@ -397,9 +398,10 @@ export function archiveOldCompletedTasks(olderThanDays: number = 30): number {
 
 export const upcomingEvents = derived(calendarEvents, ($events) => {
 	const now = Date.now();
-	const weekFromNow = now + 7 * 24 * 60 * 60 * 1000;
+	const lastDay = new Date(now); lastDay.setDate(lastDay.getDate() + 7);
 	return $events
-		.filter((e) => e.startDate >= now && e.startDate <= weekFromNow)
+		.flatMap(event => occurrencesForRange(event, new Date(now), lastDay).map(occurrence => ({ ...event, startDate: occurrence.start, endDate: occurrence.end })))
+		.filter((event) => event.startDate >= now && event.startDate <= lastDay.getTime())
 		.sort((a, b) => a.startDate - b.startDate);
 });
 

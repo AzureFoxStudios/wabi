@@ -100,10 +100,22 @@ try {
 	assert.equal(await page.evaluate(async () => (await import('/src/lib/business/snapshot.ts')).getBusinessDataSnapshot().calendarEvents.length), 0, 'account B cannot read A');
 	await switchAccount(account);
 	assert.equal(await page.evaluate(async () => (await import('/src/lib/business/snapshot.ts')).getBusinessDataSnapshot().calendarEvents[0]?.title), 'Account A appointment', 'A returns to its original saved state');
+	const seriesStart = await page.evaluate(async () => {
+		const store = await import('/src/lib/business/store.ts');
+		const start = new Date(); start.setDate(start.getDate() - 7); start.setHours(9, 0, 0, 0);
+		store.addCalendarEvent({ title: 'Weekly review', startDate: start.getTime(), allDay: false, createdBy: 'fixture', recurring: { frequency: 'weekly', interval: 1 } });
+		await (await import('/src/lib/business/deviceStorage.ts')).flushBusinessStorage();
+		return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+	});
+	await page.waitForFunction(() => document.querySelectorAll('.chat-surface button[aria-label="Edit event Weekly review"]').length >= 2);
+	await center.getByRole('button', { name: 'Edit event Weekly review', exact: true }).last().click();
+	await page.getByRole('heading', { name: 'Edit recurring series' }).waitFor();
+	assert.equal(await page.locator('#startDate').inputValue(), seriesStart, 'occurrence edits keep the original series start');
+	await page.getByRole('button', { name: 'Close event editor', exact: true }).click();
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.screenshot({ path: `${scratch}/planner-mobile.png` });
 	assert.deepEqual(errors, [], 'no browser exceptions');
-	console.log(`PASS Planner UI create/save/import/reject/account isolation; evidence ${scratch}`);
+	console.log(`PASS Planner UI create/save/import/reject/account isolation/recurrence series; evidence ${scratch}`);
 } finally {
 	await browser?.close(); await vite?.close(); server.kill('SIGTERM');
 	await new Promise(resolve => { if (server.exitCode !== null) resolve(); else { server.once('exit', resolve); setTimeout(resolve, 5000); } });
