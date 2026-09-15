@@ -1,122 +1,57 @@
-# Wabi Native Build Guide (Linux Mint Edition)
+# Build the desktop client
 
-This is the off-GitHub, local-only build path for producing Windows `.exe`, Linux AppImage/`.deb`, and Android `.apk`/`.aab` bundles from Linux Mint.
+The native shell lives in repository-root `src-tauri/`; `frontend/` contains its web UI. Linux and Windows are the first pilot targets. Existing macOS builds remain configured, but Apple device acceptance is outside this pilot.
 
-## 1. Install system dependencies (Mint / Ubuntu / Debian)
+## Toolchain and dependencies
 
-```bash
-sudo apt update && sudo apt install -y \
-  libwebkit2gtk-4.1-dev \
-  build-essential \
-  curl wget file \
-  libssl-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev \
-  pkg-config \
-  patchelf \
-  fakeroot \
-  unzip git \
-  nodejs npm \
-  openjdk-17-jdk
-```
-
-## 2. Install Rust
+Use the repository-pinned Rust toolchain (1.93, currently patch 1.93.1), Node 22, Bun 1.3.14 and Tauri CLI 2.11.4. Install frontend dependencies from the committed npm lockfile:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
+cd frontend
+npm ci --no-audit --no-fund
+cd ..
 ```
 
-## 3. Install Android toolchain (for mobile builds)
+Install the native prerequisites for the target OS using the [official Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). Linux needs GTK 3, WebKitGTK 4.1, OpenSSL development libraries and the relevant packaging tools. Windows needs the supported Microsoft build tools and WebView2. Native packaging must run on the corresponding OS; a cross-compiled raw executable is not an installer acceptance result.
 
-1. Download Android Studio or SDK command-line tools.
-2. Set environment variables in `~/.bashrc`:
+## Stage the pinned helper
+
+Tauri bundles the Tailcat sidecar declared in `src-tauri/tauri.conf.json`. The repository script downloads and verifies the pinned upstream archive, or builds the pinned macOS source as documented in the script:
 
 ```bash
-export ANDROID_HOME="$HOME/Android/Sdk"
-export NDK_HOME="$ANDROID_HOME/ndk/27.0.11902837"
-export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
-export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+./scripts/fetch-tailcat-sidecar.sh
 ```
 
-3. Install SDK components:
+A universal macOS build requires both architecture-specific helpers and a universal helper combined with `lipo`; the canonical workflow contains the exact staging procedure. Do not replace checksum-pinned binaries with arbitrary downloads.
+
+## Build
+
+From the repository root, with the pinned Bun executable available on `PATH`:
 
 ```bash
-sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-sdkmanager "ndk;27.0.11902837"
+bunx @tauri-apps/cli@2.11.4 build --ci -- --locked
 ```
 
-4. Add Rust targets:
+Tauri runs the configured `beforeBuildCommand`, which builds the frontend with its native configuration. Do not substitute adapter-node output. The Rust Authority separately requires its static SPA build; see [Fresh install](FRESH_INSTALL.md).
 
-```bash
-rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-```
+Unless `CARGO_TARGET_DIR` overrides the destination, bundles are under `src-tauri/target/release/bundle/`; universal macOS bundles use `src-tauri/target/universal-apple-darwin/release/bundle/`.
 
-## 4. Install cross-compile tools for Windows
+| Platform | Configured bundle outputs | Acceptance still required |
+| --- | --- | --- |
+| Linux | `.deb`, `.rpm`, `.AppImage` | Install/upgrade on the advertised distro, startup, permissions and real calls |
+| Windows | NSIS setup `.exe`, `.msi` | Install/upgrade, WebView2, permissions, notifications and real calls |
+| macOS | `.app`, `.dmg` | Existing build path; hardware, signing/notarization remain unvalidated |
 
-```bash
-rustup target add x86_64-pc-windows-msvc
-cargo install cargo-xwin
-```
+The RPM dependency list uses OpenSSL 3 shared-library capabilities rather than Debian's `libssl3` package name. This still requires a real installation check on the target RPM-based system.
 
-`cargo-xwin` downloads MSVC headers and links with LLD — no Windows license needed.
+Keep the platform-specific Android/iOS configuration files. Mobile build and device acceptance are separate; deleting their configuration is not a desktop build repair.
 
-**Note:** `cargo-xwin` produces a raw `.exe`. To generate an MSI installer you must either:
-- Run `cargo tauri build` on a real Windows machine, or
-- Use the existing GitHub Action (`.github/workflows/tauri-build.yml`) just for the MSI step.
+## CI and candidate artifacts
 
-## 5. Fix known config issues
+`.github/workflows/build.yml` is the canonical automatic main/PR/tag build. Tag pushes matching `v*` may create a **draft prerelease** only after all required jobs pass. `.github/workflows/tauri-build.yml` is a manual native diagnostic workflow and does not publish releases.
 
-### Remove broken mobile override configs
+See [Release candidates](RELEASE_CANDIDATE.md) for checksums, build identity and publication gates. Build outputs alone do not certify installation, notifications, screen capture or calling. No signing or auto-update guarantee is implied by a successful build.
 
-These override files contain an invalid `targets` schema for Tauri v2 CLI ≤2.11:
+### Fedora packaging diagnostics
 
-```bash
-cd /path/to/wabi/frontend/src-tauri
-rm -f tauri.android.conf.json tauri.ios.conf.json
-```
-
-### Ensure base config uses valid bundle targets
-
-In `frontend/src-tauri/tauri.conf.json`, your `bundle` block should look like:
-
-```json
-  "bundle": {
-    "active": true,
-    "targets": "all"
-  }
-```
-
-The `"targets": "all"` string is the correct v2 way to say "build all formats supported by the current platform."
-
-## 6. Build everything
-
-```bash
-cd /path/to/wabi
-chmod +x scripts/build-native.sh
-./scripts/build-native.sh
-```
-
-Artifacts land in `wabi/dist/`:
-
-- Linux: `wabi_0.5.0_amd64.AppImage`, `wabi_0.5.0_amd64.deb`
-- Windows: `wabi-windows-x86_64.exe`
-- Android: `*.apk`, `*.aab`
-
-You can then zip/upload/p2p-share these however you want.
-
-## 7. Building Android specifically
-
-```bash
-cd /path/to/wabi/frontend
-npm run tauri android build
-```
-
-Outputs go to `src-tauri/gen/android/app/build/outputs/apk/release/`.
-
-## Troubleshooting
-
-- **"pkg-config exited with status code 1"** → Run step 1 again, ensure `libwebkit2gtk-4.1-dev` is installed.
-- **"Java not found"** → Run step 3 and verify `JAVA_HOME`.
-- **Vite build fails** → Your working tree likely has uncommitted frontend changes that break Svelte. Stash them: `git stash push -u`.
-- **Windows .exe doesn't bundle into MSI** → Expected on Linux. Use a Windows VM or GitHub Actions for the MSI. The raw `.exe` works fine if distributed with a simple "extract and run" approach.
+A successful Rust compile does not prove installer creation. The AppImage GTK plugin also needs the development metadata for librsvg, Ayatana appindicator and its dependencies. On recent Fedora libraries, linuxdeploy's bundled strip utility may reject `.relr.dyn`; upstream supports `NO_STRIP=1` for diagnosis ([linuxdeploy issue 72](https://github.com/linuxdeploy/linuxdeploy/issues/72)). This does not establish compatibility with older distributions. Use the pinned Ubuntu CI build for distributable Linux candidates, then test installation on the target devices.
