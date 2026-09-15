@@ -111,6 +111,34 @@ re-triaged from runner logs:
 main's `CI` workflow is green at `0790aedc`; the release/CodeQL/Tauri
 workflows were still runner-queued at the time of writing.
 
+## Final outcome (end of day)
+
+- **Merged into main:** #216 (dependency re-land + hygiene), #200, #199,
+  #210, #212, #208, #187, #196, #202, #204, #205. #186 closed as already
+  integrated; #209 closed as redundant with #207.
+- **Local branch recovered:** `visual-polish` (Midnight Violet theme, auth/
+  admin/planner/mobile polish, new logo assets — six commits that had never
+  been pushed) is now merged into main as c11b128b and pushed for backup.
+- **Held open for the author:** #207 (voice policy + selective SFU
+  subscriptions). The workspace merge required compile repairs (now on the
+  branch: record_admission signature, VoiceEntryMode crate-root re-export,
+  the signaling facade's missing scoped_signaling_consent bridge), and the
+  workspace compiles with 44/46 suites green — but the two group-revocation
+  contract tests still time out: a same-account second device no longer
+  receives `wabidb-media` relay once the sender holds a selective voice
+  subscription on another channel. That is the PR's core feature behaving
+  incorrectly against an unchanged main contract test, so it must not merge
+  until fixed. #184 (draft) still needs its runes-migration finished.
+- **Race lesson from today:** merging from a second clone without fetching
+  first clobbered branch pushes twice and briefly left main red (stale
+  translator test re-landed by a merge from a stale ref, fixed in 1bd94792).
+  The media stack content landed; GitHub's mergeability cache lagged the
+  rewrites, so #205 was closed manually after content verification.
+- Main is green locally across bun (765 tests), svelte-check (0 errors),
+  and cargo (46 suites) on the exact merged content, and is safe to build
+  for deployment. Remote CI on main was still runner-queued at the time of
+  writing; treat its result as confirmation, not a blocker for a Tim build.
+
 ## Decisions still open (owner call)
 
 1. Merge order for the 13 real feature PRs. Suggested: #200 → #199 → #210 →
