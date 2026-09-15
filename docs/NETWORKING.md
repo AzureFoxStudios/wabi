@@ -1,132 +1,163 @@
-# Wabi networking model
+# Wabi Networking Model
 
-**Status:** living doc  
-**Updated:** 2026-07-15  
+**Status:** living operator document  
+**Updated:** 2026-09-14
 
-Wabi is a self-hosted **tool**, not a SaaS. Networking should match that: private by default, public only when you choose, and **not** dependent on a single edge vendor for core chat or default calling.
+Wabi is a self-hosted tool, not a required SaaS. Keep three separate questions separate:
 
----
+1. **Reachability:** how does a client reach its Wabi Authority?
+2. **Media:** which path carries voice/video/screenshare for this deployment/session?
+3. **Topology:** is this one Authority plus optional helpers, or experimental multi-node work?
 
-## Layer stack (mental model)
+A tunnel, VPN, relay, Anchor, and database replica solve different problems. Do not call all of them “mesh.”
 
-```
-1. LAN / router          — same network; fastest; no internet path
-2. Tailscale / mesh      — “intranet for people I trust” across CGNAT
-3. Domain + HTTPS        — real name + TLS (Caddy / LE or Tailscale certs)
-4. Port-forward / public — open internet to home (IP visible) OR skip
-```
+## 1. The normal deployment
 
-**Cloudflare (or any tunnel CDN)** is an **optional public front door**, not a required layer.  
-Default calling does **not** need CF or open UDP ports.
+The canonical production shape today is one **Authority**:
 
----
-
-## Calling and ports
-
-**Default transport:** WabiDB / Socket.IO media relay on the **same TCP/WebSocket** path as the app.
-
-| Need | Required? |
-|------|-----------|
-| Reach server (LAN / Tailscale / HTTPS proxy) | Yes |
-| Open UDP ports for default voice | **No** |
-| Cloudflare for default voice | **No** |
-| STUN/TURN | Only for optional P2P |
-| LiveKit SFU ports | Only if admin enables SFU |
-
-**Browser secure context:** mic/camera need `https://` or `http://127.0.0.1` / `localhost`.  
-Plain `http://192.168.x.x` or `http://100.x.x.x` often yields `navigator.mediaDevices is undefined`.
-
----
-
-## Hiding home IP (CF-less)
-
-You cannot have “anyone on the public internet can connect” **and** “no intermediary and no public address” on residential CGNAT. Choices:
-
-| Mode | Home IP public? | Good for |
-|------|-----------------|----------|
-| LAN only | No | House |
-| Tailscale / Headscale only | No | Friends / team |
-| VPS reverse proxy + WireGuard/Tailscale to home | No (public sees VPS) | Public site without CF |
-| Port-forward home | **Yes** | Simple public host |
-| Cloudflare tunnel | No (public sees CF) | Convenience |
-
-### Recommended CF-less public pattern
-
-```
-Internet → small VPS (Caddy + domain + HTTPS)
-        → WireGuard or Tailscale
-        → home wabi-server
+```text
+client ── HTTPS/Socket.IO/WebSocket ──► Authority (wabi-server + WabiDB)
+                                           │
+                                           ├─ uploads
+                                           └─ optional scoped helpers
 ```
 
-- DNS points at **VPS only**
-- You control Caddy and the tunnel
-- Smaller blast radius than “all traffic opinionated through one edge monopoly”
-- Still a middle hop — honest about that
+The Authority owns the community's accounts, permissions, durable state, and canonical realtime decisions.
 
-### Private-first (often enough)
+A user may save/switch among multiple independent Wabi servers in the client. That is a **multi-server client**, not federation. Independent Authorities do not share identities or community state.
 
-No public hostname: invite people onto Tailscale, open `http://100.x:3001` or serve HTTPS with Tailscale certs. Matches “tool not SaaS.”
+## 2. Reachability choices
 
----
+Start with localhost/LAN. Add only what the deployment needs.
 
-## Caddy’s role
+| Mode | Public home IP? | Third-party/control dependency | Good for |
+|---|---:|---|---|
+| Localhost / LAN | No | None | Same machine / house / local studio |
+| Private overlay VPN (Tailscale/Headscale/WireGuard) | No | Depends on control/relay choice | Trusted team/friends |
+| Wabi Tailcat private access | No inbound port | Tailcat + DERP path unless self-hosted | Supported desktop clients behind CGNAT |
+| Domain + reverse proxy at home | Usually yes | DNS/CA | Public self-host with routable home internet |
+| VPS reverse proxy + private tunnel home | Home hidden | VPS + DNS/CA | Public host behind CGNAT without putting origin on the internet |
+| Cloudflare Tunnel | Home hidden | Cloudflare | Convenient public ingress |
 
-Caddy is the boring way to get **HTTPS** (certs + reverse proxy to `wabi-server`).
+Cloudflare is optional. Tailscale is optional. Tailcat is optional. Wabi's core chat/server model should not require one particular edge vendor.
 
-- With a domain + public 80/443 (home or VPS): Let’s Encrypt works.
-- Without a domain: HTTP-only is fine for LAN testing; mic may not work off-localhost.
-- Behind CF tunnel: TLS often at the edge; origin Caddy may be HTTP-only (see `Caddyfile.tunnel`).
+### Recommended public pattern without exposing home
 
----
+```text
+Internet
+   │
+   ▼
+small VPS / reverse proxy / TLS
+   │
+   └── private WireGuard/Tailscale link ──► Wabi Authority at home
+```
 
-## Install vs ingress
+The public sees the VPS, not the home origin. This still has an intermediary; the difference is that the operator chooses and controls it.
 
-| Concern | Path |
-|---------|------|
-| Core product | `wabi-server` + WabiDB (`docker compose up -d`) |
-| Ingress | LAN → Tailscale → Caddy/domain → optional CF or VPS jumphost |
+## 3. HTTPS and browser media permissions
 
-Update Tim / a host = update the **core binary + compose era**.  
-Re-attaching CF is a separate step after origin health is proven.
+Browser microphone/camera access generally requires a secure context: HTTPS, `localhost`, or another browser-recognized secure origin.
 
----
+Do not assume that plain `http://192.168.x.x` or an arbitrary private IP will receive the same media permissions as `https://community.example` or `http://localhost`.
 
-## Operator checklist
+Caddy is the repository's boring reverse-proxy/TLS option, not a mandatory component. nginx/Traefik or another correctly configured proxy can fill the same role.
 
-1. Prove origin: `curl http://127.0.0.1:3001/health` on the host  
-2. Prove mesh/LAN for trusted users  
-3. Add Caddy HTTPS if you need mic for non-localhost clients  
-4. Optional: public CF or VPS jumphost  
-5. Never treat CF outage as “Wabi is down” if origin is up — that’s ingress, not the app  
+When using a reverse proxy, preserve the HTTP and realtime upgrade behavior Wabi requires and keep the origin private where practical.
 
----
+## 4. Calls and media
 
-## Private access via Tailcat (built-in, optional)
+Wabi's calling implementation has evolved across WebRTC and Wabi relay/media-lane paths. Optional coturn and LiveKit profiles exist for deployments that need TURN/SFU behavior.
 
-**New (2026-09-01):** Wabi ships a private-access transport addon (`core/addons/tailcat`) built on
-[tailcat](https://github.com/tailscale/tailcat) — Tailscale's userspace WireGuard data plane without
-the control plane. For family/friend instances this replaces "layer 2 + layer 3" of the stack above
-with **one paste-able `tc…` code**: no port-forward, no domain, no cloud tunnel, and the home box
-gets *darker* (zero inbound ports; magicsock punches outbound).
+The safe operator rule is:
 
-- **Transport only.** The pipe grants reachability, never membership — Wabi auth always gates.
-- **Per-member keys.** Each member's desktop client registers its own key against their account;
-  an admin revokes per member. No shared bearer tokens.
-- **Off by default.** Enable from Admin → Runtime → "Private access" (explicit confirm to turn on;
-  instant kill-switch to turn off). Disabled = no subprocess, zero footprint.
-- **Requirements:** the `tailcat` binary v0.4.0+ on PATH (or `WABI_TAILCAT_BINARY`), desktop/Tauri
-  clients for members (browser users keep using the normal address).
-- **Rate limits:** pipe clients are keyed per-connection (not collapsed into one `127.0.0.1`
-  bucket), so a family creating accounts the same evening doesn't trip the 5/hour guest cap.
-- **Public DERP caveat:** bootstrap/relay uses Tailscale's free DERP fleet (rate-limited, no SLA);
-  self-host [`derper`](https://github.com/tailscale/tailscale/tree/main/cmd/derper) for reliability.
-- Design + spike/E2E evidence: `docs/plans/2026-09-01-tailcat-private-access.md` (incl. measured
-  cross-NAT relay floor ~390 KB/s, 1/10 immediate direct). Operator walkthrough:
-  `docs/features/PRIVATE_ACCESS_GUIDE.md`.
+- reaching the **Authority's web/realtime endpoint** is required;
+- TURN is only required when the selected WebRTC/NAT path needs it;
+- LiveKit is only required when the deployment explicitly enables that SFU path;
+- Cloudflare is not inherently required for calling;
+- do not infer current media behavior from an old diagram or an old “default transport” sentence.
 
-## Related
+For transport-level implementation detail and current limitations, use [architecture/CALLING_TRANSPORT_ARCHITECTURE.md](architecture/CALLING_TRANSPORT_ARCHITECTURE.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-- Deploy skill: `~/.hermes/skills/devops/wabi-deploy/` (v3+)  
-- `references/network-cgnat-and-cloudflare.md` in that skill  
-- `Caddyfile.example` / `Caddyfile.tunnel` in repo  
-- Compose profiles: tunnels optional; default is `wabi-server` only  
+Calling remains an area where real-device/network acceptance matters. A green browser harness is not proof that every NAT, Bluetooth, mobile, or screenshare case is release-certified.
+
+## 5. Tailcat private access
+
+Wabi's optional private-access integration provides reachability without making the Authority publicly listen for inbound internet traffic.
+
+Important boundary:
+
+- **transport grants reachability, not membership**;
+- Wabi authentication/authorization still decides what the user can do;
+- member/client keys should be revocable independently;
+- disabling the feature should remove its runtime footprint;
+- public DERP infrastructure has its own operator/SLA/privacy boundary; self-host DERP if that boundary matters to your community.
+
+See [features/PRIVATE_ACCESS_GUIDE.md](features/PRIVATE_ACCESS_GUIDE.md) and [deployment/DERP_SELF_HOST_GUIDE.md](deployment/DERP_SELF_HOST_GUIDE.md).
+
+## 6. Multi-node Wabi is a different problem
+
+### Authority
+
+`WABI_SERVER_ROLE=authority` is the normal state-owning runtime.
+
+### Anchor — experimental
+
+The current `anchor` runtime is a **stateless proxy to one Authority**. It intentionally starts without opening local WabiDB/community state.
+
+Current boundary:
+
+- `WABI_AUTHORITY_URL` is required;
+- Anchor is not another writer/Authority;
+- current proxying is HTTP-oriented;
+- native WebSocket upgrade forwarding is not complete;
+- therefore Anchor is **not yet a complete regional realtime edge**.
+
+Do not put “regional HA” or “automatic failover” in front of this behavior.
+
+### WabiDB peer replication — experimental
+
+WabiDB replication transport/security code exists, but the full live-state convergence contract is not proven. It is explicitly gated for developer testing and must not be treated as a normal deployment option.
+
+Do **not** enable peer replication because you want a backup. Use [deployment/BACKUP_AND_RECOVERY.md](deployment/BACKUP_AND_RECOVERY.md).
+
+### Warm standby — not production recovery yet
+
+Standby/export/import/promotion work is incomplete and fails closed where a safe state export is not available. There is no automatic Authority election.
+
+The future order is:
+
+1. real export/import;
+2. tested manual promotion;
+3. failure injection and no-split-brain proof;
+4. only then consider automatic failover.
+
+See [architecture/SERVER_MESH_PLAN.md](architecture/SERVER_MESH_PLAN.md).
+
+## 7. Operator sequence
+
+For a new server:
+
+1. Start one Authority locally.
+2. Verify `http://localhost:3001/livez` and `/readyz` for the Docker default.
+3. Create the owner account and exercise normal chat/workspace behavior.
+4. Take a baseline backup.
+5. Add one ingress/private-access layer.
+6. Add optional TURN/SFU/helpers only if your use case needs them.
+7. Do not enable experimental replication/standby as part of ordinary setup.
+
+When debugging, prove each layer independently:
+
+```text
+process alive → application ready → local/LAN access → proxy/tunnel → media helper → client UX
+```
+
+An ingress outage is not necessarily an Authority outage. A DERP/TURN/SFU failure is not necessarily a chat/storage failure. Keep observability and troubleshooting scoped to the layer that actually failed.
+
+## 8. Related files
+
+- `docker-compose.yml` — canonical minimal Authority plus optional profiles
+- `Caddyfile.example` / `Caddyfile.tunnel` — reverse-proxy examples
+- [deployment/FRESH_INSTALL.md](deployment/FRESH_INSTALL.md) — first install
+- [deployment/BACKUP_AND_RECOVERY.md](deployment/BACKUP_AND_RECOVERY.md) — recovery
+- [architecture/WABI_MULTI_SERVER_ARCHITECTURE.md](architecture/WABI_MULTI_SERVER_ARCHITECTURE.md) — independent servers in one client
+- [architecture/SERVER_MESH_PLAN.md](architecture/SERVER_MESH_PLAN.md) — intra-deployment topology and HA acceptance gates

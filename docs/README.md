@@ -1,75 +1,80 @@
-# Wabi documentation
+# Wabi Documentation
 
-Wabi is a self-hosted, privacy-first chat platform (a "Discord alternative") built as **one Rust
-binary**: REST API + socket.io live updates + the embedded SvelteKit frontend, all backed by the
-in-process event-sourced engine **WabiDB**. Philosophy: *no spying, no bloat, just chill.*
+Wabi is a self-hosted communication and collaborative-workspace app built around an independent **Authority** server, an embedded event-sourced database (**WabiDB**), and web/native clients that can connect to more than one independent Wabi server.
 
-> New here? **Operators** start at [deployment/FRESH_INSTALL.md](deployment/FRESH_INSTALL.md).
-> **Contributors** read [architecture/overview.md](architecture/overview.md), then the repo root's
-> `AGENTS.md`. **AI agents** read `AGENTS.md` first (it is the canonical orientation) and use the
-> skills under `.agents/skills/`.
+The product is deliberately **not a federated network**: one client may know many servers, but accounts and community state stay inside each server's trust boundary.
 
-## The map
+## Start here
 
-### Operating a server
-| Doc | What it covers |
+| You are… | Read this first |
 |---|---|
-| [deployment/FRESH_INSTALL.md](deployment/FRESH_INSTALL.md) | Clean single-machine install (canonical entry) |
-| [deployment/TIM_IYOKU_UPDATE_RUNBOOK.md](deployment/TIM_IYOKU_UPDATE_RUNBOOK.md) | Binary-swap update runbook (live hosts) |
-| [deployment/HERMES_UPDATE_GUIDE.md](deployment/HERMES_UPDATE_GUIDE.md) | Teaching walkthrough for pushing the tree to hosts |
-| [deployment/TURN_SETUP.md](deployment/TURN_SETUP.md) | coturn / calling media setup |
-| [deployment/DERP_SELF_HOST_GUIDE.md](deployment/DERP_SELF_HOST_GUIDE.md) | Self-hosting a DERP relay for private access |
-| [deployment/SELF-HOST-GUIDE.md](deployment/SELF-HOST-GUIDE.md) · [DEPLOYMENT-SCALING-GUIDE.md](deployment/DEPLOYMENT-SCALING-GUIDE.md) · [IPV6-CGNAT-DESIGN.md](deployment/IPV6-CGNAT-DESIGN.md) · [BUILD-NATIVE.md](deployment/BUILD-NATIVE.md) · [INSTALL.md](deployment/INSTALL.md) | Deeper guides: self-hosting, scaling, CGNAT connectivity, native builds |
-| [NETWORKING.md](NETWORKING.md) | The networking model: LAN → private access → domain/HTTPS |
-| [PRIVACY_STANCE.md](PRIVACY_STANCE.md) · [SECURITY-MODEL.md](SECURITY-MODEL.md) | Privacy stance; owner/admin security model |
+| Evaluating Wabi | [PROJECT_STATUS.md](PROJECT_STATUS.md) |
+| Installing a server | [deployment/FRESH_INSTALL.md](deployment/FRESH_INSTALL.md) |
+| Exposing a server to users | [NETWORKING.md](NETWORKING.md) |
+| Planning backups/upgrades | [deployment/BACKUP_AND_RECOVERY.md](deployment/BACKUP_AND_RECOVERY.md) |
+| Reviewing privacy expectations | [PRIVACY_STANCE.md](PRIVACY_STANCE.md) |
+| Reviewing auth/admin security | [SECURITY-MODEL.md](SECURITY-MODEL.md) |
+| Contributing code | [architecture/overview.md](architecture/overview.md), then `../AGENTS.md` |
+| Working on WabiDB | [architecture/PERSISTENCE_MODEL.md](architecture/PERSISTENCE_MODEL.md) and [ai/](ai/) |
 
-### Building Wabi (contributors)
-| Doc | What it covers |
+**Status vocabulary:** `Available` means integrated with a real runtime path; `Optional` needs explicit configuration/helper software; `Experimental` is not a production guarantee; `Planned` is design/branch work only. See [PROJECT_STATUS.md](PROJECT_STATUS.md).
+
+## Canonical architecture
+
+| Document | Scope |
 |---|---|
-| [architecture/overview.md](architecture/overview.md) | The distilled mental model (start here) |
-| [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) | Full system architecture |
-| [architecture/PERSISTENCE_MODEL.md](architecture/PERSISTENCE_MODEL.md) · [STORAGE_FORMAT.md](architecture/STORAGE_FORMAT.md) · [STORAGE_MANIFEST.md](architecture/STORAGE_MANIFEST.md) | Event-sourcing, on-disk engine formats |
-| [architecture/ADDON_ARCHITECTURE.md](architecture/ADDON_ARCHITECTURE.md) · [ADDONS.md](ADDONS.md) | Addon/plugin system |
-| [architecture/CALLING_TRANSPORT_ARCHITECTURE.md](architecture/CALLING_TRANSPORT_ARCHITECTURE.md) | Calling transports (WebRTC / relay / SFU) |
+| [architecture/overview.md](architecture/overview.md) | Distilled contributor mental model |
+| [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) | Full system reference; older sections should be read with PROJECT_STATUS when they discuss multi-node work |
+| [architecture/PERSISTENCE_MODEL.md](architecture/PERSISTENCE_MODEL.md) | WabiDB persistence/retention model |
+| [architecture/STORAGE_FORMAT.md](architecture/STORAGE_FORMAT.md) · [architecture/STORAGE_MANIFEST.md](architecture/STORAGE_MANIFEST.md) | On-disk storage details |
+| [architecture/CALLING_TRANSPORT_ARCHITECTURE.md](architecture/CALLING_TRANSPORT_ARCHITECTURE.md) | Calling/media transport design and boundaries |
+| [architecture/MEDIA_BACKEND_AND_CERTIFICATION.md](architecture/MEDIA_BACKEND_AND_CERTIFICATION.md) | Provider-neutral media contract, simple-setup invariant, CGNAT Media Node model, version strategy, and certification gates |
+| [architecture/WABI_MULTI_SERVER_ARCHITECTURE.md](architecture/WABI_MULTI_SERVER_ARCHITECTURE.md) | One client, many independent servers — **not federation** |
+| [architecture/SERVER_MESH_PLAN.md](architecture/SERVER_MESH_PLAN.md) | Authority/helper/Anchor/replication/standby boundaries; experimental HA work |
+| [architecture/ADDON_ARCHITECTURE.md](architecture/ADDON_ARCHITECTURE.md) · [ADDONS.md](ADDONS.md) | Curated integrations and runtime plugins |
 | [architecture/ENGINEERING_STANDARDS.md](architecture/ENGINEERING_STANDARDS.md) | Engineering standards |
-| [architecture/SERVER_MESH_PLAN.md](architecture/SERVER_MESH_PLAN.md) · [WABI_MULTI_SERVER_ARCHITECTURE.md](architecture/WABI_MULTI_SERVER_ARCHITECTURE.md) · [policy-system](architecture/POLICY_SYSTEM.md) | Multi-node mesh, multi-server, policy system |
-| [local-dev.md](local-dev.md) | Local development setup |
-| [addons/](addons/) | Addon docs incl. plugin schema and authoring guide |
-| [ai/](ai/) | WabiDB internals written for AI agents (engine, storage, projections, replication) |
 
-### Features
-[features/](features/) — media albums, reader mode, call recording, TUI, plugin porting,
-**[PRIVATE_ACCESS_GUIDE.md](features/PRIVATE_ACCESS_GUIDE.md)** (family/friend tunnels via tailcat).
-[payments/](payments/) — non-custodial payments. [tauri/](tauri/) — desktop builds.
+## Operating a server
 
-### Working docs
-- [plans/](plans/) — dated build plans. **Convention:** domain/projection/ChannelKind changes
-  must append to the active plan doc here (repo policy, see `AGENTS.md`).
-- [WabiDB write completion](plans/2026-09-05-wabidb-write-completion.md) — durability/application acknowledgments, whole-commit checkpoints, recovery evidence, and remaining guarantee limits.
-- [Audio-flow integrity](plans/2026-09-06-audio-flow-integrity.md) — shared microphone ownership, P2P/relay handover, codec/playback regressions, desktop compatibility and verification limits.
-- [TURN runtime delivery](plans/2026-09-08-turn-runtime-delivery.md) — optional runtime credentials, account-scoped ICE configuration and honest CGNAT/deployment boundaries.
-- [Call-state authorization and recovery](plans/2026-09-07-call-state-authorization.md) — authenticated REST/raw-WebSocket scope, immutable ownership, restart-safe signal cursors and browser/Tauri credential renewal.
-- [Lore credential boundary](plans/2026-09-07-lore-credential-boundary.md) — scoped tool credentials, reliable token revocation, membership-removal recovery, and outstanding launch security blockers.
-- [Channel access boundary](plans/2026-09-07-channel-access-boundary.md) — REST/socket content authorization, private-conversation discovery, acknowledged client joins and honest unsupported operations.
-- [Call admission boundary](plans/2026-09-07-call-admission-boundary.md) — connection-owned voice consent, acknowledged voice/group admission and server-side relay eviction; remaining launch security gates.
-- [Group membership and revocation](plans/2026-09-07-group-membership-revocation.md) — active work on atomic group persistence, ownership, account-wide eviction and reconnect/client reconciliation.
-- [Showcase workspace navigation](plans/2026-09-08-showcase-workspace-navigation.md) — shared picker/routing and responsive/keyboard checkpoint; draft follow-through is recorded in Full frontend polish.
-- [Frontend repair pass and reopened UX work](plans/2026-09-08-full-frontend-polish.md) — deployed earlier repairs; local authoritative Admin/health/settings work and browser acceptance; comprehensive product UX remains open.
-- [Message-delivery contract](plans/2026-09-08-message-delivery.md) — truthful server outcomes, visible delivery failures and account-scoped queue settlement; verification and remaining rich-message limits.
-- [research/](research/) and [proposals/](proposals/) — explorations and designs not yet committed to.
-- [audits/](audits/) — recent actionable audits.
+| Document | Scope |
+|---|---|
+| [deployment/FRESH_INSTALL.md](deployment/FRESH_INSTALL.md) | Canonical clean single-Authority install |
+| [deployment/BACKUP_AND_RECOVERY.md](deployment/BACKUP_AND_RECOVERY.md) | Conservative backup/restore procedure and HA non-claims |
+| [NETWORKING.md](NETWORKING.md) | LAN, VPN/private access, HTTPS, tunnels, call networking, multi-node boundary |
+| [deployment/TURN_SETUP.md](deployment/TURN_SETUP.md) | Optional coturn setup |
+| [deployment/DERP_SELF_HOST_GUIDE.md](deployment/DERP_SELF_HOST_GUIDE.md) | Optional private-access relay infrastructure |
+| [deployment/BUILD-NATIVE.md](deployment/BUILD-NATIVE.md) | Native build notes |
+| [deployment/SELF-HOST-GUIDE.md](deployment/SELF-HOST-GUIDE.md) · [deployment/DEPLOYMENT-SCALING-GUIDE.md](deployment/DEPLOYMENT-SCALING-GUIDE.md) · [deployment/IPV6-CGNAT-DESIGN.md](deployment/IPV6-CGNAT-DESIGN.md) | Deeper deployment material; check PROJECT_STATUS before following old multi-node/mesh advice |
 
-## Where did the old docs go?
+Named-host update runbooks under `deployment/` are operational history for specific environments, not the generic install contract.
 
-Nothing was deleted. ~300 historical files (shipped plans, worker reports, STDB-era docs, the
-old `docs-history branch: ` tree, the `audit/` dump) live on the **`docs-history`** branch at their
-original paths — browse it on GitHub or use *Code → Download ZIP* on that branch for a bundle.
-They are also importable into a Wabi wiki via `scripts/import-docs-to-wiki.sh`.
+## Product and feature docs
+
+- [features/](features/) — feature-specific guides, including private access, media, Reader/call tooling, and other surfaces.
+- [addons/](addons/) — curated integration documentation, including Lore.
+- [tauri/](tauri/) — desktop/native client material.
+- [payments/](payments/) — payment design/integration docs.
+- [design/](design/) and [frontend/](frontend/) — UX/design-system documentation.
+
+The root [README](../README.md) is the public product front door. [PROJECT_STATUS.md](PROJECT_STATUS.md) is the authoritative maturity boundary when a feature exists in code but is still experimental.
+
+## Working documents
+
+- [plans/](plans/) — dated implementation plans and work records.
+- [audits/](audits/) — actionable audits.
+- [research/](research/) — investigations that may never become product commitments.
+- [proposals/](proposals/) — proposed designs, not shipped behavior by default.
+
+A dated plan may accurately describe what was true on the day it was written and still be stale today. Do not promote a statement from a plan/research/proposal into product documentation without checking current source and PROJECT_STATUS.
+
+## Historical docs
+
+Older documentation and completed/stale plans are kept on the **`docs-history`** branch. The archive is useful for archaeology; it is not a second source of current truth.
 
 ## Maintenance rules
 
-1. New docs join this tree at the right depth — never the repo root, never `docs/` top level
-   unless they are genuinely canonical front-door material.
-2. Dated work docs go to `plans/` (`YYYY-MM-DD-name.md`); finished work's plan is left in place
-   until the next cleanup pass moves it to `docs-history`.
-3. The archive (`docs-history` branch) is append-only history — edit living docs, don't edit history.
+1. Keep `README.md`, `PROJECT_STATUS.md`, and the relevant architecture/deployment doc aligned when a feature changes maturity.
+2. Put dated implementation work under `plans/YYYY-MM-DD-*.md`; do not use a plan as the permanent operator manual.
+3. Mark optional/experimental dependencies honestly. A source file existing is not proof that a feature is release-ready.
+4. Never describe independent Wabi servers as federated, WabiDB experimental replication as production HA, or current DMs/private rooms as E2EE.
+5. Keep the default single-Authority install boring. Advanced topology should be additive, explicit, and fail closed.

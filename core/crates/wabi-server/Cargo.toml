@@ -2,7 +2,7 @@
 name = "wabi-server"
 version = "0.1.0"
 edition = "2021"
-description = "Wabi self-hosted server - single binary with mesh support"
+description = "Wabi self-hosted authority/helper/anchor server"
 license = "MIT"
 
 [dependencies]
@@ -32,10 +32,7 @@ tracing-appender = "0.2"
 # Wabi core protocol
 wabi-core = { path = "../../../crates/wabi-core", features = ["ts"] }
 
-# Mesh coordination (core functionality)
-wabi-mesh = { path = "../../addons/mesh/backend" }
-
-# Tailcat private-access transport (runtime-gated, like mesh)
+# Tailcat private-access transport (runtime-gated)
 wabi-tailcat = { path = "../../addons/tailcat/backend" }
 
 # WabiDB engine (the new state engine, replacing SpacetimeDB)
@@ -57,7 +54,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "compres
 governor = { version = "0.6", features = ["std"] }
 ipnet = "2"
 
-# SpacetimeDB (HTTP API only)
+# HTTP client / upstream adapters
 reqwest = { version = "0.13", features = ["json", "query"] }
 regex = "1"
 sha2 = "0.11"

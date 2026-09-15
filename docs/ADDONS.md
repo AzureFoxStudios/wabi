@@ -1,133 +1,135 @@
-# Wabi Addons
+# Wabi Addons and Plugins
 
-**Last updated:** 2026-07-28
+**Updated:** 2026-09-14
 
----
+Wabi has accumulated several extension mechanisms over time. The important distinction is **how trusted and how integrated the code is**, not what folder happens to contain it.
 
-## What are addons?
+## Three extension levels
 
-Addons are optional extensions that add functionality to Wabi without modifying core code. Think of them like Blender addons or VS Code extensions — you install what you need, and the core stays lean.
+### 1. Core product features
 
-The addon system is separate from the plugin system:
-- **Addons** are official/curated extensions shipped in the `addons/` directory
-- **Plugins** are third-party extensions installed into `plugins/` at runtime
+Features compiled into `wabi-server` / the normal frontend are part of Wabi's core product and release/testing boundary. Examples include chat, WabiDB, the workspace shell, whiteboards, Reader, and the normal CAD/model viewers.
 
----
+### 2. Curated integrations / addons
 
-## How addons work
+Curated integrations live under `core/addons/`, `addons/`, or related feature packages. They may be compiled Rust crates, bundled/sample packages, or optional bridges to an external tool.
 
-Addons are manifest-based, integrity-signed, and hot-loadable:
+They are **not automatically runtime-installable untrusted plugins**.
 
-1. **Manifest** (`plugin.json`) — declares the addon's ID, dependencies, permissions, backend entry, frontend mount points, and integrity checksums
-2. **Backend** — can be Rust (compiled into the server) or TypeScript/JavaScript (loaded at runtime)
-3. **Frontend** — Svelte components mounted at specific points in the UI (settings pages, channel toolbars, etc.)
+Examples:
 
-Addons declare the permissions they need (e.g., `user:settings:write`, `payments:intent:create`). The server enforces these at runtime.
+- **Lore** — optional project/version-control integration; Wabi supplies the workspace/integration, while the backend depends on the external Lore service/tooling.
+- **Tailcat private access** — optional transport integration for private reachability.
+- **Webhooks/payments/media helpers** — scoped integrations with their own trust/deployment boundaries.
+- **Legacy mesh addon** — compatibility/history only. It is **not** the current production multi-node mechanism and should not be enabled as a path to HA.
 
----
+### 3. Runtime plugins
 
-## Installing an addon
+`plugins/` is the operator-installed runtime plugin surface. The framework supports package manifests and security controls, but plugin mode is still being hardened and is intentionally opt-in.
 
-Addons are pre-installed by the server operator:
+A backend plugin should currently be treated as **trusted operator-installed code**, not as hostile code that Wabi has proven it can fully sandbox.
 
-```bash
-# Addons live in the addons/ directory
-ls addons/
-#  media/  content/  payments/  compliance/  infrastructure/
+## Runtime plugin security controls
 
-# To enable an addon, ensure it's present in addons/ and restart the server
-docker compose restart wabi-server
+The current plugin tooling includes mechanisms such as:
+
+- package checksum verification;
+- optional Ed25519 signatures;
+- trusted-signer policy;
+- optional external malware scanning;
+- lifecycle/audit logging;
+- namespaced plugin logs;
+- safe-mode/crash-loop handling;
+- declared permissions/security notes in plugin manifests.
+
+These are valuable supply-chain and operator controls. They are **not the same thing as a complete process/OS sandbox**.
+
+Do not document a declared permission as an enforced isolation guarantee unless the corresponding runtime boundary is actually implemented and tested. In particular, avoid language such as “plugins cannot access the network/filesystem outside their manifest” unless that behavior has a real enforcement mechanism and regression coverage.
+
+## Operator guidance
+
+- Leave plugin mode disabled if you do not need it.
+- Read a plugin's source/manifest and threat notes before enabling it.
+- Prefer signed/curated packages where possible.
+- Keep plugin dependencies pinned and reviewed.
+- Treat plugin upgrades like code deployment, not like installing a harmless theme.
+- Verify the server still starts with third-party plugins disabled.
+- Back up plugin configuration/data that matters before updates.
+- Do not give a plugin a Wabi bearer token or broad server secret merely because it is convenient.
+
+## Plugin package shape
+
+A typical runtime package uses a manifest plus backend/frontend entry points:
+
+```text
+plugins/
+└── example-plugin/
+    ├── plugin.json
+    ├── backend/
+    │   └── index.ts
+    └── frontend/
+        └── index.ts
 ```
 
-For third-party plugins, copy the plugin directory to `plugins/` and restart:
+The authoritative current manifest/tooling examples live in [`../plugins/README.md`](../plugins/README.md) and `docs/architecture/ADDON_ARCHITECTURE.md`.
 
-```bash
-cp -r my-plugin /var/lib/wabi/plugins/
-docker compose restart wabi-server
-```
+## Dependencies between addons/plugins
 
----
+Wabi should make extension dependencies visible rather than failing mysteriously.
 
-## Creating an addon
+If an extension needs another extension/runtime capability, the UI should be able to say, in plain language:
 
-### Manifest schema (`plugin.json`)
+> This addon cannot start because it requires: X, Y, Z.
 
-```json
-{
-  "id": "my-addon",
-  "version": "1.0.0",
-  "dependsOn": [],
-  "permissions": ["user:settings:read"],
-  "security": {
-    "networkAccess": []
-  },
-  "backend": {
-    "language": "typescript",
-    "entry": "./backend/index.ts",
-    "runtime": "node20"
-  },
-  "frontend": {
-    "entry": "./frontend/MyAddon.svelte",
-    "mountPoint": "settings/general"
-  },
-  "integrity": {
-    "algorithm": "sha256",
-    "checksum": "<sha256-of-manifest+backend+frontend>"
-  }
-}
-```
+A manifest may also point to the author's documentation/source page, but dependency resolution must not silently download or execute arbitrary code without operator approval.
 
-### Backend structure
+## Frontend extensions
 
-```
-my-addon/
-├── plugin.json          # Manifest
-├── backend/
-│   ├── index.ts         # Entry point
-│   └── ...              # Additional modules
-└── frontend/
-    └── MyAddon.svelte   # UI component
-```
+UI extension points should follow Wabi's normal design system and workspace/navigation ownership rather than adding random floating buttons or parallel layout stores.
 
-### Frontend mount points
+Good extension behavior:
 
-| Mount point | Location |
-|---|---|
-| `settings/general` | General settings page |
-| `settings/payments` | Payment settings page |
-| `channel/toolbar` | Channel toolbar |
-| `message/actions` | Message context actions |
+- uses semantic theme tokens;
+- fits existing center-stage/dock navigation where appropriate;
+- handles narrow/mobile layouts;
+- clearly labels external/network actions;
+- degrades cleanly when the backend/helper is absent;
+- does not misrepresent local drafts as published/shared state.
 
----
+## Backend extensions
 
-## Security model
+Backend hooks/routes must preserve the same fundamental boundaries as core APIs:
 
-| Concept | Description |
-|---------|-------------|
-| **Permissions scoping** | Each addon declares a list of required permissions. The server rejects calls outside the declared scope. |
-| **Integrity verification** | The manifest includes a SHA-256 checksum covering the manifest + all shipped files. The server verifies this on load. |
-| **Signature checking** | Addons can be signed with an Ed25519 keypair. The server can enforce trusted signer policies. |
-| **Network access** | Addons declare outbound network access. The server blocks unlisted connections. |
-| **Crash loop protection** | If an addon crashes repeatedly, the server enters safe mode and skips it. |
+- authenticate callers;
+- enforce resource membership/authorization;
+- validate input and bound request sizes;
+- namespace events/routes;
+- avoid logging secrets/private content unnecessarily;
+- define persistence/retention behavior;
+- survive disable/restart without corrupting core state.
 
----
+Plugin HTTP routes are mounted under the plugin runtime API namespace described in [`../plugins/README.md`](../plugins/README.md).
 
-## Current addon categories
+## What not to use
 
-| Category | Addons | Description |
-|----------|--------|-------------|
-| **Media** | albums, screen-share enhancements | Extend media sharing and organization |
-| **Content** | reader-mode, 3d-viewer, youtube-sync, spotify-sync | Rich content embedding and viewing |
-| **Payments** | payments-core (Rust), bitcoin, thailand, psp | Non-custodial payment intent system |
-| **Compliance** | server-auditor | Archival, retention, and export |
-| **Infrastructure** | webhooks (Rust), mesh | Webhook delivery and multi-server sync |
+### Legacy `mesh` addon
 
----
+Do not use the old mesh addon to construct multi-node Wabi. The living topology is documented in [`architecture/SERVER_MESH_PLAN.md`](architecture/SERVER_MESH_PLAN.md): one Authority, scoped helpers, an experimental stateless Anchor path, and explicitly experimental WabiDB replication/standby work.
 
-## Deep technical details
+### Runtime plugins as a security sandbox
 
-For the full addon architecture specification (manifest schema v3, loading lifecycle, permission model, signing protocol, and integration patterns), see:
+Do not install arbitrary untrusted backend code on the assumption that manifest permissions contain it. Until isolation is proven at the runtime/OS boundary, enabling a backend plugin is an operator trust decision.
 
-`docs/architecture/ADDON_ARCHITECTURE.md`
+## Creating a plugin
 
-That document is intended for engineers building addons or extending the addon system. This guide is for users and curious newcomers.
+Use [`../plugins/README.md`](../plugins/README.md) for the current package schema, signing commands, HTTP/socket hooks, and test-install workflow.
+
+When adding a new plugin/addon to Wabi itself:
+
+1. document what data it can read/write;
+2. document network/external dependencies;
+3. request the least privilege actually needed;
+4. include disable/uninstall behavior;
+5. include failure-path tests;
+6. keep core Wabi usable with the extension absent;
+7. update [PROJECT_STATUS.md](PROJECT_STATUS.md) only when the integration is truly available, not merely prototyped.

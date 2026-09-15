@@ -1,33 +1,38 @@
-# 🧩 Plugin System
+# Wabi Runtime Plugins
 
-The chat app uses a modular plugin system that allows anyone to add features without modifying core code.
+> **Status:** opt-in runtime extension framework under active hardening.  
+> Backend plugins should currently be treated as **trusted operator-installed code**, not as hostile code Wabi has proven it can sandbox.
 
-Note:
-- `plugins/` is the active runtime install directory.
-- Bundled sample add-ons are stored in `addons/` until installed.
+For the distinction between core features, curated addons/integrations, and runtime plugins, read [`../docs/ADDONS.md`](../docs/ADDONS.md).
 
-## 📦 Creating a Plugin
+## Enablement
 
-### 1. Create Plugin Directory
+`plugins/` is the runtime install directory. Plugin mode is disabled by default in the normal deployment; operators should enable it deliberately only when they need runtime extensions.
 
-```
+Bundled/sample addon material may live under `addons/` or curated integration code under `core/addons/`. Those are not automatically equivalent to a third-party runtime plugin.
+
+## Package shape
+
+```text
 plugins/
 └── your-plugin-name/
-    ├── plugin.json          # Plugin manifest
+    ├── plugin.json
     ├── backend/
-    │   └── index.ts         # Backend logic
+    │   └── index.ts
     └── frontend/
-        └── index.ts         # Frontend UI
+        └── index.ts
 ```
 
-### 2. Define plugin.json
+A plugin manifest describes identity, version, permissions/security notes, integrity/signing metadata, capability tier, and backend/frontend entry points.
+
+Example skeleton:
 
 ```json
 {
   "id": "your-plugin-name",
   "name": "Your Plugin Name",
   "version": "1.0.0",
-  "description": "What your plugin does",
+  "description": "What the plugin does",
   "author": "Your Name",
   "enabled": true,
   "permissions": ["channels:read"],
@@ -50,151 +55,44 @@ plugins/
   "capabilities": {
     "tier": "ui-only"
   },
-
   "backend": {
     "entry": "./backend/index.ts",
-    "socketEvents": ["event:name"]
+    "socketEvents": ["example:event"]
   },
-
   "frontend": {
-    "entry": "./frontend/index.ts",
-    "extensions": {
-      "sidebar": {
-        "icon": "📊",
-        "label": "My Feature",
-        "component": "./frontend/Panel.svelte"
-      }
-    }
+    "entry": "./frontend/index.ts"
   }
 }
 ```
 
-> `permissions` and `security.threatNotes` are required for all plugins.
+Follow the current schema/types in source when the example and runtime disagree; plugin APIs are still evolving.
 
-### 3. Backend Plugin (backend/index.ts)
+## Backend hooks
 
-```typescript
-import type { BackendPlugin } from '../../backend/src/plugins/types';
+Runtime plugins can provide lifecycle/event hooks and plugin routes according to the current backend plugin API. Common concepts include:
 
-const plugin: BackendPlugin = {
-  name: 'your-plugin-name',
+- `onLoad(ctx)`;
+- connection/disconnection hooks;
+- message/channel/user hooks;
+- namespaced socket handlers;
+- plugin-local storage/logging;
+- HTTP routes mounted below `/api/plugins/runtime/:pluginId`.
 
-  async onLoad(ctx) {
-    ctx.logger.info('Plugin loaded');
-  },
+Keep plugin events/routes namespaced and validate/authenticate every entry point. A plugin route is not exempt from Wabi's authorization/security model merely because the server loaded it.
 
-  socketHandlers: {
-    'your:event': async (socket, data, ctx) => {
-      // Handle socket event
-      ctx.emit('response:event', { result: 'success' });
-    }
-  },
+## Security controls
 
-  // Hook into core events
-  onMessage(channelId, message, ctx) {
-    // React to messages
-  }
-};
+Current tooling includes:
 
-export default plugin;
-```
+- SHA-256 package integrity validation;
+- optional Ed25519 signature verification;
+- trusted-signer policy;
+- optional command-based malware scanning;
+- lifecycle audit events;
+- namespaced plugin logs;
+- safe-mode/crash-loop handling.
 
-## 🔌 Available Hooks
-
-### Backend Hooks
-
-- `onLoad(ctx)` - Called when plugin loads
-- `onConnection(socket, ctx)` - Called when user connects
-- `onDisconnect(socket, ctx)` - Called when user disconnects
-- `onMessage(channelId, message, ctx)` - Called on new message
-- `onChannelCreate(channel, ctx)` - Called on channel creation
-- `onUserJoin(user, ctx)` - Called when user joins
-- `socketHandlers` - Custom socket event handlers
-
-### Plugin Context
-
-The `ctx` object provides:
-
-```typescript
-{
-  io: Server,
-  httpServer: HttpServer,
-  channels: Map<string, PluginChannel>,
-  users: Map<string, PluginUser>,
-  channelMessages: Map<string, PluginChannelMessage[]>,
-  storage: PluginStorage,
-  logger: PluginLogger,
-  emit: (event, data: JsonValue | Buffer) => void,
-  emitToChannel: (channelId, event, data: JsonValue | Buffer) => void
-}
-```
-
-### Plugin Storage
-
-```typescript
-await ctx.storage.set('key', { your: 'data' });
-const data = await ctx.storage.get('key');
-await ctx.storage.delete('key');
-const keys = await ctx.storage.list();
-```
-
-### HTTP Routes
-
-Backend plugins can expose HTTP endpoints through `routes`.
-Routes are mounted under:
-
-`/api/plugins/runtime/:pluginId`
-
-Example:
-
-```typescript
-const plugin: BackendPlugin = {
-  name: 'my-plugin',
-  routes: [
-    {
-      method: 'get',
-      path: '/health',
-      handler: async (req, res) => {
-        res.json({
-          ok: true,
-          plugin: req.params.pluginId,
-          query: req.query
-        });
-      }
-    },
-    {
-      method: 'post',
-      path: '/echo',
-      handler: async (req, res) => {
-        const body = await req.json();
-        res.status(200).json({ body });
-      }
-    }
-  ]
-};
-```
-
-The plugin API surface provided to route handlers includes:
-- `req.query`, `req.params`, `req.path`, `req.headers`, `req.method`
-- `await req.json<T>()`, `await req.text()`, `await req.buffer()`
-- `res.status(code).json(payload)`, `res.send(payload)`, `res.set(name, value)`, `res.end()`
-
-Request body size for plugin routes is capped by `PLUGIN_ROUTE_MAX_BODY_BYTES` (default: `2097152`).
-
-## 🔒 Security Controls
-
-- Plugin package checksums are validated before enabling backend plugins.
-- Optional Ed25519 signatures are verified when signer metadata is present.
-- Trusted signer allowlist is managed by server admins via `/api/plugins/signers`.
-- Optional malware scanning can gate plugin load using `PLUGIN_SCAN_POLICY=off|warn|enforce`.
-- Scanner integration is command-based via `PLUGIN_SCANNER_CMD` (for example: ClamAV).
-- Plugin lifecycle actions write structured audit events with actor, plugin/version, action, result, timestamp, and reason.
-- Plugin logs are namespaced as `plugin:<id>` and persisted for admin review.
-- Safe mode startup can disable third-party plugins if crash loops are detected.
-
-### Plugin Signing Tooling
-
-Run from repo root:
+Signing commands from the repository root:
 
 ```bash
 npm run plugin:keygen -- --out-dir .wabi-keys
@@ -202,57 +100,83 @@ npm run plugin:sign -- --plugin plugins/your-plugin-name --private-key .wabi-key
 npm run plugin:verify -- --plugin plugins/your-plugin-name --strict
 ```
 
-Server admins can choose policy with `PLUGIN_SIGNATURE_POLICY`:
-- `warn-allow` (default)
-- `signed-only`
-- `curated-only`
+Configured signature policy may include modes such as:
 
-### ✅ Security Review Checklist (Required)
+- `warn-allow`;
+- `signed-only`;
+- `curated-only`.
 
-Each plugin PR/release must include:
+Check current server configuration/source for the exact supported values before deployment.
 
-- [ ] Least-privilege `permissions` list in `plugin.json`.
-- [ ] `security.threatNotes` with abuse cases and mitigations.
-- [ ] `integrity.checksum` (sha256) updated for the packaged plugin.
-- [ ] Dependencies reviewed and pinned to known-safe versions.
-- [ ] Input validation for every socket event and API entrypoint.
-- [ ] Data-at-rest and data-in-transit handling documented.
-- [ ] Logging avoids secrets/PII and supports incident review.
-- [ ] Disable/uninstall behavior tested (plugin-off path).
+### What these controls do **not** mean
 
-## 🚀 Adding Your Plugin
+A valid checksum proves package bytes match an expected digest. A valid signature proves a signing key approved those bytes. Malware scanning can catch known/suspicious patterns. Audit logs help operators investigate changes.
 
-1. Create your plugin folder in `plugins/`
-2. Add `plugin.json` manifest
-3. Implement backend/frontend
-4. Restart server - it auto-loads!
+None of those, by themselves, prove that arbitrary plugin backend code is isolated from every server/network/filesystem capability.
 
-### Quick install for test plugins
+Do not write docs or UI that say a permission manifest “blocks all undeclared access” unless the relevant runtime boundary actually enforces that behavior and has regression tests.
 
-If a plugin lives under `TEST/<plugin-name>`, install it into `plugins/` first:
+## Security review checklist
 
-- Any OS: `npm run plugin:install:test`
-- Optional plugin name: `npm run plugin:install:test -- <plugin-name>`
+Every plugin Wabi distributes/recommends should document and test:
 
-## 🔥 Pro Tips
+- [ ] least-privilege declared permissions;
+- [ ] threat notes and abuse cases;
+- [ ] integrity/signing metadata for the distributed package;
+- [ ] pinned/reviewed dependencies;
+- [ ] validation for socket/API inputs;
+- [ ] authentication and resource authorization;
+- [ ] persistence/retention behavior;
+- [ ] network/external-service dependencies;
+- [ ] logging that avoids secrets/private content;
+- [ ] disable/uninstall/restart behavior;
+- [ ] failure behavior when required dependencies are absent.
 
-- Keep plugins self-contained
-- Use plugin storage for persistence
-- Socket events should be namespaced (e.g., `task:create`)
-- Test with plugin disabled to ensure core works
-- Document your plugin's events and API
+## Dependency UX
 
-## 📝 Plugin Ideas
+If a plugin requires other extensions/capabilities, fail clearly. The operator should see something like:
 
-- Polls & surveys
-- File sharing with preview
-- Code snippet formatting
-- Translation bot
-- Game integration (chess, trivia)
-- Calendar & events
-- Music sharing
-- Drawing board
-- Code collaboration
-- Crypto wallet integration
+> Cannot enable **Example**. Missing dependencies: `X`, `Y`.
 
-**The system is yours - build whatever you want!**
+Do not silently fetch/execute dependencies from an author's website. A manifest may link documentation/source, but installation remains an operator action.
+
+## UI integration rules
+
+Frontend extensions should use Wabi's existing design/workspace ownership:
+
+- semantic theme tokens;
+- existing dock/center-stage navigation where appropriate;
+- accessible labels/focus states;
+- narrow/mobile layouts;
+- real loading/error/empty states;
+- explicit external/network actions;
+- no duplicate global navigation store just for one plugin.
+
+Wabi's existing AI-generated UI is not sacred. A plugin should integrate coherently rather than imitate old floating-text/button mistakes.
+
+## Installing local/test plugins
+
+For a local plugin, place the complete reviewed package under `plugins/<id>/` and restart/reload according to the current operator flow.
+
+For repository test plugins under `TEST/`, the helper script may be used:
+
+```bash
+npm run plugin:install:test
+npm run plugin:install:test -- <plugin-name>
+```
+
+Do not enable third-party plugin mode on a production server merely to experiment. Use a disposable/test Authority first.
+
+## Legacy mesh warning
+
+The old `mesh` addon is **not** the production multi-node mechanism. Do not port/deploy it as an HA solution.
+
+Current topology and experimental replication/standby boundaries are documented in:
+
+- [`../docs/architecture/SERVER_MESH_PLAN.md`](../docs/architecture/SERVER_MESH_PLAN.md)
+- [`../docs/NETWORKING.md`](../docs/NETWORKING.md)
+- [`../docs/PROJECT_STATUS.md`](../docs/PROJECT_STATUS.md)
+
+## Design principle
+
+The extension ecosystem should make Wabi more capable without making the core server depend on an app store, one vendor, or unreviewed code. Prefer explicit capabilities, clear dependency errors, and operator control over magical installation.
