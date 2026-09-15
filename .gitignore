@@ -79,6 +79,7 @@ turn-server/certs/
 turn-server/turnserver.conf
 
 # Data files (per-instance, never commit)
+data/wabi-server/
 data/business/
 data/chat.db
 data/wabidb/

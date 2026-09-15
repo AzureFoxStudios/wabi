@@ -1,6 +1,7 @@
 # Wabi Project Status
 
-**Updated:** 2026-09-14  
+**Updated:** 2026-09-15
+
 **Purpose:** canonical product-status boundary for operators, contributors, reviewers, and AI agents.
 
 Wabi moves quickly. Dated plans and old PR descriptions are useful history, but they are not automatically the current contract. When documentation disagrees about whether something is shipped, this page and the current source should win over older planning documents.
@@ -108,7 +109,7 @@ See `PRIVACY_STANCE.md` and `SECURITY-MODEL.md` for detail.
 
 The next meaningful confidence gains are not more feature-count checkboxes. They are proof that the existing product behaves correctly under failure and real use:
 
-1. **WabiDB recovery** — resolve/understand the current persistence-recovery regression and keep restart/replay tests green.
+1. **WabiDB recovery** — keep restart/replay/crash tests green on the release candidate. The September 15 audit did not reproduce the previously unspecified regression; a real candidate backup/restore drill remains a separate gate.
 2. **Backup/restore drill** — take a real stopped-server backup, restore it to a clean host, prove accounts/content/readiness, and document the exact supported compatibility boundary.
 3. **Physical call matrix** — two real clients across representative networks, including reconnect, screenshare, audio routing, and optional TURN/SFU paths.
 4. **Authorization audit** — continue endpoint/socket/admin permission review and preserve deny-by-default behavior for private resources.

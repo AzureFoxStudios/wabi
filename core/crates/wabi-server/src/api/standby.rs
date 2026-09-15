@@ -11,12 +11,12 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 
 use crate::{
+    auth_extractor::authenticate_access_token,
     error::{AppError, Result},
     nodes::{HelperNode, NodeCapability, NodeRegistryError},
     standby::{EncryptedSnapshotEnvelope, SnapshotStore, SnapshotStoreError},
@@ -217,31 +217,16 @@ async fn require_standby_node(state: &Arc<AppState>, headers: &HeaderMap) -> Res
 }
 
 async fn require_admin(state: &Arc<AppState>, headers: &HeaderMap) -> Result<()> {
-    let user_id = claims_from_bearer(headers, &state.config.jwt_secret)
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or_else(|| AppError::Unauthorized("valid auth token required".into()))?;
-    if !state.is_admin(user_id).await {
+    let auth = authenticate_access_token(state, token).await?;
+    if !state.is_admin(auth.user_id).await {
         return Err(AppError::Unauthorized("admin access required".into()));
     }
     Ok(())
-}
-
-fn claims_from_bearer(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
-    #[derive(serde::Deserialize)]
-    struct Claims {
-        sub: String,
-    }
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let key = DecodingKey::from_secret(jwt_secret.as_bytes());
-    let mut validation = Validation::default();
-    validation.validate_exp = true;
-    validation.leeway = 60;
-    decode::<Claims>(token, &key, &validation)
-        .ok()?
-        .claims
-        .sub
-        .parse()
-        .ok()
 }
 
 fn is_standby_capable(node: &HelperNode) -> bool {

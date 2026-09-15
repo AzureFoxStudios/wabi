@@ -9,13 +9,13 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 
 use crate::{
     api::media_node_catalog::{self, MediaNodeAdvertisement},
+    auth_extractor::authenticate_access_token,
     error::{AppError, Result},
     nodes::{
         JoinNodeRequest, JoinNodeResponse, NodeCapability, NodeHeartbeatRequest, NodePairingToken,
@@ -188,60 +188,18 @@ fn require_node_secret(headers: &HeaderMap) -> Result<&str> {
         .ok_or_else(|| AppError::Unauthorized("missing x-wabi-node-secret".into()))
 }
 
-fn claims_from_bearer(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
-    #[derive(serde::Deserialize)]
-    struct Claims {
-        sub: String,
-    }
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let key = DecodingKey::from_secret(jwt_secret.as_bytes());
-    let mut validation = Validation::default();
-    validation.validate_exp = true;
-    validation.leeway = 60;
-    decode::<Claims>(token, &key, &validation)
-        .ok()?
-        .claims
-        .sub
-        .parse()
-        .ok()
-}
-
-/// Require a valid auth token with revocation check. Returns user_id.
-/// WS-4a: replaced hand-rolled decoder with revocation-aware version.
+/// Require an account access credential and the current administrative role.
 async fn require_admin(state: &Arc<AppState>, headers: &HeaderMap) -> Result<i64> {
-    let auth_header = headers
+    let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer ").map(str::to_owned))
+        .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or_else(|| AppError::Unauthorized("valid auth token required".into()))?;
-    let key = DecodingKey::from_secret(state.config.jwt_secret.as_bytes());
-    let mut validation = Validation::default();
-    validation.validate_exp = true;
-    validation.leeway = 60;
-    #[derive(serde::Deserialize)]
-    struct Claims {
-        sub: String,
-        #[serde(default)]
-        jti: String,
-        #[serde(default)]
-        iat: i64,
-    }
-    let claims = decode::<Claims>(&auth_header, &key, &validation)
-        .map_err(|_| AppError::Unauthorized("valid auth token required".into()))?
-        .claims;
-    let user_id = claims
-        .sub
-        .parse::<i64>()
-        .map_err(|_| AppError::Unauthorized("bad sub".into()))?;
-    // Revocation check — hand-rolled decoders bypassed this.
-    if state.is_token_revoked(&claims.jti, user_id, claims.iat).await {
-        return Err(AppError::Unauthorized("token revoked".into()));
-    }
-    if !state.is_admin(user_id).await {
+    let auth = authenticate_access_token(state, token).await?;
+    if !state.is_admin(auth.user_id).await {
         return Err(AppError::Unauthorized("admin access required".into()));
     }
-    Ok(user_id)
+    Ok(auth.user_id)
 }
 
 fn registry_error_to_app_error(error: NodeRegistryError) -> AppError {

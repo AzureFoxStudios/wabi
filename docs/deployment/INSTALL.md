@@ -122,9 +122,9 @@ Also standard: run behind HTTPS (Caddy/cloudflared profile), keep
 
 2. **First account is the owner.** The first user registered becomes the server admin/owner. Use a strong password. Don't create throwaway accounts first.
 
-3. **WabiDB engine lock can survive a stop/restart.** If the server won't start with "engine already running", clear both lock files: `rm -f data/wabi-server/.lock data/wabi-server/wabidb/.lock`.
+3. **Investigate an engine-lock error before removing locks.** Stop the service and confirm that no other Wabi process or container is using the same data directory. Only then remove locks confirmed stale, including both `data/wabi-server/.lock` and `data/wabi-server/wabidb/.lock` if present. Follow [Backup and Recovery](BACKUP_AND_RECOVERY.md#restore-onto-a-clean-authority); never remove a lock merely to force a second writer to start.
 
-4. **Auth token bounce (login page flash → bounce to /login).** This is a stale JWT in the browser's `localStorage`, not a server bug. Hard refresh does NOT clear it — clear site data for the domain.
+4. **Investigate repeated login/session-expired redirects.** Stale credentials are one possible cause; verify server readiness and the sign-in response before assuming the cause. Use the app's sign-out/re-authentication path when available. Avoid clearing all site data as a first step: browser-local notes and other local documents may have no server backup. Preserve/export local work before any browser-storage reset.
 
 5. **`TURN_HMAC_KEY` is required when the turn profile runs.** The coturn entrypoint refuses to start without it (compose no longer fails interpolation for everyone else). Generate one: `openssl rand -base64 32`.
 

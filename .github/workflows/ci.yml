@@ -46,7 +46,7 @@ jobs:
 
       - name: Frontend svelte-check
         working-directory: frontend
-        run: bun run check -- --threshold 1
+        run: bun run check
 
       # wabi-server uses rust_embed for frontend/build, so the static SPA must
       # exist before cargo check/test compile the server crate.

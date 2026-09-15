@@ -7,11 +7,13 @@ Wabi already has a wide feature surface. The priority now is less “add another
 
 For the current shipped/experimental boundary, see [PROJECT_STATUS.md](PROJECT_STATUS.md). This roadmap describes where effort should go next.
 
+The active execution plan is the [production-pilot finishing campaign](plans/2026-09-15-production-finish-campaign.md), with dependencies, implementation cards, and acceptance gates for hosted testers and self-hosters. Linked local Notes has a [separate migration and implementation design](plans/2026-09-15-linked-local-notebook.md).
+
 ## Priority 0 — prove the foundation
 
 ### Storage, backup, and recovery
 
-- **Investigate and resolve the current WabiDB persistence/recovery regression.** Recovery/replay must be boring before distributed-state work moves forward.
+- **Keep WabiDB persistence/recovery proven on the release candidate.** The September 15 audit did not reproduce the previously unspecified regression; restart/replay/crash tests passed. Tie any remaining failure to a reproducer and complete a current-candidate restore drill before distributed-state work moves forward.
 - Run a real backup → clean-host restore drill using [deployment/BACKUP_AND_RECOVERY.md](deployment/BACKUP_AND_RECOVERY.md).
 - Keep persistent-record/schema changes backward-safe; never break older postcard-encoded records without a dual-decode migration path.
 - Make operator health/readiness surfaces explain storage/application failure rather than reporting a meaningless green light.
