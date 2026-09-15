@@ -153,6 +153,10 @@ fn file_attachment_metadata_serializes_current_payload_shape() {
             iv: "iv-123".to_owned(),
             mime_type: Some("image/png".to_owned()),
             original_size: Some(42),
+            epoch: None,
+            chunk_size: None,
+            nonce_prefix: None,
+            file_id: None,
         }),
         attachment_storage: Some(AttachmentStorageMeta {
             scheme: AttachmentStorageScheme::WabiStorageV1,
@@ -286,6 +290,10 @@ fn message_view_serializes_current_client_message_shape() {
             iv: "iv-123".to_owned(),
             mime_type: None,
             original_size: None,
+            epoch: None,
+            chunk_size: None,
+            nonce_prefix: None,
+            file_id: None,
         }),
         attachment_storage: Some(AttachmentStorageMeta {
             scheme: AttachmentStorageScheme::WabiStorageV1,

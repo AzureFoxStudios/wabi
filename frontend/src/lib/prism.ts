@@ -18,8 +18,8 @@ let grammarsPromise: Promise<void> | null = null;
 
 // Loads every grammar component the app uses, sequentially in
 // dependency-safe order (javascript before typescript, c before cpp, markup
-// before markdown). Sequential matters: parallel dynamic imports evaluate in
-// arrival order, and e.g. prism-cpp would extend an undefined 'c' grammar.
+// before markdown/JSX). Sequential matters: parallel dynamic imports evaluate
+// in arrival order, and e.g. prism-cpp would extend an undefined 'c' grammar.
 // PHP intentionally excluded (tokenizePlaceholders error).
 export function ensurePrismGrammars(): Promise<void> {
 	grammarsPromise ??= (async () => {
@@ -39,6 +39,11 @@ export function ensurePrismGrammars(): Promise<void> {
 		await import('prismjs/components/prism-clike');
 		await import('prismjs/components/prism-markup');
 		await import('prismjs/components/prism-markdown');
+		await import('prismjs/components/prism-jsx');
+		await import('prismjs/components/prism-tsx');
+		await import('prismjs/components/prism-yaml');
+		await import('prismjs/components/prism-toml');
+		await import('prismjs/components/prism-sql');
 	})();
 	return grammarsPromise;
 }
