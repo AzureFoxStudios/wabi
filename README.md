@@ -65,16 +65,25 @@ Podman users can use `podman compose`. If you prefer externally managed secrets,
 
 ### Bare Cargo
 
+Install Node.js 22 with npm and Rust through rustup. The repository selects its
+pinned Rust toolchain; install the system build dependencies for your platform.
+
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
 cd wabi
-cd frontend && STATIC_BUILD=1 bun run build && cd ..
-cargo build --release -p wabi-server
+cd frontend
+npm ci --no-audit --no-fund
+npm run build:static
+cd ..
+cargo build --locked --release -p wabi-server
 mkdir -p data/wabi-server uploads plugins
 ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
 ```
 
 Open **http://localhost:3000**.
+
+For optional compiled integrations such as Lore, add `--features addons` to the
+Cargo build and configure the integration's external dependencies separately.
 
 ### Local development
 

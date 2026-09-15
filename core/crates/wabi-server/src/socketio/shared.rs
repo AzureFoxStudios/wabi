@@ -66,9 +66,9 @@ pub(crate) struct SioIdentity {
 // ---------------------------------------------------------------------------
 
 /// Synchronous JWT validation for the handshake connect closure.
-/// Returns `Ok(SioIdentity)` if the token has a valid signature and is not
-/// expired; `Err(message)` otherwise. Revocation and ban checks are deferred
-/// to `resolve_identity` (async, per-event).
+/// Returns `Ok(SioIdentity)` for a signed, unexpired account access token;
+/// `Err(message)` otherwise. Revocation and ban checks are deferred to
+/// `resolve_identity` (async, per-event).
 pub(crate) fn validate_token_sync(token: &str, secret: &str) -> Result<SioIdentity, &'static str> {
     use jsonwebtoken::{decode, DecodingKey, Validation};
 
@@ -84,6 +84,8 @@ pub(crate) fn validate_token_sync(token: &str, secret: &str) -> Result<SioIdenti
         is_guest: bool,
         #[serde(default)]
         token_type: String,
+        #[serde(default)]
+        stepup: bool,
     }
 
     let key = DecodingKey::from_secret(secret.as_bytes());
@@ -99,10 +101,11 @@ pub(crate) fn validate_token_sync(token: &str, secret: &str) -> Result<SioIdenti
         }
     })?;
 
-    // Refresh tokens must never open a socket — they are exchange-only
-    // credentials for POST /api/auth/refresh (mirrors the AuthUser extractor).
-    if data.claims.token_type == "refresh" {
-        return Err("refresh tokens cannot authenticate sockets");
+    // Match authenticate_access_token: refresh, scoped-tool, and step-up
+    // credentials cannot become account sessions. Missing type remains a
+    // legacy access token; step-up tokens themselves use type "access".
+    if !matches!(data.claims.token_type.as_str(), "" | "access") || data.claims.stepup {
+        return Err("account access token required");
     }
 
     let user_id = data.claims.sub.parse::<i64>().map_err(|_| "invalid user id")?;
@@ -484,31 +487,6 @@ pub struct SocketIdentity {
     pub iat: i64,
 }
 
-/// Decode a JWT into the small subset of claims resolve_identity needs.
-/// Returns None on decode/expiry failure.
-async fn decode_socket_claims(token: &str, secret: &str) -> Option<SocketTokenClaims> {
-    use jsonwebtoken::{decode, DecodingKey, Validation};
-    let key = DecodingKey::from_secret(secret.as_bytes());
-    let mut v = Validation::default();
-    v.validate_exp = true;
-    v.leeway = 60;
-    decode::<SocketTokenClaims>(token, &key, &v)
-        .ok()
-        .map(|d| d.claims)
-}
-
-#[derive(Deserialize)]
-struct SocketTokenClaims {
-    sub: String,
-    username: String,
-    #[serde(default)]
-    is_guest: bool,
-    #[serde(default)]
-    jti: String,
-    #[serde(default)]
-    iat: i64,
-}
-
 /// Resolve the socket's identity from the handshake-validated `SioIdentity`
 /// extension, then check revocation and ban status. Returns `None` on any
 /// failure; the caller emits an error event and returns. For revoked tokens
@@ -525,7 +503,7 @@ pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<So
         (id.user_id, id.username.clone(), id.is_guest)
     } else {
         // Fallback: no handshake identity (e.g. legacy connection).
-        // Try reading the raw token and decoding.
+        // Apply the same credential policy as a fresh handshake.
         let token = socket
             .extensions
             .get::<AuthToken>()
@@ -534,12 +512,8 @@ pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<So
         if token.is_empty() {
             return None;
         }
-        let claims = decode_socket_claims(&token, &state.app.config.jwt_secret).await?;
-        let uid = claims.sub.parse::<i64>().unwrap_or(-1);
-        if uid <= 0 {
-            return None;
-        }
-        (uid, claims.username, claims.is_guest)
+        let identity = validate_token_sync(&token, &state.app.config.jwt_secret).ok()?;
+        (identity.user_id, identity.username, identity.is_guest)
     };
 
     // Revoked tokens get a disconnect, not just a rejected handler.
@@ -641,6 +615,139 @@ fn socket_token_revoked_by(token: &str, secret: &str, revocations: &crate::state
             revocations.is_revoked(&d.claims.jti, sub, d.claims.iat)
         }
         Err(_) => true,
+    }
+}
+
+#[cfg(test)]
+mod socket_authentication_tests {
+    use super::*;
+
+    const SECRET: &str = "socket-authentication-test-only";
+
+    fn claims() -> Value {
+        json!({
+            "sub": "7", "username": "fixture", "is_guest": false,
+            "token_type": "access", "stepup": false,
+            "iat": 1_500_000_000_i64, "exp": 9_999_999_999_i64,
+            "jti": "socket-fixture"
+        })
+    }
+
+    fn signed(claims: &Value, secret: &str) -> String {
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            claims,
+            &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn account_and_legacy_access_credentials_keep_their_identity() {
+        for is_guest in [false, true] {
+            for token_type in [Some("access"), Some(""), None] {
+                for stepup in [Some(false), None] {
+                    let mut payload = claims();
+                    payload["is_guest"] = json!(is_guest);
+                    match token_type {
+                        Some(kind) => payload["token_type"] = json!(kind),
+                        None => {
+                            payload.as_object_mut().unwrap().remove("token_type");
+                        }
+                    }
+                    if stepup.is_none() {
+                        payload.as_object_mut().unwrap().remove("stepup");
+                    }
+                    let identity = validate_token_sync(&signed(&payload, SECRET), SECRET).unwrap();
+                    assert_eq!(identity.user_id, 7);
+                    assert_eq!(identity.username, "fixture");
+                    assert_eq!(identity.is_guest, is_guest);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn refresh_scoped_and_unknown_credentials_cannot_open_account_sockets() {
+        for token_type in ["refresh", "lore", "unknown", "Access"] {
+            let mut payload = claims();
+            payload["token_type"] = json!(token_type);
+            assert_eq!(
+                validate_token_sync(&signed(&payload, SECRET), SECRET).unwrap_err(),
+                "account access token required",
+                "credential type {token_type} must not become an account session"
+            );
+        }
+    }
+
+    #[test]
+    fn stepup_credentials_cannot_open_sockets_even_when_the_type_is_access_or_legacy() {
+        for token_type in [Some("access"), Some(""), None] {
+            let mut payload = claims();
+            payload["stepup"] = json!(true);
+            match token_type {
+                Some(kind) => payload["token_type"] = json!(kind),
+                None => {
+                    payload.as_object_mut().unwrap().remove("token_type");
+                }
+            }
+            assert_eq!(
+                validate_token_sync(&signed(&payload, SECRET), SECRET).unwrap_err(),
+                "account access token required"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_credentials_do_not_gain_legacy_access_defaults() {
+        for (field, value) in [
+            ("token_type", Value::Null),
+            ("token_type", json!(7)),
+            ("stepup", Value::Null),
+            ("stepup", json!("false")),
+        ] {
+            let mut payload = claims();
+            payload[field] = value;
+            assert_eq!(
+                validate_token_sync(&signed(&payload, SECRET), SECRET).unwrap_err(),
+                "invalid token",
+                "invalid {field} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn access_policy_preserves_signature_expiry_and_subject_validation() {
+        assert_eq!(
+            validate_token_sync("", SECRET).unwrap_err(),
+            "missing token"
+        );
+        for token in ["malformed.jwt".into(), signed(&claims(), "different-key")] {
+            assert_eq!(
+                validate_token_sync(&token, SECRET).unwrap_err(),
+                "invalid token"
+            );
+        }
+        let mut expired = claims();
+        expired["exp"] = json!(1_500_000_100_i64);
+        assert_eq!(
+            validate_token_sync(&signed(&expired, SECRET), SECRET).unwrap_err(),
+            "token expired"
+        );
+        let mut missing_expiry = claims();
+        missing_expiry.as_object_mut().unwrap().remove("exp");
+        assert_eq!(
+            validate_token_sync(&signed(&missing_expiry, SECRET), SECRET).unwrap_err(),
+            "invalid token"
+        );
+        for subject in ["0", "-7", "not-an-id", "9223372036854775808"] {
+            let mut payload = claims();
+            payload["sub"] = json!(subject);
+            assert_eq!(
+                validate_token_sync(&signed(&payload, SECRET), SECRET).unwrap_err(),
+                "invalid user id"
+            );
+        }
     }
 }
 
