@@ -34,7 +34,7 @@
 --surface-button: var(--surface-raised, #302b63);
 --surface-hover: var(--surface-hover, #302b63);
 --surface-active: var(--surface-modal, #0f0c29);
---surface-selected: var(--accent, #6366f1);
+--surface-selected: color-mix(in srgb, var(--accent-primary-color, #6366f1) 18%, transparent);
 --surface-overlay: var(--surface-overlay, rgba(0, 0, 0, 0.6));
 --surface-scrollbar: var(--gradient-scrollbar, var(--accent-primary, #6366f1));
 --surface-elevated: var(--surface-raised, #302b63);
@@ -57,17 +57,17 @@
 	--text-on-warning: #000000;
 	--text-inverse: var(--bg-sunken, #0f0c29);
 	--text-danger: var(--color-danger, #ef4444);
-	--text-warning: var(--color-warning, #ffd700);
-	--text-success: var(--color-success, #00ff7f);
-	--text-info: var(--color-info, #00bfff);
+	--text-warning: var(--color-warning, #f59e0b);
+	--text-success: var(--color-success, #22c55e);
+	--text-info: var(--color-info, #3b82f6);
 
 	/* RGB variants (runtime-set by themeManager, static defaults here for pre-JS) */
 	--text-inverse-rgb: 255, 255, 255;
 	--text-muted-rgb: 153, 153, 255;
-	--color-success-rgb: 0, 255, 127;
-	--color-info-rgb: 0, 191, 255;
-	--color-warning-rgb: 255, 215, 0;
-	--color-danger-rgb: 255, 0, 0;
+	--color-success-rgb: 34, 197, 94;
+	--color-info-rgb: 59, 130, 246;
+	--color-warning-rgb: 245, 158, 11;
+	--color-danger-rgb: 239, 68, 68;
 
 	/* Borders */
 	--border-subtle: var(--border-subtle, #302b63);
@@ -82,7 +82,7 @@
 	--accent-primary-color: var(--color-accent-primary, #6366f1);
 	--accent-secondary-color: var(--color-accent-secondary, #818cf8);
 	--accent-gradient: var(--gradient-accent, linear-gradient(to right, #6366f1, #818cf8));
-	--accent-hover: var(--accent-hover, linear-gradient(to right, #818cf8, #ef4444));
+	--accent-hover: color-mix(in srgb, var(--accent-primary, #6366f1) 85%, #ffffff);
 	--accent-subtle: var(--gradient-accent-subtle, rgba(99, 102, 241, 0.1));
 	--accent-medium: var(--gradient-accent-medium, rgba(99, 102, 241, 0.25));
 	--accent-glow: rgba(var(--accent-rgb, 99, 102, 241), 0.4);
@@ -92,24 +92,24 @@
 	--accent-info-soft: rgba(var(--color-info-rgb, 0, 191, 255), 0.15);
 
 	/* Status */
-	--status-online: var(--status-online, #00ff7f);
-	--status-away: var(--status-away, #ffd700);
+	--status-online: var(--status-online, #22c55e);
+	--status-away: var(--status-away, #f59e0b);
 	--status-busy: var(--status-busy, #ef4444);
 	--status-offline: var(--status-offline, #708090);
-	--status-online-rgb: var(--color-success-rgb, 0, 255, 127);
-	--status-away-rgb: var(--color-warning-rgb, 255, 215, 0);
-	--status-busy-rgb: var(--color-danger-rgb, 239, 68, 68);
-	--status-offline-rgb: var(--color-neutral-rgb, 112, 128, 144);
+	--status-online-rgb: 34, 197, 94;
+	--status-away-rgb: 245, 158, 11;
+	--status-busy-rgb: 239, 68, 68;
+	--status-offline-rgb: 112, 128, 144;
 
 	/* Semantic */
-	--color-success: var(--color-success, #00ff7f);
-	--color-info: var(--color-info, #00bfff);
-	--color-warning: var(--color-warning, #ffd700);
+	--color-success: var(--color-success, #22c55e);
+	--color-info: var(--color-info, #3b82f6);
+	--color-warning: var(--color-warning, #f59e0b);
 	--color-danger: var(--color-danger, #ef4444);
-	--color-success-bg: rgba(var(--color-success-rgb, 0, 255, 127), 0.15);
-	--color-danger-bg: rgba(var(--color-danger-rgb, 239, 68, 68), 0.15);
-	--color-warning-bg: rgba(var(--color-warning-rgb, 255, 215, 0), 0.15);
-	--color-info-bg: rgba(var(--color-info-rgb, 0, 191, 255), 0.15);
+	--color-success-bg: rgba(34, 197, 94, 0.15);
+	--color-danger-bg: rgba(239, 68, 68, 0.15);
+	--color-warning-bg: rgba(245, 158, 11, 0.15);
+	--color-info-bg: rgba(59, 130, 246, 0.15);
 
 	/* ========================================================================
 	   TYPOGRAPHY
@@ -305,7 +305,7 @@
 	--color-border-primary-rgb: var(--border-rgb, 48, 43, 99);
 	--accent-primary: var(--accent-primary, #6366f1);
 	--color-accent-primary-rgb: var(--accent-rgb, 99, 102, 241);
-	--accent-secondary: var(--accent-hover, #818cf8);
+	--accent-secondary: var(--accent-secondary-color, #818cf8);
 	--color-accent-secondary-rgb: 129, 140, 248;
 	--color-accent-gradient: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
 	--color-success: var(--color-success, #22c55e);
