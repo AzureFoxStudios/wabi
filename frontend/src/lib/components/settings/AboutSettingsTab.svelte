@@ -3,6 +3,8 @@
 	import { brandConfig, brandName, selectBrandConfig } from '$lib/branding';
 	import { isNeutralBrandingEnabled } from '$lib/components/loginHelpers';
 	import { onMount } from 'svelte';
+	import { activeServerUrl } from '$lib/serverUrl';
+	import { parseServerBuildIdentity, type ServerBuildIdentity } from '$lib/buildIdentity';
 
 	const isDevBuild = import.meta.env.DEV;
 	const MEMORY_TELEMETRY_KEY = 'wabi_debug_memory_telemetry';
@@ -19,7 +21,8 @@
 	let aboutTitle = brandName;
 	let aboutBlurb = '';
 	let aboutFooter = '';
-	let aboutVersion = '1.0.0';
+	const clientBuild = __WABI_CLIENT_BUILD__;
+	let serverBuild: ServerBuildIdentity | null = null;
 
 	function sampleMemoryTelemetry() {
 		if (!isDevBuild || !memoryTelemetrySupported) return;
@@ -52,6 +55,15 @@
 	}
 
 	onMount(() => {
+		let request: AbortController | null = null;
+		const unsubscribe = activeServerUrl.subscribe(url => {
+			request?.abort(); serverBuild = null;
+			const current = new AbortController(); request = current;
+			void fetch(`${url.replace(/\/$/, '')}/api/public/build-info`, { signal: current.signal, credentials: 'omit' })
+				.then(response => response.ok ? response.json() : null)
+				.then(value => { if (!current.signal.aborted) serverBuild = parseServerBuildIdentity(value); })
+				.catch(() => { /* Older or unreachable servers have no build metadata. */ });
+		});
 		const brand = selectBrandConfig(isNeutralBrandingEnabled());
 		activeBrand = brand;
 		aboutTitle = brand.name || brand.shortName || brandName || 'Community';
@@ -62,10 +74,7 @@
 			(brand.subheadline && brand.subheadline.trim()) ||
 			'Self-hosted community chat.';
 		aboutFooter = (brand.footerText && brand.footerText.trim()) || '';
-		try {
-			const v = (document.querySelector('meta[name="wabi-version"]') as HTMLMetaElement | null)?.content;
-			if (v) aboutVersion = v;
-		} catch { /* ignore */ }
+
 
 		memoryTelemetrySupported =
 			typeof performance !== 'undefined' &&
@@ -74,6 +83,7 @@
 			memoryTelemetryEnabled = localStorage.getItem(MEMORY_TELEMETRY_KEY) === 'true';
 			if (memoryTelemetryEnabled) startMemoryTelemetry();
 		}
+		return () => { unsubscribe(); request?.abort(); stopMemoryTelemetry(); };
 	});
 </script>
 
@@ -89,7 +99,9 @@
 			{#if aboutFooter}
 				<p class="about-footer">{aboutFooter}</p>
 			{/if}
-			<p class="version">v{aboutVersion}</p>
+			<p class="version">Client v{clientBuild.version}</p>
+			<p class="version">{clientBuild.sourceRevision ? `Source ${clientBuild.sourceRevision.slice(0, 12)}` : 'Client source revision unavailable'}</p>
+			<p class="version">{serverBuild ? `Server v${serverBuild.version}${serverBuild.sourceRevision ? ` · ${serverBuild.sourceRevision.slice(0, 12)}` : ' · source revision unavailable'}` : 'Server build information unavailable'}</p>
 		</div>
 	</div>
 	{#if isDevBuild}

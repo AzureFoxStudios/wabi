@@ -80,6 +80,9 @@ async function keyHashes(root) {
 }
 try {
 	let original = await start('source');
+	const build = await api(original, '/api/public/build-info');
+	assert.equal(build.component, 'wabi-server');
+	if (process.env.WABI_SOURCE_REVISION) assert.equal(build.sourceRevision, process.env.WABI_SOURCE_REVISION);
 	const credentials = { username: 'restore_fixture', password: 'Disposable-Restore-Fixture-2026!' };
 	const account = await api(original, '/api/auth/register', 'POST', credentials);
 	const channel = await api(original, '/api/channels', 'POST', { name: 'restore-fixture', channel_type: 'text' }, account.accessToken);

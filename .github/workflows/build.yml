@@ -11,6 +11,7 @@ on:
       - main
 
 env:
+  WABI_SOURCE_REVISION: ${{ github.sha }}
   RUST_BACKTRACE: 1
   # dtolnay/rust-toolchain@1.93 resolves to the latest 1.93 patch release.
   # Pin the effective toolchain to that exact release too, otherwise the
@@ -166,11 +167,16 @@ jobs:
           head -c 32 /tmp/wabi-root.html | grep -qi '<!doctype html'
           echo "smoke OK: GET / -> 200 with index.html"
 
+      - name: Write artifact identity manifest
+        run: node scripts/write-release-manifest.mjs --binary target/release/wabi-server --frontend frontend/build --output target/release/wabi-release-manifest.json
+
       - name: upload server artifact
         uses: actions/upload-artifact@v4
         with:
           name: wabi-server
-          path: target/release/wabi-server
+          path: |
+            target/release/wabi-server
+            target/release/wabi-release-manifest.json
 
   frontend-checks:
     permissions:

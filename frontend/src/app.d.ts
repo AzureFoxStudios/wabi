@@ -1,6 +1,7 @@
 /// <reference types="@sveltejs/kit" />
 
 declare global {
+	const __WABI_CLIENT_BUILD__: { version: string; sourceRevision: string | null };
 	const __WABI_SW_VERSION__: string;
 	const __WABI_IS_TAURI__: boolean;
 }

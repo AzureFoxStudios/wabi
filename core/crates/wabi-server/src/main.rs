@@ -58,6 +58,10 @@ use crate::secrets::resolve_jwt_secret;
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Wabi self-hosted server")]
 struct Args {
+    /// Print compile-time build identity without opening data or starting the server
+    #[arg(long)]
+    build_info: bool,
+
     /// Server port
     #[arg(short, long, default_value = "3000")]
     port: u16,
@@ -177,6 +181,12 @@ async fn wait_for_shutdown() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+    if args.build_info {
+        println!("{}", api::public::build_identity());
+        return Ok(());
+    }
+
     // Initialize logging
     // Default: info level, file appender with daily rotation (max 7 days)
     let log_rotation_days: usize = std::env::var("WABI_LOG_RETENTION_DAYS")
@@ -228,8 +238,6 @@ async fn main() -> anyhow::Result<()> {
         let data_dir = std::env::var("WABI_PURGE_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
         return purge_orphaned_messages(&data_dir).await;
     }
-
-    let args = Args::parse();
 
     info!("🚀 Wabi Node v{}", env!("CARGO_PKG_VERSION"));
 

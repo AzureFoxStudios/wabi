@@ -11,6 +11,7 @@ use crate::state::AppState;
 /// Create public router
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
+        .route("/build-info", axum::routing::get(get_build_info))
         .route("/launch-page", axum::routing::get(get_launch_page))
         .route(
             "/frontend-app-metadata",
@@ -22,6 +23,46 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/auth-policy", axum::routing::get(get_auth_policy))
         .with_state(state)
+}
+
+/// Public diagnostics include only compile-time identity, never runtime configuration.
+fn valid_source_revision(value: Option<&str>) -> Option<&str> {
+    value.filter(|value| matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+pub(crate) fn build_identity() -> Value {
+    serde_json::json!({
+        "schemaVersion": 1,
+        "component": "wabi-server",
+        "version": env!("CARGO_PKG_VERSION"),
+        "sourceRevision": valid_source_revision(option_env!("WABI_SOURCE_REVISION")),
+        "profile": if cfg!(debug_assertions) { "debug" } else { "release" },
+        "targetOs": std::env::consts::OS,
+        "targetArch": std::env::consts::ARCH
+    })
+}
+
+async fn get_build_info() -> impl axum::response::IntoResponse {
+    ([(axum::http::header::CACHE_CONTROL, "no-store")], Json(build_identity()))
+}
+
+#[cfg(test)]
+mod build_identity_tests {
+    use super::*;
+    #[tokio::test]
+    async fn public_identity_has_only_supported_diagnostic_fields() {
+        use axum::response::IntoResponse;
+        let response = get_build_info().await.into_response();
+        assert_eq!(response.headers()[axum::http::header::CACHE_CONTROL], "no-store");
+        let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["component"], "wabi-server");
+        assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(value.as_object().unwrap().len(), 7);
+        assert!(valid_source_revision(Some("not-a-revision-or-a-secret")).is_none());
+        assert!(valid_source_revision(Some(&"f".repeat(40))).is_some());
+        assert!(valid_source_revision(Some(&"a".repeat(64))).is_some());
+    }
 }
 
 // Also wire /api/setup/status under the api router (called on every page load)

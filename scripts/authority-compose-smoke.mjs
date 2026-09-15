@@ -58,6 +58,12 @@ async function api(path, method = 'GET', body, token) {
 try {
 	compose('up', '-d', '--no-build');
 	await ready();
+	const serverBuild = await api('/api/public/build-info');
+	const clientBuild = await api('/wabi-client-build.json');
+	assert.equal(serverBuild.component, 'wabi-server');
+	assert.equal(clientBuild.component, 'wabi-frontend');
+	assert.equal(serverBuild.sourceRevision, clientBuild.sourceRevision);
+	if (process.env.WABI_SOURCE_REVISION) assert.equal(serverBuild.sourceRevision, process.env.WABI_SOURCE_REVISION);
 	const html = await (await fetch(origin)).text();
 	assert.ok(/^<!doctype html/i.test(html), 'embedded SPA served');
 	const asset = html.match(/(?:src|href)="([^" ]+\.(?:js|css))"/)?.[1];
@@ -103,7 +109,7 @@ try {
 		} finally { await browser.close(); }
 	}
 	const identity = run(['image', 'inspect', image, '--format', '{{.Id}}']).trim();
-	await writeFile(`${scratch}/report.json`, JSON.stringify({ status: 'passed', runtime, image, identity, project, embeddedSpa: true, headfulWorkspace: rendered, firstOwner: true, restartWithOriginalToken: true, persistedMessage: true, completedAt: new Date().toISOString(), limits: ['Local container engine only', 'Optional profiles disabled', 'No independent clean host or production data'] }, null, 2), { mode: 0o600 });
+	await writeFile(`${scratch}/report.json`, JSON.stringify({ status: 'passed', runtime, image, identity, project, embeddedSpa: true, headfulWorkspace: rendered, sourceRevision: serverBuild.sourceRevision, firstOwner: true, restartWithOriginalToken: true, persistedMessage: true, completedAt: new Date().toISOString(), limits: ['Local container engine only', 'Optional profiles disabled', 'No independent clean host or production data'] }, null, 2), { mode: 0o600 });
 	console.log(`PASS: fresh ${runtime} Compose install and restart; report ${scratch}/report.json`);
 } finally {
 	await writeFile(`${scratch}/container.log`, run(['compose', '-p', project, '-f', `${scratch}/compose.json`, 'logs', '--no-color'], false), { mode: 0o600 });
