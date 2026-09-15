@@ -73,11 +73,12 @@ export function syncWorkspaceFromRuntime(): void {
 
 			const runtimeNavWidth = get(channelSidebarWidth);
 			const runtimeAuxWidth = get(rightPanelWidth);
+			const mobile = get(isMobile);
 			// Only a committed pin survives reload — peek is transient (spec §3).
 			const auxPinned = get(rightPanelMode) === 'pinned';
 
 			const nextNavSize = runtimeNavWidth > 0 ? runtimeNavWidth : navTab.size || DEFAULT_CONSTANTS.NAV_WIDTH;
-			const nextAuxSize = runtimeAuxWidth > 0 ? runtimeAuxWidth : auxTab.size || DEFAULT_CONSTANTS.RIGHT_WIDTH;
+			const nextAuxSize = mobile ? auxTab.size : runtimeAuxWidth > 0 ? runtimeAuxWidth : auxTab.size || DEFAULT_CONSTANTS.RIGHT_WIDTH;
 
 			return {
 				...workspace,
@@ -87,9 +88,11 @@ export function syncWorkspaceFromRuntime(): void {
 					nextNavSize,
 					runtimeNavWidth <= 0,
 					nextAuxSize,
-					!auxPinned
+					mobile ? auxTab.collapsed : !auxPinned
 				),
-				panelDock: buildRuntimePanelDock(get(stubStrip), get(pinnedPanelId) ?? get(activeRightTab)),
+				// Mobile overlays share panel actions, but opening or dismissing one
+				// must not replace the user's saved desktop pin or panel selection.
+				panelDock: mobile ? workspace.panelDock : buildRuntimePanelDock(get(stubStrip), get(pinnedPanelId) ?? get(activeRightTab)),
 				updatedAt: Date.now()
 			};
 		});

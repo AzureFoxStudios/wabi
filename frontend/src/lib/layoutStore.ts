@@ -46,8 +46,11 @@ import {
 	layoutLoaded,
 	setLayoutLoaded,
 	DEFAULT_CONSTANTS,
-	isApplyingLayout
+	isApplyingLayout,
+	setIsApplyingLayout
 } from './layoutStoreStates';
+import { getWorkspace } from './docking/layoutSchema';
+import { applyWorkspaceToRuntime } from './layoutStoreUtils';
 import {
 	peekPanel,
 	dismissPeek,
@@ -130,6 +133,24 @@ for (const store of [rightPanelWidth, rightPanelMode, pinnedPanelId]) {
 navDock.subscribe(() => {
 	queuePersist();
 	if (!isApplyingLayout) scheduleSyncWorkspace();
+});
+
+// A desktop pin is a side-by-side layout choice, not a request to cover the
+// current workspace with a mobile sheet. Mobile panel actions remain transient;
+// the saved desktop dock is restored when there is room for it again.
+let previousMobile = get(isMobile);
+isMobile.subscribe((mobile) => {
+	if (mobile === previousMobile) return;
+	previousMobile = mobile;
+	showMobileChannels.set(false);
+	if (mobile) {
+		setIsApplyingLayout(true);
+		rightPanelMode.set('none');
+		pinnedPanelId.set(null);
+		setIsApplyingLayout(false);
+	} else if (layoutLoaded) {
+		applyWorkspaceToRuntime(getWorkspace(get(layoutState)));
+	}
 });
 
 // ============================================================================

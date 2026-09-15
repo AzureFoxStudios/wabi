@@ -96,6 +96,7 @@
       "guest_access_heading": "Acceso como invitado",
       "guest_access_link": "Continuar como invitado",
       "change_server": "¿Buscas otro servidor?",
+      "change_server_button": "Cambiar de servidor",
       "change_server_link": "Cambiar"
     },
     "errors": {

@@ -9,11 +9,12 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	import { setStoredHomeExperienceMode, type HomeExperienceMode } from '$lib/homeExperience';
 	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl } from '$lib/serverUrl';
-	import { brandName } from '$lib/branding';
+	import { brandName, selectBrandConfig } from '$lib/branding';
+	import { currentSavedServer } from '$lib/savedServerStore';
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
 	import LoginQRModal from '$lib/components/login/LoginQRModal.svelte';
 	import LoginConnectionPrompt from '$lib/components/login/LoginConnectionPrompt.svelte';
-	import { buildLaunchPageStyles, injectNeutralBranding, getEffectiveBrandConfig } from '$lib/components/loginHelpers';
+	import { buildLaunchPageStyles, injectNeutralBranding } from '$lib/components/loginHelpers';
 	import './login.css';
 
 	const dispatch = createEventDispatcher<{
@@ -50,10 +51,11 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	let authPolicy: AuthPolicy = { mode: 'open', allowGuest: true, allowRegister: true, emailVerifyRequired: false };
 
 	$: selectedLocale = $currentLocale || 'en';
-	$: fallbackBrand = getEffectiveBrandConfig();
+	$: neutralBranding = $currentSavedServer?.useNeutralBranding === true;
+	$: fallbackBrand = selectBrandConfig(neutralBranding);
 	// LaunchPanel is a marketing sibling. A host logo/banner is identity, not a story.
 	$: showLaunchPanel = Boolean(
-		launchPageConfig?.enabled &&
+		!neutralBranding && launchPageConfig?.enabled &&
 			(launchPageConfig.heroTitle ||
 				launchPageConfig.headline ||
 				(launchPageConfig.heroPrimaryCtaLabel && launchPageConfig.heroPrimaryCtaUrl) ||
@@ -61,16 +63,17 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 				launchPageConfig.customCss)
 	);
 	$: activeLaunchPageConfig = showLaunchPanel ? launchPageConfig : null;
-	$: hostBrandName = launchPageConfig?.brandName || fallbackBrand.name || brandName;
-	$: hostLogoUrl = launchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.png';
+	$: hostBrandName = neutralBranding ? '' : launchPageConfig?.brandName || fallbackBrand.name || brandName;
+	$: localeLabel = availableLocales.find((locale) => locale.code === selectedLocale)?.label || selectedLocale;
+	$: hostLogoUrl = neutralBranding ? fallbackBrand.logoSmallUrl : launchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.png';
 	$: if (lastHostLogoUrl !== hostLogoUrl) {
 		lastHostLogoUrl = hostLogoUrl;
 		logoFailed = false;
 	}
 	$: displayLogoUrl = logoFailed ? '/wabi-logo.png' : hostLogoUrl;
 	$: invertHostLogo = /(?:^|\/)(?:wabi-logo(?:-small)?\.(?:webp|png)|icon\.png)(?:\?|$)/i.test(hostLogoUrl);
-	$: atmosphereUrl = launchPageConfig?.backgroundImageUrl || null;
-	$: launchStyles = launchPageConfig
+	$: atmosphereUrl = neutralBranding ? null : launchPageConfig?.backgroundImageUrl || null;
+	$: launchStyles = launchPageConfig && !neutralBranding
 		? buildLaunchPageStyles({
 				enabled: true,
 				palette: {
@@ -90,8 +93,16 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 
 	const t = (key: string): string => get(_)(key) as string;
 	$: serverUrl = typeof window !== 'undefined' ? getServerUrl() : '';
+	$: serverAddress = readableServerAddress(serverDomain || serverUrl);
 	$: if (authMode === 'register' && !handleManuallyEdited) handle = username.replace(/\s+/g, '').toLowerCase();
 	let handleManuallyEdited = false;
+
+	function readableServerAddress(value: string): string {
+		try {
+			const url = new URL(value);
+			return `${url.host}${url.pathname.replace(/\/$/, '')}`;
+		} catch { return ''; }
+	}
 
 	function switchAuthMode(newMode: 'login' | 'register') {
 		authMode = newMode; error = ''; username = ''; guestName = ''; handle = ''; handleManuallyEdited = false; password = ''; passwordConfirm = '';
@@ -186,34 +197,8 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 
 	onMount(async () => {
 		injectNeutralBranding();
-		// Login is pre-auth. Pick a random full theme from ALL_PALETTES so the
-		// ambient + accents cohere with a real selectable theme — not a detached
-		// effect list. Reloads still feel fresh, but the preview matches what the
-		// user will see in settings.
-		try {
-			const { ALL_PALETTES } = await import('$lib/theme/palettes');
-			const root = document.documentElement;
-			const pick = ALL_PALETTES[Math.floor(Math.random() * ALL_PALETTES.length)];
-			const ambient = pick.ambient;
-			if (ambient && ambient.effect !== 'none') {
-				root.style.setProperty('--bg-effect-effect', ambient.effect);
-				root.style.setProperty('--bg-effect-color', ambient.color || pick.accent);
-				if (ambient.color2) root.style.setProperty('--bg-effect-color2', ambient.color2);
-				if (ambient.color3) root.style.setProperty('--bg-effect-color3', ambient.color3);
-				root.style.setProperty('--bg-effect-intensity', String(ambient.intensity ?? 0.5));
-				root.style.setProperty('--bg-effect-size', String(ambient.size ?? 1));
-				root.style.setProperty('--bg-effect-speed', String(ambient.speed ?? 1));
-				if (ambient.frostOpacity) root.style.setProperty('--bg-effect-frost-opacity', String(ambient.frostOpacity));
-				if (ambient.frostBlur) root.style.setProperty('--bg-effect-frost-blur', String(ambient.frostBlur));
-				root.setAttribute('data-ambient', 'true');
-				root.setAttribute('data-login-ambient', ambient.effect);
-			}
-			// Soft-tint UI accents so the login card matches the ambient.
-			root.style.setProperty('--accent-primary-color', pick.accent);
-			root.style.setProperty('--accent-secondary-color', pick.accentSecondary);
-		} catch {
-			/* non-fatal */
-		}
+		// The selected theme owns accents and ambient effects. Login must not
+		// replace it with a random theme or leave root-level overrides behind.
 		// Phase 1 boot brand: when the server injected its identity and told us
 		// there is no launch story, skip the launch-page request entirely.
 		const serverBrand = window.__WABI_SERVER_BRAND__;
@@ -272,7 +257,10 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 
 		<div class="login-box" class:login-box-default={!activeLaunchPageConfig} style={launchCardStyle}>
 			<div class="login-brand-panel">
-				<img src={displayLogoUrl} alt={hostBrandName} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} class:login-logo-invert={invertHostLogo} on:error={() => (logoFailed = true)} />
+				<div class="login-brand-lockup">
+					<img src={displayLogoUrl} alt="" class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} class:login-logo-invert={invertHostLogo || logoFailed} on:error={() => (logoFailed = true)} />
+					{#if !activeLaunchPageConfig && hostBrandName}<span class="login-title">{hostBrandName}</span>{/if}
+				</div>
 				{#if activeLaunchPageConfig}
 					{#if activeLaunchPageConfig.headline}
 						<h2 class="launch-headline">{activeLaunchPageConfig.headline}</h2>
@@ -281,7 +269,16 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 						<p class="launch-subheadline">{activeLaunchPageConfig.subheadline}</p>
 					{/if}
 				{:else}
-					<h1 class="login-title">{hostBrandName}</h1>
+					<div class="login-introduction">
+						<p class="login-kicker">A community workspace</p>
+						<h1>A home for<br class="login-heading-break" /> your community.</h1>
+						<p class="login-description">Keep the conversation going. Talk, share files, and bring your projects together in one place.</p>
+						<ul class="login-capabilities" aria-label="What you can do here">
+							<li><span aria-hidden="true">01</span> Conversations &amp; calls</li>
+							<li><span aria-hidden="true">02</span> Notes, plans &amp; shared ideas</li>
+							<li><span aria-hidden="true">03</span> Files &amp; creative work</li>
+						</ul>
+					</div>
 				{/if}
 			</div>
 
@@ -354,7 +351,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 					{:else if showHomeExperiencePrompt}
 						<div class="experience-prompt">
 							<h3>Choose your default home view</h3>
-							<p>Pick how {brandName} should open by default. You can change this any time in Settings.</p>
+							<p>Choose what you see first. You can change this any time in Settings.</p>
 							<div class="experience-actions">
 								<button type="button" class="auth-btn auth-btn-primary" disabled={loading} on:click={() => completeRegistrationHomeExperience('conversations')}>
 									Conversation-first
@@ -365,8 +362,15 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 							</div>
 						</div>
 					{:else}
+						<header class="login-auth-heading">
+							<h2>{authMode === 'login' ? 'Welcome back.' : 'Find your place here.'}</h2>
+							<p>{authMode === 'login' ? 'Sign in to your community.' : 'Create an account on this server.'}</p>
+							{#if serverAddress}
+								<div class="login-server-address"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18M12 3c-5 5-5 13 0 18"/></svg><span>{serverAddress}</span></div>
+							{/if}
+						</header>
 						{#if error}
-							<div class="error-message">{error}</div>
+							<div class="error-message" role="alert">{error}</div>
 						{/if}
 
 						{#if authMode === 'login'}
@@ -468,21 +472,6 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 						{/if}
 						{/if}
 
-						<div class="auth-footer-row">
-							<div class="locale-pill">
-								<span class="locale-flag" aria-hidden="true">🇺🇸</span>
-								<span class="locale-label" aria-hidden="true">English</span>
-								<select id="locale-picker" aria-label="Language" bind:value={selectedLocale} on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
-									{#each availableLocales as localeOption}
-										<option value={localeOption.code}>{localeOption.label}</option>
-									{/each}
-								</select>
-							</div>
-							<div class="server-pill">
-								<span class="server-pill-url">{$_('login.auth.change_server')}</span>
-								<button type="button" class="server-pill-btn" on:click={() => (showConnectionPrompt = true)}>{$_('login.auth.change_server_link')}</button>
-							</div>
-						</div>
 					{/if}
 				{/if}
 				{#if activeLaunchPageConfig?.footerNote}
@@ -490,6 +479,23 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 				{/if}
 			</div>
 		</div>
+		<footer class="login-footer">
+			<p>Each server is an independent community.</p>
+			<nav class="login-footer-links" aria-label="Login resources">
+				<a href="/privacy">Privacy</a>
+				<a href="/terms">Terms</a>
+				<label class="login-locale-control">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 5h12M9 3v2M5 5c0 6 4 9 8 11M13 5c0 6-4 9-8 11M13 21l4-11 4 11M14.5 17h5"/></svg>
+					<span aria-hidden="true">{localeLabel}</span>
+					<select id="locale-picker" aria-label="Language" bind:value={selectedLocale} on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
+						{#each availableLocales as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
+					</select>
+				</label>
+				{#if !wizardMode && !showHomeExperiencePrompt && !showConnectionPrompt}
+					<button type="button" class="login-change-server" on:click={() => (showConnectionPrompt = true)}>{$_('login.auth.change_server_button')} <span aria-hidden="true">↗</span></button>
+				{/if}
+			</nav>
+		</footer>
 	</div>
 
 	{#if showQR}
