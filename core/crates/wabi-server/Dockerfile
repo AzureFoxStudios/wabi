@@ -11,7 +11,7 @@
 # /wabi-server (read-only) and restart the container.
 
 # ---------------------------------------------------------- frontend ----
-FROM node:20-slim AS frontend-builder
+FROM docker.io/library/node:22-slim AS frontend-builder
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl unzip ca-certificates \
@@ -38,7 +38,7 @@ ENV STATIC_BUILD=1
 RUN npm run build && test -f build/index.html
 
 # --------------------------------------------------------------- rust ----
-FROM rust:1.93 AS rust-builder
+FROM docker.io/library/rust:1.93 AS rust-builder
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends pkg-config libssl-dev \
@@ -56,11 +56,11 @@ COPY --from=frontend-builder /app/build ./frontend/build
 # No cache mounts on purpose: they require BuildKit/buildx, which is not
 # always available (e.g. legacy docker daemons). Rebuilds are slower but the
 # quick start works everywhere.
-RUN cargo build --release -p wabi-server \
+RUN cargo build --locked --release -p wabi-server \
  && cp target/release/wabi-server /wabi-server
 
 # ----------------------------------------------------------- runtime ----
-FROM fedora:44
+FROM docker.io/library/fedora:44
 RUN dnf -y install openssl-libs ca-certificates wget \
  && dnf clean all
 WORKDIR /app
