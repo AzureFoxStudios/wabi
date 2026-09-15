@@ -115,7 +115,9 @@
 	gap: 0.75rem;
 }
 
-label {
+/* Scoped to .sheet-body: a bare `label` selector here leaked onto every
+   label in the app (e.g. stacked the login remember-me row). */
+.sheet-body label {
 	display: flex;
 	flex-direction: column;
 	gap: 0.35rem;
@@ -123,8 +125,8 @@ label {
 	color: var(--text-secondary);
 }
 
-input,
-select {
+.sheet-body input,
+.sheet-body select {
 	background: var(--surface-input, rgba(255, 255, 255, 0.05));
 	border: 1px solid var(--border-default, rgba(255, 255, 255, 0.12));
 	border-radius: var(--radius-md, 0.55rem);
@@ -135,8 +137,8 @@ select {
 		box-shadow var(--duration-fast, 150ms) var(--ease-out, ease-out);
 }
 
-input:focus-visible,
-select:focus-visible {
+.sheet-body input:focus-visible,
+.sheet-body select:focus-visible {
 	outline: none;
 	border-color: rgba(0, 210, 255, 0.55);
 	box-shadow: 0 0 0 2px rgba(0, 210, 255, 0.18);

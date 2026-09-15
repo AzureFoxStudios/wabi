@@ -14,6 +14,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -75,6 +77,7 @@ pub struct MarkActiveRequest {
 #[serde(rename_all = "camelCase")]
 pub struct LivekitTokenRequest {
     pub channel_id: String,
+    pub socket_id: String,
     #[serde(default)]
     pub display_name: Option<String>,
 }
@@ -100,8 +103,6 @@ async fn create_room(
     auth: AuthUser,
     Json(req): Json<CreateRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    // Media room creation is not a discovery endpoint. Prove current channel
-    // access before allocating shared-node resources.
     crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
         .await
         .map_err(|_| MediaApiError::Forbidden)?;
@@ -114,8 +115,6 @@ async fn ensure_media_room(
     channel_id: String,
     max_participants: u32,
 ) -> Result<MediaRoom, MediaApiError> {
-    // create_room is idempotent for an open channel room and also performs the
-    // lazy migration that gives pre-shared-node rows their tenant namespace.
     let mut room = state
         .media_registry
         .create_room(channel_id, max_participants.max(1))
@@ -142,9 +141,6 @@ async fn ensure_media_room(
             );
             Some((selected.node_id, Some(selected.endpoint)))
         } else {
-            // Legacy helpers that never advertised media metadata remain usable.
-            // Once a node advertises drain/capacity state, do not bypass that
-            // declaration through this compatibility path.
             nodes
                 .iter()
                 .find(|node| {
@@ -334,12 +330,18 @@ async fn get_endpoint(
     }))
 }
 
+fn livekit_device_identity(user_id: i64, socket_id: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    socket_id.hash(&mut hasher);
+    format!("user:{user_id}:device:{:016x}", hasher.finish())
+}
+
 async fn create_livekit_token(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(req): Json<LivekitTokenRequest>,
 ) -> Result<Json<serde_json::Value>, MediaApiError> {
-    if auth.user_id <= 0 || auth.is_bot {
+    if auth.user_id <= 0 || auth.is_bot || req.socket_id.trim().is_empty() {
         return Err(MediaApiError::Forbidden);
     }
     let channel = crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
@@ -349,14 +351,31 @@ async fn create_livekit_token(
         return Err(MediaApiError::Forbidden);
     }
 
+    // Bind HTTP media credentials to the exact live Socket.IO device that won
+    // voice admission. An account's speaker tab cannot lend its permission to
+    // another tab/device by merely sharing the account access token.
+    let connected_users = crate::socketio::shared_connected_users();
+    let socket_matches = connected_users
+        .read()
+        .await
+        .get(&req.socket_id)
+        .is_some_and(|connected| connected.db_user_id == Some(auth.user_id));
+    if !socket_matches {
+        return Err(MediaApiError::Forbidden);
+    }
+    let admission = crate::api::voice_policy::admission_for(
+        &req.channel_id,
+        auth.user_id,
+        &req.socket_id,
+    )
+    .ok_or(MediaApiError::Forbidden)?;
+
     let room = ensure_media_room(&state, req.channel_id.clone(), default_max_participants()).await?;
     let node_id = room
         .assigned_node_id
         .clone()
         .ok_or(MediaApiError::Unavailable)?;
 
-    // Shared-node token brokering requires an authenticated advertisement so an
-    // old generic helper can never receive a root-secret operation by accident.
     let advertisement = media_node_catalog::global(&state.config.data_dir)
         .get(&node_id)
         .await
@@ -367,6 +386,8 @@ async fn create_livekit_token(
         return Err(MediaApiError::Unavailable);
     }
 
+    // Moderation can change after admission, so re-read durable state while
+    // minting every short-lived grant instead of trusting the admission copy.
     let server_muted = state
         .wdb
         .is_user_muted(&req.channel_id, auth.user_id as u64)
@@ -377,12 +398,16 @@ async fn create_livekit_token(
         .is_user_deafened(&req.channel_id, auth.user_id as u64)
         .await
         .unwrap_or(false);
-    let can_publish = !server_muted;
+    let can_publish = !admission.listening_only;
+    let can_publish_microphone = can_publish && !server_muted;
     let can_subscribe = !server_deafened;
-    let publish_sources = if can_publish {
-        serde_json::json!(["microphone", "camera", "screen_share", "screen_share_audio"])
-    } else {
+    let publish_sources = if !can_publish {
         serde_json::json!([])
+    } else if server_muted {
+        // Server mute is a microphone restriction, not a camera/screenshare ban.
+        serde_json::json!(["camera", "screen_share", "screen_share_audio"])
+    } else {
+        serde_json::json!(["microphone", "camera", "screen_share", "screen_share_audio"])
     };
     let display_name = req
         .display_name
@@ -393,7 +418,8 @@ async fn create_livekit_token(
         .chars()
         .take(128)
         .collect::<String>();
-    let identity = format!("user:{}", auth.user_id);
+    let identity = livekit_device_identity(auth.user_id, &req.socket_id);
+    let stable_user_id = format!("user-{}", auth.user_id);
 
     let job = submit_media_operation(
         &state,
@@ -424,8 +450,17 @@ async fn create_livekit_token(
             .ok_or(MediaApiError::Internal)?;
         match current.status {
             JobStatus::Completed => {
-                let result = current.result_payload.ok_or(MediaApiError::Internal)?;
+                let mut result = current.result_payload.ok_or(MediaApiError::Internal)?;
                 validate_livekit_token_result(&result, &room, &identity)?;
+                let object = result.as_object_mut().ok_or(MediaApiError::Internal)?;
+                object.insert("stableUserId".into(), serde_json::json!(stable_user_id));
+                object.insert("canPublish".into(), serde_json::json!(can_publish));
+                object.insert("canPublishMicrophone".into(), serde_json::json!(can_publish_microphone));
+                object.insert("canSubscribe".into(), serde_json::json!(can_subscribe));
+                object.insert("listeningOnly".into(), serde_json::json!(admission.listening_only));
+                object.insert("mutedOnEntry".into(), serde_json::json!(admission.muted_on_entry));
+                object.insert("serverMuted".into(), serde_json::json!(server_muted));
+                object.insert("serverDeafened".into(), serde_json::json!(server_deafened));
                 return Ok(Json(result));
             }
             JobStatus::DeadLettered | JobStatus::Failed | JobStatus::Cancelled => {
@@ -584,8 +619,6 @@ async fn media_runtime_snapshot(
     let turn_endpoint = config.turn_endpoint().ok().flatten();
     let turn_configured = turn_endpoint.is_some();
 
-    // Prefer a healthy advertised shared Media Node. An explicit LIVEKIT_URL
-    // remains a compatibility path for a directly configured self-hosted SFU.
     let nodes = state.node_registry.list_nodes().await;
     let preferred_region = preferred_media_region();
     let selected = media_node_catalog::global(&state.config.data_dir)

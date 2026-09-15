@@ -25,6 +25,7 @@ import type {
 	RegisterCallSessionInput
 } from './callSessionTypes';
 import { sessionBadge } from './callSessionTypes';
+import { clearVoiceAdmission, voiceAdmissionForcesListen } from './voiceAdmissionState';
 
 const sessionsWritable = writable<ReadonlyMap<string, CallSession>>(new Map());
 
@@ -42,23 +43,31 @@ function commit(next: Map<string, CallSession>): void {
 	sessionsWritable.set(next);
 }
 
+function policyForcesListen(sessionId: string, channelId: string | null, kind: string): boolean {
+	return kind === 'channel' && voiceAdmissionForcesListen(channelId ?? sessionId);
+}
+
 export class CallSessionManager {
 	/** Create (or re-register) a session. Returns the stored session. */
 	register(input: RegisterCallSessionInput): CallSession {
 		const next = new Map(get(sessionsWritable));
 		const existing = next.get(input.id);
 		const now = Date.now();
+		const channelId = input.channelId ?? null;
 
-	 // First session claims focus; later sessions join as background listeners
-		// unless explicitly promoted (mockup contract: exactly one FOCUSED).
+		// Authority admission wins over optimistic client direction. A room whose
+		// entry policy resolved this exact device to listen-only can still be the
+		// focused/visible stage, but its session model never advertises transmit.
+		const forcedListen = policyForcesListen(input.id, channelId, input.kind);
 		const anyFocused = existing?.focus === 'focused' || focusedHasValue(next);
-		const direction: CallSessionDirection =
-			input.direction ?? (anyFocused ? 'listen' : 'transmit');
+		const direction: CallSessionDirection = forcedListen
+			? 'listen'
+			: (input.direction ?? (anyFocused ? 'listen' : 'transmit'));
 		const focus: CallSessionFocus = existing?.focus ?? (anyFocused ? 'background' : 'focused');
 
 		const session: CallSession = {
 			id: input.id,
-			channelId: input.channelId ?? null,
+			channelId,
 			name: input.name ?? existing?.name ?? input.id,
 			kind: input.kind,
 			direction,
@@ -98,10 +107,9 @@ export class CallSessionManager {
 		if (!removed) return;
 		next.delete(id);
 		commit(next);
+		if (removed.kind === 'channel') clearVoiceAdmission(removed.channelId ?? removed.id);
 		audioBindings?.onSessionEnded?.(id);
 		if (removed.focus === 'focused') {
-			// Prefer a connected session over one still joining; break ties by
-			// recency. Same-millisecond joins resolve to insertion order.
 			const successor = [...next.values()]
 				.filter((s) => s.lifecycle === 'connected' || s.lifecycle === 'joining' || s.lifecycle === 'reconnecting')
 				.sort((a, b) => {
@@ -120,21 +128,25 @@ export class CallSessionManager {
 	}
 
 	leaveAll(): void {
-		const ended = [...get(sessionsWritable).keys()];
+		const ended = [...get(sessionsWritable).values()];
 		commit(new Map());
 		focusedCallSessionId.set(null);
-		for (const id of ended) audioBindings?.onSessionEnded?.(id);
+		for (const session of ended) {
+			if (session.kind === 'channel') clearVoiceAdmission(session.channelId ?? session.id);
+			audioBindings?.onSessionEnded?.(session.id);
+		}
 	}
 
-	/** Focus exactly one session; every other focused session demotes to
-	 *  background. Promoting a listen session flips it to transmit (you now
-	 *  speak there — the "primary channel switch" the old model lacked). */
+	/** Focus exactly one session; policy-listen-only sessions remain receive-only. */
 	setFocus(id: string): void {
 		const next = new Map(get(sessionsWritable));
 		if (!next.has(id)) return;
 		this.applyFocus(next, id);
 		const session = next.get(id)!;
-		if (session.direction === 'listen') {
+		if (
+			session.direction === 'listen' &&
+			!policyForcesListen(session.id, session.channelId, session.kind)
+		) {
 			next.set(id, { ...session, direction: 'transmit' });
 		}
 		commit(next);
@@ -150,7 +162,11 @@ export class CallSessionManager {
 	}
 
 	setDirection(id: string, direction: CallSessionDirection): void {
-		this.update(id, (session) => ({ ...session, direction, lastActivityAt: Date.now() }));
+		this.update(id, (session) => ({
+			...session,
+			direction: policyForcesListen(session.id, session.channelId, session.kind) ? 'listen' : direction,
+			lastActivityAt: Date.now()
+		}));
 	}
 
 	/** 0..100. Volume 0 on a background session reads as SILENCED. */
@@ -179,7 +195,6 @@ export class CallSessionManager {
 		this.update(id, (session) => ({ ...session, name }));
 	}
 
-	/** Phase 3: manual spatial seat for one user (drag on the stage). */
 	setSpatialSeat(id: string, userId: string, position: CallSpatialPosition): void {
 		this.update(id, (session) => ({
 			...session,
@@ -197,7 +212,6 @@ export class CallSessionManager {
 		});
 	}
 
-	/** Replace the roster snapshot for a session (voice-channel-state). */
 	setParticipants(id: string, participants: CallSessionParticipant[]): void {
 		this.update(id, (session) => ({ ...session, participants, lastActivityAt: Date.now() }));
 	}
@@ -226,7 +240,6 @@ export class CallSessionManager {
 		return [...get(sessionsWritable).values()].map(cloneSession);
 	}
 
-	/** Sessions that currently produce audio, focused first. */
 	activeSessions(): CallSession[] {
 		return this.list()
 			.filter((s) => s.lifecycle === 'connected' || s.lifecycle === 'reconnecting')
@@ -238,7 +251,6 @@ export class CallSessionManager {
 		return session ? sessionBadge(session) : null;
 	}
 
-	/** Stable index for per-session sound attribution (pitch/pan). */
 	sessionIndex(id: string): number {
 		return Math.max(0, this.list().findIndex((s) => s.id === id));
 	}
@@ -270,13 +282,7 @@ function focusedHasValue(sessions: Map<string, CallSession>): boolean {
 	return false;
 }
 
-/**
- * Audio side-effects for session state changes (per-call volume / chain
- * disposal). The manager stays dependency-free for tests; the runtime binds
- * these to the shared audio graph — see callingWabidb.ts.
- */
 export interface CallSessionAudioBindings {
-	/** Effective 0..100 output volume (0 while the session is muted). */
 	onVolumeChanged?: (id: string, effectiveVolume: number) => void;
 	onSessionEnded?: (id: string) => void;
 }
@@ -291,19 +297,8 @@ function emitVolume(session: CallSession): void {
 	audioBindings?.onVolumeChanged?.(session.id, session.muted ? 0 : session.volume);
 }
 
-/** Singleton — the single source of truth for connected calls. */
 export const callSessionManager = new CallSessionManager();
 
-/**
- * Resolve raw channel-id placeholders on live sessions (WO-5).
- *
- * Channel sessions register optimistically at join time, when the channels
- * store may not be hydrated yet, so they carry `name: channelId` (e.g.
- * "ch_1f2e") as a placeholder. Whenever the channel list loads or changes,
- * pass it through here so every session whose id/channelId matches a known
- * channel gets the real channel name — the cards/labels then show "voice"
- * or "derek's speaking corner" instead of the raw id.
- */
 export function backfillCallSessionChannelNames(
 	channelList: ReadonlyArray<{ id: string; name?: string | null }>
 ): void {
@@ -319,14 +314,10 @@ export function backfillCallSessionChannelNames(
 		const resolved = namesById.get(lookupId);
 		if (!resolved) continue;
 		if (session.kind === 'channel') {
-			// Channel sessions always track the live channel name — this
-			// covers both the raw-id placeholder AND later renames.
 			if (session.name !== resolved) callSessionManager.setName(session.id, resolved);
 			continue;
 		}
 		const current = session.name?.trim();
-		// DM/group sessions keep their own labels; only replace empty or
-		// raw-id placeholder names.
 		if (!current || current === session.id || current === session.channelId) {
 			callSessionManager.setName(session.id, resolved);
 		}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-import { get } from 'svelte/store';
+	import { get } from 'svelte/store';
 	import type { Channel, VoiceChannelSettings } from '$lib/socket';
 	import { currentUser, channels } from '$lib/socket';
 	import { getLoreBinding, setLoreBinding, deleteLoreBinding, parseLoreChannelId } from '$lib/api/lore';
@@ -20,6 +20,7 @@ import { get } from 'svelte/store';
 	// A retention selection is either a durable preset, null (keep forever),
 	// or the "live" sentinel (session-only, never persisted).
 	type RetentionChoice = MessageRetentionDuration | null | typeof LIVE_RETENTION;
+	type VoiceEntryChoice = 'open' | 'muted' | 'listen_only';
 
 	// Only workspace owners and admins may bulk-clear a channel's messages.
 	$: canClearMessages = ['owner', 'admin'].includes($currentUser?.highestRole || '');
@@ -230,6 +231,7 @@ import { get } from 'svelte/store';
 	let tempForceSpoiler = false;
 	let tempVoiceUserLimit = '';
 	let tempVoiceForceSolo = false;
+	let tempVoiceEntryMode: VoiceEntryChoice = 'open';
 	let tempLiveTtl = '';
 	let tempLiveCap = '';
 	let tempLiveGrace = '';
@@ -247,6 +249,7 @@ import { get } from 'svelte/store';
 		tempForceSpoiler = channel.forceSpoiler || false;
 		tempVoiceUserLimit = channel.voiceSettings?.userLimit ? String(channel.voiceSettings.userLimit) : '';
 		tempVoiceForceSolo = channel.voiceSettings?.forceSolo === true;
+		tempVoiceEntryMode = (channel.voiceSettings?.entryMode ?? 'open') as VoiceEntryChoice;
 		tempLiveTtl = '';
 		tempLiveCap = '';
 		tempLiveGrace = '';
@@ -315,7 +318,7 @@ import { get } from 'svelte/store';
 			return channel.voiceSettings;
 		}
 
-		const next: VoiceChannelSettings = {};
+		const next: VoiceChannelSettings = { entryMode: tempVoiceEntryMode };
 		const userLimit = parseVoiceUserLimitInput(tempVoiceUserLimit);
 		if (userLimit !== null) {
 			next.userLimit = userLimit;
@@ -326,7 +329,7 @@ import { get } from 'svelte/store';
 		if (channel.voiceSettings?.bitrateMode) {
 			next.bitrateMode = channel.voiceSettings.bitrateMode;
 		}
-		return Object.keys(next).length > 0 ? next : undefined;
+		return next;
 	}
 
 	function saveChannelSettings(autoDeleteAfter: RetentionChoice = channel.autoDeleteAfter || null): void {
@@ -608,8 +611,23 @@ import { get } from 'svelte/store';
 
 				{#if channel.type === 'voice'}
 					<div class="setting-group">
+						<label for="voice-entry-mode" class="setting-label">Entry Mode</label>
+						<select id="voice-entry-mode" bind:value={tempVoiceEntryMode} disabled={!canManageVoiceSettings}>
+							<option value="open">Open — join ready to speak</option>
+							<option value="muted">Muted — join muted, may self-unmute</option>
+							<option value="listen_only">Listen only — no publishing</option>
+						</select>
+						<p class="setting-description">
+							This is Authority policy, not a cosmetic default. Listen-only members receive the room but are not granted microphone, camera or screen publication.
+						</p>
+						{#if !canManageVoiceSettings}
+							<p class="setting-description">Only workspace owners or admins can change voice entry policy.</p>
+						{/if}
+					</div>
+
+					<div class="setting-group">
 						<div class="setting-label">Voice Capacity</div>
-						<p class="setting-description">Leave blank for unlimited. The sidebar will show current users as x/y when a limit is set.</p>
+						<p class="setting-description">Leave blank for unlimited. The Authority enforces this limit atomically when users join.</p>
 						<input
 							type="number"
 							min="1"

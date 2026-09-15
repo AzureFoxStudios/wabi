@@ -173,14 +173,13 @@ class MediaNodeControllerTests(unittest.TestCase):
             result = profile.mint_livekit_token(
                 {
                     "externalRoomName": "wabi-tenant-123-room-456",
-                    "identity": "user:42",
+                    "identity": "user:42:device:abc",
                     "displayName": "Alice",
                     "ttlSeconds": 900,
                     "grants": {
                         "canPublish": False,
                         "canSubscribe": True,
                         "canPublishData": True,
-                        # A muted caller cannot smuggle sources through the list.
                         "canPublishSources": ["microphone", "camera"],
                     },
                 }
@@ -188,7 +187,7 @@ class MediaNodeControllerTests(unittest.TestCase):
 
         claims = decode_jwt_payload(result["token"])
         self.assertEqual(claims["iss"], "test-key")
-        self.assertEqual(claims["sub"], "user:42")
+        self.assertEqual(claims["sub"], "user:42:device:abc")
         self.assertEqual(claims["name"], "Alice")
         self.assertEqual(claims["video"]["room"], "wabi-tenant-123-room-456")
         self.assertTrue(claims["video"]["roomJoin"])
@@ -199,6 +198,45 @@ class MediaNodeControllerTests(unittest.TestCase):
         self.assertLessEqual(claims["exp"], before + 905)
         self.assertEqual(result["roomName"], "wabi-tenant-123-room-456")
         self.assertEqual(result["url"], "wss://calls.example.test")
+
+    def test_permission_refresh_uses_room_admin_grant_and_exact_identity(self):
+        with mock.patch.dict(
+            os.environ,
+            {"LIVEKIT_API_KEY": "test-key", "LIVEKIT_API_SECRET": "test-secret"},
+            clear=False,
+        ):
+            profile = media_node.MediaProfile(self.profile_config())
+            with mock.patch.object(media_node, "http_json", return_value={}) as request:
+                result = profile.update_livekit_participant_permissions(
+                    {
+                        "externalRoomName": "wabi-tenant-123-room-456",
+                        "identity": "user:42:device:abc",
+                        "grants": {
+                            "canPublish": True,
+                            "canSubscribe": False,
+                            "canPublishData": True,
+                            "canPublishSources": ["camera", "screen_share", "not-real"],
+                        },
+                    }
+                )
+
+        self.assertTrue(result["acknowledged"])
+        method, url, body, headers = request.call_args.args[:4]
+        self.assertEqual(method, "POST")
+        self.assertEqual(
+            url,
+            "https://calls.example.test/twirp/livekit.RoomService/UpdateParticipant",
+        )
+        self.assertEqual(body["room"], "wabi-tenant-123-room-456")
+        self.assertEqual(body["identity"], "user:42:device:abc")
+        self.assertTrue(body["permission"]["canPublish"])
+        self.assertFalse(body["permission"]["canSubscribe"])
+        self.assertEqual(body["permission"]["canPublishSources"], ["camera", "screen_share"])
+        admin_token = headers["Authorization"].removeprefix("Bearer ")
+        claims = decode_jwt_payload(admin_token)
+        self.assertEqual(claims["iss"], "test-key")
+        self.assertTrue(claims["video"]["roomAdmin"])
+        self.assertEqual(claims["video"]["room"], "wabi-tenant-123-room-456")
 
     def test_shared_livekit_node_rejects_placeholder_root_credentials(self):
         with mock.patch.dict(

@@ -9,7 +9,7 @@ use crate::state::AppState;
 use super::{
     addons, admin, albums, auth, blobs, bots, cad, calls, channels, e2ee, emoji, forum, gallery, incidents,
     jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
-    standby, steam, sync, upload, user, wiki,
+    standby, steam, sync, upload, user, voice_policy, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
 
@@ -42,6 +42,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/e2ee", e2ee::routes(state.clone()))
         // Channel routes
         .nest("/channels", channels::routes(state.clone()))
+        // Voice-channel policy is kept separate from transport backends.
+        .nest("/voice-policy", voice_policy::routes(state.clone()))
         // Message routes
         .nest("/messages", messages::routes(state.clone()))
         // Upload routes

@@ -43,6 +43,10 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	let joinPolicy: 'open' | 'closed' = 'open';
 	let allowGuests = true;
 	let showPassword = false;
+	// Host-uploaded logos can 404 (e.g. uploads missing after a restore);
+	// fall back to the bundled mark instead of rendering a broken image.
+	let logoFailed = false;
+	let lastHostLogoUrl = '';
 	let authPolicy: AuthPolicy = { mode: 'open', allowGuest: true, allowRegister: true, emailVerifyRequired: false };
 
 	$: selectedLocale = $currentLocale || 'en';
@@ -58,8 +62,13 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	);
 	$: activeLaunchPageConfig = showLaunchPanel ? launchPageConfig : null;
 	$: hostBrandName = launchPageConfig?.brandName || fallbackBrand.name || brandName;
-	$: hostLogoUrl = launchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.webp';
-	$: invertHostLogo = /(?:^|\/)(?:wabi-logo(?:-small)?\.webp|icon\.png)(?:\?|$)/i.test(hostLogoUrl);
+	$: hostLogoUrl = launchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.png';
+	$: if (lastHostLogoUrl !== hostLogoUrl) {
+		lastHostLogoUrl = hostLogoUrl;
+		logoFailed = false;
+	}
+	$: displayLogoUrl = logoFailed ? '/wabi-logo.png' : hostLogoUrl;
+	$: invertHostLogo = /(?:^|\/)(?:wabi-logo(?:-small)?\.(?:webp|png)|icon\.png)(?:\?|$)/i.test(hostLogoUrl);
 	$: atmosphereUrl = launchPageConfig?.backgroundImageUrl || null;
 	$: launchStyles = launchPageConfig
 		? buildLaunchPageStyles({
@@ -263,7 +272,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 
 		<div class="login-box" class:login-box-default={!activeLaunchPageConfig} style={launchCardStyle}>
 			<div class="login-brand-panel">
-				<img src={hostLogoUrl} alt={hostBrandName} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} class:login-logo-invert={invertHostLogo} />
+				<img src={displayLogoUrl} alt={hostBrandName} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} class:login-logo-invert={invertHostLogo} on:error={() => (logoFailed = true)} />
 				{#if activeLaunchPageConfig}
 					{#if activeLaunchPageConfig.headline}
 						<h2 class="launch-headline">{activeLaunchPageConfig.headline}</h2>
@@ -316,19 +325,19 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 
 							<div class="join-policy-options" role="radiogroup" aria-label={$_('login.wizard.join_title')}>
 								<label class="join-option" class:selected={joinPolicy === 'open'}>
-									<input type="radio" name="join-policy" value="open" bind:group={joinPolicy} disabled={loading} />
+									<input type="radio" class="ui-radio" name="join-policy" value="open" bind:group={joinPolicy} disabled={loading} />
 									<span class="join-option-title">{$_('login.wizard.join_open_label')}</span>
 									<span class="join-option-desc">{$_('login.wizard.join_open_desc')}</span>
 								</label>
 								<label class="join-option" class:selected={joinPolicy === 'closed'}>
-									<input type="radio" name="join-policy" value="closed" bind:group={joinPolicy} disabled={loading} />
+									<input type="radio" class="ui-radio" name="join-policy" value="closed" bind:group={joinPolicy} disabled={loading} />
 									<span class="join-option-title">{$_('login.wizard.join_closed_label')}</span>
 									<span class="join-option-desc">{$_('login.wizard.join_closed_desc')}</span>
 								</label>
 							</div>
 
 							<label class="join-guest-row">
-								<input type="checkbox" bind:checked={allowGuests} disabled={loading} />
+								<input type="checkbox" class="ui-check" bind:checked={allowGuests} disabled={loading} />
 								<span>
 									<span class="join-option-title">{$_('login.wizard.join_guest_label')}</span>
 									<span class="join-option-desc">{$_('login.wizard.join_guest_desc')}</span>
@@ -385,7 +394,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 								</label>
 								<div class="field-row">
 									<label class="remember-row">
-										<input type="checkbox" bind:checked={rememberMe} disabled={loading} />
+										<input type="checkbox" class="ui-check" bind:checked={rememberMe} disabled={loading} />
 										<span>{$_('login.auth.remember_me')}</span>
 									</label>
 									<!-- Finding 13: forgot-password has no backend yet — hide until recovery exists -->
