@@ -100,6 +100,21 @@ function isDark(hex: string): boolean {
 	return luminance < 0.5;
 }
 
+// Foreground for solid-accent fills: white on dark/mid accents, near-black on
+// pale ones. Threshold 0.25 keeps white on reds/violets and puts dark text on
+// amber/cyan-class accents where white would drop below ~3:1.
+function textOnAccentColor(hex: string): string {
+	return hexLuminance(hex) < 0.25 ? '#FFFFFF' : '#101223';
+}
+
+function hexLuminance(hex: string): number {
+	const clean = hex.replace('#', '');
+	const r = parseInt(clean.substring(0, 2), 16);
+	const g = parseInt(clean.substring(2, 4), 16);
+	const b = parseInt(clean.substring(4, 6), 16);
+	return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
 // ============================================================================
 // Derivation Engine
 // ============================================================================
@@ -111,7 +126,13 @@ export function buildTheme(palette: BasePalette): Theme {
 	const bgTertiary = palette.bgRaised;
 	const bgHover = isDarkTheme ? lighten(palette.bgBase, 0.15) : darken(palette.bgBase, 0.08);
 	const accentHex = palette.accent.startsWith('#') ? palette.accent : palette.accentSecondary;
+	// --accent / --accent-hover are consumed as COLORS (borders, text, color-mix)
+	// across the app; keep the gradient forms only in the gradients namespace.
 	const accentHover = isDarkTheme
+		? lighten(palette.accentSecondary, 0.15)
+		: darken(palette.accentSecondary, 0.1);
+	const accentGradient = `linear-gradient(to right, ${palette.accent} 0%, ${palette.accentSecondary} 100%)`;
+	const accentHoverGradient = isDarkTheme
 		? `linear-gradient(to right, ${palette.accentSecondary} 0%, ${lighten(palette.accentSecondary, 0.15)} 100%)`
 		: `linear-gradient(to right, ${palette.accentSecondary} 0%, ${darken(palette.accentSecondary, 0.1)} 100%)`;
 
@@ -131,11 +152,12 @@ export function buildTheme(palette: BasePalette): Theme {
 		textTertiaryRgb: rgbFromString(palette.textMuted),
 		textInverseRgb: isDarkTheme ? '255, 255, 255' : '0, 0, 0',
 		textMutedRgb: rgbFromString(palette.textMuted),
-		accent: `linear-gradient(to right, ${palette.accent} 0%, ${palette.accentSecondary} 100%)`,
+		accent: accentHex,
 		accentHex,
 		accentSecondaryHex: palette.accentSecondary,
 		accentRgb: rgbFromString(accentHex),
 		accentHover,
+		textOnAccent: textOnAccentColor(accentHex),
 		uiBgLight: palette.bgRaised,
 		uiBgLighter: palette.bgBase,
 		uiText: palette.textSecondary,
@@ -166,8 +188,8 @@ export function buildTheme(palette: BasePalette): Theme {
 
 	const gradients: ThemeGradients = {
 		primary: bgPrimary,
-		accent: `linear-gradient(to right, ${palette.accent} 0%, ${palette.accentSecondary} 100%)`,
-		accentHover,
+		accent: accentGradient,
+		accentHover: accentHoverGradient,
 		dialogDark: `linear-gradient(135deg, ${palette.bgBase} 0%, ${palette.bgRaised} 100%)`,
 		fadeBottomDark: `linear-gradient(to bottom, rgba(${rgbFromString(palette.bgRaised)}, 0.8), rgba(${rgbFromString(palette.bgBase)}, 0.6))`,
 		fadeRightTransparent: `linear-gradient(to right, transparent, ${palette.bgBase})`,

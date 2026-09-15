@@ -1,0 +1,288 @@
+/* ============================================================================
+   Shared controls — buttons, inputs, checkboxes, radios.
+
+   Token-driven so every control follows the active theme automatically.
+   New surfaces should use these classes; legacy button families
+   (.auth-btn, .admin-btn, per-component .btn-*) migrate here as the
+   screens that own them get polished.
+   ========================================================================== */
+
+:root {
+	--control-height: 2.25rem;      /* 36px desktop */
+	--control-height-sm: 2rem;      /* 32px */
+	--control-height-lg: 2.75rem;   /* 44px touch / emphasized */
+	--control-height-touch: 3rem;   /* 48px mobile normal control */
+	--control-pad-x: 0.875rem;
+	--radius-control: 0.875rem;     /* 14px control radius (design brief) */
+	/* Lightened accent: raw accent colors can fall under 3:1 against dark canvases */
+	--focus-ring-color: color-mix(in srgb, var(--accent-primary-color, #6366f1) 55%, #ffffff);
+}
+
+/* ---------------------------------------------------------------- buttons */
+
+.ui-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	box-sizing: border-box;
+	min-height: var(--control-height);
+	padding: 0 var(--control-pad-x);
+	border: 1px solid transparent;
+	border-radius: var(--radius-control);
+	font-family: inherit;
+	font-size: var(--text-sm, 0.8125rem);
+	font-weight: var(--font-weight-semibold, 600);
+	line-height: 1;
+	white-space: nowrap;
+	cursor: pointer;
+	text-decoration: none;
+	transition:
+		background-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
+		border-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
+		color var(--duration-fast, 150ms) var(--ease-out, ease-out),
+		filter var(--duration-fast, 150ms) var(--ease-out, ease-out),
+		box-shadow var(--duration-fast, 150ms) var(--ease-out, ease-out);
+}
+
+.ui-btn:focus-visible {
+	outline: 2px solid var(--focus-ring-color, #d0baff);
+	outline-offset: 2px;
+}
+
+.ui-btn:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+/* Primary — the one loud action on a screen. Solid theme accent. */
+.ui-btn-primary {
+	background: var(--accent-primary-color, #6366f1);
+	color: var(--text-on-accent, #0f0c29);
+}
+
+.ui-btn-primary:hover:not(:disabled) {
+	filter: brightness(1.1);
+}
+
+.ui-btn-primary:active:not(:disabled) {
+	filter: brightness(0.95);
+}
+
+/* Secondary — quiet raised action. */
+.ui-btn-secondary {
+	background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+	border-color: var(--border-default, rgba(255, 255, 255, 0.15));
+	color: var(--text-heading, #e0e0ff);
+}
+
+.ui-btn-secondary:hover:not(:disabled) {
+	background: color-mix(
+		in srgb,
+		var(--accent-primary-color, #6366f1) 12%,
+		var(--surface-hover, rgba(255, 255, 255, 0.06))
+	);
+}
+
+/* Ghost — tertiary / toolbar action. */
+.ui-btn-ghost {
+	background: transparent;
+	color: var(--text-secondary, #b3b3ff);
+}
+
+.ui-btn-ghost:hover:not(:disabled) {
+	background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+	color: var(--text-heading, #e0e0ff);
+}
+
+/* Danger — destructive actions only. */
+.ui-btn-danger {
+	background: var(--color-danger, #ef4444);
+	color: #ffffff;
+}
+
+.ui-btn-danger:hover:not(:disabled) {
+	filter: brightness(1.1);
+}
+
+/* Subtle danger — destructive-adjacent without the shouting fill. */
+.ui-btn-danger-ghost {
+	background: transparent;
+	color: var(--color-danger, #ef4444);
+}
+
+.ui-btn-danger-ghost:hover:not(:disabled) {
+	background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.12);
+}
+
+.ui-btn-sm {
+	min-height: var(--control-height-sm);
+	padding: 0 0.625rem;
+	font-size: var(--text-xs, 0.6875rem);
+}
+
+.ui-btn-lg {
+	min-height: var(--control-height-lg);
+	padding: 0 1.25rem;
+	font-size: var(--text-base, 0.875rem);
+}
+
+.ui-btn-icon {
+	min-width: var(--control-height);
+	padding: 0;
+}
+
+.ui-btn-block {
+	width: 100%;
+}
+
+/* ----------------------------------------------------------------- inputs */
+
+.ui-input,
+.ui-select,
+.ui-textarea {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 2.5rem;
+	padding: 0.5rem 0.75rem;
+	background: var(--surface-input, rgba(255, 255, 255, 0.04));
+	border: 1px solid var(--border-default, rgba(255, 255, 255, 0.15));
+	border-radius: var(--radius-control);
+	color: var(--text-heading, #e0e0ff);
+	font-family: inherit;
+	font-size: var(--text-base, 0.875rem);
+	transition:
+		border-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
+		box-shadow var(--duration-fast, 150ms) var(--ease-out, ease-out);
+}
+
+.ui-textarea {
+	min-height: 4.5rem;
+	resize: vertical;
+}
+
+.ui-input::placeholder,
+.ui-textarea::placeholder {
+	color: var(--text-placeholder, #9999ff);
+	opacity: 0.75;
+}
+
+.ui-input:focus,
+.ui-select:focus,
+.ui-textarea:focus {
+	outline: none;
+	border-color: var(--accent-primary-color, #6366f1);
+	box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb, 99, 102, 241), 0.25);
+}
+
+.ui-input:disabled,
+.ui-select:disabled,
+.ui-textarea:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+/* ----------------------------------------------------- checkbox and radio */
+
+.ui-check,
+.ui-radio {
+	appearance: none;
+	-webkit-appearance: none;
+	flex: 0 0 auto;
+	box-sizing: border-box;
+	width: 1.125rem;
+	height: 1.125rem;
+	margin: 0;
+	display: inline-grid;
+	place-content: center;
+	background: var(--surface-input, rgba(255, 255, 255, 0.04));
+	border: 1.5px solid var(--border-strong, rgba(255, 255, 255, 0.3));
+	cursor: pointer;
+	transition:
+		background-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
+		border-color var(--duration-fast, 150ms) var(--ease-out, ease-out);
+}
+
+.ui-check {
+	border-radius: 5px;
+}
+
+.ui-radio {
+	border-radius: 50%;
+}
+
+.ui-check:hover:not(:disabled),
+.ui-radio:hover:not(:disabled) {
+	border-color: var(--accent-primary-color, #6366f1);
+}
+
+.ui-check:checked {
+	background: var(--accent-primary-color, #6366f1);
+	border-color: var(--accent-primary-color, #6366f1);
+}
+
+/* Checkmark drawn with borders so it inherits no font and works pre-font-load */
+.ui-check:checked::before {
+	content: '';
+	width: 0.625rem;
+	height: 0.625rem;
+	background: var(--text-on-accent, #0f0c29);
+	clip-path: polygon(14% 44%, 0 60%, 40% 100%, 100% 16%, 84% 2%, 39% 68%);
+}
+
+.ui-radio:checked {
+	border-color: var(--accent-primary-color, #6366f1);
+}
+
+.ui-radio:checked::before {
+	content: '';
+	width: 0.625rem;
+	height: 0.625rem;
+	border-radius: 50%;
+	background: var(--accent-primary-color, #6366f1);
+}
+
+.ui-check:focus-visible,
+.ui-radio:focus-visible {
+	outline: 2px solid var(--focus-ring-color, #d0baff);
+	outline-offset: 2px;
+}
+
+.ui-check:disabled,
+.ui-radio:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* Checkbox/radio + label row */
+.ui-check-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.625rem;
+	cursor: pointer;
+	color: var(--text-secondary, #b3b3ff);
+	font-size: var(--text-sm, 0.8125rem);
+}
+
+.ui-check-row:hover {
+	color: var(--text-heading, #e0e0ff);
+}
+
+/* ------------------------------------------------------------ touch sizes */
+
+@media (max-width: 768px) {
+	.ui-btn:not(.ui-btn-sm) {
+		min-height: var(--control-height-touch);
+	}
+
+	.ui-input,
+	.ui-select {
+		min-height: var(--control-height-touch);
+	}
+
+	.ui-check,
+	.ui-radio {
+		width: 1.375rem;
+		height: 1.375rem;
+	}
+}

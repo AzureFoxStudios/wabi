@@ -225,5 +225,67 @@
 	.workspace-option-label { font-size: var(--text-base); font-weight: var(--font-weight-medium); color: var(--text-heading); }
 	.workspace-option-detail { font-size: var(--text-xs); line-height: 1.4; color: var(--text-secondary); }
 	.workspace-option[aria-current="page"] { border-color: var(--accent-primary-color); background: var(--surface-raised); }
-	@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+	/* Mobile: the picker becomes a bottom sheet with a dimming backdrop.
+	   Clicks pass through the backdrop to the document outside-press handler. */
+	@media (max-width: 768px) {
+		/* Ride above the mobile bottom nav while the sheet is open */
+		.workspace-view-bar {
+			z-index: var(--z-modal, 1200);
+		}
+		.workspace-picker {
+			position: fixed;
+			top: auto;
+			inset-inline: 0;
+			bottom: 0;
+			width: 100%;
+			max-height: min(72dvh, calc(100dvh - 90px));
+			border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+			border-bottom: 0;
+			padding: var(--space-4) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+			box-shadow: var(--shadow-lg), 0 -12px 40px rgba(0, 0, 0, 0.4);
+			animation: workspace-sheet-up 220ms cubic-bezier(0, 0, 0.2, 1);
+		}
+		.workspace-picker::before {
+			content: '';
+			position: fixed;
+			inset: 0;
+			z-index: -1;
+			background: rgba(0, 0, 0, 0.55);
+			pointer-events: none;
+		}
+		.workspace-picker::after {
+			content: '';
+			position: absolute;
+			top: 8px;
+			left: 50%;
+			transform: translateX(-50%);
+			width: 36px;
+			height: 4px;
+			border-radius: 999px;
+			background: var(--border-strong, rgba(255, 255, 255, 0.3));
+			pointer-events: none;
+		}
+		.workspace-picker-heading {
+			margin: var(--space-2) var(--space-1) var(--space-3);
+			text-align: center;
+			font-weight: var(--font-weight-semibold);
+			color: var(--text-heading);
+		}
+		.workspace-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+		.workspace-option {
+			min-height: 64px;
+			padding: var(--space-2);
+			border-color: var(--border-subtle);
+			border-radius: var(--radius-md);
+			background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+		}
+	}
+	@keyframes workspace-sheet-up {
+		from { transform: translateY(24px); opacity: 0; }
+		to { transform: none; opacity: 1; }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		button { transition: none; }
+		.workspace-picker { animation: none; }
+	}
 </style>

@@ -60,7 +60,7 @@
 				<p>{paymentPolicyError}</p>
 				<p>No settings have been loaded. Nothing can be changed until the server responds.</p>
 			</div>
-			<button class="payment-access-button" type="button" onclick={onRefresh} disabled={busy}>{paymentPolicyLoading ? 'Loading…' : 'Retry loading policy'}</button>
+			<button class="ui-btn ui-btn-secondary" type="button" onclick={onRefresh} disabled={busy}>{paymentPolicyLoading ? 'Loading…' : 'Retry loading policy'}</button>
 		{:else}
 			<p class="payment-access-notice" role="status">Loading payment policy…</p>
 		{/if}
@@ -70,14 +70,14 @@
 		{#if rolesError}
 			<div class="payment-access-notice payment-access-error" role="alert">
 				<p>Permission roles could not be loaded. Your saved policy has not changed.</p>
-				<button class="payment-access-button" type="button" onclick={onRoleRetry} disabled={busy}>Retry loading roles</button>
+				<button class="ui-btn ui-btn-secondary" type="button" onclick={onRoleRetry} disabled={busy}>Retry loading roles</button>
 			</div>
 		{:else if !rolesReady}<p class="payment-access-notice" role="status">Loading permission roles…</p>{/if}
 		<form class="payment-access-form" onsubmit={submit}>
 			<fieldset disabled={!editable}>
 				<legend class="payment-access-legend">Server access</legend>
-				<label class="payment-access-choice payment-access-master">
-					<input type="checkbox" checked={paymentPolicy.enabled} onchange={(event) => change({ ...paymentPolicy, enabled: event.currentTarget.checked })} />
+					<label class="payment-access-choice payment-access-master">
+						<input type="checkbox" class="ui-check" checked={paymentPolicy.enabled} onchange={(event) => change({ ...paymentPolicy, enabled: event.currentTarget.checked })} />
 					<span><strong>Allow new payment requests</strong><span>Turn this off to pause new requests for everyone. Your role choices are kept.</span></span>
 				</label>
 			</fieldset>
@@ -87,8 +87,8 @@
 				<p class="payment-access-help">Select the roles allowed to create requests. Selecting none allows no registered members.</p>
 				<div class="payment-access-roles">
 					{#each roleOptions as role (role.roleName)}
-						<label class="payment-access-choice">
-							<input type="checkbox" checked={paymentPolicy.allowedRoleNames.includes(role.roleName)} onchange={(event) => change(setAdminPaymentRole(paymentPolicy, role.roleName, event.currentTarget.checked))} />
+							<label class="payment-access-choice">
+								<input type="checkbox" class="ui-check" checked={paymentPolicy.allowedRoleNames.includes(role.roleName)} onchange={(event) => change(setAdminPaymentRole(paymentPolicy, role.roleName, event.currentTarget.checked))} />
 							<span>{getRoleLabel(role.roleName)}</span>
 						</label>
 					{/each}
@@ -109,12 +109,12 @@
 							<p>Saved name: <code>{JSON.stringify(storedName)}</code></p>
 							<div class="payment-access-actions">
 								{#if suggestedRole}
-									<button class="payment-access-button" type="button" disabled={!editable} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'use-built-in'))}>Use {getRoleLabel(suggestedRole)} role</button>
+									<button class="ui-btn ui-btn-secondary" type="button" disabled={!editable} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'use-built-in'))}>Use {getRoleLabel(suggestedRole)} role</button>
 								{/if}
 								{#if storedName !== normalizedName && suggestedRole !== normalizedName}
-									<button class="payment-access-button" type="button" disabled={!editable} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'normalize'))}>Keep as {normalizedName}</button>
+									<button class="ui-btn ui-btn-secondary" type="button" disabled={!editable} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'normalize'))}>Keep as {normalizedName}</button>
 								{/if}
-								<button class="payment-access-button" type="button" disabled={!editable} aria-label={`Remove saved role name ${storedName}`} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'remove'))}>Remove saved name</button>
+								<button class="ui-btn ui-btn-danger-ghost" type="button" disabled={!editable} aria-label={`Remove saved role name ${storedName}`} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'remove'))}>Remove saved name</button>
 							</div>
 						</div>
 					{/each}
@@ -123,8 +123,8 @@
 
 			<fieldset disabled={!editable}>
 				<legend class="payment-access-legend">Guests</legend>
-				<label class="payment-access-choice">
-					<input type="checkbox" checked={guestEnabled} onchange={(event) => change(setAdminPaymentGuestAccess(paymentPolicy, event.currentTarget.checked))} />
+					<label class="payment-access-choice">
+						<input type="checkbox" class="ui-check" checked={guestEnabled} onchange={(event) => change(setAdminPaymentGuestAccess(paymentPolicy, event.currentTarget.checked))} />
 					<span><strong>Allow guest requests</strong><span>Guests can create requests only while server access is on. Individual restrictions still apply.</span></span>
 				</label>
 			</fieldset>
@@ -138,16 +138,16 @@
 			<footer class="payment-access-footer">
 				<p class="payment-access-save-state" role="status">{paymentPolicySaving ? 'Saving policy…' : roleReviewRequired ? 'Review saved role names before making changes' : dirty ? 'Unsaved changes' : paymentPolicySaveStatus || 'Showing saved settings'}</p>
 				<div class="payment-access-actions">
-					<button class="payment-access-button" type="button" onclick={onRefresh} disabled={busy || dirty}>Refresh</button>
-					<button class="payment-access-button" type="button" onclick={onDiscard} disabled={busy || !dirty}>Discard</button>
-					<button class="payment-access-button payment-access-primary" type="submit" disabled={!canSave}>{paymentPolicySaving ? 'Saving…' : 'Save changes'}</button>
+					<button class="ui-btn ui-btn-secondary" type="button" onclick={onRefresh} disabled={busy || dirty}>Refresh</button>
+					<button class="ui-btn ui-btn-ghost" type="button" onclick={onDiscard} disabled={busy || !dirty}>Discard</button>
+					<button class="ui-btn ui-btn-primary" type="submit" disabled={!canSave}>{paymentPolicySaving ? 'Saving…' : 'Save changes'}</button>
 				</div>
 			</footer>
 		</form>
 
 		<div class="payment-access-restrictions">
 			<p><span class="payment-access-count">{paymentUserBlocks.length}</span> {paymentUserBlocks.length === 1 ? 'person has an' : 'people have an'} individual payment restriction.</p>
-			<button class="payment-access-button" type="button" onclick={onOpenPeople}>Manage in People</button>
+			<button class="ui-btn ui-btn-secondary" type="button" onclick={onOpenPeople}>Manage in People</button>
 		</div>
 	{/if}
 </section>
@@ -166,7 +166,7 @@
 	.payment-access-retained-role button { overflow-wrap: anywhere; }
 	.payment-access-choice { display: flex; flex-direction: row; align-items: center; gap: 0.75rem; min-height: 44px; min-width: 0; padding: 0.5rem; border-radius: var(--radius-md); cursor: pointer; }
 	.payment-access-choice:hover { background: var(--surface-hover); }
-	.payment-access-choice input { width: 20px; height: 20px; margin: 0; flex: 0 0 20px; accent-color: var(--accent-primary); }
+		.payment-access-choice .ui-check { width: 20px; height: 20px; flex: 0 0 20px; }
 	.payment-access-choice > span { min-width: 0; overflow-wrap: anywhere; }
 	.payment-access-choice strong { display: block; color: var(--text-heading); font-weight: 600; line-height: 1.5; }
 	.payment-access-choice span span { display: block; margin-top: 0.25rem; font-size: 0.875rem; color: var(--text-secondary); line-height: 1.5; text-wrap: pretty; }
@@ -179,13 +179,8 @@
 	.payment-access-retained-role { display: grid; gap: 0.65rem; margin-top: 1rem; }
 	.payment-access-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding-top: 0.25rem; }
 	.payment-access .payment-access-save-state { flex: 1 1 10rem; font-size: 0.875rem; }
-	.payment-access-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; }
-	.payment-access-button { min-width: 44px; min-height: 44px; padding: 0.65rem 0.9rem; background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); font: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-	.payment-access-button:not(:disabled):hover { background: var(--surface-hover); }
-	.payment-access-primary { background: var(--accent-primary); border-color: var(--accent-primary); color: var(--text-on-accent, white); }
-	.payment-access-primary:not(:disabled):hover { background: var(--accent-secondary); }
-	.payment-access-button:disabled { opacity: 0.5; cursor: not-allowed; }
-	.payment-access :is(button, input):focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 3px; }
+		.payment-access-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; }
+		.payment-access :is(button, input):focus-visible { outline: 2px solid var(--accent-primary-color); outline-offset: 2px; }
 	.payment-access-restrictions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle); }
 	.payment-access-count { font-variant-numeric: tabular-nums; }
 	@media (max-width: 480px) { .payment-access-actions { width: 100%; } .payment-access-actions button { flex: 1 1 auto; } }

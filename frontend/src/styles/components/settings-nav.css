@@ -160,7 +160,7 @@
 	}
 
 	.settings-tab {
-		min-height: 40px;
+		min-height: var(--mobile-touch, 44px);
 		white-space: nowrap;
 		flex: 0 0 auto;
 		padding: 0.5rem 0.85rem;
