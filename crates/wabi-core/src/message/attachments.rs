@@ -22,11 +22,26 @@ pub struct FileAttachment {
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct AttachmentEncryptionMeta {
     pub scheme: AttachmentEncryptionScheme,
+    /// Legacy single-blob IV. Chunked E2EE files leave this as the nonce
+    /// prefix for compatibility; `nonce_prefix` is the explicit field.
     pub iv: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub original_size: Option<u64>,
+    /// Room-key epoch used to encrypt the file. Required for operator-blind
+    /// attachments so old files remain decryptable after a room rekey.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<u64>,
+    /// Plaintext chunk size for independently authenticated AES-GCM chunks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_size: Option<u64>,
+    /// 64-bit random prefix; chunk index supplies the final 32 nonce bits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce_prefix: Option<String>,
+    /// Random opaque identifier bound into per-chunk authenticated data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

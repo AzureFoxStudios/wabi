@@ -1,38 +1,46 @@
 # Wabi
 
-Wabi is a free, self-hosted communication app for people who want to leave Discord without needing a computer science degree.
+> **Self-hosted communication and collaborative workspaces for small communities.**
 
-Think: Discord-style servers and channels, reliable calls inspired by TeamSpeak, and easy social messaging in the spirit of LINE.
+Wabi is a free and open-source app for friends, studios, classrooms, project groups, and small communities that want modern chat and collaboration without moving the community itself onto a central platform.
 
-You run it yourself, so your community controls its own space, data, and rules.
+It borrows useful ideas from Discord, TeamSpeak, LINE, project workspaces, and creative review tools, but the deployment model is deliberately simpler: **each Wabi community owns its own server and data**. A Wabi client can save and switch between multiple independent servers; those servers do **not** federate, share accounts, or silently synchronize state.
 
-## What's included
+Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)** for the current shipped/experimental boundary before relying on a feature in production.
 
-- Real-time text chat: channels, one-to-one DMs, private groups, replies, presence, typing indicators
-- Voice, video, and screen sharing (WebRTC; optional coturn TURN and LiveKit SFU)
-- Shared whiteboards and wiki pages inside your server
-- **Private access** — let family/friends reach a home-hosted server through an encrypted tunnel with one code: no port forwarding, no domain, nothing public ([guide](docs/features/PRIVATE_ACCESS_GUIDE.md))
-- User accounts, JWT auth, guest access, role-based permissions — eight themes, full theme editor
-- **One Rust binary is the whole product**: REST API + Socket.IO live updates + the embedded frontend, backed by the in-process event-sourced engine **WabiDB** (no external database)
-- Optional addons: Lore large-asset version control, volunteer relay nodes, SRT media gateway, plugin system with signing/integrity controls
+## What Wabi includes
 
-| Area | Status |
+- **Communication** — channels, one-to-one DMs, group conversations, replies, presence, typing indicators, roles, and guest access.
+- **Calls** — voice, video, and screen sharing with Wabi's current call transports plus optional coturn TURN and LiveKit SFU deployment paths.
+- **Collaborative workspaces** — whiteboards, wiki/content surfaces, Planner/Notes-style workspaces, files/media, Reader, and dockable layouts instead of forcing every task through a chat scrollback.
+- **CAD and model review** — read-only DXF/DWG drawing review, 3MF and STEP/IGES model import, 3D inspection, and collaborative drawing-space markup. Wabi is a **review surface, not a CAD editor**.
+- **Lore project workspace** — file/history/review workflows and local-folder tooling around the optional external Lore backend.
+- **Customization** — themes, theme editing, animated/sprite emotes, pointer effects, and a local visual-effects host that does not require arbitrary JavaScript execution.
+- **Private access** — optional Tailcat-based access for desktop clients when a community should be reachable without opening a public inbound port or running a public domain.
+- **Self-contained core** — one Rust `wabi-server` binary serves the API, realtime layer, embedded SvelteKit frontend, and embedded event-sourced **WabiDB** storage engine. No external database service is required for the normal single-server deployment.
+
+### Current maturity
+
+| Area | Current boundary |
 |---|---|
-| Real-time chat, DMs, groups | ✅ Available |
-| Voice/video calls + screen share | ✅ Available (P2P WebRTC; TURN/SFU optional) |
-| Whiteboards & wiki | ✅ Available |
-| Private access tunnels (tailcat) | ✅ Available — desktop clients, disabled by default |
-| Auth + roles + guests | ✅ Available |
-| Theming (8 presets + editor) | ✅ Available |
-| Lore asset VCS | 🔌 Optional compile-time addon |
-| Relay network / SRT media gateway | 🧩 Optional, partial |
-| Plugin system | 🚧 In progress (core framework live) |
+| Authority server + WabiDB | ✅ Core path |
+| Chat, DMs, groups, roles, presence | ✅ Core path |
+| Voice/video/screen sharing | ✅ Available; transport/device hardening continues |
+| Whiteboards, wiki, Reader, workspace shell | ✅ Available |
+| CAD/model viewing + review markup | ✅ Available |
+| Lore workspace | 🔌 Available with optional external Lore integration |
+| Tauri desktop client | ✅ Source/build path available; release packaging remains a release concern |
+| Tailcat private access | 🔌 Optional, off by default |
+| Runtime plugin framework | 🚧 Opt-in/in progress; do not treat plugins as fully sandboxed untrusted code |
+| Regional Anchor role | 🧪 Experimental HTTP proxy path; native WebSocket forwarding is not complete |
+| WabiDB network replication / warm standby | 🧪 Experimental and fail-closed by default; **not production HA** |
+| Native mobile clients | 🚧 Active development; not a production release claim yet |
 
 ## Quick start
 
-### Docker (recommended)
+### Docker / Podman — recommended
 
-Works on Windows, Mac, and Linux with Docker or Podman. No `.env`, no secrets to generate — first boot creates them inside `./data/wabi-server`.
+A normal Wabi server does not need a separate database container or a hand-written `.env` file. First boot can create and persist its JWT secret and WabiDB root key under `./data/wabi-server`.
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
@@ -40,92 +48,139 @@ cd wabi
 docker compose up -d --build
 ```
 
-The first build compiles everything from source (10+ minutes, cached afterwards). Open `http://localhost:3001`, create the owner account, and you're in. Podman: `podman compose`. Want to manage secrets yourself? `cp .env.example .env` and set `WABI_JWT_KEY` / `WABIDB_ROOT_KEY`.
+Open **http://localhost:3001** and create the owner account.
 
-**Voice/video via TURN (optional):** set `TURN_HMAC_KEY` in `.env`, then `docker compose --profile turn up -d`.
+Useful checks:
 
-### Bare cargo
+```bash
+curl http://localhost:3001/livez
+curl http://localhost:3001/readyz
+```
+
+`/livez` answers whether the process is alive. `/readyz` is the stronger application-readiness check.
+
+Podman users can use `podman compose`. If you prefer externally managed secrets, copy `.env.example` to `.env` and configure the relevant values rather than relying on first-boot generation.
+
+### Bare Cargo
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
 cd wabi
-cd frontend && STATIC_BUILD=1 npm run build && cd ..
+cd frontend && STATIC_BUILD=1 bun run build && cd ..
 cargo build --release -p wabi-server
 mkdir -p data/wabi-server uploads plugins
 ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
 ```
 
-Open `http://localhost:3000` and create the owner account.
+Open **http://localhost:3000**.
 
 ### Local development
 
 ```bash
 bun run dev        # frontend :5173 + backend :3001
-bun run dev:local  # full local stack, no remote server needed
+bun run dev:local  # local stack
 ```
 
-Details: [docs/local-dev.md](docs/local-dev.md).
+See [docs/local-dev.md](docs/local-dev.md).
 
-### Desktop app (Tauri)
+### Desktop app
 
 ```bash
-bun run desktop:dev   # dev
-bun run desktop:build # bundles (installer embeds WebView2 offline for Windows)
-bun run desktop:check # fast Rust-side validation
+bun run desktop:dev
+bun run desktop:build
+bun run desktop:check
 ```
 
-The desktop shell lives in [`src-tauri/`](src-tauri/) and is also what enables private-access tunnels for members.
+The native shell lives in [`src-tauri/`](src-tauri/). It provides desktop integration and is also the client surface used by optional private-access features.
 
 ## Reaching your server
 
-- **LAN / Tailscale / port-forward / domain+TLS** — the classic paths, see [docs/NETWORKING.md](docs/NETWORKING.md)
-- **Cloudflare quick tunnel** (temporary URL, zero config): `docker compose --profile tunnel --profile tunnel-quick up -d`, URL in `docker logs wabi-cloudflared-quick`
-- **Named tunnel** (your domain): set `CLOUDFLARE_TUNNEL_TOKEN` in `.env`, `docker compose --profile tunnel --profile tunnel-named up -d`
-- **Private access** — no domain, no ports, encrypted tunnels for family/friend instances: enable in Admin → Runtime ([guide](docs/features/PRIVATE_ACCESS_GUIDE.md))
+Start local and add networking only after the Authority is healthy.
 
-## Architecture at a glance
+- **LAN / private overlay VPN** — simplest trusted-network access.
+- **Domain + HTTPS** — Caddy or another reverse proxy in front of Wabi.
+- **VPS reverse proxy** — useful when a home server is behind CGNAT and you do not want to expose the home IP.
+- **Cloudflare Tunnel** — optional convenience, not a Wabi requirement.
+- **Tailcat private access** — optional private reachability for supported desktop clients without a public inbound port.
 
-| Path | What it is |
+See [Networking](docs/NETWORKING.md) and [Fresh install](docs/deployment/FRESH_INSTALL.md).
+
+## CAD and 3D import paths
+
+Wabi converges imported content into the same review/workspace experience instead of growing a separate editor for every format.
+
+| Format | Path |
 |---|---|
-| `core/crates/wabi-server/` | The binary: Axum REST + Socket.IO + auth + calls + addons |
-| `core/crates/wabidb/` | Embedded event-sourced engine (append-only store → projections) |
-| `frontend/` | SvelteKit client (Svelte 5, static build embedded in the binary) |
-| `src-tauri/` | Tauri desktop shell |
-| `core/addons/` | Optional addon backends (lore, tailcat, mesh, webhooks, payments) |
-| `relay-node/`, `media-gateway/` | Optional relay + SRT media helpers |
+| DXF | Built-in read-only 2D parser/viewer with Model/Paper Space handling and review markup |
+| DWG | Optional authenticated server conversion through an operator-installed `dwg2dxf`, then the DXF viewer |
+| 3MF | Browser import → temporary GLB → normal Wabi 3D viewer |
+| STEP / STP / IGES / IGS | OpenCascade WASM import → temporary GLB → normal Wabi 3D viewer |
 
-Mental model: **commands → events → projections → live socket push**. Start at [docs/architecture/overview.md](docs/architecture/overview.md).
+The DWG helper is intentionally **not bundled** into Wabi's MIT server image. Unsupported solid/editing operations fail visibly rather than pretending a flattened preview is a complete CAD editor.
 
-## Privacy & honesty
+## Architecture in one minute
 
-- **Your server, your data.** The operator (you) controls everything — which also means the operator can read server content. [Privacy stance](docs/PRIVACY_STANCE.md).
-- **DMs are not end-to-end encrypted** today. E2EE groundwork exists in the repo but is not connected to the send path. Assume the server operator can read DMs.
-- **Back up `data/wabi-server/`.** It contains the root key; lose it and the server's data is gone. ([Backup & restore guidance](docs/deployment/BACKUP_AND_RESTORE.md) — historical doc, current runbooks in `docs/deployment/`)
+The normal deployment is one **Authority** process:
 
-## Configuration
+```text
+client
+  ├─ HTTP / Socket.IO / WebSocket
+  ▼
+wabi-server (Rust)
+  ├─ API + realtime
+  ├─ embedded SvelteKit frontend
+  └─ WabiDB
+       commands → events → projections → live push
+```
 
-Start from `.env.example` (root). `scripts/launch.sh` + `wabi.config` is the operator-friendly surface for local profiles. Review before production: `ALLOWED_ORIGINS`, `PLUGINS_ENABLED` (default false), TURN keys if you use the turn profile. Community-branded login page: copy `data/launch-page.example.json` → `data/launch-page.json` and restart.
+Important directories:
 
-## Plugins
+| Path | Purpose |
+|---|---|
+| `core/crates/wabi-server/` | Authority server: Axum API, auth, Socket.IO/WebSocket, jobs/helpers |
+| `core/crates/wabidb/` | Embedded event-sourced storage engine and projections |
+| `frontend/` | SvelteKit/Svelte 5 client and workspace UI |
+| `src-tauri/` | Native desktop shell |
+| `core/addons/` / `addons/` | Curated integrations and compatibility/sample addon material |
+| `plugins/` | Operator-installed runtime plugins when plugin mode is enabled |
+| `relay-node/`, `media-gateway/`, `turn-server/` | Optional networking/media helpers |
 
-Manifest-based with permissions, integrity checksums, optional signing, and crash-loop safe mode. Authoring guide: [`plugins/README.md`](plugins/README.md); bundled test add-ons: [`addons/README.md`](addons/README.md). If you just want to host Wabi, you can ignore plugins.
+A single client connecting to many Wabi servers is **not federation**. Inside one deployment, an Authority may use scoped helpers. Experimental Anchor/replication/standby work does **not** make Wabi active-active or automatically highly available. Read [Architecture overview](docs/architecture/overview.md) and [Server topology](docs/architecture/SERVER_MESH_PLAN.md) before attempting multi-node operation.
+
+## Privacy, trust, and backups
+
+Self-hosting changes **who you trust**; it does not magically remove trust.
+
+- The server operator controls the instance and its stored data.
+- **DMs and private rooms are not end-to-end encrypted today.** Treat their text and attachments as server-readable.
+- Ephemeral/no-retention content is not the same thing as operator-blind content.
+- Optional tunnels, media providers, plugins, and external integrations add their own trust boundaries.
+- Back up the complete Wabi data directory and preserve the WabiDB root key. Losing that key can make existing encrypted state unrecoverable.
+
+Read [Privacy stance](docs/PRIVACY_STANCE.md), [Security model](docs/SECURITY-MODEL.md), and [Backup & recovery](docs/deployment/BACKUP_AND_RECOVERY.md).
+
+## Plugins and addons
+
+Wabi has both curated integrations and a runtime plugin framework. They are not the same maturity boundary. Runtime plugins are disabled by default and should currently be treated as trusted operator-installed code even though checksum/signing/scanning/audit controls exist.
+
+The old `mesh` addon is legacy compatibility material, **not** the production multi-node mechanism. See [Addons & plugins](docs/ADDONS.md) and [`plugins/README.md`](plugins/README.md).
 
 ## Documentation
 
-Everything lives in [`docs/`](docs/README.md) — start at its index:
+Start with:
 
-- [Architecture](docs/architecture/overview.md) · [Networking](docs/NETWORKING.md) · [Deployment](docs/deployment/FRESH_INSTALL.md) · [Private access](docs/features/PRIVATE_ACCESS_GUIDE.md) · [Lore addon guide](docs/addons/lore.md) · [All docs](docs/README.md)
+- **[Project status](docs/PROJECT_STATUS.md)** — what is shipped, experimental, or explicitly not claimed
+- **[Documentation index](docs/README.md)** — map of the living docs
+- **[Architecture overview](docs/architecture/overview.md)** — contributor mental model
+- **[Fresh install](docs/deployment/FRESH_INSTALL.md)** — canonical first deployment
+- **[Networking](docs/NETWORKING.md)** — access, ingress, calls, and multi-node boundaries
+- **[Backup & recovery](docs/deployment/BACKUP_AND_RECOVERY.md)** — what must be preserved and how to restore it
+- **[Roadmap](docs/ROADMAP.md)** — current priorities and acceptance gates
 
-Historical documentation (pre-2026-09) lives on the `docs-history` branch, browsable and downloadable as a ZIP.
+Historical documentation lives on the `docs-history` branch. Dated plans under `docs/plans/` record how work evolved; they are evidence/history, not automatically the current product contract.
 
-**AI agents:** read [`AGENTS.md`](AGENTS.md) first — it is the canonical orientation for working in this repo.
+**AI/code agents:** read [`AGENTS.md`](AGENTS.md) before editing the repository.
 
 ## License
 
-MIT ([LICENSE](LICENSE))
-
-## Roadmap
-
-1. Clean up open bugs; polish UI/CSS consistency
-2. Finish plugin mode
-3. See [docs/ROADMAP.md](docs/ROADMAP.md)
+MIT — see [LICENSE](LICENSE).

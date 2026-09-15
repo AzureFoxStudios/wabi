@@ -2,12 +2,17 @@
 
 pub mod addons;
 pub mod admin;
+pub mod server_center;
+pub mod retention_policy;
+pub mod privacy;
+pub mod e2ee;
 pub mod operator;
 pub mod albums;
 pub mod bots;
 pub mod calls;
 pub mod auth;
 pub mod blobs;
+pub mod cad;
 pub mod channels;
 pub mod emoji;
 pub mod forum;
@@ -38,3 +43,5 @@ pub mod upload;
 pub mod user;
 pub mod whiteboard;
 mod path_util;
+
+pub mod games;

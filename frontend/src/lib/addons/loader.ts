@@ -19,11 +19,13 @@ const loadedAddons = new Map<string, AddonInstance>();
  * model-viewer stays off this map (three.js) so Tauri desktop does not pull it.
  */
 const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
+	'steam': () => import('$lib/games/GamesSettingsEntry.svelte'),
 	'youtube-sync': () => import('$lib/components/plugins/YouTubeWatchEmbed.svelte'),
 	'spotify-sync': () => import('$lib/components/plugins/SpotifyControlsEmbed.svelte')
 };
 
 const LOCAL_MANIFESTS: Record<string, AddonManifest> = {
+	'steam': { id:'steam',name:'Steam',version:'0.1.0',frontendEntry:'bundled:steam',dependencies:[] },
 	'youtube-sync': {
 		id: 'youtube-sync',
 		name: 'YouTube Watch Together',

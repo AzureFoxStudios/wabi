@@ -174,6 +174,10 @@ export interface ReassembledFrame {
   height: number;
   keyFrame: boolean;
   source: WabidbVideoSource;
+  /** Sender's frame sequence — the receiver's jitter buffer / loss
+   * recovery key. Monotonic per (user, source) encoder stream; resets to 0
+   * when the sender restarts capture (a new stream). */
+  seq: number;
 }
 
 /**
@@ -215,6 +219,14 @@ export class WabidbVideoReassembler {
       userMap = new Map();
       this.byStream.set(key, userMap);
     }
+    // A frame whose chunks never all arrive (a loss) leaves its partial
+    // ChunkSet here. Bound the map so persistent loss can't leak memory:
+    // drop the oldest in-flight seq (its frame is already unrecoverable —
+    // the jitter buffer is waiting on the next keyframe).
+    if (userMap.size > 64) {
+      const oldest = userMap.keys().next().value;
+      if (oldest !== undefined) userMap.delete(oldest);
+    }
     let set = userMap.get(env.seq);
     if (!set) {
       set = {
@@ -241,7 +253,7 @@ export class WabidbVideoReassembler {
         offset += c.length;
       }
       userMap.delete(env.seq);
-      return { frame, codec: set.codec, width: set.width, height: set.height, keyFrame: set.keyFrame, source: env.source ?? 'camera' };
+      return { frame, codec: set.codec, width: set.width, height: set.height, keyFrame: set.keyFrame, source: env.source ?? 'camera', seq: env.seq };
     }
     return null;
   }
@@ -272,6 +284,25 @@ interface ChunkSet {
   keyFrame: boolean;
 }
 
+/** A fully reassembled frame waiting in the receiver's jitter buffer. */
+interface PendingFrame extends ReassembledFrame {
+  /** Wall-clock enqueue time (ms) — staleness bound for gap recovery. */
+  enqueuedAt: number;
+}
+
+// Receiver jitter-buffer tuning. The relay has no NACK/FEC, so a small
+// playout delay absorbs arrival jitter (server fan-out bursts, chat traffic
+// on the shared socket, tunnel hiccups) instead of showing it as stutter.
+// 150ms ≈ 2 frames at 12fps — well under the 200ms human-noticeable
+// threshold, and it hides per-frame scheduling variance on the main thread.
+const JITTER_BUFFER_TARGET_MS = 150;
+const JITTER_BUFFER_MAX_MS = 500;
+// A gap (lost frame) is unrecoverable until the next keyframe. If none
+// arrives within this window, force-flush the buffer to a clean slate
+// instead of holding a frozen frame.
+const GAP_RECOVERY_TIMEOUT_MS = 1500;
+const PAYOUT_TICK_MS = 50;
+
 // ============================================================================
 // Quality ladders + bandwidth guard
 // ============================================================================
@@ -296,11 +327,20 @@ const SCREEN_LADDER: WabidbVideoQualityStep[] = [
   { width: 640, height: 360, fps: 6 }
 ];
 
-// Sustained bytes/sec ceilings per source. Exceeded → step DOWN the ladder.
-// Screen ceiling lowered 1.5 → 0.9 Mbps for the same socket-health reason.
+// Per-envelope JSON scaffolding estimate (sessionId/userId/kind/seq/chunk
+// metadata + socket.io framing) added on top of the base64 payload when the
+// bandwidth guard accounts wire bytes.
+const WIRE_ENVELOPE_OVERHEAD_BYTES = 160;
+
+// Sustained WIRE bytes/sec ceilings per source. Exceeded → step DOWN the
+// ladder. These are expressed in on-the-wire bytes (base64 + JSON), which is
+// what the socket actually carries. They preserve the same effective wire
+// budget as the old raw-byte ceilings (camera 600 kbps raw ≈ 880 kbps wire,
+// screen 900 kbps raw ≈ 1.3 Mbps wire) — but the guard now trips when the
+// socket is genuinely near budget, instead of ~45% past it.
 const BANDWIDTH_CEIL_BYTES_PER_SEC: Record<WabidbVideoSource, number> = {
-  camera: (600 * 1000) / 8, // ~600 kbps
-  screen: (900 * 1000) / 8 // ~900 kbps
+  camera: 880_000, // ~880 kbps wire
+  screen: 1_300_000 // ~1.3 Mbps wire
 };
 
 // ============================================================================
@@ -424,6 +464,19 @@ export interface WabidbVideoLaneConfig {
   onError?: (err: Error) => void;
   /** Synchronous room/lifetime gate, checked for EVERY outbound frame. */
   canSend?: () => boolean;
+  /**
+   * Receiver jitter-buffer playout delay in ms (default
+   * JITTER_BUFFER_TARGET_MS). 0 disables the buffer: decodable frames are
+   * decoded immediately on arrival (the pre-buffer behavior — used by the
+   * test suite and by hosts that want zero added latency).
+   */
+  jitterBufferTargetMs?: number;
+  /**
+   * How long (ms) to hold a buffered stream that is waiting on a keyframe
+   * to recover from a lost frame (default GAP_RECOVERY_TIMEOUT_MS). After
+   * this, the buffer is flushed and the last good frame is held.
+   */
+  gapRecoveryTimeoutMs?: number;
 }
 
 /**
@@ -445,6 +498,22 @@ class LaneSender {
   private encoderConfig: any = null;
   private codec = 'vp8';
   private frameSeq = 0;
+  /**
+   * Wire sequence for the frame currently in flight through the encoder.
+   * `onEncodedChunk` is ASYNC — by the time it fires, frameSeq has already
+   * advanced, so the envelope must carry the seq captured at encode() time.
+   * (The receiver's jitter buffer keys on this per (user, source).)
+   */
+  private pendingSeq = 0;
+  /**
+   * WebCodecs timestamp counter, reset to 0 when the sender restarts so
+   * each encoder stream starts its timeline fresh. Deliberately separate
+   * from frameSeq (the wire seq): frameSeq is ALSO reset to 0 on restart,
+   * and that seq regression is exactly how the receiver detects a new
+   * stream (a restart always begins with a forced keyframe, so the
+   * receiver can decode it immediately).
+   */
+  private displayFrame = 0;
   private rafHandle: number | null = null;
   private rvfcHandle: number | null = null;
   private lastKeyFrameAt = 0;
@@ -523,6 +592,7 @@ class LaneSender {
     }
 
     this.frameSeq = 0;
+    this.displayFrame = 0;
     this.lastKeyFrameAt = 0;
     this.forceKeyFrame = true;
     this.active = true;
@@ -537,18 +607,27 @@ class LaneSender {
       if (!this.active || !this.videoEl || !this.canvas || !this.canvasCtx) return;
       if (!this.lane.canSend()) return;
       const now = performance.now();
-      // Periodic keyframe (~2s) for seekability / late joiners, plus forced
-      // keyframes after an encoder reconfigure.
-      const isKeyFrame = this.forceKeyFrame || now - this.lastKeyFrameAt > 2000;
+      // Periodic keyframe (~1s) for seekability / late joiners, plus forced
+      // keyframes after an encoder reconfigure. The relay has no NACK/FEC —
+      // a lost keyframe is unrecoverable until the next one, so 2s meant a
+      // single dropped keyframe froze the receiver for up to 2s (the
+      // "unexplained lag spike" field reports). 1s halves the worst-case
+      // freeze at a few % extra bandwidth, which the wire-byte guard below
+      // already accounts for.
+      const isKeyFrame = this.forceKeyFrame || now - this.lastKeyFrameAt > 1000;
       if (isKeyFrame) {
         this.forceKeyFrame = false;
         this.lastKeyFrameAt = now;
       }
 
       try {
+        // Capture the wire seq BEFORE encode(): onEncodedChunk fires
+        // asynchronously, after frameSeq has already advanced.
+        const seq = this.frameSeq;
+        this.pendingSeq = seq;
         this.canvasCtx.drawImage(this.videoEl, 0, 0, this.canvas.width, this.canvas.height);
         const vf = new (globalThis as any).VideoFrame(this.canvas, {
-          timestamp: this.frameSeq * Math.round(1_000_000 / step.fps),
+          timestamp: this.displayFrame * Math.round(1_000_000 / step.fps),
           duration: Math.round(1_000_000 / step.fps)
         });
         this.encoder.encode(vf, { keyFrame: isKeyFrame });
@@ -571,6 +650,7 @@ class LaneSender {
         this.lane.onError?.(e instanceof Error ? e : new Error(String(e)));
       }
       this.frameSeq++;
+      this.displayFrame++;
       this.maybeGuardBandwidth();
     };
 
@@ -606,18 +686,34 @@ class LaneSender {
         keyFrame: chunk.type === 'key',
         source: this.source
       };
+      // The envelope seq is the PER-STREAM frame sequence (this.pendingSeq,
+      // captured at encode() time), not a lane-wide counter: the
+      // receiver's jitter buffer tracks seq per (user, source) stream. A
+      // shared counter would interleave camera and screen seqs, so a
+      // screen frame arriving after a camera frame would look like a seq
+      // regression and trigger a false "restart" (buffer flush + picture
+      // freeze). frameSeq resets to 0 when the sender restarts, which is
+      // exactly the restart signal the receiver expects.
       const envelopes = splitFrameIntoChunks(
         this.lane.sessionId,
         this.lane.userId,
-        this.lane.nextEmitSeq(),
+        this.pendingSeq,
         buffer,
         meta
       );
+      // Count the ACTUAL wire bytes, not the raw encoded bytes. The guard's
+      // ceiling is a socket-health budget, but the socket carries base64
+      // (+33%) inside a JSON envelope — counting raw bytes made the guard
+      // ~45% blind to real load, so it stepped down only after the socket was
+      // already congested (the 2026-08-27 "heartbeat missed → transport
+      // close" failure mode). Sum the base64 payload lengths (exact wire
+      // size) plus the per-envelope JSON scaffolding.
+      let wireBytes = 0;
       for (const env of envelopes) {
         this.lane.socket.emit('wabidb-media', env);
+        wireBytes += env.payload.length + WIRE_ENVELOPE_OVERHEAD_BYTES;
       }
-      const bytes = buffer.length + envelopes.length * 120; // payload + envelope overhead
-      this.sentBytesLog.push({ t: performance.now(), n: bytes });
+      this.sentBytesLog.push({ t: performance.now(), n: wireBytes });
       const entry = (this.lane.diag.senders[this.source] ??= {
         framesEncoded: 0,
         envelopesSent: 0,
@@ -729,7 +825,6 @@ export class WabidbVideoLane {
   // flag, so whichever source started second silently lost).
   private senders = new Map<WabidbVideoSource, LaneSender>();
   private pendingSenders = new Map<WabidbVideoSource, Promise<void>>();
-  private emitSeq = 0;
 
   /** WO-2 counters (senders keyed by source; receiver totals). */
   readonly diag: WabidbVideoLaneDiagnostics = {
@@ -746,6 +841,17 @@ export class WabidbVideoLane {
   private remoteStreams = new Map<string, MediaStream>(); // streamKey -> MediaStream
   private remoteLastFrameAt = new Map<string, number>();
 
+  // Jitter buffer + loss recovery (receiver). The relay has no NACK/FEC, so
+  // the receiver must (a) absorb arrival jitter with a small playout delay
+  // and (b) recover from lost frames by dropping to the next keyframe.
+  private pendingFrames = new Map<string, PendingFrame[]>(); // streamKey -> buffer
+  private lastDecodedSeq = new Map<string, number>(); // streamKey -> seq
+  private playoutTimer: ReturnType<typeof setInterval> | null = null;
+  /** 0 = decode immediately on arrival (no buffer); >0 = playout delay ms. */
+  private jitterBufferTargetMs: number;
+  /** Flush a keyframe-waiting buffer after this long (see config). */
+  private gapRecoveryTimeoutMs: number;
+
   constructor(cfg: WabidbVideoLaneConfig) {
     this.sessionId = cfg.sessionId;
     this.viewSessionId = cfg.viewSessionId ?? cfg.sessionId;
@@ -753,6 +859,8 @@ export class WabidbVideoLane {
     this.socket = cfg.socket;
     this.onError = cfg.onError;
     this.sendAllowed = cfg.canSend ?? (() => true);
+    this.jitterBufferTargetMs = cfg.jitterBufferTargetMs ?? JITTER_BUFFER_TARGET_MS;
+    this.gapRecoveryTimeoutMs = cfg.gapRecoveryTimeoutMs ?? GAP_RECOVERY_TIMEOUT_MS;
   }
 
   canSend(): boolean { return !this.closed && this.sendAllowed(); }
@@ -822,11 +930,6 @@ export class WabidbVideoLane {
     }
   }
 
-  /** Shared monotonic envelope sequence across all outbound sources. */
-  nextEmitSeq(): number {
-    return this.emitSeq++;
-  }
-
   // --------------------------------------------------------------------------
   // Receiver
   // --------------------------------------------------------------------------
@@ -845,15 +948,134 @@ export class WabidbVideoLane {
     this.diag.receiver.envelopesReceived++;
     const reassembled = this.reassembler.push(env);
     if (reassembled) {
-      void this.decodeRemoteFrame(videoStreamKey(env.userId, reassembled.source), reassembled);
+      this.enqueueFrame(videoStreamKey(env.userId, reassembled.source), reassembled);
     }
   }
 
-  private async decodeRemoteFrame(
-    streamKey: string,
-    frame: ReassembledFrame
-  ): Promise<void> {
+  // --------------------------------------------------------------------------
+  // Jitter buffer + loss recovery
+  // --------------------------------------------------------------------------
+
+  /**
+   * Buffer a reassembled frame for delayed, in-order playout. Handles the
+   * three arrival cases:
+   *  - in-order (seq == last+1) or first frame: append, start playout.
+   *  - a gap (seq > last+1): a frame was lost on the wire. Deltas after it
+   *    are undecodable until a keyframe — keep buffering (keyframes arrive
+   *    ~1s apart) and let the playout loop force-flush on timeout.
+   *  - a restart (seq <= last, sender re-encoded from seq 0): reset state.
+   */
+  private enqueueFrame(streamKey: string, frame: ReassembledFrame): void {
     if (!hasWebCodecs()) return;
+    const last = this.lastDecodedSeq.get(streamKey);
+    const isRestart = last != null && frame.seq <= last;
+    if (isRestart) {
+      // Sender restarted its encoder (new stream from seq 0) — or a very
+      // late duplicate. Either way the pending buffer belongs to the old
+      // stream: drop it and start fresh. Also clear the reassembler's
+      // stream so a lingering PARTIAL chunk-set (a frame whose chunks were
+      // lost) can't merge with a new frame that wraps back to the same seq.
+      this.reassembler.clearStream(...splitStreamKey(streamKey));
+      this.pendingFrames.set(streamKey, []);
+      this.lastDecodedSeq.delete(streamKey);
+      this.decoderConfigured.delete(streamKey); // codec/dims may have changed
+    }
+    if (this.jitterBufferTargetMs === 0) {
+      // No playout delay: decode immediately on arrival (pre-buffer
+      // behavior — also the mode the test suite runs in).
+      this.pushToDecoder(streamKey, frame);
+      return;
+    }
+    // A restart always begins with a forced keyframe — decode it
+    // immediately so the picture recovers without waiting on the buffer.
+    if (isRestart && frame.keyFrame) {
+      this.pushToDecoder(streamKey, frame);
+      return;
+    }
+    this.bufferFrame(streamKey, frame);
+  }
+
+  private bufferFrame(streamKey: string, frame: ReassembledFrame): void {
+    const buffer = this.pendingFrames.get(streamKey) ?? [];
+    buffer.push({ ...frame, enqueuedAt: performance.now() });
+    // Bound the buffer: if we're far behind (a burst after a stall), drop
+    // the OLDEST frames — keeping the newest keeps the picture current.
+    const maxFrames = 24;
+    while (buffer.length > maxFrames) buffer.shift();
+    this.pendingFrames.set(streamKey, buffer);
+    this.ensurePlayoutLoop();
+  }
+
+  /** One shared timer drains every buffered stream on a fixed cadence. */
+  private ensurePlayoutLoop(): void {
+    if (this.playoutTimer != null || this.closed) return;
+    this.playoutTimer = globalThis.setInterval(() => this.playoutTick(), PAYOUT_TICK_MS);
+  }
+
+  private playoutTick(): void {
+    if (this.closed) return;
+    const now = performance.now();
+    for (const [streamKey, buffer] of this.pendingFrames) {
+      if (!buffer.length) {
+        this.pendingFrames.delete(streamKey);
+        continue;
+      }
+      const last = this.lastDecodedSeq.get(streamKey);
+      const oldest = buffer[0];
+      // A keyframe is ALWAYS decodable — so if one is buffered, playout
+      // resumes from it immediately (this is how a lost frame recovers:
+      // the next keyframe, ~1s away, is the recovery point). A delta is
+      // only decodable when it continues the last decoded seq; otherwise
+      // a frame was lost before it (or we joined mid-stream) and we wait
+      // for the next keyframe. Past the timeout with no keyframe, flush
+      // and hold the last good frame instead of waiting indefinitely.
+      const undecodable = !oldest.keyFrame
+        && (last == null || oldest.seq > last + 1);
+      if (undecodable) {
+        // A keyframe may already be sitting further back in the buffer —
+        // everything before it is undecodable, so drop the stale head now
+        // (recovery happens next tick, no need to wait for the timeout).
+        const keyIdx = buffer.findIndex((f) => f.keyFrame);
+        if (keyIdx > 0) {
+          buffer.splice(0, keyIdx);
+          continue;
+        }
+        if (now - oldest.enqueuedAt > this.gapRecoveryTimeoutMs) {
+          buffer.length = 0;
+          this.pendingFrames.delete(streamKey);
+        }
+        continue;
+      }
+
+      // If the NEWEST frame is already past the hard cap, playout is far
+      // behind (decoder slower than the wire, or a long stall). Drop
+      // everything but the newest so the picture snaps to current instead
+      // of playing back a long backlog.
+      if (now - buffer[buffer.length - 1].enqueuedAt > JITTER_BUFFER_MAX_MS) {
+        while (buffer.length > 1) buffer.shift();
+      }
+
+      // Release frames whose target time has passed, in seq order. Target =
+      // enqueue time + a small playout delay, so a burst of frames arriving
+      // together spreads over the delay window instead of all decoding at
+      // once (which is what made arrival jitter visible as stutter).
+      // Only a keyframe or the exact next delta is decodable — anything
+      // else means a gap; stop and let the undecodable path above wait for
+      // the next keyframe.
+      while (buffer.length) {
+        const f = buffer[0];
+        const cur = this.lastDecodedSeq.get(streamKey);
+        if (!f.keyFrame && (cur == null || f.seq !== cur + 1)) break;
+        if (this.jitterBufferTargetMs > 0 && now < f.enqueuedAt + this.jitterBufferTargetMs) break;
+        buffer.shift();
+        this.pushToDecoder(streamKey, f);
+      }
+      if (!buffer.length) this.pendingFrames.delete(streamKey);
+    }
+  }
+
+  /** Configure (once) and feed one frame to the stream's decoder. */
+  private pushToDecoder(streamKey: string, frame: ReassembledFrame): void {
     let decoder = this.decoders.get(streamKey);
     const needConfig = !this.decoderConfigured.get(streamKey) && frame.codec;
     if (!decoder) {
@@ -863,7 +1085,20 @@ export class WabidbVideoLane {
           if (this.closed || this.decoders.get(streamKey) !== decoder) { vf.close(); return; }
           this.onDecodedFrame(streamKey, vf);
         },
-        error: (e: any) => this.onError?.(e instanceof Error ? e : new Error(String(e)))
+        error: (e: any) => {
+          // A decode error means the stream state is corrupt (typically a
+          // delta fed without its keyframe). Recover: drop the pending
+          // buffer so the next keyframe starts a clean stream.
+          this.onError?.(e instanceof Error ? e : new Error(String(e)));
+          const buffer = this.pendingFrames.get(streamKey);
+          if (buffer) {
+            this.pendingFrames.delete(streamKey);
+          }
+          this.lastDecodedSeq.delete(streamKey);
+          this.decoderConfigured.delete(streamKey);
+          try { decoder.close(); } catch { /* noop */ }
+          this.decoders.delete(streamKey);
+        }
       });
       this.decoders.set(streamKey, decoder);
     }
@@ -883,6 +1118,7 @@ export class WabidbVideoLane {
         data: frame.frame
       });
       decoder.decode(chunk);
+      this.lastDecodedSeq.set(streamKey, frame.seq);
     } catch (e) {
       this.onError?.(e instanceof Error ? e : new Error(String(e)));
     }
@@ -957,6 +1193,8 @@ export class WabidbVideoLane {
     this.remoteCanvases.delete(streamKey);
     this.remoteCtx.delete(streamKey);
     this.remoteLastFrameAt.delete(streamKey);
+    this.pendingFrames.delete(streamKey);
+    this.lastDecodedSeq.delete(streamKey);
     const stream = this.remoteStreams.get(streamKey);
     if (stream) {
       stream.getTracks().forEach((t) => t.stop());
@@ -970,6 +1208,14 @@ export class WabidbVideoLane {
     this.stopLocalVideo();
     for (const streamKey of Array.from(this.decoders.keys())) {
       this.teardownRemoteStream(streamKey);
+    }
+    // Buffered frames for streams that never got a decoder (late-join
+    // waiting on a keyframe) — drop them and stop the playout loop.
+    this.pendingFrames.clear();
+    this.lastDecodedSeq.clear();
+    if (this.playoutTimer != null) {
+      globalThis.clearInterval(this.playoutTimer);
+      this.playoutTimer = null;
     }
   }
 }
