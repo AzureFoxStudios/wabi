@@ -87,6 +87,30 @@ Known remaining reds that are branch-specific, not inherited:
 - #184 draft has ~23 svelte-check errors from its own runes-mode conversion
   of `lore/LoreFileViewer.svelte` (pre-existing on the branch).
 
+## Second wave — real per-PR failures (after the inherited red was fixed)
+
+Once main's CI went green (`0790aedc`), the remaining PR failures were
+re-triaged from runner logs:
+
+- Several PRs had failed "Cargo test" simply because their branches predated
+  `0790aedc`; all remaining PR branches were merged to current main a second
+  time so queued runs test fixed code (no conflicts; the #211 Reader merge
+  auto-merged into #196 the same way).
+- #212 had two real svelte-check errors in its own `EmojiPicker.svelte`
+  (`activeMode` inferred as `string`); fixed on the branch with an explicit
+  `'emoji' | 'sticker'` annotation.
+- #184's 23 svelte-check errors are its own incomplete runes migration of
+  `lore/LoreFileViewer.svelte` (legacy reactivity mixed with `$state`/`$props`,
+  so the compiler falls back to legacy mode and rejects the runes generics).
+  That is draft-authoring work, deliberately left to the branch.
+- #187/#196's Android APK job is a branch-new workflow with its own issue.
+- Local `cargo test` runs regen ts-rs output with doc-comment formatting
+  drift (`AttachmentEncryptionMeta.ts`, `ChannelView.ts`); that drift was
+  discarded, never committed.
+
+main's `CI` workflow is green at `0790aedc`; the release/CodeQL/Tauri
+workflows were still runner-queued at the time of writing.
+
 ## Decisions still open (owner call)
 
 1. Merge order for the 13 real feature PRs. Suggested: #200 → #199 → #210 →
