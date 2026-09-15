@@ -11,6 +11,7 @@ on:
       - 'frontend/src/lib/reader*.ts'
       - 'frontend/src/styles/components/reader-tab.css'
       - 'frontend/scripts/reader-browser-smoke.mjs'
+      - 'frontend/scripts/reader-documents-browser-smoke.mjs'
       - '.github/workflows/reader-checks.yml'
 
 permissions:
@@ -23,7 +24,7 @@ concurrency:
 jobs:
   reader:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,7 +42,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Reader unit tests
         working-directory: frontend
-        run: bun test src/lib/components/readerDocumentTools.test.ts src/lib/readerCode.test.ts
+        run: bun test src/lib/components/readerDocumentTools.test.ts src/lib/readerCode.test.ts src/lib/readerDocument*.test.ts
       # Vite's native dependency resolver also visits the parent project.
       # Its tsconfig extends the generated Kit configuration, even though
       # the Reader fixture itself uses an isolated, minimal tsconfig.
@@ -54,6 +55,9 @@ jobs:
       - name: Exercise production Reader in a headful browser
         working-directory: frontend
         run: xvfb-run -a node scripts/reader-browser-smoke.mjs
+      - name: Exercise local-first Reader documents
+        working-directory: frontend
+        run: xvfb-run -a node scripts/reader-documents-browser-smoke.mjs
       - name: Upload actual browser screenshots and results
         if: always()
         uses: actions/upload-artifact@v4
