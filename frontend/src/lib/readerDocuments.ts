@@ -1,4 +1,3 @@
-import { browser } from '$app/environment';
 import { get, writable } from 'svelte/store';
 import type {
 	ReaderDocumentFormat,
@@ -58,6 +57,7 @@ const STORE_NAME = 'documents';
 const FALLBACK_PREFIX = 'wabi:reader:document:v1:';
 const RECOVERY_PREFIX = 'wabi:reader:document-recovery:v1:';
 const SAVE_DEBOUNCE_MS = 120;
+const browser = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 
 export const readerDocuments = writable<Record<string, ReaderLocalDocument>>({});
 export const readerDocumentsHydrated = writable(false);
@@ -66,10 +66,15 @@ export const readerStoragePersistent = writable<boolean | null>(null);
 
 let hydratePromise: Promise<void> | null = null;
 let dbPromise: Promise<IDBDatabase | null> | null = null;
+let lastTimestamp = 0;
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const persistChains = new Map<string, Promise<void>>();
+const discardingDocuments = new Set<string>();
 
+/** Monotonic per-tab timestamps make newest-write checks deterministic even inside one millisecond. */
 function now(): number {
-	return Date.now();
+	lastTimestamp = Math.max(Date.now(), lastTimestamp + 1);
+	return lastTimestamp;
 }
 
 function randomId(prefix: string): string {
@@ -99,12 +104,13 @@ function storageKey(prefix: string, documentId: string): string {
 	return `${prefix}${documentId}`;
 }
 
-function safeLocalSet(key: string, value: string): void {
-	if (!browser) return;
+function safeLocalSet(key: string, value: string): boolean {
+	if (!browser) return false;
 	try {
 		localStorage.setItem(key, value);
+		return true;
 	} catch {
-		// IndexedDB remains the primary store. Recovery mirroring is best-effort.
+		return false;
 	}
 }
 
@@ -219,6 +225,14 @@ function mergeNewest(records: ReaderLocalDocument[]): Record<string, ReaderLocal
 	return merged;
 }
 
+/** True only when the persisted snapshot is still the latest local mutation. */
+export function shouldFinalizeReaderDocumentSave(
+	current: ReaderLocalDocument | null | undefined,
+	persisted: ReaderLocalDocument
+): boolean {
+	return Boolean(current && current.documentId === persisted.documentId && current.updatedAt === persisted.updatedAt);
+}
+
 export async function requestReaderPersistentStorage(): Promise<boolean | null> {
 	if (!browser || !navigator.storage?.persist) {
 		readerStoragePersistent.set(null);
@@ -293,27 +307,59 @@ export function findReaderDocumentForSelection(selection: ReaderDocumentSelectio
 	return documents.find((document) => document.sourceDocKey === sourceDocKey) || null;
 }
 
-async function persistNow(record: ReaderLocalDocument): Promise<void> {
-	setSaveState(record.documentId, 'saving');
-	const saved = { ...record, lastLocalSaveAt: now() };
-	readerDocuments.update((current) => ({ ...current, [saved.documentId]: saved }));
+async function persistSnapshot(record: ReaderLocalDocument): Promise<void> {
+	if (discardingDocuments.has(record.documentId)) return;
+	const beforeWrite = get(readerDocuments)[record.documentId];
+	if (beforeWrite && beforeWrite.updatedAt <= record.updatedAt) setSaveState(record.documentId, 'saving');
+	const saved: ReaderLocalDocument = { ...record, lastLocalSaveAt: now() };
 	const idbSaved = await idbPut(saved);
-	if (!idbSaved) safeLocalSet(storageKey(FALLBACK_PREFIX, saved.documentId), JSON.stringify(saved));
-	else safeLocalRemove(storageKey(FALLBACK_PREFIX, saved.documentId));
+	if (discardingDocuments.has(record.documentId)) return;
+	const fallbackSaved = idbSaved
+		? true
+		: safeLocalSet(storageKey(FALLBACK_PREFIX, saved.documentId), JSON.stringify(saved));
+	if (idbSaved) safeLocalRemove(storageKey(FALLBACK_PREFIX, saved.documentId));
+	const current = get(readerDocuments)[saved.documentId];
+	if (!shouldFinalizeReaderDocumentSave(current, record)) {
+		// A newer keystroke/comment/suggestion exists. Its recovery mirror must
+		// stay intact and its queued persistence owns the final save state.
+		if (current) setSaveState(saved.documentId, 'dirty');
+		return;
+	}
+	if (!fallbackSaved) {
+		setSaveState(saved.documentId, 'error');
+		return;
+	}
+	readerDocuments.update((documents) => {
+		const latest = documents[saved.documentId];
+		if (!shouldFinalizeReaderDocumentSave(latest, record)) return documents;
+		return { ...documents, [saved.documentId]: { ...latest, lastLocalSaveAt: saved.lastLocalSaveAt } };
+	});
 	safeLocalRemove(storageKey(RECOVERY_PREFIX, saved.documentId));
 	setSaveState(saved.documentId, 'saved');
 }
 
+function enqueuePersist(record: ReaderLocalDocument): Promise<void> {
+	const documentId = record.documentId;
+	const previous = persistChains.get(documentId) || Promise.resolve();
+	const next = previous.catch(() => {}).then(() => persistSnapshot(record));
+	persistChains.set(documentId, next);
+	void next.finally(() => {
+		if (persistChains.get(documentId) === next) persistChains.delete(documentId);
+	});
+	return next;
+}
+
 function schedulePersist(record: ReaderLocalDocument): void {
+	if (discardingDocuments.has(record.documentId)) return;
 	// Synchronous recovery mirror first: a crash between this keystroke and the
 	// IndexedDB transaction can still be recovered on the next launch.
-	safeLocalSet(storageKey(RECOVERY_PREFIX, record.documentId), JSON.stringify(record));
-	setSaveState(record.documentId, 'dirty');
+	const mirrored = safeLocalSet(storageKey(RECOVERY_PREFIX, record.documentId), JSON.stringify(record));
+	setSaveState(record.documentId, mirrored || typeof indexedDB !== 'undefined' ? 'dirty' : 'error');
 	const existing = saveTimers.get(record.documentId);
 	if (existing) clearTimeout(existing);
 	saveTimers.set(record.documentId, setTimeout(() => {
 		saveTimers.delete(record.documentId);
-		void persistNow(record).catch(() => setSaveState(record.documentId, 'error'));
+		void enqueuePersist(record).catch(() => setSaveState(record.documentId, 'error'));
 	}, SAVE_DEBOUNCE_MS));
 }
 
@@ -324,9 +370,11 @@ export async function flushReaderDocument(documentId: string): Promise<void> {
 		saveTimers.delete(documentId);
 	}
 	const record = get(readerDocuments)[documentId];
-	if (!record) return;
+	if (!record || discardingDocuments.has(documentId)) return;
+	// Refresh the synchronous mirror before forcing the durable transaction.
+	safeLocalSet(storageKey(RECOVERY_PREFIX, documentId), JSON.stringify(record));
 	try {
-		await persistNow(record);
+		await enqueuePersist(record);
 	} catch {
 		setSaveState(documentId, 'error');
 	}
@@ -346,7 +394,7 @@ export async function ensureReaderDocument(selection: ReaderDocumentSelection): 
 	);
 	readerDocuments.update((current) => ({ ...current, [document.documentId]: document }));
 	safeLocalSet(storageKey(RECOVERY_PREFIX, document.documentId), JSON.stringify(document));
-	await persistNow(document);
+	await enqueuePersist(document);
 	return get(readerDocuments)[document.documentId] || document;
 }
 
@@ -523,19 +571,27 @@ export async function discardReaderDocument(documentId: string): Promise<void> {
 		clearTimeout(timer);
 		saveTimers.delete(documentId);
 	}
-	readerDocuments.update((current) => {
-		const next = { ...current };
-		delete next[documentId];
-		return next;
-	});
-	readerDocumentSaveState.update((current) => {
-		const next = { ...current };
-		delete next[documentId];
-		return next;
-	});
-	safeLocalRemove(storageKey(FALLBACK_PREFIX, documentId));
-	safeLocalRemove(storageKey(RECOVERY_PREFIX, documentId));
-	await idbDelete(documentId);
+	discardingDocuments.add(documentId);
+	try {
+		const inFlight = persistChains.get(documentId);
+		if (inFlight) await inFlight.catch(() => {});
+		readerDocuments.update((current) => {
+			const next = { ...current };
+			delete next[documentId];
+			return next;
+		});
+		readerDocumentSaveState.update((current) => {
+			const next = { ...current };
+			delete next[documentId];
+			return next;
+		});
+		safeLocalRemove(storageKey(FALLBACK_PREFIX, documentId));
+		safeLocalRemove(storageKey(RECOVERY_PREFIX, documentId));
+		await idbDelete(documentId);
+	} finally {
+		discardingDocuments.delete(documentId);
+		persistChains.delete(documentId);
+	}
 }
 
 export function isReaderDocumentChanged(record: ReaderLocalDocument): boolean {
