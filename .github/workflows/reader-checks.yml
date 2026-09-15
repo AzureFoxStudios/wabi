@@ -42,7 +42,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Reader unit tests
         working-directory: frontend
-        run: bun test src/lib/components/readerDocumentTools.test.ts src/lib/readerCode.test.ts src/lib/readerDocuments.test.ts src/lib/readerDocumentSourceId.test.ts src/lib/readerDocumentFirstEdit.test.ts
+        run: bun test src/lib/components/readerDocumentTools.test.ts src/lib/readerCode.test.ts src/lib/readerDocument*.test.ts src/lib/readerDocuments.test.ts
       # Vite's native dependency resolver also visits the parent project.
       # Its tsconfig extends the generated Kit configuration, even though
       # the Reader fixture itself uses an isolated, minimal tsconfig.
