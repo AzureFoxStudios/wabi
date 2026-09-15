@@ -11,7 +11,8 @@
 	import { openWabiDB, getWabiDB } from '$lib/wabidb';
 	import { drainOutboundQueue } from '$lib/wabidb/drain';
 
-	import { updated } from '$app/stores';
+	import { afterNavigate } from '$app/navigation';
+	import { page, updated } from '$app/stores';
 	import { initRelaySelector } from '$lib/relaySelector';
 	import { startupMark, startupMeasure } from '$lib/startupProfiler';
 	import { initEmojis } from '$lib/emoji-store';
@@ -29,6 +30,15 @@
 
 	initI18n();
 	startSocketErrorToasts();
+
+	// The document shell covers every URL, but only the workspace page owns
+	// session/bootstrap readiness. Reveal standalone pages and route errors
+	// after they mount, including navigation away from a pending workspace.
+	afterNavigate(() => {
+		if ($page.route.id !== '/' || $page.error) {
+			window.dispatchEvent(new CustomEvent('wabi:boot-hide'));
+		}
+	});
 
 let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
 let onlineHandler: (() => void) | null = null;

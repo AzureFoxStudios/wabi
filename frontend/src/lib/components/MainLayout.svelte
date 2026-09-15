@@ -633,6 +633,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		swipePreviewOffsetX = 0;
 	}
 
+	// A gesture can be interrupted by resizing before touchend/touchcancel.
+	// Never carry its preview opacity or disabled transition into the desktop dock.
+	$: if (!$layoutStore.isMobile) resetTouchSwipe();
+
 	function handleTouchStart(event: TouchEvent): void {
 		if (!$layoutStore.isMobile || event.touches.length !== 1) {
 			resetTouchSwipe();
@@ -885,41 +889,41 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (mobileNavVisible) scheduleMobileNavIdleHide();
 	}
 
-	function getChannelPreviewTransform(): string | undefined {
-		if (!$layoutStore.isMobile) return undefined;
-		const channelsOpen = $layoutStore.showMobileChannels;
-		if (!swipePreviewActive || swipePreviewTarget !== 'channels') {
+	// Pass panel and gesture state explicitly so Svelte updates these inline
+	// styles when a sheet opens, closes, or follows a swipe.
+	function getChannelPreviewTransform(mobile: boolean, channelsOpen: boolean, previewActive: boolean, previewTarget: string, offsetX: number): string | undefined {
+		if (!mobile) return undefined;
+		if (!previewActive || previewTarget !== 'channels') {
 			// When channels is open normally (not preview), no transform
 			if (channelsOpen) return 'translateX(0)';
 			return 'translateX(-100%)';
 		}
 		if (channelsOpen) {
 			// Dragging to close - panel moves left with negative offset
-			return `translateX(${swipePreviewOffsetX}px)`;
+			return `translateX(${offsetX}px)`;
 		}
 		// Edge swipe to open - panel slides in from left
-		return `translateX(calc(-100% + ${Math.max(0, swipePreviewOffsetX)}px))`;
+		return `translateX(calc(-100% + ${Math.max(0, offsetX)}px))`;
 	}
 
-	function getUsersPreviewTransform(): string {
-		const usersOpen = $layoutStore.rightPanelMode !== 'none';
-		if (!swipePreviewActive || swipePreviewTarget !== 'users') {
+	function getUsersPreviewTransform(usersOpen: boolean, previewActive: boolean, previewTarget: string, offsetX: number): string {
+		if (!previewActive || previewTarget !== 'users') {
 			// When users panel is open normally, no transform
 			if (usersOpen) return 'translateX(0)';
 			return 'translateX(100%)';
 		}
 		if (usersOpen) {
 			// Dragging to close - panel moves right with positive offset
-			return `translateX(${Math.max(0, swipePreviewOffsetX)}px)`;
+			return `translateX(${Math.max(0, offsetX)}px)`;
 		}
 		// Edge swipe to open - panel slides in from right
-		return `translateX(calc(100% + ${Math.min(0, swipePreviewOffsetX)}px))`;
+		return `translateX(calc(100% + ${Math.min(0, offsetX)}px))`;
 	}
 
-	function getPreviewOpacity(): number {
-		if (!swipePreviewActive || swipePreviewTarget === 'none') return 1;
+	function getPreviewOpacity(previewActive: boolean, previewTarget: string, offsetX: number): number {
+		if (!previewActive || previewTarget === 'none') return 1;
 		const width = Math.max(window.innerWidth, 1);
-		const p = Math.min(1, Math.abs(swipePreviewOffsetX) / (width * 0.34));
+		const p = Math.min(1, Math.abs(offsetX) / (width * 0.34));
 		return 0.35 + (p * 0.65);
 	}
 
@@ -1080,8 +1084,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		class:mobile-visible={$layoutStore.showMobileChannels}
 		class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'channels'}
 		class:dock-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
-		style:transform={getChannelPreviewTransform()}
-		style:opacity={getPreviewOpacity()}
+		style:transform={getChannelPreviewTransform($layoutStore.isMobile, $layoutStore.showMobileChannels, swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
+		style:opacity={getPreviewOpacity(swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
 		style:transition={swipePreviewActive ? 'none' : undefined}
 	>
 		<ChannelSidebar
@@ -1157,8 +1161,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			class="mobile-right-overlay"
 			class:visible={$layoutStore.rightPanelMode !== 'none'}
 			class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users'}
-			style:transform={getUsersPreviewTransform()}
-			style:opacity={getPreviewOpacity()}
+			style:transform={getUsersPreviewTransform($layoutStore.rightPanelMode !== 'none', swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
+			style:opacity={getPreviewOpacity(swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
 			style:transition={swipePreviewActive ? 'none' : undefined}
 		>
 			<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />

@@ -129,7 +129,7 @@
 
 <svelte:window onblur={() => close()} onkeydown={onKeydown} />
 
-<nav class="workspace-view-bar" aria-label="Workspace" bind:this={root}
+<nav class="workspace-view-bar" class:picker-open={open} aria-label="Workspace" bind:this={root}
 	onfocusout={(event) => { if (!root?.contains(event.relatedTarget as Node)) close(); }}>
 	<button class="workspace-trigger" type="button" bind:this={trigger}
 		aria-expanded={open} aria-controls={pickerId} aria-haspopup="dialog"
@@ -228,9 +228,10 @@
 	/* Mobile: the picker becomes a bottom sheet with a dimming backdrop.
 	   Clicks pass through the backdrop to the document outside-press handler. */
 	@media (max-width: 768px) {
-		/* Ride above the mobile bottom nav while the sheet is open */
-		.workspace-view-bar {
-			z-index: var(--z-modal, 1200);
+		/* The persistent bottom nav uses z-toast. Lift only the open sheet above
+		   it so its last row is reachable; the closed bar must stay below panels. */
+		.workspace-view-bar.picker-open {
+			z-index: calc(var(--z-toast, 2000) + 1);
 		}
 		.workspace-picker {
 			position: fixed;
