@@ -83,7 +83,9 @@
 
 	function syncSize() {
 		if (!canvas) return;
-		const dpr = window.devicePixelRatio || 1;
+		// Keep the shared backing store aligned with shader/CPU renderers, which
+		// cap DPR at 2 to avoid oversized full-screen buffers on dense displays.
+		const dpr = Math.min(window.devicePixelRatio || 1, 2);
 		const w = window.innerWidth;
 		const h = window.innerHeight;
 		canvasWidth = w;
@@ -125,7 +127,9 @@
 	function loop(time?: number) {
 		const now = time ?? performance.now();
 		const dt = now - lastTime;
-		if (dt < 40) {
+		const effect = effectsRegistry.get(currentEffectId);
+		const frameIntervalMs = effect?.frameIntervalMs ?? 40;
+		if (dt < frameIntervalMs) {
 			animId = requestAnimationFrame(loop);
 			return;
 		}
@@ -135,7 +139,6 @@
 			return;
 		}
 		lastTime = now;
-		const effect = effectsRegistry.get(currentEffectId);
 		if (effect) {
 			currentConfig = readConfig().config;
 			effect.render(dt, currentConfig);

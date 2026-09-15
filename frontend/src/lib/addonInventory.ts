@@ -63,7 +63,12 @@ const frontendAddonModules = import.meta.glob([
 ]);
 
 /** Bundled frontend allowlist IDs (must match loader.ts BUNDLED_ADDON_LOADERS). */
-const BUNDLED_FRONTEND_IDS = new Set(['youtube-sync', 'spotify-sync', 'steam']);
+const BUNDLED_FRONTEND_IDS = new Set([
+	'youtube-sync',
+	'spotify-sync',
+	'steam',
+	'translator-assist'
+]);
 
 function detectBuiltinFrontendAddonIds(): Set<string> {
 	const ids = new Set<string>(BUNDLED_FRONTEND_IDS);

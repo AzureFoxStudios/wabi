@@ -11,6 +11,7 @@ Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)
 ## What Wabi includes
 
 - **Communication** — channels, one-to-one DMs, group conversations, replies, presence, typing indicators, roles, and guest access.
+- **Optional translation** — local-first Translator Assist provides on-demand and viewport-aware automatic translation through user-controlled LibreTranslate endpoints, without making translation a Wabi server dependency or bundling language models.
 - **Calls** — voice, video, and screen sharing with Wabi's current call transports plus optional coturn TURN and LiveKit SFU deployment paths.
 - **Collaborative workspaces** — whiteboards, wiki/content surfaces, Planner/Notes-style workspaces, files/media, Reader, and dockable layouts instead of forcing every task through a chat scrollback.
 - **CAD and model review** — read-only DXF/DWG drawing review, 3MF and STEP/IGES model import, 3D inspection, and collaborative drawing-space markup. Wabi is a **review surface, not a CAD editor**.
@@ -25,6 +26,7 @@ Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)
 |---|---|
 | Authority server + WabiDB | ✅ Core path |
 | Chat, DMs, groups, roles, presence | ✅ Core path |
+| Translator Assist | 🔌 Optional, off by default; local/self-hosted LibreTranslate |
 | Voice/video/screen sharing | ✅ Available; transport/device hardening continues |
 | Whiteboards, wiki, Reader, workspace shell | ✅ Available |
 | CAD/model viewing + review markup | ✅ Available |
@@ -155,6 +157,7 @@ Self-hosting changes **who you trust**; it does not magically remove trust.
 - **DMs and private rooms are not end-to-end encrypted today.** Treat their text and attachments as server-readable.
 - Ephemeral/no-retention content is not the same thing as operator-blind content.
 - Optional tunnels, media providers, plugins, and external integrations add their own trust boundaries.
+- Translator Assist does not relay message text through the Authority for translation; choosing a remote translator still gives that translator the plaintext being translated.
 - Back up the complete Wabi data directory and preserve the WabiDB root key. Losing that key can make existing encrypted state unrecoverable.
 
 Read [Privacy stance](docs/PRIVACY_STANCE.md), [Security model](docs/SECURITY-MODEL.md), and [Backup & recovery](docs/deployment/BACKUP_AND_RECOVERY.md).
@@ -162,6 +165,8 @@ Read [Privacy stance](docs/PRIVACY_STANCE.md), [Security model](docs/SECURITY-MO
 ## Plugins and addons
 
 Wabi has both curated integrations and a runtime plugin framework. They are not the same maturity boundary. Runtime plugins are disabled by default and should currently be treated as trusted operator-installed code even though checksum/signing/scanning/audit controls exist.
+
+Translator Assist is a curated frontend-only addon: it is disabled by default, lazy-loads its translation runtime, and requires a local or explicitly chosen self-hosted translator. See [Translator Assist](docs/addons/TRANSLATOR_ASSIST.md).
 
 The old `mesh` addon is legacy compatibility material, **not** the production multi-node mechanism. See [Addons & plugins](docs/ADDONS.md) and [`plugins/README.md`](plugins/README.md).
 
@@ -178,9 +183,3 @@ Start with:
 - **[Roadmap](docs/ROADMAP.md)** — current priorities and acceptance gates
 
 Historical documentation lives on the `docs-history` branch. Dated plans under `docs/plans/` record how work evolved; they are evidence/history, not automatically the current product contract.
-
-**AI/code agents:** read [`AGENTS.md`](AGENTS.md) before editing the repository.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
