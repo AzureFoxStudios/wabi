@@ -66,7 +66,7 @@ try {
 	await page.locator('.workspace-trigger').click();
 	await page.getByRole('dialog', { name: 'Choose workspace' }).getByRole('button', { name: 'Notes', exact: true }).click();
 	await page.locator('.chat-surface .notes-workspace').waitFor();
-	await page.locator('.chat-surface').getByRole('button', { name: 'Create your first note', exact: true }).click();
+	await page.locator('.chat-surface').getByRole('button', { name: 'New note', exact: true }).first().click();
 	const editor = page.locator('.chat-surface').getByRole('textbox', { name: 'Note text', exact: true });
 	await editor.fill('Keep this note visible when the window narrows.');
 	await page.mouse.move(500, 400);

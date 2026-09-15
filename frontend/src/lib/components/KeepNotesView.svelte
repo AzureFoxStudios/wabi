@@ -1,13 +1,10 @@
 <script lang="ts">
-	import { currentUser } from '$lib/presenceIdentity';
-	import { getKeepNotesStorageKey } from '$lib/notesStore';
 	import { openNotesSurface } from '$lib/notesWorkspace';
 	import NotesWorkspace from './NotesWorkspace.svelte';
 
 	/** N2: right-panel notes uses compact layout; center/full can omit. */
 	let { compact = false }: { compact?: boolean } = $props();
 
-	const storageKey = $derived(getKeepNotesStorageKey($currentUser?.id));
 </script>
 
 {#if compact}
@@ -26,7 +23,6 @@
 			<NotesWorkspace
 				title="Notes"
 				showHeader={false}
-				{storageKey}
 				compact
 				emptyMessage="Keep personal notes, links, and reminders on this device."
 				placeholder="Write a note…"
@@ -37,7 +33,6 @@
 	<NotesWorkspace
 		title="Notes"
 		showHeader
-		{storageKey}
 		emptyMessage="Keep personal notes, links, and reminders on this device."
 		placeholder="Write a note…"
 	/>

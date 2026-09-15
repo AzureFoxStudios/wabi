@@ -231,6 +231,26 @@ Only this section records implementation status; planned cards above do not impl
 
 Independent review found no new backend credential-boundary regression. A separate mobile review identified interrupted-swipe cleanup; that repair and its browser regression are included above. Source changes were frozen before the final combined frontend checks. Browser checks used a real headful rendering environment, fixture APIs for entry/public pages and a disposable local Authority for the mobile shell. They are not physical-device calling or deployed-build certification.
 
+## Linked Notes implementation batch
+
+The campaign has moved into implementation. This batch is local to `codex/production-finish-20260915`; no push, merge or deployment is implied.
+
+| Card / change | Status | Evidence / remaining gate |
+| --- | --- | --- |
+| N01 persistence / ownership | Core implemented and checked | Dedicated additive IndexedDB schema, per-note revisions, independent drafts, committed-save acknowledgements, scoped notifications, trash/recovery. Real-browser tests cover competing writes, abort/retry, blocked upgrade, upgrade preservation, reload recovery, typing during self-link rename, server/account/path boundaries, logout, guest hashing and explicit offline storage failure. |
+| N02 recovery / backup | Partial | Explicit legacy destination, exact raw source preservation, partial-row validation, idempotent receipts and detached conversation IDs. JSON import remaps colliding IDs/titles/references atomically; export/import share a 20 MB UTF-8 / 10,000-note / 100,000-reference limit. Unsupported exports fail before creating a file. Legacy profile mapping and multipart/portable Markdown backups remain open. |
+| N03 shared surfaces | Primary journeys checked | Center/docked Notes and scratchpad share storage with independent drafts. Full opens the same UUID. DM is wired as a contextual view; dedicated DM acceptance remains. Removed only unreferenced legacy editor code; additive stubs and panels remain. |
+| N04 discovery / links | Partial | Titles, search, wiki links/backlinks, atomic incoming-link rename, aliases and deleted UUID identity implemented. Keyboard completion, rendered reading view and explicit relink UI remain open. |
+| N05 composition / Reader copy | Partial | Full-height editor, title-led list, visible local save status and one mobile secondary-action menu. Reader handoff is labeled as a copy with stable source identity. Reader return navigation and portable Markdown bundles remain open. |
+| Profile annotation safety | Implemented and checked | Owner/stable-subject scope, transactional revisions, clear tombstones, awaited saves, retained drafts/download. Actual popout save/reopen/clear, aborted save, total read failure and missing identity pass. Evidence `/tmp/wabi-profile-popout-zsZ2G7`; logs `/tmp/wabi-profile-popout-smoke.log` and `/tmp/wabi-profile-notes-smoke.log`. |
+| Independent concurrency review | Findings fixed | Delayed trash cannot follow a changed selection; runtime drafts remain downloadable after reopening during a storage outage; typing during self-link rename cannot overwrite rewritten links; exports cannot exceed import support. |
+| Frontend validation | Passed | **790 pass, 3 existing skips, 0 fail** across 107 files (`/tmp/wabi-notes-final-unit-20260915.log`); **0 type errors, 167 warnings** (`/tmp/wabi-notes-final-check-20260915.log`); static SPA build passes (`/tmp/wabi-notes-final-build-20260915.log`). This is not final embedded-binary acceptance. |
+| Rendered Notes acceptance | Tested journeys pass | Disposable Authority + current Vite frontend, headful Chromium: create/save, links/backlinks/alias rename, editor height, trash/restore/search, delayed-action selection regression, shared scratchpad Full and dark/light mobile. `notes-workspace-browser-smoke.mjs`; `/tmp/wabi-notes-final-ui-20260915.log`. |
+| Storage / scope acceptance | Passed | Real IndexedDB windows/contexts, no live data. `notes-storage-browser-smoke.mjs` (`/tmp/wabi-notes-final-storage-20260915.log`) and `notes-scope-browser-smoke.mjs` (`/tmp/wabi-notes-scope-smoke.log`). |
+| U02 closed mobile sheet shadow | Checked in dark/light browser renders | Offscreen sheets no longer cast a shadow over center stage. Open/swipe-preview styles remain. Final notebook screenshots `/tmp/wabi-notebook-ui-NJUogD`; mobile dock/resize/picker/cold-load/swipe regression log `/tmp/wabi-notes-final-mobile-panels-20260915.log`, evidence `/tmp/wabi-mobile-panel-resize-fIWuRA`. |
+
+Behavior and limits are in [Local Notes](../features/LOCAL_NOTES.md). Remaining N02–N05 work, Reader upgrade safety (T03), full workspace acceptance, clean-host install/restore, physical-device calling and both pilot cohorts still gate release. No writing was migrated on wabi.chat.
+
 ## Interface-review coverage
 
 Full-mode review is bounded to inspected public pages, the guest Messages/Notes views and the source contracts above. It does not certify the other workspaces or populated/private conversations. Svelte 5, existing plain CSS and semantic tokens remain the styling system.

@@ -20,6 +20,12 @@ The intended model is:
 
 Wabi is not trying to become a centralized hosted social network, a Matrix/ActivityPub-style federation protocol, or a distributed active-active database product.
 
+## Production-finish candidate — not yet merged or deployed
+
+`codex/production-finish-20260915` adds account/server-scoped local Notes with transactional saves, independent editor drafts, conflict recovery, trash, titled wiki-links/backlinks, explicit legacy recovery, JSON backup/import and a shared scratchpad. Profile annotations now use scoped, revision-checked writes. See [Local Notes](features/LOCAL_NOTES.md) for storage boundaries, backup limits and unfinished acceptance work.
+
+This candidate also contains the production-finish entry-page, mobile-panel and authentication repairs tracked in the [campaign ledger](plans/2026-09-15-production-finish-campaign.md). Candidate checks do not promote the deployed website, full workspace suite, native devices, self-host installation, restore procedure or physical-device calling to production-ready status.
+
 ## Available in the current main product line
 
 ### Communication and community

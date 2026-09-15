@@ -29,10 +29,12 @@
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import {
 		MAX_USER_NOTE_LENGTH,
-		clearUserNote as clearStoredUserNote,
+		forgetUserNoteDraft, getUserNoteDraft, retainUserNoteDraft, hasLegacyUserNotes, stableUserNoteSubject,
 		getUserNote,
 		setUserNote
 	} from '$lib/userNotes';
+	import { notebookOwner } from '$lib/notes/scope';
+	import type { NotebookOwner } from '$lib/notes/types';
 	import {
 		MAX_LOCAL_NICKNAME_LENGTH,
 		clearLocalNicknameForUser,
@@ -55,6 +57,13 @@
 	let userNoteDraft = '';
 	let userNoteStatus = '';
 	let lastLoadedUserId = '';
+	let noteOwner: NotebookOwner | null = null;
+	let noteSubject = '';
+	let noteRevision = 0;
+	let noteBusy = false;
+	let noteReady = false;
+	let noteLoad = 0;
+	let legacyNotesFound = false;
 	let profileExpanded = false;
 	let disableAllBanners = false;
 	type ConnectionRow = { label: string; value: string; url?: string };
@@ -159,18 +168,15 @@
 		(user && $users.find((candidate) => candidate.id === user.id)) || user || null;
 	$: popoutStatus = liveUser?.status || user?.status || 'offline';
 
-	$: if (user?.id && browser && user.id !== lastLoadedUserId) {
-		loadUserNote();
-		lastLoadedUserId = user.id;
-		profileExpanded = false;
-	}
-
-	$: if (!user?.id) {
-		lastLoadedUserId = '';
-		userNote = '';
-		userNoteDraft = '';
-		userNoteStatus = '';
-		profileExpanded = false;
+	$: if (browser) {
+		const subject = stableUserNoteSubject(user?.dbUserId);
+		const owner = $notebookOwner.owner;
+		const identity = JSON.stringify([owner?.scopeId, subject, isOpen]);
+		if (identity !== lastLoadedUserId || noteOwner !== owner) {
+			lastLoadedUserId = identity;
+			void loadUserNote(owner, subject);
+			profileExpanded = false;
+		}
 	}
 
 	$: if (isOpen && anchorElement) {
@@ -191,30 +197,74 @@
 		if (isOpen) calculatePosition();
 	}
 
-	function loadUserNote() {
-		if (!browser || !user) return;
-		const note = getUserNote(user.id);
-		userNote = note;
-		userNoteDraft = note;
-		userNoteStatus = '';
+	async function loadUserNote(owner: NotebookOwner | null, subject: string | null) {
+		const ticket = ++noteLoad;
+		noteOwner = owner; noteSubject = subject || ''; noteReady = false;
+		userNote = ''; userNoteDraft = ''; noteRevision = 0; noteBusy = false;
+		legacyNotesFound = hasLegacyUserNotes();
+		if (!owner || !subject) {
+			userNoteStatus = !subject ? 'Personal notes need a stable account identity; this profile does not provide one.' : ($notebookOwner.error || 'Waiting for your notebook account.');
+			return;
+		}
+		const retained = getUserNoteDraft(owner, subject);
+		if (retained) {
+			userNoteDraft = retained.text;
+			noteRevision = retained.baseRevision;
+			noteReady = true;
+		}
+		userNoteStatus = 'Loading personal note…';
+		try {
+			const saved = await getUserNote(owner, subject);
+			if (ticket !== noteLoad || !owner.isCurrent()) return;
+			const draft = getUserNoteDraft(owner, subject);
+			userNote = saved.text;
+			userNoteDraft = draft?.text ?? saved.text;
+			noteRevision = draft?.baseRevision ?? saved.revision;
+			noteReady = true;
+			userNoteStatus = draft ? 'Unsaved draft restored in this session.' : 'On this device · personal to this server/account';
+		} catch (error) {
+			if (ticket === noteLoad) userNoteStatus = error instanceof Error ? error.message : 'Could not load this personal note.';
+		}
 	}
 
-	function saveUserNoteDraft() {
-		if (!browser || !user) return;
-		const saved = setUserNote(user.id, userNoteDraft);
-		userNote = saved;
-		userNoteDraft = saved;
-		userNoteStatus = saved
-			? 'Note saved locally on this device.'
-			: 'Note cleared.';
+	function retainNoteDraft() {
+		if (!noteOwner || !noteSubject || !noteReady) return;
+		retainUserNoteDraft(noteOwner, noteSubject, { text: userNoteDraft, baseRevision: noteRevision });
+		userNoteStatus = 'Unsaved on this device. Save or download before leaving.';
+	}
+
+	async function saveUserNoteDraft() {
+		if (!noteOwner || !noteSubject || !noteReady || noteBusy) return;
+		const owner = noteOwner, subject = noteSubject, ticket = noteLoad, text = userNoteDraft, revision = noteRevision;
+		retainNoteDraft(); noteBusy = true; userNoteStatus = 'Saving…';
+		try {
+			const saved = await setUserNote(owner, subject, text, revision);
+			const retained = getUserNoteDraft(owner, subject);
+			if (retained?.text === text && retained.baseRevision === revision) forgetUserNoteDraft(owner, subject);
+			if (ticket !== noteLoad || !owner.isCurrent()) return;
+			userNote = saved.text; noteRevision = saved.revision;
+			userNoteStatus = 'Saved on this device.';
+		} catch (error) {
+			if (ticket === noteLoad) userNoteStatus = error instanceof Error ? error.message : 'Could not save. Your draft is retained in this session.';
+		} finally { if (ticket === noteLoad) noteBusy = false; }
 	}
 
 	function clearUserNoteDraft() {
-		if (!browser || !user) return;
-		clearStoredUserNote(user.id);
-		userNote = '';
-		userNoteDraft = '';
-		userNoteStatus = 'Note cleared.';
+		userNoteDraft = ''; retainNoteDraft(); void saveUserNoteDraft();
+	}
+	function downloadNoteDraft() {
+		const url = URL.createObjectURL(new Blob([userNoteDraft], { type: 'text/plain;charset=utf-8' }));
+		const link = document.createElement('a'); link.href = url; link.download = 'personal-note-draft.txt'; link.click();
+		setTimeout(() => URL.revokeObjectURL(url), 1000);
+	}
+	function warnUnsavedNote(event: BeforeUnloadEvent) {
+		if (noteReady && userNoteDraft !== userNote) { event.preventDefault(); event.returnValue = ''; }
+	}
+	function reloadSavedNote() {
+		if (!noteOwner || !noteSubject || noteBusy) return;
+		if (userNoteDraft !== userNote) downloadNoteDraft();
+		forgetUserNoteDraft(noteOwner, noteSubject);
+		void loadUserNote(noteOwner, noteSubject);
 	}
 
 	function promptSetLocalNickname(): void {
@@ -474,6 +524,8 @@
 	});
 </script>
 
+<svelte:window on:beforeunload={warnUnsavedNote} />
+
 {#if isOpen && user}
 	<div
 		class="popout-container"
@@ -581,27 +633,33 @@
 						rows="3"
 						maxlength={MAX_USER_NOTE_LENGTH}
 						bind:value={userNoteDraft}
+						on:input={() => queueMicrotask(retainNoteDraft)}
+						disabled={!noteReady || noteBusy}
+						aria-label="Personal note"
 						placeholder="Add a private note about this user (local only)."
 					></textarea>
 					<div class="note-actions">
 						<button
 							class="note-btn primary"
 							on:click={saveUserNoteDraft}
-							disabled={userNoteDraft.trim() === userNote}
+							disabled={!noteReady || noteBusy || userNoteDraft === userNote}
 						>
 							Save
 						</button>
 						<button
 							class="note-btn"
 							on:click={clearUserNoteDraft}
-							disabled={!userNote && !userNoteDraft.trim()}
+							disabled={!noteReady || noteBusy || (!userNote && !userNoteDraft)}
 						>
 							Clear
 						</button>
+						<button class="note-btn" on:click={downloadNoteDraft} disabled={!userNoteDraft}>Download draft</button>
+						<button class="note-btn" on:click={reloadSavedNote} disabled={!noteOwner || !noteSubject || noteBusy}>{userNoteDraft !== userNote ? 'Download draft & load saved' : 'Reload saved note'}</button>
 						<span class="note-count">{userNoteDraft.length}/{MAX_USER_NOTE_LENGTH}</span>
 					</div>
+					{#if legacyNotesFound}<p class="note-status">Older personal notes are preserved on this device. Their owner and profile identities need explicit mapping before recovery; they have not been assigned to this account.</p>{/if}
 					{#if userNoteStatus}
-						<p class="note-status">{userNoteStatus}</p>
+						<p class="note-status" role="status">{userNoteStatus}</p>
 					{:else if userNote}
 						<p class="section-content note-content">{userNote}</p>
 					{/if}
@@ -676,3 +734,10 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	.popout-container .note-actions { flex-wrap: wrap; gap: 0.5rem; }
+	.popout-container .note-actions .note-btn { min-height: 36px; padding: 0.375rem 0.625rem; font-size: 0.8125rem; border-radius: var(--radius-md, 8px); }
+	.popout-container .note-count { flex-basis: 100%; margin-left: 0; }
+	@media (pointer: coarse) { .popout-container .note-actions .note-btn { min-height: 44px; } }
+</style>

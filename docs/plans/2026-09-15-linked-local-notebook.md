@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-15
 
-**Status:** implementation-ready design; the notebook migration/linking is not yet implemented
+**Status:** core candidate implemented and under combined validation. Transactional notebooks, scoped drafts/recovery, wiki-link indexes, legacy recovery, JSON backup/import, shared scratchpad and profile annotation safety are implemented. Markdown completion/reading view, explicit relink UI, portable Markdown bundle, Reader return control and legacy profile mapping remain open. See [local Notes guide](../features/LOCAL_NOTES.md) and the campaign execution ledger; this is not a deployment claim.
 
 **Parent:** [Production finish campaign](2026-09-15-production-finish-campaign.md), N01–N05
 
