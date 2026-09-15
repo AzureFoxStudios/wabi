@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ReaderTabImpl from './ReaderTabImpl.svelte';
+	import ReaderDocumentWorkbench from './ReaderDocumentWorkbench.svelte';
 </script>
 
-<ReaderTabImpl />
+<ReaderDocumentWorkbench />
