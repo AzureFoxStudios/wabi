@@ -15,6 +15,7 @@ import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { messageDeliveries, UNCONFIRMED_MESSAGE } from './messageDelivery';
 import { MESSAGE_QUEUE_OWNERSHIP_ERROR } from './wabidb/queue/groupPolicy';
 import { E2EE_MESSAGE_PREFIX, encryptMessageForChannel, prepareIncomingE2eeMessage } from './e2ee';
+import { shouldAttemptE2eeForChannelType } from './e2eeChannelPolicy';
 import { showToast } from './toast';
 
 export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
@@ -110,6 +111,21 @@ function updateOptimisticMessage(channelId: string, matcher: (message: Message) 
 	});
 }
 
+/**
+ * Known shared channel types can safely bypass the private-room E2EE endpoint.
+ * If the channel has not hydrated yet, keep the old fail-closed behavior and
+ * attempt E2EE rather than assuming plaintext is allowed.
+ */
+async function shouldAttemptE2eeForChannel(channelId: string): Promise<boolean> {
+	try {
+		const { channels } = await import('./channelStore');
+		const channel = get(channels).find((candidate) => candidate.id === channelId);
+		return shouldAttemptE2eeForChannelType(channel?.type);
+	} catch {
+		return true;
+	}
+}
+
 export function markMessagesAsRead(): void {
 	const sock = getSocket();
 	if (sock) sock.emit('mark-messages-as-read');
@@ -149,17 +165,19 @@ export async function sendMessage(
 	let wireType: MessageType = type;
 	let wireOptions: Record<string, unknown> = options;
 	let e2eeEpoch: number | null = null;
-	try {
-		const encrypted = await encryptMessageForChannel(channelId, trimmed, type, options);
-		if (encrypted) {
-			wireText = encrypted.wireText;
-			wireType = encrypted.wireType as MessageType;
-			wireOptions = encrypted.wireOptions;
-			e2eeEpoch = encrypted.epoch;
+	if (await shouldAttemptE2eeForChannel(channelId)) {
+		try {
+			const encrypted = await encryptMessageForChannel(channelId, trimmed, type, options);
+			if (encrypted) {
+				wireText = encrypted.wireText;
+				wireType = encrypted.wireType as MessageType;
+				wireOptions = encrypted.wireOptions;
+				e2eeEpoch = encrypted.epoch;
+			}
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Could not encrypt this message.', 'error');
+			return { ok: false, reason: 'queue_failed' };
 		}
-	} catch (error) {
-		showToast(error instanceof Error ? error.message : 'Could not encrypt this message.', 'error');
-		return { ok: false, reason: 'queue_failed' };
 	}
 
 	const clientMessageId = createClientMessageId(channelId);
@@ -279,12 +297,14 @@ export async function editMessage(channelId: string, messageId: string, newText:
 	updateOptimisticMessage(channelId, (m) => m.id === messageId, { text: newText, isEdited: true });
 
 	let wireText = newText;
-	try {
-		const encrypted = await encryptMessageForChannel(channelId, newText, 'text', {});
-		if (encrypted) wireText = encrypted.wireText;
-	} catch (error) {
-		showToast(error instanceof Error ? error.message : 'Could not encrypt this edit.', 'error');
-		return;
+	if (await shouldAttemptE2eeForChannel(channelId)) {
+		try {
+			const encrypted = await encryptMessageForChannel(channelId, newText, 'text', {});
+			if (encrypted) wireText = encrypted.wireText;
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Could not encrypt this edit.', 'error');
+			return;
+		}
 	}
 
 	const db = getWabiDB();
