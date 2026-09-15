@@ -11,6 +11,9 @@
 	} from '$lib/business/plannerUsers';
 
 	export let selectedProjectId: string | null = null;
+	// Hosts that already title the chart (e.g. Insights "Timeline — all projects")
+	// can suppress the built-in header to avoid a double heading.
+	export let showHeader = true;
 
 	// Get the selected project or all projects
 	$: displayProjects = selectedProjectId
@@ -150,12 +153,14 @@
 </script>
 
 <div class="gantt-container">
-	<div class="gantt-header">
-		<h2>Project Timeline {selectedProjectId ? '(Gantt)' : '(All Projects)'}</h2>
-		<p class="gantt-info">
-			Bars show project spans; thin rows are task due dates by priority. Colors: green complete, blue on track, amber behind.
-		</p>
-	</div>
+	{#if showHeader}
+		<div class="gantt-header">
+			<h2>Project Timeline {selectedProjectId ? '(Gantt)' : '(All Projects)'}</h2>
+			<p class="gantt-info">
+				Bars show project spans; thin rows are task due dates by priority. Colors: green complete, blue on track, amber behind.
+			</p>
+		</div>
+	{/if}
 
 	{#if displayProjects.length === 0}
 		<div class="empty-state">

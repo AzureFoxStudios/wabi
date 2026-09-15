@@ -28,7 +28,7 @@
 	<div class="pwa-install-banner" role="region" aria-label="Install app">
 		<div class="pwa-install-banner__text">
 			<strong>Install Wabi</strong>
-			<span>Home screen icon + better phone notifications.</span>
+			<span>Add Wabi to your home screen for quick access.</span>
 		</div>
 		<div class="pwa-install-banner__actions">
 			<button type="button" class="pwa-install-banner__primary" disabled={busy} on:click={onInstall}>
@@ -74,21 +74,33 @@
 	.pwa-install-banner__primary,
 	.pwa-install-banner__ghost {
 		flex: 1;
-		min-height: 40px;
+		min-height: 44px;
 		border-radius: 999px;
 		border: 1px solid transparent;
 		font: inherit;
 		font-weight: 600;
-		font-size: 0.82rem;
+		font-size: 0.86rem;
 		cursor: pointer;
+		transition: filter var(--duration-fast, 150ms) ease, background var(--duration-fast, 150ms) ease;
 	}
 	.pwa-install-banner__primary {
-		background: var(--accent-primary, #6366f1);
-		color: white;
+		background: var(--accent-primary-color, #6366f1);
+		color: var(--text-on-accent, #fff);
+	}
+	.pwa-install-banner__primary:hover:not(:disabled) {
+		filter: brightness(1.08);
 	}
 	.pwa-install-banner__ghost {
 		background: transparent;
 		border-color: var(--border-subtle, #475569);
 		color: var(--text-secondary, #b3b3ff);
+	}
+	.pwa-install-banner__ghost:hover {
+		background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+		color: var(--text-heading, #e0e0ff);
+	}
+	.pwa-install-banner button:focus-visible {
+		outline: 2px solid var(--accent-primary-color, #6366f1);
+		outline-offset: 2px;
 	}
 </style>

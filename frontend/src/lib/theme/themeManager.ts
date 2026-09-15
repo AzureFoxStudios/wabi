@@ -117,7 +117,7 @@ const SEMANTIC_MAP: Record<string, string> = {
 	'--border-subtle': '--border',
 	'--border-focus': '--accent',
 	'--accent-primary': '--accent',
-	'--accent-secondary': '--accent-hover',
+	'--accent-secondary': '--color-accent-secondary',
 	'--accent-primary-color': '--color-accent-primary',
 	'--accent-secondary-color': '--color-accent-secondary',
 	'--accent-gradient': '--gradient-accent',

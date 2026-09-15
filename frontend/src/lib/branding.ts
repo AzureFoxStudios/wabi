@@ -25,7 +25,7 @@ export const brandConfig: BrandConfig = {
 	tagline: 'Chat',
 	description: 'Ephemeral chat with screen sharing and business features',
 	domain: 'wabi.chat',
-	logoUrl: '/wabi-logo.webp',
+	logoUrl: '/wabi-logo.png',
 	logoSmallUrl: '/wabi-logo-small.webp',
 	bootLogoUrl: '/wabi-logo-boot.webp',
 	faviconUrl: '/favicon.png',

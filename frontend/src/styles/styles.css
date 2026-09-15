@@ -13,6 +13,7 @@
 
 @import './tokens.css';
 @import './base.css';
+@import './components/controls.css';
 @import './components/chat-core.css';
 @import './components/chat-header.css';
 @import './components/chat-search.css';

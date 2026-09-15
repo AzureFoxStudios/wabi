@@ -1,0 +1,145 @@
+name: Native Mobile Build
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'src-tauri/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/mobile-native-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-aarch64:
+    name: Android aarch64 debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: true
+      NDK_VERSION: 27.2.12479018
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub's Ubuntu image ships several multi-GB toolchains that this job
+      # never uses. A full Rust + Tauri Android dependency graph can otherwise
+      # exhaust the ~14 GB writable runner disk while Cargo is unpacking crates.
+      - name: Reclaim runner disk for native build
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h /
+
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /usr/local/share/boost \
+            /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL \
+            "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/ndk"
+          docker system prune -af >/dev/null 2>&1 || true
+          sudo apt-get clean
+
+          echo "Disk after cleanup:"
+          df -h /
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Set up Rust with Android target
+        uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          targets: aarch64-linux-android
+
+      - name: Resolve Android SDK tools and install NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [[ -z "$SDK_ROOT" || ! -d "$SDK_ROOT" ]]; then
+            echo "Android SDK root is unavailable. ANDROID_SDK_ROOT='${ANDROID_SDK_ROOT:-}' ANDROID_HOME='${ANDROID_HOME:-}'" >&2
+            exit 1
+          fi
+
+          SDKMANAGER=""
+          if command -v sdkmanager >/dev/null 2>&1; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          elif [[ -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]]; then
+            SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          else
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -maxdepth 3 -type f -name sdkmanager -perm -111 2>/dev/null | sort -V | tail -n 1 || true)"
+          fi
+
+          if [[ -z "$SDKMANAGER" || ! -x "$SDKMANAGER" ]]; then
+            echo "sdkmanager was not found under $SDK_ROOT" >&2
+            find "$SDK_ROOT/cmdline-tools" -maxdepth 4 -type f -name sdkmanager -print 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "ndk;${NDK_VERSION}"
+
+          NDK_HOME="$SDK_ROOT/ndk/${NDK_VERSION}"
+          test -d "$NDK_HOME"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$NDK_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_HOME" >> "$GITHUB_ENV"
+
+          echo "Disk after Android toolchain setup:"
+          df -h /
+
+      - name: Install JavaScript dependencies
+        run: |
+          npm ci --no-audit --no-fund
+          cd frontend
+          npm ci --no-audit --no-fund
+          df -h /
+
+      - name: Initialize generated Android project
+        run: npm run desktop:android:init -- --ci --skip-targets-install
+
+      - name: Build Android debug APK
+        run: npm run desktop:android:build -- --apk --target aarch64 --debug
+
+      - name: Locate APK
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          ls -lh "$APK"
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wabi-android-aarch64-debug
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
