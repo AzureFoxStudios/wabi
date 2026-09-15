@@ -147,7 +147,10 @@ function computeDocumentKey(
 	format: ReaderDocumentFormat,
 	language = ''
 ): string {
-	const seed = `${format}:${language}:${title.trim().toLowerCase()}:${content.length}:${content.slice(0, 256)}`;
+	// Preserve the pre-code Reader key shape for existing Markdown/HTML/text/image
+	// documents so saved progress, bookmarks, and notes survive the upgrade.
+	const legacySeed = `${format}:${title.trim().toLowerCase()}:${content.length}:${content.slice(0, 256)}`;
+	const seed = language ? `${format}:${language}:${title.trim().toLowerCase()}:${content.length}:${content.slice(0, 256)}` : legacySeed;
 	return `rdoc-${hashString(seed)}`;
 }
 
