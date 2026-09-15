@@ -153,7 +153,8 @@ import type { MediaAlbum } from '$lib/api';
 	let splitLargeMessagesEnabled = $derived(composerSettings.splitLargeMessagesEnabled);
 	let splitLargeMessagesChunkSize = $derived(composerSettings.splitLargeMessagesChunkSize);
 	let writeUpperCaseEnabled = $derived(composerSettings.writeUpperCaseEnabled);
-	let composerInputMaxLength = $derived(splitLargeMessagesEnabled ? composerSettings.splitLargeMessagesInputMaxLength : splitLargeMessagesChunkSize);
+	// Long-form text can be sent intact when splitting is off; Reader owns the display after 2,000 chars.
+	let composerInputMaxLength = $derived(composerSettings.splitLargeMessagesInputMaxLength);
 	let gifCaptionerEnabled = $derived($gifCaptionerSettingsStore.enabled);
 	let gifCaptionerDedicatedCaptionFieldEnabled = $derived($gifCaptionerSettingsStore.dedicatedCaptionFieldEnabled);
 	let unicodeEmojisEnabled = $derived($unicodeEmojiSettingsStore.enabled);

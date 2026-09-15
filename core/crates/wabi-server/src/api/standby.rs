@@ -1,17 +1,16 @@
 //! Warm standby snapshot endpoints.
 //!
-//! These endpoints deliberately accept and produce only encrypted snapshot
-//! envelopes. There is no plaintext receive path: operators can debug
-//! manifests/hashes, but full snapshot row data must remain age-encrypted.
+//! These endpoints deliberately accept only encrypted snapshot envelopes for
+//! storage. WabiDB does not yet have a deletion-safe live-state exporter and
+//! importer, so export/restore/promotion fail closed instead of returning an
+//! empty envelope that could be mistaken for a valid backup.
 
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
-use base64::Engine as _;
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -20,15 +19,13 @@ use std::{path::PathBuf, sync::Arc};
 use crate::{
     error::{AppError, Result},
     nodes::{HelperNode, NodeCapability, NodeRegistryError},
-    standby::{
-        encrypt_to_recipient_b64, EncryptedSnapshotEnvelope, SnapshotManifest, SnapshotStore,
-        SnapshotStoreError, SNAPSHOT_ENCRYPTION_ALGORITHM,
-    },
+    standby::{EncryptedSnapshotEnvelope, SnapshotStore, SnapshotStoreError},
     state::AppState,
 };
 
 const NODE_ID_HEADER: &str = "x-wabi-node-id";
 const NODE_SECRET_HEADER: &str = "x-wabi-node-secret";
+const STANDBY_NOT_READY_REASON: &str = "WabiDB live-state export/import is not implemented yet; Wabi will not claim an empty or raw-history snapshot is a recoverable backup";
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
@@ -51,10 +48,11 @@ struct ReceiveSnapshotResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExportSnapshotRequest {
-    /// Registered standby/backup node id. If `recipientPublicKey` is omitted,
-    /// this node's registered public key is used as the age recipient.
+    /// Registered standby/backup node id. The request is still validated now
+    /// so callers cannot accidentally build automation around an unknown node.
     recipient_node_id: String,
     #[serde(default)]
+    #[allow(dead_code)]
     recipient_public_key: Option<String>,
 }
 
@@ -63,6 +61,12 @@ struct ExportSnapshotRequest {
 struct StandbyStatusResponse {
     authority_node_id: String,
     standby_nodes: Vec<HelperNode>,
+    snapshot_receive_ready: bool,
+    snapshot_export_ready: bool,
+    manual_restore_ready: bool,
+    manual_promotion_ready: bool,
+    automatic_failover: bool,
+    status_note: &'static str,
 }
 
 async fn status(
@@ -75,11 +79,19 @@ async fn status(
         .list_nodes()
         .await
         .into_iter()
-        .filter(|node| is_standby_capable(node))
+        .filter(is_standby_capable)
         .collect();
     Ok(Json(StandbyStatusResponse {
         authority_node_id: state.config.node_id.clone(),
         standby_nodes: nodes,
+        // Encrypted envelopes can be stored and validated today. Wabi itself
+        // does not yet create a complete WabiDB live-state envelope.
+        snapshot_receive_ready: true,
+        snapshot_export_ready: false,
+        manual_restore_ready: false,
+        manual_promotion_ready: false,
+        automatic_failover: false,
+        status_note: STANDBY_NOT_READY_REASON,
     }))
 }
 
@@ -119,7 +131,7 @@ async fn export_snapshot(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(req): Json<ExportSnapshotRequest>,
-) -> Result<Json<EncryptedSnapshotEnvelope>> {
+) -> Result<(StatusCode, Json<serde_json::Value>)> {
     require_admin(&state, &headers).await?;
 
     let recipient_node = state
@@ -136,59 +148,49 @@ async fn export_snapshot(
         ));
     }
 
-    let recipient_public_key = req
-        .recipient_public_key
-        .unwrap_or_else(|| recipient_node.public_key.clone());
-    if recipient_public_key.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "standby recipient public key is required".into(),
-        ));
-    }
-
-    // WDB-compat: no live-state export in WDB v1. The standby dump
-    // endpoint returns an empty snapshot; will be wired to WDB's
-    // export-logs command in a follow-up.
-    let payload = crate::standby::LiveStateSnapshotPayload {
-        tables: std::collections::BTreeMap::new(),
-    };
-    let plaintext = serde_json::to_vec(&payload)
-        .map_err(|error| AppError::Internal(format!("snapshot serialization failed: {error}")))?;
-    let encrypted_payload_b64 = encrypt_to_recipient_b64(&plaintext, &recipient_public_key)
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
-    let encrypted_payload = base64::engine::general_purpose::STANDARD
-        .decode(&encrypted_payload_b64)
-        .map_err(|error| AppError::Internal(format!("snapshot base64 decode failed: {error}")))?;
-    let manifest = SnapshotManifest::new_live_state(
-        state.config.node_id.clone(),
-        recipient_node.node_id,
-        &encrypted_payload,
-        SNAPSHOT_ENCRYPTION_ALGORITHM,
-    );
-
-    Ok(Json(EncryptedSnapshotEnvelope {
-        manifest,
-        encrypted_payload_b64,
-    }))
-}
-
-async fn manual_import_stub() -> impl IntoResponse {
-    (
+    // Previous code encrypted an empty BTreeMap and returned HTTP 200. That
+    // looked like a usable backup while containing none of the WabiDB state.
+    // Fail closed until a live-state exporter can snapshot current retained
+    // projections without preserving deleted/history-only data.
+    Ok((
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
-            "error": "manual standby import/restore is intentionally not implemented yet",
-            "reason": "restore must be an explicit operator flow that validates schema, retention semantics, and target authority state before touching WDB"
+            "error": "standby snapshot export is not ready for WabiDB",
+            "recipientNodeId": recipient_node.node_id,
+            "reason": STANDBY_NOT_READY_REASON,
+            "automaticFailover": false
         })),
-    )
+    ))
 }
 
-async fn manual_promote_stub() -> impl IntoResponse {
-    (
+async fn manual_import_stub(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<serde_json::Value>)> {
+    require_admin(&state, &headers).await?;
+    Ok((
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
-            "error": "manual standby promotion is intentionally not implemented yet",
-            "reason": "no automatic failover; promotion must be an explicit operator action with a runbook"
+            "error": "manual standby import/restore is not implemented yet",
+            "reason": STANDBY_NOT_READY_REASON,
+            "automaticFailover": false
         })),
-    )
+    ))
+}
+
+async fn manual_promote_stub(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<serde_json::Value>)> {
+    require_admin(&state, &headers).await?;
+    Ok((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "error": "manual standby promotion is not implemented yet",
+            "reason": "promotion remains an explicit operator action; automatic election is intentionally disabled to avoid split-brain",
+            "automaticFailover": false
+        })),
+    ))
 }
 
 async fn require_standby_node(state: &Arc<AppState>, headers: &HeaderMap) -> Result<HelperNode> {

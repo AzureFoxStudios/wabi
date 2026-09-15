@@ -1,300 +1,333 @@
-# Wabi — Architecture
+# Wabi Architecture
 
-> **Status:** Canonical reference for the current (Rust + Wabidb) implementation.
-> **Last major revision:** 2026-06-22 (STDB → Wabidb rip complete).
-> **Audience:** Engineers integrating with Wabi, contributors, and curious newcomers.
+> **Status:** canonical high-level architecture for the current Rust + WabiDB product line.  
+> **Updated:** 2026-09-14  
+> For exact handler/projection details, read [`overview.md`](overview.md) and current source. For maturity claims, [`../PROJECT_STATUS.md`](../PROJECT_STATUS.md) wins over old plans/proposals.
 
----
+## 1. Product model
 
-## 1. What Wabi Is
+Wabi is a self-hosted communication and collaborative-workspace application for small communities.
 
-Wabi is a **private, self-hosted, real-time chat platform** for small-to-medium communities (10-50 concurrent users). The application runs as a web app, a native desktop app (Tauri), and a TUI (terminal UI). The same server binary serves all three.
+The normal deployment is deliberately simple:
 
-**Core philosophy:** No spying. No bloat. Just chill.
-
-Wabi prioritizes user privacy through:
-
-- **Self-host ownership** — operators run the server; no third-party telemetry, analytics, or data collection
-- **Ephemeral by default** — calls, typing indicators, and presence are in-memory only
-- **Explicit persistence** — when messages are stored, they're stored in the operator's local database under their control
-- **Per-server deployment** — each Wabi instance is a single tenant; no shared multi-tenant cloud
-
----
-
-## 2. High-Level System
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Frontend (SvelteKit)                         │
-│  - Pages: Login, Chat, Settings, Voice, Screen Share, Whiteboard │
-│  - Components: Messages, Users, DM Panel, Theme, Plugins         │
-│  - State: Svelte stores (users, channels, theme, presence)       │
-│  - Realtime: Socket.IO client + native WebSocket                  │
-│  - Media: WebRTC peer connections (audio/video/screen share)     │
-└─────────────┬───────────────────────────────────┬────────────────┘
-              │                                   │
-        Socket.IO + HTTP                  HTTP + WebSocket
-              │                                   │
-┌─────────────▼───────────────────────────────────▼────────────────┐
-│                  wabi-server (single Rust binary)                 │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ HTTP API (axum): /api/auth, /api/channels, /api/messages, │  │
-│  │ /api/calls/*, /api/upload, /api/user, /api/setup, ...     │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Realtime: Socket.IO + WebSocket for presence, chat, calls  │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Storage Adapter (WdbAdapter): translates HTTP requests to  │  │
-│  │ wabidb commands and projection queries                    │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Wabidb Engine (embedded in-process) — single source of    │  │
-│  │ truth for all persistent state                             │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Plugins: hot-loaded modules under /plugins                 │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────┬───────────────────────────────────────────────────┘
-              │
-        Filesystem (data/, uploads/, plugins/, target/)
+```text
+Wabi client
+    │
+    ├─ HTTP
+    ├─ Socket.IO
+    └─ WebSocket / media transports
+    │
+    ▼
+┌───────────────────────────────────────────┐
+│ wabi-server — Authority                   │
+│                                           │
+│ Axum API + auth                           │
+│ Socket.IO / WebSocket realtime            │
+│ embedded SvelteKit static frontend        │
+│ WabiStore / WdbAdapter                    │
+│ embedded WabiDB                           │
+└───────────────────────────────────────────┘
+    │
+    ├─ data/wabi-server/
+    ├─ uploads/
+    └─ optional helpers/integrations
 ```
 
-**Key simplification:** There is no separate database server. The Wabidb engine is a Rust library linked directly into `wabi-server`. State is persisted to disk inside `wabi-server`'s data directory.
+One Authority owns one community's canonical accounts, permissions, content, and durable state.
 
----
+A client can save/switch among multiple independent Authorities. That is **not federation**: those servers do not share a global identity database or community state.
 
-## 3. Technology Stack
+## 2. Core runtime
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| Frontend | SvelteKit | Web framework with file-based routing |
-| Frontend state | Svelte stores | Reactive state management |
-| Frontend desktop | Tauri | Native desktop app wrapper |
-| Frontend TUI | Ratatui (Rust) | Terminal UI client (`wabi-tui`) |
-| Frontend realtime | Socket.IO client + WebSocket | Real-time message and presence |
-| Frontend media | WebRTC | Peer-to-peer audio, video, screen share |
-| Backend runtime | Tokio + axum (Rust) | Async HTTP/WebSocket server |
-| Backend storage | Wabidb (embedded) | Per-stream log-structured store with commit index |
-| Backend auth | JWT (custom) | Token-based session management |
-| Backend realtime | Socket.IO + axum WebSocket | Per-client event delivery + call session push |
-| File storage | Filesystem (./uploads, ./data/wabi-server) | User uploads, wabidb streams |
-| TURN | Coturn (optional profile) | NAT-traversal media relay |
-| SFU | LiveKit (optional profile) | Centralized media routing for >2 participants |
-| Reverse proxy | Caddy (optional profile) | TLS + Cloudflare tunnel entrypoint |
+`core/crates/wabi-server/` is the main server binary. It owns:
 
----
+- HTTP API routes;
+- authentication/authorization;
+- Socket.IO and raw WebSocket entry points;
+- call/session coordination;
+- uploads/files and feature APIs;
+- the `WdbAdapter` bridge into WabiDB;
+- optional helper/integration coordination;
+- serving the compiled static frontend through `rust_embed`.
 
-## 4. Wabidb Engine (The Storage Layer)
+The normal server does not require PostgreSQL, SQLite, SpacetimeDB, Redis, or another external state service. WabiDB is linked in-process.
 
-Wabidb is the custom storage engine that replaced SpacetimeDB. It is a **per-stream log-structured object store with a global commit index**. The full design is documented in `docs/proposals/wabidb-endstate.md`; the on-disk binary format is in `core/crates/wabidb/docs/STORAGE_FORMAT.md`.
+Optional TURN/SFU/tunnel/media helpers are separate deployment choices; they do not replace the Authority as source of truth.
 
-### 4.1 Architecture
+## 3. WabiDB mental model
 
-```
-                ┌───────────────────────────────────────┐
-                │            Wabidb Engine              │
-                │                                       │
-   CommandCommit │  ┌─────────────┐  ┌──────────────┐  │ Projections
-   ─────────────►│  │  Commit     │  │  Projection  │  │◄─────────
-   (via Wdb-     │  │  Sequencer  │  │  Dispatcher  │  │  (lock-free
-    Adapter)     │  │ (Semaphore  │  │  (mpsc       │  │   SkipMap
-                │  │   permit 1) │  │   channel)   │  │   reads)
-                │  └──────┬──────┘  └──────┬───────┘  │
-                │         │              │           │
-                │         ▼              ▼           │
-                │  ┌─────────────────────────────────────┐
-                │  │  ProjectionState (in-memory index) │
-                │  │  + per-stream segments on disk     │
-                │  └─────────────────────────────────────┘
-                └───────────────────────────────────────┘
-```
+Durable state follows the event-sourced path:
 
-- **Commit sequencer** — single async task holding a `Semaphore(1)` permit. Assigns monotonic `commit_seq`, writes to per-stream segments, appends to the commit index, fsyncs. Projections update asynchronously.
-- **Projections** — materialized views of the commit log, indexed for read-path queries. Lock-free `crossbeam-skiplist::SkipMap` per index. Rebuildable from snapshots + post-snapshot commit index entries.
-- **Subscription engine** — topic-based pub/sub with snapshot barrier, resume, ticket-auth WebSocket, and membership revalidation.
-- **Ephemeral bus** — in-memory broadcast for events that must not survive a crash (typing, call signals, cursor movement).
-- **Retention engine** — per-scope TTL with cryptographic deletion (key destruction + tombstone) and segment compaction.
-- **Blob store** — BLAKE3 content-addressed files, atomic write ordering, range read protocol.
-- **Storage CLI** — operator-facing tools (`wabidb check`, `dump-stream`, `rebuild-indexes`, manifest-based backup).
-
-### 4.2 On-Disk Layout
-
-Per `core/crates/wabidb/docs/STORAGE_FORMAT.md`:
-
-```
-$DATA_DIR/
-├── streams/
-│   ├── channel/
-│   │   └── ch_01J.../
-│   │       ├── events/00000001.wseg  (segment, 64 MiB max)
-│   │       └── snapshots/00000001.wsnap
-│   ├── dm/dm_01J.../events/00000001.wseg
-│   └── ...
-├── global/
-│   └── commit-index/
-│       ├── 00000001.widx  (sealed)
-│       └── 00000002.widx  (current, still appending)
-├── blobs/ab/abcd....bin  + abcd....meta
-└── manifests/storage-manifest.json
+```text
+request / socket command
+        │
+        ▼
+   validation + auth
+        │
+        ▼
+     WabiStore
+        │
+        ▼
+   CommandCommit
+        │
+        ▼
+ single sequencer
+        │
+        ├─ encrypted event segment(s)
+        ├─ global commit index
+        └─ projection application
+                 │
+                 ▼
+          typed read projections
+                 │
+                 └─ response / live broadcast
 ```
 
-Segments are AES-256-GCM encrypted with the stream's key. The commit index is the canonical ordering of all writes; the sequencer fsyncs the index before advancing the linearizability barrier.
+Key properties of the current engine:
 
-### 4.3 Domain Types
+- one sequenced durable writer;
+- monotonic commit ordering;
+- encrypted append-only stream segments plus commit index;
+- in-memory materialized projections rebuilt/recovered from durable state;
+- command success is tied to the engine/application completion contract, not merely “bytes were handed to a socket”;
+- projection/read models are the normal query path;
+- durable-record compatibility matters because old events must remain replayable.
 
-The Wabidb domain (`wabidb::domain`) is the typed shape that flows between the engine and the wabi-server adapter. Key types:
+See [`PERSISTENCE_MODEL.md`](PERSISTENCE_MODEL.md), [`STORAGE_FORMAT.md`](STORAGE_FORMAT.md), [`STORAGE_MANIFEST.md`](STORAGE_MANIFEST.md), and `../ai/`.
 
-- `User`, `Channel`, `ChannelMember` — identity and structure
-- `Message`, `Reaction` — chat content
-- `CallSession`, `CallParticipant`, `CallSignal` — voice/video call state (replaces STDB call tables)
+### Persistent schema rule
 
-Each type is serializable via `serde` and is the wire format between the adapter and the projections.
+Many records are postcard-encoded. Adding/reordering fields without a versioned/dual-decode path can make old events unreadable. Persistent-record evolution is therefore an architectural migration, not a casual Rust-struct edit.
 
-### 4.4 Command Surface
+## 4. Retention is decided before persistence
 
-Five wabidb commands (F17) implement the call-session state:
+Wabi separates retention from confidentiality.
 
-- `create_call_session` — new call session
-- `join_call_session` — user joins
-- `leave_call_session` — user leaves
-- `end_call_session` — host ends the call
-- `emit_call_signal` — signaling message (offer, answer, ICE, mute, etc.)
+Typical message storage classes include:
 
-Each command goes through the sequencer, gets a `commit_seq`, and updates the relevant projection.
+- **live** — delivered from memory without the normal durable message write;
+- **timed** — durable, then removed according to retention policy;
+- **forever** — durable until explicitly removed.
 
----
+These classes answer **how long the server keeps content**. They do not answer **whether the operator can read it**.
 
-## 5. wabi-server (The HTTP Layer)
+Current DMs/private rooms are server-readable and are not a shipped E2EE path. See [`../PRIVACY_STANCE.md`](../PRIVACY_STANCE.md).
 
-`wabi-server` is the single Rust binary that the operator runs. It:
+## 5. API and realtime ownership
 
-- Serves the embedded SvelteKit frontend (compiled into the binary via `rust_embed`)
-- Exposes the HTTP API for all client actions
-- Hosts Socket.IO and WebSocket endpoints for real-time
-- Owns the Wabidb engine instance (no IPC, no separate process)
-- Manages the mesh of helper nodes (in multi-server topology)
-- Handles uploads, plugins, and TURN/SFU coordination
+REST and realtime handlers must enforce the same resource/membership rules.
 
-### 5.1 Module Boundaries
+The server owns:
 
+- account/session authentication;
+- channel/conversation membership;
+- owner/admin/role authorization;
+- admission to group/private content;
+- persistence outcomes;
+- authoritative call/session state where the corresponding path uses WabiDB;
+- correlated success/failure so a client does not invent a successful mutation after a transport failure.
+
+A UI hiding a button is not authorization.
+
+Private-resource discovery and mutation must be filtered/validated on the server even if the normal client never asks for unauthorized data.
+
+See [`../SECURITY-MODEL.md`](../SECURITY-MODEL.md).
+
+## 6. Frontend architecture
+
+`frontend/` is a SvelteKit/Svelte 5 static application. Production/static builds are embedded into the Rust server.
+
+Important UI ownership:
+
+- the main layout owns dockable left/right/center workspace structure;
+- shared workspace navigation should be reused instead of each feature inventing its own top-level router/state store;
+- server/account-scoped state must remain scoped when switching communities;
+- client offline/outbound queues are not a second authoritative database;
+- local drafts/preferences/effects are distinct from published/shared server state.
+
+### Workspace model
+
+Wabi's product is broader than chat scrollback. Center-stage/dock surfaces include communication plus tools such as whiteboard, Planner/Notes-style workspaces, files/media, Reader, project/Lore, CAD/3D, and related inspection/review views.
+
+New tools should normally integrate with this layout model rather than adding a permanent parallel sidebar/header system.
+
+## 7. Native clients
+
+### Web
+
+The browser client is the canonical shared frontend and is served by the Authority.
+
+### Desktop / Tauri
+
+`src-tauri/` wraps the web client in a native shell and adds OS/native capabilities such as local file workflows, sidecars, private-access tooling, native dialogs, and platform integration.
+
+A successful web build does not prove native packaging/permissions/sidecars on every OS.
+
+### Mobile
+
+Phone-native Tauri work is active but remains a separate release/physical-device acceptance boundary. Do not treat a mobile branch or successful source compile as a production mobile release.
+
+### TUI
+
+`core/crates/wabi-tui/` provides terminal-client functionality against the same server trust boundary.
+
+## 8. Multi-server client model — not federation
+
+The server bar/client can remember multiple Wabi Authorities:
+
+```text
+client
+  ├─ community A → Authority A + its account
+  ├─ community B → Authority B + its account
+  └─ community C → Authority C + its account
 ```
-core/crates/wabi-server/
-├── src/
-│   ├── main.rs           # entrypoint, ServerConfig from env
-│   ├── state.rs          # AppState (shared, Arc'd)
-│   ├── config.rs         # ServerConfig struct
-│   ├── adapter/          # WdbAdapter — implements WabiStore
-│   ├── api/              # axum routes
-│   │   ├── auth.rs
-│   │   ├── channels.rs
-│   │   ├── messages.rs
-│   │   ├── calls.rs      # NEW: call-session HTTP endpoints
-│   │   ├── upload.rs
-│   │   ├── user.rs
-│   │   ├── public.rs
-│   │   └── ...
-│   ├── socketio/         # Socket.IO handlers (chat, presence)
-│   ├── websocket.rs      # native WebSocket (call session push)
-│   ├── auth_extractor.rs # JWT validation
-│   ├── mesh.rs           # multi-node coordination
-│   ├── nodes.rs          # helper-node registry
-│   └── jobs.rs           # offload queue
+
+No global Wabi username service is required. Credentials/offline actions must remain scoped to the correct server/account.
+
+See [`WABI_MULTI_SERVER_ARCHITECTURE.md`](WABI_MULTI_SERVER_ARCHITECTURE.md).
+
+## 9. One-deployment topology
+
+Multi-node work inside **one** community is distinct from the multi-server client model.
+
+### Authority — available/core
+
+The Authority owns durable community state and canonical mutation decisions.
+
+### Scoped helpers — optional
+
+TURN, SFU, SRT/media gateway, tunnels/private access, and other helpers perform bounded jobs. They should be observable and optional where practical.
+
+### Anchor — experimental
+
+`WABI_SERVER_ROLE=anchor` creates a stateless proxy toward `WABI_AUTHORITY_URL` without opening a local community WabiDB.
+
+Current limitation: the path is HTTP-oriented; native WebSocket upgrade forwarding is not a completed guarantee. Therefore Anchor is not yet a complete regional realtime edge.
+
+### WabiDB peer replication — experimental
+
+Authentication/timeouts/failure handling exist in the replication transport, but full live projection convergence, deletion semantics, and writer/failover safety are not proven.
+
+The network sync surface is explicitly experimental/fail-closed by default. It is not a production backup or HA feature.
+
+### Warm standby — incomplete
+
+Standby envelope/storage groundwork exists, but safe export/import/promotion of live current state is not complete. Automatic Authority election is intentionally disabled.
+
+The required progression is real backup/export → tested restore → manual promotion → failure injection/no split-brain proof → only then consider automatic failover.
+
+See [`SERVER_MESH_PLAN.md`](SERVER_MESH_PLAN.md) and [`../deployment/BACKUP_AND_RECOVERY.md`](../deployment/BACKUP_AND_RECOVERY.md).
+
+## 10. Calling/media architecture
+
+Calling spans several layers:
+
+- authenticated call/session/admission state;
+- signaling/realtime delivery;
+- media transport (WebRTC and/or Wabi media-relay paths depending current configuration/path);
+- optional coturn TURN;
+- optional LiveKit SFU;
+- optional media gateway paths.
+
+These are not interchangeable.
+
+Do not infer that an SFU is required because the codebase supports one, or that a browser harness certifies real NAT/audio-device behavior. Use [`CALLING_TRANSPORT_ARCHITECTURE.md`](CALLING_TRANSPORT_ARCHITECTURE.md) for transport detail.
+
+## 11. CAD / model review architecture
+
+Wabi's design boundary is **inbox/viewer/review surface**, not authoring CAD.
+
+Current convergence paths:
+
+```text
+DXF ─────────────────────────► 2D CAD viewer/review
+DWG ─ optional dwg2dxf ──────► 2D CAD viewer/review
+3MF ─ browser loader ─► GLB ─► normal 3D viewer
+STEP/IGES ─ OCCT WASM ► GLB ─► normal 3D viewer
 ```
 
-### 5.2 Data Flow Examples
+Important design rules:
 
-**Writing a message:**
-1. Client emits `socket.emit('message:send', { channel_id, content })` over Socket.IO
-2. Handler in `socketio/messages.rs` validates auth, calls `state.wdb.send_message(...)`
-3. `WdbAdapter.send_message` constructs a `CommandCommit` and submits to `engine.run_command()`
-4. The sequencer assigns `commit_seq`, writes to the per-stream segment, appends to the commit index, fsyncs, advances the linearizability barrier
-5. The projection dispatcher fans out to the relevant projection handler (e.g. `MessagesProjection::apply`)
-6. The HTTP response is returned to the client; other clients receive the event via Socket.IO broadcast
+- review marks use drawing/model coordinates rather than screenshot pixels;
+- converted temporary URLs must preserve stable attachment/review identity;
+- Model Space/Paper Space and spatial-content warnings must not imply a flattened preview is the complete solid model;
+- optional DWG conversion stays an operator-provided helper rather than silently changing the MIT distribution boundary.
 
-**Reading a message:**
-1. Client makes `GET /api/messages/{channel_id}`
-2. Handler in `api/messages.rs` calls `state.wdb.list_messages_typed(channel_id, limit)`
-3. `WdbAdapter.list_messages_typed` queries `ProjectionState` (in-memory) and deserializes the JSON values
-4. The HTTP response is returned to the client
+## 12. Lore/project integration
 
-**Joining a call (with WS push):**
-1. Client makes `POST /api/calls/sessions/{id}/join` over HTTP
-2. Handler in `api/calls.rs` calls `state.wdb.join_call_session(...)`
-3. The sequencer writes the new `CallParticipant` and advances the linearizability barrier
-4. The handler then pushes a `WsMessage::CallParticipantChanged` event to `state.call_session_push`
-5. WebSocket connections subscribed to this session (via `SubscribeCall` message) receive the push event and forward to their clients
+Wabi supplies a real Lore project workspace and local-folder/review UX, while the Lore backend/tooling remains an optional external integration.
 
----
+Architecturally, keep these states distinct:
 
-## 6. Multi-Server Topology
+- local/private draft or filesystem state;
+- staged/proposed change;
+- reviewed/published server/project state.
 
-Wabi supports three operational modes (set via `WABI_SERVER_ROLE` in `.env`):
+Do not describe local editor changes as live shared publication unless an actual collaborative protocol exists.
 
-### 6.1 Authority (default)
-A standalone server that owns all state. Suitable for single-server deployments. Other Wabi instances cannot connect to it for state sync.
+## 13. Plugins and addons
 
-### 6.2 Anchor
-A stateless regional proxy that forwards all requests to a designated Authority. Used to provide low-latency access for distant users without running a full server. Anchors do not persist any state.
+There are two different maturity levels:
 
-### 6.3 Mesh
-A federated deployment where multiple Authority servers share state via the Wabidb replication module (`wabidb::replication`). The mesh handles:
-- Snapshot shipping (initial state sync)
-- Anti-entropy (resolving drift between peers)
-- Failover (promoting an Anchor to Authority if the primary fails)
+- curated/compiled integrations under `core/addons/`, `addons/`, and feature code;
+- operator-installed runtime plugins under `plugins/`.
 
-The mesh runs on top of helper-node connections, not direct peer-to-peer. See `docs/architecture/WABI_MULTI_SERVER_ARCHITECTURE.md` for the full design.
+Plugin manifests/checksums/signatures/scanning/audit controls improve supply-chain safety. They do not by themselves prove a hostile-code sandbox.
 
----
+The legacy `mesh` addon is compatibility/history, not the living topology.
 
-## 7. Client Surfaces
+See [`../ADDONS.md`](../ADDONS.md) and [`ADDON_ARCHITECTURE.md`](ADDON_ARCHITECTURE.md).
 
-Wabi ships three clients, all speaking the same backend:
+## 14. Storage and backup boundary
 
-### 7.1 Web (SvelteKit)
-Located at `frontend/`. The canonical UI. Bundled into `wabi-server` at compile time via `rust_embed` and served at `/`.
+The key deployment state includes:
 
-### 7.2 Desktop (Tauri)
-Located at `frontend/src-tauri/`. Wraps the web client in a native shell. Adds OS integration (notifications, file dialogs, system tray) and bundles a separate `wabi-server` process for desktop-only deployments.
+- `data/wabi-server/` — WabiDB + persisted secrets when locally generated;
+- `uploads/` — uploaded user content;
+- external secret/config sources when used;
+- optional plugin/helper data needed by that deployment.
 
-### 7.3 TUI (Ratatui)
-Located at `core/crates/wabi-tui/`. A terminal client for headless environments. Speaks the same HTTP + WebSocket API as the web client.
+A WabiDB root key must be preserved with the encrypted data it protects.
 
----
+Experimental peer replication/standby is not a backup substitute. See [`../deployment/BACKUP_AND_RECOVERY.md`](../deployment/BACKUP_AND_RECOVERY.md).
 
-## 8. Security Posture
+## 15. Security/privacy invariants
 
-- **No telemetry, no analytics, no auto-update.** The server makes no outbound connections except to the user's configured TURN/SFU/tunnel providers.
-- **JWT-only auth.** All HTTP routes (except `/api/public/*` and `/api/setup/*`) require a valid JWT in the `Authorization` header.
-- **Per-server data.** No shared multi-tenant cloud. Each deployment is a single tenant.
-- **Default non-root.** Docker compose runs `wabi-server` as UID 1000; the binary mount is read-only.
-- **No privileged containers.** Compose grants no `privileged: true`, no `cap_add`, no `network_mode: host`.
-- **BLAKE3 content addressing for blobs.** Tamper-evident.
-- **AES-256-GCM for streams at rest.** Per-stream keys, with cryptographic deletion via key destruction.
-- **Bcrypt + Argon2id for password hashing.** (See `auth.rs` and the `wabidb::crypto::bootstrap` module.)
+- Self-hosted does not mean operator-blind.
+- Current DMs/private rooms are not E2EE.
+- Independent servers do not receive a global trust relationship merely because one client displays them together.
+- Resource authorization belongs on the server.
+- Operator/break-glass interfaces must remain private and strongly gated.
+- Runtime plugins/external helpers expand the trust/attack surface.
+- Public deployments should use TLS or a deliberately private encrypted access path.
+- Experimental sync/standby write surfaces should fail closed unless explicitly enabled for development/testing.
 
----
+## 16. Repository map
 
-## 9. Cross-References
+| Path | Responsibility |
+|---|---|
+| `core/crates/wabi-server/` | Authority/API/realtime/auth/integration coordinator |
+| `core/crates/wabidb/` | Event store, sequencer, projections, recovery, experimental replication |
+| `crates/wabi-core/` | Shared protocol/domain wire types and TS generation |
+| `frontend/` | Web/static client and workspace UI |
+| `src-tauri/` | Native shell |
+| `core/crates/wabi-tui/` | Terminal client |
+| `core/addons/`, `addons/` | Curated/compatibility/sample integrations |
+| `plugins/` | Runtime-installed plugin packages |
+| `turn-server/`, `media-gateway/`, `relay-node/` | Optional transport/media helpers |
+| `docs/` | Living architecture, deployment, security, product-status docs |
 
-- `core/crates/wabidb/docs/STORAGE_FORMAT.md` — on-disk binary format
-- `docs/proposals/wabidb-endstate.md` — Wabidb endstate design
-- `docs/proposals/wabidb-call-session-design.md` — call-session design (F16)
-- `docs/architecture/wabidb-council-reviews.md` — Council Review #1 invariants
-- `docs/architecture/PERSISTENCE_MODEL.md` — persistence tier model
-- `docs/architecture/SERVER_MESH_PLAN.md` — multi-server topology
-- `docs/architecture/ADDON_ARCHITECTURE.md` — plugin system
-- `docs/architecture/CALLING_TRANSPORT_ARCHITECTURE.md` — call media routing
-- `docker-compose.yml` — production stack definition
-- `scripts/local-dev.sh` — local dev stack bootstrap
+## 17. What Wabi does not currently claim
 
----
+- social federation between independent servers;
+- global Wabi identity;
+- E2EE DMs/private rooms;
+- production active-active writers;
+- automatic Authority failover/election;
+- production-ready WabiDB peer replication/standby restore;
+- a complete regional WebSocket edge through Anchor;
+- a full CAD editor;
+- safely sandboxed arbitrary hostile backend plugins;
+- production-certified native mobile clients.
 
-## 10. What This Document Does Not Cover
-
-- Wire protocol details for Socket.IO events (see `socketio/wiring.rs` and the API reference)
-- Internal Wabidb key derivation details (see `wabidb::crypto::bootstrap`)
-- Plugin authoring (see `docs/architecture/ADDON_ARCHITECTURE.md`)
-- TURN/SFU configuration (see `docs/deployment/TURN_SETUP.md`)
-- Operator runbooks (see `docs/deployment/`)
+Those boundaries are architectural constraints, not embarrassing footnotes. Keeping them explicit is what makes future work testable.

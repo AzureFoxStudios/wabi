@@ -2,6 +2,10 @@
 
 pub mod addons;
 pub mod admin;
+pub mod server_center;
+pub mod retention_policy;
+pub mod privacy;
+pub mod e2ee;
 pub mod operator;
 pub mod albums;
 pub mod bots;

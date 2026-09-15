@@ -5392,7 +5392,6 @@ dependencies = [
  "uuid",
  "wabi-core",
  "wabi-lore",
- "wabi-mesh",
  "wabi-payments-crypto",
  "wabi-payments-eu",
  "wabi-payments-us",
