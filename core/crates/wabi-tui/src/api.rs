@@ -10,12 +10,12 @@ use crate::app::{Channel, Message, RegisteredUser, ServerStats};
 /// future/unknown kind; the parser always yields a known variant so this
 /// is only reachable via direct construction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum ChannelKind {
     Text,
     Dm,
     Group,
     Voice,
+    Stage,
     Lore,
     Whiteboard,
     Announcement,
@@ -32,13 +32,14 @@ pub enum ChannelKind {
 
 impl ChannelKind {
     /// Parse from the server's `channel_type` string. Empty or unknown
-    /// values fall back to `Text`.
+    /// values fall back to `Other`.
     pub fn from_type(s: &str) -> Self {
         match s {
             "text" => ChannelKind::Text,
             "dm" => ChannelKind::Dm,
             "group" => ChannelKind::Group,
             "voice" => ChannelKind::Voice,
+            "stage" => ChannelKind::Stage,
             "lore" => ChannelKind::Lore,
             "whiteboard" => ChannelKind::Whiteboard,
             "announcement" => ChannelKind::Announcement,
@@ -60,6 +61,7 @@ impl ChannelKind {
             ChannelKind::Dm => "@",
             ChannelKind::Group => "G:",
             ChannelKind::Voice => "mic:",
+            ChannelKind::Stage => "stg:",
             ChannelKind::Lore => "book:",
             ChannelKind::Whiteboard => "wb:",
             ChannelKind::Announcement => "ann:",
@@ -86,6 +88,15 @@ impl ChannelKind {
                 | ChannelKind::Other
         )
     }
+}
+
+/// Ciphertext envelope prefix for E2EE rooms (mirror of the server's
+/// `api::e2ee::MESSAGE_PREFIX`). The TUI never holds room keys, so content
+/// with this prefix is rendered as an opaque placeholder, never raw bytes.
+pub const E2EE_MESSAGE_PREFIX: &str = "wabi-e2ee-v1:";
+
+pub fn is_ciphertext(text: &str) -> bool {
+    text.starts_with(E2EE_MESSAGE_PREFIX)
 }
 
 #[derive(Debug, Clone)]
@@ -222,6 +233,12 @@ struct ChannelResponse {
     type_alt: Option<String>,
     #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
+    position: Option<i32>,
+    #[serde(default)]
+    parent_id: Option<String>,
+    #[serde(default, rename = "parentId")]
+    parent_id_camel: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -245,6 +262,79 @@ struct MessageResponse {
     created_at: i64,
     #[serde(default, rename = "createdAt")]
     created_at_camel: Option<i64>,
+    #[serde(default)]
+    encrypted: bool,
+    #[serde(default)]
+    files: Vec<serde_json::Value>,
+}
+
+impl MessageResponse {
+    fn into_message(self) -> Message {
+        let uid = match &self.user_id {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Number(n) => n.to_string(),
+            _ => String::new(),
+        };
+        let file_names = self
+            .files
+            .iter()
+            .filter_map(|f| {
+                f.get("fileName")
+                    .or_else(|| f.get("fileUrl"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
+            .collect();
+        let encrypted = self.encrypted || is_ciphertext(&self.content);
+        Message {
+            id: self.id,
+            channel_id: self.channel_id,
+            sender_id: uid.parse::<i64>().unwrap_or(0),
+            sender_name: if !self.username.is_empty() {
+                self.username
+            } else {
+                uid
+            },
+            text: self.content,
+            timestamp: self.created_at_camel.unwrap_or(self.created_at),
+            message_type: self.message_type,
+            encrypted,
+            failed: false,
+            file_names,
+        }
+    }
+}
+
+/// Member-visible privacy contract for the whole server (GET /api/privacy).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PrivacySummary {
+    #[serde(default)]
+    pub confidentiality: String,
+    #[serde(default, rename = "e2eeAvailable")]
+    pub e2ee_available: bool,
+    #[serde(default, rename = "privateContentAutomation")]
+    pub private_content_automation: bool,
+    #[serde(default, rename = "reportsPreserveEvidence")]
+    pub reports_preserve_evidence: bool,
+    #[serde(default, rename = "analyticsScope")]
+    pub analytics_scope: String,
+    #[serde(default, rename = "externalProcessing")]
+    pub external_processing: String,
+}
+
+/// Member-visible privacy facts for one channel (GET /api/privacy/channels/{id}).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChannelPrivacy {
+    /// Server retention label: `live`, `forever`, `24h`, `30d`, …
+    #[serde(default)]
+    pub retention: String,
+    /// `server_readable` or `operator_blind_e2ee` — the server's own words.
+    #[serde(default)]
+    pub confidentiality: String,
+    #[serde(default)]
+    pub e2ee: bool,
+    #[serde(default, rename = "privateConversation")]
+    pub private_conversation: bool,
 }
 
 #[derive(Deserialize)]
@@ -397,6 +487,8 @@ impl ApiClient {
                     channel_type,
                     kind,
                     description: c.description,
+                    position: c.position.unwrap_or(0),
+                    parent_id: c.parent_id.or(c.parent_id_camel),
                 }
             })
             .collect())
@@ -416,32 +508,19 @@ impl ApiClient {
         Ok(data
             .messages
             .into_iter()
-            .map(|m| {
-                let uid = match &m.user_id {
-                    serde_json::Value::String(s) => s.clone(),
-                    serde_json::Value::Number(n) => n.to_string(),
-                    _ => String::new(),
-                };
-                let display_name = if !m.username.is_empty() {
-                    m.username.clone()
-                } else {
-                    uid.clone()
-                };
-                let ts = m.created_at_camel.unwrap_or(m.created_at);
-                Message {
-                    id: m.id,
-                    channel_id: m.channel_id,
-                    sender_id: uid.parse::<i64>().unwrap_or(0),
-                    sender_name: display_name,
-                    text: m.content,
-                    timestamp: ts,
-                    message_type: m.message_type,
-                }
-            })
+            .map(MessageResponse::into_message)
             .collect())
     }
 
-    pub async fn send_message(&self, channel_id: &str, text: &str, is_spoiler: bool) -> Result<()> {
+    /// Send a message. Returns the created message when the server echoed a
+    /// parseable body (used to reconcile the optimistic local row); `None`
+    /// means the send succeeded but the response shape was unexpected.
+    pub async fn send_message(
+        &self,
+        channel_id: &str,
+        text: &str,
+        is_spoiler: bool,
+    ) -> Result<Option<Message>> {
         let url = format!("{}/api/messages", self.base_url);
         let req = self.auth(self.client.post(&url)).json(&serde_json::json!({
             "channel_id": channel_id,
@@ -455,7 +534,14 @@ impl ApiClient {
             let error = resp.text().await.unwrap_or_default();
             anyhow::bail!("Failed to send message: {error}");
         }
-        Ok(())
+        let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        match serde_json::from_value::<MessageResponse>(body) {
+            Ok(m) => Ok(Some(m.into_message())),
+            Err(e) => {
+                tracing::warn!("send response unparsed, falling back to reload: {e}");
+                Ok(None)
+            }
+        }
     }
 
     pub async fn list_users(&self) -> Result<Vec<RegisteredUser>> {
@@ -563,6 +649,32 @@ impl ApiClient {
         Ok(())
     }
 
+    // -- Member-visible privacy contract --
+
+    /// GET /api/privacy — server-wide summary. May 404 on older servers.
+    pub async fn privacy_summary(&self) -> Result<PrivacySummary> {
+        let url = format!("{}/api/privacy", self.base_url);
+        let resp = self.auth(self.client.get(&url)).send().await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("Privacy summary failed: {}", resp.status());
+        }
+        resp.json().await.context("parse privacy summary")
+    }
+
+    /// GET /api/privacy/channels/{id} — retention label + confidentiality for
+    /// one channel. 404 maps to Ok(None) (unknown channel or older server).
+    pub async fn channel_privacy(&self, channel_id: &str) -> Result<Option<ChannelPrivacy>> {
+        let url = format!("{}/api/privacy/channels/{channel_id}", self.base_url);
+        let resp = self.auth(self.client.get(&url)).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            anyhow::bail!("Channel privacy failed: {}", resp.status());
+        }
+        resp.json().await.map(Some).context("parse channel privacy")
+    }
+
     // -- Lore: channel-as-repo setup + browsing --
 
     /// Parse a wire channel id (`ch_2f`) into the numeric id the lore API
@@ -600,6 +712,8 @@ impl ApiClient {
             name: body["name"].as_str().unwrap_or(name).to_string(),
             channel_type: ctype,
             description: None,
+            position: 0,
+            parent_id: None,
         })
     }
 
@@ -769,4 +883,120 @@ fn encode_repo_path(path: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channel_kind_parses_known_and_unknown_types() {
+        assert_eq!(ChannelKind::from_type("text"), ChannelKind::Text);
+        assert_eq!(ChannelKind::from_type("dm"), ChannelKind::Dm);
+        assert_eq!(ChannelKind::from_type("group"), ChannelKind::Group);
+        assert_eq!(ChannelKind::from_type("voice"), ChannelKind::Voice);
+        assert_eq!(ChannelKind::from_type("stage"), ChannelKind::Stage);
+        assert_eq!(ChannelKind::from_type("lore"), ChannelKind::Lore);
+        assert_eq!(ChannelKind::from_type("category"), ChannelKind::Category);
+        assert_eq!(
+            ChannelKind::from_type("whiteboard"),
+            ChannelKind::Whiteboard
+        );
+        assert_eq!(
+            ChannelKind::from_type("announcement"),
+            ChannelKind::Announcement
+        );
+        assert_eq!(ChannelKind::from_type("planning"), ChannelKind::Planning);
+        assert_eq!(ChannelKind::from_type("wiki"), ChannelKind::Wiki);
+        assert_eq!(ChannelKind::from_type("forum"), ChannelKind::Forum);
+        assert_eq!(ChannelKind::from_type("gallery"), ChannelKind::Gallery);
+        assert_eq!(ChannelKind::from_type("incident"), ChannelKind::Incident);
+        assert_eq!(ChannelKind::from_type("reception"), ChannelKind::Reception);
+        // Unknown and empty tolerate forward: never panic, never a Text lie.
+        assert_eq!(ChannelKind::from_type("brand-new-kind"), ChannelKind::Other);
+        assert_eq!(ChannelKind::from_type(""), ChannelKind::Other);
+    }
+
+    #[test]
+    fn channel_kind_badges_and_text_like() {
+        assert_eq!(ChannelKind::Text.badge(), "#");
+        assert_eq!(ChannelKind::Dm.badge(), "@");
+        assert_eq!(ChannelKind::Stage.badge(), "stg:");
+        assert_eq!(ChannelKind::Category.badge(), "");
+
+        for text_like in [ChannelKind::Text, ChannelKind::Dm, ChannelKind::Group] {
+            assert!(text_like.is_text_like());
+        }
+        for surface in [
+            ChannelKind::Voice,
+            ChannelKind::Stage,
+            ChannelKind::Lore,
+            ChannelKind::Whiteboard,
+            ChannelKind::Category,
+        ] {
+            assert!(!surface.is_text_like(), "{surface:?} is not text-like");
+        }
+    }
+
+    #[test]
+    fn ciphertext_detection_matches_server_prefix() {
+        assert!(is_ciphertext("wabi-e2ee-v1:eyJoZWxsby"));
+        assert!(is_ciphertext(E2EE_MESSAGE_PREFIX));
+        assert!(!is_ciphertext("hello world"));
+        assert!(!is_ciphertext("WABI-E2EE-V1:not-uppercase"));
+        assert!(!is_ciphertext(""));
+    }
+
+    #[test]
+    fn slugify_matches_server_contract() {
+        assert_eq!(slugify("Hello World!"), "hello-world");
+        assert_eq!(slugify("My Repo: v2"), "my-repo-v2");
+        assert_eq!(slugify("---"), "");
+        assert_eq!(slugify(""), "");
+        assert_eq!(slugify("ch 2"), "ch-2");
+        // Non-ASCII letters are separators, same as the server's ascii
+        // filter; separator runs collapse to a single dash.
+        assert_eq!(slugify("Ünïcode"), "n-code");
+        // Leading/trailing separators don't survive.
+        assert_eq!(slugify("  trim  me  "), "trim-me");
+    }
+
+    #[test]
+    fn encode_repo_path_escapes_but_keeps_slashes() {
+        assert_eq!(encode_repo_path("docs/readme.md"), "docs/readme.md");
+        assert_eq!(encode_repo_path("a b/c#d?e"), "a%20b/c%23d%3Fe");
+        assert_eq!(encode_repo_path("tilde~under_score-dot"), "tilde~under_score-dot");
+        assert_eq!(encode_repo_path("ünï"), "%C3%BCn%C3%AF");
+    }
+
+    #[test]
+    fn parse_channel_id_reads_hex_wire_ids() {
+        assert_eq!(ApiClient::parse_channel_id("ch_2f"), Some(47));
+        assert_eq!(ApiClient::parse_channel_id("ch_0"), Some(0));
+        assert_eq!(ApiClient::parse_channel_id("plainly-text"), None);
+        assert_eq!(ApiClient::parse_channel_id("ch_zz"), None);
+    }
+
+    #[test]
+    fn message_response_parses_snake_and_camel_and_flags() {
+        let raw = serde_json::json!({
+            "id": "m1",
+            "channel_id": "ch_1",
+            "user_id": "user-9",
+            "username": "avery",
+            "content": "wabi-e2ee-v1:opaque",
+            "message_type": "text",
+            "createdAt": 1_700,
+            "encrypted": false,
+            "files": [{ "fileName": "plan.pdf", "fileSize": 3 }],
+        });
+        let msg: Message = serde_json::from_value::<MessageResponse>(raw)
+            .expect("parse")
+            .into_message();
+        // Prefix alone marks ciphertext, even when `encrypted` is false.
+        assert!(msg.encrypted);
+        assert_eq!(msg.timestamp, 1_700);
+        assert_eq!(msg.file_names, vec!["plan.pdf".to_string()]);
+        assert!(!msg.failed);
+    }
 }
