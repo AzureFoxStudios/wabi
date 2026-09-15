@@ -1,4 +1,5 @@
 import { getEmojiSearchTerms } from './emoji-store';
+import { isEssentialEmoji, sortEmojiLibrary } from './emoji-library';
 import type { Emoji } from './socket-types';
 
 export type ReactionEmojiSource = 'all' | 'bundled' | 'custom';
@@ -10,12 +11,23 @@ export function getReactionEmojiLabel(emoji: Emoji): string {
 
 export function filterReactionEmojis(catalog: Emoji[], query: string, source: ReactionEmojiSource): Emoji[] {
 	const words = query.trim().toLowerCase().replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean);
-	return catalog.filter((emoji) => {
+	const filtered = catalog.filter((emoji) => {
 		// Stickers are message content, not quick-reaction choices.
 		if (emoji.type === 'sticker') return false;
 		const custom = emoji.isCustom || emoji.source === 'custom';
-		if (source === 'custom' && !custom || source === 'bundled' && custom) return false;
+		if ((source === 'custom' && !custom) || (source === 'bundled' && custom)) return false;
 		const terms = getEmojiSearchTerms(emoji).join(' ');
 		return words.every((word) => terms.includes(word));
+	});
+
+	// Keep the complete catalog reachable, but never make a user scroll past
+	// keycaps, obscure symbols and flags before they reach normal reactions.
+	return sortEmojiLibrary(filtered, query);
+}
+
+export function getDefaultReactionEmojis(catalog: Emoji[], source: ReactionEmojiSource = 'all'): Emoji[] {
+	return filterReactionEmojis(catalog, '', source).filter((emoji, index) => {
+		if (source === 'custom') return true;
+		return isEssentialEmoji(emoji) || index < REACTION_EMOJI_PAGE_SIZE;
 	});
 }
