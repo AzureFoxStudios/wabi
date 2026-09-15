@@ -34,6 +34,8 @@ RUN chmod +x ./scripts/fetch-openmoji.sh \
  && ./scripts/fetch-openmoji.sh ./static/openmoji/png
 
 # STATIC_BUILD=1 is REQUIRED: adapter-node output cannot be embedded by rust_embed.
+ARG WABI_SOURCE_REVISION
+ENV WABI_SOURCE_REVISION=${WABI_SOURCE_REVISION}
 ENV STATIC_BUILD=1
 RUN npm run build && test -f build/index.html
 
@@ -56,6 +58,8 @@ COPY --from=frontend-builder /app/build ./frontend/build
 # No cache mounts on purpose: they require BuildKit/buildx, which is not
 # always available (e.g. legacy docker daemons). Rebuilds are slower but the
 # quick start works everywhere.
+ARG WABI_SOURCE_REVISION
+ENV WABI_SOURCE_REVISION=${WABI_SOURCE_REVISION}
 RUN cargo build --locked --release -p wabi-server \
  && cp target/release/wabi-server /wabi-server
 

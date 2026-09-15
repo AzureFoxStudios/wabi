@@ -273,6 +273,13 @@ Behavior and limits are in [Local Notes](../features/LOCAL_NOTES.md). Remaining 
 - **Fresh rootless Podman Compose passed:** `scripts/authority-compose-smoke.mjs` derives the real core services in a unique temporary project with no operator environment file. Fresh mount initialization, embedded HTML/assets, first owner, original login token and persistent message survive restart. A headful browser opens the embedded Notes workspace without page errors and waits for boot-shell dismissal. Report `/tmp/wabi-compose-pilot-vZAIis/report.json`; screenshot `/tmp/wabi-compose-pilot-vZAIis/embedded-workspace.png`; log `/tmp/wabi-compose-pilot-final.log`. Fixture containers are removed; disposable state/evidence remain.
 - **Docker gate added to CI:** builds the source image and runs the same Compose lifecycle fixture. Local Docker daemon access is denied, so Docker execution remains pending CI; Podman evidence is not relabeled as Docker acceptance. Independent clean-host operation, optional services, migration between container UID mappings and release publication remain open.
 
+## Build identity implementation batch
+
+- **R01 implemented, artifact acceptance in progress:** compile-time server identity is available through public no-store diagnostics and a `--build-info` command that runs before logging/data initialization. The client embeds its package version/source revision and emits `wabi-client-build.json`; About distinguishes client/server versions and cancels stale server lookups.
+- **Release manifest:** reads identity from the real binary, requires a release profile and matching client/server revisions, then hashes binary/frontend bytes. Rejects symbolic links and output/input collisions. CI stamps the actual checkout revision and uploads the manifest with the binary; Compose forwards the optional source argument. Unknown local revisions stay explicitly unavailable.
+- **Checks so far:** 801 frontend tests pass with 3 existing skips; focused public metadata Rust handler test passes; four independent manifest-fixture tests pass (matching bytes, wrong server revision/debug profile, mismatched client revision, symlink rejection). Exact stamped build, CLI side effects, actual manifest and rendered About acceptance follow on the committed source.
+- Operator contract: [Build identity](../deployment/BUILD_IDENTITY.md). This is not publication, signing or deployment certification.
+
 ## Interface-review coverage
 
 Full-mode review is bounded to inspected public pages, the guest Messages/Notes views and the source contracts above. It does not certify the other workspaces or populated/private conversations. Svelte 5, existing plain CSS and semantic tokens remain the styling system.

@@ -38,6 +38,8 @@ services:
     build:
       context: .
       dockerfile: core/crates/wabi-server/Dockerfile
+      args:
+        WABI_SOURCE_REVISION: ${WABI_SOURCE_REVISION:-}
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
     command: ["chown 1000:1000 /data /app/uploads /app/plugins"]
@@ -52,6 +54,8 @@ services:
     build:
       context: .
       dockerfile: core/crates/wabi-server/Dockerfile
+      args:
+        WABI_SOURCE_REVISION: ${WABI_SOURCE_REVISION:-}
     container_name: wabi-server
     depends_on:
       wabi-storage-init:

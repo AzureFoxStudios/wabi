@@ -1,5 +1,10 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+import { readFileSync } from 'node:fs';
+
+const clientVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
+const candidateRevision = process.env.WABI_SOURCE_REVISION ?? '';
+const clientRevision = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(candidateRevision) ? candidateRevision : null;
 
 const isTauri = process.env.TAURI_ENV_PLATFORM ? true : false;
 const browserTargets = ['edge88', 'firefox78', 'chrome87', 'safari13.1'];
@@ -37,10 +42,18 @@ export default defineConfig({
 	define: {
 		'process.env': {},
 		'__WABI_SW_VERSION__': JSON.stringify('10'),
-		'__WABI_IS_TAURI__': JSON.stringify(isTauri)
+		'__WABI_IS_TAURI__': JSON.stringify(isTauri),
+		'__WABI_CLIENT_BUILD__': JSON.stringify({ version: clientVersion, sourceRevision: clientRevision })
 	},
 	plugins: [
-		sveltekit()
+		sveltekit(),
+		{
+			name: 'wabi-build-identity',
+			apply: 'build',
+			generateBundle() {
+				this.emitFile({ type: 'asset', fileName: 'wabi-client-build.json', source: JSON.stringify({ schemaVersion: 1, component: 'wabi-frontend', version: clientVersion, sourceRevision: clientRevision }, null, 2) });
+			}
+		}
 		// PWA handled by static/sw.js — no vite-plugin-pwa dependency
 	]
 });
