@@ -1,0 +1,9 @@
+[package]
+name = "wabi-server-map"
+version = "0.2.0"
+edition = "2021"
+description = "Wabi Maps addon backend contract"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

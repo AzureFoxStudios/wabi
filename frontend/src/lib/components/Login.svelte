@@ -165,7 +165,15 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		finally { loading = false; }
 	}
 
-	function focusOnMount(node: HTMLInputElement) { node.focus(); return {}; }
+	function focusOnMount(node: HTMLInputElement) {
+		// Touch devices (Fold/phones): autofocus pops the keyboard on load and
+		// fires scroll-into-view against a small viewport — user lands zoomed
+		// and displaced. Only autofocus where a hardware keyboard exists.
+		try {
+			if (typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches) node.focus();
+		} catch { /* ignore */ }
+		return {};
+	}
 
 	onMount(async () => {
 		injectNeutralBranding();

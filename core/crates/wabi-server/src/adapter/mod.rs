@@ -34,6 +34,7 @@ use wabidb::format::record::RecordKind;
 use wabidb::sequencer::types::{CommandCommit, EventToWrite};
 
 mod group_commands;
+pub(crate) mod game_profiles;
 
 /// Adapter from the WabiClient method shape to wabidb commands.
 ///

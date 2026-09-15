@@ -116,8 +116,8 @@ pub struct AppState {
     /// Channel that internal call-session handlers push (session_id, WsMessage) to.
     /// WebSocket connections subscribe and filter by their own session set.
     pub call_session_push: broadcast::Sender<(String, Arc<crate::websocket::WsMessage>)>,
-    /// Steam addon server-side cache (60s TTL per steam id). Opt-in; only
-    /// populated when STEAM_API_KEY is configured. See api/steam.rs.
+    /// Per-server ephemeral Steam link handoffs and bounded request budgets.
+    /// No raw library cache or live activity history. See api/steam.rs.
     pub steam_cache: Arc<Mutex<crate::api::steam::SteamCache>>,
     /// Shared HTTP client for Steam upstream fetches — one connection pool
     /// instead of a fresh client (TLS handshake) per cache miss.
