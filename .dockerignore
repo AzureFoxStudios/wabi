@@ -8,10 +8,9 @@ build
 .svelte-kit
 frontend/.svelte-kit
 frontend/build
-.env
-.env.local
-frontend/.env
-frontend/.env.local
+# Never bake operator or Vite environment files into a source-built image.
+.env*
+**/.env*
 README.md
 *.md
 

@@ -61,7 +61,7 @@ curl http://localhost:3001/readyz
 
 `/livez` answers whether the process is alive. `/readyz` is the stronger application-readiness check.
 
-Podman users can use `podman compose`. If you prefer externally managed secrets, copy `.env.example` to `.env` and configure the relevant values rather than relying on first-boot generation.
+Compose prepares fresh storage directory ownership before starting the non-root Authority. Podman users can use `podman compose`. If you prefer externally managed secrets, copy `.env.example` to `.env` and configure the relevant values rather than relying on first-boot generation.
 
 ### Bare Cargo
 

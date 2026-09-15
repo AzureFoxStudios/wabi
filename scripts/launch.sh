@@ -16,7 +16,7 @@ USE_SRT_GATEWAY_PROFILE="${USE_SRT_GATEWAY_PROFILE:-auto}"
 USE_SFU_PROFILE="${USE_SFU_PROFILE:-auto}"
 USE_TUNNEL_PROFILE="${USE_TUNNEL_PROFILE:-auto}"
 TUNNEL_CONNECTOR="${TUNNEL_CONNECTOR:-named}"
-PRUNE_DANGLING_IMAGES="${PRUNE_DANGLING_IMAGES:-true}"
+PRUNE_DANGLING_IMAGES="${PRUNE_DANGLING_IMAGES:-false}"
 PRUNE_STOPPED_CONTAINERS="${PRUNE_STOPPED_CONTAINERS:-false}"
 WABI_CONFIG_HAS_VIDEO_COMPRESSION_METRICS=false
 WABI_CONFIG_VIDEO_COMPRESSION_METRICS_VALUE=""
@@ -130,7 +130,7 @@ Advanced environment overrides:
   TUNNEL_CONNECTOR=named|quick         (default: named)
   CLOUDFLARE_TUNNEL_TOKEN=<token>      (required when TUNNEL_CONNECTOR=named and tunnel profile enabled)
   SFU_PROVIDER=none|livekit            (default: none)
-  PRUNE_DANGLING_IMAGES=true|false     (default: true)
+  PRUNE_DANGLING_IMAGES=true|false     (default: false; explicit opt-in)
   PRUNE_STOPPED_CONTAINERS=true|false  (default: false)
   WABI_CONTAINER_RUNTIME=auto|docker|podman (default: auto; prefers Docker when both are installed)
   WABI_CONFIG_FILE=<path>              (default: ./wabi.config)
@@ -1036,8 +1036,8 @@ echo "[launch] Compose files: ${compose_files[*]}"
 echo "[launch] Validating compose config..."
 "${compose[@]}" config >/dev/null
 
-echo "[launch] Building and updating backend/frontend..."
-"${compose[@]}" up -d --build --remove-orphans backend frontend
+echo "[launch] Building and updating the Wabi Authority..."
+"${compose[@]}" up -d --build wabi-server
 
 if [[ "$USE_TURN_PROFILE" == "true" ]]; then
   echo "[launch] Updating coturn profile service..."

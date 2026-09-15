@@ -12,7 +12,7 @@ For a normal Docker/Podman deployment, the important host paths are:
 | Path / value | Why it matters |
 |---|---|
 | `data/wabi-server/` | WabiDB streams/indexes/checkpoints plus persisted server secrets such as the generated root key/JWT secret when env overrides are not used |
-| `uploads/` | User-uploaded files that are not reconstructed from the event log |
+| `data/wabi-server/uploads/` or explicitly configured `uploads/` | Default uploads are inside the data directory. Preserve the external path too when `WABI_UPLOADS_DIR=/app/uploads` is configured; bytes are not reconstructed from events |
 | `.env` | Only if you use externally managed secrets/configuration; treat it as sensitive |
 | `wabi.config` | Operator-friendly launch configuration when you use `scripts/launch.sh` |
 | `plugins/` | Installed runtime plugin packages/configuration if plugin mode is used |

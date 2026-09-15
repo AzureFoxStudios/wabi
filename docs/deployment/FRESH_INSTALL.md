@@ -1,7 +1,7 @@
 # Fresh Install
 
 **Status:** canonical clean single-Authority install  
-**Updated:** 2026-09-14
+**Updated:** 2026-09-15
 
 Start with one boring Wabi Authority on localhost. Do **not** begin by enabling old mesh/STDB settings, experimental replication, tunnels, or every optional media helper at once.
 
@@ -24,7 +24,7 @@ cd wabi
 docker compose up -d --build
 ```
 
-The default Compose stack starts only `wabi-server`.
+The default Compose stack runs a short `wabi-storage-init` job to prepare the owners of the mounted directories, then starts `wabi-server` as UID/GID 1000. The initializer does not recursively change existing community files. The core services use standard `Z` mounts; no Podman-only `U` mount option is required for the Authority. Optional helpers have separate acceptance gates.
 
 You do **not** need to create `.env` just to boot a local server. When not supplied through the environment, first boot generates/persists required server secrets under `./data/wabi-server`.
 
@@ -55,7 +55,8 @@ If the Authority is not ready locally, adding a tunnel, TURN server, or second m
 The default host state lives under:
 
 - `data/wabi-server/` — WabiDB and persisted core secrets;
-- `uploads/` — uploaded files;
+- `data/wabi-server/uploads/` — default uploaded files;
+- `uploads/` — the separate mounted location used when `WABI_UPLOADS_DIR=/app/uploads` is explicitly configured;
 - `plugins/` — runtime plugins, if you use them.
 
 Before the server becomes important, read [BACKUP_AND_RECOVERY.md](BACKUP_AND_RECOVERY.md) and take a baseline stopped-server backup.
@@ -194,3 +195,16 @@ Docker/Podman
 ```
 
 Everything else is optional or advanced. Get this healthy first.
+
+## Repeat the disposable container gate
+
+After building a candidate image, maintainers can run:
+
+```bash
+node scripts/authority-compose-smoke.mjs --runtime docker --image wabi-candidate:ci
+# Or use a locally built image with --runtime podman.
+```
+
+This uses the canonical core Compose services in a unique temporary project with fresh bind mounts, no operator `.env` and loopback-only publication. It checks storage initialization, embedded HTML/assets, first-owner registration and message/session persistence after container restart. It removes only its own containers and keeps disposable evidence. Local Podman evidence does not certify a Docker daemon or an independent host; CI runs the Docker variant.
+
+Existing deployments retain their data paths. Do not switch the configured upload directory, container UID mapping or container engine over an existing installation without a stopped backup and a migration rehearsal. In particular, image-directory ownership cannot repair unrelated host files hidden by a bind mount.

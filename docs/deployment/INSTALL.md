@@ -1,6 +1,6 @@
 # Wabi install / deploy
 
-**Updated:** 2026-07-17
+**Updated:** 2026-09-15
 
 ## Mental model
 
@@ -20,10 +20,13 @@ No SpacetimeDB. No separate frontend/backend services. Default calling is same T
 
 ```bash
 # 1) Frontend for rust_embed (must be static SPA)
-cd frontend && STATIC_BUILD=1 npm run build && cd ..
+cd frontend
+npm ci --no-audit --no-fund
+STATIC_BUILD=1 npm run build
+cd ../
 
 # 2) Binary
-cargo build --release -p wabi-server
+cargo build --locked --release -p wabi-server
 
 # 3) Data dirs (secrets auto-generate into the data dir on first boot)
 mkdir -p data/wabi-server uploads plugins
@@ -52,6 +55,8 @@ If `/` is 404, rebuild frontend with `STATIC_BUILD=1` then rebuild the binary (e
 docker compose up -d --build   # first build compiles frontend + server (~10+ min, cached after)
 # optional profiles: tunnel, tunnel-named, turn, sfu, ...
 ```
+
+Compose prepares fresh bind-mount directory ownership with a short initializer, then runs the Authority as UID/GID 1000. Existing files are not recursively changed.
 
 The image is a multi-stage build (frontend → cargo → runtime), so a fresh clone needs no host toolchain. No `.env` is required: secrets auto-generate into the bind-mounted `./data/wabi-server` on first boot. Set `WABI_JWT_KEY` / `WABIDB_ROOT_KEY` in `.env` only if you manage secrets externally. Default publish: host `3001` → container `3000`.
 
