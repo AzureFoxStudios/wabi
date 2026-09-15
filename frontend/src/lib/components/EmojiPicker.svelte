@@ -55,6 +55,7 @@
 	$: essentialCount = getEssentialEmojiCount(emojiCatalog);
 	$: builtInStickerCount = stickerCatalog.filter((emoji) => !emoji.isCustom && emoji.source !== 'custom').length;
 	$: activeCollection = pickerMode === 'sticker' ? stickerCollection : emojiCollection;
+	let activeMode: 'emoji' | 'sticker' = 'emoji';
 	$: activeMode = pickerMode === 'sticker' ? 'sticker' : 'emoji';
 	$: communityGroups = getCommunityGroups($emojis, activeMode);
 	$: builtInStickerGroups = getBuiltInStickerGroups(stickerCatalog);
