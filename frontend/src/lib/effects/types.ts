@@ -14,12 +14,14 @@ export interface AmbientEffect {
 	id: string;
 	name: string;
 	description: string;
-	/**
-	 * True when the effect renders with WebGL (which locks the canvas to a
-	 * WebGL context). The background host must skip its 2D context setup for
-	 * these effects.
-	 */
+	/** True when the effect primarily renders through WebGL. */
 	usesWebGL?: boolean;
+	/**
+	 * Optional minimum interval between rendered frames. Effects that can use
+	 * GPU acceleration may lower this after init; CPU-heavy fallbacks can keep
+	 * the host's conservative default cadence.
+	 */
+	frameIntervalMs?: number;
 	init(canvas: HTMLCanvasElement, config: EffectConfig): void;
 	render(deltaTime: number, config: EffectConfig): void;
 	resize(width: number, height: number): void;

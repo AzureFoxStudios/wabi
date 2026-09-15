@@ -36,6 +36,9 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
         commands::open_model_viewer,
         recording::save_call_recording,
+        secure_auth::secure_auth_get,
+        secure_auth::secure_auth_set,
+        secure_auth::secure_auth_delete,
         tailcat::tailcat_register_key,
         tailcat::tailcat_connect,
         tailcat::tailcat_disconnect,
@@ -55,7 +58,12 @@ pub fn run() {
 
 mod commands;
 mod recording;
+mod secure_auth;
 mod tailcat;
+#[cfg(not(mobile))]
+mod lore_local;
+#[cfg(mobile)]
+#[path = "lore_local_mobile.rs"]
 mod lore_local;
 pub mod tailcat_proxy;
 #[cfg(not(mobile))]

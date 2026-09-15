@@ -29,6 +29,7 @@ The product is deliberately **not a federated network**: one client may know man
 | [architecture/STORAGE_FORMAT.md](architecture/STORAGE_FORMAT.md) · [architecture/STORAGE_MANIFEST.md](architecture/STORAGE_MANIFEST.md) | On-disk storage details |
 | [architecture/CALLING_TRANSPORT_ARCHITECTURE.md](architecture/CALLING_TRANSPORT_ARCHITECTURE.md) | Calling/media transport design and boundaries |
 | [architecture/MEDIA_BACKEND_AND_CERTIFICATION.md](architecture/MEDIA_BACKEND_AND_CERTIFICATION.md) | Provider-neutral media contract, simple-setup invariant, CGNAT Media Node model, version strategy, and certification gates |
+| [architecture/SHARED_MEDIA_NODES.md](architecture/SHARED_MEDIA_NODES.md) | Multi-tenant shared Media Nodes, tenant isolation, Media Pools, quotas, pairing, privacy, and CGNAT behavior |
 | [architecture/WABI_MULTI_SERVER_ARCHITECTURE.md](architecture/WABI_MULTI_SERVER_ARCHITECTURE.md) | One client, many independent servers — **not federation** |
 | [architecture/SERVER_MESH_PLAN.md](architecture/SERVER_MESH_PLAN.md) | Authority/helper/Anchor/replication/standby boundaries; experimental HA work |
 | [architecture/ADDON_ARCHITECTURE.md](architecture/ADDON_ARCHITECTURE.md) · [ADDONS.md](ADDONS.md) | Curated integrations and runtime plugins |

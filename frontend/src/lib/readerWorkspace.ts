@@ -25,7 +25,7 @@ const MAX_READER_HISTORY = 10;
  */
 
 export type ReaderDocumentFormat = 'markdown' | 'html' | 'text' | 'code';
-export type ReaderDocumentSource = 'local-temp' | 'pasted' | 'generated' | 'chat' | 'notes';
+export type ReaderDocumentSource = 'local-temp' | 'pasted' | 'generated' | 'chat' | 'notes' | 'document';
 export type ReaderTheme = 'auto' | 'paper' | 'sepia' | 'night';
 export type ReaderFontFamily = 'serif' | 'sans';
 export type ReaderContentWidth = 'narrow' | 'medium' | 'wide';
@@ -51,6 +51,19 @@ export interface ReaderDocumentSelection {
 	contentType: ReaderContentType;
 	language?: string;
 	images?: ImagePage[];
+	/** Stable native Wabi document identity, when this selection is document-backed. */
+	documentId?: string;
+	/** Stable identity of the source entity (message/note/etc.) for local working copies. */
+	sourceDocKey?: string;
+}
+
+export interface ReaderStableDocumentInput {
+	documentId: string;
+	title: string;
+	content: string;
+	format: ReaderDocumentFormat;
+	language?: string;
+	sourceDocKey?: string;
 }
 
 export interface ReaderPreferences {
@@ -154,6 +167,15 @@ function computeDocumentKey(
 	return `rdoc-${hashString(seed)}`;
 }
 
+export function readerSourceDocumentKey(
+	source: ReaderDocumentSource,
+	sourceId: string | null | undefined,
+	fallbackDocKey: string
+): string {
+	const stableId = String(sourceId || '').trim();
+	return stableId ? `${source}:${stableId}` : fallbackDocKey;
+}
+
 function inferReaderFormat(fileName: string): ReaderDocumentFormat {
 	const normalized = fileName.toLowerCase();
 	if (normalized.endsWith('.md') || normalized.endsWith('.markdown')) return 'markdown';
@@ -205,14 +227,17 @@ export function openReaderDocument(
 	content: string,
 	format: ReaderDocumentFormat = 'markdown',
 	source: ReaderDocumentSource = 'generated',
-	language?: string
+	language?: string,
+	sourceId?: string
 ): void {
 	const normalizedTitle = title.trim() || 'Untitled Document';
 	const normalizedContent = content.replace(/\r\n/g, '\n');
 	const resolvedLanguage = format === 'code' ? (language || inferReaderCodeLanguage(normalizedTitle)) : language;
+	const docKey = computeDocumentKey(normalizedTitle, normalizedContent, format, resolvedLanguage);
 	const entry: ReaderDocumentSelection = {
 		id: makeReaderId(),
-		docKey: computeDocumentKey(normalizedTitle, normalizedContent, format, resolvedLanguage),
+		docKey,
+		sourceDocKey: readerSourceDocumentKey(source, sourceId, docKey),
 		title: normalizedTitle,
 		content: normalizedContent,
 		format,
@@ -222,6 +247,47 @@ export function openReaderDocument(
 		...(resolvedLanguage ? { language: resolvedLanguage } : {})
 	};
 	openReaderSelection(entry);
+}
+
+export function openReaderStableDocument(input: ReaderStableDocumentInput): void {
+	const documentId = input.documentId.trim();
+	if (!documentId) return;
+	const title = input.title.trim() || 'Untitled Document';
+	const content = input.content.replace(/\r\n/g, '\n');
+	const language = input.format === 'code'
+		? (input.language || inferReaderCodeLanguage(title))
+		: input.language;
+	openReaderSelection({
+		id: makeReaderId(),
+		docKey: `wdoc-${documentId}`,
+		documentId,
+		sourceDocKey: input.sourceDocKey,
+		title,
+		content,
+		format: input.format,
+		updatedAt: Date.now(),
+		source: 'document',
+		contentType: 'text',
+		...(language ? { language } : {})
+	});
+}
+
+/**
+ * Update the currently open Reader selection without recomputing its docKey.
+ * Editable documents therefore keep one stable identity while their title and
+ * content change, and Reader's existing progress/annotation state stays attached.
+ */
+export function updateReaderSelectionDocument(patch: { title?: string; content?: string }): void {
+	let nextSelection: ReaderDocumentSelection | null = null;
+	readerSelection.update((current) => {
+		if (!current || current.contentType === 'images') return current;
+		const title = patch.title ?? current.title;
+		const content = patch.content !== undefined ? patch.content.replace(/\r\n/g, '\n') : current.content;
+		if (title === current.title && content === current.content) return current;
+		nextSelection = { ...current, title, content, updatedAt: Date.now() };
+		return nextSelection;
+	});
+	if (nextSelection) pushReaderHistory(nextSelection);
 }
 
 export async function openTemporaryReaderFile(file: File): Promise<void> {

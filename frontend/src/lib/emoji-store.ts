@@ -32,23 +32,37 @@ function toEmoji(server: ServerEmote): Emoji {
 }
 
 const SEARCH_ALIASES: Record<string, string[]> = {
-	joy: ['happy', 'laugh', 'smile'],
+	joy: ['happy', 'laugh', 'smile', 'funny'],
 	smile: ['happy', 'friendly'],
-	heart: ['love', 'like'],
+	heart: ['love', 'like', 'romance'],
+	love: ['heart', 'romance', 'affection'],
 	dizzy: ['star', 'sparkle', 'giddy'],
 	sweat: ['nervous', 'awkward', 'anxious'],
 	angry: ['mad', 'rage', 'annoyed'],
 	sad: ['cry', 'unhappy', 'upset'],
-	party: ['celebrate', 'celebration', 'fun'],
-	thumbsup: ['approve', 'yes', 'good'],
-	thumbsdown: ['no', 'bad', 'disapprove'],
-	'thumbs up': ['thumbsup', 'approve', 'yes', 'good'],
-	'thumbs down': ['thumbsdown', 'no', 'bad', 'disapprove'],
+	party: ['celebrate', 'celebration', 'fun', 'hype'],
+	fire: ['hot', 'lit', 'hype'],
+	eyes: ['look', 'watch', 'see'],
+	skull: ['dead', 'dying', 'lol'],
+	clap: ['applause', 'congrats', 'congratulations'],
+	thinking: ['think', 'hmm', 'confused', 'question'],
+	pray: ['please', 'thanks', 'thank you', 'hope'],
+	hug: ['comfort', 'support', 'love'],
+	kiss: ['love', 'romance'],
+	hundred: ['agree', 'perfect', '100'],
+	thumbsup: ['approve', 'yes', 'good', 'like'],
+	thumbsdown: ['no', 'bad', 'disapprove', 'dislike'],
+	'thumbs up': ['thumbsup', 'approve', 'yes', 'good', 'like'],
+	'thumbs down': ['thumbsdown', 'no', 'bad', 'disapprove', 'dislike'],
 	smiling: ['smile', 'happy', 'friendly'],
 	grinning: ['grin', 'smile', 'happy'],
-	laughing: ['laugh', 'happy'],
-	hearts: ['heart', 'love', 'like'],
-	crying: ['cry', 'sad', 'unhappy']
+	laughing: ['laugh', 'happy', 'funny'],
+	hearts: ['heart', 'love', 'like', 'romance'],
+	crying: ['cry', 'sad', 'unhappy'],
+	'check mark': ['yes', 'done', 'correct', 'approve'],
+	'cross mark': ['no', 'wrong', 'reject'],
+	warning: ['alert', 'caution'],
+	'question mark': ['question', 'help', 'confused']
 };
 
 export function getEmojiSearchTerms(emoji: Emoji): string[] {
@@ -57,6 +71,26 @@ export function getEmojiSearchTerms(emoji: Emoji): string[] {
 	const aliases = normalized.flatMap((term) => [term, ...term.split(/\s+/)])
 		.flatMap((term) => SEARCH_ALIASES[term] || []);
 	return [...new Set([...base, ...normalized, ...aliases].map((term) => term.trim().toLowerCase()).filter(Boolean))];
+}
+
+/**
+ * A few canonical reactions are front-loaded in the shared store. The full
+ * OpenMoji catalog still follows untouched; this only prevents legacy callers
+ * that sample the first few hundred entries from surfacing keycaps/flags as
+ * their default reaction choices.
+ */
+const CATALOG_FRONT_IDS = ['1F44D', '2764', '1F602', '1F525'];
+
+function frontloadEverydayEmoji(entries: Emoji[]): Emoji[] {
+	const rank = new Map(CATALOG_FRONT_IDS.map((id, index) => [id, index]));
+	return [...entries].sort((a, b) => {
+		const aRank = rank.get(a.id);
+		const bRank = rank.get(b.id);
+		if (aRank === undefined && bRank === undefined) return 0;
+		if (aRank === undefined) return 1;
+		if (bRank === undefined) return -1;
+		return aRank - bRank;
+	});
 }
 
 /**
@@ -89,7 +123,7 @@ export async function initEmojis(): Promise<void> {
 		const res = await fetch('/openmoji/emojis.json');
 		if (!res.ok) throw new Error(`Failed to load emoji manifest: ${res.status}`);
 		const data: Emoji[] = await res.json();
-		bundled.push(...data);
+		bundled.push(...frontloadEverydayEmoji(data));
 	} catch (err) {
 		console.warn('[emoji] Failed to load OpenMoji emojis:', err);
 	}

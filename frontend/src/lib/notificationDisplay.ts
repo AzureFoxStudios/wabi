@@ -6,8 +6,8 @@
 import { browser } from '$app/environment';
 import { brandName } from '$lib/branding';
 import type { Message } from '$lib/socket-types';
-import { isDesktopTauri } from '$lib/tauri-platform';
-import { sendTauriDesktopNotification } from '$lib/tauri-notifications';
+import { isTauriRuntime } from '$lib/tauri-platform';
+import { sendTauriNotification } from '$lib/tauri-notifications';
 import {
 	getNotificationSound,
 	getNotificationVolume,
@@ -45,6 +45,10 @@ function shouldSquelchNotification(message: Message | SimpleNotification): boole
 	}
 
 	return false;
+}
+
+function browserNotificationPermissionGranted(): boolean {
+	return browser && 'Notification' in window && Notification.permission === 'granted';
 }
 
 export function messageMentionsUser(message: Message, username?: string | null): boolean {
@@ -87,13 +91,17 @@ export function showNotification(
 		return;
 	}
 
+	const nativeTauri = isTauriRuntime();
 	const isMention = options?.isMention ?? false;
 	const isCurrentChannelActive = options?.isCurrentChannelActive ?? false;
 	const forceDesktop = options?.forceDesktop === true;
 	const shouldPlaySound = forceDesktop || document.hidden || !isCurrentChannelActive || isMention;
 
-	if (Notification.permission !== 'granted') {
-		console.log('Notification permission not granted:', Notification.permission);
+	// Installed Tauri clients use the native notification plugin. Do not touch
+	// the browser Notification global first: Android/iOS WebViews are not normal
+	// browser tabs and may not expose it at all.
+	if (!nativeTauri && !browserNotificationPermissionGranted()) {
+		console.log('Notification permission not granted');
 		return;
 	}
 
@@ -102,30 +110,20 @@ export function showNotification(
 	}
 
 	if (!document.hidden && !forceDesktop) {
-		console.log('Page is visible, skipping desktop notification');
+		console.log('Page is visible, skipping system notification');
 		return;
 	}
 
 	let title = '';
 	let body = '';
-	let icon = options?.iconUrl?.trim() || '/icon-192.png';
+	const icon = options?.iconUrl?.trim() || '/icon-192.png';
 
 	if ('title' in message && 'body' in message && !('user' in message)) {
 		title = message.title;
 		body = message.body;
 
-		if (isDesktopTauri()) {
-			void sendTauriDesktopNotification(title, body);
-			return;
-		}
-
-		if (Notification.permission !== 'granted') {
-			console.log('Notification permission not granted:', Notification.permission);
-			return;
-		}
-
-		if (!document.hidden && !forceDesktop) {
-			console.log('Page is visible, skipping desktop notification');
+		if (nativeTauri) {
+			void sendTauriNotification(title, body);
 			return;
 		}
 
@@ -187,8 +185,8 @@ export function showNotification(
 		body = fallbackBody || 'New activity';
 	}
 
-	if (isDesktopTauri()) {
-		void sendTauriDesktopNotification(title, body);
+	if (nativeTauri) {
+		void sendTauriNotification(title, body);
 		return;
 	}
 
@@ -225,17 +223,17 @@ export function showCallNotification(
 		return null;
 	}
 
-	if (Notification.permission !== 'granted') {
-		console.log('Notification permission not granted');
-		return null;
-	}
-
 	const title = `Incoming ${isVideoCall ? 'Video' : 'Voice'} Call`;
 	const body = `${callerName} is calling...`;
 	const icon = '/icon-192.png';
 
-	if (isDesktopTauri()) {
-		void sendTauriDesktopNotification(title, body);
+	if (isTauriRuntime()) {
+		void sendTauriNotification(title, body);
+		return null;
+	}
+
+	if (!browserNotificationPermissionGranted()) {
+		console.log('Notification permission not granted');
 		return null;
 	}
 
@@ -260,7 +258,7 @@ export function showCallNotification(
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
 	if (!browser) return 'denied';
 
-	if (isDesktopTauri()) {
+	if (isTauriRuntime()) {
 		const { requestTauriNotificationPermission } = await import('$lib/tauri-notifications');
 		const granted = await requestTauriNotificationPermission();
 		return granted ? 'granted' : 'denied';
