@@ -96,6 +96,8 @@ Suggested new modules under `frontend/src/lib/notes/`: `types.ts`, `scope.ts`, `
 
 Update the existing `NotesWorkspace`, `KeepNotesView`, `QuickScratchpad`, `QuickResourcesPanel`, DM Notes mount and `notesWorkspace` routing. Extend `editor/CodeMirrorEditor.svelte` narrowly for Markdown completion, wrapping, theme tokens and optional gutters; preserve defaults for other callers.
 
+The channel shell anchors location, center-stage Notes owns the primary notebook task, and stubs/right panels add optional multitasking. A shared notebook service must retain simultaneous center-stage and panel views with independent drafts. Do not delete stubs or a panel editor as redundant, and do not make adding a stub replace center stage. An explicit Full/open-in-center action remains distinct from adding a multitasking view.
+
 Titles/search/backlinks belong to the same Notes workspace. Give the active editor the available height instead of a shallow textbox above unused background. Lead list rows with the note title, keeping timestamps secondary. On phones, prioritize the editor and current title/save state; place secondary color/export actions in a reachable menu. Coordinate shared-shell labels so “Chat” does not ambiguously identify the active Notes destination. Do not add another persisted layout/navigation system. Verify the unused `NotesView.svelte` path before retiring it.
 
 Update profile-note callers to await actual save outcomes and use explicit owner scope. Add storage/recovery/export entry points where users already manage local data. Retain a persistent “On this device” label with populated notebooks.

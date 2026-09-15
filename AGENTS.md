@@ -128,6 +128,14 @@ These are repository invariants that have caused real regressions when ignored.
 
 Wabi's UI has accumulated code from many generations. Existing design is not automatically correct just because it already exists.
 
+**Product layout contract (Ronin, 2026-09-15):**
+
+- Channels anchor the user's location/context and remain part of the shell.
+- Center stage owns the primary task and selected workspace.
+- Stubs are additive multitasking affordances. Preserve the stub system; do not delete it as redundant navigation or make stub actions replace center stage.
+- Right panels are only for optional multitasking alongside center stage. They must not become a required primary destination or silently take over the selected workspace.
+- Shared underlying data does not make center-stage and right-panel views redundant. Preserve simultaneous use and independent editor drafts; polish hierarchy and behavior within this contract.
+
 Prefer:
 
 - semantic theme tokens over raw component-specific colors;
