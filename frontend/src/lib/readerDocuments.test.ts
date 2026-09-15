@@ -4,10 +4,12 @@ import {
 	applyReaderDocumentEdit,
 	createOrUpdateReaderSuggestion,
 	createReaderDocumentRecord,
+	hasReaderDocumentWriteConflict,
 	isReaderDocumentChanged,
 	shouldFinalizeReaderDocumentSave,
 	type ReaderLocalDocument
 } from './readerDocuments';
+import { makeReaderDocumentScope, normalizeReaderDocumentServerScope } from './readerDocumentScope';
 import type { ReaderDocumentSelection } from './readerWorkspace';
 
 function selection(overrides: Partial<ReaderDocumentSelection> = {}): ReaderDocumentSelection {
@@ -25,15 +27,25 @@ function selection(overrides: Partial<ReaderDocumentSelection> = {}): ReaderDocu
 }
 
 describe('Reader local-first document model', () => {
-	test('first editable copy is private, stable, and preserves the source snapshot', () => {
-		const record = createReaderDocumentRecord(selection(), 'wdoc-test', 100);
+	test('first editable copy is private, stable, scoped, and preserves the source snapshot', () => {
+		const record = createReaderDocumentRecord(selection(), 'wdoc-test', 100, 'https://one.example|user:7');
 		expect(record.documentId).toBe('wdoc-test');
+		expect(record.scopeId).toBe('https://one.example|user:7');
+		expect(record.storageRevision).toBe(0);
 		expect(record.kind).toBe('working-copy');
 		expect(record.shareState).toBe('private');
 		expect(record.sourceDocKey).toBe('source-key');
 		expect(record.originalContent).toBe('# Hello\n\nOriginal body.');
 		expect(record.content).toBe(record.originalContent);
 		expect(record.revision).toBe(0);
+	});
+
+	test('server and account identities produce isolated document scopes', () => {
+		expect(normalizeReaderDocumentServerScope('HTTPS://Wabi.Example/')).toBe('https://wabi.example');
+		expect(makeReaderDocumentScope('https://wabi.example', 'user:1'))
+			.not.toBe(makeReaderDocumentScope('https://wabi.example', 'user:2'));
+		expect(makeReaderDocumentScope('https://wabi.example', 'user:1'))
+			.not.toBe(makeReaderDocumentScope('https://other.example', 'user:1'));
 	});
 
 	test('editing advances the local revision without mutating the source snapshot', () => {
@@ -54,6 +66,12 @@ describe('Reader local-first document model', () => {
 		expect(shouldFinalizeReaderDocumentSave(newer, newer)).toBe(true);
 	});
 
+	test('a stale browser context is rejected by storage revision instead of overwriting', () => {
+		expect(hasReaderDocumentWriteConflict(4, 4)).toBe(false);
+		expect(hasReaderDocumentWriteConflict(5, 4)).toBe(true);
+		expect(hasReaderDocumentWriteConflict(null, 0)).toBe(false);
+	});
+
 	test('suggestions are separate from canonical content until accepted', () => {
 		const record = createReaderDocumentRecord(selection(), 'wdoc-test', 100);
 		const { document, suggestion } = createOrUpdateReaderSuggestion(
@@ -71,8 +89,6 @@ describe('Reader local-first document model', () => {
 	test('accepting a suggestion promotes its text to the canonical document', () => {
 		const initial = createReaderDocumentRecord(selection(), 'wdoc-test', 100);
 		const result = createOrUpdateReaderSuggestion(initial, null, { content: 'Suggested' }, 200);
-		// Mirror the small store transition that acceptReaderSuggestion performs,
-		// but keep this pure assertion independent of browser persistence.
 		const accepted: ReaderLocalDocument = {
 			...result.document,
 			content: result.suggestion.content,
@@ -84,7 +100,6 @@ describe('Reader local-first document model', () => {
 		expect(accepted.content).toBe('Suggested');
 		expect(accepted.revision).toBe(1);
 		expect(accepted.suggestions[0].status).toBe('accepted');
-		// Keep the exported command referenced so accidental removal is caught by TS.
 		expect(typeof acceptReaderSuggestion).toBe('function');
 	});
 });
