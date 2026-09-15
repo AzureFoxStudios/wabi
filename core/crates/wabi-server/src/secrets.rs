@@ -11,6 +11,7 @@
 //! exists but is corrupt is a hard error — silently regenerating a key would
 //! make existing encrypted data permanently unreadable.
 
+use std::io::{self, Write};
 use std::path::Path;
 
 const WEAK_JWT_DEFAULT: &str = "dev-secret-change-in-production";
@@ -21,7 +22,7 @@ const WEAK_JWT_DEFAULT: &str = "dev-secret-change-in-production";
 /// persisted `<data_dir>/jwt_secret` > freshly generated + persisted.
 /// We never fall back to a hardcoded weak default, because a known secret
 /// lets anyone forge tokens for any user (including the owner).
-pub fn resolve_jwt_secret(data_dir: &str) -> String {
+pub fn resolve_jwt_secret(data_dir: &str) -> io::Result<String> {
     let read_env = |name: &str| {
         std::env::var(name)
             .ok()
@@ -35,33 +36,76 @@ fn resolve_jwt_secret_with(
     wabi_key: Option<String>,
     legacy_key: Option<String>,
     data_dir: &str,
-) -> String {
+) -> io::Result<String> {
     for value in [wabi_key, legacy_key].into_iter().flatten() {
         if value == WEAK_JWT_DEFAULT {
-            tracing::warn!("[security] JWT key is set to the weak built-in default; set a strong secret");
-            return value;
+            tracing::warn!(
+                "[security] JWT key is set to the weak built-in default; set a strong secret"
+            );
+            return Ok(value);
         }
-        return value;
+        return Ok(value);
     }
-    let path = Path::new(data_dir).join("jwt_secret");
-    if let Ok(s) = std::fs::read_to_string(&path) {
-        let t = s.trim();
-        if !t.is_empty() {
-            return t.to_string();
+    let secret = read_or_create_secret(&Path::new(data_dir).join("jwt_secret"), || {
+        format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4())
+    })?;
+    let secret = secret.trim();
+    if secret.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "persisted jwt_secret is empty; restore it or configure an explicit signing key",
+        ));
+    }
+    Ok(secret.to_string())
+}
+
+/// Never overwrite an unreadable/existing key or boot with an unpersisted one.
+/// Exclusive creation also prevents two first boots from replacing each other's keys.
+fn read_or_create_secret(path: &Path, generate: impl FnOnce() -> String) -> io::Result<String> {
+    match std::fs::read_to_string(path) {
+        Ok(value) => return Ok(value),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "secret has no parent directory",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let temporary = parent.join(format!(".wabi-secret-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut file = options.open(&temporary)?;
+        let value = generate();
+        file.write_all(value.as_bytes())?;
+        file.sync_all()?;
+        // Publish only complete bytes, without replacing a concurrent winner.
+        // Both paths are in one directory, so this link cannot cross filesystems.
+        match std::fs::hard_link(&temporary, path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                return std::fs::read_to_string(path)
+            }
+            Err(error) => return Err(error),
         }
-    }
-    let secret = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
-    if let Err(e) = std::fs::write(&path, &secret) {
-        tracing::warn!("[security] failed to persist jwt_secret: {e}");
-    } else {
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        }
-        tracing::info!("[security] generated and persisted a new jwt_secret to {path:?}");
-    }
-    secret
+        std::fs::File::open(parent)?.sync_all()?;
+        Ok(value)
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    let value = result?;
+    tracing::info!(
+        "[security] persisted a first-boot secret at {path:?}; include it in protected backups"
+    );
+    Ok(value)
 }
 
 /// Resolve the WabiDB root (bootstrap) key: the key all engine stream keys
@@ -82,7 +126,10 @@ pub fn resolve_root_key(data_dir: &Path) -> wabidb::error::Result<[u8; 32]> {
     resolve_root_key_with(env_value.as_deref(), data_dir)
 }
 
-fn resolve_root_key_with(env_value: Option<&str>, data_dir: &Path) -> wabidb::error::Result<[u8; 32]> {
+fn resolve_root_key_with(
+    env_value: Option<&str>,
+    data_dir: &Path,
+) -> wabidb::error::Result<[u8; 32]> {
     if let Some(env) = env_value {
         return decode_root_key_hex(env).map_err(|e| wabidb::error::WabiError::Validation {
             command: "resolve_root_key".into(),
@@ -90,45 +137,25 @@ fn resolve_root_key_with(env_value: Option<&str>, data_dir: &Path) -> wabidb::er
         });
     }
     let path = data_dir.join("root_key");
-    if let Ok(s) = std::fs::read_to_string(&path) {
-        let t = s.trim();
-        if t.is_empty() {
-            return Err(wabidb::error::WabiError::Validation {
-                command: "resolve_root_key".into(),
-                reason: format!(
-                    "root key file {path:?} is empty; delete it to regenerate (existing encrypted data will be unreadable) or restore it from backup"
-                ),
-            });
-        }
-        return decode_root_key_hex(t).map_err(|e| {
-            wabidb::error::WabiError::Validation {
-                command: "resolve_root_key".into(),
-                reason: format!(
-                    "root key file {path:?} is corrupt ({e}); restore it from backup — regenerating would make existing data unreadable"
-                ),
-            }
-        });
-    }
-    let mut key = [0u8; 32];
-    use rand::RngCore;
-    rand::thread_rng().fill_bytes(&mut key);
-    std::fs::create_dir_all(data_dir)?;
-    std::fs::write(&path, format!("{}\n", hex::encode(key)))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    tracing::warn!(
-        "[security] generated a new WabiDB root key at {path:?}. BACK THIS UP: it is required to read this server's data and is NOT recoverable from anywhere else"
-    );
-    Ok(key)
+    let persisted = read_or_create_secret(&path, || {
+        let mut key = [0u8; 32];
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(&mut key);
+        format!("{}\n", hex::encode(key))
+    })?;
+    decode_root_key_hex(persisted.trim()).map_err(|error| wabidb::error::WabiError::Validation {
+        command: "resolve_root_key".into(),
+        reason: format!("root key file {path:?} is invalid ({error}); restore it from backup; existing data requires its original key"),
+    })
 }
 
 fn decode_root_key_hex(value: &str) -> Result<[u8; 32], String> {
     let bytes = hex::decode(value).map_err(|e| e.to_string())?;
     if bytes.len() != 32 {
-        return Err(format!("expected 64 hex chars (32 bytes), got {} bytes", bytes.len()));
+        return Err(format!(
+            "expected 64 hex chars (32 bytes), got {} bytes",
+            bytes.len()
+        ));
     }
     let arr: [u8; 32] = bytes.try_into().expect("length checked above");
     Ok(arr)
@@ -137,6 +164,81 @@ fn decode_root_key_hex(value: &str) -> Result<[u8; 32], String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_boot_creates_missing_directories_and_reuses_keys() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("new/community");
+        let first = resolve_jwt_secret_with(None, None, data.to_str().unwrap()).unwrap();
+        assert_eq!(
+            resolve_jwt_secret_with(None, None, data.to_str().unwrap()).unwrap(),
+            first
+        );
+        let root = resolve_root_key_with(None, &data.join("wabidb")).unwrap();
+        assert_eq!(
+            resolve_root_key_with(None, &data.join("wabidb")).unwrap(),
+            root
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(data.join("jwt_secret"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn concurrent_first_boots_publish_one_complete_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("key");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|index| {
+                let path = path.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    read_or_create_secret(&path, || {
+                        barrier.wait();
+                        format!("complete-key-{index}")
+                    })
+                    .unwrap()
+                })
+            })
+            .collect();
+        let values: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert_eq!(values[0], values[1]);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), values[0]);
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn invalid_or_unreadable_keys_are_never_replaced() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path();
+        std::fs::write(data.join("jwt_secret"), "").unwrap();
+        assert!(resolve_jwt_secret_with(None, None, data.to_str().unwrap()).is_err());
+        assert_eq!(std::fs::read(data.join("jwt_secret")).unwrap(), b"");
+        std::fs::create_dir(data.join("root_key")).unwrap();
+        assert!(resolve_root_key_with(None, data).is_err());
+        assert!(data.join("root_key").is_dir());
+        std::fs::remove_dir(data.join("root_key")).unwrap();
+        std::fs::write(data.join("root_key"), [0xff, 0xfe]).unwrap();
+        assert!(resolve_root_key_with(None, data).is_err());
+        assert_eq!(std::fs::read(data.join("root_key")).unwrap(), [0xff, 0xfe]);
+        let file = data.join("not-a-directory");
+        std::fs::write(&file, "keep").unwrap();
+        assert!(resolve_jwt_secret_with(None, None, file.to_str().unwrap()).is_err());
+        assert_eq!(std::fs::read_to_string(file).unwrap(), "keep");
+    }
 
     fn hex_key(bytes: [u8; 32]) -> String {
         hex::encode(bytes)
@@ -151,11 +253,17 @@ mod tests {
                 Some("wabi-secret".into()),
                 Some("legacy-secret".into()),
                 dir.path().to_str().unwrap()
-            ),
+            )
+            .unwrap(),
             "wabi-secret"
         );
         assert_eq!(
-            resolve_jwt_secret_with(None, Some("legacy-secret".into()), dir.path().to_str().unwrap()),
+            resolve_jwt_secret_with(
+                None,
+                Some("legacy-secret".into()),
+                dir.path().to_str().unwrap()
+            )
+            .unwrap(),
             "legacy-secret"
         );
     }
@@ -170,7 +278,8 @@ mod tests {
                 Some(WEAK_JWT_DEFAULT.into()),
                 None,
                 dir.path().to_str().unwrap()
-            ),
+            )
+            .unwrap(),
             WEAK_JWT_DEFAULT
         );
     }
@@ -180,13 +289,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let data_dir = dir.path().to_str().unwrap();
         std::fs::write(dir.path().join("jwt_secret"), "file-secret\n").unwrap();
-        assert_eq!(resolve_jwt_secret_with(None, None, data_dir), "file-secret");
+        assert_eq!(
+            resolve_jwt_secret_with(None, None, data_dir).unwrap(),
+            "file-secret"
+        );
 
         let fresh = tempfile::tempdir().unwrap();
         let fresh_dir = fresh.path().to_str().unwrap();
-        let generated = resolve_jwt_secret_with(None, None, fresh_dir);
+        let generated = resolve_jwt_secret_with(None, None, fresh_dir).unwrap();
         assert!(!generated.is_empty());
-        assert_eq!(resolve_jwt_secret_with(None, None, fresh_dir), generated, "must be stable across boots");
+        assert_eq!(
+            resolve_jwt_secret_with(None, None, fresh_dir).unwrap(),
+            generated,
+            "must be stable across boots"
+        );
     }
 
     #[test]
@@ -194,7 +310,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let key = [7u8; 32];
         std::fs::write(dir.path().join("root_key"), hex_key([1u8; 32])).unwrap();
-        assert_eq!(resolve_root_key_with(Some(&hex_key(key)), dir.path()).unwrap(), key);
+        assert_eq!(
+            resolve_root_key_with(Some(&hex_key(key)), dir.path()).unwrap(),
+            key
+        );
     }
 
     #[test]

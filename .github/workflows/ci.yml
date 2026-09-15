@@ -65,6 +65,11 @@ jobs:
       - name: Cargo test
         run: cargo test --workspace
 
+      - name: Disposable Authority backup and restore
+        run: |
+          cargo build -p wabi-server --bin wabi-server
+          node scripts/authority-backup-restore-smoke.mjs --binary target/debug/wabi-server
+
       # ------------------------------------------------------------------
       # Placeholder: future "deploy to a test box + smoke wabi.chat"
       # Uncomment and adapt when you have a test target (e.g. dotZephyrus).
