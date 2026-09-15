@@ -27,6 +27,7 @@ Wabi is not trying to become a centralized hosted social network, a Matrix/Activ
 - Voice, video, and screen sharing with the existing Wabi call stack and optional TURN/SFU deployment support.
 - Multi-server client/server switching while keeping each server an independent trust boundary.
 - Custom server branding and a substantial theme/customization system.
+- **Optional Translator Assist:** per-user on-demand and viewport-aware automatic message translation through local or explicitly chosen self-hosted LibreTranslate. It is disabled by default, bundles no language models, and does not proxy translation plaintext through the Wabi Authority.
 
 ### Workspaces and creative review
 
@@ -99,6 +100,7 @@ Wabi is privacy-oriented through self-hosting and minimized central dependence, 
 - Retention and confidentiality are separate. A message that is not retained after its configured lifetime is still visible to the server while it exists.
 - Client-local preferences/effects/queues remain a different trust boundary from server state.
 - Optional reverse proxies, tunnels, DERP relays, media services, external tools, and plugins add their own operators/software to the trust chain.
+- Translator Assist does not use the Authority as a translation relay. A remote self-hosted translator is nevertheless another plaintext recipient for any text the user asks it to translate; localhost translation keeps that additional processing on the user's device.
 
 See `PRIVACY_STANCE.md` and `SECURITY-MODEL.md` for detail.
 

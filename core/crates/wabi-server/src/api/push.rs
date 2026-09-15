@@ -123,11 +123,16 @@ async fn unsubscribe(
     Json(body): Json<UnsubscribeBody>,
 ) -> Result<Json<OkResponse>> {
     if let Some(endpoint) = body.endpoint.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        state
+        let removed = state
             .push_store
-            .remove_endpoint(endpoint)
+            .remove_endpoint_for_user(auth.user_id, endpoint)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
+        if !removed {
+            return Err(AppError::Forbidden(
+                "push subscription does not belong to this account".into(),
+            ));
+        }
     } else if let Some(device_id) = body.device_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
     {
         state
@@ -205,10 +210,14 @@ pub async fn send_push_to_user(
                     user_id,
                     truncate_endpoint(&sub.endpoint)
                 );
-                // Drop gone subscriptions
+                // Drop gone subscriptions. Keep the same ownership rule even
+                // for server-side cleanup so endpoint deletion has one contract.
                 let msg = err.to_string();
                 if msg.contains("410") || msg.contains("404") || msg.contains("Gone") {
-                    let _ = state.push_store.remove_endpoint(&sub.endpoint).await;
+                    let _ = state
+                        .push_store
+                        .remove_endpoint_for_user(user_id, &sub.endpoint)
+                        .await;
                 }
             }
         }
