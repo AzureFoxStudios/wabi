@@ -436,7 +436,7 @@ async fn on_whiteboard_cursor(socket: SocketRef, data: Value, state: SioState, i
 }
 
 #[cfg(test)]
-mod tests {
+mod whiteboard_ops_tests {
     use super::board_to_channel_id;
 
     #[test]
