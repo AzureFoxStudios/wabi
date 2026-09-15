@@ -46,6 +46,10 @@ from Git history. Before launch, the operator must assess exposure and arrange
 safe credential/key remediation. Do not rotate WabiDB's root key casually:
 existing data requires its key for recovery.
 
+### Preventing new tracked runtime state
+
+CI runs `python3 scripts/check-runtime-files.py` against tracked pathnames. It rejects runtime `data/` and `uploads/` files, named instance keys, and private environment files; documented `.example` templates and the shipped server blacklist are allowed. The check never reads file contents or deletes local files. This prevents a repeat of known pathname mistakes, but does not scan arbitrary secrets or remove historical exposure.
+
 ### Channel-content boundary
 
 `channel_access.rs` is shared by REST content and Socket.IO channel helpers.

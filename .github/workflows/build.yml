@@ -183,6 +183,9 @@ jobs:
           STATIC_BUILD=1 npm run build
           test -f build/index.html
 
+      - name: Reject tracked operator state
+        run: python3 scripts/check-runtime-files.py
+
       - name: Backend regression tests
         run: cargo test --locked --workspace
 
