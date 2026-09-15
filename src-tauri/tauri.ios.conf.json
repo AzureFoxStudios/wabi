@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Wabi",
+        "transparent": false,
+        "decorations": true
+      }
+    ],
+    "trayIcon": null
+  },
+  "bundle": {
+    "targets": "all",
+    "externalBin": []
+  }
+}
