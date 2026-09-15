@@ -31,6 +31,10 @@ export interface ReaderDocumentComment {
 
 export interface ReaderLocalDocument {
 	v: 1;
+	/** Server + account/device boundary. Documents never cross this scope. */
+	scopeId: string;
+	/** Monotonic durable-store revision used for cross-window compare-and-swap. */
+	storageRevision: number;
 	documentId: string;
 	kind: ReaderDocumentKind;
 	/** Reader/source key this local document was derived from. */
@@ -51,27 +55,52 @@ export interface ReaderLocalDocument {
 	comments: ReaderDocumentComment[];
 }
 
+interface StoredReaderDocument extends ReaderLocalDocument {
+	storageId: string;
+}
+
+interface PersistSaved {
+	status: 'saved';
+	record: ReaderLocalDocument;
+}
+
+interface PersistConflict {
+	status: 'conflict';
+	current: ReaderLocalDocument | null;
+}
+
+interface PersistUnavailable {
+	status: 'unavailable';
+}
+
+type PersistResult = PersistSaved | PersistConflict | PersistUnavailable;
+
 const DB_NAME = 'wabi-reader-documents';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'documents';
-const FALLBACK_PREFIX = 'wabi:reader:document:v1:';
-const RECOVERY_PREFIX = 'wabi:reader:document-recovery:v1:';
+const FALLBACK_PREFIX = 'wabi:reader:document:v2:';
+const RECOVERY_PREFIX = 'wabi:reader:document-recovery:v2:';
 const SAVE_DEBOUNCE_MS = 120;
-const browser = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+const browser = typeof window !== 'undefined';
 
 export const readerDocuments = writable<Record<string, ReaderLocalDocument>>({});
 export const readerDocumentsHydrated = writable(false);
 export const readerDocumentSaveState = writable<Record<string, ReaderLocalSaveState>>({});
+export const readerDocumentConflicts = writable<Record<string, number>>({});
 export const readerStoragePersistent = writable<boolean | null>(null);
+export const readerDocumentScope = writable('');
 
 let hydratePromise: Promise<void> | null = null;
+let hydratingScope = '';
+let activeScopeId = '';
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 let lastTimestamp = 0;
+let broadcastChannel: BroadcastChannel | null = null;
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const persistChains = new Map<string, Promise<void>>();
 const discardingDocuments = new Set<string>();
 
-/** Monotonic per-tab timestamps make newest-write checks deterministic even inside one millisecond. */
+/** Monotonic per-tab timestamps make newest-write checks deterministic inside one millisecond. */
 function now(): number {
 	lastTimestamp = Math.max(Date.now(), lastTimestamp + 1);
 	return lastTimestamp;
@@ -84,10 +113,16 @@ function randomId(prefix: string): string {
 	return `${prefix}-${uuid}`;
 }
 
+function normalizeScopeId(scopeId: string | null | undefined): string {
+	return String(scopeId || '').trim() || 'local-default';
+}
+
 function normalizeDocument(record: ReaderLocalDocument): ReaderLocalDocument {
 	return {
 		...record,
 		v: 1,
+		scopeId: normalizeScopeId(record.scopeId),
+		storageRevision: Number.isFinite(record.storageRevision) ? Math.max(0, Math.floor(record.storageRevision)) : 0,
 		kind: record.kind === 'native' ? 'native' : 'working-copy',
 		shareState: record.shareState === 'shared' || record.shareState === 'live' ? record.shareState : 'private',
 		revision: Number.isFinite(record.revision) ? Math.max(0, record.revision) : 0,
@@ -96,12 +131,46 @@ function normalizeDocument(record: ReaderLocalDocument): ReaderLocalDocument {
 	};
 }
 
-function setSaveState(documentId: string, state: ReaderLocalSaveState): void {
+function storageId(scopeId: string, documentId: string): string {
+	return `${encodeURIComponent(scopeId)}::${documentId}`;
+}
+
+function runtimeKey(scopeId: string, documentId: string): string {
+	return `${scopeId}\u0000${documentId}`;
+}
+
+function storageKey(prefix: string, scopeId: string, documentId: string): string {
+	return `${prefix}${encodeURIComponent(scopeId)}:${documentId}`;
+}
+
+function toStored(record: ReaderLocalDocument): StoredReaderDocument {
+	return { ...record, storageId: storageId(record.scopeId, record.documentId) };
+}
+
+function fromStored(record: StoredReaderDocument | ReaderLocalDocument): ReaderLocalDocument {
+	const { storageId: _storageId, ...document } = record as StoredReaderDocument;
+	return normalizeDocument(document);
+}
+
+function setSaveState(documentId: string, state: ReaderLocalSaveState, scopeId = activeScopeId): void {
+	if (scopeId !== activeScopeId) return;
 	readerDocumentSaveState.update((current) => ({ ...current, [documentId]: state }));
 }
 
-function storageKey(prefix: string, documentId: string): string {
-	return `${prefix}${documentId}`;
+function setConflict(documentId: string, remoteRevision: number | null, scopeId = activeScopeId): void {
+	if (scopeId !== activeScopeId) return;
+	readerDocumentConflicts.update((current) => {
+		const next = { ...current };
+		if (remoteRevision === null) delete next[documentId];
+		else next[documentId] = remoteRevision;
+		return next;
+	});
+}
+
+function safeLocalGet(key: string): string | null {
+	if (!browser) return null;
+	try { return localStorage.getItem(key); }
+	catch { return null; }
 }
 
 function safeLocalSet(key: string, value: string): boolean {
@@ -116,25 +185,23 @@ function safeLocalSet(key: string, value: string): boolean {
 
 function safeLocalRemove(key: string): void {
 	if (!browser) return;
-	try {
-		localStorage.removeItem(key);
-	} catch {
-		// Best-effort cleanup.
-	}
+	try { localStorage.removeItem(key); }
+	catch { /* best effort */ }
 }
 
-function readLocalDocuments(prefix: string): ReaderLocalDocument[] {
+function readLocalDocuments(prefix: string, scopeId: string): ReaderLocalDocument[] {
 	if (!browser) return [];
 	const records: ReaderLocalDocument[] = [];
+	const scopedPrefix = `${prefix}${encodeURIComponent(scopeId)}:`;
 	try {
 		for (let index = 0; index < localStorage.length; index += 1) {
 			const key = localStorage.key(index);
-			if (!key?.startsWith(prefix)) continue;
+			if (!key?.startsWith(scopedPrefix)) continue;
 			const raw = localStorage.getItem(key);
 			if (!raw) continue;
 			try {
-				const parsed = JSON.parse(raw) as ReaderLocalDocument;
-				if (parsed?.documentId && parsed?.v === 1) records.push(normalizeDocument(parsed));
+				const parsed = normalizeDocument(JSON.parse(raw) as ReaderLocalDocument);
+				if (parsed.documentId && parsed.scopeId === scopeId) records.push(parsed);
 			} catch {
 				// Ignore one malformed recovery entry rather than losing the rest.
 			}
@@ -153,10 +220,12 @@ function openReaderDocumentsDb(): Promise<IDBDatabase | null> {
 			const request = indexedDB.open(DB_NAME, DB_VERSION);
 			request.onupgradeneeded = () => {
 				const db = request.result;
-				if (!db.objectStoreNames.contains(STORE_NAME)) {
-					const store = db.createObjectStore(STORE_NAME, { keyPath: 'documentId' });
-					store.createIndex('sourceDocKey', 'sourceDocKey', { unique: false });
-				}
+				// V1 was never shipped and keyed only by documentId. Recreate the
+				// store so a document can be isolated by server/account scope.
+				if (db.objectStoreNames.contains(STORE_NAME)) db.deleteObjectStore(STORE_NAME);
+				const store = db.createObjectStore(STORE_NAME, { keyPath: 'storageId' });
+				store.createIndex('scopeId', 'scopeId', { unique: false });
+				store.createIndex('sourceDocKey', 'sourceDocKey', { unique: false });
 			};
 			request.onsuccess = () => resolve(request.result);
 			request.onerror = () => resolve(null);
@@ -168,14 +237,16 @@ function openReaderDocumentsDb(): Promise<IDBDatabase | null> {
 	return dbPromise;
 }
 
-async function idbGetAll(): Promise<ReaderLocalDocument[]> {
+async function idbGetScope(scopeId: string): Promise<ReaderLocalDocument[]> {
 	const db = await openReaderDocumentsDb();
 	if (!db) return [];
 	return new Promise((resolve) => {
 		try {
 			const tx = db.transaction(STORE_NAME, 'readonly');
-			const request = tx.objectStore(STORE_NAME).getAll();
-			request.onsuccess = () => resolve((request.result || []).map((record) => normalizeDocument(record as ReaderLocalDocument)));
+			const store = tx.objectStore(STORE_NAME);
+			const index = store.index('scopeId');
+			const request = index.getAll(scopeId);
+			request.onsuccess = () => resolve((request.result || []).map((record) => fromStored(record as StoredReaderDocument)));
 			request.onerror = () => resolve([]);
 		} catch {
 			resolve([]);
@@ -183,14 +254,67 @@ async function idbGetAll(): Promise<ReaderLocalDocument[]> {
 	});
 }
 
-async function idbPut(record: ReaderLocalDocument): Promise<boolean> {
+/**
+ * IndexedDB read-write transactions are serialized across tabs/windows. Doing
+ * the revision check and put in the same transaction makes this a real CAS,
+ * not just a per-tab promise chain.
+ */
+async function idbCompareAndPut(record: ReaderLocalDocument): Promise<PersistResult> {
+	const db = await openReaderDocumentsDb();
+	if (!db) return { status: 'unavailable' };
+	return new Promise((resolve) => {
+		try {
+			const tx = db.transaction(STORE_NAME, 'readwrite');
+			const store = tx.objectStore(STORE_NAME);
+			const id = storageId(record.scopeId, record.documentId);
+			let outcome: PersistResult = { status: 'unavailable' };
+			const request = store.get(id);
+			request.onsuccess = () => {
+				const current = request.result ? fromStored(request.result as StoredReaderDocument) : null;
+				const currentRevision = current?.storageRevision ?? 0;
+				const exists = Boolean(current);
+				if ((exists && currentRevision !== record.storageRevision) || (!exists && record.storageRevision !== 0)) {
+					outcome = { status: 'conflict', current };
+					return;
+				}
+				const saved: ReaderLocalDocument = {
+					...record,
+					storageRevision: currentRevision + 1,
+					lastLocalSaveAt: now()
+				};
+				outcome = { status: 'saved', record: saved };
+				store.put(toStored(saved));
+			};
+			tx.oncomplete = () => resolve(outcome);
+			tx.onerror = () => resolve({ status: 'unavailable' });
+			tx.onabort = () => resolve({ status: 'unavailable' });
+		} catch {
+			resolve({ status: 'unavailable' });
+		}
+	});
+}
+
+async function idbCompareAndDelete(record: ReaderLocalDocument): Promise<boolean> {
 	const db = await openReaderDocumentsDb();
 	if (!db) return false;
 	return new Promise((resolve) => {
 		try {
 			const tx = db.transaction(STORE_NAME, 'readwrite');
-			tx.objectStore(STORE_NAME).put(record);
-			tx.oncomplete = () => resolve(true);
+			const store = tx.objectStore(STORE_NAME);
+			const id = storageId(record.scopeId, record.documentId);
+			let deleted = false;
+			const request = store.get(id);
+			request.onsuccess = () => {
+				const current = request.result ? fromStored(request.result as StoredReaderDocument) : null;
+				if (!current) {
+					deleted = true;
+					return;
+				}
+				if (current.storageRevision !== record.storageRevision) return;
+				store.delete(id);
+				deleted = true;
+			};
+			tx.oncomplete = () => resolve(deleted);
 			tx.onerror = () => resolve(false);
 			tx.onabort = () => resolve(false);
 		} catch {
@@ -199,20 +323,40 @@ async function idbPut(record: ReaderLocalDocument): Promise<boolean> {
 	});
 }
 
-async function idbDelete(documentId: string): Promise<void> {
-	const db = await openReaderDocumentsDb();
-	if (!db) return;
-	await new Promise<void>((resolve) => {
-		try {
-			const tx = db.transaction(STORE_NAME, 'readwrite');
-			tx.objectStore(STORE_NAME).delete(documentId);
-			tx.oncomplete = () => resolve();
-			tx.onerror = () => resolve();
-			tx.onabort = () => resolve();
-		} catch {
-			resolve();
-		}
-	});
+function fallbackCompareAndPut(record: ReaderLocalDocument): PersistResult {
+	const key = storageKey(FALLBACK_PREFIX, record.scopeId, record.documentId);
+	const raw = safeLocalGet(key);
+	let current: ReaderLocalDocument | null = null;
+	if (raw) {
+		try { current = normalizeDocument(JSON.parse(raw) as ReaderLocalDocument); }
+		catch { current = null; }
+	}
+	const currentRevision = current?.storageRevision ?? 0;
+	if ((current && currentRevision !== record.storageRevision) || (!current && record.storageRevision !== 0)) {
+		return { status: 'conflict', current };
+	}
+	const saved: ReaderLocalDocument = {
+		...record,
+		storageRevision: currentRevision + 1,
+		lastLocalSaveAt: now()
+	};
+	return safeLocalSet(key, JSON.stringify(saved))
+		? { status: 'saved', record: saved }
+		: { status: 'unavailable' };
+}
+
+function fallbackCompareAndDelete(record: ReaderLocalDocument): boolean {
+	const key = storageKey(FALLBACK_PREFIX, record.scopeId, record.documentId);
+	const raw = safeLocalGet(key);
+	if (!raw) return true;
+	try {
+		const current = normalizeDocument(JSON.parse(raw) as ReaderLocalDocument);
+		if (current.storageRevision !== record.storageRevision) return false;
+	} catch {
+		return false;
+	}
+	safeLocalRemove(key);
+	return true;
 }
 
 function mergeNewest(records: ReaderLocalDocument[]): Record<string, ReaderLocalDocument> {
@@ -220,7 +364,10 @@ function mergeNewest(records: ReaderLocalDocument[]): Record<string, ReaderLocal
 	for (const record of records) {
 		const normalized = normalizeDocument(record);
 		const existing = merged[normalized.documentId];
-		if (!existing || normalized.updatedAt >= existing.updatedAt) merged[normalized.documentId] = normalized;
+		if (!existing || normalized.updatedAt > existing.updatedAt ||
+			(normalized.updatedAt === existing.updatedAt && normalized.storageRevision > existing.storageRevision)) {
+			merged[normalized.documentId] = normalized;
+		}
 	}
 	return merged;
 }
@@ -231,6 +378,74 @@ export function shouldFinalizeReaderDocumentSave(
 	persisted: ReaderLocalDocument
 ): boolean {
 	return Boolean(current && current.documentId === persisted.documentId && current.updatedAt === persisted.updatedAt);
+}
+
+/** Pure guard used by tests and the IndexedDB CAS path. */
+export function hasReaderDocumentWriteConflict(
+	currentStorageRevision: number | null | undefined,
+	candidateStorageRevision: number
+): boolean {
+	return currentStorageRevision !== null && currentStorageRevision !== undefined &&
+		currentStorageRevision !== candidateStorageRevision;
+}
+
+function closeBroadcastChannel(): void {
+	try { broadcastChannel?.close(); }
+	catch { /* best effort */ }
+	broadcastChannel = null;
+}
+
+function setupBroadcastChannel(scopeId: string): void {
+	closeBroadcastChannel();
+	if (!browser || typeof BroadcastChannel === 'undefined') return;
+	try {
+		broadcastChannel = new BroadcastChannel(`wabi-reader-documents:${scopeId}`);
+		broadcastChannel.onmessage = (event: MessageEvent) => {
+			const payload = event.data as { type?: string; scopeId?: string; record?: ReaderLocalDocument; documentId?: string };
+			if (payload?.scopeId !== activeScopeId) return;
+			if (payload.type === 'saved' && payload.record) {
+				const incoming = normalizeDocument(payload.record);
+				const local = get(readerDocuments)[incoming.documentId];
+				const state = get(readerDocumentSaveState)[incoming.documentId];
+				if (state === 'dirty' || state === 'saving' || state === 'error') return;
+				if (!local || incoming.storageRevision > local.storageRevision) {
+					readerDocuments.update((documents) => ({ ...documents, [incoming.documentId]: incoming }));
+					setSaveState(incoming.documentId, 'saved');
+					setConflict(incoming.documentId, null);
+				}
+			}
+			if (payload.type === 'deleted' && payload.documentId) {
+				const state = get(readerDocumentSaveState)[payload.documentId];
+				if (state === 'dirty' || state === 'saving' || state === 'error') return;
+				readerDocuments.update((documents) => {
+					const next = { ...documents };
+					delete next[payload.documentId!];
+					return next;
+				});
+			}
+		};
+	} catch {
+		broadcastChannel = null;
+	}
+}
+
+function broadcastSaved(record: ReaderLocalDocument): void {
+	try { broadcastChannel?.postMessage({ type: 'saved', scopeId: record.scopeId, record }); }
+	catch { /* best effort */ }
+}
+
+function broadcastDeleted(scopeId: string, documentId: string): void {
+	try { broadcastChannel?.postMessage({ type: 'deleted', scopeId, documentId }); }
+	catch { /* best effort */ }
+}
+
+function clearScopeRuntimeState(): void {
+	for (const timer of saveTimers.values()) clearTimeout(timer);
+	saveTimers.clear();
+	readerDocuments.set({});
+	readerDocumentSaveState.set({});
+	readerDocumentConflicts.set({});
+	readerDocumentsHydrated.set(false);
 }
 
 export async function requestReaderPersistentStorage(): Promise<boolean | null> {
@@ -249,34 +464,79 @@ export async function requestReaderPersistentStorage(): Promise<boolean | null> 
 	}
 }
 
-export async function hydrateReaderDocuments(): Promise<void> {
-	if (get(readerDocumentsHydrated)) return;
-	if (hydratePromise) return hydratePromise;
+async function hydrateScope(scopeId: string): Promise<void> {
+	if (hydratingScope === scopeId && hydratePromise) return hydratePromise;
+	hydratingScope = scopeId;
 	hydratePromise = (async () => {
 		const [indexed, fallback] = await Promise.all([
-			idbGetAll(),
-			Promise.resolve(readLocalDocuments(FALLBACK_PREFIX))
+			idbGetScope(scopeId),
+			Promise.resolve(readLocalDocuments(FALLBACK_PREFIX, scopeId))
 		]);
-		const recovery = readLocalDocuments(RECOVERY_PREFIX);
-		const merged = mergeNewest([...indexed, ...fallback, ...recovery]);
+		if (scopeId !== activeScopeId) return;
+		const recovery = readLocalDocuments(RECOVERY_PREFIX, scopeId);
+		const committed = mergeNewest([...indexed, ...fallback]);
+		const merged = { ...committed };
+		const recoveredIds = new Set<string>();
+		const conflictedIds = new Set<string>();
+		for (const pending of recovery) {
+			const durable = committed[pending.documentId];
+			if (!durable || pending.updatedAt >= durable.updatedAt) {
+				merged[pending.documentId] = pending;
+				recoveredIds.add(pending.documentId);
+				if (durable && pending.storageRevision !== durable.storageRevision) conflictedIds.add(pending.documentId);
+			} else {
+				safeLocalRemove(storageKey(RECOVERY_PREFIX, scopeId, pending.documentId));
+			}
+		}
 		readerDocuments.set(merged);
+		const states: Record<string, ReaderLocalSaveState> = {};
+		const conflicts: Record<string, number> = {};
+		for (const document of Object.values(merged)) {
+			states[document.documentId] = recoveredIds.has(document.documentId)
+				? (conflictedIds.has(document.documentId) ? 'error' : 'dirty')
+				: 'saved';
+			if (conflictedIds.has(document.documentId)) conflicts[document.documentId] = committed[document.documentId]?.storageRevision || 0;
+		}
+		readerDocumentSaveState.set(states);
+		readerDocumentConflicts.set(conflicts);
 		readerDocumentsHydrated.set(true);
 		void requestReaderPersistentStorage();
 	})();
 	try {
 		await hydratePromise;
 	} finally {
-		hydratePromise = null;
+		if (hydratingScope === scopeId) {
+			hydratingScope = '';
+			hydratePromise = null;
+		}
 	}
+}
+
+export async function activateReaderDocumentScope(scopeId: string): Promise<void> {
+	const normalized = normalizeScopeId(scopeId);
+	if (normalized === activeScopeId && get(readerDocumentsHydrated)) return;
+	activeScopeId = normalized;
+	readerDocumentScope.set(normalized);
+	clearScopeRuntimeState();
+	setupBroadcastChannel(normalized);
+	await hydrateScope(normalized);
+}
+
+export async function hydrateReaderDocuments(): Promise<void> {
+	if (!activeScopeId) await activateReaderDocumentScope('local-default');
+	else if (!get(readerDocumentsHydrated)) await hydrateScope(activeScopeId);
 }
 
 export function createReaderDocumentRecord(
 	selection: ReaderDocumentSelection,
 	documentId = randomId('wdoc'),
-	createdAt = now()
+	createdAt = now(),
+	scopeId = activeScopeId || 'local-default'
 ): ReaderLocalDocument {
 	return {
 		v: 1,
+		scopeId: normalizeScopeId(scopeId),
+		storageRevision: 0,
 		documentId,
 		kind: selection.source === 'document' ? 'native' : 'working-copy',
 		sourceDocKey: selection.sourceDocKey || selection.docKey,
@@ -308,75 +568,106 @@ export function findReaderDocumentForSelection(selection: ReaderDocumentSelectio
 }
 
 async function persistSnapshot(record: ReaderLocalDocument): Promise<void> {
-	if (discardingDocuments.has(record.documentId)) return;
-	const beforeWrite = get(readerDocuments)[record.documentId];
-	if (beforeWrite && beforeWrite.updatedAt <= record.updatedAt) setSaveState(record.documentId, 'saving');
-	const saved: ReaderLocalDocument = { ...record, lastLocalSaveAt: now() };
-	const idbSaved = await idbPut(saved);
-	if (discardingDocuments.has(record.documentId)) return;
-	const fallbackSaved = idbSaved
-		? true
-		: safeLocalSet(storageKey(FALLBACK_PREFIX, saved.documentId), JSON.stringify(saved));
-	if (idbSaved) safeLocalRemove(storageKey(FALLBACK_PREFIX, saved.documentId));
-	const current = get(readerDocuments)[saved.documentId];
-	if (!shouldFinalizeReaderDocumentSave(current, record)) {
-		// A newer keystroke/comment/suggestion exists. Its recovery mirror must
-		// stay intact and its queued persistence owns the final save state.
-		if (current) setSaveState(saved.documentId, 'dirty');
+	const key = runtimeKey(record.scopeId, record.documentId);
+	if (discardingDocuments.has(key)) return;
+	const live = record.scopeId === activeScopeId ? get(readerDocuments)[record.documentId] : null;
+	const expectedRevision = live && live.updatedAt >= record.updatedAt
+		? Math.max(record.storageRevision, live.storageRevision)
+		: record.storageRevision;
+	const candidate: ReaderLocalDocument = { ...record, storageRevision: expectedRevision };
+	if (live && live.updatedAt <= record.updatedAt) setSaveState(record.documentId, 'saving', record.scopeId);
+
+	let result = await idbCompareAndPut(candidate);
+	if (result.status === 'unavailable') result = fallbackCompareAndPut(candidate);
+	if (discardingDocuments.has(key)) return;
+
+	if (result.status === 'conflict') {
+		setSaveState(record.documentId, 'error', record.scopeId);
+		setConflict(record.documentId, result.current?.storageRevision ?? 0, record.scopeId);
+		// Keep the recovery mirror intact. The other window's durable state is not
+		// overwritten, and this window's local edits remain recoverable.
 		return;
 	}
-	if (!fallbackSaved) {
-		setSaveState(saved.documentId, 'error');
+	if (result.status !== 'saved') {
+		setSaveState(record.documentId, 'error', record.scopeId);
+		return;
+	}
+
+	const saved = result.record;
+	safeLocalRemove(storageKey(FALLBACK_PREFIX, saved.scopeId, saved.documentId));
+	broadcastSaved(saved);
+	if (saved.scopeId !== activeScopeId) return;
+	const current = get(readerDocuments)[saved.documentId];
+	if (!shouldFinalizeReaderDocumentSave(current, record)) {
+		if (current) {
+			readerDocuments.update((documents) => {
+				const latest = documents[saved.documentId];
+				if (!latest || latest.updatedAt < record.updatedAt) return documents;
+				return {
+					...documents,
+					[saved.documentId]: {
+						...latest,
+						storageRevision: Math.max(latest.storageRevision, saved.storageRevision),
+						lastLocalSaveAt: saved.lastLocalSaveAt
+					}
+				};
+			});
+			setSaveState(saved.documentId, 'dirty');
+		}
 		return;
 	}
 	readerDocuments.update((documents) => {
 		const latest = documents[saved.documentId];
 		if (!shouldFinalizeReaderDocumentSave(latest, record)) return documents;
-		return { ...documents, [saved.documentId]: { ...latest, lastLocalSaveAt: saved.lastLocalSaveAt } };
+		return { ...documents, [saved.documentId]: saved };
 	});
-	safeLocalRemove(storageKey(RECOVERY_PREFIX, saved.documentId));
+	safeLocalRemove(storageKey(RECOVERY_PREFIX, saved.scopeId, saved.documentId));
+	setConflict(saved.documentId, null);
 	setSaveState(saved.documentId, 'saved');
 }
 
 function enqueuePersist(record: ReaderLocalDocument): Promise<void> {
-	const documentId = record.documentId;
-	const previous = persistChains.get(documentId) || Promise.resolve();
+	const key = runtimeKey(record.scopeId, record.documentId);
+	const previous = persistChains.get(key) || Promise.resolve();
 	const next = previous.catch(() => {}).then(() => persistSnapshot(record));
-	persistChains.set(documentId, next);
+	persistChains.set(key, next);
 	void next.finally(() => {
-		if (persistChains.get(documentId) === next) persistChains.delete(documentId);
+		if (persistChains.get(key) === next) persistChains.delete(key);
 	});
 	return next;
 }
 
 function schedulePersist(record: ReaderLocalDocument): void {
-	if (discardingDocuments.has(record.documentId)) return;
-	// Synchronous recovery mirror first: a crash between this keystroke and the
-	// IndexedDB transaction can still be recovered on the next launch.
-	const mirrored = safeLocalSet(storageKey(RECOVERY_PREFIX, record.documentId), JSON.stringify(record));
-	setSaveState(record.documentId, mirrored || typeof indexedDB !== 'undefined' ? 'dirty' : 'error');
-	const existing = saveTimers.get(record.documentId);
+	const key = runtimeKey(record.scopeId, record.documentId);
+	if (discardingDocuments.has(key)) return;
+	const mirrored = safeLocalSet(
+		storageKey(RECOVERY_PREFIX, record.scopeId, record.documentId),
+		JSON.stringify(record)
+	);
+	setSaveState(record.documentId, mirrored || typeof indexedDB !== 'undefined' ? 'dirty' : 'error', record.scopeId);
+	const existing = saveTimers.get(key);
 	if (existing) clearTimeout(existing);
-	saveTimers.set(record.documentId, setTimeout(() => {
-		saveTimers.delete(record.documentId);
-		void enqueuePersist(record).catch(() => setSaveState(record.documentId, 'error'));
+	saveTimers.set(key, setTimeout(() => {
+		saveTimers.delete(key);
+		void enqueuePersist(record).catch(() => setSaveState(record.documentId, 'error', record.scopeId));
 	}, SAVE_DEBOUNCE_MS));
 }
 
 export async function flushReaderDocument(documentId: string): Promise<void> {
-	const timer = saveTimers.get(documentId);
+	const record = get(readerDocuments)[documentId];
+	if (!record) return;
+	const key = runtimeKey(record.scopeId, documentId);
+	const timer = saveTimers.get(key);
 	if (timer) {
 		clearTimeout(timer);
-		saveTimers.delete(documentId);
+		saveTimers.delete(key);
 	}
-	const record = get(readerDocuments)[documentId];
-	if (!record || discardingDocuments.has(documentId)) return;
-	// Refresh the synchronous mirror before forcing the durable transaction.
-	safeLocalSet(storageKey(RECOVERY_PREFIX, documentId), JSON.stringify(record));
+	if (discardingDocuments.has(key)) return;
+	safeLocalSet(storageKey(RECOVERY_PREFIX, record.scopeId, documentId), JSON.stringify(record));
 	try {
 		await enqueuePersist(record);
 	} catch {
-		setSaveState(documentId, 'error');
+		setSaveState(documentId, 'error', record.scopeId);
 	}
 }
 
@@ -393,7 +684,7 @@ export async function ensureReaderDocument(selection: ReaderDocumentSelection): 
 		selection.documentId || randomId('wdoc')
 	);
 	readerDocuments.update((current) => ({ ...current, [document.documentId]: document }));
-	safeLocalSet(storageKey(RECOVERY_PREFIX, document.documentId), JSON.stringify(document));
+	safeLocalSet(storageKey(RECOVERY_PREFIX, document.scopeId, document.documentId), JSON.stringify(document));
 	await enqueuePersist(document);
 	return get(readerDocuments)[document.documentId] || document;
 }
@@ -548,7 +839,7 @@ export function setReaderDocumentCommentResolved(documentId: string, commentId: 
 	const comments = record.comments.map((comment) => comment.id === commentId
 		? { ...comment, resolved, updatedAt: timestamp }
 		: comment);
-	const next = { ...record, comments, updatedAt: timestamp };
+	const next: ReaderLocalDocument = { ...record, comments, updatedAt: timestamp };
 	readerDocuments.update((current) => ({ ...current, [documentId]: next }));
 	schedulePersist(next);
 }
@@ -556,7 +847,7 @@ export function setReaderDocumentCommentResolved(documentId: string, commentId: 
 export function removeReaderDocumentComment(documentId: string, commentId: string): void {
 	const record = get(readerDocuments)[documentId];
 	if (!record) return;
-	const next = {
+	const next: ReaderLocalDocument = {
 		...record,
 		comments: record.comments.filter((comment) => comment.id !== commentId),
 		updatedAt: now()
@@ -566,15 +857,20 @@ export function removeReaderDocumentComment(documentId: string, commentId: strin
 }
 
 export async function discardReaderDocument(documentId: string): Promise<void> {
-	const timer = saveTimers.get(documentId);
+	const record = get(readerDocuments)[documentId];
+	if (!record) return;
+	const key = runtimeKey(record.scopeId, documentId);
+	const timer = saveTimers.get(key);
 	if (timer) {
 		clearTimeout(timer);
-		saveTimers.delete(documentId);
+		saveTimers.delete(key);
 	}
-	discardingDocuments.add(documentId);
+	discardingDocuments.add(key);
 	try {
-		const inFlight = persistChains.get(documentId);
+		const inFlight = persistChains.get(key);
 		if (inFlight) await inFlight.catch(() => {});
+		const durableDeleted = await idbCompareAndDelete(record);
+		const fallbackDeleted = fallbackCompareAndDelete(record);
 		readerDocuments.update((current) => {
 			const next = { ...current };
 			delete next[documentId];
@@ -585,12 +881,12 @@ export async function discardReaderDocument(documentId: string): Promise<void> {
 			delete next[documentId];
 			return next;
 		});
-		safeLocalRemove(storageKey(FALLBACK_PREFIX, documentId));
-		safeLocalRemove(storageKey(RECOVERY_PREFIX, documentId));
-		await idbDelete(documentId);
+		setConflict(documentId, null, record.scopeId);
+		safeLocalRemove(storageKey(RECOVERY_PREFIX, record.scopeId, documentId));
+		if (durableDeleted || fallbackDeleted) broadcastDeleted(record.scopeId, documentId);
 	} finally {
-		discardingDocuments.delete(documentId);
-		persistChains.delete(documentId);
+		discardingDocuments.delete(key);
+		persistChains.delete(key);
 	}
 }
 
