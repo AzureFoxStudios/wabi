@@ -39,6 +39,8 @@ impl Projection for UserDeletionProjection {
         // 1. The account row.
         state.remove("users", &encode_user_key(user_id));
 
+        state.remove(crate::projections::game_profiles::INDEX, &user_id.to_be_bytes());
+
         // 2. Channel memberships across all channels. Collect first, then
         // remove — do not mutate while iterating.
         let mut member_keys: Vec<Vec<u8>> = Vec::new();

@@ -3,7 +3,8 @@ import { mobileTabQueue } from '$lib/mobileTabQueue';
 
 export const MODEL_VIEWPORT_ADDON_ID = 'model-viewport';
 
-type ModelViewportSource = 'chat' | 'local-temp';
+export type ModelViewportSource = 'chat' | 'local-temp';
+export interface ModelViewportOpenOptions { activate?: boolean; source?: ModelViewportSource }
 
 export interface ModelViewportSelection {
 	id: string;
@@ -36,7 +37,7 @@ function pushHistory(entry: ModelViewportHistoryEntry): void {
 	});
 }
 
-function openModelViewportWithSource(src: string, fileName: string, source: ModelViewportSource): void {
+function openModelViewportWithSource(src: string, fileName: string, source: ModelViewportSource, activate = true): void {
 	if (!src) return;
 	const entry: ModelViewportHistoryEntry = {
 		id: makeModelId(),
@@ -47,23 +48,23 @@ function openModelViewportWithSource(src: string, fileName: string, source: Mode
 	};
 	modelViewportSelection.set(entry);
 	pushHistory(entry);
-	openModelViewportSurface();
+	if (activate) openModelViewportSurface();
 }
 
-export function openModelViewport(src: string, fileName: string): void {
-	openModelViewportWithSource(src, fileName, 'chat');
+export function openModelViewport(src: string, fileName: string, options: ModelViewportOpenOptions = {}): void {
+	openModelViewportWithSource(src, fileName, options.source || 'chat', options.activate !== false);
 }
 
 export function openModelViewportSurface(): void {
 	mobileTabQueue.openAddonTab(MODEL_VIEWPORT_ADDON_ID);
 }
 
-export function openTemporaryModelViewport(file: File): void {
+export function openTemporaryModelViewport(file: File, options: Pick<ModelViewportOpenOptions, 'activate'> = {}): void {
 	const objectUrl = URL.createObjectURL(file);
-	openModelViewportWithSource(objectUrl, file.name || 'Local model', 'local-temp');
+	openModelViewportWithSource(objectUrl, file.name || 'Local model', 'local-temp', options.activate !== false);
 }
 
-export function openModelViewportHistoryEntry(entryId: string): void {
+export function openModelViewportHistoryEntry(entryId: string, options: Pick<ModelViewportOpenOptions, 'activate'> = {}): void {
 	if (!entryId) return;
 	let next: ModelViewportHistoryEntry | null = null;
 	modelViewportHistory.update((entries) => {
@@ -75,7 +76,7 @@ export function openModelViewportHistoryEntry(entryId: string): void {
 	});
 	if (next) {
 		modelViewportSelection.set(next);
-		openModelViewportSurface();
+		if (options.activate !== false) openModelViewportSurface();
 	}
 }
 

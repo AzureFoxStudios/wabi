@@ -1,100 +1,196 @@
 # Fresh Install
 
-Use this path for a clean single-machine Wabi install.
+**Status:** canonical clean single-Authority install  
+**Updated:** 2026-09-14
 
-Do not start with mesh, STDB, or Cloudflare Tunnel.
-Get one machine healthy on `localhost` first, then add one extra layer at a time.
+Start with one boring Wabi Authority on localhost. Do **not** begin by enabling old mesh/STDB settings, experimental replication, tunnels, or every optional media helper at once.
+
+WabiDB is embedded in `wabi-server`; there is no SpacetimeDB service in the normal stack.
 
 ## Prerequisites
 
-- Docker Desktop or Podman with Compose support
-- Bash available as `bash`
+Recommended path:
+
 - Git
+- Docker with Compose support, or Podman + Compose
 
-## 1. Create `wabi.config`
+For source/native development, also install the repository's pinned Rust toolchain and frontend tooling.
 
-Copy [wabi.config.example](../../wabi.config.example) to `wabi.config`.
-
-Start with this minimal config:
-
-```env
-PROFILE=authority
-RUNTIME=rust
-DOMAIN=localhost
-CALLS=self_hosted_turn
-
-USE_TUNNEL_PROFILE=false
-TUNNEL_CONNECTOR=named
-CLOUDFLARE_TUNNEL_TOKEN=
-
-PLUGINS_ENABLED=false
-PLUGINS_ALLOW_INSTALL=false
-
-ENABLE_RELAYS=false
-ENABLE_MEDIA_GATEWAY=false
-ENABLE_SFU=false
-SFU_PROVIDER=none
-LIVEKIT_URL=
-LIVEKIT_API_KEY=
-LIVEKIT_API_SECRET=
-```
-
-Leave these unset for the first install:
-
-- `STATE_*`
-- `WABI_STDB_*`
-- `WABI_SERVER_*`
-- `WABI_MESH_*`
-
-## 2. Launch
-
-From the repo root:
+## 1. Clone and start
 
 ```bash
-./scripts/launch.sh --reconfigure
+git clone https://github.com/AzureFoxStudios/wabi.git
+cd wabi
+docker compose up -d --build
 ```
 
-This generates `.env` and `frontend/.env`, builds the containers, and starts Wabi.
+The default Compose stack starts only `wabi-server`.
 
-## 3. Verify
+You do **not** need to create `.env` just to boot a local server. When not supplied through the environment, first boot generates/persists required server secrets under `./data/wabi-server`.
 
-Check:
+Open:
 
-- `http://localhost:3000`
-- `http://localhost:8080/health`
+```text
+http://localhost:3001
+```
 
-If those are not healthy yet, do not add tunnel or mesh.
+Create the first/owner account.
 
-## 4. Optional: Public Domain
-
-Only after localhost is working:
-
-1. Set `USE_TUNNEL_PROFILE=true`
-2. Set `TUNNEL_CONNECTOR=named`
-3. Set `CLOUDFLARE_TUNNEL_TOKEN=<your token>`
-4. Run:
+## 2. Verify the Authority before adding anything else
 
 ```bash
-./scripts/launch.sh --reconfigure
+curl -f http://localhost:3001/livez
+curl -f http://localhost:3001/readyz
 ```
 
-This starts:
+- `/livez` — process liveness.
+- `/readyz` — stronger application readiness; use this before declaring the server healthy.
 
-- `wabi-tunnel-caddy`
-- `wabi-cloudflared-named`
+Also verify a real client flow: log in, open/create a channel, send/read representative content, and reload.
 
-## 5. Optional: Second Machine / Mesh
+If the Authority is not ready locally, adding a tunnel, TURN server, or second machine only makes debugging harder.
 
-Only after one machine is stable:
+## 3. Understand your data before exposing the server
 
-1. Bring up the second machine with the same single-machine install first
-2. Add STDB and mesh settings after both standalone installs are healthy
-3. Re-run `./scripts/launch.sh --reconfigure` on each machine
+The default host state lives under:
 
-## Rule Of Thumb
+- `data/wabi-server/` — WabiDB and persisted core secrets;
+- `uploads/` — uploaded files;
+- `plugins/` — runtime plugins, if you use them.
 
-- first machine: `localhost`
-- second step: named tunnel
-- third step: STDB + mesh
+Before the server becomes important, read [BACKUP_AND_RECOVERY.md](BACKUP_AND_RECOVERY.md) and take a baseline stopped-server backup.
 
-If you skip that order, debugging gets much harder.
+The WabiDB root key is part of the recovery boundary. Do not lose it or casually replace it.
+
+## 4. Optional explicit configuration
+
+If you want to manage secrets/settings yourself:
+
+```bash
+cp .env.example .env
+```
+
+Review the example and set only the values you actually need.
+
+Do not copy old STDB/mesh environment blocks from historical deployment notes into a new WabiDB install.
+
+In particular:
+
+- do not enable legacy `WABI_MESH_ENABLED` as a path to HA;
+- do not set WabiDB peer replication merely because you want a backup;
+- experimental replication requires an explicit experimental gate by design;
+- keep plugin mode disabled if you do not need runtime plugins.
+
+## 5. Choose one access path
+
+Only after localhost works, choose how users will reach the Authority.
+
+### LAN / private VPN
+
+Simplest for trusted/local groups. Use LAN, WireGuard, Tailscale/Headscale, or equivalent.
+
+### Public HTTPS
+
+Put Caddy/nginx/Traefik or another TLS reverse proxy in front of Wabi. A public origin should use HTTPS.
+
+### Cloudflare Tunnel
+
+Optional convenience profile; not required by Wabi.
+
+Quick tunnel example:
+
+```bash
+docker compose --profile tunnel --profile tunnel-quick up -d
+```
+
+Named tunnel example after setting `CLOUDFLARE_TUNNEL_TOKEN`:
+
+```bash
+docker compose --profile tunnel --profile tunnel-named up -d
+```
+
+### Tailcat private access
+
+Optional private-access transport for supported desktop/Tauri clients. Enable it intentionally after the normal server is healthy. It grants reachability, not Wabi membership.
+
+See [../features/PRIVATE_ACCESS_GUIDE.md](../features/PRIVATE_ACCESS_GUIDE.md).
+
+For the full decision tree, see [../NETWORKING.md](../NETWORKING.md).
+
+## 6. Optional call/media helpers
+
+Do not run every media service by default.
+
+**Setup invariant:** adding scalable calls must not turn Wabi into a manual media-stack assembly project. The reference media backend and any future replacement must have a one-command operator path through Wabi's normal packaging. It is acceptable for that command to start multiple containers internally; it is not acceptable to require an ordinary administrator to compile SFU workers, hand-author ICE configuration, manually wire TURN, or depend on a Wabi-operated SaaS account.
+
+See [../architecture/MEDIA_BACKEND_AND_CERTIFICATION.md](../architecture/MEDIA_BACKEND_AND_CERTIFICATION.md) for the provider-neutral media contract, CGNAT model, certification gates, and the LiveKit 1.x / candidate generation-2 strategy.
+
+### coturn
+
+If your selected call/WebRTC path needs TURN, set the required TURN configuration and start the profile:
+
+```bash
+docker compose --profile turn up -d
+```
+
+See [TURN_SETUP.md](TURN_SETUP.md).
+
+### LiveKit SFU
+
+Only enable the `sfu` profile when you intentionally configure that path. LiveKit is the planned Wabi 1.x reference SFU once the integration satisfies the media certification gates; it is not a required hosted service.
+
+### Future mediasoup-rust backend
+
+mediasoup-rust is a candidate for a later media architecture generation, not a shipped fresh-install requirement. If adopted, Wabi must package its Rust controller and mediasoup worker so the simple operator path remains one command. Advanced operators may still expose lower-level configuration deliberately.
+
+### SRT media gateway
+
+Only enable the `srt-gateway` profile when that media-ingest workflow is needed.
+
+## 7. Another independent Wabi community
+
+Run another independent Authority with its own data directory/domain/secrets. Do **not** connect databases just because one client will display both servers.
+
+The client multi-server model is not federation. See [../architecture/WABI_MULTI_SERVER_ARCHITECTURE.md](../architecture/WABI_MULTI_SERVER_ARCHITECTURE.md).
+
+## 8. Multi-node deployment of one community — advanced/experimental
+
+Do not make “second machine” step three of a fresh install.
+
+The current safe boundary is:
+
+- one Authority owns state;
+- scoped helper/media nodes may be added where documented;
+- the experimental Anchor is stateless and does not become another Authority;
+- WabiDB peer replication and warm standby are not production HA today;
+- automatic Authority election/failover is not enabled.
+
+Read [../architecture/SERVER_MESH_PLAN.md](../architecture/SERVER_MESH_PLAN.md) and [../PROJECT_STATUS.md](../PROJECT_STATUS.md) before touching these paths.
+
+## 9. Upgrades
+
+Before a meaningful upgrade:
+
+1. take a stopped-server backup;
+2. record the current Wabi commit/release;
+3. upgrade/build;
+4. verify `/livez` and `/readyz`;
+5. log in and prove representative reads/writes;
+6. only then clean up the pre-upgrade backup.
+
+Do not assume a green process-liveness check means WabiDB application/replay is healthy; readiness is the stronger gate.
+
+## Minimal mental model
+
+For the first deployment, this is enough:
+
+```text
+Docker/Podman
+   └─ wabi-server (Authority)
+       ├─ embedded frontend
+       ├─ API + realtime
+       ├─ WabiDB
+       └─ filesystem uploads
+```
+
+Everything else is optional or advanced. Get this healthy first.
