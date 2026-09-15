@@ -208,6 +208,46 @@
 	}
 }
 
+/* Closing: the peek retracting after the pointer left. Keeps the peek's fixed
+   positioning so the panel slides out instead of vanishing; pointer-events
+   are dead so the outgoing zone can't re-trigger hover logic. Unmount is
+   timer-driven in MainLayout (~210ms). */
+.right-panel-zone.closing {
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	z-index: calc(var(--z-popout, 1200) - 2);
+	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
+	pointer-events: none;
+	animation: peek-out-right 0.2s var(--ease-in, ease-in) both;
+}
+
+.right-panel-zone.closing.stub-left {
+	left: 0;
+	right: auto;
+	box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4);
+	animation-name: peek-out-left;
+}
+
+@keyframes peek-out-right {
+	from {
+		transform: translateX(0);
+	}
+	to {
+		transform: translateX(100%);
+	}
+}
+
+@keyframes peek-out-left {
+	from {
+		transform: translateX(0);
+	}
+	to {
+		transform: translateX(-100%);
+	}
+}
+
 /* Pinned mode: plain flex child (resize handle floats on its inner edge). */
 .right-panel-zone:not(.peek) .resize-handle-right {
 	left: -4px;
