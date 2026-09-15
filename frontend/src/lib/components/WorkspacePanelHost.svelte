@@ -5,7 +5,7 @@
 	import CallsPanel from './CallsPanel.svelte';
 	import MediaAlbumsTab from './MediaAlbumsTab.svelte';
 	import KeepNotesView from './KeepNotesView.svelte';
-	import MapWorkspace from './MapWorkspace.svelte';
+	import MapWorkspace from '$lib/addons/server-map/MapAddonWorkspace.svelte';
 	import AddonFallbackPanel from './AddonFallbackPanel.svelte';
 	import ModelViewportTab from './ModelViewportTab.svelte';
 	import ReaderTab from './ReaderTab.svelte';
@@ -22,10 +22,6 @@
 
 	export let panel: WorkspacePanelManifest;
 
-	// Channel-scoped panels (wiki/forum): panel-local selection that never
-	// hijacks the global active channel. Defaults to the active channel when
-	// it matches the panel type; otherwise the user picks locally. State
-	// persists while this host is mounted (close/reopen keeps the pick).
 	let wikiPanelChannelId: string | null = null;
 	let forumPanelChannelId: string | null = null;
 	$: activePanelChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
@@ -51,7 +47,6 @@
 {:else if panel.component === 'dms'}
 	<DMTab />
 {:else if panel.component === 'notes'}
-	<!-- N2: real notes panel (not DMTab / NOTES_DM_ID fake conversation) -->
 	<KeepNotesView compact />
 {:else if panel.component === 'whiteboard-layers'}
 	<WhiteboardLayerPanel />
@@ -60,8 +55,6 @@
 {:else if panel.component === 'media'}
 	<MediaAlbumsTab variant="compact" />
 {:else if panel.component === 'admin'}
-	<!-- Design law: right = ambient staff ops. The Admin Ops Rail stays in the
-	     right panel; "Open full dashboard" inside it flips the center stage. -->
 	<AdminTab />
 {:else if panel.component === 'model-viewport'}
 	<ModelViewportTab />
@@ -74,8 +67,6 @@
 {:else if panel.component === 'code'}
 	<LoreCodePanel />
 {:else if panel.component === 'planner-tasks'}
-	<!-- Planner Tasks in the right dock: compact TaskPanel, no close button
-	     (the dock owns open/close). Shares the same store as the Planner. -->
 	<TaskPanel compact />
 {:else if panel.component === 'wiki'}
 	{#if wikiPanelChannelId}
@@ -96,7 +87,7 @@
 		<div class="channel-picker">
 			<div class="channel-picker-heading">Wiki channels</div>
 			<div class="channel-picker-sub">No wiki channels on this server yet.</div>
-		</div>
+			</div>
 	{/if}
 {:else if panel.component === 'forum'}
 	{#if forumPanelChannelId}
@@ -163,9 +154,6 @@
 		white-space: nowrap;
 		display: block;
 	}
-	/* Narrow-mode for the forum surface (forum.css is not owned by this
-	   change, so the collapse lives here). Mirrors the wiki
-	   .right-panel-embedded rules in wiki.css. */
 	.right-panel-embedded :global(.forum-body) {
 		display: flex;
 		flex-direction: column;

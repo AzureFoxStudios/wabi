@@ -17,19 +17,10 @@ use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
-/// Map domain ChannelKind → stable frontend wire string.
-/// Prefer explicit arms over Debug::fmt so renames don't silently break clients.
 fn channel_kind_to_type(kind: wabidb::domain::ChannelKind, asset_storage: bool) -> String {
     use wabidb::domain::ChannelKind::*;
     let s = match kind {
-        Text => {
-            // Legacy: some older asset_storage channels were Text+flag.
-            if asset_storage {
-                "lore"
-            } else {
-                "text"
-            }
-        }
+        Text => if asset_storage { "lore" } else { "text" },
         Voice => "voice",
         Dm => "dm",
         GroupDm => "group",
@@ -47,8 +38,6 @@ fn channel_kind_to_type(kind: wabidb::domain::ChannelKind, asset_storage: bool) 
     s.to_string()
 }
 
-/// Convert a WDB typed `Channel` to the JSON `ChannelResponse` shape
-/// the frontend expects.
 fn channel_to_response(c: wabidb::domain::Channel) -> ChannelResponse {
     ChannelResponse {
         id: c.channel_id,
@@ -70,14 +59,13 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/{id}", axum::routing::patch(update_channel))
         .route("/{id}", axum::routing::delete(delete_channel))
         .route("/{id}/join", axum::routing::post(join_channel))
+        .route("/{id}/retention", axum::routing::put(set_channel_retention))
         .route("/{channel_id}/reactions", axum::routing::get(list_channel_reactions))
         .with_state(state)
 }
 
 #[derive(Debug, Serialize)]
-struct ChannelListResponse {
-    channels: Vec<ChannelResponse>,
-}
+struct ChannelListResponse { channels: Vec<ChannelResponse> }
 
 #[derive(Debug, Serialize)]
 struct ChannelResponse {
@@ -89,18 +77,14 @@ struct ChannelResponse {
     description: Option<String>,
     #[serde(default)]
     force_spoiler: bool,
-    /// True when this channel has (or should have) a Lore asset-storage repo.
     #[serde(default)]
     asset_storage: bool,
 }
 
 async fn list_channels(State(state): State<Arc<AppState>>, auth: AuthUser) -> Result<Json<ChannelListResponse>> {
     let mut channels = crate::channel_access::discoverable_channels(&state, auth.user_id).await?
-        .into_iter()
-        .map(channel_to_response)
-        .collect::<Vec<_>>();
+        .into_iter().map(channel_to_response).collect::<Vec<_>>();
     channels.sort_by_key(|c| c.position);
-
     Ok(Json(ChannelListResponse { channels }))
 }
 
@@ -109,10 +93,7 @@ async fn get_channel(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<ChannelResponse>> {
-    let channel = state
-        .wdb
-        .get_channel(&id)
-        .await
+    let channel = state.wdb.get_channel(&id).await
         .map_err(|e| AppError::Internal(format!("wdb get_channel: {e}")))?
         .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
     if crate::channel_access::is_conversation(channel.channel_kind) {
@@ -131,15 +112,10 @@ struct CreateChannelRequest {
     asset_storage: bool,
     #[serde(default)]
     force_spoiler: bool,
-    /// Category folder id to nest under (optional). Clients have shipped
-    /// both wire spellings, and serde's `alias` rejects a body containing
-    /// BOTH as "duplicate field" — which axum surfaces as a bare 422
-    /// before this handler ever runs. Flatten keeps either-or-both valid.
     #[serde(flatten)]
     parent: CreateChannelParentCompat,
 }
 
-/// Accepts `parent_id` (snake) and/or `parentId` (camel).
 #[derive(Debug, Default, Deserialize)]
 struct CreateChannelParentCompat {
     parent_id: Option<String>,
@@ -148,17 +124,80 @@ struct CreateChannelParentCompat {
 }
 
 impl CreateChannelRequest {
-    /// Merged parent id: snake_case wins when both spellings are present.
     fn parent_id(&self) -> Option<&str> {
-        self.parent
-            .parent_id
-            .as_deref()
-            .or(self.parent.parent_id_camel.as_deref())
+        self.parent.parent_id.as_deref().or(self.parent.parent_id_camel.as_deref())
     }
 }
 
-fn default_channel_type() -> String {
-    "text".to_string()
+fn default_channel_type() -> String { "text".to_string() }
+
+async fn apply_channel_retention(
+    state: &AppState,
+    channel_id: &str,
+    actor_user_id: u64,
+    raw_label: &str,
+) -> Result<String> {
+    let label = raw_label.trim().to_ascii_lowercase();
+    if label == "live" {
+        state.channel_auto_delete_ms.write().await.remove(channel_id);
+        state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), "live".into());
+        state.wdb.upsert_channel_retention(channel_id, 0, actor_user_id).await?;
+    } else if matches!(label.as_str(), "forever" | "never" | "off") {
+        state.channel_auto_delete_ms.write().await.remove(channel_id);
+        state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), "forever".into());
+        state.wdb.upsert_channel_retention(channel_id, 0, actor_user_id).await?;
+    } else {
+        let ms = crate::api::retention_policy::timed_ms(&label)
+            .filter(|ms| *ms > 0 && *ms <= 365 * 86_400_000)
+            .ok_or_else(|| AppError::BadRequest("Unsupported retention duration".into()))?;
+        state.channel_auto_delete_ms.write().await.insert(channel_id.to_string(), ms);
+        state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), label.clone());
+        let days = ((ms.saturating_add(86_400_000 - 1)) / 86_400_000).max(1) as u32;
+        state.wdb.upsert_channel_retention(channel_id, days, actor_user_id).await?;
+    }
+    let stored = if matches!(label.as_str(), "never" | "off") { "forever".to_string() } else { label };
+    crate::api::retention_policy::set(&state.config.data_dir, channel_id, &stored)
+        .map_err(|e| AppError::Internal(format!("persist exact retention: {e}")))?;
+    Ok(stored)
+}
+
+async fn apply_new_channel_privacy_default(state: &AppState, channel_id: &str, actor_user_id: u64) {
+    let retention = crate::api::server_center::privacy_default_retention(&state.config.data_dir);
+    if let Err(error) = apply_channel_retention(state, channel_id, actor_user_id, &retention).await {
+        tracing::error!(channel_id, %error, "failed to apply new-channel privacy retention; falling back to 24h");
+        let _ = apply_channel_retention(state, channel_id, actor_user_id, "24h").await;
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetRetentionRequest { retention: String }
+
+async fn set_channel_retention(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<SetRetentionRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let channel = state.wdb.get_channel(&id).await?
+        .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
+    if crate::channel_access::is_conversation(channel.channel_kind) {
+        // Private retention is a participant choice, not an admin-surveillance
+        // privilege. Keep the existing DM/group behavior while making the exact
+        // choice restart-safe.
+        crate::channel_access::require_access(&state, auth.user_id, &id).await?;
+    } else if !state.is_admin(auth.user_id).await {
+        return Err(AppError::Unauthorized("only admins can change community-channel retention".into()));
+    }
+
+    let retention = apply_channel_retention(&state, &id, auth.user_id as u64, &req.retention).await?;
+    if let Some(io) = state.sio.read().await.clone() {
+        let _ = io.broadcast().emit("channel-updated", &serde_json::json!({
+            "channelId": &id,
+            "autoDeleteAfter": &retention,
+        })).await;
+    }
+    Ok(Json(serde_json::json!({ "channelId": id, "retention": retention })))
 }
 
 async fn create_channel(
@@ -167,28 +206,14 @@ async fn create_channel(
     Json(req): Json<CreateChannelRequest>,
 ) -> Result<Json<ChannelResponse>> {
     if !state.is_admin(auth.user_id).await {
-        return Err(AppError::Unauthorized(
-            "only admins can create channels".into(),
-        ));
+        return Err(AppError::Unauthorized("only admins can create channels".into()));
     }
-
     let name = req.name.trim().to_string();
-    if name.is_empty() {
-        return Err(AppError::BadRequest("channel name cannot be empty".into()));
-    }
+    if name.is_empty() { return Err(AppError::BadRequest("channel name cannot be empty".into())); }
 
-    // Map the request's channel_type string to a WDB ChannelKind enum.
-    // Defaults to Text for unknown / "text" / missing.
-    // "lore" / asset_storage → ChannelKind::Lore (L1).
     let wants_asset_storage = req.asset_storage || req.channel_type == "lore";
     let channel_kind = match req.channel_type.as_str() {
-        "text" | "" => {
-            if wants_asset_storage {
-                wabidb::domain::ChannelKind::Lore
-            } else {
-                wabidb::domain::ChannelKind::Text
-            }
-        }
+        "text" | "" => if wants_asset_storage { wabidb::domain::ChannelKind::Lore } else { wabidb::domain::ChannelKind::Text },
         "voice" => wabidb::domain::ChannelKind::Voice,
         "dm" => wabidb::domain::ChannelKind::Dm,
         "group_dm" | "group" => wabidb::domain::ChannelKind::GroupDm,
@@ -209,157 +234,60 @@ async fn create_channel(
     }
     let asset_storage = wants_asset_storage || is_lore;
 
-    // The WDB engine assigns the channel_id (returns a "ch_{:x}" id
-    // derived from the commit_seq). Use that.
-    let channel_id = state
-        .wdb
-        .create_channel(&name, channel_kind, auth.user_id as u64, req.force_spoiler)
-        .await?;
-
-    // Persist asset_storage flag on the channel record (L1).
+    let channel_id = state.wdb.create_channel(&name, channel_kind, auth.user_id as u64, req.force_spoiler).await?;
     if asset_storage {
-        let _ = state
-            .wdb
-            .update_channel(
-                &channel_id,
-                &serde_json::json!({ "asset_storage": true }),
-                auth.user_id as u64,
-            )
-            .await;
+        let _ = state.wdb.update_channel(&channel_id, &serde_json::json!({ "asset_storage": true }), auth.user_id as u64).await;
     }
-
-    // Add the creator as a member with the Owner role so they can see and
-    // manage the channel.
-    state
-        .wdb
-        .add_channel_member(
-            &channel_id,
-            auth.user_id as u64,
-            wabidb::domain::MemberRole::Owner,
-        )
-        .await?;
-
-    // Product default: ephemeral 24h retention (keep-forever is opt-in later).
-    // Text/voice chat should not retain indefinitely unless the operator chooses.
-    const DEFAULT_CHANNEL_AUTO_DELETE_MS: u64 = 24 * 60 * 60 * 1000;
-    state
-        .channel_auto_delete_ms
-        .write()
-        .await
-        .insert(channel_id.clone(), DEFAULT_CHANNEL_AUTO_DELETE_MS);
-    state
-        .channel_auto_delete_label
-        .write()
-        .await
-        .insert(channel_id.clone(), "24h".to_string());
-    let _ = state
-        .wdb
-        .upsert_channel_retention(&channel_id, 1, auth.user_id as u64)
-        .await;
-
-    // `description` is in the WDB Channel domain type yet — dropped for v1.
+    state.wdb.add_channel_member(&channel_id, auth.user_id as u64, wabidb::domain::MemberRole::Owner).await?;
+    apply_new_channel_privacy_default(&state, &channel_id, auth.user_id as u64).await;
     let _ = req.description;
 
-    // Resolve the effective parent id once (either wire spelling), BEFORE
-    // `req.channel_type` is moved into the response below.
-    let new_parent = req
-        .parent_id()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
-
-    // Optional folder nesting (category parent). Applied after create so the
-    // channel exists before parent_id is set on the projection.
+    let new_parent = req.parent_id().map(str::trim).filter(|s| !s.is_empty()).map(|s| s.to_string());
     if let Some(parent) = new_parent.as_deref() {
-        let mut patch = serde_json::Map::new();
-        patch.insert("parent_id".to_string(), serde_json::json!(parent));
-        if let Err(e) = state
-            .wdb
-            .update_channel(
-                &channel_id,
-                &serde_json::Value::Object(patch),
-                auth.user_id as u64,
-            )
-            .await
-        {
+        if let Err(e) = state.wdb.update_channel(
+            &channel_id,
+            &serde_json::json!({ "parent_id": parent }),
+            auth.user_id as u64,
+        ).await {
             tracing::warn!(channel_id, parent, error = %e, "failed to set parent_id on new channel");
         }
     }
 
-    // Auto-create a Lore repo if asset_storage / lore kind is enabled.
-    // WABI_LORE_AUTO_CREATE=false opts out — repos are then created
-    // explicitly via POST /api/addons/lore/repos.
-    let lore_channel_id = channel_id
-        .strip_prefix("ch_")
-        .and_then(|hex| i64::from_str_radix(hex, 16).ok())
-        .unwrap_or(0);
+    let lore_channel_id = channel_id.strip_prefix("ch_")
+        .and_then(|hex| i64::from_str_radix(hex, 16).ok()).unwrap_or(0);
     if asset_storage && state.config.lore.auto_create_repos {
         #[cfg(feature = "wabi-lore")]
         {
             if lore_channel_id != 0 {
                 let lore_guard = state.lore_service.read().await;
                 if let Some(lore) = lore_guard.as_ref() {
-                    // Repo named after its channel (lore://host/my-project),
-                    // not its numeric id — "the channel IS the repo" reads
-                    // wrong when the URL says ch-47.
                     let slug = wabi_lore::slugify_repo_name(&name);
-                    let repo_name = if slug.is_empty() {
-                        format!("ch-{channel_id}")
-                    } else {
-                        slug
-                    };
+                    let repo_name = if slug.is_empty() { format!("ch-{channel_id}") } else { slug };
                     match lore.create_repo(lore_channel_id, auth.user_id, &repo_name).await {
                         Ok(repo) => {
-                            let _ = state
-                                .wdb
-                                .lore_create_repo(lore_channel_id, &repo_name, &repo.lore_server_url, auth.user_id)
-                                .await;
+                            let _ = state.wdb.lore_create_repo(lore_channel_id, &repo_name, &repo.lore_server_url, auth.user_id).await;
                             tracing::info!(channel_id, repo_name, "Auto-created Lore repo for asset_storage channel");
                         }
-                        Err(e) => {
-                            tracing::warn!(channel_id, error = %e, "Failed to auto-create Lore repo");
-                        }
+                        Err(e) => tracing::warn!(channel_id, error = %e, "Failed to auto-create Lore repo"),
                     }
                 }
             }
         }
         #[cfg(not(feature = "wabi-lore"))]
-        {
-            tracing::warn!(channel_id, "asset_storage/lore requested but Lore addon not enabled");
-        }
+        tracing::warn!(channel_id, "asset_storage/lore requested but Lore addon not enabled");
     }
 
-    // Wire channel_type is always the canonical string for the kind.
-    let response_type = if is_lore {
-        "lore".to_string()
-    } else if channel_kind == wabidb::domain::ChannelKind::Planning {
-        "planning".to_string()
-    } else {
-        req.channel_type
-    };
+    let response_type = if is_lore { "lore".to_string() }
+        else if channel_kind == wabidb::domain::ChannelKind::Planning { "planning".to_string() }
+        else { req.channel_type };
 
-    // Assign position = max(position)+1 within the same scope (parent).
-    // Without this, new channels all land at position 0 and jump to the top.
     let all_channels = state.wdb.list_channels(None).await.unwrap_or_default();
-    let max_pos = all_channels
-        .iter()
+    let max_pos = all_channels.iter()
         .filter(|c| c.is_active && c.parent_id.as_deref() == new_parent.as_deref())
-        .map(|c| c.position)
-        .max()
-        .unwrap_or(-1);
+        .map(|c| c.position).max().unwrap_or(-1);
     let new_position = max_pos + 1;
-    // Persist the computed position so it survives restarts + reorder.
-    let _ = state
-        .wdb
-        .update_channel(
-            &channel_id,
-            &serde_json::json!({ "position": new_position }),
-            auth.user_id as u64,
-        )
-        .await;
+    let _ = state.wdb.update_channel(&channel_id, &serde_json::json!({ "position": new_position }), auth.user_id as u64).await;
 
-    // We don't have the typed Channel object back (create returns just the
-    // id), so build the response from the request + returned id.
     Ok(Json(ChannelResponse {
         id: channel_id,
         name,
@@ -391,18 +319,10 @@ async fn update_channel(
     }
     crate::channel_access::require_access(&state, auth.user_id, &id).await?;
     let mut patch = serde_json::Map::new();
-    if let Some(name) = req.name {
-        patch.insert("name".to_string(), serde_json::Value::String(name));
-    }
-    if let Some(desc) = req.description {
-        patch.insert("description".to_string(), serde_json::Value::String(desc));
-    }
-    if let Some(pos) = req.position {
-        patch.insert("position".to_string(), serde_json::Value::Number(pos.into()));
-    }
-    if let Some(force) = req.force_spoiler {
-        patch.insert("force_spoiler".to_string(), serde_json::Value::Bool(force));
-    }
+    if let Some(name) = req.name { patch.insert("name".to_string(), serde_json::Value::String(name)); }
+    if let Some(desc) = req.description { patch.insert("description".to_string(), serde_json::Value::String(desc)); }
+    if let Some(pos) = req.position { patch.insert("position".to_string(), serde_json::Value::Number(pos.into())); }
+    if let Some(force) = req.force_spoiler { patch.insert("force_spoiler".to_string(), serde_json::Value::Bool(force)); }
     state.wdb.update_channel(&id, &serde_json::Value::Object(patch), auth.user_id as u64).await?;
     let channel = state.wdb.get_channel(&id).await?.ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
     Ok(Json(channel_to_response(channel)))
@@ -415,15 +335,8 @@ async fn delete_channel(
     Query(query): Query<DeleteChannelQuery>,
 ) -> Result<Json<serde_json::Value>> {
     if !state.is_admin(auth.user_id).await {
-        return Err(AppError::Unauthorized(
-            "only admins can delete channels".into(),
-        ));
+        return Err(AppError::Unauthorized("only admins can delete channels".into()));
     }
-
-    // WdbAdapter::delete_channel tombstones the row synchronously and
-    // commits a durable `channel_deleted` event; the channels projection
-    // removes the row when the event applies, so the deletion survives
-    // restarts/replay (no zombie channels).
     let all_channels = state.wdb.list_channels(None).await?;
     let mut deleted_ids = vec![id.clone()];
     let mut changed = true;
@@ -431,10 +344,7 @@ async fn delete_channel(
         changed = false;
         for channel in &all_channels {
             if channel.is_active
-                && channel
-                    .parent_id
-                    .as_deref()
-                    .is_some_and(|parent| deleted_ids.iter().any(|id| id == parent))
+                && channel.parent_id.as_deref().is_some_and(|parent| deleted_ids.iter().any(|id| id == parent))
                 && !deleted_ids.iter().any(|id| id == &channel.channel_id)
             {
                 deleted_ids.push(channel.channel_id.clone());
@@ -442,8 +352,6 @@ async fn delete_channel(
             }
         }
     }
-    // Category cascades must not become an alternate way to mutate private
-    // conversations or broadcast their IDs to the whole server.
     for channel in all_channels.iter().filter(|c| deleted_ids.contains(&c.channel_id)) {
         if crate::channel_access::is_conversation(channel.channel_kind) {
             crate::channel_access::require_access(&state, auth.user_id, &channel.channel_id).await?;
@@ -451,72 +359,39 @@ async fn delete_channel(
         }
     }
     if query.preserve_children {
-        let mut root_position = all_channels
-            .iter()
-            .filter(|channel| channel.is_active && channel.parent_id.is_none())
-            .map(|channel| channel.position)
-            .max()
-            .unwrap_or(0)
-            + 1;
+        let mut root_position = all_channels.iter().filter(|channel| channel.is_active && channel.parent_id.is_none())
+            .map(|channel| channel.position).max().unwrap_or(0) + 1;
         for channel_id in deleted_ids.iter().skip(1) {
-            state
-                .wdb
-                .update_channel(
-                    channel_id,
-                    &serde_json::json!({ "parent_id": null, "position": root_position }),
-                    auth.user_id as u64,
-                )
-                .await?;
+            state.wdb.update_channel(
+                channel_id,
+                &serde_json::json!({ "parent_id": null, "position": root_position }),
+                auth.user_id as u64,
+            ).await?;
             root_position += 1;
         }
         deleted_ids.truncate(1);
     }
     for channel_id in &deleted_ids {
-        state
-            .wdb
-            .delete_channel(channel_id, auth.user_id as u64)
-            .await?;
+        state.wdb.delete_channel(channel_id, auth.user_id as u64).await?;
+        let _ = crate::api::retention_policy::remove(&state.config.data_dir, channel_id);
+        state.channel_auto_delete_ms.write().await.remove(channel_id);
+        state.channel_auto_delete_label.write().await.remove(channel_id);
     }
-
-    // Clear the session message cache for this channel. The cache
-    // (HashMap<channel_id, Vec<Message>>) accumulates 1000 messages
-    // per channel. Without this cleanup, deleting a channel leaks
-    // its cache entry forever. WABI_AUDIT_REPORT.md finding #2.
     {
         let mut session = state.session_messages.write().await;
-        for channel_id in &deleted_ids {
-            session.remove(channel_id);
-        }
+        for channel_id in &deleted_ids { session.remove(channel_id); }
     }
-
-    // Clean up the static whiteboard version map for deleted channels.
-    // The map is insert-only (on join/snapshot), so without this hook,
-    // dead board entries survive channel deletion and grow forever.
     for channel_id in &deleted_ids {
-        let board_id = format!("channel:{}", channel_id);
-        crate::socketio::remove_board_version(&board_id);
+        crate::socketio::remove_board_version(&format!("channel:{}", channel_id));
     }
-
-    // Notify connected clients immediately; each client also removes nested
-    // descendants from its local channel tree.
     if let Some(io) = state.sio.read().await.clone() {
-        let _ = io
-            .broadcast()
-            .emit(
-                "channel-deleted",
-                &serde_json::json!({ "channelId": &id, "channelIds": &deleted_ids }),
-            )
-            .await;
+        let _ = io.broadcast().emit("channel-deleted", &serde_json::json!({ "channelId": &id, "channelIds": &deleted_ids })).await;
     }
-
     Ok(Json(serde_json::json!({ "deleted": id, "deletedIds": deleted_ids })))
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct DeleteChannelQuery {
-    #[serde(default)]
-    preserve_children: bool,
-}
+struct DeleteChannelQuery { #[serde(default)] preserve_children: bool }
 
 async fn join_channel(
     State(state): State<Arc<AppState>>,
@@ -524,62 +399,27 @@ async fn join_channel(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
     let user_id = auth.user_id;
-
-    // Channel must exist.
-    let channel = state
-        .wdb
-        .get_channel(&id)
-        .await
+    let channel = state.wdb.get_channel(&id).await
         .map_err(|e| AppError::Internal(format!("wdb get_channel: {e}")))?
         .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
-
     let already_member = crate::channel_access::is_member(&state, user_id, &id).await?;
-
-    if already_member {
-        return Ok(Json(serde_json::json!({ "joined": true, "channelId": id })));
-    }
-
-    // Public discovery/self-join must never be an invitation into a private
-    // conversation, including seq-assigned IDs and server administrators.
+    if already_member { return Ok(Json(serde_json::json!({ "joined": true, "channelId": id }))); }
     if crate::channel_access::is_conversation(channel.channel_kind) {
         return Err(AppError::Forbidden("Conversation membership required".into()));
     }
-
-    // Check min_role gate (case-insensitive). Owners always pass.
     let user_role = state.get_user_highest_role(user_id).await;
     let role_priority = |r: &str| match r.to_lowercase().as_str() {
-        "owner" => 3,
-        "admin" => 2,
-        "moderator" => 1,
-        "member" => 1,
-        _ => 0,
+        "owner" => 3, "admin" => 2, "moderator" => 1, "member" => 1, _ => 0,
     };
-
-    // Fetch min_role from the channel raw row.
     let channel_raw = state.wdb.get_channel_raw(&id).await?;
-    let min_role = channel_raw
-        .as_ref()
-        .and_then(|ch| ch.get("min_role").and_then(|v| v.as_str()));
-
+    let min_role = channel_raw.as_ref().and_then(|ch| ch.get("min_role").and_then(|v| v.as_str()));
     if let Some(min_role_str) = min_role {
         if role_priority(&user_role) < role_priority(min_role_str) {
-            return Err(AppError::Unauthorized(format!(
-                "channel requires {min_role_str} role"
-            )));
+            return Err(AppError::Unauthorized(format!("channel requires {min_role_str} role")));
         }
     }
-
-    // Add the caller as Member.
-    state
-        .wdb
-        .add_channel_member(
-            &id,
-            user_id as u64,
-            wabidb::domain::MemberRole::Member,
-        )
-        .await
+    state.wdb.add_channel_member(&id, user_id as u64, wabidb::domain::MemberRole::Member).await
         .map_err(|e| AppError::Internal(format!("wdb add_channel_member: {e}")))?;
-
     Ok(Json(serde_json::json!({ "joined": true, "channelId": id })))
 }
 
@@ -589,64 +429,33 @@ async fn list_channel_reactions(
     Path(channel_id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>> {
     crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
-    let messages = state
-        .wdb
-        .list_messages_typed(&channel_id, 100)
-        .await?;
-
+    let messages = state.wdb.list_messages_typed(&channel_id, 100).await?;
     let mut all_reactions = Vec::new();
     for msg in &messages {
-        let reactions = state
-            .wdb
-            .list_reactions(&msg.message_id)
-            .await?;
-        for r in reactions {
-            all_reactions.push(serde_json::json!(r));
-        }
+        for r in state.wdb.list_reactions(&msg.message_id).await? { all_reactions.push(serde_json::json!(r)); }
     }
-
     Ok(Json(all_reactions))
 }
 
 #[cfg(test)]
 mod tests {
-    //! WABI_AUDIT_REPORT.md finding #2 — session messages leak.
-    //!
-    //! The full HTTP handler `delete_channel` calls
-    //! `state.session_messages.write().await.remove(&id);` after the
-    //! wdb soft-delete succeeds. This test asserts the idiomatic
-    //! pattern: insert into session_messages, remove via the same
-    //! pattern, assert gone.
-    //!
-    //! Full handler tests require a wired AppState (auth, wdb, etc.)
-    //! and are tested at the binary level via integration scripts.
-
     use crate::state::SessionMessages;
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
-    /// Regression: folder placement on channel create used to 422 because the
-    /// frontend sent BOTH `parent_id` and `parentId`, and serde's
-    /// `#[serde(alias)]` rejects that as a duplicate field before the handler
-    /// ran (axum maps Json extractor errors to 422). The flatten-compat struct
-    /// must accept either spelling alone AND both together.
     #[test]
     fn create_channel_request_accepts_parent_id_in_any_wire_spelling() {
         let both = r#"{"name":"general","channel_type":"text","force_spoiler":false,"asset_storage":false,"parent_id":"ch_cat1","parentId":"ch_cat1"}"#;
         let snake = r#"{"name":"general","channel_type":"text","parent_id":"ch_cat1"}"#;
         let camel = r#"{"name":"general","channel_type":"text","parentId":"ch_cat1"}"#;
         let absent = r#"{"name":"general"}"#;
-
         let both: super::CreateChannelRequest = serde_json::from_str(both).expect("both spellings must parse");
         assert_eq!(both.parent_id(), Some("ch_cat1"));
-
         let snake: super::CreateChannelRequest = serde_json::from_str(snake).expect("snake_case must parse");
         assert_eq!(snake.parent_id(), Some("ch_cat1"));
-
         let camel: super::CreateChannelRequest = serde_json::from_str(camel).expect("camelCase must parse");
         assert_eq!(camel.parent_id(), Some("ch_cat1"));
-
         let absent: super::CreateChannelRequest = serde_json::from_str(absent).expect("absent parent must parse");
         assert_eq!(absent.parent_id(), None);
     }
@@ -654,19 +463,10 @@ mod tests {
     #[tokio::test]
     async fn session_messages_cleared_on_channel_delete() {
         let session: SessionMessages = Arc::new(RwLock::new(HashMap::new()));
-        session
-            .write()
-            .await
-            .insert("channel-to-delete".to_string(), vec![]);
-        session
-            .write()
-            .await
-            .insert("channel-to-keep".to_string(), vec![]);
+        session.write().await.insert("channel-to-delete".to_string(), vec![]);
+        session.write().await.insert("channel-to-keep".to_string(), vec![]);
         assert_eq!(session.read().await.len(), 2);
-
-        // Same pattern the HTTP handler uses:
         session.write().await.remove("channel-to-delete");
-
         let after = session.read().await;
         assert_eq!(after.len(), 1);
         assert!(after.contains_key("channel-to-keep"));

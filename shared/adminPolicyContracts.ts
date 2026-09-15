@@ -64,3 +64,45 @@ export interface CommunityNodeAnnouncementsPolicy {
   onlineTemplate: string;
   offlineTemplate: string;
 }
+
+export type SafetyRuleMatch = 'contains' | 'equals' | 'starts_with' | 'ends_with';
+export type SafetyRuleAction = 'flag' | 'delete' | 'warn' | 'timeout' | 'ban';
+
+export interface SafetyRule {
+  id: string;
+  enabled: boolean;
+  name: string;
+  pattern: string;
+  match: SafetyRuleMatch;
+  caseSensitive: boolean;
+  action: SafetyRuleAction;
+  timeoutMinutes: number | null;
+  reason: string | null;
+}
+
+export interface SafetyRulesPolicy {
+  enabled: boolean;
+  rules: SafetyRule[];
+  defaultFlagChannelId: string | null;
+}
+
+export type ServerDefaultRetention = 'live' | '1h' | '24h' | '7d' | '30d' | 'forever';
+export type ServerAnalyticsMode = 'off' | 'local_aggregate';
+export type ServerExternalProcessingMode = 'none' | 'declared_integrations';
+
+/**
+ * Server-wide privacy defaults. Channel retention remains independently adjustable;
+ * changing these defaults does not retroactively rewrite existing channel history.
+ */
+export interface ServerPrivacyPolicy {
+  /** Default retention assigned to newly created community channels. */
+  defaultRetention: ServerDefaultRetention;
+  /** Safety rules inspect public/community spaces by default. This is an explicit opt-in for server-readable DMs/groups. */
+  privateContentAutomation: boolean;
+  /** Wabi never needs central analytics; this only describes local aggregate administration metrics. */
+  analyticsMode: ServerAnalyticsMode;
+  /** External processing is disabled unless the operator deliberately enables declared integrations. */
+  externalProcessing: ServerExternalProcessingMode;
+  /** User reports explicitly preserve the submitted message snapshot as moderation evidence. */
+  reportEvidencePreservation: 'explicit_report';
+}

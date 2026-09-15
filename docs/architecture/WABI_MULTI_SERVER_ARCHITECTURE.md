@@ -1,78 +1,119 @@
-# Wabi Architecture — Multi-Server Model
+# Wabi Multi-Server Client Model — Not Federation
 
-> **Status:** Live on wabi.chat (user-facing federation UX).
-> **Date:** 2026-04-27 (originally); 2026-06-22 (rewritten for Wabidb era).
-> **Scope:** How users connect to and switch between multiple self-hosted Wabi servers.
+**Status:** architectural product invariant  
+**Updated:** 2026-09-14  
+**Scope:** how one Wabi client can work with multiple independent Wabi servers.
 
-This document is the **user-facing federation UX**. It is distinct from `SERVER_MESH_PLAN.md`, which describes the runtime mesh between Authority and Anchor nodes of a single Wabi deployment.
+This is separate from `SERVER_MESH_PLAN.md`, which discusses nodes/helpers inside **one** Wabi deployment.
 
-## Core Principle
+## Core rule
 
-**Wabi is a TOOL, not a SERVICE.**
+**Wabi is a tool, not a mandatory service or federation network.**
 
-- Users run their own servers
-- A single client can connect to multiple independent servers
-- No central coordination between servers (no global user directory, no cross-server messaging)
-- Clean legal separation: "I publish software, you run your server"
+A user can keep multiple Wabi communities in one client, similar to keeping several independent workspaces/accounts in one application. The convenience lives primarily in the client. It does not merge the servers into one distributed social graph.
 
-## User Experience
+```text
+                         ┌─ Authority A (friends)
+Wabi client / server bar ├─ Authority B (project)
+                         └─ Authority C (class/community)
 
-### Adding a Server
+A, B, and C do not synchronize community state with each other.
+```
 
-1. Click server button (top-left corner)
-2. Click "Add server"
-3. Enter server URL (e.g., `https://friend-server.com` or `http://192.168.1.100:3000`)
-4. Click "Open"
-5. Client saves server to localStorage
-6. User can switch between servers anytime
+## Independent trust boundaries
 
-### Server Switcher Panel
+Each Authority owns its own:
 
-Shows:
+- accounts and password/session state;
+- owner/admin/moderator roles;
+- channels and conversations;
+- messages/files/workspaces;
+- retention policies;
+- plugins/integrations;
+- backups and encryption keys;
+- operator/legal/moderation policy.
 
-- List of saved servers (with favicons/logos)
-- Recent servers
-- Followed servers (future feature)
-- Add/Remove server buttons
-- Server folders (organize servers into groups)
+A user may have different handles, roles, passwords, or even identities on different servers.
 
-### Multi-Server Client
+There is no global Wabi account database or global username registry.
 
-**Tauri app (desktop/mobile):**
+## Client behavior
 
-- Stores list of servers locally
-- Connects to multiple servers simultaneously
-- Shows server switcher (like Slack workspace switcher)
-- Each server has independent auth (different accounts possible)
-- Notifications per server
+The Wabi client can remember server URLs and make switching communities fast. Depending on client/runtime implementation, it may also preserve per-server UI state or background notification connections.
 
-## Server Architecture (per server)
+The architectural guarantee is **not** “every client must keep all servers simultaneously connected forever.” The guarantee is that servers remain independently addressable and their credentials/state are scoped to the correct server.
 
-Each server is a self-contained `wabi-server` binary instance. It:
+Important client rules:
 
-- Serves frontend (embedded static files via `rust_embed`)
-- Handles HTTP API routes (`/api/*`)
-- Manages Socket.IO connections
-- Manages the embedded Wabidb engine for all state
-- Persists to its own `./data/wabi-server/` directory
-- No peer-to-peer sync with other servers (use `SERVER_MESH_PLAN.md` for multi-node within a deployment)
+- credentials for Server A must never be sent to Server B;
+- cached/draft/offline actions must include a server/account scope;
+- switching servers must not merge channel/user identifiers by display name;
+- server-local settings/permissions remain server-local;
+- a failure on one Authority should not corrupt another server's local client state.
 
-A user connecting to a single Wabi server experiences the same UI as one connecting to many — the server is just a URL.
+## What Wabi does not do
 
-## Privacy Implications
+The multi-server UI is **not** Matrix/ActivityPub-style federation.
 
-Because each server is independent:
+Independent Wabi servers do not currently provide:
 
-- A user's identity (account, password hash, message history) exists ONLY on the server they registered with
-- There is no global username registry — two users with the same name on different servers are unrelated
-- A user joining a second server must register separately; they have a different account on each
-- Cross-server DMs are not supported (the server is the trust boundary)
+- server-to-server DMs;
+- shared channels across Authorities;
+- globally unique Wabi identities;
+- global presence;
+- a global friend graph;
+- automatic profile synchronization;
+- shared moderation/ban lists;
+- automatic state/database replication between different communities.
 
-This is by design. Wabi is not a federated protocol like Matrix or ActivityPub; it is a self-hosted single-tenant server that happens to support a multi-server UI for users who want to interact with multiple Wabi deployments.
+WabiDB replication work, where it exists, is for experimental **intra-deployment** state replication of one Authority's data. It must never be confused with social federation between unrelated communities.
 
-## Cross-References
+## Cross-server friends: design invariant
 
-- `docs/architecture/SERVER_MESH_PLAN.md` — runtime mesh between Authority and Anchor nodes (separate concern)
-- `docs/architecture/ARCHITECTURE.md` §6 — multi-server topology
-- `frontend/src/lib/components/` — server switcher UI components (Svelte)
-- `core/crates/wabi-tui/` — TUI client (also supports multi-server)
+A future “friend across my saved Wabi servers” experience may be useful, but the preferred design is **client-owned/non-federated**:
+
+- the client may remember that two independently authenticated accounts belong to people the user wants grouped together;
+- the relationship should not require the two Authorities to exchange their user databases;
+- one server should not gain authority over another server's identity;
+- the user should be able to remove the local relationship without mutating remote community state.
+
+If Wabi ever intentionally adopts server-to-server social federation, that is a new protocol/security/privacy project and must not be smuggled in through a convenience feature.
+
+## Per-server architecture
+
+A normal Wabi community runs one `wabi-server` Authority containing:
+
+- the embedded SvelteKit frontend;
+- HTTP API;
+- Socket.IO / WebSocket realtime services;
+- WabiDB for that community's durable state;
+- uploads and configured integrations.
+
+Optional TURN/SFU/tunnel/Tailcat/helper services belong to that deployment's networking/feature topology; they do not combine independent communities.
+
+## Authority / Anchor terminology
+
+Do not confuse a user's saved independent servers with the experimental **Anchor** runtime.
+
+An Anchor belongs to one deployment and proxies toward one Authority. It has no independent community identity/state. Current Anchor behavior is experimental and HTTP-oriented; it is not a federated peer.
+
+See `SERVER_MESH_PLAN.md` and `../NETWORKING.md`.
+
+## Privacy consequences
+
+Because servers are independent:
+
+- joining another server means trusting another operator;
+- the second server does not inherit data/permissions from the first;
+- a username match is not identity proof;
+- the client must keep credentials and offline state correctly scoped;
+- deleting an account on one server does not delete accounts on other servers.
+
+This separation is a feature: compromise, policy mistakes, or downtime on one community should not automatically become compromise of a global Wabi identity/service.
+
+## Cross-references
+
+- `SERVER_MESH_PLAN.md` — intra-deployment Authority/helper/Anchor/replication work
+- `ARCHITECTURE.md` / `overview.md` — server/client internals
+- `../NETWORKING.md` — how a client reaches an Authority
+- `../PROJECT_STATUS.md` — current shipped/experimental boundary
