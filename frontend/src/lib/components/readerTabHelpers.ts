@@ -58,5 +58,6 @@ export function formatSourceLabel(source: string): string {
 	if (source === 'pasted') return 'Pasted';
 	if (source === 'chat') return 'Chat';
 	if (source === 'notes') return 'Notes';
+	if (source === 'document') return 'Wabi document';
 	return 'Reader';
 }

@@ -140,7 +140,9 @@
 			buildReaderTitle(selectedNote),
 			selectedNote.text,
 			'markdown',
-			'notes'
+			'notes',
+			undefined,
+			`${storageKey}:${selectedNote.id}`
 		);
 	}
 
