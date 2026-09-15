@@ -31,7 +31,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "rpm", "appimage", "app", "dmg"],
+    "targets": ["deb", "rpm", "appimage", "nsis", "msi", "app", "dmg"],
     "externalBin": ["binaries/tailcat"],
     "icon": [
       "icons/32x32.png",
@@ -45,7 +45,7 @@
         "depends": ["openssl", "libssl3"]
       },
       "rpm": {
-        "depends": ["openssl", "libssl3"]
+        "depends": ["openssl", "libssl.so.3()(64bit)", "libcrypto.so.3()(64bit)"]
       },
       "appimage": {}
     }

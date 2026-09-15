@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 env:
   WABI_SOURCE_REVISION: ${{ github.sha }}
@@ -33,17 +34,20 @@ env:
 jobs:
   build-tauri:
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest'
+          - platform: macos-latest
             args: '--target universal-apple-darwin'
-          - platform: 'ubuntu-22.04'
+            artifact-platform: macos
+          - platform: ubuntu-22.04
             args: ''
-          - platform: 'windows-latest'
+            artifact-platform: linux
+          - platform: windows-latest
             args: ''
+            artifact-platform: windows
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -116,9 +120,42 @@ jobs:
           fi
 
       - name: build Tauri
-        run: bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }}
+        run: bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }} -- --locked
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload desktop installers (Linux)
+        if: matrix.artifact-platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wabi-desktop-linux
+          path: |
+            src-tauri/target/release/bundle/deb/**/*.deb
+            src-tauri/target/release/bundle/rpm/**/*.rpm
+            src-tauri/target/release/bundle/appimage/**/*.AppImage
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Upload desktop installers (Windows)
+        if: matrix.artifact-platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wabi-desktop-windows
+          path: |
+            src-tauri/target/release/bundle/msi/**/*.msi
+            src-tauri/target/release/bundle/nsis/**/*.exe
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Upload desktop installers (macOS)
+        if: matrix.artifact-platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wabi-desktop-macos
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/**/*.dmg
+          if-no-files-found: error
+          retention-days: 5
 
   build-server:
     permissions:
@@ -146,8 +183,14 @@ jobs:
           STATIC_BUILD=1 npm run build
           test -f build/index.html
 
+      - name: Backend regression tests
+        run: cargo test --locked --workspace
+
+      - name: Release packaging regression tests
+        run: python3 -m unittest discover -s scripts/tests -p 'test_release*.py'
+
       - name: build Rust server
-        run: cargo build --release -p wabi-server
+        run: cargo build --locked --release -p wabi-server
 
       # Prove the release binary actually serves the embedded SPA, not just
       # an adapter-node payload rust_embed cannot serve.
@@ -206,6 +249,9 @@ jobs:
       - name: unit tests
         run: cd frontend && bun test src/lib
 
+      - name: Calendar daylight-saving regression tests
+        run: cd frontend && TZ=America/New_York bun test src/lib/business/calendarOccurrences.test.ts src/lib/business/calendarForm.test.ts
+
       # Build the same static SPA the server embeds so the uploaded artifact
       # matches production shape (index.html present).
       - name: build (static SPA)
@@ -225,3 +271,39 @@ jobs:
         with:
           name: frontend-build
           path: frontend/build
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: [build-server, frontend-checks, build-tauri]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wabi-*
+          path: artifacts
+      - name: Package checked artifacts and checksums
+        run: node scripts/package-release-candidate.mjs --artifacts artifacts --output dist
+      - name: Create draft prerelease candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          CANDIDATE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$CANDIDATE_TAG" >/dev/null 2>&1; then
+            echo 'A release already exists for this tag; refusing to replace its assets.' >&2
+            exit 1
+          fi
+          cat > candidate-notes.md <<'NOTES'
+          Candidate artifacts from the checked source revision. Physical-device acceptance is still pending.
+          Linux and Windows are the first pilot targets. Existing Apple builds remain unvalidated.
+          Review the source/build identity, SHA256SUMS, install/upgrade and calling evidence before publication.
+          NOTES
+          gh release create "$CANDIDATE_TAG" --verify-tag --draft --prerelease \
+            --title "Wabi $CANDIDATE_TAG" --notes-file candidate-notes.md dist/*

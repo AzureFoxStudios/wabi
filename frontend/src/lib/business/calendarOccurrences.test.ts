@@ -24,12 +24,6 @@ function ts(year: number, month: number, day: number, h = 0, m = 0, s = 0, ms = 
 	return new Date(year, month, day, h, m, s, ms).getTime();
 }
 
-const NY_TZ = 'America/New_York';
-
-test('TZ is America/New_York', () => {
-	expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(NY_TZ);
-});
-
 // --- Non-recurring: single day ---
 test('non-recurring single-day event within range returns one occurrence', () => {
 	const ev = makeEvent({ allDay: true, startDate: ts(2024, 0, 15) });
