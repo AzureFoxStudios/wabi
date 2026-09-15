@@ -19,8 +19,12 @@
 		authBoundary;
 		const server = $activeServerUrl;
 		const token = getAuthToken(server);
+		// Stored identity is itself server-scoped. Prefer it while changing servers,
+		// because the connected presence store can briefly still describe the old
+		// server until the new socket finishes authentication.
+		const storedUserId = getStoredDbUserId(server);
 		const registeredUserId = token
-			? ($currentUser?.dbUserId ?? getStoredDbUserId(server))
+			? (storedUserId ?? $currentUser?.dbUserId ?? null)
 			: null;
 		const guestSessionId = registeredUserId ? null : getGuestSessionId(server);
 		const identity = registeredUserId
