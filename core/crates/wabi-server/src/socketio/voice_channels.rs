@@ -109,7 +109,7 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
     // Exact-device admission is the bridge from Socket.IO control-plane consent
     // to SFU/relay authorization. HTTP media-token requests must match this
     // user+channel+socket tuple; another tab cannot borrow this permission.
-    crate::api::voice_policy::record_admission(crate::api::voice_policy::VoiceAdmission {
+    crate::api::voice_policy::record_admission(&channel_id, crate::api::voice_policy::VoiceAdmission {
         user_id: user_id_num,
         channel_id: channel_id.clone(),
         socket_id: socket_id.clone(),
@@ -269,7 +269,7 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
     // Preserve a primary admission when a legacy/redundant subscribe arrives.
     // Otherwise this is an exact receive-only admission for this socket.
     if actual_listening_only || crate::api::voice_policy::admission_for(&channel_id, user_id_num, &socket_id).is_none() {
-        crate::api::voice_policy::record_admission(crate::api::voice_policy::VoiceAdmission {
+        crate::api::voice_policy::record_admission(&channel_id, crate::api::voice_policy::VoiceAdmission {
             user_id: user_id_num,
             channel_id: channel_id.clone(),
             socket_id: socket_id.clone(),
@@ -543,7 +543,7 @@ async fn on_voice_self_state(socket: SocketRef, data: Value, state: SioState, io
         if let Some(mut admission) = crate::api::voice_policy::admission_for(channel_id, user_id_num, &socket_id) {
             admission.server_muted = server_muted;
             admission.server_deafened = server_deafened;
-            crate::api::voice_policy::record_admission(admission);
+            crate::api::voice_policy::record_admission(channel_id, admission);
         }
     }
 

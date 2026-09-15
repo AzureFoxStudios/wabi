@@ -163,6 +163,7 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
     // Room membership is the authorization proof: only sockets that passed
     // join-wabidb-call's checks for THIS session are in the room.
     if !socket.rooms().iter().any(|r| r.as_ref() == room_id.as_str()) {
+        eprintln!("DBG media: sender {} not in room {}", socket.id, room_id);
         warn!(
             "[sio] wabidb-media relay denied: socket {} not in room {}",
             socket.id, room_id
@@ -350,7 +351,7 @@ async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioStat
 /// Signaling belongs to one call, not the union of all calls an account has
 /// joined. The wiring holds membership_gate across this check and forwarding.
 /// Request revisions are ephemeral preconditions, never persisted codec fields.
-async fn scoped_signaling_consent(
+pub(super) async fn scoped_signaling_consent(
     state: &SioState, socket: &SocketRef, target: Option<&str>, data: &Value,
 ) -> bool {
     let Some(identity) = resolve_identity(socket, state).await else { return false; };
