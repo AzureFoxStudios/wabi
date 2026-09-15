@@ -1,12 +1,23 @@
 import DOMPurify from 'dompurify';
-import { Marked } from 'marked';
+import { Marked, type Tokens } from 'marked';
+import { normalizeReaderCodeLanguage } from '$lib/readerCode';
 import type { ReaderDocumentFormat } from '$lib/readerWorkspace';
 
 // A private parser instance avoids inheriting chat-only extensions and line-break rules.
 const readerMarkdown = new Marked({ gfm: true, breaks: false, async: false });
+readerMarkdown.use({
+	renderer: {
+		code(token: Tokens.Code): string {
+			const language = normalizeReaderCodeLanguage(token.lang?.split(/\s+/)[0]);
+			return `<pre data-reader-language="${escapeReaderHtml(language)}"><code>${escapeReaderHtml(token.text)}</code></pre>`;
+		}
+	}
+});
+
 const SANITIZE_CONFIG = {
 	USE_PROFILES: { html: true },
 	ALLOW_DATA_ATTR: false,
+	ADD_ATTR: ['data-reader-language'],
 	FORBID_ATTR: ['style', 'class', 'contenteditable', 'autofocus', 'tabindex'],
 	FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'link', 'meta', 'base']
 };
@@ -23,9 +34,15 @@ export function renderReaderPlainText(content: string): string {
 		.map((block) => `<p>${block.split('\n').map(escapeReaderHtml).join('<br>')}</p>`).join('\n');
 }
 
+export function renderReaderCode(content: string): string {
+	const normalized = content.replace(/\r\n?/g, '\n');
+	return `<pre data-reader-code-document="true"><code>${escapeReaderHtml(normalized)}</code></pre>`;
+}
+
 export function renderReaderHtml(content: string, format: ReaderDocumentFormat): string {
 	if (!content.trim()) return '<p>No content loaded yet.</p>';
 	if (format === 'text') return renderReaderPlainText(content);
+	if (format === 'code') return renderReaderCode(content);
 	// DOMPurify is browser-only; never emit unsanitized HTML during SSR.
 	if (typeof DOMPurify.sanitize !== 'function') return renderReaderPlainText(content);
 	const html = format === 'markdown' ? readerMarkdown.parse(content, { async: false }) : content;
