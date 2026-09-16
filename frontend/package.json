@@ -65,7 +65,7 @@
     "dompurify": "3.4.14",
     "katex": "0.18.4",
     "livekit-client": "2.22.1",
-    "marked": "18.0.12",
+    "marked": "18.0.13",
     "motion": "13.2.0",
     "opus-recorder": "8.0.5",
     "prismjs": "1.30.0",
