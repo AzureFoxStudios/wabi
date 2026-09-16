@@ -543,31 +543,16 @@ async fn main() -> anyhow::Result<()> {
                 };
                 let now_micros = chrono::Utc::now().timestamp_micros();
                 for channel in channels {
-                    // Effective TTL = min(in-memory map TTL, WDB policy, product
-                    // default). The in-memory channel_auto_delete_ms map carries
-                    // sub-day presets (5s..24h) that per-message timers used to
-                    // enforce; the sweep must honor them too or short-TTL
-                    // channels would silently become 24h. (perf audit #5)
-                    let map_ttl_ms = state
-                        .channel_auto_delete_ms
-                        .read()
-                        .await
-                        .get(&channel.channel_id)
-                        .copied()
-                        .filter(|ms| *ms > 0);
-                    let db_ttl_micros: Option<i64> =
-                        match state.wdb.get_channel_retention(&channel.channel_id).await {
-                            Ok(Some(policy)) if policy.days > 0 => {
-                                Some(policy.days as i64 * 86_400_000_000)
-                            }
-                            Ok(Some(_)) => None, // days == 0: explicit keep-forever
-                            Ok(None) => Some(86_400_000_000),
-                            Err(error) => {
-                                tracing::warn!(channel = %channel.channel_id, "[retention-reaper] policy lookup failed: {error}");
-                                continue;
-                            }
-                        };
-                    let Some(effective_micros) = api::retention_policy::effective_micros(map_ttl_ms, db_ttl_micros) else { continue; };
+                    // Serialize against policy changes through this deletion batch.
+                    let _policy_guard = state.retention_policy_lock.lock().await;
+                    let effective_micros = match api::retention_policy::channel_expiry_micros(&state, &channel.channel_id).await {
+                        Ok(Some(micros)) => micros,
+                        Ok(None) => continue,
+                        Err(error) => {
+                            tracing::warn!(channel = %channel.channel_id, "[retention-reaper] policy lookup failed: {error}");
+                            continue;
+                        }
+                    };
                     let cutoff = now_micros.saturating_sub(effective_micros);
                     let messages = match wabidb::projections::messages::MessagesProjection::list_messages_expired(
                         &state.wdb.engine().projection_state(), &channel.channel_id, cutoff, 1000,

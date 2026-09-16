@@ -137,38 +137,31 @@ pub(crate) async fn apply_channel_retention(
     actor_user_id: u64,
     raw_label: &str,
 ) -> Result<String> {
-    // Refuse to mutate runtime/database policy if the exact policy file needs recovery.
-    crate::api::retention_policy::all(&state.config.data_dir)?;
-    let label = raw_label.trim().to_ascii_lowercase();
-    if label == "live" {
-        state.channel_auto_delete_ms.write().await.remove(channel_id);
-        state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), "live".into());
-        state.wdb.upsert_channel_retention(channel_id, 0, actor_user_id).await?;
-    } else if matches!(label.as_str(), "forever" | "never" | "off") {
-        state.channel_auto_delete_ms.write().await.remove(channel_id);
-        state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), "forever".into());
-        state.wdb.upsert_channel_retention(channel_id, 0, actor_user_id).await?;
-    } else {
-        let ms = crate::api::retention_policy::timed_ms(&label)
+    let _guard = state.retention_policy_lock.lock().await;
+    let raw = raw_label.trim().to_ascii_lowercase();
+    let label = if matches!(raw.as_str(), "never" | "off") { "forever".to_string() } else { raw };
+    let timer = if matches!(label.as_str(), "live" | "forever") { None } else {
+        Some(crate::api::retention_policy::timed_ms(&label)
             .filter(|ms| *ms > 0 && *ms <= 365 * 86_400_000)
-            .ok_or_else(|| AppError::BadRequest("Unsupported retention duration".into()))?;
-        state.channel_auto_delete_ms.write().await.insert(channel_id.to_string(), ms);
-        state.channel_auto_delete_label.write().await.insert(channel_id.to_string(), label.clone());
-        let days = ((ms.saturating_add(86_400_000 - 1)) / 86_400_000).max(1) as u32;
-        state.wdb.upsert_channel_retention(channel_id, days, actor_user_id).await?;
-    }
-    let stored = if matches!(label.as_str(), "never" | "off") { "forever".to_string() } else { label };
-    crate::api::retention_policy::set(&state.config.data_dir, channel_id, &stored)
+            .ok_or_else(|| AppError::BadRequest("Unsupported retention duration".into()))?)
+    };
+    // The exact file is authoritative. Failed writes must not change runtime
+    // behavior or the database's legacy whole-day compatibility record.
+    crate::api::retention_policy::set(&state.config.data_dir, channel_id, &label)
         .map_err(|e| AppError::Internal(format!("persist exact retention: {e}")))?;
-    Ok(stored)
-}
-
-async fn apply_new_channel_privacy_default(state: &AppState, channel_id: &str, actor_user_id: u64) {
-    let retention = crate::api::server_center::privacy_default_retention(&state.config.data_dir);
-    if let Err(error) = apply_channel_retention(state, channel_id, actor_user_id, &retention).await {
-        tracing::error!(channel_id, %error, "failed to apply new-channel privacy retention; falling back to 24h");
-        let _ = apply_channel_retention(state, channel_id, actor_user_id, "24h").await;
+    {
+        let mut labels = state.channel_auto_delete_label.write().await;
+        let mut timers = state.channel_auto_delete_ms.write().await;
+        labels.insert(channel_id.to_string(), label.clone());
+        if let Some(ms) = timer { timers.insert(channel_id.to_string(), ms); }
+        else { timers.remove(channel_id); }
     }
+    let days = timer.map(|ms| ((ms.saturating_add(86_400_000 - 1)) / 86_400_000).max(1) as u32).unwrap_or(0);
+    if let Err(error) = state.wdb.upsert_channel_retention(channel_id, days, actor_user_id).await {
+        // Never let an older/coarser mirror override the saved exact choice.
+        tracing::warn!(channel_id, %error, "exact retention saved; legacy day-count mirror update failed");
+    }
+    Ok(label)
 }
 
 #[derive(Debug, Deserialize)]
@@ -236,12 +229,20 @@ async fn create_channel(
     }
     let asset_storage = wants_asset_storage || is_lore;
 
+    // Reject damaged/invalid defaults before creating discoverable state.
+    crate::api::retention_policy::all(&state.config.data_dir)?;
+    let default_retention = crate::api::server_center::privacy_default_retention(&state.config.data_dir)?;
     let channel_id = state.wdb.create_channel(&name, channel_kind, auth.user_id as u64, req.force_spoiler).await?;
+    if let Err(error) = apply_channel_retention(&state, &channel_id, auth.user_id as u64, &default_retention).await {
+        if let Err(cleanup) = state.wdb.delete_channel(&channel_id, auth.user_id as u64).await {
+            tracing::error!(%channel_id, %cleanup, "failed to remove channel after initial retention save failed");
+        }
+        return Err(error);
+    }
     if asset_storage {
         let _ = state.wdb.update_channel(&channel_id, &serde_json::json!({ "asset_storage": true }), auth.user_id as u64).await;
     }
     state.wdb.add_channel_member(&channel_id, auth.user_id as u64, wabidb::domain::MemberRole::Owner).await?;
-    apply_new_channel_privacy_default(&state, &channel_id, auth.user_id as u64).await;
     let _ = req.description;
 
     let new_parent = req.parent_id().map(str::trim).filter(|s| !s.is_empty()).map(|s| s.to_string());

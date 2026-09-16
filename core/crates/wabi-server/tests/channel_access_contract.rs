@@ -1318,3 +1318,94 @@ async fn socket_retention_persists_exact_modes_and_ignores_unrelated_updates() {
     assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("forever"));
     assert_eq!(std::fs::read(dir.path().join("channel_retention.json")).unwrap(), b"{broken-policy");
 }
+
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failed_retention_write_preserves_policy_and_rolls_back_new_channel() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, _, owner) = users(&state).await;
+    let room = channel(&state, member, ChannelKind::Text).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let token = jwt(&state, owner);
+    let endpoint = format!("/channels/{room}/retention");
+    assert_eq!(request(&app, Method::PUT, &endpoint, &token, json!({"retention":"5s"})).await.0, StatusCode::OK);
+    let path = dir.path().join("channel_retention.json");
+    let original = std::fs::read(&path).unwrap();
+    let count = state.wdb.list_channels(None).await.unwrap().len();
+    let prior_mirror = state.wdb.get_channel_retention(&room).await.unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+    let update = request(&app, Method::PUT, &endpoint, &token, json!({"retention":"forever"})).await;
+    let create = request(&app, Method::POST, "/channels", &token, json!({"name":"failed-policy-channel"})).await;
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(update.0, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(create.0, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(std::fs::read(path).unwrap(), original);
+    assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("5s"));
+    assert_eq!(state.channel_auto_delete_ms.read().await.get(&room), Some(&5000));
+    assert_eq!(state.wdb.get_channel_retention(&room).await.unwrap(), prior_mirror);
+    assert_eq!(state.wdb.list_channels(None).await.unwrap().len(), count);
+}
+
+#[tokio::test]
+async fn concurrent_retention_updates_leave_disk_and_runtime_in_agreement() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, _, owner) = users(&state).await;
+    let room = channel(&state, member, ChannelKind::Text).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let token = jwt(&state, owner);
+    let endpoint = format!("/channels/{room}/retention");
+    let (a,b) = tokio::join!(
+        request(&app, Method::PUT, &endpoint, &token, json!({"retention":"5s"})),
+        request(&app, Method::PUT, &endpoint, &token, json!({"retention":"forever"}))
+    );
+    assert_eq!(a.0, StatusCode::OK);
+    assert_eq!(b.0, StatusCode::OK);
+    let label = wabi_server::api::retention_policy::label(dir.path().to_str().unwrap(), &room).unwrap().unwrap();
+    assert_eq!(state.channel_auto_delete_label.read().await.get(&room), Some(&label));
+    assert_eq!(state.channel_auto_delete_ms.read().await.get(&room).copied(), wabi_server::api::retention_policy::timed_ms(&label));
+}
+
+#[tokio::test]
+async fn damaged_server_defaults_reject_channel_creation_without_new_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (_, _, owner) = users(&state).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let count = state.wdb.list_channels(None).await.unwrap().len();
+    let path = dir.path().join("server_center.json");
+    for bytes in [b"{broken".to_vec(), serde_json::to_vec(&json!({"privacy": {
+        "defaultRetention":"invalid", "privateContentAutomation":false,
+        "analyticsMode":"off", "externalProcessing":"none", "reportEvidencePreservation":"none"
+    }})).unwrap()] {
+        std::fs::write(&path, &bytes).unwrap();
+        let response = request(&app, Method::POST, "/channels", &jwt(&state, owner), json!({"name":"invalid-default-channel"})).await;
+        assert_eq!(response.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(state.wdb.list_channels(None).await.unwrap().len(), count);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
+}
+
+#[tokio::test]
+async fn exact_retention_overrides_stale_database_day_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, _, owner) = users(&state).await;
+    let room = channel(&state, member, ChannelKind::Text).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    for (label, expected) in [("forever", None), ("live", None), ("7d", Some(7 * 86_400_000_000)), ("5s", Some(5_000_000))] {
+        assert_eq!(request(&app, Method::PUT, &format!("/channels/{room}/retention"), &jwt(&state, owner), json!({"retention":label})).await.0, StatusCode::OK);
+        // Seed an actual compatibility record: the current legacy writer has no
+        // projection handler, so invoking it alone would not exercise stale data.
+        state.wdb.engine().projection_state().insert("channel_retention", room.as_bytes().to_vec(),
+            serde_json::to_vec(&wabidb::domain::RetentionPolicy {
+                channel_id: room.clone(), days: 1, set_at_micros: 0, set_by_user_id: owner,
+            }).unwrap(), 0);
+        assert_eq!(state.wdb.get_channel_retention(&room).await.unwrap().unwrap().days, 1);
+        let _guard = state.retention_policy_lock.lock().await;
+        assert_eq!(wabi_server::api::retention_policy::channel_expiry_micros(&state, &room).await.unwrap(), expected);
+    }
+}

@@ -54,6 +54,7 @@ pub struct AppState {
     /// channel_id -> auto-delete duration in milliseconds (None/0 = off).
     /// In-memory for full preset support (5s..90d); also mirrored to WDB days when >= 1d.
     pub channel_auto_delete_ms: Arc<RwLock<HashMap<String, u64>>>,
+    pub retention_policy_lock: tokio::sync::Mutex<()>,
     /// channel_id -> frontend label (e.g. "5s", "24h") for channel-updated payloads
     pub channel_auto_delete_label: Arc<RwLock<HashMap<String, String>>>,
     /// Per-channel live room TTL in milliseconds. Default: 10 minutes.
@@ -357,6 +358,7 @@ impl AppState {
             }),
             session_messages: Arc::new(RwLock::new(HashMap::new())),
             channel_auto_delete_ms: Arc::new(RwLock::new(retention_timers)),
+            retention_policy_lock: tokio::sync::Mutex::new(()),
             channel_auto_delete_label: Arc::new(RwLock::new(retention_labels)),
             live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
             live_channel_cap: Arc::new(RwLock::new(HashMap::new())),
