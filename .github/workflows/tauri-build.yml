@@ -2,6 +2,11 @@ name: Build Tauri App (Manual Diagnostic)
 
 on:
   workflow_dispatch:
+    inputs:
+      hosting:
+        description: Include the matching Authority (Windows/Linux hosting candidate)
+        type: boolean
+        default: false
 
 env:
   WABI_SOURCE_REVISION: ${{ github.sha }}
@@ -86,11 +91,26 @@ jobs:
           cd frontend
           npm ci --no-audit --no-fund
 
+      - name: Compile and stage matching Authority for hosting
+        if: inputs.hosting && runner.os != 'macOS'
+        shell: bash
+        run: |
+          cargo build --locked --release -p wabi-server
+          TARGET=$(rustc -vV | sed -n 's/^host: //p')
+          BINARY=target/release/wabi-server
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; fi
+          node scripts/stage-desktop-host.mjs --target "$TARGET" --binary "$BINARY"
+
       - name: Build Tauri app
+        shell: bash
         working-directory: .
         run: |
           echo "Starting Tauri build..."
-          bunx @tauri-apps/cli@2.11.4 build --ci -- --locked
+          if [[ "${{ inputs.hosting }}" == "true" && "$RUNNER_OS" != "macOS" ]]; then
+            bunx @tauri-apps/cli@2.11.4 build --ci --config src-tauri/tauri.hosting.conf.json -- --locked
+          else
+            bunx @tauri-apps/cli@2.11.4 build --ci -- --locked
+          fi
         env:
           RUST_BACKTRACE: 1
           RUST_LOG: debug

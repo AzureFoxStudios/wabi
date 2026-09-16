@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { canUseDesktopHosting } from '$lib/desktopHosting';
 	import { fade } from 'svelte/transition';
 	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages, currentUser, joinChannel } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
@@ -171,6 +173,14 @@
 		};
 
 		(async () => {
+            if (await canUseDesktopHosting()) {
+                const choice = localStorage.getItem('wabi.desktop-choice');
+                const entered = sessionStorage.getItem('wabi.host-entered');
+                if (!choice || (choice === 'host' && !entered)) {
+                    await goto('/host');
+                    return;
+                }
+            }
 			startupMark('page:bootstrap:start');
 			isInitialLoad = true;
 			startupMark('page:ui:unblocked');

@@ -159,10 +159,11 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 			const storedHost = configuredUrl.hostname;
 			const isWwwVariant =
 				storedHost === `www.${hostname}` || hostname === `www.${storedHost}`;
-			const isSameHostProtocolMismatch =
-				storedHost === hostname && configuredUrl.protocol !== protocol;
+			const nativeBridge = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined' || typeof (window as any).__TAURI__ !== 'undefined';
+            const isSameHostProtocolMismatch =
+                !nativeBridge && storedHost === hostname && configuredUrl.protocol !== protocol;
 			if (
-				(isLocalHost(storedHost) && !isLocalHost(hostname)) ||
+				(!nativeBridge && isLocalHost(storedHost) && !isLocalHost(hostname)) ||
 				isWwwVariant ||
 				isSameHostProtocolMismatch
 			) {
