@@ -477,3 +477,15 @@ Wiki isolation validation: frontend suite 905 pass / 3 skip / 0 fail; final type
 - This closes the previously missing simultaneous-rendering check for independent drafts in these same-channel scenarios. Different-account shared editing, concurrent-write resolution, dirty-panel closure recovery and broader workspace lifecycle acceptance remain separate open work. No deployment occurred.
 
 Two-view batch type check: 0 errors / existing 167 warnings (`/var/home/Ronin/wabi-production-finish-two-views-check.log`).
+
+
+## Forum session draft recovery (2026-09-16)
+
+- **W03/U02:** Forum composers now use the existing session-memory draft ownership mechanism, keyed by channel, thread/new-thread and center/panel surface. Closing and reopening a panel restores its text, selected files and completed upload receipts without replacing the center draft. Auth retirement, account context changes and membership revocation invalidate retained slots.
+- Explicitly accepted discard clears the retained draft and prevents component teardown from saving the discarded input again. A browser regression reproduced that teardown bug before the fix.
+- An already-issued successful post can settle its draft transaction after the composer remounts. The retired Forum store returns the acknowledgement without updating its retired view; the draft ownership lease prevents settlement into a different account or revoked slot. The remounted composer stays disabled while the original request is pending.
+- **Headful browser evidence:** `/var/home/Ronin/wabi-production-finish-forum-drafts-ui.log` passes; report `/tmp/wabi-forum-ui-D6q7rP`. Tests cover independent center/panel drafts, dirty-panel close/reopen, explicit discard/reopen, and close/reopen during a delayed POST (one request, pending button disabled, draft cleared after acknowledgement), alongside existing failed-post/image-retry, responsive navigation, store isolation and logout cases.
+- Final frontend checks: 905 pass, 3 skip, 0 fail; type check 0 errors / existing 167 warnings. Logs `/var/home/Ronin/wabi-production-finish-forum-drafts-tests.log` and `/var/home/Ronin/wabi-production-finish-forum-drafts-check.log`.
+- **Boundary:** this is session-memory recovery, not reload/crash persistence or post idempotency. A lost acknowledgement still requires checking the thread before retrying. New-thread panel recovery, upload-in-flight closure, all global-navigation/account-transition combinations and Wiki draft recovery remain additional acceptance work. No deployment occurred.
+
+Forum recovery static frontend build passed (`/var/home/Ronin/wabi-production-finish-forum-drafts-build.log`). This builds frontend assets only; it is not an embedded release binary or deployment.

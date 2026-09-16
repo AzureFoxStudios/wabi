@@ -248,7 +248,9 @@ export function createForumWorkspace() {
 			});
 			if (!res.ok) throw new Error(`Failed to create thread: ${res.statusText}`);
 			const post: ForumPost = mapForumPost(await res.json());
-	 if (!isCurrent()) return null;
+			// Keep the server acknowledgement for an existing draft transaction,
+			// but never write the result into a retired view.
+			if (!isCurrent()) return post;
 			forumError.set(null);
 			forumThreads.update((ts) => [post, ...ts]);
 			return post;
@@ -279,7 +281,9 @@ export function createForumWorkspace() {
 			);
 			if (!res.ok) throw new Error(`Failed to create post: ${res.statusText}`);
 			const post: ForumPost = mapForumPost(await res.json());
-	 if (!isCurrent()) return null;
+			// Keep the server acknowledgement for an existing draft transaction,
+			// but never write the result into a retired view.
+			if (!isCurrent()) return post;
 			forumError.set(null);
 			forumPostsByThread.update((map) => {
 				const next = new Map(map);

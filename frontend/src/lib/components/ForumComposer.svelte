@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
+	import { forumDrafts, type ForumDraft } from '$lib/forumDraftState';
+	import { captureGroupAccess } from '$lib/groupAccess';
 	import { composerDraftRealm } from '$lib/composerDraftState';
 	import type { ForumAttachment } from '$lib/forumStore';
 	import { uploadFileResumable } from './chat/uploadResumable';
@@ -7,25 +10,67 @@
 	export let showTitle = false;
 	export let categoryOptions: string[] = [];
 	export let channelId = '';
+	export let draftSurface = 'center';
+	export let draftKey = 'new';
 	export let onSubmit: (body: string, title?: string, category?: string) => Promise<boolean>;
 	export let onCancel: (() => void) | undefined = undefined;
 
 	const MAX_FORUM_IMAGES = 8;
 	const MAX_FORUM_IMAGE_BYTES = 25 * 1024 * 1024;
 
-	let titleValue = '';
-	let categoryValue = '';
-	let bodyValue = '';
+	const draftOwner = forumDrafts.open(channelId, captureGroupAccess(channelId), `${draftSurface}:${draftKey}`);
+	const restored = draftOwner.initial;
+	let mounted = true;
+	let discarded = false;
+	let titleValue = restored?.title || '';
+	let categoryValue = restored?.category || '';
+	let bodyValue = restored?.body || '';
 	let previewMode = false;
-	let selectedFiles: File[] = [];
-	let previews: string[] = [];
+	let selectedFiles: File[] = restored?.files || [];
+	let previews: string[] = selectedFiles.map(file => URL.createObjectURL(file));
 	let fileInput: HTMLInputElement | null = null;
 	let isUploading = false;
-	let isSubmitting = false;
-	const uploadedFiles = new Map<File, ForumAttachment>();
-	let uploadedScope = "";
+	let isSubmitting = draftOwner.isSending();
+	const uploadedFiles = new Map<File, ForumAttachment>(restored?.uploaded || []);
+	let uploadedScope = JSON.stringify([composerDraftRealm(), channelId]);
 	let uploadProgress = 0;
 	let uploadError: string | null = null;
+
+	function snapshot(): ForumDraft {
+		return { body: bodyValue, title: titleValue, category: categoryValue, files: selectedFiles, uploaded: [...uploadedFiles] };
+	}
+
+	function restore(draft: ForumDraft) {
+		revokePreviews();
+		bodyValue = draft.body;
+		titleValue = draft.title;
+		categoryValue = draft.category;
+		selectedFiles = draft.files;
+		previews = selectedFiles.map(file => URL.createObjectURL(file));
+		uploadedFiles.clear();
+		for (const [file, uploaded] of draft.uploaded) uploadedFiles.set(file, uploaded);
+	}
+
+	onMount(() => {
+		const latest = draftOwner.read();
+		if (latest) restore(latest);
+		isSubmitting = draftOwner.isSending();
+		return draftOwner.onSendState((pending, update) => {
+			if (!mounted || !draftOwner.current()) return;
+			isSubmitting = pending;
+			if (update) {
+				const next = update(snapshot());
+				restore(next);
+				draftOwner.save(next);
+			}
+		});
+	});
+
+	onDestroy(() => {
+		if (!discarded) draftOwner.save(snapshot());
+		mounted = false;
+		revokePreviews();
+	});
 
 	$: canSubmit = (bodyValue.trim().length > 0 || selectedFiles.length > 0) && !isSubmitting;
 
@@ -102,7 +147,10 @@
 		const submittingRealm = composerDraftRealm();
 		const scope = JSON.stringify([submittingRealm, submittingChannel]);
 		if (uploadedScope !== scope) { uploadedFiles.clear(); uploadedScope = scope; }
-		const isCurrent = () => channelId === submittingChannel && composerDraftRealm() === submittingRealm;
+		const isCurrent = () => mounted && draftOwner.current() && channelId === submittingChannel && composerDraftRealm() === submittingRealm;
+		draftOwner.save(snapshot());
+		const transaction = draftOwner.beginSend();
+		if (!transaction) return;
 		isSubmitting = true;
 		uploadError = null;
 		uploadProgress = 0;
@@ -129,11 +177,16 @@
 			const accepted = await onSubmit(finalBody,
 				showTitle ? titleValue.trim() || undefined : undefined,
 				showTitle ? categoryValue.trim() || undefined : undefined);
-			if (accepted) resetComposer();
+			if (accepted) {
+				transaction.settle(() => ({ body: '', title: '', category: '', files: [], uploaded: [] }));
+				if (mounted && draftOwner.current()) resetComposer();
+			}
 			else uploadError = 'Post was not confirmed. Your draft is still here; check the thread before retrying.';
 		} catch (err) {
 			uploadError = `${err instanceof Error ? err.message : 'Posting failed'}. Your draft is still here.`;
 		} finally {
+			if (mounted) draftOwner.save(snapshot());
+			transaction.finish();
 			isUploading = false;
 			isSubmitting = false;
 		}
@@ -148,8 +201,11 @@
 
 	export function confirmDiscard(): boolean {
 		if (isSubmitting) return false;
-		return !(bodyValue.trim() || titleValue.trim() || selectedFiles.length)
-			|| window.confirm('Discard this unsaved forum draft?');
+		if ((bodyValue.trim() || titleValue.trim() || selectedFiles.length) && !window.confirm('Discard this unsaved forum draft?')) return false;
+		discarded = true;
+		resetComposer();
+		draftOwner.clear();
+		return true;
 	}
 
 	function handleCancel() {

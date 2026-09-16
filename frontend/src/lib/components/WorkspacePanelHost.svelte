@@ -92,7 +92,7 @@
 {:else if panel.component === 'forum'}
 	{#if forumPanelChannelId}
 		<div class="right-panel-embedded">
-			<ForumChannel channelId={forumPanelChannelId ?? undefined} />
+			<ForumChannel channelId={forumPanelChannelId ?? undefined} draftSurface="panel" />
 		</div>
 	{:else if forumChannels.length > 0}
 		<div class="channel-picker">
