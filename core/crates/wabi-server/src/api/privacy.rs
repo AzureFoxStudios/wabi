@@ -52,7 +52,6 @@ fn string_field(value: &serde_json::Value, key: &str, fallback: &str) -> String 
 }
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    super::retention_policy::hydrate_runtime(state.clone());
     Router::new()
         .route("/", axum::routing::get(summary))
         .route("/channels/{channel_id}", axum::routing::get(channel_summary))
@@ -85,7 +84,7 @@ async fn channel_summary(
     let privacy = privacy_value(&state.config.data_dir);
     let private_automation = bool_field(&privacy, "privateContentAutomation", false);
 
-    let retention = if let Some(label) = super::retention_policy::label(&state.config.data_dir, &channel_id) {
+    let retention = if let Some(label) = super::retention_policy::label(&state.config.data_dir, &channel_id)? {
         label
     } else {
         match state.wdb.get_channel_retention(&channel_id).await? {

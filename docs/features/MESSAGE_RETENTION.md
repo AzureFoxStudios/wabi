@@ -35,4 +35,12 @@ The runtime script creates its own temporary data directory, account, channel an
 
 The database contract separately verifies that logical deletion survives reopening, the deleted body remains readable through the internal deleted-record lookup, an attachment fixture remains on disk, and a stopped pre-deletion backup restores the old visible message.
 
-These are bounded checks. They do not certify report-evidence expiry, every client cache, external backups, debug logging, malicious plugins, secure erasure, or recovery from a damaged retention-policy sidecar. See [backup and recovery](../deployment/BACKUP_AND_RECOVERY.md) and the [privacy stance](../PRIVACY_STANCE.md).
+These are bounded checks. They do not certify report-evidence expiry, every client cache, external backups, debug logging, malicious plugins, secure erasure, or every failure during a multi-store policy update. See [backup and recovery](../deployment/BACKUP_AND_RECOVERY.md) and the [privacy stance](../PRIVACY_STANCE.md).
+
+## Damaged exact-policy file
+
+The candidate loads `channel_retention.json` before opening WabiDB or serving requests. Invalid JSON, missing required fields, unsupported modes and unreadable files stop startup without replacing the file. This prevents Live storage behavior from briefly falling back to durable writes while a background task loads settings.
+
+If the file becomes damaged while the server is running, existing in-memory policies remain in effect. Policy lookup reports an error and policy changes reject the damaged file before changing runtime policy. Preserve the bytes and restore a matching stopped-instance backup; do not delete the file to clear the error. A missing file is still accepted for a fresh installation and cannot distinguish accidental deletion from a never-configured instance. Valid policy changes span the sidecar and the database compatibility record; complete cross-store crash/failure atomicity is not established by this recovery check.
+
+REST and realtime `update-channel-settings` now use the same exact-policy validation and persistence function. Realtime Live/short-duration choices no longer depend solely on memory, and an unrelated channel rename does not emit a fabricated retention reset. Optional per-channel Live TTL/cap runtime controls retain their existing separate lifecycle; this change does not certify their persistence.

@@ -1251,3 +1251,70 @@ async fn dm_identity_uses_persisted_offline_name_and_recipient_specific_payload(
     creator.emit("create-dm", json!({"targetUserId": "user-999999999"})).await;
     assert_eq!(creator.event("dm-error").await["error"], "Target must be an active registered user");
 }
+
+#[tokio::test]
+async fn exact_retention_loads_before_requests_and_corruption_cannot_change_live_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, _, _) = users(&state).await;
+    let room = channel(&state, member, ChannelKind::Text).await;
+    wabi_server::api::retention_policy::set(dir.path().to_str().unwrap(), &room, "live").unwrap();
+    let policy_path = dir.path().join("channel_retention.json");
+    let original = std::fs::read(&policy_path).unwrap();
+    let config = state.config.clone();
+    drop(state);
+    let state = Arc::new(AppState::new(config.clone()).await.unwrap());
+    assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("live"));
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (status, body) = request(&app, Method::POST, "/messages", &jwt(&state, member),
+        json!({"channel_id":room,"content":"startup-live-canary"})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(state.wdb.get_message_typed(body["id"].as_str().unwrap()).await.unwrap().is_none());
+    std::fs::write(&policy_path, b"{broken-policy").unwrap();
+    // Use the persisted owner to exercise the mutation after authorization.
+    let owner = state.wdb.get_owner_user_id().await.unwrap().unwrap();
+    let (status, _) = request(&app, Method::PUT, &format!("/channels/{room}/retention"), &jwt(&state, owner), json!({"retention":"forever"})).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("live"));
+    assert_eq!(std::fs::read(&policy_path).unwrap(), b"{broken-policy");
+    let weak_store = Arc::downgrade(&state.wdb);
+    drop(app);
+    drop(state);
+    // The live send may still have a detached delivery task holding the adapter.
+    for _ in 0..100 {
+        if weak_store.strong_count() == 0 { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(weak_store.strong_count(), 0, "disposable writer released before restart");
+    assert!(AppState::new(config.clone()).await.is_err());
+    assert_eq!(std::fs::read(&policy_path).unwrap(), b"{broken-policy");
+    std::fs::write(&policy_path, original).unwrap();
+    let restored = AppState::new(config).await.unwrap();
+    assert_eq!(restored.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("live"));
+}
+
+#[tokio::test]
+async fn socket_retention_persists_exact_modes_and_ignores_unrelated_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (_, _, owner) = users(&state).await;
+    let room = channel(&state, owner, ChannelKind::Text).await;
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut client = SocketClient::connect(&app, &jwt(&state, owner)).await;
+    for mode in ["live", "5s", "forever"] {
+        client.emit("update-channel-settings", json!({"channelId":room,"settings":{"autoDeleteAfter":mode}})).await;
+        client.event("channel-settings-updated").await;
+        assert_eq!(wabi_server::api::retention_policy::label(dir.path().to_str().unwrap(), &room).unwrap().as_deref(), Some(mode));
+    }
+    client.emit("update-channel-settings", json!({"channelId":room,"settings":{"name":"renamed"}})).await;
+    let receipt = client.event("channel-settings-updated").await;
+    assert!(receipt.get("autoDeleteAfter").is_none());
+    assert!(receipt.get("forceSpoiler").is_none());
+    assert_eq!(receipt["name"], "renamed");
+    std::fs::write(dir.path().join("channel_retention.json"), b"{broken-policy").unwrap();
+    client.emit("update-channel-settings", json!({"channelId":room,"settings":{"autoDeleteAfter":"live"}})).await;
+    client.event("channel-settings-error").await;
+    assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("forever"));
+    assert_eq!(std::fs::read(dir.path().join("channel_retention.json")).unwrap(), b"{broken-policy");
+}
