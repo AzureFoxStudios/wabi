@@ -18,5 +18,5 @@ export type WikiDraft = {
 /** Session-only editor state, separately owned by each workspace surface. */
 export const wikiDrafts = new ComposerDraftMemory<WikiDraft>(composerDraftRealm);
 onAuthSessionCleared(() => wikiDrafts.clear());
-groupMembership.onContextChanged(() => wikiDrafts.clear());
+groupMembership.onContextChanged(() => { /* leave entries intact for remount */ });
 groupMembership.onRevoked(({ channelId }) => wikiDrafts.remove(channelId));
