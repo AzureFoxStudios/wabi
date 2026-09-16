@@ -418,3 +418,14 @@ Rejected alternatives: resetting operator branding for a screenshot; a second No
 - First-owner setup now validates configured defaults before account creation and saves the configured exact policy for starter channels. Failed starter-policy saves log an error and attempt channel cleanup; the owner remains usable. Missing defaults retain the normal 24-hour choice.
 - All 30 channel-access contracts and four first-boot contracts pass. Added real-router Live-default setup/reopen and damaged-default rejection proving no owner/account/channel creation. Log: `/var/home/Ronin/wabi-production-finish-retention-bootstrap.log`.
 - Added a task-oriented remaining-work sequence near the top of this campaign at the user's request. No deployment or overall acceptance claimed.
+
+## Wiki editing journey — browser reproduction and repairs (2026-09-16)
+
+- **W03/U02/U04:** the initial headful browser journey could not click Create: the viewport-fixed Wiki composer overlapped the existing scratchpad/right-panel surface. New-page composition now fills its own Wiki workspace area, preserving channel context and independent multitasking panels. It no longer installs a page-wide backdrop.
+- Refreshing the selected page no longer tears down its active editor. Selection changes still reset revision/edit mode. Save completion records the submitted snapshot and keeps later typing open; failed save status remains visible. Successful mutation clears a previous request error so retry does not hide the saved page.
+- New-page creation has a pending guard/status, disabled text inputs and a discard confirmation. Reopening the already-open composer does not reset its draft. The browser double-click check verifies only one request.
+- **Actual browser evidence:** disposable Authority and headful Chromium pass create, same-page refresh retaining draft, injected 503 save failure retaining draft, successful retry and page reload. Script: `frontend/scripts/wiki-workspace-browser-smoke.mjs`; log `/var/home/Ronin/wabi-production-finish-wiki-ui.log`; screenshots `/tmp/wabi-wiki-ui-USLNBB/` inspected. No live community data used.
+- **Not whole-workspace acceptance:** cross-account/channel async isolation, concurrent editors, second-account shared use, server restart, mobile/zoom/keyboard and complete Wiki revision lifecycle remain open. The global Wiki/Forum stores need further ownership review. Stub overlap with some right-edge content is still visible and belongs to shell acceptance.
+- A bounded free Ling review identified Forum submission/draft risks. Root source review confirms the composer clears text without awaiting submit success; its proposed duplicate/stale-state explanations still require precise reproduction. No Forum fix is claimed in this batch.
+
+Frontend validation for the Wiki batch: `bun run check` passes with 0 errors and the existing 167 warnings; no new warning remains.
