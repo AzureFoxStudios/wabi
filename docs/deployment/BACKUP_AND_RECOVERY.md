@@ -22,6 +22,10 @@ The **WabiDB root key is critical**. A backup of encrypted data without the key 
 
 JWT material is also sensitive. Losing/rotating it is primarily a session/login problem; losing the WabiDB root key is a data-recovery problem.
 
+## Exact retention policy
+
+Include `channel_retention.json` in the stopped data-directory backup. It distinguishes Live mode and sub-day durations from WabiDB's whole-day compatibility policy. Startup validates and loads it before serving requests; damaged or unreadable state stops startup while preserving the file. Restore a matching backup rather than deleting the file or replacing it with an empty object. Removing it can change the storage mode after restart. See [message retention](../features/MESSAGE_RETENTION.md).
+
 ## Experimental encryption registry
 
 Include `e2ee_state.json`, when present, in the full stopped data-directory backup. It stores device public keys and wrapped room-key metadata; it is separate from WabiDB's at-rest root key. Keep client-owned private keys and local browser data under their own recovery procedures—an Authority backup does not recreate them.

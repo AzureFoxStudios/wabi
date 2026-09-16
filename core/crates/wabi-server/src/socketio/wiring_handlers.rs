@@ -616,73 +616,30 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
         row.insert("parent_id".to_string(), json!(serde_json::Value::Null));
     }
 
-    // Auto-delete / retention presets (5s..90d or null/off = keep forever opt-in,
-    // or "live" = session-only, never persisted to WabiDB).
+    // REST and realtime settings share exact persistence and validation.
     let mut auto_delete_after: Option<String> = None;
-    if settings.get("autoDeleteAfter").is_some() {
-        if settings.get("autoDeleteAfter").and_then(|v| v.as_str()) == Some("live") {
-            // Live session room: no durable writes, no timed delete. Mark via the
-            // in-memory label sentinel "live" (checked by channel_is_live on send).
-            // Clear any ms timer and drop the durable retention policy so a restart
-            // does not resurrect timed/forever behavior for this channel.
-            state.app.channel_auto_delete_ms.write().await.remove(&channel_id);
-            state
-                .app
-                .channel_auto_delete_label
-                .write()
-                .await
-                .insert(channel_id.clone(), "live".to_string());
-            let _ = state
-                .app
-                .wdb
-                .upsert_channel_retention(&channel_id, 0, caller_id as u64)
-                .await;
-            auto_delete_after = Some("live".to_string());
-
-            // Optional per-channel live TTL and cap.
-            if let Some(ttl) = settings.get("liveTtlMs").and_then(|v| v.as_u64()) {
-                state.app.live_channel_ttl_ms.write().await.insert(channel_id.clone(), ttl);
+    if let Some(value) = settings.get("autoDeleteAfter") {
+        let requested = if value.is_null() { "forever" } else if let Some(label) = value.as_str() {
+            label
+        } else {
+            let _ = socket.emit("channel-settings-error", &json!({"channelId":channel_id,"error":"Invalid retention policy"}));
+            return;
+        };
+        match crate::api::channels::apply_channel_retention(&state.app, &channel_id, caller_id as u64, requested).await {
+            Ok(label) => {
+                if label == "live" {
+                    if let Some(ttl) = settings.get("liveTtlMs").and_then(|v| v.as_u64()) {
+                        state.app.live_channel_ttl_ms.write().await.insert(channel_id.clone(), ttl);
+                    }
+                    if let Some(cap) = settings.get("liveCap").and_then(|v| v.as_u64()) {
+                        state.app.live_channel_cap.write().await.insert(channel_id.clone(), cap);
+                    }
+                }
+                auto_delete_after = if label == "forever" { None } else { Some(label) };
             }
-            if let Some(cap) = settings.get("liveCap").and_then(|v| v.as_u64()) {
-                state.app.live_channel_cap.write().await.insert(channel_id.clone(), cap);
-            }
-        } else if settings.get("autoDeleteAfter").and_then(|v| v.as_null()).is_some() {
-            // explicit null -> keep forever (opt-in persistence)
-            state.app.channel_auto_delete_ms.write().await.remove(&channel_id);
-            state
-                .app
-                .channel_auto_delete_label
-                .write()
-                .await
-                .insert(channel_id.clone(), "forever".to_string());
-            let _ = state
-                .app
-                .wdb
-                .upsert_channel_retention(&channel_id, 0, caller_id as u64)
-                .await;
-            auto_delete_after = None;
-        } else if let Some(label) = settings.get("autoDeleteAfter").and_then(|v| v.as_str()) {
-            if let Some(ms) = parse_retention_label_to_ms(label) {
-                state
-                    .app
-                    .channel_auto_delete_ms
-                    .write()
-                    .await
-                    .insert(channel_id.clone(), ms);
-                state
-                    .app
-                    .channel_auto_delete_label
-                    .write()
-                    .await
-                    .insert(channel_id.clone(), label.to_string());
-                // Mirror coarse days into WDB when >= 1 day
-                let days = (ms / 86_400_000) as u32;
-                let _ = state
-                    .app
-                    .wdb
-                    .upsert_channel_retention(&channel_id, days.max(if ms >= 86_400_000 { 1 } else { 0 }), caller_id as u64)
-                    .await;
-                auto_delete_after = Some(label.to_string());
+            Err(error) => {
+                let _ = socket.emit("channel-settings-error", &json!({"channelId":channel_id,"error":error.to_string()}));
+                return;
             }
         }
     }
@@ -720,34 +677,16 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
         warn!("[sio] update-channel settings projection merge failed: {}", e);
     }
 
-    let payload = json!({
+    let mut payload = json!({
         "channelId": channel_id,
         "id": channel_id,
-        "autoDeleteAfter": auto_delete_after,
-        "name": settings.get("name"),
-        "description": settings.get("description"),
-        "forceSpoiler": settings.get("forceSpoiler"),
     });
+    for key in ["name", "description", "forceSpoiler"] {
+        if let Some(value) = settings.get(key) { payload[key] = value.clone(); }
+    }
+    if settings.get("autoDeleteAfter").is_some() { payload["autoDeleteAfter"] = json!(auto_delete_after); }
     let _ = socket.emit("channel-settings-updated", &payload);
     let _ = io.broadcast().emit("channel-updated", &payload).await;
-}
-
-/// Parse frontend retention labels ("5s", "1m", "24h", "7d", ...) to milliseconds.
-fn parse_retention_label_to_ms(label: &str) -> Option<u64> {
-    let s = label.trim().to_lowercase();
-    if s.is_empty() || s == "never" || s == "off" || s == "forever" {
-        return None;
-    }
-    let (num, unit) = s.split_at(s.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(s.len()));
-    let n: u64 = num.parse().ok()?;
-    let mult = match unit {
-        "s" | "sec" | "secs" | "second" | "seconds" => 1_000u64,
-        "m" | "min" | "mins" | "minute" | "minutes" => 60_000,
-        "h" | "hr" | "hrs" | "hour" | "hours" => 3_600_000,
-        "d" | "day" | "days" => 86_400_000,
-        _ => return None,
-    };
-    Some(n.saturating_mul(mult))
 }
 
 #[allow(dead_code)]

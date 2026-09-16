@@ -274,6 +274,12 @@ impl AppState {
     /// initialization, no compat shim.
     pub async fn new(config: ServerConfig) -> anyhow::Result<Self> {
         let started_at = std::time::Instant::now();
+        // Resolve exact storage policy before accepting requests or opening WabiDB.
+        // A background hydration task can let the first Live message persist.
+        let retention_labels = crate::api::retention_policy::all(&config.data_dir)?;
+        let retention_timers = retention_labels.iter().filter_map(|(channel, label)|
+            crate::api::retention_policy::timed_ms(label).map(|ms| (channel.clone(), ms))
+        ).collect();
         let owner_user_id = RwLock::new(None);
         let node_registry = NodeRegistry::new_persistent(
             config.node_id.clone(),
@@ -350,8 +356,8 @@ impl AppState {
                 channel_broadcasts: std::collections::HashMap::new(),
             }),
             session_messages: Arc::new(RwLock::new(HashMap::new())),
-            channel_auto_delete_ms: Arc::new(RwLock::new(HashMap::new())),
-            channel_auto_delete_label: Arc::new(RwLock::new(HashMap::new())),
+            channel_auto_delete_ms: Arc::new(RwLock::new(retention_timers)),
+            channel_auto_delete_label: Arc::new(RwLock::new(retention_labels)),
             live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
             live_channel_cap: Arc::new(RwLock::new(HashMap::new())),
             tombstone_table: Arc::new(RwLock::new(TombstoneTable::new())),

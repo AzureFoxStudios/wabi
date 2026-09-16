@@ -131,12 +131,14 @@ impl CreateChannelRequest {
 
 fn default_channel_type() -> String { "text".to_string() }
 
-async fn apply_channel_retention(
+pub(crate) async fn apply_channel_retention(
     state: &AppState,
     channel_id: &str,
     actor_user_id: u64,
     raw_label: &str,
 ) -> Result<String> {
+    // Refuse to mutate runtime/database policy if the exact policy file needs recovery.
+    crate::api::retention_policy::all(&state.config.data_dir)?;
     let label = raw_label.trim().to_ascii_lowercase();
     if label == "live" {
         state.channel_auto_delete_ms.write().await.remove(channel_id);

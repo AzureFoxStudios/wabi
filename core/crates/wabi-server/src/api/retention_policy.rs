@@ -6,14 +6,12 @@
 //! or short-lived channel into durable/forever history.
 
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex, OnceLock}};
+use std::{collections::HashMap, path::PathBuf, sync::{Mutex, OnceLock}};
 
-use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct RetentionOverrides {
-    #[serde(default)]
     channels: HashMap<String, String>,
 }
 
@@ -24,10 +22,31 @@ fn lock() -> &'static Mutex<()> {
 
 fn path(data_dir: &str) -> PathBuf { PathBuf::from(data_dir).join("channel_retention.json") }
 
-fn read_unlocked(data_dir: &str) -> RetentionOverrides {
-    std::fs::read(path(data_dir)).ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+const RECOVERY_ERROR: &str = "Retention policy could not be read. Preserve channel_retention.json and restore it from a matching backup; do not delete it to resume startup.";
+
+fn canonical_label(label: &str) -> anyhow::Result<String> {
+    let label = label.trim().to_ascii_lowercase();
+    match label.as_str() {
+        "live" | "forever" => Ok(label),
+        "never" | "off" => Ok("forever".into()),
+        _ if timed_ms(&label).is_some_and(|ms| ms > 0 && ms <= 365 * 86_400_000) => Ok(label),
+        _ => anyhow::bail!(RECOVERY_ERROR),
+    }
+}
+
+fn read_unlocked(data_dir: &str) -> anyhow::Result<RetentionOverrides> {
+    let bytes = match std::fs::read(path(data_dir)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(RetentionOverrides::default()),
+        Err(_) => anyhow::bail!(RECOVERY_ERROR),
+    };
+    let mut data: RetentionOverrides = serde_json::from_slice(&bytes)
+        .map_err(|_| anyhow::anyhow!(RECOVERY_ERROR))?;
+    for (channel, label) in &mut data.channels {
+        anyhow::ensure!(!channel.trim().is_empty(), RECOVERY_ERROR);
+        *label = canonical_label(label)?;
+    }
+    Ok(data)
 }
 
 fn write_unlocked(data_dir: &str, data: &RetentionOverrides) -> anyhow::Result<()> {
@@ -55,26 +74,26 @@ fn write_unlocked(data_dir: &str, data: &RetentionOverrides) -> anyhow::Result<(
 
 pub fn set(data_dir: &str, channel_id: &str, label: &str) -> anyhow::Result<()> {
     let _guard = lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let mut data = read_unlocked(data_dir);
-    data.channels.insert(channel_id.to_string(), label.to_string());
+    let mut data = read_unlocked(data_dir)?;
+    data.channels.insert(channel_id.to_string(), canonical_label(label)?);
     write_unlocked(data_dir, &data)
 }
 
 pub fn remove(data_dir: &str, channel_id: &str) -> anyhow::Result<()> {
     let _guard = lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let mut data = read_unlocked(data_dir);
+    let mut data = read_unlocked(data_dir)?;
     data.channels.remove(channel_id);
     write_unlocked(data_dir, &data)
 }
 
-pub fn label(data_dir: &str, channel_id: &str) -> Option<String> {
+pub fn label(data_dir: &str, channel_id: &str) -> anyhow::Result<Option<String>> {
     let _guard = lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    read_unlocked(data_dir).channels.get(channel_id).cloned()
+    Ok(read_unlocked(data_dir)?.channels.get(channel_id).cloned())
 }
 
-pub fn all(data_dir: &str) -> HashMap<String, String> {
+pub fn all(data_dir: &str) -> anyhow::Result<HashMap<String, String>> {
     let _guard = lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    read_unlocked(data_dir).channels
+    Ok(read_unlocked(data_dir)?.channels)
 }
 
 /// Milliseconds for timed labels. `live` and `forever` intentionally return
@@ -108,24 +127,6 @@ pub fn effective_micros(exact_ms: Option<u64>, fallback_micros: Option<i64>) -> 
     }
 }
 
-/// Restore exact runtime labels/timers from the sidecar after AppState starts.
-/// This deliberately does not rewrite WabiDB: it only rehydrates the richer
-/// runtime representation that WabiDB's whole-day compatibility policy cannot hold.
-pub fn hydrate_runtime(state: Arc<AppState>) {
-    let overrides = all(&state.config.data_dir);
-    if overrides.is_empty() { return; }
-    tokio::spawn(async move {
-        let mut labels = state.channel_auto_delete_label.write().await;
-        let mut timers = state.channel_auto_delete_ms.write().await;
-        for (channel_id, label) in overrides {
-            labels.insert(channel_id.clone(), label.clone());
-            if let Some(ms) = timed_ms(&label) { timers.insert(channel_id, ms); }
-            else { timers.remove(&channel_id); }
-        }
-        tracing::info!(count = labels.len(), "rehydrated exact channel retention choices");
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,8 +137,8 @@ mod tests {
         let root = dir.path().to_str().unwrap();
         set(root, "live-room", "live").unwrap();
         set(root, "short-room", "1h").unwrap();
-        assert_eq!(label(root, "live-room").as_deref(), Some("live"));
-        assert_eq!(label(root, "short-room").as_deref(), Some("1h"));
+        assert_eq!(label(root, "live-room").unwrap().as_deref(), Some("live"));
+        assert_eq!(label(root, "short-room").unwrap().as_deref(), Some("1h"));
         assert_eq!(timed_ms("1h"), Some(3_600_000));
         assert_eq!(timed_ms("1250ms"), Some(1_250));
         assert_eq!(timed_ms("live"), None);
@@ -152,6 +153,31 @@ mod tests {
         assert_eq!(effective_micros(None, None), None);
         assert_eq!(effective_micros(Some(0), None), None);
         assert_eq!(effective_micros(Some(u64::MAX), None), Some(i64::MAX));
+    }
+
+    #[test]
+    fn damaged_or_unknown_policy_is_preserved_and_never_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        for bytes in [b"{".as_slice(), b"{}", b"null", b"{\"channels\":{\"room\":\"unknown\"}}", b"{\"channels\":{\"room\":\"0s\"}}"] {
+            std::fs::write(path(root), bytes).unwrap();
+            assert!(all(root).is_err());
+            assert!(label(root, "room").is_err());
+            assert!(set(root, "new", "forever").is_err());
+            assert!(remove(root, "room").is_err());
+            assert_eq!(std::fs::read(path(root)).unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn unreadable_file_fails_but_missing_file_remains_a_fresh_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        assert!(all(root).unwrap().is_empty());
+        std::fs::create_dir(path(root)).unwrap();
+        assert!(all(root).is_err());
+        assert!(set(root, "room", "live").is_err());
+        assert!(path(root).is_dir());
     }
 
 }
