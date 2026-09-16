@@ -23,6 +23,7 @@ mod helper_api;
 mod helper_client;
 mod jobs;
 mod lan;
+mod listener;
 mod mdns;
 mod media;
 mod mesh;
@@ -73,6 +74,14 @@ struct Args {
     /// Data directory
     #[arg(long, default_value = "./data")]
     data_dir: String,
+
+    /// Print one JSON listener-address record to stdout (not a readiness claim)
+    #[arg(long, conflicts_with = "helper_mode")]
+    print_bound_address: bool,
+
+    /// Shut down gracefully when the supervising process closes stdin
+    #[arg(long, conflicts_with = "helper_mode")]
+    shutdown_on_stdin_close: bool,
 
     /// Run this binary as a helper node instead of a primary server
     #[arg(long)]
@@ -151,7 +160,7 @@ async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn wait_for_shutdown() {
+async fn wait_for_shutdown(shutdown_on_stdin_close: bool) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -169,7 +178,30 @@ async fn wait_for_shutdown() {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
+    // A private inherited pipe lets a desktop supervisor stop its own child
+    // on Windows as well as Unix. Normal CLI launches never observe stdin.
+    // Use a dedicated blocking thread: Tokio stdin can keep runtime shutdown
+    // waiting for an uncancellable console read after another signal wins.
+    let supervisor_closed = async move {
+        if !shutdown_on_stdin_close {
+            return std::future::pending::<()>().await;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        // If the watcher cannot be started, dropping its sender also asks the
+        // server to stop. Do not silently leave an unsupervised child running.
+        let _ = std::thread::Builder::new()
+            .name("wabi-supervisor-input".into())
+            .spawn(move || {
+                let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+                let _ = tx.send(());
+            });
+        let _ = rx.await;
+    };
+
     tokio::select! {
+        _ = supervisor_closed => {
+            info!("Supervisor input closed, starting graceful shutdown...");
+        }
         _ = ctrl_c => {
             info!("Received Ctrl+C, starting graceful shutdown...");
         }
@@ -280,16 +312,25 @@ async fn main() -> anyhow::Result<()> {
             .filter(|value| !value.is_empty())
             .ok_or_else(|| anyhow::anyhow!("WABI_AUTHORITY_URL is required when WABI_SERVER_ROLE=anchor"))?;
         let app = crate::anchor::create_anchor_router(authority_url.clone())?;
-        let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], args.port));
-        let listener = TcpListener::bind(addr).await?;
-        info!("📡 Starting stateless regional anchor on port {}", args.port);
+        let listener = TcpListener::from_std(listener::bind_configured(&args.host, args.port)?)?;
+        let bound_addr = listener.local_addr()?;
+        if args.print_bound_address {
+            print_bound_address(bound_addr)?;
+        }
+        info!("📡 Starting stateless regional anchor on {}", bound_addr);
         info!("↪ Authority: {}", authority_url);
         axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .with_graceful_shutdown(wait_for_shutdown())
+            .with_graceful_shutdown(wait_for_shutdown(args.shutdown_on_stdin_close))
             .await?;
         info!("Anchor shut down gracefully");
         return Ok(());
     }
+
+    // Reserve the requested listener before opening storage or starting helpers.
+    // Port 0 stays reserved and its actual port reaches all runtime consumers,
+    // including private access; never probe a port, close it, then race to rebind.
+    let listener = TcpListener::from_std(listener::bind_configured(&args.host, args.port)?)?;
+    let bound_addr = listener.local_addr()?;
 
     // Compute uploads_dir and blacklist_file before data_dir is consumed.
     // Accept both the legacy UPLOADS_DIR name and the WABI_-prefixed alias so
@@ -308,7 +349,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = ServerConfig {
         host: args.host,
-        port: args.port,
+        port: bound_addr.port(),
         data_dir: args.data_dir,
         uploads_dir,
         jwt_secret: jwt_secret,
@@ -708,19 +749,37 @@ async fn main() -> anyhow::Result<()> {
     // created there too — it must be added before the router is finalised.
     let app = crate::app_router::build_app_router(state.clone());
 
-    // Bind and serve
-    let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], config.port));
-    let listener = TcpListener::bind(addr).await?;
+    // Report the address of our owned listener, not a guessed localhost port.
+    // The supervisor must still request /readyz and observe child liveness.
+    if args.print_bound_address {
+        print_bound_address(bound_addr)?;
+    }
 
-    info!("✅ Server ready");
+    info!("✅ Server ready on {}", bound_addr);
     info!("🌐 Frontend: http://localhost:{}", config.port);
     info!("🔌 API: http://localhost:{}/api", config.port);
     info!("🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)");
 
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(wait_for_shutdown())
+        .with_graceful_shutdown(wait_for_shutdown(args.shutdown_on_stdin_close))
         .await?;
 
     info!("Server shut down gracefully");
     Ok(())
+}
+
+
+/// Machine-readable startup information for supervisors. This deliberately says
+/// "listener-bound", not "ready": readiness remains an HTTP application check.
+fn print_bound_address(address: SocketAddr) -> std::io::Result<()> {
+    use std::io::Write;
+    let record = serde_json::json!({
+        "event": "wabi-listener-bound",
+        "protocolVersion": 1,
+        "pid": std::process::id(),
+        "address": address.to_string(),
+    });
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{}", record)?;
+    stdout.flush()
 }

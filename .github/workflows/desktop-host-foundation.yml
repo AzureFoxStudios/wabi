@@ -1,0 +1,44 @@
+name: Desktop host foundation
+
+on:
+  pull_request:
+    paths:
+      - 'core/crates/wabi-server/src/main.rs'
+      - 'core/crates/wabi-server/src/listener.rs'
+      - 'src-tauri/**'
+      - 'scripts/stage-desktop-host.mjs'
+      - 'scripts/desktop-host-smoke.mjs'
+      - 'scripts/tests/desktop-host-foundation.test.mjs'
+      - '.github/workflows/desktop-host-foundation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Socket and packaging contracts (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Packaging and registration contracts (not native compilation)
+        run: node --test scripts/tests/desktop-host-foundation.test.mjs
+      - name: Validate real-binary smoke harness syntax
+        run: node --check scripts/desktop-host-smoke.mjs
+      - name: Compile and exercise the real std socket binding policy
+        shell: bash
+        run: |
+          rustc --version
+          mkdir -p .host-test-bin
+          rustc --edition=2021 --test core/crates/wabi-server/src/listener.rs -o .host-test-bin/listener-tests.exe
+          ./.host-test-bin/listener-tests.exe --nocapture
