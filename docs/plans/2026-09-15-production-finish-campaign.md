@@ -449,3 +449,12 @@ Forum batch validation: final headful run passed at `/tmp/wabi-forum-ui-9lAbW6`;
 - Phone viewport evidence is not physical-device/keyboard certification. Full multi-account/store isolation, zoom/themes, wide three-column acceptance and shared lifecycle/restart work remain open. Existing stub overlap with some right-edge field space is a separate shell issue.
 
 Forum layout type check: 0 errors, existing 167 warnings; `/var/home/Ronin/wabi-production-finish-forum-layout-check.log`.
+
+## Forum view isolation and late responses (2026-09-16)
+
+- **T02/W03/U02:** Forum previously used one module-global list, selected thread and response state for all instances. Each mounted Forum now creates its own workspace store and disposes its subscriptions/state on unmount. Existing pure helpers and the compatibility facade remain available.
+- Changing channels clears the prior list/replies/selection immediately. Loads and mutations capture a generation plus server/token/channel context; old successes and failures cannot update a replaced or disposed view. Auth-session retirement, account context changes and matching membership revocation clear the store.
+- **Real browser evidence:** the existing Forum recovery/mobile navigation journey still passes. Two workspace instances load different real channels independently; a delayed first-channel response cannot replace the newer channel list, disposing one leaves the other intact, and clearing auth immediately removes content while a delayed response cannot restore content/error state. Log `/var/home/Ronin/wabi-production-finish-forum-isolation.log`, report directory `/tmp/wabi-forum-ui-CDBooZ/`.
+- These checks exercise independent stores in the browser plus one rendered Forum; they do not yet certify two simultaneously rendered panels, every optimistic concurrent update, durable draft recovery, same-account token-refresh behavior, or full Wiki isolation. Wiki still requires its corresponding ownership repair. No deployment performed.
+
+Forum isolation validation: type check 0 errors / existing 167 warnings; frontend suite 905 pass, 3 skip, 0 fail. Logs `/var/home/Ronin/wabi-production-finish-forum-isolation-check.log` and `/var/home/Ronin/wabi-production-finish-forum-isolation-tests.log`.
