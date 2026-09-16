@@ -75,13 +75,14 @@ try {
         return result.channelId;
     }, second.user);
     await page.locator('.dm-tab-active').getByText('Server-readable by default', { exact: true }).waitFor();
+    await page.locator('.dm-header-title').getByText('privacy_fixture_peer', { exact: true }).waitFor();
     await page.screenshot({ path: `${scratch}/dm-privacy-desktop.png` });
     await page.getByRole('button', { name: 'Back to all DMs', exact: true }).click();
-    await page.locator('.dm-conv-item').first().click({ button: 'right' });
+    await page.locator('.dm-conv-item').filter({ hasText: 'privacy_fixture_peer' }).click({ button: 'right' });
     await page.getByText('Open Conversation', { exact: true }).waitFor();
     assert.equal(await page.getByText(/Set Mode:|Privacy Mode:/).count(), 0, 'no cosmetic privacy mode controls');
     await page.getByText('Pin Conversation', { exact: true }).click();
-    await page.locator('.dm-conv-item').first().click({ button: 'right' });
+    await page.locator('.dm-conv-item').filter({ hasText: 'privacy_fixture_peer' }).click({ button: 'right' });
     await page.getByText('Unpin Conversation', { exact: true }).waitFor();
     await page.getByText('Open Conversation', { exact: true }).click();
     await page.getByRole('button', { name: 'Conversation actions', exact: true }).click();

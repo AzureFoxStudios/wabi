@@ -37,14 +37,16 @@ Wabi should provide useful moderation, reporting, audit, export, and recovery to
 | Space / state | Confidentiality today | Retention |
 |---|---|---|
 | Live/ephemeral public chat | Server-readable while live | Not durably retained by that mode |
-| Timed public chat | Server-readable | Durable until retention/deletion policy removes it |
-| Forever/archived public chat | Server-readable | Durable until explicitly removed |
+| Timed public chat | Server-readable | Visible until expiry/deletion; underlying event records and backups may remain |
+| Forever/archived public chat | Server-readable | Visible until explicitly deleted; underlying event records and backups may remain |
 | DM | **Server-readable; E2EE unshipped** | Policy/implementation dependent |
 | Private/group room | **Server-readable; E2EE unshipped** | Policy/implementation dependent |
 | Presence/typing/transient call state | Server/runtime-visible | Intended to be transient |
 | Client-local preferences/effects | Device-local unless a feature explicitly syncs them | Local lifecycle |
 
 A memory-only message can still be read by the server process while it exists. Call it **ephemeral/not retained**, not “private from the operator.”
+
+The current Authority deletion path writes a deleted message record; it does not purge the original event history. Timed retention uses the same logical deletion path. Database event history is distinct from rotating diagnostic log files. A UI disappearance, a retention timer firing, or routine log rotation is not evidence of secure erasure. Attachment files, explicit report evidence, browser caches, exported copies and backups have separate lifecycles.
 
 Only a correctly implemented end-to-end encrypted path can remove the server operator from the content-confidentiality boundary.
 

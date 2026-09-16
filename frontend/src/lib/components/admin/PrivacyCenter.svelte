@@ -26,7 +26,7 @@
 		{ value: 'live', label: 'Live', detail: 'Session-only. New channel messages are not durably written.' },
 		{ value: '1h', label: '1 hour', detail: 'Very short-lived chat for transient coordination.' },
 		{ value: '24h', label: '24 hours', detail: 'Wabi’s privacy-oriented baseline.' },
-		{ value: '7d', label: '7 days', detail: 'Short history without permanent accumulation.' },
+		{ value: '7d', label: '7 days', detail: 'Seven days of visible message history.' },
 		{ value: '30d', label: '30 days', detail: 'Longer operational history.' },
 		{ value: 'forever', label: 'Forever', detail: 'Explicitly opt new channels into durable history.' }
 	];
@@ -84,7 +84,7 @@
 			<h2>Choose how much Wabi remembers — and how much it watches.</h2>
 			<p>Retention, confidentiality and moderation are separate choices. Making chat ephemeral does not pretend the server could not see it while it was live.</p>
 		</div>
-		<div class="truth"><strong>Current private-chat boundary</strong><span>Server-readable today · E2EE not yet shipped</span></div>
+		<div class="truth"><strong>Current private-chat boundary</strong><span>Server-readable by default · encryption remains experimental</span></div>
 	</section>
 
 	{#if error}<div class="error" role="alert">{error}</div>{/if}
@@ -102,7 +102,7 @@
 					</button>
 				{/each}
 			</div>
-			<p class="note"><strong>Per-channel choice stays sovereign.</strong> A channel can still be Live, timed, or Forever regardless of this default.</p>
+			<p class="note"><strong>Each channel keeps its own policy.</strong> Timed deletion removes messages from normal history; it does not securely erase event records, backups, or recipients’ copies.</p>
 		</section>
 
 		<section class="card">
