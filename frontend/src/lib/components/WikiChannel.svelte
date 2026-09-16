@@ -88,11 +88,12 @@
 		saveState = 'idle';
 	}
 	function openDraft(channel: string) {
-		draftOwner?.save(snapshot());
+		if (mounted) draftOwner?.save(snapshot());
 		stopDraftEvents?.();
 		draftChannel = channel;
 		draftOwner = wikiDrafts.open(channel, captureGroupAccess(channel), draftSurface);
-		restoreDraft(draftOwner.read());
+		if (draftOwner.current()) restoreDraft(draftOwner.read());
+		else restoreDraft();
 		const owner = draftOwner;
 		const applyPending = (pending: boolean) => {
 			creatingPage = pending && showNewPage;
@@ -111,6 +112,7 @@
 		});
 	}
 	function retireDraft() {
+		if (draftOwner?.current()) draftOwner.save(snapshot());
 		loadedChannelId = null;
 		stopDraftEvents?.();
 		draftOwner = undefined;
@@ -269,7 +271,7 @@
 			return;
 		}
 		const owner = draftOwner;
-		owner?.save(snapshot());
+		if (owner === draftOwner) owner?.save(snapshot());
 		const transaction = owner?.beginSend();
 		if (!transaction) return;
 		const savingChannel = effectiveChannel;
@@ -290,6 +292,7 @@
 		if (!mounted || !owner?.current() || effectiveChannel !== savingChannel || selectedPageId !== savingPage) return;
 		editPreview = false;
 		saveState = result ? 'saved' : 'failed';
+		if (result) void loadWiki(effectiveChannel);
 	}
 
 	async function handleWikiImage(file: File) {
@@ -392,7 +395,7 @@
 	async function handleCreateNewPage() {
 		if (!effectiveChannel || !newPageTitle.trim() || creatingPage) return;
 		const owner = draftOwner;
-		owner?.save(snapshot());
+		if (owner === draftOwner) owner?.save(snapshot());
 		const transaction = owner?.beginSend();
 		if (!transaction) return;
 		creatingPage = true;
@@ -410,6 +413,7 @@
 		if (!mounted || !owner?.current() || effectiveChannel !== creatingChannel) return;
 		creatingPage = false;
 		if (!result) createError = 'Page could not be created. Your draft is still here.';
+		if (result) void loadWiki(effectiveChannel);
 	}
 
 	$: shareRecord = selectedPage ? {
