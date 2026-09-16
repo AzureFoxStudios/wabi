@@ -163,3 +163,9 @@ Sentinel labels (`"live"`/`"forever"`) live in the in-memory `channel_auto_delet
 | Design tokens | `frontend/src/styles/tokens.css` |
 | Frontend WabiDB client | `frontend/src/lib/wabidb/` |
 | Plans / handoffs | `docs/plans/`, `docs/HANDOFF-hermes.md` |
+
+### Timed retention query (production-finish candidate)
+
+The Authority's once-per-minute sweep selects up to 1,000 undeleted expired records per channel from `messages_by_channel_time`, using the cutoff as an index range bound before applying the batch limit. Recent traffic therefore cannot hide expired records behind the history tail. The existing commit-sequence suffix resolves edit/delete versions before counting candidates. This adds no events, record fields, indexes or postcard migration. Timestamps use the existing nonnegative Unix-microsecond ordering.
+
+Expiry still calls ordinary logical deletion. It does not purge the original event history, attachment files, saved reports, caches or external backups. `message_retention_contract` verifies deleted-body retention and stopped-backup restoration using canaries; `scripts/authority-retention-smoke.mjs` exercises the real runtime sweep and exact policy hydration across restarts.

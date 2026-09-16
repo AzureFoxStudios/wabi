@@ -555,7 +555,7 @@ async fn main() -> anyhow::Result<()> {
                         .get(&channel.channel_id)
                         .copied()
                         .filter(|ms| *ms > 0);
-                    let db_ttl_ms: Option<i64> =
+                    let db_ttl_micros: Option<i64> =
                         match state.wdb.get_channel_retention(&channel.channel_id).await {
                             Ok(Some(policy)) if policy.days > 0 => {
                                 Some(policy.days as i64 * 86_400_000_000)
@@ -567,21 +567,18 @@ async fn main() -> anyhow::Result<()> {
                                 continue;
                             }
                         };
-                    let effective_ms = match (map_ttl_ms, db_ttl_ms) {
-                        (None, None) => continue,
-                        (Some(a), None) => a as i64 * 1_000_000,
-                        (None, Some(b)) => b,
-                        (Some(a), Some(b)) => (a as i64 * 1_000_000).min(b),
-                    };
-                    let cutoff = now_micros.saturating_sub(effective_ms);
-                    let messages = match state.wdb.list_messages_typed(&channel.channel_id, 1000).await {
+                    let Some(effective_micros) = api::retention_policy::effective_micros(map_ttl_ms, db_ttl_micros) else { continue; };
+                    let cutoff = now_micros.saturating_sub(effective_micros);
+                    let messages = match wabidb::projections::messages::MessagesProjection::list_messages_expired(
+                        &state.wdb.engine().projection_state(), &channel.channel_id, cutoff, 1000,
+                    ) {
                         Ok(messages) => messages,
                         Err(error) => {
                             tracing::warn!(channel = %channel.channel_id, "[retention-reaper] message lookup failed: {error}");
                             continue;
                         }
                     };
-                    for message in messages.into_iter().filter(|message| message.created_at_micros <= cutoff) {
+                    for message in messages {
                         if state.wdb.delete_message(&message.message_id, 0).await.is_err() {
                             continue;
                         }

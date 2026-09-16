@@ -306,6 +306,40 @@ impl MessagesProjection {
         Ok(results_rev)
     }
 
+    /// Select expired records before applying a batch limit. A busy channel's
+    /// recent tail must not hide older records from the retention sweep.
+    /// Uses the existing nonnegative Unix-microsecond time index; no wire change.
+    pub fn list_messages_expired(
+        state: &ProjectionState,
+        channel_id: &str,
+        cutoff_micros: i64,
+        limit: usize,
+    ) -> Result<Vec<MessageRecord>> {
+        use std::ops::Bound::{Excluded, Included};
+        if limit == 0 || cutoff_micros < 0 { return Ok(Vec::new()); }
+        let mut prefix = (channel_id.len() as u64).to_le_bytes().to_vec();
+        prefix.extend_from_slice(channel_id.as_bytes());
+        let mut upper = prefix.clone();
+        // All supported timestamps are nonnegative. u64 also represents the
+        // exclusive successor of i64::MAX without overflowing.
+        upper.extend_from_slice(&(cutoff_micros as u64 + 1).to_be_bytes());
+        state.with_index("messages_by_channel_time", |index| {
+            let mut seen = std::collections::HashSet::new();
+            let mut records = Vec::with_capacity(limit.min(1000));
+            for entry in index.range((Included(prefix), Excluded(upper))).rev() {
+                let record = decode_record(entry.value())?;
+                // Edits and deletes append index versions at the same original
+                // timestamp. Resolve the latest version before applying the limit.
+                if !seen.insert(record.message_id.clone()) || record.is_deleted { continue; }
+                if record.created_at_micros <= cutoff_micros {
+                    records.push(record);
+                    if records.len() == limit { break; }
+                }
+            }
+            Ok(records)
+        })
+    }
+
     /// Remove all soft-deleted records from the `messages` primary index and
     /// from the `messages_by_channel` / `messages_by_author` secondary
     /// indexes (otherwise deleted rows linger in the secondary indexes until a
@@ -1679,4 +1713,44 @@ mod tests {
             .unwrap();
         assert!(empty.is_empty());
     }
+    #[test]
+    fn retention_batch_reaches_expired_messages_behind_a_busy_recent_tail() {
+        let state = ProjectionState::new();
+        let projection = MessagesProjection;
+        let old = base_record("old-canary", "busy", 10);
+        projection.apply(&make_event(1, "message_created", &old), &state).unwrap();
+        for seq in 2..=1002 {
+            let recent = base_record(&format!("recent-{seq}"), "busy", 1000 + seq as i64);
+            projection.apply(&make_event(seq, "message_created", &recent), &state).unwrap();
+        }
+        assert!(MessagesProjection::list_messages_tail(&state, "busy", 1000, false).unwrap()
+            .iter().all(|record| record.created_at_micros > 10));
+        let expired = MessagesProjection::list_messages_expired(&state, "busy", 10, 1000).unwrap();
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].message_id, "old-canary");
+        assert!(MessagesProjection::list_messages_expired(&state, "busy", 9, 1000).unwrap().is_empty());
+        assert!(MessagesProjection::list_messages_expired(&state, "busy", 10, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn retention_batch_resolves_edits_deletes_and_channel_boundaries_before_limit() {
+        let state = ProjectionState::new();
+        let projection = MessagesProjection;
+        let mut deleted = base_record("deleted", "a", 20);
+        projection.apply(&make_event(1, "message_created", &deleted), &state).unwrap();
+        deleted.is_deleted = true;
+        projection.apply(&make_event(5, "message_deleted", &deleted), &state).unwrap();
+        let mut edited = base_record("edited", "a", 10);
+        projection.apply(&make_event(2, "message_created", &edited), &state).unwrap();
+        edited.encrypted_body_ref = "latest-canary".into();
+        projection.apply(&make_event(6, "message_edited", &edited), &state).unwrap();
+        let other = base_record("other", "b", 10);
+        projection.apply(&make_event(3, "message_created", &other), &state).unwrap();
+        let expired = MessagesProjection::list_messages_expired(&state, "a", 20, 1).unwrap();
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].message_id, "edited");
+        assert_eq!(expired[0].encrypted_body_ref, "latest-canary");
+        assert_eq!(MessagesProjection::list_messages_expired(&state, "a", i64::MAX, 10).unwrap().len(), 1);
+    }
+
 }

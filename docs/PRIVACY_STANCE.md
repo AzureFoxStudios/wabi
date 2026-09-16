@@ -46,7 +46,7 @@ Wabi should provide useful moderation, reporting, audit, export, and recovery to
 
 A memory-only message can still be read by the server process while it exists. Call it **ephemeral/not retained**, not “private from the operator.”
 
-The current Authority deletion path writes a deleted message record; it does not purge the original event history. Timed retention uses the same logical deletion path. Database event history is distinct from rotating diagnostic log files. A UI disappearance, a retention timer firing, or routine log rotation is not evidence of secure erasure. Attachment files, explicit report evidence, browser caches, exported copies and backups have separate lifecycles.
+The current Authority deletion path writes a deleted message record; it does not purge the original event history. Timed retention uses the same logical deletion path. See [message retention](features/MESSAGE_RETENTION.md) for the sweep cadence, upgrade effect and reproducible canary checks. Database event history is distinct from rotating diagnostic log files. A UI disappearance, a retention timer firing, or routine log rotation is not evidence of secure erasure. Attachment files, explicit report evidence, browser caches, exported copies and backups have separate lifecycles.
 
 Only a correctly implemented end-to-end encrypted path can remove the server operator from the content-confidentiality boundary.
 

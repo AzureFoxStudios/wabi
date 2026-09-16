@@ -96,6 +96,18 @@ pub fn timed_ms(label: &str) -> Option<u64> {
     Some(amount.saturating_mul(multiplier))
 }
 
+/// Convert the exact millisecond policy to the database timestamp unit before
+/// combining it with the whole-day fallback. None means no timed expiry.
+pub fn effective_micros(exact_ms: Option<u64>, fallback_micros: Option<i64>) -> Option<i64> {
+    let exact = exact_ms.filter(|ms| *ms > 0)
+        .map(|ms| i64::try_from(ms).unwrap_or(i64::MAX).saturating_mul(1_000));
+    match (exact, fallback_micros) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, fallback) => fallback,
+    }
+}
+
 /// Restore exact runtime labels/timers from the sidecar after AppState starts.
 /// This deliberately does not rewrite WabiDB: it only rehydrates the richer
 /// runtime representation that WabiDB's whole-day compatibility policy cannot hold.
@@ -130,4 +142,16 @@ mod tests {
         assert_eq!(timed_ms("1250ms"), Some(1_250));
         assert_eq!(timed_ms("live"), None);
     }
+    #[test]
+    fn exact_milliseconds_use_microseconds_without_thousandfold_extension() {
+        let day = 86_400_000_000;
+        assert_eq!(effective_micros(timed_ms("5s"), Some(day)), Some(5_000_000));
+        assert_eq!(effective_micros(timed_ms("1h"), Some(day)), Some(3_600_000_000));
+        assert_eq!(effective_micros(timed_ms("1250ms"), None), Some(1_250_000));
+        assert_eq!(effective_micros(None, Some(day)), Some(day));
+        assert_eq!(effective_micros(None, None), None);
+        assert_eq!(effective_micros(Some(0), None), None);
+        assert_eq!(effective_micros(Some(u64::MAX), None), Some(i64::MAX));
+    }
+
 }
