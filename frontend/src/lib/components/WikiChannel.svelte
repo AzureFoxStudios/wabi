@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { wikiDrafts, type WikiDraft } from '$lib/wikiDraftState';
+	import { captureGroupAccess, groupMembership } from '$lib/groupAccess';
+	import { onAuthSessionCleared } from '$lib/authSession';
 	import { currentChannel } from '$lib/socket';
 	import { createWikiWorkspace, type WikiPage, type WikiRevision } from '$lib/wikiStore';
 	const wikiWorkspace = createWikiWorkspace();
@@ -22,6 +25,7 @@
 	} from '$lib/wikiHelpers';
 
 	export let channelId: string | undefined = undefined;
+	export let draftSurface = 'center';
 	$: effectiveChannel = channelId || $currentChannel;
 
 	$: allPages = $wikiPagesStore;
@@ -54,6 +58,71 @@
 	let saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'failed' = 'idle';
 	let showTreeOnMobile = true;
 
+	let draftOwner: ReturnType<typeof wikiDrafts.open> | undefined;
+	let stopDraftEvents: (() => void) | undefined;
+	let draftChannel = '';
+	let mounted = true;
+	let editorEpoch = 0;
+	function snapshot(): WikiDraft {
+		return { selectedPageId, editMode, editTitle, editBody, editSavedTitle, editSavedBody,
+			showNewPage, newPageTitle, newPageBody, newPageParentId };
+	}
+	function restoreDraft(draft?: WikiDraft) {
+		editorEpoch += 1;
+		imageUploading = false;
+		selectedPageId = draft?.selectedPageId ?? null;
+		loadedPageKey = selectedPageId ? `${draftChannel}/${selectedPageId}` : '';
+		editMode = draft?.editMode ?? false;
+		editTitle = draft?.editTitle ?? '';
+		editBody = draft?.editBody ?? '';
+		editSavedTitle = draft?.editSavedTitle ?? '';
+		editSavedBody = draft?.editSavedBody ?? '';
+		showNewPage = draft?.showNewPage ?? false;
+		newPageTitle = draft?.newPageTitle ?? '';
+		newPageBody = draft?.newPageBody ?? '';
+		newPageParentId = draft?.newPageParentId ?? null;
+		showTreeOnMobile = !selectedPageId;
+		showHistory = false;
+		viewRevision = null;
+		createError = '';
+		saveState = 'idle';
+	}
+	function openDraft(channel: string) {
+		draftOwner?.save(snapshot());
+		stopDraftEvents?.();
+		draftChannel = channel;
+		draftOwner = wikiDrafts.open(channel, captureGroupAccess(channel), draftSurface);
+		restoreDraft(draftOwner.read());
+		const owner = draftOwner;
+		const applyPending = (pending: boolean) => {
+			creatingPage = pending && showNewPage;
+			if (pending && !showNewPage) saveState = 'saving';
+			else if (saveState === 'saving') saveState = 'idle';
+		};
+		applyPending(owner.isSending());
+		stopDraftEvents = owner.onSendState((pending, update) => {
+			if (!mounted || !owner.current()) return;
+			if (update) {
+				restoreDraft(update(snapshot()));
+				owner.save(snapshot());
+				void loadWiki(draftChannel);
+			}
+			applyPending(pending);
+		});
+	}
+	function retireDraft() {
+		loadedChannelId = null;
+		stopDraftEvents?.();
+		draftOwner = undefined;
+		restoreDraft();
+		creatingPage = false;
+	}
+	const stopAuth = onAuthSessionCleared(retireDraft);
+	const stopContext = groupMembership.onContextChanged(retireDraft);
+	const stopRevocation = groupMembership.onRevoked(({ channelId }) => {
+		if (channelId === draftChannel) retireDraft();
+	});
+
 	initObjectRefRegistry();
 
 	$: if (allPages.length > 0 && effectiveChannel) {
@@ -84,10 +153,12 @@
 
 	$: if (effectiveChannel && effectiveChannel !== loadedChannelId) {
 		loadedChannelId = effectiveChannel;
+		openDraft(effectiveChannel);
 		loadWiki(effectiveChannel);
 	}
 
 	$: if (!effectiveChannel) {
+		if (loadedChannelId) { draftOwner?.save(snapshot()); retireDraft(); }
 		loadedChannelId = null;
 		wikiSearchQuery = '';
 	}
@@ -116,7 +187,9 @@
 	$: displayRevisionCount = allRevisions.length;
 
 	function selectPage(page: WikiPage) {
+		if (draftOwner?.isSending()) return;
 		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
+		editorEpoch += 1; imageUploading = false;
 		selectedPageId = page.pageId;
 		showTreeOnMobile = false;
 		editMode = false;
@@ -125,7 +198,8 @@
 	}
 
 	function handleEdit() {
-		if (!selectedPage) return;
+		if (!selectedPage || draftOwner?.isSending()) return;
+		editorEpoch += 1; imageUploading = false;
 		editTitle = selectedPage.title;
 		editBody = selectedPage.body;
 		editSavedTitle = editTitle;
@@ -137,7 +211,9 @@
 	}
 
 	function handleCancelEdit() {
+		if (draftOwner?.isSending()) return;
 		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
+		editorEpoch += 1; imageUploading = false;
 		editMode = false;
 		editPreview = false;
 		saveState = 'idle';
@@ -169,13 +245,18 @@
 	}
 	async function handleNewPageImage(file: File) {
 		if (!effectiveChannel || !file.type.startsWith('image/')) return;
+		const owner = draftOwner;
+		const epoch = editorEpoch;
+		const isCurrent = () => mounted && owner === draftOwner && !!owner?.current() && epoch === editorEpoch;
 		imageUploading = true;
 		try {
-			const uploaded = await uploadFileResumable(file, effectiveChannel, () => {}, false);
+			const uploaded = await uploadFileResumable(file, effectiveChannel, () => {}, false, undefined, isCurrent);
+			if (!isCurrent()) return;
 			insertNewPageMarkdown(`![${file.name.replace(/\.[^.]+$/, '')}](${uploaded.fileUrl})`);
 		} catch (err) {
-			copyError = err instanceof Error ? err.message : 'Image upload failed';
+			if (isCurrent()) copyError = err instanceof Error ? err.message : 'Image upload failed';
 		} finally {
+			if (!isCurrent()) return;
 			imageUploading = false;
 			if (newPageImageInput) newPageImageInput.value = '';
 		}
@@ -187,6 +268,10 @@
 			saveState = 'failed';
 			return;
 		}
+		const owner = draftOwner;
+		owner?.save(snapshot());
+		const transaction = owner?.beginSend();
+		if (!transaction) return;
 		const savingChannel = effectiveChannel;
 		const savingPage = selectedPage.pageId;
 		const title = editTitle;
@@ -196,33 +281,38 @@
 			title,
 			body,
 		});
-		if (effectiveChannel !== savingChannel || selectedPageId !== savingPage) return;
-		if (result) {
-			editSavedTitle = title;
-			editSavedBody = body;
-			editMode = editTitle !== title || editBody !== body;
-			editPreview = false;
-			saveState = 'saved';
-		} else {
-			saveState = 'failed';
-		}
+		if (mounted && owner === draftOwner) owner?.save(snapshot());
+		if (result) transaction.settle(draft => ({ ...draft,
+			editSavedTitle: title, editSavedBody: body,
+			editMode: draft.editTitle !== title || draft.editBody !== body
+		}));
+		transaction.finish();
+		if (!mounted || !owner?.current() || effectiveChannel !== savingChannel || selectedPageId !== savingPage) return;
+		editPreview = false;
+		saveState = result ? 'saved' : 'failed';
 	}
 
 	async function handleWikiImage(file: File) {
 		if (!effectiveChannel || !file.type.startsWith('image/')) return;
+		const owner = draftOwner;
+		const epoch = editorEpoch;
+		const isCurrent = () => mounted && owner === draftOwner && !!owner?.current() && epoch === editorEpoch;
 		imageUploading = true;
 		try {
-			const uploaded = await uploadFileResumable(file, effectiveChannel, () => {}, false);
+			const uploaded = await uploadFileResumable(file, effectiveChannel, () => {}, false, undefined, isCurrent);
+			if (!isCurrent()) return;
 			insertEditMarkdown(`![${file.name.replace(/\.[^.]+$/, '')}](${uploaded.fileUrl})`);
 		} catch (err) {
-			copyError = err instanceof Error ? err.message : 'Image upload failed';
+			if (isCurrent()) copyError = err instanceof Error ? err.message : 'Image upload failed';
 		} finally {
+			if (!isCurrent()) return;
 			imageUploading = false;
 			if (imageInput) imageInput.value = '';
 		}
 	}
 
 	function handleHistory() {
+		if (draftOwner?.isSending()) return;
 		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
 		showHistory = !showHistory;
 		if (showHistory && effectiveChannel && selectedPage) void loadRevisions(effectiveChannel, selectedPage.pageId);
@@ -240,11 +330,13 @@
 
 	async function handleRestoreRevision(revision: WikiRevision) {
 		if (!effectiveChannel || !selectedPage) return;
+		const owner = draftOwner;
+		const restoringPage = selectedPage.pageId;
 		const result = await updateWikiPage(effectiveChannel, selectedPage.pageId, {
 			title: revision.title,
 			body: revision.body,
 		});
-		if (result) {
+		if (result && mounted && owner === draftOwner && owner?.current() && selectedPageId === restoringPage) {
 			viewRevision = null;
 		}
 	}
@@ -265,8 +357,11 @@
 	}
 
 	function handleOpenNewPage() {
+		if (draftOwner?.isSending()) return;
 		if (showNewPage) return;
 		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
+		editorEpoch += 1; imageUploading = false;
+		editMode = false;
 		createError = '';
 		newPageTitle = '';
 		newPageBody = '';
@@ -275,6 +370,10 @@
 	}
 
 	function handleNewChild(parent: WikiPage | null) {
+		if (draftOwner?.isSending()) return;
+		if ((editIsDirty || (showNewPage && (newPageTitle.trim() || newPageBody.trim()))) && !window.confirm('Discard unsaved wiki changes?')) return;
+		editorEpoch += 1; imageUploading = false;
+		editMode = false;
 		newPageTitle = '';
 		newPageBody = '';
 		newPageParentId = parent?.pageId || null;
@@ -284,11 +383,18 @@
 	function handleCancelNewPage() {
 		if (creatingPage) return;
 		if ((newPageTitle.trim() || newPageBody.trim()) && !window.confirm('Discard this unsaved wiki page?')) return;
+		editorEpoch += 1; imageUploading = false;
 		showNewPage = false;
+		newPageTitle = '';
+		newPageBody = '';
 	}
 
 	async function handleCreateNewPage() {
 		if (!effectiveChannel || !newPageTitle.trim() || creatingPage) return;
+		const owner = draftOwner;
+		owner?.save(snapshot());
+		const transaction = owner?.beginSend();
+		if (!transaction) return;
 		creatingPage = true;
 		createError = '';
 		const creatingChannel = effectiveChannel;
@@ -297,13 +403,13 @@
 			body: newPageBody,
 			parentPageId: newPageParentId || undefined,
 		});
+		if (mounted && owner === draftOwner) owner?.save(snapshot());
+		if (result) transaction.settle(draft => ({ ...draft, showNewPage: false,
+			newPageTitle: '', newPageBody: '', newPageParentId: null, selectedPageId: result.pageId }));
+		transaction.finish();
+		if (!mounted || !owner?.current() || effectiveChannel !== creatingChannel) return;
 		creatingPage = false;
-		if (effectiveChannel !== creatingChannel) return;
 		if (!result) createError = 'Page could not be created. Your draft is still here.';
-		if (result) {
-			showNewPage = false;
-			selectedPageId = result.pageId;
-		}
 	}
 
 	$: shareRecord = selectedPage ? {
@@ -322,13 +428,17 @@
 	$: if (editMode && !editIsDirty && saveState === 'dirty') saveState = 'idle';
 
 	onDestroy(() => {
+		draftOwner?.save(snapshot());
+		mounted = false;
+		stopDraftEvents?.();
+		stopAuth(); stopContext(); stopRevocation();
 		wikiWorkspace.dispose();
 		selectedPageId = null;
 	});
 
 	if (typeof window !== 'undefined') {
 		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-			if (!editIsDirty) return;
+			if (!editIsDirty && !(showNewPage && (newPageTitle.trim() || newPageBody.trim()))) return;
 			event.preventDefault();
 			event.returnValue = '';
 		};
@@ -392,7 +502,7 @@
 
 				<div class="wiki-content-toolbar">
 					<div class="wiki-content-toolbar-breadcrumb">
-						<button type="button" class="wiki-content-toolbar-link" on:click={() => { selectedPageId = null; }}>Wiki</button>
+						<button type="button" class="wiki-content-toolbar-link" on:click={() => { if (draftOwner?.isSending() || (editIsDirty && !window.confirm('Discard unsaved wiki changes?'))) return; editorEpoch += 1; imageUploading = false; editMode = false; selectedPageId = null; }}>Wiki</button>
 						<span>/</span>
 						{#each breadcrumbs as crumb, index}
 							{#if index > 0}<span>/</span>{/if}

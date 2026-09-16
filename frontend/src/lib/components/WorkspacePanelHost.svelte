@@ -71,7 +71,7 @@
 {:else if panel.component === 'wiki'}
 	{#if wikiPanelChannelId}
 		<div class="right-panel-embedded">
-			<WikiChannel channelId={wikiPanelChannelId ?? undefined} />
+			<WikiChannel channelId={wikiPanelChannelId ?? undefined} draftSurface="panel" />
 		</div>
 	{:else if wikiChannels.length > 0}
 		<div class="channel-picker">
