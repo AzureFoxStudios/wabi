@@ -1,30 +1,10 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { currentChannel, channels, currentUser } from '$lib/socket';
-	import {
-		forumThreadsStore,
-		forumPostsByThreadStore,
-		forumLoadingStore,
-		forumErrorStore,
-		forumSelectedThreadIdStore,
-		loadThreads,
-		loadPosts,
-		createThread,
-		createPost,
-		votePost,
-		markSolution,
-		renameForumCategory,
-		findAuthor,
-		formatForumTime,
-		getDefaultCategories,
-		categorizeThread,
-		tagClass,
-		extractForumAttachments,
-		resolveForumFileUrl,
-		stripForumImageMarkdown,
-		formatForumFileSize,
-		type ForumPost,
-	} from '$lib/forumStore';
+	import { createForumWorkspace, type ForumPost } from '$lib/forumStore';
+	const forumWorkspace = createForumWorkspace();
+	const { forumThreadsStore, forumPostsByThreadStore, forumLoadingStore, forumErrorStore, forumSelectedThreadIdStore, loadThreads, loadPosts, createThread, createPost, votePost, markSolution, renameForumCategory, findAuthor, formatForumTime, getDefaultCategories, categorizeThread, tagClass, extractForumAttachments, resolveForumFileUrl, stripForumImageMarkdown, formatForumFileSize } = forumWorkspace;
+
 	import ForumPostRow from './ForumPostRow.svelte';
 	import ForumReply from './ForumReply.svelte';
 	import ForumComposer from './ForumComposer.svelte';
@@ -281,7 +261,7 @@
 	}
 
 	onDestroy(() => {
-		forumSelectedThreadIdStore.set(null);
+		forumWorkspace.dispose();
 	});
 </script>
 

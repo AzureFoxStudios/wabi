@@ -133,9 +133,70 @@ try {
     const mobile = await page.locator('.forum-reading-pane').boundingBox();
     assert.ok(mobile.width > 250 && mobile.width <= 390, 'mobile reading fits its workspace');
 
+    const secondResponse = await fetch(`${backend}/api/channels`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${account.accessToken}` },
+        body: JSON.stringify({ name: 'forum_isolated', channel_type: 'forum' })
+    });
+    assert.equal(secondResponse.status, 200);
+    const second = await secondResponse.json();
+    await page.evaluate(async ({ first, second }) => {
+        const { createForumWorkspace } = await import('/src/lib/forumStore.ts');
+        const read = store => { let value; const stop = store.subscribe(v => { value = v; }); stop(); return value; };
+        const a = createForumWorkspace(), b = createForumWorkspace();
+        const original = window.fetch;
+        let release, started;
+        const gate = new Promise(resolve => { release = resolve; });
+        const ready = new Promise(resolve => { started = resolve; });
+        let delay = true;
+        window.fetch = async (...args) => {
+            const response = await original(...args);
+            if (delay && String(args[0]).endsWith(`/forum/${first}/threads`)) {
+                delay = false; started(); await gate;
+            }
+            return response;
+        };
+        try {
+            const stale = a.loadThreads(first);
+            await ready;
+            await a.loadThreads(second);
+            await b.loadThreads(first);
+            release(); await stale;
+            if (read(a.forumThreadsStore).length !== 0) throw new Error('old channel overwrote current list');
+            if (read(b.forumThreadsStore).length !== 1) throw new Error('independent view lost its list');
+            a.dispose();
+            if (read(b.forumThreadsStore).length !== 1) throw new Error('disposing one view cleared another');
+            b.dispose();
+            if (read(b.forumThreadsStore).length !== 0) throw new Error('disposed view retained content');
+        } finally { release(); window.fetch = original; a.dispose(); b.dispose(); }
+    }, { first: channel.id, second: second.id });
+    await page.evaluate(async id => {
+        const { createForumWorkspace } = await import('/src/lib/forumStore.ts');
+        const { clearAuthSession } = await import('/src/lib/authSession.ts');
+        const read = store => { let value; const stop = store.subscribe(v => { value = v; }); stop(); return value; };
+        const view = createForumWorkspace();
+        await view.loadThreads(id);
+        if (read(view.forumThreadsStore).length !== 1) throw new Error('logout fixture not loaded');
+        const original = window.fetch;
+        let release, started;
+        const gate = new Promise(resolve => { release = resolve; });
+        const ready = new Promise(resolve => { started = resolve; });
+        window.fetch = async (...args) => {
+            const response = await original(...args);
+            if (String(args[0]).endsWith(`/forum/${id}/threads`)) { started(); await gate; }
+            return response;
+        };
+        try {
+            const pending = view.loadThreads(id);
+            await ready;
+            clearAuthSession();
+            if (read(view.forumThreadsStore).length) throw new Error('logout retained visible content');
+            release(); await pending;
+            if (read(view.forumThreadsStore).length || read(view.forumErrorStore)) throw new Error('late result resurrected logged-out state');
+        } finally { release(); window.fetch = original; view.dispose(); }
+    }, channel.id);
     assert.equal(createCount, 1, 'pending submit admits one request');
     assert.deepEqual(errors, []);
-    console.log(`PASS Forum failed thread/reply drafts survive and retry succeeds; evidence ${scratch}`);
+    console.log(`PASS Forum recovery, responsive navigation, independent stores, delayed responses and logout; evidence ${scratch}`);
 
 } finally {
     await browser?.close(); await vite?.close(); server.kill('SIGTERM');
