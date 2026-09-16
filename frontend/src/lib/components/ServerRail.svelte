@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostLink from './HostLink.svelte';
 	import { createEventDispatcher } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { brandName } from '$lib/branding';
@@ -220,8 +221,10 @@
 	}
 </script>
 
+
 <aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label="Saved servers">
 	<div class="rail-primary" class:mobile>
+        <HostLink />
 		<button
 			type="button"
 			class="rail-home"

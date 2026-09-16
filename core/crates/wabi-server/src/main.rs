@@ -83,6 +83,10 @@ struct Args {
     #[arg(long, conflicts_with = "helper_mode")]
     shutdown_on_stdin_close: bool,
 
+    /// Desktop supervisor safety: refuse an unclaimed non-loopback server
+    #[arg(long, conflicts_with = "helper_mode")]
+    desktop_managed: bool,
+
     /// Run this binary as a helper node instead of a primary server
     #[arg(long)]
     helper_mode: bool,
@@ -440,6 +444,10 @@ async fn main() -> anyhow::Result<()> {
     // Create application state
     let state = Arc::new(AppState::new(config.clone()).await?);
 
+    if args.desktop_managed && state.needs_setup().await && !bound_addr.ip().is_loopback() {
+        anyhow::bail!("Desktop hosting must create the owner on loopback before network access is enabled");
+    }
+
     // Auto-register the Hermes service bot on startup so cron jobs and
     // outbound deliveries can emit messages as this bot account.
     let hermes_state = state.clone();
@@ -760,8 +768,16 @@ async fn main() -> anyhow::Result<()> {
     info!("🔌 API: http://localhost:{}/api", config.port);
     info!("🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)");
 
+    let shutdown_state = state.clone();
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(wait_for_shutdown(args.shutdown_on_stdin_close))
+        .with_graceful_shutdown(async move {
+            wait_for_shutdown(args.shutdown_on_stdin_close).await;
+            // Release live Socket.IO transports before HTTP waits for drain.
+            // Clone outside the lock: disconnect handlers also use AppState.
+            let io = shutdown_state.sio.read().await.clone();
+            if let Some(io) = io { io.close().await; }
+            shutdown_state.tailcat.shutdown().await;
+        })
         .await?;
 
     info!("Server shut down gracefully");

@@ -1,4 +1,5 @@
 	<script lang="ts">
+	import HostLink from './HostLink.svelte';
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { register, login, saveUserSettings, getLaunchPageConfig, getPublicAuthPolicy, getSetupStatus, saveAdminPolicy, type LaunchPageConfig } from '$lib/api';
@@ -283,6 +284,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			</div>
 
 			<div class="login-auth-panel">
+                <HostLink />
 				{#if showConnectionPrompt}
 					<LoginConnectionPrompt bind:serverDomain {loading} on:applied={() => (showConnectionPrompt = false)} />
 				{:else}

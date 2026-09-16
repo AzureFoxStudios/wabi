@@ -2,6 +2,7 @@
 pub fn run() {
     let builder = tauri::Builder::default()
         .manage(tailcat::TailcatState::default())
+        .manage(hosting::HostState::default())
         .manage(lore_local::LocalWorkspaceState::default())
         .manage(lore_local::detection::LocalDetectionState::default())
         .plugin(tauri_plugin_dialog::init());
@@ -45,6 +46,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            hosting::host_status,
+            hosting::host_start,
+            hosting::host_stop,
+            hosting::host_sharing,
+            hosting::host_account,
+            hosting::host_invite,
+            hosting::host_backup,
+            hosting::host_restore,
+            hosting::host_open_folder,
             shell_commands::greet,
             shell_commands::get_platform,
             shell_commands::open_external_url,
@@ -63,8 +73,26 @@ pub fn run() {
             lore_local::detection::lore_local_watch_poll,
             lore_local::detection::lore_local_watch_stop
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                // Repeated quit requests must not bypass an in-progress drain.
+                use std::sync::atomic::{AtomicU8, Ordering};
+                static EXIT: AtomicU8 = AtomicU8::new(0);
+                if EXIT.load(Ordering::SeqCst) != 2 {
+                    api.prevent_exit();
+                    if EXIT.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            hosting::shutdown(app.clone()).await;
+                            EXIT.store(2, Ordering::SeqCst);
+                            app.exit(0);
+                        });
+                    }
+                }
+            }
+        });
 }
 
 mod commands;
@@ -77,3 +105,5 @@ mod tailcat;
 pub mod tailcat_proxy;
 #[cfg(not(mobile))]
 mod viewer;
+
+mod hosting;

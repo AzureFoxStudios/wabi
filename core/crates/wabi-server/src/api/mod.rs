@@ -46,3 +46,4 @@ pub mod whiteboard;
 mod path_util;
 
 pub mod games;
+pub mod invites;

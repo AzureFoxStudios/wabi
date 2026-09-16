@@ -75,6 +75,7 @@ pub struct TailcatManager {
     rebounce: Notify,
     tasks: tokio::sync::OnceCell<()>,
     shutdown_tx: std::sync::OnceLock<watch::Sender<bool>>,
+    shutdown_done: Notify,
 }
 
 impl TailcatManager {
@@ -93,6 +94,7 @@ impl TailcatManager {
             rebounce: Notify::new(),
             tasks: tokio::sync::OnceCell::new(),
             shutdown_tx: std::sync::OnceLock::new(),
+            shutdown_done: Notify::new(),
         })
     }
 
@@ -123,6 +125,15 @@ impl TailcatManager {
         }
     }
 
+    /// Process shutdown, not a persisted user setting change. Stop the monitor
+    /// and its owned child without disabling private access on the next launch.
+    pub async fn shutdown(&self) {
+        if let Some(tx) = self.shutdown_tx.get() {
+            let _ = tx.send(true);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), self.shutdown_done.notified()).await;
+        }
+    }
+
     /// Spawn the forwarder + monitor exactly once.
     async fn ensure_tasks(self: &Arc<Self>) {
         self.tasks
@@ -134,22 +145,26 @@ impl TailcatManager {
                     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), pipe_port),
                     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.server_port),
                     self.pipe_auth_token.clone(),
-                    rx,
+                    rx.clone(),
                 );
                 tokio::spawn(async move {
                     if let Err(e) = fwd.await {
                         warn!("[tailcat] forwarder stopped: {e}");
                     }
                 });
-                tokio::spawn(Self::monitor_task(self.clone()));
+                tokio::spawn(Self::monitor_task(self.clone(), rx));
             })
             .await;
     }
 
-    async fn monitor_task(self: Arc<Self>) {
+    async fn monitor_task(self: Arc<Self>, mut shutdown: watch::Receiver<bool>) {
         let mut child: Option<Child> = None;
         let mut consecutive_failures: u32 = 0;
         loop {
+            if *shutdown.borrow() {
+                if let Some(mut c) = child.take() { let _ = c.start_kill(); let _ = c.wait().await; }
+                break;
+            }
             let wanted = self.inner.read().await.wanted;
             if !wanted {
                 if let Some(mut c) = child.take() {
@@ -157,7 +172,10 @@ impl TailcatManager {
                     let _ = c.wait().await;
                 }
                 self.set_running(false, None).await;
-                self.rebounce.notified().await;
+                tokio::select! {
+                    _ = self.rebounce.notified() => {},
+                    _ = shutdown.changed() => {},
+                }
                 continue;
             }
             if child.is_none() {
@@ -174,7 +192,10 @@ impl TailcatManager {
                         warn!(
                             "[tailcat] listener spawn failed ({e}); retrying in {delay:?}"
                         );
-                        tokio::time::sleep(delay).await;
+                        tokio::select! {
+                            _ = tokio::time::sleep(delay) => {},
+                            _ = shutdown.changed() => {},
+                        }
                         consecutive_failures += 1;
                         continue;
                     }
@@ -183,6 +204,10 @@ impl TailcatManager {
             // Own the child across the select to satisfy the borrow checker.
             let mut c = child.take().expect("child");
             tokio::select! {
+                _ = shutdown.changed() => {
+                    let _ = c.start_kill(); let _ = c.wait().await;
+                    break;
+                }
                 _ = self.rebounce.notified() => {
                     let _ = c.start_kill();
                     let _ = c.wait().await;
@@ -205,6 +230,8 @@ impl TailcatManager {
                 }
             }
         }
+        self.set_running(false, None).await;
+        self.shutdown_done.notify_one();
     }
 
     async fn spawn_listener(self: &Arc<Self>) -> anyhow::Result<Child> {
@@ -229,6 +256,7 @@ impl TailcatManager {
         }
         cmd.arg(pipe_port.to_string());
         cmd.env("TAILCAT_ADDR_FILE", &addr_file);
+        cmd.kill_on_drop(true);
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::piped());
