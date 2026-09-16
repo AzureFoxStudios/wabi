@@ -88,6 +88,9 @@ jobs:
           cargo build -p wabi-server --bin wabi-server
           node scripts/authority-backup-restore-smoke.mjs --binary target/debug/wabi-server
 
+      - name: Disposable Authority timed retention and restart
+        run: node scripts/authority-retention-smoke.mjs --binary target/debug/wabi-server
+
       # ------------------------------------------------------------------
       # Placeholder: future "deploy to a test box + smoke wabi.chat"
       # Uncomment and adapt when you have a test target (e.g. dotZephyrus).
