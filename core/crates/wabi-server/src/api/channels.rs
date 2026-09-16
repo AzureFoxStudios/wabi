@@ -134,7 +134,6 @@ fn default_channel_type() -> String { "text".to_string() }
 pub(crate) async fn apply_channel_retention(
     state: &AppState,
     channel_id: &str,
-    actor_user_id: u64,
     raw_label: &str,
 ) -> Result<String> {
     let _guard = state.retention_policy_lock.lock().await;
@@ -155,11 +154,6 @@ pub(crate) async fn apply_channel_retention(
         labels.insert(channel_id.to_string(), label.clone());
         if let Some(ms) = timer { timers.insert(channel_id.to_string(), ms); }
         else { timers.remove(channel_id); }
-    }
-    let days = timer.map(|ms| ((ms.saturating_add(86_400_000 - 1)) / 86_400_000).max(1) as u32).unwrap_or(0);
-    if let Err(error) = state.wdb.upsert_channel_retention(channel_id, days, actor_user_id).await {
-        // Never let an older/coarser mirror override the saved exact choice.
-        tracing::warn!(channel_id, %error, "exact retention saved; legacy day-count mirror update failed");
     }
     Ok(label)
 }
@@ -185,7 +179,7 @@ async fn set_channel_retention(
         return Err(AppError::Unauthorized("only admins can change community-channel retention".into()));
     }
 
-    let retention = apply_channel_retention(&state, &id, auth.user_id as u64, &req.retention).await?;
+    let retention = apply_channel_retention(&state, &id, &req.retention).await?;
     if let Some(io) = state.sio.read().await.clone() {
         let _ = io.broadcast().emit("channel-updated", &serde_json::json!({
             "channelId": &id,
@@ -233,7 +227,7 @@ async fn create_channel(
     crate::api::retention_policy::all(&state.config.data_dir)?;
     let default_retention = crate::api::server_center::privacy_default_retention(&state.config.data_dir)?;
     let channel_id = state.wdb.create_channel(&name, channel_kind, auth.user_id as u64, req.force_spoiler).await?;
-    if let Err(error) = apply_channel_retention(&state, &channel_id, auth.user_id as u64, &default_retention).await {
+    if let Err(error) = apply_channel_retention(&state, &channel_id, &default_retention).await {
         if let Err(cleanup) = state.wdb.delete_channel(&channel_id, auth.user_id as u64).await {
             tracing::error!(%channel_id, %cleanup, "failed to remove channel after initial retention save failed");
         }

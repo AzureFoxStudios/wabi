@@ -117,3 +117,44 @@ async fn concurrent_first_registrations_create_exactly_one_owner() {
         .unwrap();
     assert_eq!(later.status(), StatusCode::OK, "post-setup registration under the default open policy must succeed");
 }
+
+
+#[tokio::test]
+async fn bootstrap_channels_preserve_configured_live_default_after_restart() {
+    use wabidb::engine::wabi_store::WabiStore;
+    let tmp = tempfile::TempDir::new().unwrap();
+    let privacy = serde_json::json!({"privacy": {
+        "defaultRetention":"live", "privateContentAutomation":false,
+        "analyticsMode":"off", "externalProcessing":"none", "reportEvidencePreservation":"none"
+    }});
+    std::fs::write(tmp.path().join("server_center.json"), privacy.to_string()).unwrap();
+    let config = test_config(tmp.path());
+    let state = Arc::new(AppState::new(config.clone()).await.unwrap());
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    assert_eq!(app.clone().oneshot(register_request("owner")).await.unwrap().status(), StatusCode::OK);
+    let channels = state.wdb.list_channels(None).await.unwrap();
+    assert_eq!(channels.len(), 2);
+    for channel in &channels {
+        assert_eq!(state.channel_auto_delete_label.read().await.get(&channel.channel_id).map(String::as_str), Some("live"));
+        assert_eq!(wabi_server::api::retention_policy::label(tmp.path().to_str().unwrap(), &channel.channel_id).unwrap().as_deref(), Some("live"));
+    }
+    drop(app);
+    drop(state);
+    let reopened = AppState::new(config).await.unwrap();
+    for channel in &channels {
+        assert_eq!(reopened.channel_auto_delete_label.read().await.get(&channel.channel_id).map(String::as_str), Some("live"));
+    }
+}
+
+#[tokio::test]
+async fn damaged_bootstrap_defaults_do_not_claim_owner_or_create_account() {
+    use wabidb::engine::wabi_store::WabiStore;
+    let tmp = tempfile::TempDir::new().unwrap();
+    let state = Arc::new(AppState::new(test_config(tmp.path())).await.unwrap());
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    std::fs::write(tmp.path().join("server_center.json"), b"{broken").unwrap();
+    assert_eq!(app.clone().oneshot(register_request("owner")).await.unwrap().status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(setup_required(&app).await);
+    assert!(state.wdb.get_user_by_username("owner").await.unwrap().is_none());
+    assert!(state.wdb.list_channels(None).await.unwrap().is_empty());
+}

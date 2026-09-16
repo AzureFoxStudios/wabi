@@ -10,6 +10,20 @@
 
 **Starting commit:** `c11b128b5db0627fbdb15c980b18d0873d2b43cc`
 
+## Remaining work sequence — September 16 checkpoint
+
+This is the task timeline, not an elapsed-time estimate. Implementation evidence below does not accept whole waves.
+
+1. **Close reliability/privacy gaps (current):** bootstrap retention, remaining permission/encrypted-content checks, upload/report/cache deletion boundaries, historical exposure resolution, hosted-copy upgrade/restore/rollback.
+2. **Accept complete workspace journeys:** finish Notes/Reader edge cases; exercise every exposed workspace through use, persistence, recovery and permission failure; include pop-outs/account switching/logout.
+3. **Complete design and usability:** broad visual hierarchy/forms/states pass, desktop/dock/phone, keyboard/zoom/themes, then measured performance fixes. Preserve channels, center stage, additive stubs and optional right panels.
+4. **Verify physical clients/calls:** two-network Linux/Windows/Redmi calling, reconnect/capture ownership, declared capacity and actual package installation/upgrade. Requires available devices/participants.
+5. **Prove operator readiness:** clean install, backup/restore/upgrade/rollback, hosted policy/monitoring, independent operator walkthrough.
+6. **Publish and deploy one verified candidate:** final checks, artifacts/checksums/build identity, repository kit/screenshots, preserved rollback and live verification. Nothing from this campaign is deployed yet.
+7. **Run the invited pilot:** task checklist, hosted and self-hosted feedback, fixes, then expansion decision.
+
+Significant groundwork exists for linked Notes, local storage isolation/recovery, Planner/calendar, authentication, first boot, build identity and release tooling. Whole-workspace acceptance, broad design acceptance, hardware calling and final release rehearsal remain substantial outstanding work.
+
 ## The finish line
 
 Someone new can understand Wabi, join or install it, talk with their community, use its workspaces, and return tomorrow without losing their work. An operator can update and recover the instance using the documented procedure. The release accurately states which clients, integrations, and privacy properties have been verified.
@@ -397,3 +411,10 @@ Rejected alternatives: resetting operator branding for a screenshot; a second No
 - **Evidence:** 30 real-router/Socket.IO channel-access contracts and 231 server unit tests pass. Added denied-directory-write preservation/creation cleanup, concurrent save agreement, malformed/invalid default rejection, and a seeded stale compatibility record overridden by each exact policy. Logs: `/var/home/Ronin/wabi-production-finish-retention-save-contract.log` and `/var/home/Ronin/wabi-production-finish-retention-save-unit.log`.
 - **Remaining discovery:** the legacy `channel_retention_upserted` event has no dedicated projection handler; its current adapter write does not populate the index read by `get_channel_retention`. The free Ling helper confirmed the missing handler but incorrectly described unknown events as discarded: source shows the dispatcher stores them in its generic events index. Repair needs compatibility/replay tests; do not infer day-count backup coverage from a successful command. Exact sidecar backup remains required.
 - No live deployment, push, or pilot readiness certification was performed in this batch.
+
+## Single authoritative retention path and bootstrap parity (2026-09-16)
+
+- Removed ineffective day-count writes from active REST/realtime policy changes and first-owner setup. The exact policy file remains authoritative; existing readable compatibility records remain fallback-only. This avoids adding a second persistence/migration system for a coarser copy of the same setting. The legacy adapter API itself is not certified or repaired by this change.
+- First-owner setup now validates configured defaults before account creation and saves the configured exact policy for starter channels. Failed starter-policy saves log an error and attempt channel cleanup; the owner remains usable. Missing defaults retain the normal 24-hour choice.
+- All 30 channel-access contracts and four first-boot contracts pass. Added real-router Live-default setup/reopen and damaged-default rejection proving no owner/account/channel creation. Log: `/var/home/Ronin/wabi-production-finish-retention-bootstrap.log`.
+- Added a task-oriented remaining-work sequence near the top of this campaign at the user's request. No deployment or overall acceptance claimed.
