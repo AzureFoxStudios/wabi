@@ -79,7 +79,7 @@ clap = { version = "4", features = ["derive"] }
 # HMAC for TURN
 hmac = "0.13"
 sha1 = "0.11"
-base64 = "0.22"
+base64 = "0.23"
 
 # mDNS LAN discovery
 mdns-sd = "0.20"
