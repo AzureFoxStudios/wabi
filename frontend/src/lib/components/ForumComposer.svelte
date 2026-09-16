@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { composerDraftRealm } from '$lib/composerDraftState';
 	import type { ForumAttachment } from '$lib/forumStore';
 	import { uploadFileResumable } from './chat/uploadResumable';
 
@@ -6,7 +7,7 @@
 	export let showTitle = false;
 	export let categoryOptions: string[] = [];
 	export let channelId = '';
-	export let onSubmit: (body: string, title?: string, category?: string) => void;
+	export let onSubmit: (body: string, title?: string, category?: string) => Promise<boolean>;
 	export let onCancel: (() => void) | undefined = undefined;
 
 	const MAX_FORUM_IMAGES = 8;
@@ -20,10 +21,13 @@
 	let previews: string[] = [];
 	let fileInput: HTMLInputElement | null = null;
 	let isUploading = false;
+	let isSubmitting = false;
+	const uploadedFiles = new Map<File, ForumAttachment>();
+	let uploadedScope = "";
 	let uploadProgress = 0;
 	let uploadError: string | null = null;
 
-	$: canSubmit = (bodyValue.trim().length > 0 || selectedFiles.length > 0) && !isUploading;
+	$: canSubmit = (bodyValue.trim().length > 0 || selectedFiles.length > 0) && !isSubmitting;
 
 	function revokePreviews() {
 		for (const url of previews) {
@@ -36,6 +40,7 @@
 	}
 
 	function handleFilesPicked(event: Event) {
+		if (isSubmitting) return;
 		uploadError = null;
 		const input = event.target as HTMLInputElement;
 		const picked = Array.from(input.files || []).filter((f) => f.type.startsWith('image/'));
@@ -62,6 +67,8 @@
 	}
 
 	function removeImage(index: number) {
+		if (isSubmitting) return;
+		uploadedFiles.delete(selectedFiles[index]);
 		const url = previews[index];
 		if (url) {
 			try {
@@ -75,6 +82,7 @@
 	}
 
 	function resetComposer() {
+		uploadedFiles.clear();
 		bodyValue = '';
 		titleValue = '';
 		categoryValue = '';
@@ -87,48 +95,47 @@
 	}
 
 	async function handleSubmit() {
-		if (!canSubmit) return;
+		if (isSubmitting || !canSubmit) return;
 		const text = bodyValue.trim();
 		if (!text && selectedFiles.length === 0) return;
-		if (selectedFiles.length === 0) {
-			onSubmit(
-				text,
-				showTitle ? titleValue.trim() || undefined : undefined,
-				showTitle ? categoryValue.trim() || undefined : undefined
-			);
-			resetComposer();
-			return;
-		}
-		isUploading = true;
+		const submittingChannel = channelId;
+		const submittingRealm = composerDraftRealm();
+		const scope = JSON.stringify([submittingRealm, submittingChannel]);
+		if (uploadedScope !== scope) { uploadedFiles.clear(); uploadedScope = scope; }
+		const isCurrent = () => channelId === submittingChannel && composerDraftRealm() === submittingRealm;
+		isSubmitting = true;
 		uploadError = null;
 		uploadProgress = 0;
 		try {
-			const scope = channelId || 'forum';
 			const uploaded: ForumAttachment[] = [];
+			isUploading = selectedFiles.some(file => !uploadedFiles.has(file));
 			for (let i = 0; i < selectedFiles.length; i++) {
 				const file = selectedFiles[i];
-				const result = await uploadFileResumable(file, scope, (pct) => {
-					uploadProgress = Math.round(((i + pct / 100) / selectedFiles.length) * 100);
-				});
-				uploaded.push({
-					url: result.fileUrl,
-					name: result.fileName || file.name,
-					size: result.fileSize ?? file.size,
-					mime: file.type || 'image/*',
-				});
+				let attachment = uploadedFiles.get(file);
+				if (!attachment) {
+					const result = await uploadFileResumable(file, submittingChannel || 'forum', (pct) => {
+						uploadProgress = Math.round(((i + pct / 100) / selectedFiles.length) * 100);
+					}, true, undefined, isCurrent);
+					attachment = { url: result.fileUrl, name: result.fileName || file.name,
+						size: result.fileSize ?? file.size, mime: file.type || 'image/*' };
+					uploadedFiles.set(file, attachment);
+				}
+				uploaded.push(attachment);
 			}
+			isUploading = false;
 			const markdown = uploaded.map((a) => `![${a.name.replace(/[\[\]\n]/g, '')}](${a.url})`).join('\n');
-			const finalBody = text ? `${text}\n\n${markdown}` : markdown;
-			onSubmit(
-				finalBody,
+			const finalBody = markdown ? (text ? `${text}\n\n${markdown}` : markdown) : text;
+			if (!isCurrent()) throw new Error('Account or channel changed; post was not sent');
+			const accepted = await onSubmit(finalBody,
 				showTitle ? titleValue.trim() || undefined : undefined,
-				showTitle ? categoryValue.trim() || undefined : undefined
-			);
-			resetComposer();
+				showTitle ? categoryValue.trim() || undefined : undefined);
+			if (accepted) resetComposer();
+			else uploadError = 'Post was not confirmed. Your draft is still here; check the thread before retrying.';
 		} catch (err) {
-			uploadError = err instanceof Error ? err.message : 'Image upload failed. Try again.';
+			uploadError = `${err instanceof Error ? err.message : 'Posting failed'}. Your draft is still here.`;
 		} finally {
 			isUploading = false;
+			isSubmitting = false;
 		}
 	}
 
@@ -140,6 +147,8 @@
 	}
 
 	function handleCancel() {
+		if (isSubmitting) return;
+		if ((bodyValue.trim() || titleValue.trim() || selectedFiles.length) && !window.confirm('Discard this unsaved forum draft?')) return;
 		resetComposer();
 		onCancel?.();
 	}
@@ -152,12 +161,14 @@
 			class="forum-new-thread-title"
 			placeholder="Thread title..."
 			bind:value={titleValue}
+			disabled={isSubmitting}
 		/>
 		<input
 			type="text"
 			class="forum-new-thread-category"
 			placeholder="Category (optional)"
 			bind:value={categoryValue}
+			disabled={isSubmitting}
 			list="forum-category-options"
 		/>
 		<datalist id="forum-category-options">
@@ -188,6 +199,7 @@
 		<textarea
 			class="forum-composer-textarea"
 			bind:value={bodyValue}
+			disabled={isSubmitting}
 			{placeholder}
 			on:keydown={handleKeydown}
 		></textarea>
@@ -202,7 +214,7 @@
 						title="Remove image"
 						aria-label="Remove image {selectedFiles[i]?.name || i + 1}"
 						on:click={() => removeImage(i)}
-						disabled={isUploading}
+						disabled={isSubmitting}
 					>&#10005;</button>
 				</div>
 			{/each}
@@ -233,7 +245,7 @@
 				title="Attach images"
 				aria-label="Attach images"
 				on:click={() => fileInput?.click()}
-				disabled={isUploading || selectedFiles.length >= MAX_FORUM_IMAGES}
+				disabled={isSubmitting || selectedFiles.length >= MAX_FORUM_IMAGES}
 			>
 				<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<rect x="3" y="3" width="18" height="18" rx="2" />
@@ -243,7 +255,7 @@
 				{#if selectedFiles.length > 0}<span class="forum-attach-count">{selectedFiles.length}</span>{/if}
 			</button>
 			{#if onCancel}
-				<button class="forum-composer-post-btn" style="background: var(--surface-hover); color: var(--text-heading);" on:click={handleCancel} disabled={isUploading}>
+				<button class="forum-composer-post-btn" style="background: var(--surface-hover); color: var(--text-heading);" on:click={handleCancel} disabled={isSubmitting}>
 					Cancel
 				</button>
 			{/if}
@@ -252,7 +264,7 @@
 				disabled={!canSubmit}
 				on:click={() => void handleSubmit()}
 			>
-				{isUploading ? 'Uploading…' : showTitle ? 'Create Thread' : 'Post Reply'}
+				{isUploading ? 'Uploading…' : isSubmitting ? 'Posting…' : showTitle ? 'Create Thread' : 'Post Reply'}
 			</button>
 		</div>
 	</div>
