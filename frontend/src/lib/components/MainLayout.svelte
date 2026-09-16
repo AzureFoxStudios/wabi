@@ -1153,6 +1153,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				<RightStubStrip floating />
 			</div>
 		{:else}
+			<div class="closed-stub-space" class:side-left={$layoutStore.stubSide === 'left'} aria-hidden="true"></div>
 			<RightStubStrip />
 		{/if}
 	{:else}

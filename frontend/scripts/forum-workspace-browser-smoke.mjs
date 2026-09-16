@@ -133,6 +133,25 @@ try {
     const mobile = await page.locator('.forum-reading-pane').boundingBox();
     assert.ok(mobile.width > 250 && mobile.width <= 390, 'mobile reading fits its workspace');
 
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const centerForum = page.locator('.main-content .forum-channel');
+    await centerForum.locator('.forum-composer-textarea').fill('Center discussion draft');
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.openRightPanel('forum'); });
+    const panelForum = page.locator('.right-panel-embedded .forum-channel');
+    await panelForum.getByText('Pilot discussion', { exact: true }).first().click();
+    await panelForum.locator('.forum-composer-textarea').fill('Independent panel reply');
+    assert.equal(await centerForum.locator('.forum-composer-textarea').inputValue(), 'Center discussion draft');
+    await page.screenshot({ path: `${scratch}/forum-two-editors.png` });
+    page.once('dialog', dialog => dialog.dismiss());
+    await panelForum.getByRole('button', { name: 'Threads', exact: true }).click();
+    assert.equal(await panelForum.locator('.forum-composer-textarea').inputValue(), 'Independent panel reply');
+    page.once('dialog', dialog => dialog.accept());
+    await panelForum.getByRole('button', { name: 'Threads', exact: true }).click();
+    assert.equal(await centerForum.locator('.forum-composer-textarea').inputValue(), 'Center discussion draft');
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.closeRightPanel(); });
+    await panelForum.waitFor({ state: 'hidden' });
+    assert.equal(await centerForum.locator('.forum-composer-textarea').inputValue(), 'Center discussion draft');
+    await centerForum.locator('.forum-composer-textarea').fill('');
     const secondResponse = await fetch(`${backend}/api/channels`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${account.accessToken}` },
         body: JSON.stringify({ name: 'forum_isolated', channel_type: 'forum' })
