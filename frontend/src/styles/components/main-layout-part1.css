@@ -123,11 +123,8 @@
 	border-left: none;
 }
 
-/* Desktop Right Panel zone — inline width = rightPanelWidth (flush to the
-   screen edge on the stub side; no gutter lane — the strip overlaps the edge).
-   One DOM node serves both modes (spec §6): pinned = flex child, peek = fixed
-   overlay. The panel spans flush to the screen edge on the stub side; the
-   strip inside the zone overlaps the panel's outer edge (never blocks clicks). */
+/* Pinned panels reserve the 48px outward-facing stub rail so additive tabs
+   never cover center-stage controls. Peek remains an intentional overlay. */
 .right-panel-zone {
 	flex: 0 0 auto;
 	position: relative;
@@ -135,6 +132,9 @@
 	min-width: 0;
 	max-width: min(744px, 55vw);
 }
+
+.right-panel-zone:not(.peek):not(.closing).stub-right { margin-left: 48px; }
+.right-panel-zone:not(.peek):not(.closing).stub-left { margin-right: 48px; }
 
 .right-panel-body {
 	position: relative;

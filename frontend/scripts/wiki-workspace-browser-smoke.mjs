@@ -87,7 +87,8 @@ try {
 
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.locator('.wiki-edit-body').fill('Unsaved draft must survive refresh');
-    await page.evaluate(async (id) => { const wiki = await import('/src/lib/wikiStore.ts'); await wiki.loadWiki(id); }, channel.id);
+    await page.getByRole('button', { name: 'Refresh pages', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).waitFor();
     assert.equal(await page.locator('.wiki-edit-body').inputValue(), 'Unsaved draft must survive refresh');
     await page.screenshot({ path: `${scratch}/wiki-draft-refresh.png` });
     await page.route('**/api/wiki/*/pages/*', async route => {
@@ -101,13 +102,84 @@ try {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await page.locator('.wiki-content-body').filter({ hasText: 'Unsaved draft must survive refresh' }).waitFor();
     assert.equal(creates, 1, 'one create request despite double click');
+    const revisionResponse = page.waitForResponse(response => response.url().endsWith('/revisions') && response.request().method() === 'GET');
+    await page.getByRole('button', { name: 'History', exact: true }).click();
+    const revisions = await (await revisionResponse).json();
+    assert.ok(revisions.revisions.length > 0, 'saved page has revisions');
+    await page.locator('.wiki-drawer-item').first().waitFor();
+    assert.equal(await page.locator('.wiki-drawer-item').count(), revisions.revisions.length);
+    await page.getByRole('button', { name: 'Close revision history', exact: true }).click();
+
     await page.reload({ waitUntil: 'networkidle' });
     await page.getByText('wiki_journey', { exact: true }).first().click();
     await page.getByText('Pilot guide', { exact: true }).first().click();
     await page.locator('.wiki-content-body').filter({ hasText: 'Unsaved draft must survive refresh' }).waitFor();
 
+    const secondResponse = await fetch(`${backend}/api/channels`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${account.accessToken}` },
+        body: JSON.stringify({ name: 'wiki_isolated', channel_type: 'wiki' })
+    });
+    assert.equal(secondResponse.status, 200);
+    const second = await secondResponse.json();
+    await page.evaluate(async ({ first, second }) => {
+        const { createWikiWorkspace } = await import('/src/lib/wikiStore.ts');
+        const read = store => { let value; const stop = store.subscribe(v => { value = v; }); stop(); return value; };
+        const a = createWikiWorkspace(), b = createWikiWorkspace();
+        const original = window.fetch;
+        let release, started;
+        const gate = new Promise(resolve => { release = resolve; });
+        const ready = new Promise(resolve => { started = resolve; });
+        let delay = true;
+        window.fetch = async (...args) => {
+            const response = await original(...args);
+            if (delay && String(args[0]).endsWith(`/wiki/${first}/pages`)) {
+                delay = false; started(); await gate;
+            }
+            return response;
+        };
+        try {
+            const stale = a.loadWiki(first);
+            await ready;
+            await a.loadWiki(second);
+            await b.loadWiki(first);
+            release(); await stale;
+            if (read(a.wikiPagesStore).length !== 0) throw new Error('old channel overwrote current list');
+            if (read(b.wikiPagesStore).length !== 1) throw new Error('independent view lost its list');
+            await b.loadRevisions(first, read(b.wikiPagesStore)[0].pageId);
+            if (read(b.wikiRevisionsStore).length < 1 || read(a.wikiRevisionsStore).length) throw new Error('revision ownership failed');
+            a.dispose();
+            if (read(b.wikiPagesStore).length !== 1) throw new Error('disposing one view cleared another');
+            b.dispose();
+            if (read(b.wikiPagesStore).length !== 0) throw new Error('disposed view retained content');
+        } finally { release(); window.fetch = original; a.dispose(); b.dispose(); }
+    }, { first: channel.id, second: second.id });
+    await page.evaluate(async id => {
+        const { createWikiWorkspace } = await import('/src/lib/wikiStore.ts');
+        const { clearAuthSession } = await import('/src/lib/authSession.ts');
+        const read = store => { let value; const stop = store.subscribe(v => { value = v; }); stop(); return value; };
+        const view = createWikiWorkspace();
+        await view.loadWiki(id);
+        if (read(view.wikiPagesStore).length !== 1) throw new Error('logout fixture not loaded');
+        const original = window.fetch;
+        let release, started;
+        const gate = new Promise(resolve => { release = resolve; });
+        const ready = new Promise(resolve => { started = resolve; });
+        window.fetch = async (...args) => {
+            const response = await original(...args);
+            if (String(args[0]).endsWith(`/wiki/${id}/pages`)) { started(); await gate; }
+            return response;
+        };
+        try {
+            const pending = view.loadWiki(id);
+            await ready;
+            clearAuthSession();
+            if (read(view.wikiPagesStore).length) throw new Error('logout retained visible content');
+            release(); await pending;
+            if (read(view.wikiPagesStore).length || read(view.wikiErrorStore)) throw new Error('late result resurrected logged-out state');
+        } finally { release(); window.fetch = original; view.dispose(); }
+    }, channel.id);
     assert.deepEqual(errors, []);
-    console.log(`PASS Wiki create guard, draft refresh, failed save/retry and reload; evidence ${scratch}`);
+    console.log(`PASS Wiki editing, independent stores/revisions, delayed responses and logout; evidence ${scratch}`);
 
 } finally {
     await browser?.close(); await vite?.close(); server.kill('SIGTERM');
