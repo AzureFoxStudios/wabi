@@ -211,6 +211,7 @@ export async function createThread(
 		});
 		if (!res.ok) throw new Error(`Failed to create thread: ${res.statusText}`);
 		const post: ForumPost = mapForumPost(await res.json());
+		forumError.set(null);
 		forumThreads.update((ts) => [post, ...ts]);
 		return post;
 	} catch (err) {
@@ -237,6 +238,7 @@ export async function createPost(
 		);
 		if (!res.ok) throw new Error(`Failed to create post: ${res.statusText}`);
 		const post: ForumPost = mapForumPost(await res.json());
+		forumError.set(null);
 		forumPostsByThread.update((map) => {
 			const next = new Map(map);
 			const existing = next.get(threadId) || [];

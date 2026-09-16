@@ -246,20 +246,22 @@
 		showNewThread = false;
 	}
 
-	async function handleCreateNewThread(body: string, title?: string, category?: string) {
-		if (!effectiveChannel) return;
+	async function handleCreateNewThread(body: string, title?: string, category?: string): Promise<boolean> {
+		if (!effectiveChannel) return false;
+		const submittingChannel = effectiveChannel;
 		const post = await createThread(effectiveChannel, body, title, undefined, category || undefined);
-		if (post) {
+		if (post && submittingChannel === effectiveChannel) {
 			showNewThread = false;
 			showDraftDrawer = false;
 			if (category) activeCategory = category;
 			selectThread(post);
 		}
+		return Boolean(post);
 	}
 
-	async function handleReply(body: string) {
-		if (!effectiveChannel || !selectedThreadId) return;
-		await createPost(effectiveChannel, selectedThreadId, body);
+	async function handleReply(body: string): Promise<boolean> {
+		if (!effectiveChannel || !selectedThreadId) return false;
+		return Boolean(await createPost(effectiveChannel, selectedThreadId, body));
 	}
 
 	async function handleVote(post: ForumPost, direction: 'up' | 'down') {
@@ -292,7 +294,7 @@
 				<div class="forum-loading-spinner"></div>
 				<span>Loading forum...</span>
 			</div>
-		{:else if error}
+		{:else if error && allThreads.length === 0 && !showNewThread}
 			<div class="forum-error">
 				<span>{error}</span>
 				<button on:click={() => effectiveChannel && loadThreads(effectiveChannel)}>Retry</button>

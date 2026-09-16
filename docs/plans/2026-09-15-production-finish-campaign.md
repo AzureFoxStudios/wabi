@@ -429,3 +429,13 @@ Rejected alternatives: resetting operator branding for a screenshot; a second No
 - A bounded free Ling review identified Forum submission/draft risks. Root source review confirms the composer clears text without awaiting submit success; its proposed duplicate/stale-state explanations still require precise reproduction. No Forum fix is claimed in this batch.
 
 Frontend validation for the Wiki batch: `bun run check` passes with 0 errors and the existing 167 warnings; no new warning remains.
+
+## Forum submission recovery (2026-09-16)
+
+- **W03/U04:** confirmed that the composer reset text before awaiting the server; failed replies could also unmount the editor through the global error branch. Submission now awaits an explicit success result, preserves title/body/images on failure, shows a local error, and prevents overlapping submissions while pending. Cancel asks before discarding a nonempty draft.
+- Successful image uploads are retained in the current composer for retry rather than uploading again. Reuse is scoped by the existing account/server draft realm plus channel; upload continuation checks that scope before posting. Failed/ambiguous acknowledgement tells the user to inspect the thread before retrying rather than promising server-side idempotency.
+- **Browser evidence:** disposable Authority/headful Chromium exercises inline thread creation with injected 503 failure, retained title/body, delayed successful retry admitting only one request, reply failure with a real image upload, retained reply, and successful retry reusing that upload. Script: `frontend/scripts/forum-workspace-browser-smoke.mjs`; log `/var/home/Ronin/wabi-production-finish-forum-ui.log`.
+- **Next visible blocker:** the rendered Forum reserves 220px for categories plus 380px for threads even when only about 800px remains for center stage. The reading/reply pane becomes cramped and horizontally scrolls. The screenshot also retains the duplicate title header. Fix responsive composition and the separate viewport-fixed draft drawer before accepting Forum design.
+- Cross-account/channel store isolation, navigation draft recovery, second-account sharing, restart/permissions and full mobile/keyboard acceptance remain open. This is a submission-recovery fix, not whole-Forum acceptance or a deployment.
+
+Forum batch validation: final headful run passed at `/tmp/wabi-forum-ui-9lAbW6`; type check passed with 0 errors and the existing 167 warnings.
