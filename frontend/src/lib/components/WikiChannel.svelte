@@ -40,6 +40,9 @@
 	$: error = $wikiErrorStore;
 
 	let selectedPageId: string | null = null;
+	let loadedPageKey = '';
+	let creatingPage = false;
+	let createError = '';
 	let showHistory = false;
 	let editMode = false;
 	let viewRevision: WikiRevision | null = null;
@@ -81,7 +84,8 @@
 	$: breadcrumbs = selectedPage ? getWikiBreadcrumbs(allPages, selectedPage.pageId) : [];
 	$: headings = extractWikiHeadings(displayBody);
 
-	$: if (selectedPage && effectiveChannel) {
+	$: if (selectedPage && effectiveChannel && loadedPageKey !== `${effectiveChannel}/${selectedPage.pageId}`) {
+		loadedPageKey = `${effectiveChannel}/${selectedPage.pageId}`;
 		loadRevisions(effectiveChannel, selectedPage.pageId);
 		showHistory = false;
 		editMode = false;
@@ -165,7 +169,7 @@
 	let newPageImageInput: HTMLInputElement | undefined;
 	let newPagePreview = false;
 	function insertNewPageMarkdown(insertion: string) {
-		if (!newPageBodyElement) return;
+		if (creatingPage || !newPageBodyElement) return;
 		const next = insertWikiMarkdown(newPageBody, newPageBodyElement.selectionStart, newPageBodyElement.selectionEnd, insertion);
 		newPageBody = next.value;
 		requestAnimationFrame(() => {
@@ -188,20 +192,25 @@
 	}
 
 	async function handleSaveEdit() {
-		if (!effectiveChannel || !selectedPage) return;
+		if (!effectiveChannel || !selectedPage || saveState === 'saving') return;
 		if (!editTitle.trim()) {
 			saveState = 'failed';
 			return;
 		}
+		const savingChannel = effectiveChannel;
+		const savingPage = selectedPage.pageId;
+		const title = editTitle;
+		const body = editBody;
 		saveState = 'saving';
 		const result = await updateWikiPage(effectiveChannel, selectedPage.pageId, {
-			title: editTitle,
-			body: editBody,
+			title,
+			body,
 		});
+		if (effectiveChannel !== savingChannel || selectedPageId !== savingPage) return;
 		if (result) {
-			editSavedTitle = editTitle;
-			editSavedBody = editBody;
-			editMode = false;
+			editSavedTitle = title;
+			editSavedBody = body;
+			editMode = editTitle !== title || editBody !== body;
 			editPreview = false;
 			saveState = 'saved';
 		} else {
@@ -264,6 +273,9 @@
 	}
 
 	function handleOpenNewPage() {
+		if (showNewPage) return;
+		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
+		createError = '';
 		newPageTitle = '';
 		newPageBody = '';
 		newPageParentId = null;
@@ -278,16 +290,24 @@
 	}
 
 	function handleCancelNewPage() {
+		if (creatingPage) return;
+		if ((newPageTitle.trim() || newPageBody.trim()) && !window.confirm('Discard this unsaved wiki page?')) return;
 		showNewPage = false;
 	}
 
 	async function handleCreateNewPage() {
-		if (!effectiveChannel || !newPageTitle.trim()) return;
+		if (!effectiveChannel || !newPageTitle.trim() || creatingPage) return;
+		creatingPage = true;
+		createError = '';
+		const creatingChannel = effectiveChannel;
 		const result = await createWikiPage(effectiveChannel, {
 			title: newPageTitle.trim(),
 			body: newPageBody,
 			parentPageId: newPageParentId || undefined,
 		});
+		creatingPage = false;
+		if (effectiveChannel !== creatingChannel) return;
+		if (!result) createError = 'Page could not be created. Your draft is still here.';
 		if (result) {
 			showNewPage = false;
 			selectedPageId = result.pageId;
@@ -306,7 +326,7 @@
 
 	$: renderedBody = displayBody ? parseMessage(displayBody) : '';
 	$: editIsDirty = editMode && (editTitle !== editSavedTitle || editBody !== editSavedBody);
-	$: if (editMode && editIsDirty && saveState !== 'saving') saveState = 'dirty';
+	$: if (editMode && editIsDirty && (saveState === 'idle' || saveState === 'saved')) saveState = 'dirty';
 	$: if (editMode && !editIsDirty && saveState === 'dirty') saveState = 'idle';
 
 	onDestroy(() => {
@@ -325,6 +345,7 @@
 </script>
 
 <div class="wiki-channel">
+	{#if !showNewPage}
 	<SurfaceToolbar
 		searchPlaceholder="Search wiki..."
 		onSearch={(query) => { wikiSearchQuery = query; }}
@@ -349,7 +370,7 @@
 					<div class="wiki-loading-spinner"></div>
 					<span>Loading wiki...</span>
 				</div>
-			{:else if error}
+			{:else if error && !editMode}
 				<div class="wiki-error">
 					<span>{error}</span>
 					<button on:click={() => effectiveChannel && loadWiki(effectiveChannel)}>Retry</button>
@@ -482,12 +503,7 @@
 		{/if}
 	</div>
 
-	{#if showNewPage}
-		<div
-			class="wiki-draft-backdrop"
-			on:click={handleCancelNewPage}
-			role="presentation"
-		></div>
+	{:else}
 		<div
 			class="wiki-draft-drawer"
 			role="dialog"
@@ -516,6 +532,7 @@
 						class="wiki-edit-title"
 						placeholder="Page title..."
 						bind:value={newPageTitle}
+						disabled={creatingPage}
 					/>
 					<div class="wiki-editor-toolbar" role="toolbar" aria-label="Markdown formatting">
 						<button type="button" on:click={() => insertNewPageMarkdown('**bold**')}>Bold</button>
@@ -535,12 +552,13 @@
 							placeholder="Write wiki content in markdown..."
 							bind:this={newPageBodyElement}
 							bind:value={newPageBody}
+							disabled={creatingPage}
 						></textarea>
 					{/if}
 					<div class="wiki-edit-footer">
-						<span class="wiki-edit-status" role="status">{newPageTitle.trim() || newPageBody.trim() ? 'Unsaved draft' : 'New draft'}</span>
+						<span class="wiki-edit-status" role="status">{creatingPage ? 'Creating…' : createError || (newPageTitle.trim() || newPageBody.trim() ? 'Unsaved draft' : 'New draft')}</span>
 						<button class="wiki-edit-cancel-btn" on:click={handleCancelNewPage}>Cancel</button>
-						<button class="wiki-edit-save-btn" on:click={handleCreateNewPage} disabled={!newPageTitle.trim()}>Create</button>
+						<button class="wiki-edit-save-btn" on:click={handleCreateNewPage} disabled={creatingPage || !newPageTitle.trim()}>{creatingPage ? 'Creating…' : 'Create'}</button>
 					</div>
 				</div>
 			</div>

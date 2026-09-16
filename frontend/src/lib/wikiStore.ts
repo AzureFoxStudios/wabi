@@ -150,6 +150,7 @@ export async function createWikiPage(
 		);
 		if (!res.ok) throw new Error(`Failed to create page: ${res.statusText}`);
 		const page: WikiPage = normalizeWikiPage(await res.json());
+		wikiError.set(null);
 		wikiPages.update((ps) => [...ps, page]);
 		return page;
 	} catch (err) {
@@ -174,6 +175,7 @@ export async function updateWikiPage(
 		);
 		if (!res.ok) throw new Error(`Failed to update page: ${res.statusText}`);
 		const page: WikiPage = normalizeWikiPage(await res.json());
+		wikiError.set(null);
 		wikiPages.update((ps) => ps.map((p) => (p.pageId === page.pageId ? page : p)));
 		return page;
 	} catch (err) {

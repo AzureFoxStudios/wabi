@@ -846,33 +846,15 @@
 	margin: var(--space-6) 0;
 }
 
-/* ---- right-anchored new-page draft drawer (mirrors forum-draft-drawer) ---- */
-
-.wiki-draft-backdrop {
-	position: fixed;
-	inset: 0;
-	background: rgba(0, 0, 0, 0.35);
-	z-index: var(--z-overlay);
-}
-
+/* The composer belongs to its Wiki surface, including an intentionally opened
+   multitasking instance. It never covers another workspace or right panel. */
 .wiki-draft-drawer {
-	position: fixed;
-	top: 0;
-	right: 0;
-	bottom: 0;
-	width: min(420px, 90%);
-	z-index: var(--z-overlay);
 	display: flex;
 	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
 	background: var(--surface-base);
-	border-left: 1px solid var(--border-default);
-	box-shadow: -12px 0 32px rgba(0, 0, 0, 0.25);
-	animation: wiki-draft-slide-in 0.18s ease-out;
-}
-
-@keyframes wiki-draft-slide-in {
-	from { transform: translateX(24px); opacity: 0; }
-	to { transform: translateX(0); opacity: 1; }
 }
 
 .wiki-draft-drawer-header {
