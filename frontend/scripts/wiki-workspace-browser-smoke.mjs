@@ -91,6 +91,31 @@ try {
     await page.getByRole('button', { name: 'Save', exact: true }).waitFor();
     assert.equal(await page.locator('.wiki-edit-body').inputValue(), 'Unsaved draft must survive refresh');
     await page.screenshot({ path: `${scratch}/wiki-draft-refresh.png` });
+    await page.evaluate(async () => {
+        const { layoutStore } = await import('/src/lib/layoutStore.ts');
+        layoutStore.openRightPanel('wiki');
+    });
+    const panelWiki = page.locator('.right-panel-embedded .wiki-channel');
+    await panelWiki.getByText('Pilot guide', { exact: true }).first().click();
+    await panelWiki.getByRole('button', { name: 'Edit', exact: true }).click();
+    await panelWiki.locator('.wiki-edit-body').fill('Independent panel draft');
+    const centerWiki = page.locator('.main-content .wiki-channel');
+    assert.equal(await centerWiki.locator('.wiki-edit-body').inputValue(), 'Unsaved draft must survive refresh');
+    await panelWiki.getByRole('button', { name: 'Refresh pages', exact: true }).click();
+    await panelWiki.getByRole('button', { name: 'Save', exact: true }).waitFor();
+    assert.equal(await panelWiki.locator('.wiki-edit-body').inputValue(), 'Independent panel draft');
+    assert.equal(await centerWiki.locator('.wiki-edit-body').inputValue(), 'Unsaved draft must survive refresh');
+    assert.equal(await panelWiki.evaluate(node => node.scrollWidth <= node.clientWidth + 1), true, 'panel Wiki has no horizontal overflow');
+    const newPage = await panelWiki.getByRole('button', { name: '+ New Page', exact: true }).boundingBox();
+    const panelBounds = await panelWiki.boundingBox();
+    assert.ok(newPage.x + newPage.width <= panelBounds.x + panelBounds.width + 1, 'New Page fits inside panel');
+    await page.screenshot({ path: `${scratch}/wiki-two-editors.png` });
+    page.once('dialog', dialog => dialog.accept());
+    await panelWiki.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.closeRightPanel(); });
+    await panelWiki.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('.wiki-edit-body').inputValue(), 'Unsaved draft must survive refresh');
+
     await page.route('**/api/wiki/*/pages/*', async route => {
         if (route.request().method() === 'PUT') return route.fulfill({ status: 503, body: 'fixture failure' });
         await route.continue();

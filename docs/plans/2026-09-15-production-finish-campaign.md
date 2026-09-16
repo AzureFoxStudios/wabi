@@ -468,3 +468,12 @@ Forum isolation validation: type check 0 errors / existing 167 warnings; fronten
 - Still open: two simultaneously rendered Wiki instances, complete navigation draft recovery, concurrent shared edits, second-account/restart acceptance, physical mobile keyboard and full theme/zoom coverage. These checks do not certify those broader boundaries or deployment.
 
 Wiki isolation validation: frontend suite 905 pass / 3 skip / 0 fail; final type check 0 errors / existing 167 warnings. Logs `/var/home/Ronin/wabi-production-finish-wiki-isolation-tests.log` and `/var/home/Ronin/wabi-production-finish-wiki-isolation-check.log`.
+
+## Rendered center/panel Wiki and Forum acceptance (2026-09-16)
+
+- **U02/W03 evidence upgrade:** actual Wiki and Forum components now run together in center stage and the real right-panel host during the browser fixtures. Each writes a distinct draft for the same page/thread. Panel refresh (Wiki), declining/accepting discard during panel navigation (Forum), and panel closure preserve the center draft. Panel drafts are explicitly canceled/discarded before closure; durable recovery after closing a dirty panel is not claimed.
+- The first fixture selector incorrectly assumed center came first in DOM; it now explicitly targets `.main-content`. Real subsequent failures exposed the **closed** stub rail covering History close, and the narrow Wiki toolbar clipping New Page. Closed desktop strips now reserve their 48px expanded hit area; Wiki's embedded toolbar wraps, with overflow/action-bounds assertions. Stubs and optional panels remain intact.
+- **Headful evidence:** `/var/home/Ronin/wabi-production-finish-wiki-two-views.log` passes (screenshots inspected at `/tmp/wabi-wiki-ui-ZVuCpS/`); `/var/home/Ronin/wabi-production-finish-forum-two-views.log` passes (screenshots inspected at `/tmp/wabi-forum-ui-JPLJLy/`). Existing desktop/mobile resize, explicit panels, saved open/closed docks, cold mobile load and interrupted swipe pass again in `/var/home/Ronin/wabi-production-finish-closed-stub-resize.log`.
+- This closes the previously missing simultaneous-rendering check for independent drafts in these same-channel scenarios. Different-account shared editing, concurrent-write resolution, dirty-panel closure recovery and broader workspace lifecycle acceptance remain separate open work. No deployment occurred.
+
+Two-view batch type check: 0 errors / existing 167 warnings (`/var/home/Ronin/wabi-production-finish-two-views-check.log`).

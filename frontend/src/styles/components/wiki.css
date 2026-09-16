@@ -997,3 +997,7 @@
 .right-panel-embedded .wiki-edit-footer {
 	flex-wrap: wrap;
 }
+
+/* A multitasking Wiki keeps every toolbar action reachable at panel width. */
+.right-panel-embedded .wiki-channel .surface-toolbar { flex-wrap: wrap; padding: var(--space-3); }
+.right-panel-embedded .wiki-channel .surface-search { flex: 1 1 100%; min-width: 0; width: 100%; }
