@@ -1227,3 +1227,27 @@ async fn nested_workspace_paths_cannot_alias_another_channels_records() {
         "canary"
     );
 }
+
+#[tokio::test]
+async fn dm_identity_uses_persisted_offline_name_and_recipient_specific_payload() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, invited, owner) = users(&state).await;
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut creator = SocketClient::connect(&app, &jwt(&state, member)).await;
+    creator.emit("create-dm", json!({"targetUserId": format!("user-{invited}")})).await;
+    let offline = creator.event("dm-created").await;
+    assert_eq!(offline["channel"]["otherUser"]["username"], "outsider");
+    assert_eq!(offline["channel"]["otherUser"]["id"], format!("user-{invited}"));
+    let mut recipient = SocketClient::connect(&app, &jwt(&state, owner)).await;
+    creator.emit("create-dm", json!({"targetUserId": format!("user-{owner}")})).await;
+    let online = creator.event("dm-created").await;
+    assert_eq!(online["channel"]["otherUser"]["username"], "owner");
+    let received = recipient.event("dm-channel-added").await;
+    assert_eq!(received["channelId"], online["channelId"]);
+    assert_eq!(received["channel"]["otherUser"]["id"], format!("user-{member}"));
+    assert_eq!(received["otherUser"]["id"], format!("user-{member}"));
+    creator.emit("create-dm", json!({"targetUserId": "user-999999999"})).await;
+    assert_eq!(creator.event("dm-error").await["error"], "Target must be an active registered user");
+}

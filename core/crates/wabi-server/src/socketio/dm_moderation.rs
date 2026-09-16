@@ -30,10 +30,19 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         Ok(id) => id,
         Err(_) => return, // Invalid targetUserId format
     };
-    if parsed_target_user_id <= 0 || !matches!(state.app.wdb.get_user(parsed_target_user_id as u64).await, Ok(Some(user)) if user.is_active && !user.password_hash.is_empty()) {
+    if parsed_target_user_id <= 0 {
         let _ = socket.emit("dm-error", &json!({"error": "Target must be an active registered user"}));
         return;
     }
+    // Account identity exists independently of whether the recipient is connected.
+    // Reuse the validated record for the display name instead of a presence lookup.
+    let target_username = match state.app.wdb.get_user(parsed_target_user_id as u64).await {
+        Ok(Some(user)) if user.is_active && !user.password_hash.is_empty() => user.username,
+        _ => {
+            let _ = socket.emit("dm-error", &json!({"error": "Target must be an active registered user"}));
+            return;
+        }
+    };
 
     let my_stable_id = format!("user-{}", my_user_id);
     let target_stable_id = format!("user-{}", parsed_target_user_id);
@@ -55,16 +64,6 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         let _ = socket.emit("dm-error", &json!({ "error": "DM already exists", "channelId": channel_id }));
         return;
     }
-
-    // Resolve target user info for the event payload
-    let target_username = {
-        let connected = state.connected_users.read().await;
-        connected
-            .values()
-            .find(|u| u.stable_id == target_stable_id || u.stable_id == target_user_id)
-            .map(|u| u.username.clone())
-            .unwrap_or_else(|| target_stable_id.clone())
-    };
 
     // Persist DM channel to WDB
     if let Err(e) = state
@@ -114,9 +113,18 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         .to(format!("user-{}", my_user_id))
         .emit("dm-channel-added", &dm_event)
         .await;
+    // The recipient's "other user" is the initiator, not the recipient themself.
+    let mut recipient_event = dm_event.clone();
+    let initiator = json!({
+        "id": my_stable_id, "username": identity.username,
+        "color": "#98D8C8", "status": "offline",
+    });
+    recipient_event["otherUser"] = initiator.clone();
+    recipient_event["channel"]["otherUser"] = initiator;
+    recipient_event["channel"]["name"] = json!(format!("DM with {}", identity.username));
     let _ = io
         .to(target_stable_id)
-        .emit("dm-channel-added", &dm_event)
+        .emit("dm-channel-added", &recipient_event)
         .await;
 }
 
