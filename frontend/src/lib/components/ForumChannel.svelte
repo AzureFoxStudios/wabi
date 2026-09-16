@@ -13,6 +13,7 @@
 	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
 
 	export let channelId: string | undefined = undefined;
+	export let draftSurface = 'center';
 	$: effectiveChannel = channelId || $currentChannel;
 
 	$: activeChannel = $channels.find((ch) => ch.id === effectiveChannel) || null;
@@ -408,7 +409,9 @@
 							<h2 class="forum-post-detail-title">New Thread</h2>
 						</div>
 					</div>
+					{#key `${effectiveChannel}:new`}
 					<ForumComposer
+						{draftSurface}
 						showTitle={true}
 						categoryOptions={categories}
 						channelId={effectiveChannel}
@@ -416,6 +419,7 @@
 						onSubmit={handleCreateNewThread}
 						onCancel={handleCancelNewThread}
 					/>
+					{/key}
 				{:else if !selectedThread}
 					<div class="forum-reading-empty">
 						<div class="forum-reading-empty-icon">
@@ -533,12 +537,16 @@
 						{/if}
 					</div>
 
+					{#key `${effectiveChannel}:${selectedThreadId}`}
 					<ForumComposer
+						{draftSurface}
+						draftKey={`reply:${selectedThreadId}`}
 						bind:this={replyComposer}
 						placeholder="Write a reply... Ctrl+Enter to post"
 						channelId={effectiveChannel}
 						onSubmit={handleReply}
 					/>
+					{/key}
 				{/if}
 			</div>
 		{/if}

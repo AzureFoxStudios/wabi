@@ -124,6 +124,7 @@ try {
     await page.getByRole('button', { name: 'Threads', exact: true }).click();
     await page.getByText('Pilot discussion', { exact: true }).first().click();
     await page.getByText('Preserve this failed reply', { exact: true }).waitFor();
+    assert.equal(await page.locator('.forum-composer-textarea').inputValue(), '', 'accepted discard stays discarded on thread reopen');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Categories', exact: true }).click();
     await page.locator('.forum-category-header').waitFor();
@@ -142,6 +143,13 @@ try {
     await panelForum.locator('.forum-composer-textarea').fill('Independent panel reply');
     assert.equal(await centerForum.locator('.forum-composer-textarea').inputValue(), 'Center discussion draft');
     await page.screenshot({ path: `${scratch}/forum-two-editors.png` });
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.closeRightPanel(); });
+    await panelForum.waitFor({ state: 'hidden' });
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.openRightPanel('forum'); });
+    await panelForum.getByText('Pilot discussion', { exact: true }).first().click();
+    assert.equal(await panelForum.locator('.forum-composer-textarea').inputValue(), 'Independent panel reply', 'closed panel restores its own draft');
+    assert.equal(await centerForum.locator('.forum-composer-textarea').inputValue(), 'Center discussion draft');
+
     page.once('dialog', dialog => dialog.dismiss());
     await panelForum.getByRole('button', { name: 'Threads', exact: true }).click();
     assert.equal(await panelForum.locator('.forum-composer-textarea').inputValue(), 'Independent panel reply');
@@ -152,6 +160,32 @@ try {
     await panelForum.waitFor({ state: 'hidden' });
     assert.equal(await centerForum.locator('.forum-composer-textarea').inputValue(), 'Center discussion draft');
     await centerForum.locator('.forum-composer-textarea').fill('');
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.openRightPanel('forum'); });
+    await panelForum.getByText('Pilot discussion', { exact: true }).first().click();
+    assert.equal(await panelForum.locator('.forum-composer-textarea').inputValue(), '', 'explicit discard removes recovered panel draft');
+    await panelForum.locator('.forum-composer-textarea').fill('Pending panel acknowledgement');
+    let releasePost, postStarted;
+    const postGate = new Promise(resolve => { releasePost = resolve; });
+    const postReady = new Promise(resolve => { postStarted = resolve; });
+    let pendingPosts = 0;
+    await page.route('**/api/forum/*/threads/*/posts', async route => {
+        if (route.request().method() !== 'POST') return route.continue();
+        pendingPosts += 1; postStarted(); await postGate; await route.continue();
+    });
+    await panelForum.getByRole('button', { name: 'Post Reply', exact: true }).click();
+    await postReady;
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.closeRightPanel(); });
+    await panelForum.waitFor({ state: 'hidden' });
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.openRightPanel('forum'); });
+    await panelForum.getByText('Pilot discussion', { exact: true }).first().click();
+    assert.equal(await panelForum.getByRole('button', { name: 'Posting…', exact: true }).isDisabled(), true);
+    releasePost();
+    await panelForum.getByRole('button', { name: 'Post Reply', exact: true }).waitFor();
+    assert.equal(await panelForum.locator('.forum-composer-textarea').inputValue(), '', 'accepted post settles the remounted draft');
+    assert.equal(pendingPosts, 1);
+    await page.unroute('**/api/forum/*/threads/*/posts');
+    await page.evaluate(async () => { const { layoutStore } = await import('/src/lib/layoutStore.ts'); layoutStore.closeRightPanel(); });
+    await panelForum.waitFor({ state: 'hidden' });
     const secondResponse = await fetch(`${backend}/api/channels`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${account.accessToken}` },
         body: JSON.stringify({ name: 'forum_isolated', channel_type: 'forum' })
