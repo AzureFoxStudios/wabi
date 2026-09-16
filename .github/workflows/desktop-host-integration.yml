@@ -1,0 +1,44 @@
+name: Desktop Host Integration
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-host-integration.yml'
+      - 'src-tauri/**'
+      - 'core/crates/wabi-server/**'
+      - 'frontend/src/**'
+      - 'scripts/*host*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-host-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-snapshot:
+    name: Reproducible integration source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        shell: bash
+        run: |
+          git archive --format=tar.gz --output="${RUNNER_TEMP}/wabi-host-source.tar.gz" HEAD
+          git rev-parse HEAD > "${RUNNER_TEMP}/SOURCE_REVISION.txt"
+          cd "${RUNNER_TEMP}"
+          sha256sum wabi-host-source.tar.gz > SOURCE_SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wabi-host-integration-source
+          path: |
+            ${{ runner.temp }}/wabi-host-source.tar.gz
+            ${{ runner.temp }}/SOURCE_REVISION.txt
+            ${{ runner.temp }}/SOURCE_SHA256SUMS.txt
+          retention-days: 1
+          if-no-files-found: error
