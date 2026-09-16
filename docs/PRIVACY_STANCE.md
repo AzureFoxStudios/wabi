@@ -1,7 +1,7 @@
 # Wabi Privacy and Operator Responsibility
 
 **Status:** current product/privacy boundary  
-**Updated:** 2026-09-14  
+**Updated:** 2026-09-16
 **Not legal advice.** Laws and operator obligations vary by jurisdiction.
 
 Wabi's privacy model starts with **self-hosting and explicit trust boundaries**, not with the claim that the server cannot see anything.
@@ -64,6 +64,12 @@ Before Wabi can claim operator-blind private messaging, tests must cover at leas
 8. retention/deletion semantics are defined for ciphertext, keys, attachments, indexes, and backups.
 
 Until that entire path ships and is verified, docs and UI must say **server-readable**.
+
+### Experimental registry and recovery boundary
+
+The candidate retains the existing encrypted-envelope and attachment mechanisms; it does not convert existing ciphertext to plaintext. A room's registry flag reports `experimental_e2ee`, not verified operator-blind confidentiality. The separate DM “Sealed / Private / Open” menu was a device-local label with no connection to message encryption and is no longer presented as a security control. Existing stored preferences are left untouched.
+
+Unreadable, malformed or incomplete `e2ee_state.json` now blocks registry changes, enabled-room privacy lookup and outbound message validation rather than treating damaged state as an empty registry. The file remains intact for recovery. Restore it with the matching stopped Authority backup; do not delete it to clear the error. An absent registry still represents a fresh installation, so deleting the file cannot be distinguished from never having enabled encryption. This check does not prove resilience to a malicious operator, rollback to an older valid registry, or the full E2EE acceptance checklist above.
 
 ## Independent servers, not federation
 

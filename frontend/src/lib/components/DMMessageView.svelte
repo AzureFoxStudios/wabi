@@ -565,7 +565,7 @@
 								<span class="dm-msg-author" style="color: {getMsgColor(msg)}">{msg.user}</span>
 								<span class="dm-msg-time">{formatTime(msg.timestamp)}</span>
 								{#if msg.encrypted}
-									<span class="dm-msg-encrypted" title="End-to-end encrypted">
+									<span class="dm-msg-encrypted" title="Encrypted message · experimental protection; confidentiality has not been independently verified">
 										<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
 									</span>
 								{/if}

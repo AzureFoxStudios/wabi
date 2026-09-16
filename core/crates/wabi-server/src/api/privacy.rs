@@ -16,6 +16,7 @@ use wabidb::engine::wabi_store::WabiStore;
 struct PrivacySummary {
     confidentiality: &'static str,
     e2ee_available: bool,
+    e2ee_status: &'static str,
     private_content_automation: bool,
     reports_preserve_evidence: bool,
     analytics_scope: String,
@@ -50,15 +51,6 @@ fn string_field(value: &serde_json::Value, key: &str, fallback: &str) -> String 
     value.get(key).and_then(|v| v.as_str()).unwrap_or(fallback).to_string()
 }
 
-fn room_is_e2ee(data_dir: &str, channel_id: &str) -> bool {
-    std::fs::read(PathBuf::from(data_dir).join("e2ee_state.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .and_then(|value| value.get("rooms").and_then(|rooms| rooms.get(channel_id)).cloned())
-        .and_then(|room| room.get("enabled").and_then(|value| value.as_bool()))
-        .unwrap_or(false)
-}
-
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     super::retention_policy::hydrate_runtime(state.clone());
     Router::new()
@@ -70,10 +62,10 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 async fn summary(State(state): State<Arc<AppState>>, _auth: AuthUser) -> Json<PrivacySummary> {
     let privacy = privacy_value(&state.config.data_dir);
     Json(PrivacySummary {
-        // Server-readable remains the baseline. Explicit DM/group rooms can now
-        // move to operator-blind E2EE; calls/media remain a separate boundary.
+        // Registry enablement is not evidence of end-to-end confidentiality.
         confidentiality: "server_readable_by_default",
         e2ee_available: true,
+        e2ee_status: "experimental",
         private_content_automation: bool_field(&privacy, "privateContentAutomation", false),
         reports_preserve_evidence: string_field(&privacy, "reportEvidencePreservation", "explicit_report") == "explicit_report",
         analytics_scope: string_field(&privacy, "analyticsMode", "off"),
@@ -89,7 +81,7 @@ async fn channel_summary(
     crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     let kind = state.wdb.get_channel_kind(&channel_id).await;
     let private_conversation = matches!(kind.as_deref(), Some("dm" | "group"));
-    let e2ee = private_conversation && room_is_e2ee(&state.config.data_dir, &channel_id);
+    let e2ee = private_conversation && super::e2ee::room_is_enabled(&state.config.data_dir, &channel_id)?;
     let privacy = privacy_value(&state.config.data_dir);
     let private_automation = bool_field(&privacy, "privateContentAutomation", false);
 
@@ -106,7 +98,7 @@ async fn channel_summary(
     Ok(Json(ChannelPrivacySummary {
         channel_id,
         retention,
-        confidentiality: if e2ee { "operator_blind_e2ee" } else { "server_readable" },
+        confidentiality: if e2ee { "experimental_e2ee" } else { "server_readable" },
         e2ee,
         private_conversation,
         // Server-side classifiers are categorically outside an E2EE room.

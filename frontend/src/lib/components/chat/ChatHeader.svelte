@@ -15,7 +15,7 @@
 	type ChannelPrivacySummary = {
 		channelId: string;
 		retention: string;
-		confidentiality: 'server_readable';
+		confidentiality: 'server_readable' | 'experimental_e2ee';
 		e2ee: boolean;
 		privateConversation: boolean;
 		automatedContentRules: boolean;
@@ -144,8 +144,10 @@
 			>◷ {retentionLabel(privacySummary.retention)}</span>
 			<span
 				class="spoiler-channel-badge"
-				title="This conversation is server-readable today. Wabi does not claim end-to-end encryption for this room."
-			>Server-readable</span>
+				title={privacySummary.e2ee
+                    ? 'Experimental encryption is enabled. The full path has not been independently verified; do not rely on it to hide content from the operator.'
+                    : 'This conversation is server-readable. Retention does not hide content from the operator.'}
+            >{privacySummary.e2ee ? 'Encryption · experimental' : 'Server-readable'}</span>
 			{#if privacySummary.privateConversation}
 				<span
 					class="spoiler-channel-badge"

@@ -26,6 +26,8 @@ Wabi is not trying to become a centralized hosted social network, a Matrix/Activ
 
 The candidate also scopes device-local Planner data to its server/account, retains competing or failed-save drafts, and replaces destructive imports with validated additive imports. Planner server sync is unavailable. Recurring calendar occurrences render with local-date handling and explicit whole-series editing. See [Local Planner](features/LOCAL_PLANNER.md).
 
+The candidate also rejects damaged experimental encryption-registry state instead of silently resetting it, and removes cosmetic DM privacy modes that did not control encryption. Existing encrypted content is preserved; no operator-blind confidentiality claim is certified.
+
 This candidate also contains the production-finish entry-page, mobile-panel and authentication repairs tracked in the [campaign ledger](plans/2026-09-15-production-finish-campaign.md). Candidate checks do not promote the deployed website, full workspace suite, native devices, self-host installation, restore procedure or physical-device calling to production-ready status.
 
 ## Available in the current main product line

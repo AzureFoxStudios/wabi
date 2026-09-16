@@ -73,6 +73,11 @@ export function openRightPanel(panelId: WorkspacePanelId, opts?: { pin?: boolean
 		peekPanel(normalized);
 		return;
 	}
+	// Opening a conversation in an already-open panel must not toggle it shut.
+	if (isPinnedTo(normalized)) {
+		activeRightTab.set(normalized);
+		return;
+	}
 	pinPanel(normalized);
 }
 
