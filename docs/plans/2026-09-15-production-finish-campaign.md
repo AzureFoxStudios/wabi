@@ -439,3 +439,13 @@ Frontend validation for the Wiki batch: `bun run check` passes with 0 errors and
 - Cross-account/channel store isolation, navigation draft recovery, second-account sharing, restart/permissions and full mobile/keyboard acceptance remain open. This is a submission-recovery fix, not whole-Forum acceptance or a deployment.
 
 Forum batch validation: final headful run passed at `/tmp/wabi-forum-ui-9lAbW6`; type check passed with 0 errors and the existing 167 warnings.
+
+## Forum workspace composition (2026-09-16)
+
+- **W03/U02/U05:** removed the duplicate channel heading and competing Quick/plus creation paths. One New thread action opens the existing composer in the owning Forum surface. Removed the viewport-fixed drawer/backdrop; no channel anchors, stubs or optional right panels were removed.
+- Container-width rules replace fixed 220px/380px columns: ample space permits category/list/reading columns, constrained space offers a full-width discussion with Threads/Categories navigation, and phone-width lists use one column. Category editing remains reachable through Categories. Creation gets a full-width editor rather than a narrow drawer or reply-sized textbox.
+- Navigating away from a nonempty reply through Threads, category selection, another thread or New thread asks before discarding; pending submission refuses navigation through those controls. This does not yet cover global channel/account navigation or durable draft recovery.
+- **Browser evidence:** headful 1440px and 390px viewport checks pass existing submission/retry/image assertions, full-width desktop reading, thread return, category navigation, mobile reading width, and rejecting/accepting the draft-discard prompt. Inspected screenshots from `/tmp/wabi-forum-ui-0yfuGA/` plus the initial phone rendering `/tmp/wabi-forum-ui-kubXG4/`. Log: `/var/home/Ronin/wabi-production-finish-forum-layout.log`.
+- Phone viewport evidence is not physical-device/keyboard certification. Full multi-account/store isolation, zoom/themes, wide three-column acceptance and shared lifecycle/restart work remain open. Existing stub overlap with some right-edge field space is a separate shell issue.
+
+Forum layout type check: 0 errors, existing 167 warnings; `/var/home/Ronin/wabi-production-finish-forum-layout-check.log`.

@@ -146,9 +146,14 @@
 		}
 	}
 
+	export function confirmDiscard(): boolean {
+		if (isSubmitting) return false;
+		return !(bodyValue.trim() || titleValue.trim() || selectedFiles.length)
+			|| window.confirm('Discard this unsaved forum draft?');
+	}
+
 	function handleCancel() {
-		if (isSubmitting) return;
-		if ((bodyValue.trim() || titleValue.trim() || selectedFiles.length) && !window.confirm('Discard this unsaved forum draft?')) return;
+		if (!confirmDiscard()) return;
 		resetComposer();
 		onCancel?.();
 	}
