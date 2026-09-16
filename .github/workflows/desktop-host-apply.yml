@@ -1,0 +1,76 @@
+name: Apply reviewed desktop hosting implementation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['.github/workflows/desktop-host-apply.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-host-reviewed-patch
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.repository == 'AzureFoxStudios/wabi' && github.event.pull_request.number == 233 && github.event.pull_request.head.repo.full_name == 'AzureFoxStudios/wabi' && github.event.pull_request.head.ref == 'codex/desktop-host-mode-20260916'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: true
+      - name: Verify branch parent and reconstruct reviewed source patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse HEAD^)" = "e4febae7538dbced5647dbc238398e8c720354d7"
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/desktop-host-apply.yml'
+          : > "$RUNNER_TEMP/hosting.patch.gz"
+          for blob in \
+            5c7c7885e456ab3973bb12ab6484d4221c594f41 \
+            c5e427ecf7ee968dfd76f443787ca897848081f5 \
+            a0447c101cfe7d01c38bd3962b043a0f7548ab63 \
+            469ef53a108b3c6eac63b026aa2d979a1f0af995 \
+            068211b6728418daea7ff084a84b6814b498f270 \
+            62f09bb7ee940c7e80a565d7f7521a5a585c0aae
+          do
+            gh api "repos/AzureFoxStudios/wabi/git/blobs/$blob" --jq .content | base64 --decode >> "$RUNNER_TEMP/hosting.patch.gz"
+          done
+          python3 - <<'PY'
+          import gzip, hashlib, os, pathlib
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          patch = gzip.decompress((temp / 'hosting.patch.gz').read_bytes())
+          assert len(patch) == 100626, 'Unexpected patch length'
+          assert hashlib.sha256(patch).hexdigest() == 'fd6a12d723c5722b4dfaebc499f77e76c9c32e4c50a17575ea6f3c2ead44dc0b', 'Patch checksum mismatch'
+          (temp / 'hosting.patch').write_bytes(patch)
+          PY
+          git apply --index --check "$RUNNER_TEMP/hosting.patch"
+          git apply --index "$RUNNER_TEMP/hosting.patch"
+          git diff --cached --check
+      - name: Commit source and remove this one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/desktop-host-apply.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(hosting): managed desktop Authority, owner onboarding, admission invites and stopped snapshots'
+          git push origin HEAD:refs/heads/codex/desktop-host-mode-20260916
+          git rev-parse HEAD > "$RUNNER_TEMP/IMPLEMENTATION_REVISION.txt"
+          git show --stat --oneline HEAD >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-host-implementation-revision
+          path: ${{ runner.temp }}/IMPLEMENTATION_REVISION.txt
+          if-no-files-found: error
+          retention-days: 7
