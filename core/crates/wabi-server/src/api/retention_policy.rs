@@ -24,7 +24,7 @@ fn path(data_dir: &str) -> PathBuf { PathBuf::from(data_dir).join("channel_reten
 
 const RECOVERY_ERROR: &str = "Retention policy could not be read. Preserve channel_retention.json and restore it from a matching backup; do not delete it to resume startup.";
 
-fn canonical_label(label: &str) -> anyhow::Result<String> {
+pub(crate) fn canonical_label(label: &str) -> anyhow::Result<String> {
     let label = label.trim().to_ascii_lowercase();
     match label.as_str() {
         "live" | "forever" => Ok(label),
@@ -94,6 +94,20 @@ pub fn label(data_dir: &str, channel_id: &str) -> anyhow::Result<Option<String>>
 pub fn all(data_dir: &str) -> anyhow::Result<HashMap<String, String>> {
     let _guard = lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     Ok(read_unlocked(data_dir)?.channels)
+}
+
+/// Caller must hold retention_policy_lock through selection and deletion.
+/// An exact Live/Forever choice overrides even a stale whole-day mirror.
+pub async fn channel_expiry_micros(state: &crate::state::AppState, channel_id: &str) -> anyhow::Result<Option<i64>> {
+    if let Some(label) = state.channel_auto_delete_label.read().await.get(channel_id) {
+        return Ok(effective_micros(timed_ms(label), None));
+    }
+    use wabidb::engine::wabi_store::WabiStore;
+    Ok(match state.wdb.get_channel_retention(channel_id).await? {
+        Some(policy) if policy.days > 0 => Some(policy.days as i64 * 86_400_000_000),
+        Some(_) => None,
+        None => Some(86_400_000_000),
+    })
 }
 
 /// Milliseconds for timed labels. `live` and `forever` intentionally return

@@ -470,9 +470,14 @@ fn read_server_center_data(data_dir: &str) -> Option<ServerCenterData> {
         .and_then(|bytes| serde_json::from_slice::<ServerCenterData>(&bytes).ok())
 }
 
-pub fn privacy_default_retention(data_dir: &str) -> String {
-    read_server_center_data(data_dir).map(|data| data.privacy.default_retention)
-        .unwrap_or_else(|| PrivacyPolicy::default().default_retention)
+pub fn privacy_default_retention(data_dir: &str) -> anyhow::Result<String> {
+    let label = match std::fs::read(PathBuf::from(data_dir).join("server_center.json")) {
+        Ok(bytes) => serde_json::from_slice::<ServerCenterData>(&bytes)
+            .map_err(|_| anyhow::anyhow!("Server privacy defaults are unreadable; preserve server_center.json and restore a matching backup"))?.privacy.default_retention,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => PrivacyPolicy::default().default_retention,
+        Err(_) => anyhow::bail!("Server privacy defaults are unreadable; preserve server_center.json and restore a matching backup"),
+    };
+    super::retention_policy::canonical_label(&label)
 }
 
 pub fn evaluate_safety_rules(data_dir: &str, content: &str, private_conversation: bool) -> Option<SafetyRule> {
