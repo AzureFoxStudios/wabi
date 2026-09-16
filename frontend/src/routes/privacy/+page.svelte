@@ -25,7 +25,7 @@
 	<main class="public-reading" id="main-content" tabindex="-1" aria-labelledby="page-title">
 		<article>
 			<h1 id="page-title">Privacy</h1>
-			<p class="public-effective">Effective: <time datetime="2026-09-14">September 14, 2026</time></p>
+			<p class="public-effective">Effective: <time datetime="2026-09-16">September 16, 2026</time></p>
 			<p class="public-lede">Wabi is built to be self-hostable. That means the operator of the server you use can matter as much as the Wabi software itself.</p>
 
 			<h2>Scope</h2>
@@ -36,6 +36,10 @@
 
 			<h2>Where information is stored</h2>
 			<p>Wabi is designed for independent hosting. Content and account data are generally handled by the Wabi instance you connect to, while some preferences and offline data may also be stored on your device. Instance operators are responsible for their own hosting, backups, retention, access controls, and infrastructure providers.</p>
+
+            <h2>Messages and deletion</h2>
+            <p>Direct messages and private groups are server-readable by default. Experimental encryption is not a verified guarantee that content is hidden from the operator. A private conversation limits which community members can access it; that is separate from encryption.</p>
+            <p>Deleting a message or choosing timed retention does not guarantee secure erasure from event records, backups, logs, or recipients' devices. Device-local Notes and Planner data also have their own browser storage and backup lifecycle. Ask your instance operator about the retention and recovery policy for that server.</p>
 
 			<h2>Analytics and advertising</h2>
 			<p>The default Wabi project does not require advertising trackers or behavioral advertising. If privacy-respecting aggregate telemetry is introduced in a hosted Wabi service, this policy should be updated before that data collection is relied upon. Independent instance operators may make different choices and should disclose them.</p>

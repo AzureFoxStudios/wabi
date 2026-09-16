@@ -1,4 +1,4 @@
-//! Operator-blind private-room encryption registry.
+//! Experimental private-room encryption registry.
 //!
 //! The server never receives room keys or device private keys. It stores only
 //! public device identity keys, room epoch metadata and room keys wrapped to
@@ -69,9 +69,7 @@ pub struct RoomState {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct E2eeData {
-    #[serde(default)]
     devices: Vec<DeviceBundle>,
-    #[serde(default)]
     rooms: HashMap<String, RoomState>,
 }
 
@@ -115,16 +113,24 @@ fn store_path(data_dir: &str) -> PathBuf {
     PathBuf::from(data_dir).join("e2ee_state.json")
 }
 
-fn read_unlocked(data_dir: &str) -> E2eeData {
-    std::fs::read(store_path(data_dir))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+const REGISTRY_UNAVAILABLE: &str = "Encryption state could not be read. Sending and key changes are paused; ask the operator to restore the encryption registry.";
+
+fn read_unlocked(data_dir: &str) -> Result<E2eeData> {
+    match std::fs::read(store_path(data_dir)) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Internal(REGISTRY_UNAVAILABLE.into())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(E2eeData::default()),
+        Err(_) => Err(AppError::Internal(REGISTRY_UNAVAILABLE.into())),
+    }
 }
 
-fn read_data(data_dir: &str) -> E2eeData {
+fn read_data(data_dir: &str) -> Result<E2eeData> {
     let _guard = disk_lock().lock().unwrap_or_else(|p| p.into_inner());
     read_unlocked(data_dir)
+}
+
+pub(super) fn room_is_enabled(data_dir: &str, channel_id: &str) -> Result<bool> {
+    Ok(read_data(data_dir)?.rooms.get(channel_id).is_some_and(|room| room.enabled))
 }
 
 fn write_unlocked(data_dir: &str, data: &E2eeData) -> anyhow::Result<()> {
@@ -155,7 +161,7 @@ fn write_unlocked(data_dir: &str, data: &E2eeData) -> anyhow::Result<()> {
 
 fn mutate_data<T>(data_dir: &str, f: impl FnOnce(&mut E2eeData) -> Result<T>) -> Result<T> {
     let _guard = disk_lock().lock().unwrap_or_else(|p| p.into_inner());
-    let mut data = read_unlocked(data_dir);
+    let mut data = read_unlocked(data_dir)?;
     let out = f(&mut data)?;
     write_unlocked(data_dir, &data)
         .map_err(|e| AppError::Internal(format!("persist E2EE state: {e}")))?;
@@ -218,7 +224,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 
 async fn list_my_devices(State(state): State<Arc<AppState>>, auth: AuthUser) -> Result<Json<serde_json::Value>> {
     if auth.is_guest { return Err(AppError::Forbidden("Guests cannot register E2EE devices".into())); }
-    let data = read_data(&state.config.data_dir);
+    let data = read_data(&state.config.data_dir)?;
     let devices: Vec<_> = data.devices.into_iter().filter(|d| d.user_id == auth.user_id).collect();
     Ok(Json(json!({ "devices": devices })))
 }
@@ -285,7 +291,7 @@ async fn room_status(
 ) -> Result<Json<serde_json::Value>> {
     if auth.is_guest { return Err(AppError::Forbidden("Guests cannot use E2EE rooms".into())); }
     let (members, current_revision) = private_room_members(&state, auth.user_id, &channel_id).await?;
-    let data = read_data(&state.config.data_dir);
+    let data = read_data(&state.config.data_dir)?;
     let devices: Vec<DeviceBundle> = active_devices(&data, &members).into_iter().cloned().collect();
     let missing_user_ids: Vec<i64> = members.iter().copied().filter(|uid| !devices.iter().any(|d| d.user_id == *uid)).collect();
     let room = data.rooms.get(&channel_id).filter(|r| r.enabled).cloned();
@@ -413,7 +419,7 @@ fn parse_message(content: &str) -> Option<MessageEnvelope> {
 pub async fn validate_outbound_message(
     state: &AppState, channel_id: &str, user_id: i64, content: &str,
 ) -> std::result::Result<bool, String> {
-    let data = read_data(&state.config.data_dir);
+    let data = read_data(&state.config.data_dir).map_err(|_| REGISTRY_UNAVAILABLE.to_string())?;
     let room = data.rooms.get(channel_id).filter(|r| r.enabled).cloned();
     let Some(room) = room else {
         if is_ciphertext(content) { return Err("E2EE envelopes are only accepted in an E2EE conversation".into()); }
@@ -443,4 +449,92 @@ pub async fn validate_outbound_message(
         return Err("Malformed encrypted message envelope".into());
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+
+    #[test]
+    fn missing_registry_is_a_fresh_instance_but_corrupt_registry_is_preserved() {
+        let directory = tempfile::tempdir().unwrap();
+        let dir = directory.path().to_str().unwrap();
+        assert!(read_data(dir).unwrap().rooms.is_empty());
+        for invalid in [b"{".as_slice(), b"{}", b"null", b"{\"devices\":[],\"rooms\":[]}", b"private-canary"] {
+            std::fs::write(store_path(dir), invalid).unwrap();
+            let error = read_data(dir).unwrap_err().to_string();
+            assert!(!error.contains("private-canary"));
+            assert!(room_is_enabled(dir, "dm-test").is_err());
+            let mut invoked = false;
+            assert!(mutate_data(dir, |_| { invoked = true; Ok(()) }).is_err());
+            assert!(!invoked);
+            assert_eq!(std::fs::read(store_path(dir)).unwrap(), invalid);
+        }
+    }
+
+    #[test]
+    fn unreadable_registry_is_not_replaced() {
+        let directory = tempfile::tempdir().unwrap();
+        let dir = directory.path().to_str().unwrap();
+        std::fs::create_dir(store_path(dir)).unwrap();
+        assert!(read_data(dir).is_err());
+        assert!(mutate_data(dir, |_| Ok(())).is_err());
+        assert!(store_path(dir).is_dir());
+    }
+
+    #[test]
+    fn valid_existing_room_survives_registry_update() {
+        let directory = tempfile::tempdir().unwrap();
+        let dir = directory.path().to_str().unwrap();
+        let room = RoomState {
+            channel_id: "dm-test".into(), enabled: true, epoch: 3,
+            membership_revision: 9, enabled_by_user_id: 1,
+            enabled_at: "2026-09-15".into(), rekeyed_at: "2026-09-15".into(),
+            envelopes: vec![],
+        };
+        mutate_data(dir, |data| { data.rooms.insert(room.channel_id.clone(), room.clone()); Ok(()) }).unwrap();
+        assert!(room_is_enabled(dir, "dm-test").unwrap());
+        mutate_data(dir, |_| Ok(())).unwrap();
+        let after = read_data(dir).unwrap();
+        assert_eq!(serde_json::to_value(&after.rooms["dm-test"]).unwrap(), serde_json::to_value(&room).unwrap());
+    }
+    async fn make_test_state() -> (tempfile::TempDir, Arc<AppState>) {
+        // Keep the TempDir alive for the whole test: dropping it deletes the
+        // data dir out from under AppState and the first engine write panics
+        // with NotFound. Callers must bind the returned TempDir.
+        let data_dir = tempfile::tempdir().unwrap();
+        let uploads_dir = data_dir.path().join("uploads");
+        std::fs::create_dir_all(&uploads_dir).unwrap();
+        let config = crate::config::ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 3001,
+            data_dir: data_dir.path().to_string_lossy().to_string(),
+            uploads_dir: uploads_dir.to_string_lossy().to_string(),
+            jwt_secret: "test-secret".into(),
+            turn_enabled: false,
+            turn_uri: None,
+            turn_secret: None,
+            node_id: "test-node".into(),
+            is_primary: true,
+            server_role: crate::config::ServerRole::Authority,
+            authority_url: None,
+            admin_user_ids: vec![],
+            blacklist_file: data_dir.path().join("blacklist.txt").to_string_lossy().to_string(),
+            max_body_size: None,
+            mesh_enabled: false,
+            mesh_peers: vec![],
+            lore: Default::default(),
+        };
+        (data_dir, Arc::new(AppState::new(config).await.unwrap()))
+    }
+
+    #[tokio::test]
+    async fn corrupt_registry_blocks_plaintext_before_content_processing() {
+        let (directory, state) = make_test_state().await;
+        let original = b"{broken-registry";
+        std::fs::write(directory.path().join("e2ee_state.json"), original).unwrap();
+        let result = validate_outbound_message(&state, "dm-test", 1, "plain-message-canary").await;
+        assert_eq!(result.unwrap_err(), REGISTRY_UNAVAILABLE);
+        assert_eq!(std::fs::read(directory.path().join("e2ee_state.json")).unwrap(), original);
+    }
 }

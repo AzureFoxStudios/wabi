@@ -22,6 +22,12 @@ The **WabiDB root key is critical**. A backup of encrypted data without the key 
 
 JWT material is also sensitive. Losing/rotating it is primarily a session/login problem; losing the WabiDB root key is a data-recovery problem.
 
+## Experimental encryption registry
+
+Include `e2ee_state.json`, when present, in the full stopped data-directory backup. It stores device public keys and wrapped room-key metadata; it is separate from WabiDB's at-rest root key. Keep client-owned private keys and local browser data under their own recovery procedures—an Authority backup does not recreate them.
+
+If Wabi reports that encryption state cannot be read, preserve the damaged file and restore the registry from the matching backup. Do not remove it or replace it with `{}` to make sending resume. Malformed or unreadable state pauses sends and registry updates; a missing file is still treated as an unused registry. Restoring an older valid registry can roll back device revocations and room epochs, so this is not a standalone safe rollback procedure. Coordinate recovery of the complete instance and affected devices.
+
 ## Safest supported backup: stop, copy, start
 
 Until a live/hot-backup protocol has a documented consistency guarantee, take file backups while the Authority is stopped.

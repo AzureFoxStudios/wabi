@@ -735,4 +735,4 @@ export async function decryptAttachmentBlob(
 
 /** Web/Tauri clients can show this caveat beside the E2EE badge. */
 export const E2EE_CLIENT_INTEGRITY_NOTE =
-	'E2EE keeps plaintext and room keys off the Wabi server. A malicious web server could still serve modified JavaScript; the installed desktop client provides a stronger client-integrity boundary.';
+	'Experimental encryption: the complete messaging and attachment path has not been independently verified. Do not rely on it to hide content from the operator. A malicious web server can also serve modified client code.';

@@ -16,7 +16,6 @@
 	import GroupSettingsPanel from './GroupSettingsPanel.svelte';
 	import CreateGroupModal from './CreateGroupModal.svelte';
 	import type { User, Channel } from '$lib/socket';
-	import { dmPrivacyModes, setDMPrivacyMode, type DMPrivacyMode } from '$lib/dmPrivacyMode';
 	import { pinnedDmIdsStore, prunePinnedDms, togglePinnedDm } from '$lib/pinDms';
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
@@ -61,9 +60,7 @@
 	$: dmOther = selectedDmChannel?.type === 'dm'
 		? resolveDmOtherUser(selectedDmChannel, $currentUser, $users, $serverMembers)
 		: null;
-	$: selectedDmPrivacyMode = selectedDmChannel?.type === 'dm'
-		? getConversationPrivacyMode(selectedDmChannel.id)
-		: null;
+
 
 	// Keep selectedGroup in sync with channels store (so avatar/member changes reflect)
 	$: activeGroup = selectedGroup ? $channels.find(ch => ch.id === selectedGroup.id) || selectedGroup : null;
@@ -112,27 +109,6 @@
 		if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
 		if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
 		return `${Math.floor(diff / 86400000)}d`;
-	}
-
-	function getConversationPrivacyMode(channelId: string): DMPrivacyMode {
-		return $dmPrivacyModes[channelId] ?? 'sealed';
-	}
-
-	function getPrivacyModeLabel(mode: DMPrivacyMode): string {
-		if (mode === 'open') return 'Open';
-		if (mode === 'private') return 'Private';
-		return 'Sealed';
-	}
-
-	function changeDMPrivacyMode(channel: Channel, mode: DMPrivacyMode): void {
-		if (channel.type !== 'dm') return;
-		if (mode === 'open') {
-			const confirmed = window.confirm(
-				'Open mode sends this DM without end-to-end encryption and stores plaintext on the server. Continue?'
-			);
-			if (!confirmed) return;
-		}
-		setDMPrivacyMode(channel.id, mode);
 	}
 
 	function selectConversation(channel: Channel) {
@@ -406,10 +382,10 @@
 		showGroupSettings = !showGroupSettings;
 	}
 
-	$: contextMenuItems = buildContextMenuItems();
-	$: headerActionMenuItems = buildHeaderActionMenuItems();
+	$: contextMenuItems = buildContextMenuItems(contextMenuChannel, contextMenuUser, pinnedDmSet);
+	$: headerActionMenuItems = buildHeaderActionMenuItems({ hasHeaderActions, headerCallActions, headerRemoveAction, activeGroup, selectedDmId, isKeepNotesSelected, showGroupSettings });
 
-	function buildContextMenuItems(): ContextMenuItem[] {
+	function buildContextMenuItems(contextMenuChannel: Channel | null, contextMenuUser: User | null, pinned: Set<string>): ContextMenuItem[] {
 		if (!contextMenuChannel) return [];
 		const actions = buildConversationActions(contextMenuChannel, contextMenuUser);
 
@@ -422,43 +398,11 @@
 			},
 			{
 				id: 'pin-toggle',
-				label: isConversationPinned(contextMenuChannel.id) ? 'Unpin Conversation' : 'Pin Conversation',
+				label: pinned.has(contextMenuChannel.id) ? 'Unpin Conversation' : 'Pin Conversation',
 				icon: 'pin',
 				onSelect: () => toggleConversationPin(contextMenuChannel.id)
 			}
 		];
-		if (contextMenuChannel.type === 'dm') {
-			const currentMode = getConversationPrivacyMode(contextMenuChannel.id);
-			items.push({ id: 'privacy-divider', type: 'separator' });
-			items.push({
-				id: 'privacy-current',
-				label: `Privacy Mode: ${getPrivacyModeLabel(currentMode)}`,
-				icon: 'settings',
-				disabled: true
-			});
-			items.push({
-				id: 'privacy-sealed',
-				label: 'Set Mode: Sealed',
-				icon: 'settings',
-				disabled: currentMode === 'sealed',
-				onSelect: () => changeDMPrivacyMode(contextMenuChannel as Channel, 'sealed')
-			});
-			items.push({
-				id: 'privacy-private',
-				label: 'Set Mode: Private',
-				icon: 'settings',
-				disabled: currentMode === 'private',
-				onSelect: () => changeDMPrivacyMode(contextMenuChannel as Channel, 'private')
-			});
-			items.push({
-				id: 'privacy-open',
-				label: 'Set Mode: Open (Public)',
-				icon: 'settings',
-				danger: true,
-				disabled: currentMode === 'open',
-				onSelect: () => changeDMPrivacyMode(contextMenuChannel as Channel, 'open')
-			});
-		}
 		for (const action of actions) {
 			if (action.danger) {
 				items.push({ id: 'danger-divider', type: 'separator' });
@@ -475,7 +419,11 @@
 		return items;
 	}
 
-	function buildHeaderActionMenuItems(): ContextMenuItem[] {
+	function buildHeaderActionMenuItems({ hasHeaderActions, headerCallActions, headerRemoveAction, activeGroup, selectedDmId, isKeepNotesSelected, showGroupSettings }: {
+        hasHeaderActions: boolean; headerCallActions: ConversationAction[];
+        headerRemoveAction: ConversationAction | undefined; activeGroup: Channel | null;
+        selectedDmId: string | null; isKeepNotesSelected: boolean; showGroupSettings: boolean;
+    }): ContextMenuItem[] {
 		if (!hasHeaderActions) return [];
 		const items: ContextMenuItem[] = [];
 
@@ -529,17 +477,10 @@
 					<div class="dm-header-title-wrap">
 						<span class="dm-header-title">{activeHeaderTitle}</span>
 						{#if isKeepNotesSelected}
-							<span class="dm-header-pill">Private</span>
-						{:else if selectedDmPrivacyMode === 'open'}
-							<span class="dm-header-pill dm-header-pill-open">
-								<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-									<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3l-8.47-14.14a2 2 0 0 0-3.42 0z"></path>
-									<line x1="12" y1="9" x2="12" y2="13"></line>
-									<circle cx="12" cy="17" r="1"></circle>
-								</svg>
-								Open
-							</span>
-						{/if}
+                            <span class="dm-header-pill">Device-local</span>
+                        {:else}
+                            <span class="dm-header-pill" title="The server operator is part of the trust boundary. Experimental encryption is not a verified confidentiality guarantee.">Server-readable by default</span>
+                        {/if}
 					</div>
 				</div>
 				{#if hasHeaderActions}
@@ -727,15 +668,7 @@
 											{other.username.charAt(0).toUpperCase()}
 										</div>
 									{/if}
-									{#if getConversationPrivacyMode(channel.id) === 'open'}
-										<span class="dm-open-mode-badge" title="Open mode: plaintext DM">
-											<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-												<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3l-8.47-14.14a2 2 0 0 0-3.42 0z"></path>
-												<line x1="12" y1="9" x2="12" y2="13"></line>
-												<circle cx="12" cy="17" r="1"></circle>
-											</svg>
-										</span>
-									{:else if other.status && other.status !== 'offline'}
+									{#if other.status && other.status !== 'offline'}
 										<span class="dm-conv-status-dot" class:active={other.status === 'active'} class:away={other.status === 'away'} class:busy={other.status === 'busy'} title={other.status}></span>
 									{/if}
 								</div>
@@ -975,14 +908,6 @@
 		white-space: nowrap;
 	}
 
-	.dm-header-pill-open {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1, 4px);
-		color: var(--color-danger, #ef4444);
-		border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
-		background: var(--color-danger-bg, rgba(var(--color-danger-rgb, 239, 68, 68), 0.15));
-	}
 
 	.dm-tab-messages {
 		flex: 1;
@@ -1269,21 +1194,6 @@
 		color: white;
 	}
 
-	.dm-open-mode-badge {
-		position: absolute;
-		right: -2px;
-		bottom: -2px;
-		width: 15px;
-		height: 15px;
-		border-radius: 50%;
-		background: var(--color-danger, #ef4444);
-		color: #fff;
-		border: 1px solid var(--surface-sunken, #0f0c29);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
-	}
 
 	.dm-conv-status-dot {
 		position: absolute;
