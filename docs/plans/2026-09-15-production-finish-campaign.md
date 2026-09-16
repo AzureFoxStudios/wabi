@@ -489,3 +489,15 @@ Two-view batch type check: 0 errors / existing 167 warnings (`/var/home/Ronin/wa
 - **Boundary:** this is session-memory recovery, not reload/crash persistence or post idempotency. A lost acknowledgement still requires checking the thread before retrying. New-thread panel recovery, upload-in-flight closure, all global-navigation/account-transition combinations and Wiki draft recovery remain additional acceptance work. No deployment occurred.
 
 Forum recovery static frontend build passed (`/var/home/Ronin/wabi-production-finish-forum-drafts-build.log`). This builds frontend assets only; it is not an embedded release binary or deployment.
+
+
+## Wiki session draft recovery — implementation checkpoint (2026-09-16)
+
+- **W03/U02:** Wiki now retains each channel/surface editor snapshot in the existing session-memory draft mechanism, including edited-page baseline and unfinished new-page fields. Center and panel snapshots remain independent. Explicit navigation/discard leaves editing mode; closing the panel retains its active editor. Auth/context retirement and matching revocation clear visible editor state and retained ownership.
+- Save/create transactions span panel remounts. Pending controls remain disabled; accepted saves update the retained baseline without dropping typing added after submission. Active views refresh on acknowledgement so a newly created page is visible even when the request originated from a disposed panel. Retired stores return receipts without mutating retired lists.
+- Review found and fixed an old-owner completion writing the new channel's snapshot into its old slot; completion now saves live fields only when the captured owner still owns this component. Revision-restore completion and image insertion also check editor ownership. New-child navigation asks before replacing unfinished work, Wiki breadcrumb navigation respects unsaved edits, and browser-unload protection includes new-page drafts.
+- These are session-memory drafts, not reload/crash persistence or concurrent-server-edit conflict resolution. Exact browser/build evidence follows after final verification. Physical mobile keyboard, all account-switch/upload timing combinations and cross-account shared-edit conflict handling remain open; no deployment performed.
+
+Wiki recovery verification: headful fixture passed (`/var/home/Ronin/wabi-production-finish-wiki-drafts-ui.log`, report `/tmp/wabi-wiki-ui-1M8Inc`). It covers dirty edit/new-page close/reopen, independent center content, pending edit remount with later typing retained and one request, and pending create remount with one request and the accepted page visibly rendered. Existing failed-save/retry/reload, independent stores/revisions, delayed responses and logout checks also pass. Frontend suite: 905 pass / 3 skip / 0 fail (`...-wiki-drafts-tests.log`); type check: 0 errors / existing 167 warnings (`...-wiki-drafts-check.log`).
+
+Wiki recovery static build passed (`/var/home/Ronin/wabi-production-finish-wiki-drafts-build.log`). No embedded binary, hosted deployment or physical-device acceptance is claimed.

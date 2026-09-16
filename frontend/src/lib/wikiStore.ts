@@ -181,7 +181,8 @@ export function createWikiWorkspace() {
 			);
 			if (!res.ok) throw new Error(`Failed to create page: ${res.statusText}`);
 			const page: WikiPage = normalizeWikiPage(await res.json());
-	 if (!isCurrent()) return null;
+			// Preserve the acknowledgement for a draft transaction without mutating a retired view.
+			if (!isCurrent()) return page;
 			wikiError.set(null);
 			wikiPages.update((ps) => [...ps, page]);
 			return page;
@@ -210,7 +211,8 @@ export function createWikiWorkspace() {
 			);
 			if (!res.ok) throw new Error(`Failed to update page: ${res.statusText}`);
 			const page: WikiPage = normalizeWikiPage(await res.json());
-	 if (!isCurrent()) return null;
+			// Preserve the acknowledgement for a draft transaction without mutating a retired view.
+			if (!isCurrent()) return page;
 			wikiError.set(null);
 			wikiPages.update((ps) => ps.map((p) => (p.pageId === page.pageId ? page : p)));
 			return page;
