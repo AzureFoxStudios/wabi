@@ -141,6 +141,12 @@ async fn handle_register(
         ));
     }
 
+    // Validate bootstrap defaults before creating/claiming the owner account.
+    let bootstrap_retention = if _setup_guard.is_some() {
+        crate::api::retention_policy::all(&state.config.data_dir)?;
+        Some(crate::api::server_center::privacy_default_retention(&state.config.data_dir)?)
+    } else { None };
+
     // Check IP blacklist (if available)
     // Note: We don't have IP here, but admin can manually ban usernames
 
@@ -167,7 +173,7 @@ async fn handle_register(
     // Seed default channels on first-ever registration.
     if was_first {
         use wabidb::domain::{ChannelKind, MemberRole};
-        const DEFAULT_CHANNEL_AUTO_DELETE_MS: u64 = 24 * 60 * 60 * 1000;
+        let retention = bootstrap_retention.as_deref().unwrap_or("24h");
         for (name, kind) in &[("general", ChannelKind::Text), ("general", ChannelKind::Voice)] {
             match state.wdb.create_channel(name, *kind, user_id as u64, false).await {
                 Ok(ch_id) => {
@@ -178,21 +184,12 @@ async fn handle_register(
                     {
                         tracing::warn!("[setup] failed to add owner to default channel {ch_id}: {e}");
                     }
-                    // Default ephemeral 24h — keep-forever is opt-in.
-                    state
-                        .channel_auto_delete_ms
-                        .write()
-                        .await
-                        .insert(ch_id.clone(), DEFAULT_CHANNEL_AUTO_DELETE_MS);
-                    state
-                        .channel_auto_delete_label
-                        .write()
-                        .await
-                        .insert(ch_id.clone(), "24h".to_string());
-                    let _ = state
-                        .wdb
-                        .upsert_channel_retention(&ch_id, 1, user_id as u64)
-                        .await;
+                    if let Err(error) = crate::api::channels::apply_channel_retention(&state, &ch_id, retention).await {
+                        tracing::error!(channel_id = %ch_id, %error, "[setup] initial retention save failed; removing default channel");
+                        if let Err(cleanup) = state.wdb.delete_channel(&ch_id, user_id as u64).await {
+                            tracing::error!(channel_id = %ch_id, %cleanup, "[setup] default channel cleanup failed");
+                        }
+                    }
                 }
                 Err(e) => tracing::warn!("[setup] failed to create default channel {name}: {e}"),
             }

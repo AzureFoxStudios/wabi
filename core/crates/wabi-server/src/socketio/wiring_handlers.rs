@@ -625,7 +625,7 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
             let _ = socket.emit("channel-settings-error", &json!({"channelId":channel_id,"error":"Invalid retention policy"}));
             return;
         };
-        match crate::api::channels::apply_channel_retention(&state.app, &channel_id, caller_id as u64, requested).await {
+        match crate::api::channels::apply_channel_retention(&state.app, &channel_id, requested).await {
             Ok(label) => {
                 if label == "live" {
                     if let Some(ttl) = settings.get("liveTtlMs").and_then(|v| v.as_u64()) {
