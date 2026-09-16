@@ -26,7 +26,7 @@ rand = "0.8"
 # Ed25519 signature verification (identity key attestation)
 ed25519-dalek = "3"
 # X25519 key exchange (X3DH, signed prekey, one-time prekeys)
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
 # Subtle encoding/decoding helpers (constant-time eq, etc.)
 subtle = "2"
 # Lock-free skip-list for projection state (per Council Review #0, #1)
