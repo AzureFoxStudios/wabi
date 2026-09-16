@@ -67,8 +67,9 @@ try {
     const channel = await created.json();
     await page.reload({ waitUntil: 'networkidle' });
     await page.getByText('forum_journey', { exact: true }).first().click();
-    await page.getByRole('button', { name: 'Quick', exact: true }).click();
+    await page.getByRole('button', { name: 'New thread', exact: true }).click();
     await page.getByPlaceholder('Thread title...').fill('Pilot discussion');
+    await page.screenshot({ path: `${scratch}/forum-create.png` });
     await page.locator('.forum-composer-textarea').fill('Preserve this failed thread draft');
     await page.route('**/api/forum/*/threads', async route => {
         if (route.request().method() === 'POST') return route.fulfill({ status: 503, body: 'fixture failure' });
@@ -113,6 +114,25 @@ try {
     assert.equal(await page.locator('.forum-composer-textarea').inputValue(), '');
     assert.equal(uploads, 1, 'retry reuses the successful attachment upload');
     await page.screenshot({ path: `${scratch}/forum-saved-reply.png` });
+    const reading = await page.locator('.forum-reading-pane').boundingBox();
+    assert.ok(reading.width >= 700, 'discussion uses available center-stage width');
+    await page.locator('.forum-composer-textarea').fill('Keep this navigation draft');
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.getByRole('button', { name: 'Threads', exact: true }).click();
+    assert.equal(await page.locator('.forum-composer-textarea').inputValue(), 'Keep this navigation draft');
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByRole('button', { name: 'Threads', exact: true }).click();
+    await page.getByText('Pilot discussion', { exact: true }).first().click();
+    await page.getByText('Preserve this failed reply', { exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Categories', exact: true }).click();
+    await page.locator('.forum-category-header').waitFor();
+    await page.getByRole('button', { name: 'Threads', exact: true }).click();
+    await page.getByText('Pilot discussion', { exact: true }).first().click();
+    await page.screenshot({ path: `${scratch}/forum-mobile.png` });
+    const mobile = await page.locator('.forum-reading-pane').boundingBox();
+    assert.ok(mobile.width > 250 && mobile.width <= 390, 'mobile reading fits its workspace');
+
     assert.equal(createCount, 1, 'pending submit admits one request');
     assert.deepEqual(errors, []);
     console.log(`PASS Forum failed thread/reply drafts survive and retry succeeds; evidence ${scratch}`);

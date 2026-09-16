@@ -25,7 +25,6 @@
 		formatForumFileSize,
 		type ForumPost,
 	} from '$lib/forumStore';
-	import SurfaceHeader from './SurfaceHeader.svelte';
 	import ForumPostRow from './ForumPostRow.svelte';
 	import ForumReply from './ForumReply.svelte';
 	import ForumComposer from './ForumComposer.svelte';
@@ -46,10 +45,8 @@
 	let activeCategory: string | null = null;
 	let searchQuery = '';
 	let showNewThread = false;
-	// Focused-writing surface: right-anchored draft drawer (the calls-panel
-	// pattern, kept forum-local — see handleNewThread). The inline composer
-	// stays for quick posts via handleQuickPost.
-	let showDraftDrawer = false;
+	let showCategories = false;
+	let replyComposer: ForumComposer | undefined;
 
 	initObjectRefRegistry();
 
@@ -192,6 +189,8 @@
 	$: threadStarterAuthor = threadStarter ? findAuthor(threadStarter.author_user_id) : undefined;
 
 	function selectThread(thread: ForumPost) {
+		if (thread.post_id !== selectedThreadId && replyComposer && !replyComposer.confirmDiscard()) return;
+		showCategories = false;
 		forumSelectedThreadIdStore.set(thread.post_id);
 		if (effectiveChannel) {
 			loadPosts(effectiveChannel, thread.thread_id);
@@ -202,7 +201,7 @@
 		customCategories = loadCustomCategories(effectiveChannel);
 		loadThreads(effectiveChannel);
 		// The draft drawer is scoped to the active forum channel.
-		showDraftDrawer = false;
+		showCategories = false;
 	}
 
 	// C2: deep-link handoff after threads load — peek first, take only on hit
@@ -231,15 +230,15 @@
 	}
 
 	function handleNewThread() {
-		showDraftDrawer = true;
-	}
-
-	function handleQuickPost() {
+		if (showNewThread || (replyComposer && !replyComposer.confirmDiscard())) return;
+		showCategories = false;
 		showNewThread = true;
 	}
 
-	function handleCloseDraftDrawer() {
-		showDraftDrawer = false;
+	function returnToThreads() {
+		if (replyComposer && !replyComposer.confirmDiscard()) return;
+		showCategories = false;
+		forumSelectedThreadIdStore.set(null);
 	}
 
 	function handleCancelNewThread() {
@@ -252,7 +251,7 @@
 		const post = await createThread(effectiveChannel, body, title, undefined, category || undefined);
 		if (post && submittingChannel === effectiveChannel) {
 			showNewThread = false;
-			showDraftDrawer = false;
+			showCategories = false;
 			if (category) activeCategory = category;
 			selectThread(post);
 		}
@@ -275,6 +274,9 @@
 	}
 
 	function handleFilterByCategory(cat: string) {
+		if (replyComposer && !replyComposer.confirmDiscard()) return;
+		showCategories = false;
+		forumSelectedThreadIdStore.set(null);
 		activeCategory = activeCategory === cat ? null : cat;
 	}
 
@@ -284,11 +286,15 @@
 </script>
 
 <div class="forum-channel">
-	<SurfaceHeader
-		title={activeChannel?.name || 'Forum'}
-	/>
+	<nav class="forum-workspace-toolbar" aria-label="Forum navigation">
+		<button on:click={returnToThreads} disabled={showNewThread}>Threads</button>
+		<button aria-expanded={showCategories} on:click={() => { showCategories = !showCategories; }} disabled={showNewThread}>Categories</button>
+		{#if canCurrentUserPost}
+			<button class="forum-primary-action" on:click={handleNewThread} disabled={showNewThread}>New thread</button>
+		{/if}
+	</nav>
 
-	<div class="forum-body">
+	<div class="forum-body" class:reading={Boolean(selectedThread) || showNewThread} class:composing={showNewThread} class:categories-open={showCategories}>
 		{#if isLoading}
 			<div class="forum-loading">
 				<div class="forum-loading-spinner"></div>
@@ -397,12 +403,7 @@
 			<div class="forum-post-list">
 				<div class="forum-post-list-header">
 					<span>{activeCategory || 'All'} Threads <span class="forum-post-list-header-count">{categorizedThreads.length}</span></span>
-					{#if canCurrentUserPost}
-						<div class="forum-post-list-header-actions">
-							<button class="forum-quick-post-btn" on:click={handleQuickPost} title="Quick post inline">Quick</button>
-							<button class="forum-new-thread-btn" on:click={handleNewThread} title="New thread (focused writing panel)">+</button>
-						</div>
-					{/if}
+
 				</div>
 				{#if categorizedThreads.length === 0}
 					<div class="forum-empty">
@@ -553,6 +554,7 @@
 					</div>
 
 					<ForumComposer
+						bind:this={replyComposer}
 						placeholder="Write a reply... Ctrl+Enter to post"
 						channelId={effectiveChannel}
 						onSubmit={handleReply}
@@ -562,45 +564,4 @@
 		{/if}
 	</div>
 
-	{#if showDraftDrawer}
-		<div
-			class="forum-draft-backdrop"
-			on:click={handleCloseDraftDrawer}
-			role="presentation"
-		></div>
-		<div
-			class="forum-draft-drawer"
-			role="dialog"
-			aria-modal="false"
-			tabindex="-1"
-			aria-label="New thread draft"
-			on:keydown={(e) => { if (e.key === 'Escape') handleCloseDraftDrawer(); }}
-		>
-			<div class="forum-draft-drawer-header">
-				<div class="forum-draft-drawer-titles">
-					<span class="forum-draft-drawer-kicker">Focused writing</span>
-					<h2 class="forum-draft-drawer-title">New thread</h2>
-					<span class="forum-draft-drawer-channel">in {activeChannel?.name || 'Forum'}</span>
-				</div>
-				<button
-					class="forum-draft-drawer-close"
-					on:click={handleCloseDraftDrawer}
-					title="Close draft"
-					aria-label="Close draft"
-				>&#10005;</button>
-			</div>
-			<div class="forum-draft-drawer-body">
-				{#key effectiveChannel}
-					<ForumComposer
-						showTitle={true}
-						categoryOptions={categories}
-						channelId={effectiveChannel}
-						placeholder="Write your post... Use **bold** `code` @mentions"
-						onSubmit={handleCreateNewThread}
-						onCancel={handleCloseDraftDrawer}
-					/>
-				{/key}
-			</div>
-		</div>
-	{/if}
 </div>
