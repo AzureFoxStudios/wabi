@@ -42,7 +42,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Config
 dirs = "5"
-toml = "0.8"
+toml = "1.1"
 
 # Logging
 tracing = "0.1"
