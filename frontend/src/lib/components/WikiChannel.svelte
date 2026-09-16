@@ -1,20 +1,10 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { currentChannel } from '$lib/socket';
-	import {
-		wikiPagesStore,
-		wikiRevisionsStore,
-		wikiLoadingStore,
-		wikiErrorStore,
-		loadWiki,
-		loadRevisions,
-		createWikiPage,
-		updateWikiPage,
-		findWikiAuthor,
-		formatWikiTime,
-		type WikiPage,
-		type WikiRevision,
-	} from '$lib/wikiStore';
+	import { createWikiWorkspace, type WikiPage, type WikiRevision } from '$lib/wikiStore';
+	const wikiWorkspace = createWikiWorkspace();
+	const { wikiPagesStore, wikiRevisionsStore, wikiLoadingStore, wikiErrorStore, loadWiki, loadRevisions, createWikiPage, updateWikiPage, findWikiAuthor, formatWikiTime } = wikiWorkspace;
+
 	import SurfaceToolbar from './SurfaceToolbar.svelte';
 	import { uploadFileResumable } from './chat/uploadResumable';
 	import WikiPageTree from './WikiPageTree.svelte';
@@ -233,7 +223,9 @@
 	}
 
 	function handleHistory() {
+		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
 		showHistory = !showHistory;
+		if (showHistory && effectiveChannel && selectedPage) void loadRevisions(effectiveChannel, selectedPage.pageId);
 		editMode = false;
 	}
 
@@ -330,6 +322,7 @@
 	$: if (editMode && !editIsDirty && saveState === 'dirty') saveState = 'idle';
 
 	onDestroy(() => {
+		wikiWorkspace.dispose();
 		selectedPageId = null;
 	});
 
@@ -351,7 +344,9 @@
 		onSearch={(query) => { wikiSearchQuery = query; }}
 		primaryLabel="+ New Page"
 		onPrimary={handleOpenNewPage}
-	/>
+	>
+		<button class="surface-pill" disabled={isLoading || saveState === 'saving'} on:click={() => effectiveChannel && loadWiki(effectiveChannel)}>Refresh pages</button>
+	</SurfaceToolbar>
 
 	<div class="wiki-body" class:has-drawer={showHistory}>
 		<div class:hidden-mobile={!showTreeOnMobile} class="wiki-tree-wrapper">
