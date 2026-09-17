@@ -64,6 +64,7 @@ mod tests {
                 println!("fixture-ready"); std::io::stdout().flush().unwrap();
                 std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink()).unwrap();
             },
+            Ok("failed") => std::process::exit(2),
             Ok("stubborn") => loop { std::thread::sleep(Duration::from_secs(1)); },
             _ => {}
         }
@@ -71,9 +72,15 @@ mod tests {
     #[test]
     fn closes_stdin_and_reaps_graceful_child() {
         let mut child = fixture("graceful");
-        let output = BufReader::new(child.output().unwrap());
-        assert!(output.lines().any(|line| line.unwrap().contains("fixture-ready")));
-        assert!(child.stop(Duration::from_secs(5)).unwrap());
+        let mut output = BufReader::new(child.output().unwrap());
+        assert!((&mut output).lines().any(|line| line.unwrap().contains("fixture-ready")));
+        // Keep draining after readiness. Dropping stdout here makes libtest's
+        // final status output fail with a broken pipe, turning a clean child
+        // shutdown into a test-induced nonzero exit (notably on Windows).
+        let drain = std::thread::spawn(move || std::io::copy(&mut output, &mut std::io::sink()));
+        let clean = child.stop(Duration::from_secs(5)).unwrap();
+        drain.join().unwrap().unwrap();
+        assert!(clean, "child did not exit successfully after stdin closed");
         assert!(child.exited().unwrap().unwrap().success());
     }
     #[test]
@@ -81,6 +88,15 @@ mod tests {
         let mut child = fixture("stubborn");
         assert!(!child.stop(Duration::from_millis(100)).unwrap());
         assert!(child.exited().unwrap().is_some());
+    }
+    #[test]
+    fn failed_exit_is_not_reported_clean() {
+        let mut child = fixture("failed");
+        let mut output = child.output().unwrap();
+        let drain = std::thread::spawn(move || std::io::copy(&mut output, &mut std::io::sink()));
+        assert!(!child.stop(Duration::from_secs(5)).unwrap());
+        drain.join().unwrap().unwrap();
+        assert_eq!(child.exited().unwrap().unwrap().code(), Some(2));
     }
     #[test]
     fn missing_binary_is_an_error() {
