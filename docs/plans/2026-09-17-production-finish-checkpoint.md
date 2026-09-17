@@ -14,9 +14,9 @@ Source of truth: [original campaign](2026-09-15-production-finish-campaign.md), 
 
 | Cards | State | Scope / required evidence |
 |---|---|---|
-| GF01–GF05 / W03 / T02 / U04 | Implementing | Gallery filters before partition, partial/total failure states, per-surface lifetime, upload continuation, component reset/disposal; regression RED/GREEN, typecheck, rendered browser journeys pending. |
-| GF06 / W03 / T02 | Implementing | Owned feedback lifecycle, draft/save fencing and actual album-derived resource identity; legitimate and denied backend resource tests, browser checks pending. |
-| GF07 / W04 | Pending | Separate Files listing/search/nesting/upload/download/preview/retry/context journeys after Gallery integration. |
+| GF01–GF05 / W03 / T02 / U04 | Verified | Gallery filters before partition, partial/total failure states, per-surface lifetime, upload continuation, component reset/disposal. Real-browser synthetic-API fixture `frontend/scripts/gallery-workspace-browser-smoke.mjs` (headful Chromium, 15 assertions) green; 2 product bugs found and fixed (filter empty-state lie, creator-banner collapse blocking Show all). Evidence: `/tmp/wabi-gallery-browser-*/results.json`, `docs/reviews/gallery-browser-2026-09-17.md`. |
+| GF06 / W03 / T02 | Verified | Owned feedback lifecycle, draft/save fencing and actual album-derived resource identity. Covered by the same Gallery fixture (draft survival, failed-save retry, marker placement with saved markers, independent center/panel drafts); 1 product bug found and fixed (marker overlay click-blocking). |
+| GF07 / W04 | Verified | Files listing/search/nesting/upload/download/preview/retry/context journeys. Real-browser synthetic-Lore fixture `frontend/scripts/files-workspace-browser-smoke.mjs` (headful Chromium, 23 assertions incl. upload success/failure/retry) green; 2 product bugs found and fixed (blank space picker — Svelte 5 strict select_option; two-click context recovery — now one Retry via `onRetired` reset). Evidence: `/tmp/wabi-files-gf07-*/results.json`, `docs/reviews/files-browser-2026-09-17.md`. |
 | U01 / T02 guest entry | Observed, not diagnosed | Pre-campaign public-browser guest entry reached shell with zero channels; Notes/Planner still requested sign-in; Chromium reload returned to login. Seen in Chromium and Firefox. Source/build identity and root cause unverified. Shell navigation does not accept authentication or workspace data access. |
 
 ## Verification rules

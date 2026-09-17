@@ -2,7 +2,7 @@
 
 ## Result
 
-**21 PASS / 0 FAIL across 21 unique assertion groups.** The two product failures found in the first run (GF07-F1, GF07-F2 below) were fixed in product code and re-verified with this fixture; the fixture's second-Retry check was replaced by a single-Retry recovery assertion that matches the corrected behavior.
+**23 PASS / 0 FAIL across 23 unique assertion groups.** The two product failures found in the first run (GF07-F1, GF07-F2 below) plus a third upload-retry gap (GF07-F3) were fixed in product code and re-verified with this fixture; the fixture's second-Retry check was replaced by a single-Retry recovery assertion that matches the corrected behavior.
 
 - Source baseline supplied at dispatch: `3a888add`.
 - Fixture: `frontend/scripts/files-workspace-browser-smoke.mjs`.
@@ -48,7 +48,9 @@ The fixture provides basic theme variables, not the complete production shell/gl
 | 17 | Optional service recovery through visible Retry | PASS |
 | 18 | Repository HTTP 404 shows “No connected spaces yet” and Code-view guidance | PASS |
 | 19 | 390px viewport picker fits and document has no horizontal overflow | PASS (bounded geometry check only) |
-| 20 | No uncaught browser exceptions | PASS |
+| 20 | Upload completes and refreshed listing shows the file | PASS |
+| 20b | Failed upload keeps honest error; Retry completes and listing refreshes | PASS |
+| 21 | No uncaught browser exceptions | PASS |
 
 ## Product findings
 
@@ -80,6 +82,18 @@ Before the fix: repositories reloaded but the tree still displayed the retiremen
 Fix: the component now subscribes to `session.onRetired` and resets `selectedChannelId = null`; the existing auto-pick effect then re-resolves the channel once spaces reload, which re-triggers the listing effect. One Retry now recovers both repositories and the listing. Assertions 15 and 15b (updated to assert the single-click recovery) pass.
 
 Screenshot of the original failure: `/tmp/wabi-files-gf07-BxqCxT/failure-15.png`.
+
+### GF07-F3 — Retried upload never refreshes the listing — FIXED
+
+**Severity: Medium / recovery.** Found by the upload journey added to this fixture.
+
+1. Upload a file while the synthetic server rejects it (500).
+2. The job row shows the honest error with a Retry button.
+3. Clear the server error, click Retry.
+
+Before the fix: the retried PUT succeeded and the job flipped to done, but the file tree never refreshed — the uploaded file stayed invisible until some other reload. Root cause: `filesWorkspaceSession.startUploads` refreshes the listing after a batch, but `retryUpload` only re-ran the job and skipped the reload.
+
+Fix: `retryUpload` now refreshes the listing (`loadFiles`) when the retried job lands as `done`, matching the batch contract. Assertions 20 and 20b pass.
 
 ### Additional observations, not failing acceptance groups
 
