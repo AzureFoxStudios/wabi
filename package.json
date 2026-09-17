@@ -10,6 +10,7 @@
     "dev:local:windows": "powershell -ExecutionPolicy Bypass -File scripts/local-dev.ps1",
     "dev:backend:local": "cargo run -p wabi-server",
     "dev:backend:local:windows": "cargo run -p wabi-server",
+    "tauri": "tauri",
     "desktop:dev": "bunx tauri dev",
     "desktop:build": "bunx tauri build",
     "desktop:check": "cargo check --manifest-path src-tauri/Cargo.toml",
