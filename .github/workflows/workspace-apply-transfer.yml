@@ -1,0 +1,115 @@
+name: Apply workspace implementation and verify
+on:
+  push:
+    branches: [codex/workspace-addons-20260917]
+    paths: [.github/workflows/workspace-apply-transfer.yml]
+permissions:
+  contents: read
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      source: ${{ steps.commit.outputs.source }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/workspace-addons-20260917
+          fetch-depth: 2
+      - name: Verify and apply exact source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/codex/workspace-addons-20260917
+          node <<'NODE'
+          const fs = require('node:fs');
+          const {brotliDecompressSync} = require('node:zlib');
+          const {createHash} = require('node:crypto');
+          const chunks = Array.from({length:13}, (_,i)=>fs.readFileSync(`.workspace-transfer/${String(i).padStart(2,'0')}.b64`,'utf8').trim());
+          for(let i=0;i<13;i++) if(chunks[i].length !== (i===12?4820:9000)) throw Error(`Chunk ${i} length ${chunks[i].length}`);
+          const patch = brotliDecompressSync(Buffer.from(chunks.join(''),'base64'));
+          if(patch.length!==351114 || createHash('sha256').update(patch).digest('hex')!=='5c69dcec664a2d1becc171dd171850531f5f15497bf86a4c8f99c3a3f17720a6') throw Error('Source checksum mismatch');
+          const names=[...patch.toString('utf8').matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)];
+          if(names.length!==59)throw Error('Unexpected file count');
+          for(const [,a,b] of names){
+            if(a!==b || a.includes('..') || !/^(frontend\/(src\/lib\/|scripts\/workspace-|package(?:-lock)?\.json)|core\/(addons\/(sheets|present)\/plugin\.json|crates\/(wabi-server|wabidb)\/src\/)|docs\/plans\/2026-09-17-workspace-addons-implementation\.md|scripts\/authority-workspace-smoke\.mjs|\.github\/workflows\/workspace-checks\.yml)/.test(a))throw Error(`Unexpected source path ${a}`);
+          }
+          fs.writeFileSync('/tmp/workspace-implementation.patch',patch);
+          NODE
+          git apply --check /tmp/workspace-implementation.patch
+          git apply /tmp/workspace-implementation.patch
+          rm -r .workspace-transfer
+          rm .github/workflows/workspace-source-checkout.yml .github/workflows/workspace-apply-transfer.yml
+      - name: Commit actual source on implementation branch
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: implement optional Sheets and Present with durable shared documents'
+          git push origin HEAD:refs/heads/codex/workspace-addons-20260917
+          echo "source=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  frontend:
+    needs: apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.apply.outputs.source }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - run: node scripts/workspace-unit-tests.mjs
+        working-directory: frontend
+      - run: npm run check
+        working-directory: frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Actual production components in Chromium
+        working-directory: frontend
+        run: WORKSPACE_CHROMIUM="$(node -e 'console.log(require("playwright").chromium.executablePath())')" node scripts/workspace-browser-smoke.mjs
+        env:
+          WORKSPACE_BROWSER_ARTIFACTS: /tmp/workspace-browser
+      - name: Expanded static build
+        working-directory: frontend
+        run: VITE_WABI_SHEETS=1 VITE_WABI_PRESENT=1 STATIC_BUILD=1 npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-browser-evidence
+          path: /tmp/workspace-browser
+          retention-days: 7
+  authority:
+    needs: apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.apply.outputs.source }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@1.93
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - name: Real frontend for embedding
+        run: STATIC_BUILD=1 npm run build
+        working-directory: frontend
+      - name: Durable workspace projection tests
+        run: cargo test -p wabidb workspace_artifacts --locked
+      - name: Compile Authority
+        run: cargo build -p wabi-server --bin wabi-server --locked
+      - name: Independent accounts, publication, revocation, restart and presentation
+        run: node scripts/authority-workspace-smoke.mjs --binary target/debug/wabi-server
