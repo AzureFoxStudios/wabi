@@ -1,4 +1,5 @@
 import { getAuthToken } from '$lib/authSession';
+import { workspaceAddonManifests } from '$lib/addons/workspaceEntries';
 import { parseApiJson } from './api/utils';
 import { getServerUrl } from '$lib/serverUrl';
 import { isEndpointUnsupported, markEndpointUnsupported } from './optionalEndpoints';
@@ -64,6 +65,7 @@ const frontendAddonModules = import.meta.glob([
 
 /** Bundled frontend allowlist IDs (must match loader.ts BUNDLED_ADDON_LOADERS). */
 const BUNDLED_FRONTEND_IDS = new Set([
+	...Object.keys(workspaceAddonManifests),
 	'youtube-sync',
 	'spotify-sync',
 	'steam',

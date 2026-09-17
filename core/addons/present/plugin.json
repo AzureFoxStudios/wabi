@@ -1,0 +1,24 @@
+{
+  "id": "present",
+  "name": "Present",
+  "version": "0.1.0",
+  "description": "Optional Present client tools with shared Authority artifact services. Client packaging and server permission are separate.",
+  "backend": {
+    "runtime": "rust",
+    "path": "../../crates/wabi-server",
+    "crate": "wabi-server",
+    "cargo_feature": null
+  },
+  "frontend": {
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": [],
+      "settingsPages": [],
+      "mobileTabs": []
+    },
+    "bundled": true
+  },
+  "permissions": [
+    "artifacts:scoped"
+  ]
+}

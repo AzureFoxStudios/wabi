@@ -77,6 +77,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Addon capability list/get + nested lore (when feature on).
         // Lore lives inside addons::routes as /addons/lore/... (A2).
         .nest("/addons", addons::routes(state.clone()))
+        .nest("/artifacts", super::artifacts::routes(state.clone()))
         // Places registry (R7b) — always JSON, never SPA HTML fallthrough.
         .nest("/places", places::routes(state.clone()))
         // Emoji / sticker upload routes

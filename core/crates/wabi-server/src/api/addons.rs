@@ -232,20 +232,40 @@ fn enabled_addons() -> Vec<AddonCapability> {
     out
 }
 
+/// Server policy and client packaging are separate. Local tools do not require
+/// these switches, and capability discovery never installs code on a client.
+fn workspace_addons(state: &AppState) -> Result<Vec<AddonCapability>> {
+    let policy = crate::api::artifacts::policy(state)?;
+    Ok([("sheets", "Sheets", policy.sheets), ("present", "Present", policy.present)]
+        .into_iter().map(|(id, name, enabled)| AddonCapability {
+            id: id.into(), name: name.into(), version: "0.1.0".into(),
+            description: "Optional client workspace using the shared Authority artifact service".into(),
+            enabled, backend_runtime: "rust".into(), cargo_feature: None,
+            permissions: vec!["artifacts:scoped".into()],
+            // A separately connecting client may have a different build profile.
+            // Its own allowlist determines whether its editor is available.
+            frontend: FrontendInfo { bundled: false, contributions: FrontendContributions {
+                channel_types: vec![], workspace_panels: vec![], settings_pages: vec![], mobile_tabs: vec![],
+            } },
+        }).collect())
+}
+
 /// GET /api/addons — list enabled addons + frontend extension manifests.
-async fn list_addons(State(_state): State<Arc<AppState>>) -> Result<Json<AddonsListResponse>> {
-    Ok(Json(AddonsListResponse {
-        addons: enabled_addons(),
-    }))
+async fn list_addons(State(state): State<Arc<AppState>>) -> Result<Json<AddonsListResponse>> {
+    let mut addons = enabled_addons();
+    addons.extend(workspace_addons(&state)?);
+    Ok(Json(AddonsListResponse { addons }))
 }
 
 /// GET /api/addons/:id — single addon capability (404 if not enabled in this binary).
 async fn get_addon(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<AddonCapability>> {
     let needle = id.trim().to_lowercase();
-    match enabled_addons()
+    let mut addons = enabled_addons();
+    addons.extend(workspace_addons(&state)?);
+    match addons
         .into_iter()
         .find(|a| a.id.to_lowercase() == needle)
     {

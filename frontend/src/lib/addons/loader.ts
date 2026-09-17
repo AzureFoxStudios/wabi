@@ -10,6 +10,7 @@ import { addonRegistry, addAddon, updateAddonState } from './registry';
 import { getAddonConfig, saveAddonConfig } from './settings';
 import { getAuthToken } from '$lib/authSession';
 import { getServerUrl } from '../serverUrl';
+import { workspaceAddonLoaders, workspaceAddonManifests } from './workspaceEntries';
 
 const loadedAddons = new Map<string, AddonInstance>();
 
@@ -19,6 +20,7 @@ const loadedAddons = new Map<string, AddonInstance>();
  * model-viewer stays off this map (three.js) so Tauri desktop does not pull it.
  */
 const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
+	...workspaceAddonLoaders,
 	'steam': () => import('$lib/games/GamesSettingsEntry.svelte'),
 	'youtube-sync': () => import('$lib/components/plugins/YouTubeWatchEmbed.svelte'),
 	'spotify-sync': () => import('$lib/components/plugins/SpotifyControlsEmbed.svelte'),
@@ -26,6 +28,7 @@ const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
 };
 
 const LOCAL_MANIFESTS: Record<string, AddonManifest> = {
+	...workspaceAddonManifests,
 	'steam': { id:'steam',name:'Steam',version:'0.1.0',frontendEntry:'bundled:steam',dependencies:[] },
 	'youtube-sync': {
 		id: 'youtube-sync',
@@ -68,7 +71,8 @@ async function loadBundledFrontend(addonId: string): Promise<unknown | null> {
  * - Initializes addon lifecycle
  * - Returns AddonInstance or throws
  */
-export async function loadAddon(addonId: string): Promise<AddonInstance> {
+export async function loadAddon(addonId: string, ancestors: readonly string[] = []): Promise<AddonInstance> {
+	if (ancestors.includes(addonId)) throw new Error(`Addon dependency cycle: ${[...ancestors, addonId].join(' → ')}`);
 	if (loadedAddons.has(addonId)) {
 		console.log(`[Addons] Already loaded: ${addonId}`);
 		return loadedAddons.get(addonId)!;
@@ -91,7 +95,7 @@ export async function loadAddon(addonId: string): Promise<AddonInstance> {
 					console.warn(`[Addons] Missing dependency: ${dep} for ${addonId}`);
 					// Try to load dependency
 					try {
-						await loadAddon(dep);
+						await loadAddon(dep, [...ancestors, addonId]);
 					} catch (err) {
 						throw new Error(`Failed to load dependency ${dep}: ${err}`);
 					}
@@ -105,7 +109,10 @@ export async function loadAddon(addonId: string): Promise<AddonInstance> {
 			frontendModule = await loadBundledFrontend(addonId);
 		} catch (err) {
 			console.warn(`[Addons] Failed to load frontend for ${addonId}:`, err);
+			throw err;
 		}
+
+		if (manifest.frontendEntry && !frontendModule) throw new Error(`Frontend addon ${addonId} is not included in this build`);
 
 		// Create addon instance
 		const instance: AddonInstance = {
@@ -137,7 +144,7 @@ export async function loadAddon(addonId: string): Promise<AddonInstance> {
  * - Removes from registry
  * - Frees memory
  */
-export function unloadAddon(addonId: string): void {
+export async function unloadAddon(addonId: string): Promise<void> {
 	const instance = loadedAddons.get(addonId);
 	if (!instance) {
 		console.warn(`[Addons] Not loaded: ${addonId}`);
@@ -149,9 +156,10 @@ export function unloadAddon(addonId: string): void {
 	// Call cleanup hook if exists
 	if (instance.frontendModule?.onUnload) {
 		try {
-			instance.frontendModule.onUnload();
+			await instance.frontendModule.onUnload();
 		} catch (err) {
 			console.error(`[Addons] Cleanup error for ${addonId}:`, err);
+			throw err;
 		}
 	}
 
@@ -216,6 +224,7 @@ export async function disableAddon(addonId: string): Promise<void> {
 			await instance.frontendModule.onDisable();
 		} catch (err) {
 			console.error(`[Addons] Disable error for ${addonId}:`, err);
+			throw err;
 		}
 	}
 
@@ -251,6 +260,8 @@ export function getAllAddons(): AddonInstance[] {
  * Fetch addon manifest from server or local registry
  */
 async function fetchAddonManifest(addonId: string): Promise<AddonManifest | null> {
+	// First-party local tools must work offline; server support is a separate ACL/capability check.
+	if (addonId === 'sheets' || addonId === 'present') return workspaceAddonManifests[addonId] || null;
 	// Try server first
 	try {
 		// Finding 9: use scoped authSession token, not dead localStorage 'auth_token'

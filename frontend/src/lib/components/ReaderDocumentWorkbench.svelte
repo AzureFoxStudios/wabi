@@ -6,6 +6,7 @@
 	import { parseReaderNoteSource } from '$lib/notes/readerBridge';
 	import { openNotesSurface } from '$lib/notesWorkspace';
 	import ReaderTabImpl from './ReaderTabImpl.svelte';
+	import ReaderRemoteActions from '$lib/workspaceArtifacts/ReaderRemoteActions.svelte';
 	import {
 		openReaderStableDocument,
 		readerSelection,
@@ -256,11 +257,6 @@
 		});
 	}
 
-	function explainRemoteState(action: 'share' | 'live'): void {
-		remoteNotice = action === 'live'
-			? 'Live collaboration is not being faked: this V1 currently keeps the document private and local until the real replication transport is connected.'
-			: 'Sharing is intentionally gated until Reader has a real local-first replication transport. Nothing was uploaded or exposed.';
-	}
 
 	function formatUpdated(timestamp: number): string {
 		const age = Math.max(0, Date.now() - timestamp);
@@ -338,9 +334,8 @@
 					{/if}
 					<button type="button" class="reader-action-danger" on:click={discardCurrentWorkingCopy}>Discard draft</button>
 				{/if}
-				<button type="button" on:click={() => explainRemoteState('share')}>Share</button>
-				<button type="button" on:click={() => explainRemoteState('live')}>Go Live</button>
 			{/if}
+			<ReaderRemoteActions document={activeDocument} />
 			<div class="reader-documents-menu-wrap">
 				<button type="button" class:active={documentsOpen} on:click={() => (documentsOpen = !documentsOpen)}>
 					Documents{localDocuments.length ? ` ${localDocuments.length}` : ''}

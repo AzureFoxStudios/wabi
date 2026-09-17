@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
 	import ReaderDocumentWorkbench from './ReaderDocumentWorkbench.svelte';
+	import { workspaceSelection, closeWorkspace } from '$lib/workspaceArtifacts/navigation';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { currentUser } from '$lib/presenceIdentity';
 	import { getAuthToken, getGuestSessionId, getStoredDbUserId, onAuthSessionCleared } from '$lib/authSession';
@@ -36,10 +37,21 @@
 		if (nextScope !== activeScope) {
 			const crossingIdentityBoundary = activeScope !== '';
 			activeScope = nextScope;
-			if (crossingIdentityBoundary) clearReaderSelection();
+			if (crossingIdentityBoundary) { clearReaderSelection(); closeWorkspace(); }
 			void activateReaderDocumentScope(nextScope);
 		}
 	}
 </script>
 
-<ReaderDocumentWorkbench />
+{#if $workspaceSelection}
+	{#await import('$lib/workspaceArtifacts/WorkspaceHost.svelte')}
+		<p role="status">Opening workspace…</p>
+	{:then module}
+		<svelte:component this={module.default} selection={$workspaceSelection} />
+	{:catch error}
+		<p role="alert">Could not open the workspace: {error instanceof Error ? error.message : String(error)}</p>
+		<button on:click={closeWorkspace}>Return to Reader</button>
+	{/await}
+{:else}
+	<ReaderDocumentWorkbench />
+{/if}
