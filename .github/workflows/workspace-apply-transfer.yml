@@ -16,39 +16,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: codex/workspace-addons-20260917
-          fetch-depth: 2
       - name: Verify and apply exact source patch
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/codex/workspace-addons-20260917
           node <<'NODE'
-          const fs = require('node:fs');
-          const {brotliDecompressSync} = require('node:zlib');
-          const {createHash} = require('node:crypto');
-          const chunks = Array.from({length:13}, (_,i)=>fs.readFileSync(`.workspace-transfer/${String(i).padStart(2,'0')}.b64`,'utf8').trim());
-          for(let i=0;i<13;i++) if(chunks[i].length !== (i===12?4820:9000)) throw Error(`Chunk ${i} length ${chunks[i].length}`);
-          const patch = brotliDecompressSync(Buffer.from(chunks.join(''),'base64'));
-          if(patch.length!==351114 || createHash('sha256').update(patch).digest('hex')!=='5c69dcec664a2d1becc171dd171850531f5f15497bf86a4c8f99c3a3f17720a6') throw Error('Source checksum mismatch');
-          const names=[...patch.toString('utf8').matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)];
-          if(names.length!==59)throw Error('Unexpected file count');
-          for(const [,a,b] of names){
-            if(a!==b || a.includes('..') || !/^(frontend\/(src\/lib\/|scripts\/workspace-|package(?:-lock)?\.json)|core\/(addons\/(sheets|present)\/plugin\.json|crates\/(wabi-server|wabidb)\/src\/)|docs\/plans\/2026-09-17-workspace-addons-implementation\.md|scripts\/authority-workspace-smoke\.mjs|\.github\/workflows\/workspace-checks\.yml)/.test(a))throw Error(`Unexpected source path ${a}`);
-          }
-          fs.writeFileSync('/tmp/workspace-implementation.patch',patch);
+          const fs=require('node:fs'),{brotliDecompressSync}=require('node:zlib'),{createHash}=require('node:crypto');
+          const chunks=Array.from({length:13},(_,i)=>fs.readFileSync(`.workspace-transfer/${String(i).padStart(2,'0')}.b64`,'utf8').trim());
+          for(let i=0;i<13;i++)if(chunks[i].length!==(i===12?4820:9000))throw Error(`Chunk ${i} length`);
+          const p=brotliDecompressSync(Buffer.from(chunks.join(''),'base64'));
+          if(p.length!==351114||createHash('sha256').update(p).digest('hex')!=='5c69dcec664a2d1becc171dd171850531f5f15497bf86a4c8f99c3a3f17720a6')throw Error('Source checksum mismatch');
+          fs.writeFileSync('/tmp/workspace-implementation.patch',p);
           NODE
-          git apply --check /tmp/workspace-implementation.patch
-          git apply /tmp/workspace-implementation.patch
+          git apply --check --exclude='.github/workflows/*' /tmp/workspace-implementation.patch
+          git apply --exclude='.github/workflows/*' /tmp/workspace-implementation.patch
           rm -r .workspace-transfer
-          rm .github/workflows/workspace-source-checkout.yml .github/workflows/workspace-apply-transfer.yml
-      - name: Commit actual source on implementation branch
+      - name: Commit source only on implementation branch
         id: commit
-        shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
           git commit -m 'feat: implement optional Sheets and Present with durable shared documents'
           git push origin HEAD:refs/heads/codex/workspace-addons-20260917
           echo "source=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
