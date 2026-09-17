@@ -116,3 +116,11 @@ path = "src/lib.rs"
 [[bin]]
 name = "wabi-server"
 path = "src/main.rs"
+
+[[test]]
+name = "workspace_contract"
+path = "tests/workspace_contract.rs"
+
+[[example]]
+name = "workspace_test_host"
+path = "examples/workspace_test_host.rs"
