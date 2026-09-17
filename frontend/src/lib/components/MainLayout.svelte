@@ -943,7 +943,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	} else if (!mobileNavVisible) {
 		mobileNavVisible = true;
 	}
-	$: activeOfficeTool = workspaceToolFromTab(activeTabId);
+	$: activeOfficeTool = workspaceToolFromTab($activeTabId);
 </script>
 
 <svelte:window
