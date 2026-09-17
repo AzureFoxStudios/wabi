@@ -428,7 +428,7 @@ async fn composed_index_html(state: &Arc<AppState>) -> Vec<u8> {
             // otherwise land inside an HTML attribute/CSS context.
             if is_hex_color(accent) {
                 html = html.replace(
-                    "content=\"#0f0c29\" data-wabi-theme-color",
+                    "content=\"#0D1024\" data-wabi-theme-color",
                     &format!("content=\"{}\" data-wabi-theme-color", accent),
                 );
             }

@@ -185,7 +185,7 @@ async fn rejects_non_hex_accent() {
         "non-hex accent must never reach the theme-color attribute"
     );
     assert!(
-        body.contains(r##"content="#0f0c29" data-wabi-theme-color"##),
+        body.contains(r##"content="#0D1024" data-wabi-theme-color"##),
         "theme-color must stay at its default when the accent is rejected"
     );
 }
