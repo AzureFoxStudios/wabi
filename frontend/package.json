@@ -68,10 +68,15 @@
     "marked": "18.0.12",
     "motion": "13.2.0",
     "opus-recorder": "8.0.5",
+    "pdfjs-dist": "5.7.284",
+    "pptxgenjs": "4.0.1",
     "prismjs": "1.30.0",
     "qrcode": "1.5.4",
     "socket.io-client": "4.8.3",
-    "svelte-i18n": "4.0.1"
+    "svelte-i18n": "4.0.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "y-codemirror.next": "0.3.6",
+    "yjs": "13.6.27"
   },
   "overrides": {
     "socket.io-parser": "4.2.6",

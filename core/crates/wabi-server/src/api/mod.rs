@@ -46,3 +46,6 @@ pub mod whiteboard;
 mod path_util;
 
 pub mod games;
+pub mod workspace;
+mod workspace_crdt;
+mod workspace_present;

@@ -6,6 +6,7 @@ description = "Wabi self-hosted authority/helper/anchor server"
 license = "MIT"
 
 [dependencies]
+yrs = { version = "=0.27.4", features = ["small-client", "sync"] }
 # Web framework
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tokio = { version = "1", features = ["full"] }
