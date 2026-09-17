@@ -232,20 +232,36 @@ fn enabled_addons() -> Vec<AddonCapability> {
     out
 }
 
+fn configured_workspace_addons(state: &AppState) -> Result<Vec<AddonCapability>> {
+    let mut out = enabled_addons();
+    let settings = state.wdb.workspace_get("settings")?.map(|r| r.value).unwrap_or_default();
+    for (id, name) in [("sheets", "Sheets"), ("present", "Present")] {
+        out.push(AddonCapability {
+            id: id.into(), name: name.into(), version: "0.1.0".into(),
+            description: "Optional local-first workspace; client package and server sharing are independent".into(),
+            enabled: settings[id].as_bool().unwrap_or(false), backend_runtime: String::new(), cargo_feature: None, permissions: vec![],
+            frontend: FrontendInfo { bundled: true, contributions: FrontendContributions {
+                channel_types: vec![], workspace_panels: vec![format!("workspace:{id}")], settings_pages: vec![id.into()], mobile_tabs: vec![format!("workspace:{id}")],
+            } },
+        });
+    }
+    Ok(out)
+}
+
 /// GET /api/addons — list enabled addons + frontend extension manifests.
-async fn list_addons(State(_state): State<Arc<AppState>>) -> Result<Json<AddonsListResponse>> {
+async fn list_addons(State(state): State<Arc<AppState>>) -> Result<Json<AddonsListResponse>> {
     Ok(Json(AddonsListResponse {
-        addons: enabled_addons(),
+        addons: configured_workspace_addons(&state)?,
     }))
 }
 
 /// GET /api/addons/:id — single addon capability (404 if not enabled in this binary).
 async fn get_addon(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<AddonCapability>> {
     let needle = id.trim().to_lowercase();
-    match enabled_addons()
+    match configured_workspace_addons(&state)?
         .into_iter()
         .find(|a| a.id.to_lowercase() == needle)
     {

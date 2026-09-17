@@ -1,6 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const clientVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const candidateRevision = process.env.WABI_SOURCE_REVISION ?? '';
@@ -9,7 +10,14 @@ const clientRevision = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(candidateRevision
 const isTauri = process.env.TAURI_ENV_PLATFORM ? true : false;
 const browserTargets = ['edge88', 'firefox78', 'chrome87', 'safari13.1'];
 
+const workspaceSelection = new Set((process.env.WABI_WORKSPACE_ADDONS || 'none').split(',').map(v => v.trim()));
+if ([...workspaceSelection].some(v => !['none', 'all', 'sheets', 'present'].includes(v))) throw new Error('WABI_WORKSPACE_ADDONS must be none, all, sheets, present, or sheets,present');
+const workspacePackaged = { sheets: workspaceSelection.has('all') || workspaceSelection.has('sheets'), present: workspaceSelection.has('all') || workspaceSelection.has('present') };
+const workspaceEntry = (name: 'sheets' | 'present') => fileURLToPath(new URL(workspacePackaged[name] ? `./src/lib/workspaces/${name}/addon.ts` : './src/lib/workspaces/addonUnavailable.ts', import.meta.url));
+
 export default defineConfig({
+	resolve: { alias: { '@wabi/workspace-sheets': workspaceEntry('sheets'), '@wabi/workspace-present': workspaceEntry('present') } },
+	worker: { format: 'es' },
 	// Tauri requires specific builder config
 	build: {
 		target: isTauri ? 'ES2021' : ['ES2020', ...browserTargets],
@@ -41,12 +49,21 @@ export default defineConfig({
 	},
 	define: {
 		'process.env': {},
+		'__WABI_WORKSPACE_PACKAGED__': JSON.stringify(workspacePackaged),
 		'__WABI_SW_VERSION__': JSON.stringify('10'),
 		'__WABI_IS_TAURI__': JSON.stringify(isTauri),
 		'__WABI_CLIENT_BUILD__': JSON.stringify({ version: clientVersion, sourceRevision: clientRevision })
 	},
 	plugins: [
-		sveltekit(),
+        {
+            name: 'wabi-workspace-bundle-evidence',
+            apply: 'build',
+            generateBundle(_options, bundle) {
+                const chunks = Object.entries(bundle).flatMap(([file, output]) => output.type === 'chunk' ? [{ file, entry: output.isEntry, imports: output.imports, dynamicImports: output.dynamicImports, modules: Object.keys(output.modules).filter(id => /workspaces\/|node_modules\/(?:xlsx|pptxgenjs|pdfjs-dist|yjs|y-codemirror)/.test(id)) }] : []);
+                this.emitFile({ type: 'asset', fileName: 'wabi-workspace-bundle.json', source: JSON.stringify({ schema: 1, packaged: workspacePackaged, chunks }, null, 2) });
+            }
+        },
+        sveltekit(),
 		{
 			name: 'wabi-build-identity',
 			apply: 'build',

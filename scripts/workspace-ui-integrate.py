@@ -64,9 +64,9 @@ if '$: activeOfficeTool = workspaceToolFromTab(activeTabId);' not in text:
     text=text.replace('</script>',"\t$: activeOfficeTool = workspaceToolFromTab(activeTabId);\n</script>",1)
 if '<WorkspaceLinkHandler />' not in text:text=text.replace('<AuthErrorBanner />','<AuthErrorBanner />\n\t<WorkspaceLinkHandler />',1)
 if '<WorkspaceHost tool={activeOfficeTool}' not in text:
-    marker='{#if isModelTabActive}'
+    marker='{#if isModelViewportTabActive}'
     if text.count(marker)!=1:raise RuntimeError('Main workspace rendering anchor missing')
-    text=text.replace(marker,'{#if activeOfficeTool}\n\t\t\t\t\t<WorkspaceHost tool={activeOfficeTool} />\n\t\t\t\t{:else if isModelTabActive}',1)
+    text=text.replace(marker,'{#if activeOfficeTool}\n\t\t\t\t\t<WorkspaceHost tool={activeOfficeTool} />\n\t\t\t\t{:else if isModelViewportTabActive}',1)
 p.write_text(text)
 
 reader='frontend/src/lib/components/ReaderDocumentWorkbench.svelte'

@@ -37,7 +37,7 @@
         <button onclick={()=>session.undo.undo()} disabled={!editable}>Undo</button><button onclick={()=>session.undo.redo()} disabled={!editable}>Redo</button>
     </header>
     {#if error||$sessionState.error}<div class="workspace-notice" role="alert">{error||$sessionState.error}<button onclick={()=>run(async()=>{await session.flush();await session.sync();session.startPolling();})}>Retry</button></div>{/if}
-    <div class="workspace-privacy">{#if $sessionState.meta}{$sessionState.meta.mode==='live'?'Collaborative document':'Shared snapshot'} · {$sessionState.meta.role} · Server-readable{#else}Private · this device · opening and editing do not upload this file{/if}</div>
+    <div class="workspace-privacy">{#if $sessionState.meta}{$sessionState.meta.mode==='live'?'Collaborative document':'Shared snapshot'} · {$sessionState.meta.role} · Server-readable{:else}Private · this device · opening and editing do not upload this file{/if}</div>
     <div class="workspace-body"><main class="workspace-content">{@render children()}</main>
         {#if reviewOpen}<aside class="workspace-reviews" aria-label="Reviews"><h2>Comments and suggestions</h2><button onclick={()=>reviewOpen=false}>Close review</button>
             {#if $sessionState.meta?.role!=='viewer'}
