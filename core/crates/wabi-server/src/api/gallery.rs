@@ -140,6 +140,7 @@ async fn list_feedback(
     State(state): State<Arc<AppState>>,
     Path((channel_id, work_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
+    resolve_feedback_work(&state, &channel_id, &work_id).await?;
     let feedback = state.wdb.list_gallery_feedback(&channel_id, &work_id).await?;
     Ok(Json(json!({ "feedback": feedback })))
 }
@@ -158,9 +159,7 @@ async fn add_feedback(
     Path((channel_id, work_id)): Path<(String, String)>,
     Json(payload): Json<AddFeedbackPayload>,
 ) -> Result<Json<Value>, AppError> {
-    state.wdb.get_gallery_work(&channel_id, &work_id).await?
-        .filter(|work| !work.is_deleted)
-        .ok_or_else(|| AppError::NotFound("gallery work not found".into()))?;
+    resolve_feedback_work(&state, &channel_id, &work_id).await?;
     let feedback_id = state
         .wdb
         .add_gallery_feedback(
@@ -182,9 +181,62 @@ async fn delete_feedback(
     auth: AuthUser,
     Path((channel_id, work_id, feedback_id)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, AppError> {
+    resolve_feedback_work(&state, &channel_id, &work_id).await?;
     state
         .wdb
         .delete_gallery_feedback(&channel_id, &work_id, &feedback_id, auth.user_id as u64)
         .await?;
     Ok(Json(json!({ "deleted": true })))
+}
+
+/// Split a gallery-list derived id (`album-{albumId}-item-{itemId}`) into its
+/// parts. The round-trip check rejects smuggled extra segments; ids that do
+/// not follow the derived shape are not album references at all.
+fn parse_album_item_work_id(work_id: &str) -> Option<(String, String)> {
+    let rest = work_id.strip_prefix("album-")?;
+    let (album_id, item_id) = rest.split_once("-item-")?;
+    if album_id.is_empty() || item_id.is_empty() {
+        return None;
+    }
+    if format!("album-{album_id}-item-{item_id}") != work_id {
+        return None;
+    }
+    Some((album_id.to_string(), item_id.to_string()))
+}
+
+/// Confirm a feedback work id names a readable resource in this channel.
+///
+/// Real gallery works keep their existing check. Album-derived ids resolve
+/// against the actual album record: the album must live in the channel from
+/// the URL path (scope-keyed lookup, so another channel's album id cannot
+/// alias in) and the item must currently exist in it. Nothing is created on
+/// view, and channel authorization stays with the `require_channel`
+/// middleware plus the album's own scope check. Unknown ids are 404.
+async fn resolve_feedback_work(
+    state: &AppState,
+    channel_id: &str,
+    work_id: &str,
+) -> Result<(), AppError> {
+    if let Some(work) = state.wdb.get_gallery_work(channel_id, work_id).await? {
+        if !work.is_deleted {
+            return Ok(());
+        }
+        return Err(AppError::NotFound("gallery work not found".into()));
+    }
+    if let Some((album_id, item_id)) = parse_album_item_work_id(work_id) {
+        // Scope-keyed: only an album owned by this channel resolves here.
+        let album = state
+            .wdb
+            .get_album("channel", channel_id, &album_id)
+            .await?
+            .filter(|album| !album.is_deleted);
+        if let Some(album) = album {
+            debug_assert_eq!(album.scope_id, channel_id);
+            let items = state.wdb.list_items(&album_id).await?;
+            if items.iter().any(|item| item.item_id == item_id) {
+                return Ok(());
+            }
+        }
+    }
+    Err(AppError::NotFound("gallery work not found".into()))
 }
