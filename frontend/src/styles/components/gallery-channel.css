@@ -434,6 +434,7 @@
 	/* Creator profile banner — image-based, personable */
 	.creator-banner {
 		position: relative; margin: 0 32px 24px; border-radius: 6px; overflow: hidden;
+		min-height: 140px;
 		background: var(--surface-raised, #1a2332);
 	}
 

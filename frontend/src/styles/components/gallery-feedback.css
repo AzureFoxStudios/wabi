@@ -24,7 +24,7 @@
 .lightbox-markers {
 	position: absolute;
 	inset: 0;
-	pointer-events: auto;
+	pointer-events: none;
 	cursor: crosshair;
 }
 
@@ -66,6 +66,7 @@
 	color: var(--text-on-warning);
 	border-color: var(--color-warning);
 	animation: marker-pulse 1.2s ease-in-out infinite;
+	pointer-events: none;
 }
 
 @keyframes marker-pulse {

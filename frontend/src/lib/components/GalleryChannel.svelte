@@ -531,12 +531,12 @@
 				</div>
 			{/if}
 
-			{#if mainItems.length > 0}
+			{#if filteredItems.length > 0}
 				<section class="gallery-section">
 					{#if !activeCreatorFilter}
 						<div class="section-header">
 							<h2>{filtersActive ? 'Matching works' : 'All Works'}</h2>
-							<span class="section-count">{mainItems.length} total</span>
+							<span class="section-count">{filteredItems.length} total</span>
 						</div>
 					{/if}
 					<div class="gallery-grid">
