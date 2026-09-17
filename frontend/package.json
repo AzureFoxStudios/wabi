@@ -63,7 +63,7 @@
     "@tauri-apps/api": "2.11.1",
     "@xyflow/svelte": "1.6.6",
     "dompurify": "3.4.14",
-    "katex": "0.18.4",
+    "katex": "0.18.7",
     "livekit-client": "2.22.1",
     "marked": "18.0.12",
     "motion": "13.2.0",
