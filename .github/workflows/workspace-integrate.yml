@@ -1,0 +1,69 @@
+name: Workspace integrate and check
+on:
+  push:
+    branches: [codex/docs-sheets-present-20260917]
+    paths: [.github/workflows/workspace-integrate.yml, scripts/workspace-integrate-once.py]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: workspace-integration-20260917
+  cancel-in-progress: false
+jobs:
+  integrate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/docs-sheets-present-20260917
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.93'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace-20260917
+      - uses: actions/download-artifact@v4
+        with:
+          name: wabi-workspace-validation-support
+          run-id: 35225408444
+          github-token: ${{ github.token }}
+          path: /tmp/workspace-support
+      - name: Apply pinned dependency and module integration
+        run: |
+          tar -xzf /tmp/workspace-support/frontend.tar.gz -C frontend package.json package-lock.json
+          cp /tmp/workspace-support/Cargo.lock Cargo.lock
+          python3 scripts/workspace-integrate-once.py
+          git config user.name 'Wabi workspace integration'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.lock frontend/package.json frontend/package-lock.json core/crates/wabi-server/Cargo.toml core/crates/wabi-server/src/adapter/mod.rs core/crates/wabi-server/src/api/mod.rs core/crates/wabi-server/src/api/routes.rs core/crates/wabidb/src/engine/mod.rs core/crates/wabidb/src/projections/mod.rs core/crates/wabidb/src/projections/workspace.rs
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat(workspace): integrate private artifact service and pinned dependencies'
+            git pull --rebase origin codex/docs-sheets-present-20260917
+            git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
+          fi
+          git rev-parse HEAD
+      - name: Install exact frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Build real embedded frontend
+        working-directory: frontend
+        env:
+          STATIC_BUILD: '1'
+        run: npm run build
+      - name: Check Authority and workspace tests
+        run: |
+          cargo check -p wabi-server --locked
+          cargo test -p wabidb workspace --locked
+          cargo test -p wabi-server workspace --lib --locked
+      - name: Upload compact verification record
+        if: always()
+        run: |
+          git status --short
+          git rev-parse HEAD
