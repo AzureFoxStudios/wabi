@@ -14,22 +14,30 @@ export function invitationServer(value: string): string {
     }
     return url.origin;
 }
+function shareableServer(value: string): string {
+    const origin = invitationServer(value);
+    const host = new URL(origin).hostname.toLowerCase().replace(/\.$/, '');
+    // URL normalizes integer, shortened and hexadecimal IPv4 forms first.
+    const selfAddress = host === 'localhost' || host.endsWith('.localhost')
+        || /^127\./.test(host) || host === '0.0.0.0' || host === '255.255.255.255'
+        || ['[::]', '[::1]', '[::ffff:0:0]'].includes(host)
+        || /^\[::(?:ffff:)?7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(host);
+    if (selfAddress) {
+        throw new Error('This address cannot identify your computer to a guest. Use a LAN address or a reachable HTTPS address.');
+    }
+    return origin;
+}
 export function makeInvitation(server: string, token: string): string {
     if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid invitation credential.');
-    const origin = invitationServer(server);
-    const host = new URL(origin).hostname;
-    if (['localhost', '127.0.0.1', '[::1]'].includes(host)) {
-        throw new Error('A localhost link points to the recipient’s computer, not yours. Use a LAN address or a reachable HTTPS address.');
-    }
-    return `${origin}/join#invite=${token}`;
+    return `${shareableServer(server)}/join#invite=${token}`;
 }
 export function parseInvitation(value: string): JoinInvitation {
     if (value.length > 4096) throw new Error('Invitation is too long.');
     const url = new URL(value.trim());
+    if (url.username || url.password) throw new Error('Invitation links must not contain embedded credentials.');
     if (url.pathname !== '/join' || url.search) throw new Error('Use the complete Wabi /join invitation.');
     const params = new URLSearchParams(url.hash.slice(1));
     const token = params.get('invite') || '';
     if (Array.from(params).length !== 1 || !/^[a-f0-9]{64}$/.test(token)) throw new Error('The invitation is missing or invalid.');
-    const clean = new URL(url.origin);
-    return { server: invitationServer(clean.href), token };
+    return { server: shareableServer(url.origin), token };
 }
