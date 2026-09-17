@@ -5,21 +5,24 @@ on:
     paths: [.github/workflows/workspace-integrate.yml, scripts/workspace-integrate-once.py, scripts/workspace-ui-integrate.py]
 permissions:
   contents: read
-  actions: read
 concurrency:
   group: workspace-integration-20260917
   cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: '1'
+  FORCE_COLOR: '0'
 jobs:
   integrate:
     runs-on: ubuntu-22.04
     timeout-minutes: 40
     permissions:
       contents: write
-      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
           ref: codex/docs-sheets-present-20260917
+          fetch-depth: 20
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -29,56 +32,44 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace-20260917
-      - uses: actions/download-artifact@v4
-        with:
-          name: wabi-workspace-validation-support
-          run-id: 35225408444
-          github-token: ${{ github.token }}
-          path: /tmp/workspace-support
-      - name: Apply pinned dependency and module integration
-        id: integrate
+          cache-on-failure: true
+      - name: Apply isolated branch integrations
         run: |
-          tar -xzf /tmp/workspace-support/frontend.tar.gz -C frontend package.json package-lock.json
-          cp /tmp/workspace-support/Cargo.lock Cargo.lock
           python3 scripts/workspace-integrate-once.py
-          if test -f scripts/workspace-ui-integrate.py; then python3 scripts/workspace-ui-integrate.py; fi
+          if test -f scripts/workspace-ui-integrate.py; then
+            python3 scripts/workspace-ui-integrate.py
+            cargo update -p yrs --precise 0.24.0
+          fi
           git config user.name 'Wabi workspace integration'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git diff --name-status
           git add -u
           if ! git diff --cached --quiet; then
-            git commit -m 'feat(workspace): integrate private artifact service and optional workspace entry points'
+            git commit -m 'feat(workspace): wire optional tools and reconcile validated integration changes'
             git pull --rebase origin codex/docs-sheets-present-20260917
             git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
           fi
           git rev-parse HEAD
       - name: Install exact frontend dependencies
-        id: dependencies
         working-directory: frontend
         run: npm ci
       - name: Check all frontend source
         id: frontend_check
         continue-on-error: true
         working-directory: frontend
-        run: |
-          npm run check > /tmp/workspace-check.log 2>&1
-          tail -n 100 /tmp/workspace-check.log
-      - name: Build real embedded frontend
+        run: npm run check > /tmp/workspace-check.log 2>&1
+      - name: Build real expanded frontend
         id: frontend_build
         continue-on-error: true
         working-directory: frontend
         env:
           STATIC_BUILD: '1'
           WABI_WORKSPACE_ADDONS: all
-        run: |
-          npm run build > /tmp/workspace-build.log 2>&1
-          tail -n 60 /tmp/workspace-build.log
+        run: npm run build > /tmp/workspace-build.log 2>&1
       - name: Check actual Authority
         id: rust_check
         continue-on-error: true
-        run: |
-          cargo check -p wabi-server --locked > /tmp/workspace-rust.log 2>&1
-          tail -n 120 /tmp/workspace-rust.log
+        run: cargo check -p wabi-server --locked > /tmp/workspace-rust.log 2>&1
       - name: Run private workspace tests
         id: rust_tests
         if: steps.rust_check.outcome == 'success'
@@ -86,9 +77,24 @@ jobs:
         run: |
           cargo test -p wabidb workspace --locked > /tmp/workspace-wabidb-tests.log 2>&1
           cargo test -p wabi-server workspace --lib --locked > /tmp/workspace-server-tests.log 2>&1
-          tail -n 100 /tmp/workspace-wabidb-tests.log
-          tail -n 100 /tmp/workspace-server-tests.log
-      - name: Diagnostic summaries and strict result
+      - name: Readable diagnostics
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for file in sorted(Path('/tmp').glob('workspace-*.log')):
+              text=re.sub(r'\x1b\[[0-9;]*[A-Za-z]','',file.read_text(errors='replace'))
+              lines=text.splitlines()
+              print('\n===== '+file.name+' =====')
+              indices=set()
+              for i,line in enumerate(lines):
+                  if re.search(r'(^Error:|^error\[|^error:|svelte-check found|test result:|^FAIL|^fail\b)',line):
+                      indices.update(range(max(0,i-2),min(len(lines),i+12)))
+              for i in sorted(indices)[:650]: print(lines[i])
+              print('\n'.join(lines[-10:]))
+          PY
+      - name: Strict result
         if: always()
         env:
           FRONTEND_CHECK: ${{ steps.frontend_check.outcome }}
@@ -97,11 +103,5 @@ jobs:
           RUST_TESTS: ${{ steps.rust_tests.outcome }}
         run: |
           git rev-parse HEAD
-          for file in /tmp/workspace-*.log; do
-            test -f "$file" || continue
-            echo "===== $file ====="
-            grep -E -A 7 '^Error:|error\[|^error:|svelte-check found|\.[st][vs]velte:|^src/lib/workspaces|^test result:' "$file" | head -n 500 || true
-            tail -n 12 "$file"
-          done
           printf '%s\n' "frontend_check=$FRONTEND_CHECK frontend_build=$FRONTEND_BUILD rust_check=$RUST_CHECK rust_tests=$RUST_TESTS"
           test "$FRONTEND_CHECK" = success && test "$FRONTEND_BUILD" = success && test "$RUST_CHECK" = success && test "$RUST_TESTS" = success
