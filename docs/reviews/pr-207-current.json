@@ -1,0 +1,598 @@
+{
+  "files": [
+    {
+      "path": "core/crates/wabi-server/src/api/media.rs",
+      "additions": 51,
+      "deletions": 18,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/media_permissions.rs",
+      "additions": 107,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/mod.rs",
+      "additions": 3,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/routes.rs",
+      "additions": 3,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/voice_policy.rs",
+      "additions": 422,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/voice_self_state.rs",
+      "additions": 89,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/socketio/media_reactions_signaling.rs",
+      "additions": 199,
+      "deletions": 844,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/socketio/media_reactions_signaling_legacy.rs",
+      "additions": 953,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/socketio/voice_channels.rs",
+      "additions": 240,
+      "deletions": 119,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/socketio/voice_media_policy.rs",
+      "additions": 118,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/socketio/voice_moderation.rs",
+      "additions": 265,
+      "deletions": 125,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "core/crates/wabi-server/src/socketio_impl.rs",
+      "additions": 1,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "crates/wabi-core/src/lib.rs",
+      "additions": 1,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "crates/wabi-core/src/workspace/voice.rs",
+      "additions": 12,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "crates/wabi-core/tests/workspace_types.rs",
+      "additions": 8,
+      "deletions": 3,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/app.html",
+      "additions": 2,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/branding.ts",
+      "additions": 1,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/callSessionManager.ts",
+      "additions": 30,
+      "deletions": 39,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/callSessionManager.voicePolicy.test.ts",
+      "additions": 50,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/callingFallback.test.ts",
+      "additions": 29,
+      "deletions": 6,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/callingFallback.ts",
+      "additions": 24,
+      "deletions": 9,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/callingLivekit.ts",
+      "additions": 402,
+      "deletions": 105,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/callingWatchdog.test.ts",
+      "additions": 21,
+      "deletions": 25,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/callingWatchdog.ts",
+      "additions": 25,
+      "deletions": 30,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/channelStore.ts",
+      "additions": 82,
+      "deletions": 12,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/DmHub.svelte",
+      "additions": 42,
+      "deletions": 21,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/Login.svelte",
+      "additions": 16,
+      "deletions": 7,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/VideoSink.svelte",
+      "additions": 137,
+      "deletions": 3,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/WorkspaceViewBar.svelte",
+      "additions": 63,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/admin/ChannelAccessPanel.svelte",
+      "additions": 35,
+      "deletions": 13,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/admin/PaymentAccessPanel.svelte",
+      "additions": 18,
+      "deletions": 23,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/admin/RoleNamesPanel.svelte",
+      "additions": 3,
+      "deletions": 7,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/business/GanttChart.svelte",
+      "additions": 11,
+      "deletions": 6,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/business/InsightsView.svelte",
+      "additions": 10,
+      "deletions": 6,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/login.css",
+      "additions": 51,
+      "deletions": 50,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/pwa/InstallAppBanner.svelte",
+      "additions": 17,
+      "deletions": 5,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/sidebar/ChannelSettingsModal.svelte",
+      "additions": 22,
+      "deletions": 4,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/mediaGateway.ts",
+      "additions": 5,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/theme/buildTokens.ts",
+      "additions": 25,
+      "deletions": 3,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/theme/palettes.ts",
+      "additions": 21,
+      "deletions": 20,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/theme/themeManager.ts",
+      "additions": 1,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/theme/themeTypes.ts",
+      "additions": 2,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/voiceAdmission.ts",
+      "additions": 35,
+      "deletions": 4,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/voiceAdmissionState.ts",
+      "additions": 50,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/styles/components/admin-center-stage.css",
+      "additions": 9,
+      "deletions": 9,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/styles/components/admin-tab.css",
+      "additions": 4,
+      "deletions": 4,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/styles/components/controls.css",
+      "additions": 288,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/styles/components/payment-sheet.css",
+      "additions": 7,
+      "deletions": 5,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/styles/components/settings-nav.css",
+      "additions": 1,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/styles/components/settings-profile.css",
+      "additions": 23,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/styles/components/storage-settings.css",
+      "additions": 4,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/styles/mobile.css",
+      "additions": 0,
+      "deletions": 19,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/styles/styles.css",
+      "additions": 1,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/styles/tokens.css",
+      "additions": 23,
+      "deletions": 23,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/static/favicon.png",
+      "additions": 0,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/static/icon-192.png",
+      "additions": 0,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/static/icon-512.png",
+      "additions": 0,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/static/manifest.webmanifest",
+      "additions": 2,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/static/wabi-logo-boot.webp",
+      "additions": 0,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/static/wabi-logo-small.webp",
+      "additions": 0,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/static/wabi-logo.png",
+      "additions": 0,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/static/wabi-logo.webp",
+      "additions": 0,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "packages/wabi-protocol/src/generated/VoiceChannelSettings.ts",
+      "additions": 2,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "packages/wabi-protocol/src/generated/VoiceEntryMode.ts",
+      "additions": 3,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "packages/wabi-protocol/src/index.ts",
+      "additions": 1,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "scripts/tests/test_wabi_media_node.py",
+      "additions": 41,
+      "deletions": 3,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "scripts/wabi-media-node.py",
+      "additions": 120,
+      "deletions": 66,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "shared/mediaContracts.ts",
+      "additions": 8,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    }
+  ],
+  "headRefOid": "cb9400893f3c765111c72643a2f80a631d9b870d",
+  "mergeable": "MERGEABLE",
+  "number": 207,
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:12:10Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446786/job/104257367653",
+      "name": "build-tauri (macos-latest, --target universal-apple-darwin)",
+      "startedAt": "2026-09-15T06:56:28Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:49:42Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446788/job/104257367604",
+      "name": "test",
+      "startedAt": "2026-09-15T06:48:46Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:49:50Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446124/job/104257365415",
+      "name": "Android aarch64 debug APK",
+      "startedAt": "2026-09-15T06:45:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Native Mobile Build"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:44:06Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446833/job/104257367504",
+      "name": "Android aarch64 debug APK",
+      "startedAt": "2026-09-15T06:40:21Z",
+      "status": "COMPLETED",
+      "workflowName": "Native Mobile Build"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:53:52Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446903/job/104257367996",
+      "name": "Headful synthetic voice regression",
+      "startedAt": "2026-09-15T06:52:58Z",
+      "status": "COMPLETED",
+      "workflowName": "Voice Browser Smoke"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:57:35Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446774/job/104257367457",
+      "name": "build (ubuntu-latest)",
+      "startedAt": "2026-09-15T06:47:36Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:54:00Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446779/job/104257367627",
+      "name": "Analyze (actions)",
+      "startedAt": "2026-09-15T06:53:14Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:54:19Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446774/job/104257367581",
+      "name": "build (windows-latest)",
+      "startedAt": "2026-09-15T06:38:44Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:43:39Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446786/job/104257367577",
+      "name": "build-tauri (ubuntu-22.04)",
+      "startedAt": "2026-09-15T06:32:14Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:50:10Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446779/job/104257367394",
+      "name": "Analyze (javascript-typescript)",
+      "startedAt": "2026-09-15T06:48:55Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:06:16Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446774/job/104257367641",
+      "name": "build (macos-latest)",
+      "startedAt": "2026-09-15T06:51:53Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:49:36Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446786/job/104257367611",
+      "name": "build-tauri (windows-latest)",
+      "startedAt": "2026-09-15T06:38:03Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:53:12Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446779/job/104257367555",
+      "name": "Analyze (python)",
+      "startedAt": "2026-09-15T06:52:17Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:02:08Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446779/job/104257367526",
+      "name": "Analyze (rust)",
+      "startedAt": "2026-09-15T06:50:11Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:06:17Z",
+      "conclusion": "SKIPPED",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446774/job/104286344491",
+      "name": "create-release",
+      "startedAt": "2026-09-15T07:06:17Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:57:51Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446786/job/104257367588",
+      "name": "build-server",
+      "startedAt": "2026-09-15T06:50:47Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:44:49Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34930446786/job/104257367494",
+      "name": "frontend-checks",
+      "startedAt": "2026-09-15T06:43:46Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:50:03Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/runs/104282272164",
+      "name": "CodeQL",
+      "startedAt": "2026-09-15T06:50:01Z",
+      "status": "COMPLETED",
+      "workflowName": ""
+    }
+  ],
+  "title": "feat(media): enforce voice policy and selective SFU subscriptions"
+}

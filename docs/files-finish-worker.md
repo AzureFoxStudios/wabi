@@ -1,0 +1,15 @@
+# GF07 Files implementation closure
+Work ONLY at /var/home/Ronin/wabi-production-finish-union. User requests finishing campaign implementation, leaving hard quality acceptance separate. Read AGENTS.md. Parent owns Gallery, boot, PR integration. No push/merge/deploy, no accounts, no live browser/data/secrets.
+
+Allowed changes: frontend/src/lib/components/FilesWorkspace.svelte, new frontend/src/lib/filesWorkspaceSession.ts and filesWorkspaceSession.test.ts, new frontend/scripts/files-workspace-regression.mjs if useful, docs/reviews/files-implementation.md. Read-only references: frontend/src/lib/api/lore.ts, authSession.ts, apiRequest.ts, groupAccess.ts, groupMembership.ts, serverUrl.ts, galleryFeedbackStore.ts, components/lore/LoreFileTree.svelte. Do not edit shared APIs or other components.
+
+Concrete defects verified by parent:
+- $derived(get(currentChannel)) and $derived(get(channels)) do not subscribe reactively. Use real Svelte store subscriptions.
+- loadSpaces hides every exception as absent repo. Distinguish errors/partial results/empty; actionable retry; missing auth must not spin forever.
+- loadFiles, cross-space search, preview, download and upload have no ownership fences. Late completion must not overwrite current view after channel/account/server/logout/disposal or membership revocation. Close preview invalidates pending preview; same-account token refresh should not gratuitously discard state. Capture scope before async and test between continuation calls, using existing context primitives. Prevent A-B-A resurrection. Stop queued uploads after retirement; already-issued request may complete but must not mutate new scope or toast/download into it. Clear sensitive display on retirement. Per-mounted instance remains independent. Revoke object URLs on close/replace/disposal.
+- Search lacks catch/errors/no-match distinction and retry. Preserve partial results with honest warning; no unhandled rejection.
+- Error list has no retry. Upload jobs keyed by destination collide for repeated names. Use stable unique job ids, retain errors and add explicit retry/dismiss instead of auto-pruning failed entries after 4 seconds. Preserve acknowledged counts. Do not silently overwrite conflicts or add automatic sync; respect mirror read-only state and existing server upload contract.
+
+Implement coherent wired behavior, not unused helper scaffolding. Keep shell/channels/stubs unchanged. Tests should exercise actual ownership/helper logic and assert component wiring where needed; do not global mock.module poison Bun siblings. Use subprocess fixtures if needed. Document honest test boundaries, not browser acceptance.
+
+Run npm exec --yes --package=bun@1.3.14 -- bun test src/lib/filesWorkspaceSession.test.ts and npm exec --yes --package=bun@1.3.14 -- bun run check from frontend. No full builds concurrently. Scope is bounded: stop after this Files surface. Write report with exact commands/results. Finish with git add ONLY exact changed allowed files and git commit -m 'fix(files): own requests and preserve recoverable failures'. Never git add -A, stash/reset/checkout, push or deploy.
