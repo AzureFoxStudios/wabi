@@ -11,6 +11,9 @@ pub struct Manifest { pub version: u32, pub files: BTreeMap<String, String> }
 
 pub fn private_dir(path: &Path) -> Result<()> {
     fs::create_dir_all(path).map_err(|e| e.to_string())?;
+    if !fs::symlink_metadata(path).map_err(|e| e.to_string())?.is_dir() {
+        return Err("Private storage must be a real directory, not a symbolic link".into());
+    }
     #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
@@ -50,7 +53,7 @@ fn walk(root: &Path, relative: &Path, files: &mut BTreeMap<String, String>, targ
         if kind.is_dir() { walk(root, &child, files, target)?; }
         else if kind.is_file() {
             // Process locks are runtime leases, not durable community data.
-            if entry.file_name() == ".lock" { continue; }
+            if child == Path::new(".lock") || child == Path::new("wabidb/.lock") { continue; }
             if files.len() >= MAX_FILES { return Err("Snapshot exceeds supported file count".into()); }
             let name = child.to_str().ok_or("Backup contains a non-UTF-8 filename")?.replace('\\', "/");
             let hash = digest(&entry.path())?;
@@ -97,7 +100,9 @@ impl Drop for SnapshotLease {
 
 pub fn snapshot(data: &Path, destination: &Path) -> Result<()> {
     let _lease = SnapshotLease::acquire(data)?;
-    if destination.exists() { return Err("Snapshot already exists".into()); }
+    // Acquire the destination exclusively; never merge with or clean up a
+    // directory supplied by another process after an existence check.
+    fs::create_dir(destination).map_err(|e| format!("Cannot create snapshot: {e}"))?;
     private_dir(destination)?;
     let result = (|| {
         let mut files = BTreeMap::new();
@@ -111,7 +116,7 @@ pub fn snapshot(data: &Path, destination: &Path) -> Result<()> {
     if result.is_err() { let _ = fs::remove_dir_all(destination); }
     result
 }
-pub fn validate(snapshot: &Path) -> Result<()> {
+fn verified_manifest(snapshot: &Path) -> Result<Manifest> {
     let metadata = fs::symlink_metadata(snapshot.join("manifest.json")).map_err(|e| e.to_string())?;
     if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 { return Err("Invalid snapshot manifest".into()); }
     let manifest: Manifest = serde_json::from_slice(&fs::read(snapshot.join("manifest.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
@@ -120,13 +125,31 @@ pub fn validate(snapshot: &Path) -> Result<()> {
     walk(&snapshot.join("data"), Path::new(""), &mut actual, None)?;
     if actual != manifest.files { return Err("Snapshot is damaged or has unlisted files; nothing was restored".into()); }
     if !actual.contains_key("jwt_secret") || !actual.contains_key("wabidb/root_key") { return Err("Snapshot is missing community identity keys".into()); }
-    Ok(())
+    Ok(manifest)
+}
+pub fn validate(snapshot: &Path) -> Result<()> {
+    verified_manifest(snapshot).map(|_| ())
+}
+fn copy_verified(snapshot: &Path, staging: &Path, manifest: &Manifest) -> Result<()> {
+    // This function owns staging only after exclusive creation succeeds.
+    fs::create_dir(staging).map_err(|e| format!("Cannot create restore staging: {e}"))?;
+    let result = (|| {
+        private_dir(staging)?;
+        let mut files = BTreeMap::new();
+        walk(&snapshot.join("data"), Path::new(""), &mut files, Some(staging))?;
+        // Recheck against the original validated manifest. A backup may change
+        // after validation; an internally consistent copy is not enough.
+        if files != manifest.files {
+            return Err("Snapshot changed while restoring; original data was not replaced".into());
+        }
+        Ok(())
+    })();
+    if result.is_err() { let _ = fs::remove_dir_all(staging); }
+    result
 }
 pub fn restore_copy(snapshot: &Path, staging: &Path) -> Result<()> {
-    validate(snapshot)?;
-    if staging.exists() { return Err("Restore staging directory already exists".into()); }
-    let mut files = BTreeMap::new();
-    walk(&snapshot.join("data"), Path::new(""), &mut files, Some(staging))
+    let manifest = verified_manifest(snapshot)?;
+    copy_verified(snapshot, staging, &manifest)
 }
 pub fn checked_snapshot(root: &Path, id: &str) -> Result<PathBuf> {
     if id.is_empty() || id.len() > 80 || !id.bytes().all(|b| b.is_ascii_digit() || b == b'-') { return Err("Invalid snapshot identifier".into()); }
@@ -171,11 +194,48 @@ mod tests {
         assert!(checked_snapshot(&t.0,"../data").is_err());
         assert!(checked_snapshot(&t.0,"").is_err());
     }
+    #[test] fn changed_source_during_restore_is_rejected_and_cleaned_up() {
+        let t = Temporary::new(); let data = t.data(); let backup = t.0.join("1");
+        snapshot(&data, &backup).unwrap();
+        let manifest = verified_manifest(&backup).unwrap();
+        fs::write(backup.join("data/wabidb/root_key"), b"changed-after-validation").unwrap();
+        let staging = t.0.join("staging");
+        assert!(copy_verified(&backup, &staging, &manifest).is_err());
+        assert!(!staging.exists());
+        assert_eq!(fs::read(data.join("wabidb/root_key")).unwrap(), b"root-identity");
+    }
+    #[test] fn existing_destinations_are_never_overwritten_or_removed() {
+        let t = Temporary::new(); let data = t.data(); let backup = t.0.join("1");
+        snapshot(&data, &backup).unwrap();
+        let manifest = fs::read(backup.join("manifest.json")).unwrap();
+        assert!(snapshot(&data, &backup).is_err());
+        assert_eq!(fs::read(backup.join("manifest.json")).unwrap(), manifest);
+        let staging = t.0.join("staging"); private_dir(&staging).unwrap();
+        fs::write(staging.join("keep"), b"unrelated").unwrap();
+        assert!(restore_copy(&backup, &staging).is_err());
+        assert_eq!(fs::read(staging.join("keep")).unwrap(), b"unrelated");
+    }
+    #[test] fn uploaded_lock_filenames_are_data_not_runtime_leases() {
+        let t = Temporary::new(); let data = t.data(); let backup = t.0.join("1");
+        private_dir(&data.join("uploads")).unwrap();
+        write_private(&data.join("uploads/.lock"), b"user-upload").unwrap();
+        snapshot(&data, &backup).unwrap();
+        restore_copy(&backup, &t.0.join("restore")).unwrap();
+        assert_eq!(fs::read(t.0.join("restore/uploads/.lock")).unwrap(), b"user-upload");
+    }
+    #[cfg(unix)]
+    #[test] fn private_storage_rejects_directory_symlinks() {
+        let t = Temporary::new(); let real = t.0.join("real");
+        private_dir(&real).unwrap();
+        let link = t.0.join("alias"); std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert!(private_dir(&link).is_err());
+    }
     #[cfg(unix)]
     #[test] fn rejects_symlink_without_following_it() {
         let t=Temporary::new(); let data=t.data();
         std::os::unix::fs::symlink("/etc/passwd",data.join("escape")).unwrap();
         assert!(snapshot(&data,&t.0.join("1")).is_err());
-        assert!(!t.0.join("1").exists()); assert!(!data.join("wabidb/.lock").exists());
+        assert!(!t.0.join("1")).exists();
+        assert!(!data.join("wabidb/.lock").exists());
     }
 }
