@@ -1,19 +1,31 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import { currentChannel, channels } from '$lib/socket';
+	import { onDestroy } from 'svelte';
+	import { currentChannel, channels, users } from '$lib/socket';
 	import {
+		createGalleryWorkspace,
+		formatGalleryTime,
+		getCreatorInitial,
+		GALLERY_RECENT_COUNT,
+		type GalleryItem,
+		type GalleryCreator,
+	} from '$lib/galleryStore';
+	const galleryWorkspace = createGalleryWorkspace();
+	const {
 		galleryItemsStore,
 		galleryCreatorsStore,
 		galleryLoadingStore,
 		galleryErrorStore,
+		galleryWarningStore,
 		loadGallery,
-		formatGalleryTime,
-		getCreatorInitial,
-		getGalleryItemKind,
 		uploadGalleryImages,
-		type GalleryItem,
-		type GalleryCreator,
-	} from '$lib/galleryStore';
+		refreshCreators,
+	} = galleryWorkspace;
+	import {
+		filterGalleryItems,
+		splitGallerySections,
+		galleryViewState,
+		guessGalleryMediaKind,
+	} from '$lib/galleryFilter';
 	import { _ } from '$lib/i18n';
 	import GalleryLightbox from './GalleryLightbox.svelte';
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
@@ -21,11 +33,15 @@
 	import { buildShareLink, buildShareRefText, copyToClipboard } from '$lib/shareToChannel';
 	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
 
-	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
+	export let channelId: string | undefined = undefined;
+	$: effectiveChannel = channelId || $currentChannel;
+
+	$: activeChannel = $channels.find((ch) => ch.id === effectiveChannel) || null;
 	$: allItems = $galleryItemsStore;
 	$: allCreators = $galleryCreatorsStore;
 	$: isLoading = $galleryLoadingStore;
 	$: error = $galleryErrorStore;
+	$: warning = $galleryWarningStore;
 
 	let activeTypeFilter: 'all' | 'image' | 'video' = 'all';
 	let activeCreatorFilter: GalleryCreator | null = null;
@@ -33,23 +49,59 @@
 	let lightboxVisible = false;
 	let lightboxIndex = 0;
 	let lightboxItems: GalleryItem[] = [];
+	let recentItems: GalleryItem[] = [];
+	let olderItems: GalleryItem[] = [];
+	let loadedChannelId: string | null = null;
 
 	let uploadInputElement: HTMLInputElement | null = null;
 	let isUploading = false;
-	let uploadErrorText: string | null = null;
+	let uploadErrorList: string[] = [];
+	let uploadNoticeText: string | null = null;
 	let isDragOver = false;
 	let dragDepth = 0;
 
+	// Live creator names without refetching; the subscription is owned by this
+	// mount and released on destroy.
+	const stopUsers = users.subscribe(() => {
+		refreshCreators();
+	});
+
+	function resetChannelState() {
+		lightboxVisible = false;
+		lightboxItems = [];
+		lightboxIndex = 0;
+		searchQuery = '';
+		activeTypeFilter = 'all';
+		activeCreatorFilter = null;
+		isUploading = false;
+		uploadErrorList = [];
+		uploadNoticeText = null;
+		isDragOver = false;
+		dragDepth = 0;
+	}
+
+	// Single guarded load per channel — no duplicate initial loads.
+	$: if (effectiveChannel && effectiveChannel !== loadedChannelId) {
+		loadedChannelId = effectiveChannel;
+		resetChannelState();
+		loadGallery(effectiveChannel);
+	}
+
+	$: if (!effectiveChannel && loadedChannelId) {
+		loadedChannelId = null;
+		resetChannelState();
+	}
+
 	initObjectRefRegistry();
 
-	$: if (allItems.length > 0 && $currentChannel) {
+	$: if (allItems.length > 0 && effectiveChannel) {
 		for (const item of allItems) {
 			registerObjectRef({
 				kind: 'gallery_work',
 				id: item.id,
 				slug: slugify(item.attachmentName),
 				title: item.attachmentName,
-				channelId: $currentChannel,
+				channelId: effectiveChannel,
 				subtitle: item.creator?.username || undefined,
 				thumbUrl: item.attachmentUrl,
 				updatedAt: item.uploadedAt,
@@ -63,57 +115,51 @@
 			id: item.id,
 			slug: slugify(item.attachmentName),
 			title: item.attachmentName,
-			channelId: $currentChannel,
+			channelId: effectiveChannel,
 			subtitle: item.creator?.username || undefined,
 			thumbUrl: item.attachmentUrl,
 			updatedAt: item.uploadedAt,
 		});
 	}
 
-	$: filteredItems = allItems.filter((item) => {
-		if (activeTypeFilter === 'image' && getGalleryItemKind(item.attachmentMime) !== 'image') return false;
-		if (activeTypeFilter === 'video' && getGalleryItemKind(item.attachmentMime) !== 'video') return false;
-		if (activeCreatorFilter && item.creator?.dbUserId !== activeCreatorFilter.dbUserId) return false;
-		if (searchQuery) {
-			const q = searchQuery.toLowerCase();
-			const creatorName = item.creator?.username.toLowerCase() || '';
-			const caption = (item.caption || '').toLowerCase();
-			const name = item.attachmentName.toLowerCase();
-			if (!creatorName.includes(q) && !caption.includes(q) && !name.includes(q)) return false;
-		}
-		return true;
+	// Filters apply to the FULL list first; the recent/older split below only
+	// sections the already-filtered matches. The uploader filter uses the
+	// stable uploadedBy id so offline uploaders stay filterable.
+	$: filteredItems = filterGalleryItems(allItems, {
+		query: searchQuery,
+		type: activeTypeFilter,
+		uploaderId: activeCreatorFilter?.dbUserId ?? null,
 	});
 
-	$: recentItems = allItems.slice(0, 6);
-	$: mainItems = activeCreatorFilter
-		? filteredItems
-		: allItems.slice(6);
+	$: ({ recent: recentItems, older: olderItems } = splitGallerySections(
+		filteredItems,
+		GALLERY_RECENT_COUNT
+	));
+	$: mainItems = activeCreatorFilter ? filteredItems : olderItems;
+	$: viewState = galleryViewState(allItems.length, filteredItems.length);
+	$: filtersActive =
+		searchQuery.trim() !== '' || activeTypeFilter !== 'all' || activeCreatorFilter !== null;
+
+	function clearFilters() {
+		searchQuery = '';
+		activeTypeFilter = 'all';
+		activeCreatorFilter = null;
+	}
 
 	$: creatorHeader = activeCreatorFilter
 		? allCreators.find((c) => c.dbUserId === activeCreatorFilter.dbUserId) || null
 		: null;
 
-	onMount(() => {
-		if ($currentChannel) {
-			loadGallery($currentChannel);
-		}
-		setupIntersectionObserver();
-	});
-
-	$: if ($currentChannel) {
-		loadGallery($currentChannel);
-	}
-
 	// C2: deep-link handoff after items load — peek first, take only on hit
-	$: if ($currentChannel && allItems.length > 0) {
+	$: if (effectiveChannel && allItems.length > 0) {
 		const pending = peekPendingNav();
 		if (
 			pending?.kind === 'gallery_work' &&
-			(!pending.channelId || pending.channelId === $currentChannel)
+			(!pending.channelId || pending.channelId === effectiveChannel)
 		) {
 			const idx = allItems.findIndex((item) => item.id === pending.workId);
 			if (idx >= 0) {
-				takePendingNav('gallery_work', $currentChannel);
+				takePendingNav('gallery_work', effectiveChannel);
 				openLightbox(idx, allItems);
 			}
 		}
@@ -138,6 +184,8 @@
 			{ threshold: [0.3] }
 		);
 	}
+
+	setupIntersectionObserver();
 
 	function applyVideoState(state: { el: HTMLVideoElement; hovered: boolean; inView: boolean }) {
 		if (state.hovered || state.inView) {
@@ -242,16 +290,22 @@
 	}
 
 	async function runGalleryUpload(files: File[]) {
-		if (!$currentChannel || isUploading) return;
-		const images = files.filter((file) => file.type.startsWith('image/'));
-		if (images.length === 0) return;
-		const channel = $channels.find((ch) => ch.id === $currentChannel) || null;
+		if (!effectiveChannel || isUploading) return;
+		if (files.length === 0) return;
+		const channel = $channels.find((ch) => ch.id === effectiveChannel) || null;
 		isUploading = true;
-		uploadErrorText = null;
+		uploadErrorList = [];
+		uploadNoticeText = null;
 		try {
-			const result = await uploadGalleryImages($currentChannel, images, channel?.name);
+			const result = await uploadGalleryImages(effectiveChannel, files, channel?.name);
+			if (result.uploaded > 0) {
+				uploadNoticeText =
+					result.errors.length > 0
+						? `Uploaded ${result.uploaded} of ${files.length} files`
+						: `Uploaded ${result.uploaded} file${result.uploaded === 1 ? '' : 's'}`;
+			}
 			if (result.errors.length > 0) {
-				uploadErrorText = result.errors[0];
+				uploadErrorList = result.errors;
 			}
 		} finally {
 			isUploading = false;
@@ -259,7 +313,17 @@
 	}
 
 	onDestroy(() => {
+		stopUsers();
+		for (const state of videoState.values()) {
+			try {
+				state.el.pause();
+			} catch {
+				// ignore teardown races
+			}
+		}
+		videoState.clear();
 		if (observer) observer.disconnect();
+		galleryWorkspace.dispose();
 	});
 </script>
 
@@ -289,7 +353,7 @@
 			<input
 				class="gallery-upload-input"
 				type="file"
-				accept="image/*"
+				accept="image/*,video/*"
 				multiple
 				bind:this={uploadInputElement}
 				on:change={handleUploadInputChange}
@@ -297,7 +361,7 @@
 			<button
 				class="gallery-upload-btn"
 				class:busy={isUploading}
-				disabled={isUploading || !$currentChannel}
+				disabled={isUploading || !effectiveChannel}
 				on:click={triggerUploadPicker}
 				aria-label={$_('gallery_upload')}
 				title={$_('gallery_upload')}
@@ -319,8 +383,24 @@
 		</div>
 	</header>
 
-	{#if uploadErrorText}
-		<div class="gallery-upload-error" role="alert">{uploadErrorText}</div>
+	{#if uploadNoticeText}
+		<div class="gallery-upload-notice" role="status">{uploadNoticeText}</div>
+	{/if}
+	{#if uploadErrorList.length > 0}
+		<div class="gallery-upload-error" role="alert">
+			{#each uploadErrorList.slice(0, 3) as uploadError}
+				<div>{uploadError}</div>
+			{/each}
+			{#if uploadErrorList.length > 3}
+				<div>…and {uploadErrorList.length - 3} more</div>
+			{/if}
+		</div>
+	{/if}
+	{#if warning}
+		<div class="gallery-warning" role="status">
+			<span>{warning}</span>
+			<button on:click={() => effectiveChannel && loadGallery(effectiveChannel)}>Retry</button>
+		</div>
 	{/if}
 
 	{#if isDragOver}
@@ -345,9 +425,9 @@
 		{:else if error}
 			<div class="gallery-error">
 				<span>{error}</span>
-				<button on:click={() => $currentChannel && loadGallery($currentChannel)}>Retry</button>
+				<button on:click={() => effectiveChannel && loadGallery(effectiveChannel)}>Retry</button>
 			</div>
-		{:else if allItems.length === 0}
+		{:else if viewState === 'empty'}
 			<div class="gallery-empty">
 				<div class="empty-icon">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -383,7 +463,7 @@
 								on:contextmenu|stopPropagation={(e) => { e.preventDefault(); shareGalleryItem(recentItems[idx]); }}
 							>
 								<div class="recent-card-cover">
-									{#if getGalleryItemKind(item.attachmentMime) === 'video'}
+									{#if guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'video'}
 										<video
 											src={item.attachmentUrl}
 											muted
@@ -451,16 +531,11 @@
 				</div>
 			{/if}
 
-			{#if mainItems.length === 0 && activeCreatorFilter}
-				<div class="gallery-empty">
-					<h3>No works by this creator</h3>
-					<p>This creator hasn't uploaded anything to this gallery yet.</p>
-				</div>
-			{:else if mainItems.length > 0}
+			{#if mainItems.length > 0}
 				<section class="gallery-section">
 					{#if !activeCreatorFilter}
 						<div class="section-header">
-							<h2>All Works</h2>
+							<h2>{filtersActive ? 'Matching works' : 'All Works'}</h2>
 							<span class="section-count">{mainItems.length} total</span>
 						</div>
 					{/if}
@@ -481,7 +556,7 @@
 								on:contextmenu|stopPropagation={(e) => { e.preventDefault(); shareGalleryItem(mainItems[idx]); }}
 							>
 								<div class="card-cover">
-									{#if getGalleryItemKind(item.attachmentMime) === 'video'}
+									{#if guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'video'}
 										<video
 											src={item.attachmentUrl}
 											muted
@@ -532,6 +607,12 @@
 						{/each}
 					</div>
 				</section>
+			{:else}
+				<div class="gallery-empty">
+					<h3>No works match these filters</h3>
+					<p>Try a different search, media type, or creator.</p>
+					<button class="creator-banner-clear" on:click={clearFilters}>Clear filters</button>
+				</div>
 			{/if}
 		{/if}
 	</div>
@@ -561,9 +642,9 @@
 	</footer>
 
 	<GalleryLightbox
-		visible={lightboxVisible}
+		bind:visible={lightboxVisible}
 		items={lightboxItems}
-		currentIndex={lightboxIndex}
+		bind:currentIndex={lightboxIndex}
 		creators={allCreators}
 		channelId={$currentChannel}
 		workId={lightboxItems[lightboxIndex]?.id || null}

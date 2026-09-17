@@ -6,11 +6,10 @@
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { slugify } from '$lib/objectRefRegistry';
 	import {
-		feedbackByWorkStore,
-		feedbackLoadingStore,
-		loadFeedback,
-		addFeedback,
-		findFeedbackAuthor,
+		createGalleryFeedbackSession,
+		shouldClearFeedbackDraft,
+		type GalleryFeedback,
+		type FeedbackDraftSnapshot
 	} from '$lib/galleryFeedbackStore';
 
 	export let visible = false;
@@ -20,6 +19,16 @@
 	export let onFilterByCreator: (creator: GalleryCreator) => void = () => {};
 	export let channelId: string | null = null;
 	export let workId: string | null = null;
+
+	// One session per mounted lightbox: its own items/loading/error stores,
+	// request lifetime, and disposal. Nothing is shared across servers,
+	// accounts, channels, works, or simultaneous lightboxes.
+	const feedbackSession = createGalleryFeedbackSession();
+	const {
+		feedbackItems: feedbackItemsStore,
+		feedbackLoading: feedbackLoadingStore,
+		feedbackError: feedbackErrorStore
+	} = feedbackSession;
 
 	$: currentItem = items[currentIndex] || null;
 	$: shareRecord = currentItem ? {
@@ -37,36 +46,80 @@
 		: null;
 
 	$: feedbackMode = !!(channelId && workId);
+	// Feedback identity follows the work on screen. Internal navigation moves
+	// currentItem while the parent's workId prop may still name the opened
+	// work; scoping to the visible item keeps markers, drafts, and saves on
+	// the right resource either way.
+	$: activeWorkId = feedbackMode ? currentItem?.id ?? workId : null;
+	$: feedbackKey = channelId && activeWorkId ? `${channelId}::${activeWorkId}` : null;
 
-	let feedbackList: import('$lib/galleryFeedbackStore').GalleryFeedback[] = [];
+	let feedbackList: GalleryFeedback[] = [];
 	let feedbackLoading = false;
-	let activeMarkerId: string | null = null;
+	let feedbackError: string | null = null;
+	$: feedbackList = $feedbackItemsStore;
+	$: feedbackLoading = $feedbackLoadingStore;
+	$: feedbackError = $feedbackErrorStore;
+
+	$: if (visible && channelId && activeWorkId) {
+		void feedbackSession.load(channelId, activeWorkId);
+	}
+
+	// Independent drafts per work: navigating, closing, or reopening saves
+	// the current marker/text under its own key and restores the next work's
+	// draft. Text never moves across works.
+	let drafts = new Map<string, FeedbackDraftSnapshot>();
+	let activeDraftKey: string | null = null;
+	let draftGeneration = 0;
 	let pendingMarker: { x: number; y: number } | null = null;
 	let composerText = '';
 	let composerEl: HTMLTextAreaElement | null = null;
-	let feedbackError: string | null = null;
+	let activeMarkerId: string | null = null;
 	let feedbackEl: HTMLDivElement | null = null;
 
-	$: feedbackList = $feedbackByWorkStore.get(workId || '') || [];
-	$: feedbackLoading = $feedbackLoadingStore;
+	const stopRetirement = feedbackSession.onRetired(() => {
+		draftGeneration += 1;
+		drafts.clear();
+		activeDraftKey = null;
+		pendingMarker = null;
+		composerText = '';
+		activeMarkerId = null;
+	});
 
-	$: if (visible && feedbackMode && channelId && workId) {
-		loadFeedback(channelId, workId);
+	function snapshotDraft(): FeedbackDraftSnapshot {
+		return {
+			marker: pendingMarker ? { x: pendingMarker.x, y: pendingMarker.y } : null,
+			text: composerText
+		};
+	}
+
+	function restoreDraftForKey(key: string | null) {
+		if (key === activeDraftKey) return;
+		if (activeDraftKey) drafts.set(activeDraftKey, snapshotDraft());
+		activeDraftKey = key;
+		const saved = key ? drafts.get(key) : undefined;
+		pendingMarker = saved?.marker ? { ...saved.marker } : null;
+		composerText = saved?.text ?? '';
+		activeMarkerId = null;
+	}
+
+	$: restoreDraftForKey(visible ? feedbackKey : null);
+	$: if (activeDraftKey) {
+		const marker = pendingMarker ? { x: pendingMarker.x, y: pendingMarker.y } : null;
+		drafts.set(activeDraftKey, { marker, text: composerText });
 	}
 
 	function close() {
 		visible = false;
-		pendingMarker = null;
-		activeMarkerId = null;
-		composerText = '';
+		// Drafts are saved under their work key by restoreDraftForKey when
+		// visible flips, so closing preserves recoverable work for reopen.
 	}
 
 	function navigate(dir: number) {
 		if (items.length <= 1) return;
 		currentIndex = (currentIndex + dir + items.length) % items.length;
-		pendingMarker = null;
 		activeMarkerId = null;
-		composerText = '';
+		// Marker/text follow the newly visible work via restoreDraftForKey;
+		// never wipe them here or the previous work's draft would be lost.
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -82,6 +135,8 @@
 
 	onDestroy(() => {
 		window.removeEventListener('keydown', handleKeydown);
+		stopRetirement();
+		feedbackSession.dispose();
 	});
 
 	function handleFilterByCreator() {
@@ -106,7 +161,7 @@
 		if (composerEl) composerEl.focus();
 	}
 
-	function handleMarkerClick(fb: import('$lib/galleryFeedbackStore').GalleryFeedback) {
+	function handleMarkerClick(fb: GalleryFeedback) {
 		activeMarkerId = activeMarkerId === fb.feedbackId ? null : fb.feedbackId;
 		pendingMarker = null;
 		if (activeMarkerId && feedbackEl) {
@@ -115,17 +170,32 @@
 		}
 	}
 
-	function handleSidebarItemClick(fb: import('$lib/galleryFeedbackStore').GalleryFeedback) {
+	function handleSidebarItemClick(fb: GalleryFeedback) {
 		activeMarkerId = activeMarkerId === fb.feedbackId ? null : fb.feedbackId;
 	}
 
 	async function handleSend() {
 		const text = composerText.trim();
-		if (!text || !channelId || !workId) return;
-		if (pendingMarker) {
-			await addFeedback(channelId, workId, text, pendingMarker.x, pendingMarker.y);
-			pendingMarker = null;
-			composerText = '';
+		if (!text || !channelId || !activeWorkId || !feedbackKey) return;
+		if (!pendingMarker) return;
+		// Capture the saving scope and draft. Only a completion for this
+		// exact snapshot may clear it: if the composer navigated on or kept
+		// typing, the newer draft survives.
+		const saveKey = feedbackKey;
+		const saveGeneration = draftGeneration;
+		const saved: FeedbackDraftSnapshot = {
+			marker: { x: pendingMarker.x, y: pendingMarker.y },
+			text: composerText
+		};
+		const id = await feedbackSession.add(channelId, activeWorkId, text, pendingMarker.x, pendingMarker.y);
+		if (!id || saveGeneration !== draftGeneration) return;
+		const current = drafts.get(saveKey) ?? (saveKey === feedbackKey ? snapshotDraft() : null);
+		if (shouldClearFeedbackDraft(saved, current)) {
+			drafts.delete(saveKey);
+			if (saveKey === feedbackKey) {
+				pendingMarker = null;
+				composerText = '';
+			}
 		}
 	}
 
@@ -243,7 +313,7 @@
 							</div>
 						{:else}
 							{#each feedbackList as fb, idx (fb.feedbackId)}
-								{@const author = findFeedbackAuthor(fb.authorUserId)}
+								{@const author = creators.find((c) => c.dbUserId === fb.authorUserId)}
 								{@const timeStr = formatGalleryTime(fb.createdAtMicros > 1e12 ? Math.floor(fb.createdAtMicros / 1000) : fb.createdAtMicros)}
 								<div
 									class="lightbox-feedback-item"
