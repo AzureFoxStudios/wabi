@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{State, WebviewWindow};
+#[cfg(not(mobile))]
 use tauri_plugin_dialog::DialogExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
@@ -170,6 +171,18 @@ async fn response_ok(resp: reqwest::Response) -> Result<reqwest::Response> {
     }
 }
 
+/// Mobile boundary for manual local-folder staging.
+/// `FileDialogBuilder::pick_folder` in tauri-plugin-dialog v2 is
+/// `#[cfg(desktop)]`-only, so there is no folder picker to compile against on
+/// Android/iOS. The `lore_local_choose` signature is preserved on mobile and
+/// reports this boundary instead of compiling the desktop picker.
+/// Desktop behavior is unchanged: the native folder dialog still stages a
+/// manually chosen folder with all path/grant checks intact.
+#[cfg_attr(not(mobile), allow(dead_code))]
+pub(crate) const LOCAL_FOLDER_MOBILE_UNSUPPORTED: &str =
+    "Manual local-folder staging needs the desktop app: mobile builds have no local folder picker. Use the Repository review workflow instead.";
+
+#[cfg(not(mobile))]
 #[tauri::command]
 pub async fn lore_local_choose(app: tauri::AppHandle, window: WebviewWindow, state: State<'_, LocalWorkspaceState>, server_url: String, channel_id: i64, account_id: String) -> Result<Option<Connection>, String> {
     let mut server = Url::parse(&server_url).map_err(|_| "Invalid server URL")?;
@@ -196,6 +209,19 @@ pub async fn lore_local_choose(app: tauri::AppHandle, window: WebviewWindow, sta
     let handle = unique();
     grants.insert(handle.clone(), g);
     Ok(Some(Connection { handle, folder: root.to_string_lossy().into(), identity, state: saved }))
+}
+
+/// Mobile stub: same command signature so `invoke_handler` registration and the
+/// frontend `lore_local_choose` call shape are unchanged. Mobile never compiles
+/// the desktop `pick_folder` dialog (it does not exist under `cfg(mobile)`);
+/// it reports the unsupported local-folder staging boundary instead. No path
+/// or grant checks are weakened: nothing is granted, scanned, or published.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn lore_local_choose(app: tauri::AppHandle, window: WebviewWindow, state: State<'_, LocalWorkspaceState>, server_url: String, channel_id: i64, account_id: String) -> Result<Option<Connection>, String> {
+    // Argument names are the invoke wire contract, even on unsupported targets.
+    let _ = (app, window, state, server_url, channel_id, account_id);
+    Err(LOCAL_FOLDER_MOBILE_UNSUPPORTED.into())
 }
 
 #[tauri::command]
@@ -367,6 +393,14 @@ pub async fn lore_local_pull(window: WebviewWindow, state: State<'_, LocalWorksp
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn mobile_folder_boundary_stays_actionable() {
+        // Regression guard for the Android `pick_folder` (E0599) target split:
+        // the mobile stub must keep reporting a clear desktop-only boundary
+        // without pulling the desktop folder picker back in.
+        assert!(LOCAL_FOLDER_MOBILE_UNSUPPORTED.contains("desktop"), "boundary must name the desktop app");
+        assert!(LOCAL_FOLDER_MOBILE_UNSUPPORTED.contains("folder"), "boundary must name local-folder staging");
+        assert!(LOCAL_FOLDER_MOBILE_UNSUPPORTED.contains("picker") || LOCAL_FOLDER_MOBILE_UNSUPPORTED.contains("staging"), "boundary must explain the missing picker");
+    }
     #[test] fn rejects_unsafe_paths() {
         for p in ["../x", "/x", "a//b", "a/../b", "C:x", "a\\b", "CON.txt", "file.", "a\0b"] { assert!(!valid_path(p), "{p}"); }
         assert!(valid_path("characters/rynar.blend"));

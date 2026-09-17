@@ -1,0 +1,358 @@
+{
+  "files": [
+    {
+      "path": ".github/workflows/pointer-effects-browser.yml",
+      "additions": 49,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "docs/architecture/local-visual-effects.md",
+      "additions": 73,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "docs/plans/2026-09-15-pointer-worlds-recovery.md",
+      "additions": 81,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/scripts/local-visual-effects-browser-smoke.mjs",
+      "additions": 45,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/scripts/pointer-effects-browser-smoke.mjs",
+      "additions": 172,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/components/settings/AppearanceSettingsTab.svelte",
+      "additions": 4,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/effects/EffectsTab.svelte",
+      "additions": 0,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/effects/MouseFeeler.svelte",
+      "additions": 139,
+      "deletions": 257,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/effects/MouseFeelerSettings.svelte",
+      "additions": 242,
+      "deletions": 242,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/effects/PointerEffectsTab.svelte",
+      "additions": 8,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/PointerPatternSurface.svelte",
+      "additions": 132,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/PointerShaderSurface.svelte",
+      "additions": 160,
+      "deletions": 146,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/effects/ReactivePointerSurface.svelte",
+      "additions": 38,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/localVisualEffects.ts",
+      "additions": 65,
+      "deletions": 10,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/effects/mouseFeelerConfig.test.ts",
+      "additions": 105,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/mouseFeelerConfig.ts",
+      "additions": 121,
+      "deletions": 18,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerDemo.ts",
+      "additions": 76,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerEffects.test.ts",
+      "additions": 185,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerFields.ts",
+      "additions": 220,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerScatter.test.ts",
+      "additions": 50,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerScatter.ts",
+      "additions": 135,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerTrail.ts",
+      "additions": 104,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerWorldRenderer.test.ts",
+      "additions": 193,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerWorldRenderer.ts",
+      "additions": 439,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/effects/pointerWorlds.ts",
+      "additions": 156,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/test/local-visual-effects-browser-harness.ts",
+      "additions": 120,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/test/pointer-effects-browser-harness.svelte",
+      "additions": 47,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/test/pointer-effects-browser-harness.ts",
+      "additions": 92,
+      "deletions": 0,
+      "changeType": "ADDED"
+    }
+  ],
+  "headRefOid": "6f349d52d491f5a8f79000a8337cf7da4c39cbba",
+  "mergeable": "MERGEABLE",
+  "number": 217,
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:01:37Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931053040/job/104259136645",
+      "name": "test",
+      "startedAt": "2026-09-15T06:54:44Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:05:08Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052942/job/104259136411",
+      "name": "Android aarch64 debug APK",
+      "startedAt": "2026-09-15T07:01:12Z",
+      "status": "COMPLETED",
+      "workflowName": "Native Mobile Build"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:08:18Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052970/job/104259136790",
+      "name": "build (ubuntu-latest)",
+      "startedAt": "2026-09-15T06:57:37Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:43:06Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931053010/job/104259137089",
+      "name": "build-tauri (macos-latest, --target universal-apple-darwin)",
+      "startedAt": "2026-09-15T07:24:52Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:03:08Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052989/job/104259136711",
+      "name": "Analyze (actions)",
+      "startedAt": "2026-09-15T07:02:29Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:02:06Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052946/job/104259136518",
+      "name": "pointer-browser",
+      "startedAt": "2026-09-15T07:00:23Z",
+      "status": "COMPLETED",
+      "workflowName": "Pointer effects browser checks"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:01:55Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052995/job/104259136604",
+      "name": "Headful synthetic voice regression",
+      "startedAt": "2026-09-15T07:00:58Z",
+      "status": "COMPLETED",
+      "workflowName": "Voice Browser Smoke"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:01:41Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052970/job/104259136584",
+      "name": "build (windows-latest)",
+      "startedAt": "2026-09-15T06:49:52Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:05:50Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931053010/job/104259137039",
+      "name": "build-tauri (ubuntu-22.04)",
+      "startedAt": "2026-09-15T06:53:54Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:04:36Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052989/job/104259136724",
+      "name": "Analyze (javascript-typescript)",
+      "startedAt": "2026-09-15T07:03:15Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:54:11Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052970/job/104259136494",
+      "name": "build (macos-latest)",
+      "startedAt": "2026-09-15T07:41:53Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:00:56Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931053010/job/104259136924",
+      "name": "build-tauri (windows-latest)",
+      "startedAt": "2026-09-15T06:45:37Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:04:01Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052989/job/104259136810",
+      "name": "Analyze (python)",
+      "startedAt": "2026-09-15T07:03:14Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:14:12Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052989/job/104259136556",
+      "name": "Analyze (rust)",
+      "startedAt": "2026-09-15T07:02:25Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:54:11Z",
+      "conclusion": "SKIPPED",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931052970/job/104299266177",
+      "name": "create-release",
+      "startedAt": "2026-09-15T07:54:12Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:09:40Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931053010/job/104259136629",
+      "name": "build-server",
+      "startedAt": "2026-09-15T07:04:11Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:05:11Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34931053010/job/104259136499",
+      "name": "frontend-checks",
+      "startedAt": "2026-09-15T07:04:03Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T07:03:02Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/runs/104285487479",
+      "name": "CodeQL",
+      "startedAt": "2026-09-15T07:03:00Z",
+      "status": "COMPLETED",
+      "workflowName": ""
+    }
+  ],
+  "title": "Restore Little Worlds and integrate connected pointer effects"
+}

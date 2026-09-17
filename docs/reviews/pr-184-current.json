@@ -1,0 +1,288 @@
+{
+  "files": [
+    {
+      "path": "docs/plans/2026-09-11-dm-code-ux-validation.md",
+      "additions": 26,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "docs/plans/2026-09-11-dm-code-ux.md",
+      "additions": 51,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/scripts/dm-code-ux-compile.mjs",
+      "additions": 13,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/scripts/dm-code-ux.test.mjs",
+      "additions": 101,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/scripts/dm-navigation-ux.test.mjs",
+      "additions": 21,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/components/DMTab.svelte",
+      "additions": 41,
+      "deletions": 1414,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/DmConversationHeader.svelte",
+      "additions": 131,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/components/DmConversationView.svelte",
+      "additions": 31,
+      "deletions": 211,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/DmHub.svelte",
+      "additions": 141,
+      "deletions": 714,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/PeoplePicker.svelte",
+      "additions": 45,
+      "deletions": 205,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/lore/LoreCodePanel.svelte",
+      "additions": 143,
+      "deletions": 172,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/components/lore/LoreFileViewer.svelte",
+      "additions": 192,
+      "deletions": 191,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/dmEntry.ts",
+      "additions": 25,
+      "deletions": 20,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "frontend/src/lib/dmNavigation.ts",
+      "additions": 15,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/dmPresentation.ts",
+      "additions": 57,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/latestIntent.ts",
+      "additions": 9,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/lore/editorPresentation.ts",
+      "additions": 15,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "frontend/src/lib/workspaceNavigationState.ts",
+      "additions": 16,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    }
+  ],
+  "headRefOid": "fc4cc59fa2dc3a4530a7a52afb10f6f6270c9488",
+  "mergeable": "CONFLICTING",
+  "number": 184,
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:15:57Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251416/job/104229671907",
+      "name": "test",
+      "startedAt": "2026-09-15T05:15:09Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:54:55Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251350/job/104229671892",
+      "name": "build (ubuntu-latest)",
+      "startedAt": "2026-09-15T05:44:58Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:21:54Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251503/job/104229672327",
+      "name": "build-tauri (macos-latest, --target universal-apple-darwin)",
+      "startedAt": "2026-09-15T06:08:45Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:27:06Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251427/job/104229672053",
+      "name": "Analyze (actions)",
+      "startedAt": "2026-09-15T05:26:25Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:19:22Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251289/job/104229671683",
+      "name": "markup",
+      "startedAt": "2026-09-15T05:19:12Z",
+      "status": "COMPLETED",
+      "workflowName": "Lore workspace UI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:29:17Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251350/job/104229671730",
+      "name": "build (windows-latest)",
+      "startedAt": "2026-09-15T05:13:36Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:31:15Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251503/job/104229672411",
+      "name": "build-tauri (ubuntu-22.04)",
+      "startedAt": "2026-09-15T05:21:13Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:28:25Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251427/job/104229672096",
+      "name": "Analyze (javascript-typescript)",
+      "startedAt": "2026-09-15T05:27:14Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:03:55Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251350/job/104229671909",
+      "name": "build (macos-latest)",
+      "startedAt": "2026-09-15T05:53:58Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:31:24Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251503/job/104229672304",
+      "name": "build-tauri (windows-latest)",
+      "startedAt": "2026-09-15T05:16:03Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:33:42Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251427/job/104229672200",
+      "name": "Analyze (python)",
+      "startedAt": "2026-09-15T05:32:58Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:30:34Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251427/job/104229671895",
+      "name": "Analyze (rust)",
+      "startedAt": "2026-09-15T05:19:10Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL Advanced"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:15:47Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251289/job/104229671825",
+      "name": "frontend",
+      "startedAt": "2026-09-15T05:15:02Z",
+      "status": "COMPLETED",
+      "workflowName": "Lore workspace UI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T06:03:55Z",
+      "conclusion": "SKIPPED",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251350/job/104271804858",
+      "name": "create-release",
+      "startedAt": "2026-09-15T06:03:56Z",
+      "status": "COMPLETED",
+      "workflowName": "Build Tauri App (Manual Diagnostic)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:36:25Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251503/job/104229672115",
+      "name": "build-server",
+      "startedAt": "2026-09-15T05:29:20Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:41:31Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/actions/runs/34921251503/job/104229672324",
+      "name": "frontend-checks",
+      "startedAt": "2026-09-15T05:40:21Z",
+      "status": "COMPLETED",
+      "workflowName": "Build and Release"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-15T05:27:01Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/AzureFoxStudios/wabi/runs/104264303881",
+      "name": "CodeQL",
+      "startedAt": "2026-09-15T05:26:59Z",
+      "status": "COMPLETED",
+      "workflowName": ""
+    }
+  ],
+  "title": "feat(ux): unify DM navigation and protect code editing workflows"
+}
