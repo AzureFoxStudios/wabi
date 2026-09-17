@@ -77,9 +77,10 @@ jobs:
           cargo build -p wabi-server --example workspace_test_host --locked > /tmp/office-host-build.log 2>&1
       - name: Independent-browser acceptance against the real Authority
         id: browsers
-        if: steps.server.outcome == 'success'
+        if: ${{ !cancelled() }}
         continue-on-error: true
         run: |
+          test -x target/debug/examples/workspace_test_host
           cd frontend
           npx playwright install --with-deps chromium firefox > /tmp/office-browser-install.log 2>&1
           cd ..
@@ -103,6 +104,7 @@ jobs:
         continue-on-error: true
         working-directory: frontend
         run: |
+          mkdir -p /tmp/office-evidence
           for selection in none sheets present; do
             STATIC_BUILD=1 WABI_WORKSPACE_ADDONS="$selection" npm run build > "/tmp/office-${selection}-build.log" 2>&1
             find build -name wabi-workspace-bundle.json -exec cp '{}' "/tmp/office-evidence/${selection}-bundle.json" \;
