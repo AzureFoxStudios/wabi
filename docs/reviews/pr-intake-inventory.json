@@ -1,0 +1,135 @@
+[
+  {
+    "number": 233,
+    "title": "Desktop Host Mode: local hosting, owner setup, invitations and recovery",
+    "sha": "49f582bd233faaeb2b27d95d7348f6f94c10f538",
+    "branch": "codex/desktop-host-mode-20260916",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/233"
+  },
+  {
+    "number": 232,
+    "title": "build(deps-dev): bump @types/bun from 1.4.0 to 1.4.2 in /frontend",
+    "sha": "523cb8fb2b53c1bdafd80bfa9d10e99777ba8dfd",
+    "branch": "dependabot/npm_and_yarn/frontend/types/bun-1.4.2",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/232"
+  },
+  {
+    "number": 231,
+    "title": "build(deps): bump marked from 18.0.12 to 18.0.13 in /frontend",
+    "sha": "b784026c59477798896e85fbe2a282a018158851",
+    "branch": "dependabot/npm_and_yarn/frontend/marked-18.0.13",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/231"
+  },
+  {
+    "number": 230,
+    "title": "build(deps-dev): bump @codemirror/lang-markdown from 6.5.1 to 6.5.2 in /frontend",
+    "sha": "820038c2776e5b5bf3bb6458b1b0dc18dfd57079",
+    "branch": "dependabot/npm_and_yarn/frontend/codemirror/lang-markdown-6.5.2",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/230"
+  },
+  {
+    "number": 229,
+    "title": "build(deps-dev): bump @sveltejs/adapter-node from 5.5.4 to 5.5.7 in /frontend",
+    "sha": "1f0113d150b0dbc44851ba65fdc4a49d4d238c5d",
+    "branch": "dependabot/npm_and_yarn/frontend/sveltejs/adapter-node-5.5.7",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/229"
+  },
+  {
+    "number": 228,
+    "title": "build(deps-dev): bump svelte from 5.56.8 to 5.57.0 in /frontend",
+    "sha": "92646c419bab06d5cbae9b97daf90798d839368b",
+    "branch": "dependabot/npm_and_yarn/frontend/svelte-5.57.0",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/228"
+  },
+  {
+    "number": 227,
+    "title": "build(deps): bump toml from 0.8.23 to 1.1.6+spec-1.1.0",
+    "sha": "d121c3eeb9ff68e81d70fabefad039a3e802d732",
+    "branch": "dependabot/cargo/toml-1.1.6spec-1.1.0",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/227"
+  },
+  {
+    "number": 226,
+    "title": "build(deps-dev): bump playwright from 1.62.1 to 1.63.0 in /frontend",
+    "sha": "14e3a11e6c160773fb1240248aba707b57d6bdc7",
+    "branch": "dependabot/npm_and_yarn/frontend/playwright-1.63.0",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/226"
+  },
+  {
+    "number": 225,
+    "title": "build(deps): bump serde from 1.0.228 to 1.0.229",
+    "sha": "53b27d5b21c74171e9efe6de469af3cc25b23fa6",
+    "branch": "dependabot/cargo/serde-1.0.229",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/225"
+  },
+  {
+    "number": 224,
+    "title": "build(deps): bump x25519-dalek from 2.0.1 to 3.0.0",
+    "sha": "7c0903835b0f58fdbceecf6ec546c1fff66ebd4d",
+    "branch": "dependabot/cargo/x25519-dalek-3.0.0",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/224"
+  },
+  {
+    "number": 223,
+    "title": "build(deps-dev): bump @codemirror/state from 6.7.1 to 6.7.4 in /frontend",
+    "sha": "a4db4383984afb25cc2c16ee9e60d4dd399f9cc1",
+    "branch": "dependabot/npm_and_yarn/frontend/codemirror/state-6.7.4",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/223"
+  },
+  {
+    "number": 222,
+    "title": "build(deps-dev): bump @codemirror/view from 6.43.9 to 6.43.11 in /frontend",
+    "sha": "53a0d677ef0f6a95620eea9c2427b858446ee78b",
+    "branch": "dependabot/npm_and_yarn/frontend/codemirror/view-6.43.11",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/222"
+  },
+  {
+    "number": 221,
+    "title": "build(deps): bump reqwest from 0.13.4 to 0.13.5",
+    "sha": "c57a3cba0f656c7af089ff6282484f26812c11b7",
+    "branch": "dependabot/cargo/reqwest-0.13.5",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/221"
+  },
+  {
+    "number": 220,
+    "title": "build(deps): bump katex from 0.18.4 to 0.18.7 in /frontend",
+    "sha": "8053a4ca7787340bded252273a5f3fab0791091b",
+    "branch": "dependabot/npm_and_yarn/frontend/katex-0.18.7",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/220"
+  },
+  {
+    "number": 219,
+    "title": "build(deps): bump base64 from 0.22.1 to 0.23.1",
+    "sha": "7618434e3932c3cd2d9fd949e4051ae490e9de6c",
+    "branch": "dependabot/cargo/base64-0.23.1",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/219"
+  },
+  {
+    "number": 218,
+    "title": "build(deps-dev): bump vite from 8.2.2 to 8.3.0 in /frontend",
+    "sha": "495a68183c1da2e00d84e71a70d4f67e6f2cbe10",
+    "branch": "dependabot/npm_and_yarn/frontend/vite-8.3.0",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/218"
+  },
+  {
+    "number": 217,
+    "title": "Restore Little Worlds and integrate connected pointer effects",
+    "sha": "6f349d52d491f5a8f79000a8337cf7da4c39cbba",
+    "branch": "codex/connected-pointer-worlds",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/217"
+  },
+  {
+    "number": 207,
+    "title": "feat(media): enforce voice policy and selective SFU subscriptions",
+    "sha": "cb9400893f3c765111c72643a2f80a631d9b870d",
+    "branch": "feat/media-voice-policy-selective",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/207"
+  },
+  {
+    "number": 184,
+    "title": "feat(ux): unify DM navigation and protect code editing workflows",
+    "sha": "fc4cc59fa2dc3a4530a7a52afb10f6f6270c9488",
+    "branch": "feat/dm-code-workspace-ux",
+    "url": "https://github.com/AzureFoxStudios/wabi/pull/184"
+  }
+]
