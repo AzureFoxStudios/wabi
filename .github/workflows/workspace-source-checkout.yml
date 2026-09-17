@@ -10,23 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Export tracked source for isolated development
-        run: git archive HEAD | gzip > /tmp/wabi-source.tar.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: workspace-source
-          path: /tmp/wabi-source.tar.gz
-          retention-days: 2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install locked frontend dependencies
+      - name: Resolve pinned PDF rendering dependency
         working-directory: frontend
-        run: npm ci --no-audit --no-fund
-      - name: Package compiler dependencies for isolated validation
-        run: tar -czf /tmp/wabi-frontend-deps.tar.gz -C frontend node_modules
+        run: npm install --save-exact pdfjs-dist@6.3.289 --no-audit --no-fund
+      - name: Package dependency and lockfile for isolated validation
+        run: tar -czf /tmp/wabi-pdf-deps.tar.gz -C frontend node_modules package.json package-lock.json
       - uses: actions/upload-artifact@v4
         with:
-          name: workspace-compiler
-          path: /tmp/wabi-frontend-deps.tar.gz
+          name: workspace-pdf-dependencies
+          path: /tmp/wabi-pdf-deps.tar.gz
           retention-days: 2
