@@ -2,7 +2,7 @@ name: Workspace integrate and check
 on:
   push:
     branches: [codex/docs-sheets-present-20260917]
-    paths: [.github/workflows/workspace-integrate.yml, scripts/workspace-integrate-once.py]
+    paths: [.github/workflows/workspace-integrate.yml, scripts/workspace-integrate-once.py, scripts/workspace-ui-integrate.py]
 permissions:
   contents: read
   actions: read
@@ -36,34 +36,72 @@ jobs:
           github-token: ${{ github.token }}
           path: /tmp/workspace-support
       - name: Apply pinned dependency and module integration
+        id: integrate
         run: |
           tar -xzf /tmp/workspace-support/frontend.tar.gz -C frontend package.json package-lock.json
           cp /tmp/workspace-support/Cargo.lock Cargo.lock
           python3 scripts/workspace-integrate-once.py
+          if test -f scripts/workspace-ui-integrate.py; then python3 scripts/workspace-ui-integrate.py; fi
           git config user.name 'Wabi workspace integration'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Cargo.lock frontend/package.json frontend/package-lock.json core/crates/wabi-server/Cargo.toml core/crates/wabi-server/src/adapter/mod.rs core/crates/wabi-server/src/api/mod.rs core/crates/wabi-server/src/api/routes.rs core/crates/wabidb/src/engine/mod.rs core/crates/wabidb/src/projections/mod.rs core/crates/wabidb/src/projections/workspace.rs
+          git diff --name-status
+          git add -u
           if ! git diff --cached --quiet; then
-            git commit -m 'feat(workspace): integrate private artifact service and pinned dependencies'
+            git commit -m 'feat(workspace): integrate private artifact service and optional workspace entry points'
             git pull --rebase origin codex/docs-sheets-present-20260917
             git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
           fi
           git rev-parse HEAD
       - name: Install exact frontend dependencies
+        id: dependencies
         working-directory: frontend
         run: npm ci
+      - name: Check all frontend source
+        id: frontend_check
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          npm run check > /tmp/workspace-check.log 2>&1
+          tail -n 100 /tmp/workspace-check.log
       - name: Build real embedded frontend
+        id: frontend_build
+        continue-on-error: true
         working-directory: frontend
         env:
           STATIC_BUILD: '1'
-        run: npm run build
-      - name: Check Authority and workspace tests
+          WABI_WORKSPACE_ADDONS: all
         run: |
-          cargo check -p wabi-server --locked
-          cargo test -p wabidb workspace --locked
-          cargo test -p wabi-server workspace --lib --locked
-      - name: Upload compact verification record
+          npm run build > /tmp/workspace-build.log 2>&1
+          tail -n 60 /tmp/workspace-build.log
+      - name: Check actual Authority
+        id: rust_check
+        continue-on-error: true
+        run: |
+          cargo check -p wabi-server --locked > /tmp/workspace-rust.log 2>&1
+          tail -n 120 /tmp/workspace-rust.log
+      - name: Run private workspace tests
+        id: rust_tests
+        if: steps.rust_check.outcome == 'success'
+        continue-on-error: true
+        run: |
+          cargo test -p wabidb workspace --locked > /tmp/workspace-wabidb-tests.log 2>&1
+          cargo test -p wabi-server workspace --lib --locked > /tmp/workspace-server-tests.log 2>&1
+          tail -n 100 /tmp/workspace-wabidb-tests.log
+          tail -n 100 /tmp/workspace-server-tests.log
+      - name: Diagnostic summaries and strict result
         if: always()
+        env:
+          FRONTEND_CHECK: ${{ steps.frontend_check.outcome }}
+          FRONTEND_BUILD: ${{ steps.frontend_build.outcome }}
+          RUST_CHECK: ${{ steps.rust_check.outcome }}
+          RUST_TESTS: ${{ steps.rust_tests.outcome }}
         run: |
-          git status --short
           git rev-parse HEAD
+          for file in /tmp/workspace-*.log; do
+            test -f "$file" || continue
+            echo "===== $file ====="
+            grep -E -A 7 '^Error:|error\[|^error:|svelte-check found|\.[st][vs]velte:|^src/lib/workspaces|^test result:' "$file" | head -n 500 || true
+            tail -n 12 "$file"
+          done
+          printf '%s\n' "frontend_check=$FRONTEND_CHECK frontend_build=$FRONTEND_BUILD rust_check=$RUST_CHECK rust_tests=$RUST_TESTS"
+          test "$FRONTEND_CHECK" = success && test "$FRONTEND_BUILD" = success && test "$RUST_CHECK" = success && test "$RUST_TESTS" = success
