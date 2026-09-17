@@ -1,0 +1,32 @@
+name: Workspace implementation kit
+on:
+  push:
+    branches: [codex/docs-sheets-present-20260917]
+    paths: [.github/workflows/workspace-implementation-kit.yml]
+permissions:
+  contents: read
+jobs:
+  kit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install exact frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Package public source and dependency tree for offline validation
+        run: |
+          mkdir -p /tmp/wabi-implementation-kit
+          git archive --format=tar HEAD | gzip > /tmp/wabi-implementation-kit/source.tar.gz
+          tar -czf /tmp/wabi-implementation-kit/frontend-dependencies.tar.gz -C frontend node_modules
+          git rev-parse HEAD > /tmp/wabi-implementation-kit/source-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wabi-workspace-implementation-kit
+          path: /tmp/wabi-implementation-kit
+          retention-days: 2
