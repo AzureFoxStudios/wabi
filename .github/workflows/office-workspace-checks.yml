@@ -1,0 +1,158 @@
+name: Office workspace acceptance
+on:
+  push:
+    branches: [codex/docs-sheets-present-20260917]
+    paths:
+      - .github/workflows/office-workspace-checks.yml
+      - frontend/src/lib/workspaces/**
+      - frontend/scripts/office-workspace-browser-smoke.mjs
+      - core/crates/wabi-server/src/api/workspace*.rs
+      - core/crates/wabi-server/tests/workspace_contract.rs
+      - core/crates/wabi-server/examples/workspace_test_host.rs
+      - core/crates/wabi-server/Cargo.toml
+  pull_request:
+    paths:
+      - frontend/src/lib/workspaces/**
+      - core/crates/wabi-server/src/api/workspace*.rs
+      - core/crates/wabi-server/tests/workspace_contract.rs
+      - .github/workflows/office-workspace-checks.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: office-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: '1'
+jobs:
+  acceptance:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.93'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace-20260917
+          cache-on-failure: true
+      - name: Install committed frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend typecheck and focused models
+        id: frontend
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          npm run check > /tmp/office-typecheck.log 2>&1
+          bun test src/lib/workspaces > /tmp/office-unit.log 2>&1
+      - name: Build expanded frontend
+        id: expanded
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          STATIC_BUILD: '1'
+          WABI_WORKSPACE_ADDONS: all
+        run: |
+          npm run build > /tmp/office-expanded-build.log 2>&1
+          mkdir -p /tmp/office-evidence
+          find build -name wabi-workspace-bundle.json -exec cp '{}' /tmp/office-evidence/expanded-bundle.json \;
+      - name: Real Authority contract, replay tests and browser host
+        id: server
+        continue-on-error: true
+        run: |
+          cargo test -p wabidb workspace --locked > /tmp/office-storage-tests.log 2>&1
+          cargo test -p wabi-server workspace --lib --locked > /tmp/office-server-unit.log 2>&1
+          timeout 600 cargo test -p wabi-server --test workspace_contract --locked -- --nocapture > /tmp/office-contract.log 2>&1
+          cargo build -p wabi-server --example workspace_test_host --locked > /tmp/office-host-build.log 2>&1
+      - name: Independent-browser acceptance against the real Authority
+        id: browsers
+        if: steps.server.outcome == 'success'
+        continue-on-error: true
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium firefox > /tmp/office-browser-install.log 2>&1
+          cd ..
+          export WABI_WORKSPACE_E2E_DIR="$(mktemp -d /tmp/wabi-office-e2e.XXXXXX)"
+          export WORKSPACE_ARTIFACT_DIR=/tmp/office-evidence/screenshots
+          export WORKSPACE_BROWSER=chromium,firefox
+          mkdir -p "$WORKSPACE_ARTIFACT_DIR"
+          target/debug/examples/workspace_test_host > /tmp/office-host.log 2>&1 &
+          host_pid=$!
+          trap 'kill -INT "$host_pid" 2>/dev/null || true; wait "$host_pid" 2>/dev/null || true; rm -rf "$WABI_WORKSPACE_E2E_DIR"' EXIT
+          for attempt in $(seq 1 120); do
+            test -f "$WABI_WORKSPACE_E2E_DIR/host.json" && break
+            kill -0 "$host_pid" || exit 1
+            sleep .5
+          done
+          test -f "$WABI_WORKSPACE_E2E_DIR/host.json"
+          cd frontend
+          timeout 600 node scripts/office-workspace-browser-smoke.mjs > /tmp/office-browser.log 2>&1
+      - name: Verify minimal and independent addon build contents
+        id: packages
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          for selection in none sheets present; do
+            STATIC_BUILD=1 WABI_WORKSPACE_ADDONS="$selection" npm run build > "/tmp/office-${selection}-build.log" 2>&1
+            find build -name wabi-workspace-bundle.json -exec cp '{}' "/tmp/office-evidence/${selection}-bundle.json" \;
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('/tmp/office-evidence')
+          for name,expected in [('none',set()),('sheets',{'sheets'}),('present',{'present'}),('expanded',{'sheets','present'})]:
+              data=json.loads((root/f'{name}-bundle.json').read_text())
+              modules=[m for chunk in data['chunks'] for m in chunk['modules']]
+              detected={kind for kind in ('sheets','present') if any(f'/workspaces/{kind}/' in m for m in modules)}
+              assert detected==expected, (name,detected,expected)
+              if 'present' not in expected:
+                  assert not any('/pdfjs-dist/' in m or '/pptxgenjs/' in m for m in modules),name
+              if 'sheets' not in expected:
+                  assert not any('/xlsx/' in m for m in modules),name
+              print(f'{name}: authoring module boundary verified: {sorted(detected)}')
+          PY
+      - name: Diagnostic summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for file in sorted(Path('/tmp').glob('office-*.log')):
+              lines=re.sub(r'\x1b\[[0-9;]*[A-Za-z]','',file.read_text(errors='replace')).splitlines()
+              print('\n===== '+file.name+' =====')
+              indices=set()
+              for i,line in enumerate(lines):
+                  if re.search(r'(^Error:|^error\[|^error:|svelte-check found|test result:|^FAIL|^\(fail\)|AssertionError|Page errors:|TimeoutError|checks completed:)',line):
+                      indices.update(range(max(0,i-2),min(len(lines),i+18)))
+              for i in sorted(indices)[:700]: print(lines[i])
+              print('\n'.join(lines[-18:]))
+          PY
+          git rev-parse HEAD
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: office-workspace-evidence
+          path: /tmp/office-evidence
+          retention-days: 7
+      - name: Strict acceptance status
+        if: always()
+        env:
+          FRONTEND: ${{ steps.frontend.outcome }}
+          EXPANDED: ${{ steps.expanded.outcome }}
+          SERVER: ${{ steps.server.outcome }}
+          BROWSERS: ${{ steps.browsers.outcome }}
+          PACKAGES: ${{ steps.packages.outcome }}
+        run: |
+          echo "frontend=$FRONTEND expanded=$EXPANDED server=$SERVER browsers=$BROWSERS packages=$PACKAGES"
+          test "$FRONTEND" = success && test "$EXPANDED" = success && test "$SERVER" = success && test "$BROWSERS" = success && test "$PACKAGES" = success
