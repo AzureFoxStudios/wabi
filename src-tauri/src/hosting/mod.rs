@@ -2,8 +2,9 @@
 //! format, and a private stdin lifetime lease. No arbitrary executable/URL IPC.
 mod archive;
 mod process;
+mod bounded;
 
-use std::{fs, io::BufRead, net::SocketAddr, path::{Path, PathBuf}, process::Command, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{fs, net::SocketAddr, path::{Path, PathBuf}, process::Command, time::{Duration, SystemTime, UNIX_EPOCH}};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::Manager;
@@ -23,6 +24,7 @@ pub struct HostStatus {
     running: bool, ready: bool, setup_required: Option<bool>, local_url: Option<String>,
     sharing: &'static str, error: Option<String>, data_directory: String,
     backup_ids: Vec<String>, binary_available: bool,
+    build_revision: &'static str, test_build: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -66,10 +68,14 @@ async fn local_request(host: &Host, path: &str, body: Option<Value>, token: Opti
     let client = client()?;
     let mut request = if let Some(body) = body { client.post(url).json(&body) } else { client.get(url) };
     if let Some(token) = token { request = request.bearer_auth(token); }
-    let response = request.send().await.map_err(|e| format!("Local Authority did not respond: {e}"))?;
+    let mut response = request.send().await.map_err(|e| format!("Local Authority did not respond: {e}"))?;
     let status = response.status();
     if response.content_length().unwrap_or(0) > 1024 * 1024 { return Err("Unexpectedly large Authority response".into()); }
-    let body: Value = response.json().await.map_err(|_| "Invalid Authority response".to_string())?;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| "Cannot read Authority response".to_string())? {
+        bounded::append(&mut bytes, &chunk, 1024 * 1024).map_err(|e| e.to_string())?;
+    }
+    let body: Value = serde_json::from_slice(&bytes).map_err(|_| "Invalid Authority response".to_string())?;
     if !status.is_success() {
         // Report server errors, never include request headers/passwords/tokens.
         let message = body.get("error").and_then(Value::as_str)
@@ -154,15 +160,13 @@ async fn start(app: &tauri::AppHandle, host: &mut Host, lan: bool) -> Result<()>
     let (tx, rx) = tokio::sync::oneshot::channel();
     std::thread::Builder::new().name("wabi-host-address".into()).spawn(move || {
         let mut sender = Some(tx);
-        for line in std::io::BufReader::new(output).lines() {
-            let Ok(line) = line else { break; };
-            if line.len() > 8192 { continue; }
-            if let Ok(value) = serde_json::from_str::<Value>(&line) {
+        let _ = bounded::for_each_line(std::io::BufReader::new(output), 8192, |line| {
+            if let Ok(value) = serde_json::from_str::<Value>(line) {
                 if value["event"] == "wabi-listener-bound" && value["protocolVersion"] == 1 && value["pid"] == pid {
                     if let Some(tx) = sender.take() { let _ = tx.send(value["address"].as_str().unwrap_or("").to_string()); }
                 }
             }
-        }
+        });
     }).map_err(|e| e.to_string())?;
     host.child = Some(child); host.error = None; host.clean = false; host.lan = lan;
     let result: Result<()> = async {
@@ -206,7 +210,9 @@ async fn status(app: &tauri::AppHandle, host: &mut Host) -> Result<HostStatus> {
     Ok(HostStatus { running: host.child.is_some(), ready: setup.is_some(), setup_required: setup,
         local_url: host.address.map(|a| format!("http://127.0.0.1:{}", a.port())),
         sharing: if host.lan { "lan" } else { "local" }, error: host.error.clone(),
-        data_directory: root.join("data").display().to_string(), backup_ids: ids, binary_available: binary(app).is_ok() })
+        data_directory: root.join("data").display().to_string(), backup_ids: ids, binary_available: binary(app).is_ok(),
+        build_revision: option_env!("WABI_SOURCE_REVISION").unwrap_or("unrecorded-local-build"),
+        test_build: app.config().identifier == "chat.wabi.hosttest" })
 }
 
 #[tauri::command]

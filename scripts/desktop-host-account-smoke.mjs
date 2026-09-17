@@ -2,7 +2,7 @@
 // Disposable real-Authority rehearsal; never opens an operator directory.
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdtemp, mkdir, readFile, writeFile, rm, cp } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, cp, unlink, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { once } from 'node:events';
@@ -28,7 +28,7 @@ async function launch(data, host='127.0.0.1', fail=false) {
     lines.on('line',line=>{try{const value=JSON.parse(line);if(value.event==='wabi-listener-bound'){announced=true;resolve(value);}}catch{}});
     exit.then(value=>reject(new Error(`Exited before readiness: ${JSON.stringify(value)}`)),reject);
   }); announcement.catch(()=>{});
-  if(fail){const value=await bounded(exit,30000,'refuse unclaimed network listener');assert.notEqual(value.code,0);assert.equal(announced,false);running.delete(child);lines.close();return;}
+  if(fail){const value=await bounded(exit,30000,'refuse unsafe startup');assert.notEqual(value.code,0);assert.equal(announced,false);running.delete(child);lines.close();return;}
   const record=await bounded(announcement,60000,'listener');assert.equal(record.pid,child.pid);
   const origin=`http://${record.address}`;
   let ready=false;const deadline=Date.now()+30000;
@@ -76,6 +76,14 @@ try {
   assert.equal((await api(host,'/api/auth/login','POST',credentials)).user.id,owner.user.id);
   await api(host,'/api/auth/register','POST',{username:'replay_after_restore',password:credentials.password,inviteToken:invite.token},undefined,403);
   await stop(host);
+  for (const missing of ['wabidb/root_key', 'wabidb/storage-manifest.json']) {
+    const damaged = join(root, missing.endsWith('root_key') ? 'missing-key' : 'missing-manifest');
+    await cp(data, damaged, { recursive: true, errorOnExist: true, force: false });
+    await unlink(join(damaged, missing));
+    await launch(damaged, '127.0.0.1', true);
+    await assert.rejects(access(join(damaged, missing)), { code: 'ENOENT' }, 'missing identity/manifest must not be regenerated');
+  }
+  console.log('PASS: missing-key and missing-manifest recovery refusal on disposable copies.');
   console.log('PASS: local owner, fail-closed unclaimed exposure, invite admission/replay/revocation/role, Socket.IO EOF drain, identity restart and stopped-copy migration.');
   console.log('Not a native installer, cross-network private transport, physical media, or native restore-command acceptance test.');
 } finally {

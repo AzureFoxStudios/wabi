@@ -26,6 +26,7 @@ pub mod nodes;
 pub mod rate_limit;
 pub mod replication_transport;
 pub mod secrets;
+mod bootstrap_guard;
 pub mod socketio;
 pub mod socketio_impl;
 pub mod standby;

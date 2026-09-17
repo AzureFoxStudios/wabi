@@ -98,11 +98,10 @@ async fn concurrent_first_registrations_create_exactly_one_owner() {
         app.clone().oneshot(register_request("bob")),
     );
     let statuses = [a.unwrap().status(), b.unwrap().status()];
-    assert_eq!(
-        statuses,
-        [StatusCode::OK, StatusCode::CONFLICT],
-        "exactly one concurrent first registration may succeed; got {statuses:?}"
-    );
+    assert_eq!(statuses.iter().filter(|&&s| s == StatusCode::OK).count(), 1,
+        "exactly one concurrent first registration must succeed; got {statuses:?}");
+    assert_eq!(statuses.iter().filter(|&&s| s == StatusCode::CONFLICT).count(), 1,
+        "the other concurrent first registration must conflict; got {statuses:?}");
 
     assert!(
         !setup_required(&app).await,

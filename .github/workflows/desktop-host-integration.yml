@@ -8,7 +8,8 @@ on:
       - 'core/crates/wabi-server/**'
       - 'core/addons/tailcat/**'
       - 'frontend/src/**'
-      - 'scripts/**host*'
+      - 'scripts/**'
+      - 'docs/testing/**'
   workflow_dispatch:
 
 permissions:
@@ -51,7 +52,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       WABI_SOURCE_REVISION: ${{ github.sha }}
     steps:
@@ -72,7 +73,7 @@ jobs:
             src-tauri -> target
       - name: Linux native dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav patchelf
       - name: Locked frontend dependencies
         working-directory: frontend
         run: npm ci --no-audit --no-fund
@@ -85,7 +86,7 @@ jobs:
         shell: bash
         run: |
           node --experimental-strip-types --test scripts/tests/desktop-host-invites.test.mjs
-          node --test scripts/tests/desktop-host-foundation.test.mjs
+          node --test scripts/tests/desktop-host-foundation.test.mjs scripts/tests/desktop-host-evidence.test.mjs
           rustc --edition=2021 --test src-tauri/src/hosting/process.rs -o "$RUNNER_TEMP/host-process-tests.exe"
           "$RUNNER_TEMP/host-process-tests.exe" --nocapture
       - name: Build static frontend
@@ -115,6 +116,41 @@ jobs:
           cargo test --locked --manifest-path src-tauri/Cargo.toml --lib hosting::
       - name: Build desktop executable
         run: cargo build --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build release Authority for the test installer
+        run: cargo build --locked --release -p wabi-server
+      - name: Stage release Authority and build isolated hosting installer
+        shell: bash
+        run: |
+          TARGET=$(rustc -vV | sed -n 's/^host: //p')
+          BINARY=target/release/wabi-server
+          BUNDLE=appimage
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; BUNDLE=nsis; fi
+          node scripts/stage-desktop-host.mjs --target "$TARGET" --binary "$BINARY" --overwrite
+          node frontend/node_modules/@tauri-apps/cli/tauri.js build --ci --config src-tauri/tauri.hosting.conf.json --config src-tauri/tauri.hosttest.conf.json --bundles "$BUNDLE"
+      - name: Record installer and binary evidence
+        shell: bash
+        run: |
+          TARGET=$(rustc -vV | sed -n 's/^host: //p')
+          SERVER=target/release/wabi-server
+          DESKTOP=src-tauri/target/release/wabi-desktop
+          PATTERN='*.AppImage'
+          if [[ "$RUNNER_OS" == Windows ]]; then SERVER="$SERVER.exe"; DESKTOP="$DESKTOP.exe"; PATTERN='*-setup.exe'; fi
+          mapfile -t PACKAGES < <(find src-tauri/target/release/bundle -type f -name "$PATTERN")
+          if [[ ${#PACKAGES[@]} != 1 ]]; then echo 'Expected exactly one test installer'; exit 1; fi
+          node scripts/host-test-evidence.mjs --revision "$WABI_SOURCE_REVISION" --target "$TARGET" --installer "${PACKAGES[0]}" --server "$SERVER" --desktop "$DESKTOP" --output host-test-evidence.json
+      - name: Retain test installer only after all gates pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: wabi-host-test-package-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/**/*-setup.exe
+            src-tauri/target/release/wabi-desktop*
+            target/release/wabi-server*
+            host-test-evidence.json
+            docs/testing/DESKTOP_HOST_TEST_DOSSIER.md
+          if-no-files-found: error
+          retention-days: 7
       - name: Retain validation evidence
         if: always()
         uses: actions/upload-artifact@v4
