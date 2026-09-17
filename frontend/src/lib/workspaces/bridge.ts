@@ -30,3 +30,8 @@ export function registerWorkspaceDisposer(kind:ArtifactKind,fn:()=>Promise<void>
 export async function closeWorkspaceKind(kind:ArtifactKind){for(const fn of [...(disposers.get(kind)||[])])await fn();}
 export interface AudienceSlide{id:string;title:string;body:string;layout:string;image:string|null;}
 export interface AudienceState{id:string;controller:number;canControl:boolean;generation:number;sequence:number;slideId:string;edition:string;slides:AudienceSlide[]|null;sourceSequence:number;blank:boolean;paused:boolean;ended:boolean;aspect:number;}
+
+export function workspaceToolFromTab(tab: string | null | undefined): Tool | null {
+    const id = tab?.startsWith('addon:workspace-') ? tab.slice('addon:workspace-'.length) : '';
+    return ['documents','sheets','present','audience'].includes(id) ? id as Tool : null;
+}

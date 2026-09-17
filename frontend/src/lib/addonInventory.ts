@@ -1,3 +1,4 @@
+declare const __WABI_WORKSPACE_PACKAGED__: { sheets: boolean; present: boolean };
 import { getAuthToken } from '$lib/authSession';
 import { parseApiJson } from './api/utils';
 import { getServerUrl } from '$lib/serverUrl';
@@ -170,6 +171,7 @@ const capabilityCache = new Map<string, Promise<boolean>>();
 export function hasAddonCapability(addonId: string): Promise<boolean> {
 	const normalizedId = addonId.trim().toLowerCase();
 	if (!normalizedId) return Promise.resolve(false);
+	if (normalizedId === 'sheets' || normalizedId === 'present') return Promise.resolve(typeof __WABI_WORKSPACE_PACKAGED__ !== 'undefined' && __WABI_WORKSPACE_PACKAGED__[normalizedId]);
 
 	const cached = capabilityCache.get(normalizedId);
 	if (cached) return cached;

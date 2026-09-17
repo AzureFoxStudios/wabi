@@ -15,7 +15,7 @@ fn encoded(doc:&Doc)->String{STANDARD.encode(doc.transact().encode_state_as_upda
 fn apply(doc:&Doc,value:&str){let bytes=STANDARD.decode(value).unwrap();let update=Update::decode_v1(&bytes).unwrap();doc.transact_mut().apply_update(update).unwrap();}
 fn fork(doc:&Doc)->Doc{let next=empty();apply(&next,&encoded(doc));next}
 fn body(doc:&Doc)->String{doc.get_or_insert_text("body").get_string(&doc.transact())}
-fn document()->Doc{let doc=empty();{let mut tx=doc.transact_mut();doc.get_or_insert_text("title").insert(&mut tx,0,"Shared lesson");doc.get_or_insert_text("body").insert(&mut tx,0,"Original คน 🙂");}doc}
+fn document()->Doc{let doc=empty();let title=doc.get_or_insert_text("title");let body=doc.get_or_insert_text("body");{let mut tx=doc.transact_mut();title.insert(&mut tx,0,"Shared lesson");body.insert(&mut tx,0,"Original คน 🙂");}doc}
 async fn sync(app:&Router,id:&str,token:&str,doc:&Doc,generation:u64)->(StatusCode,Value){request(app,Method::POST,&format!("/workspace/artifacts/{id}/sync"),token,json!({"vector":"","update":encoded(doc),"generation":generation})).await}
 
 #[tokio::test]
