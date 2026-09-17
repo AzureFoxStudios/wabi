@@ -33,6 +33,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { MAP_ADDON_ID } from '$lib/mapWorkspace';
 	import { MODEL_VIEWPORT_ADDON_ID } from '$lib/modelViewportTab';
 	import { READER_ADDON_ID } from '$lib/readerWorkspace';
+	import { openWorkspaceLink } from '$lib/workspaceArtifacts/navigation';
 	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
 	import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 	import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
@@ -328,6 +329,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	onMount(() => {
+		queueMicrotask(() => openWorkspaceLink());
 		// Mobile navigation is structural chrome, not transient decoration.
 		// Keep it present while the phone shell is active; the keyboard and
 		// full-screen call surfaces are the only normal takeovers.

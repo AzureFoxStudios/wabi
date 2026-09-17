@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import {mkdtempSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+import {fileURLToPath} from 'node:url';
+import {execFileSync} from 'node:child_process';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const out=mkdtempSync(path.join(tmpdir(),'wabi-workspace-unit-'));let count=0;
+try {
+ execFileSync(process.execPath,[path.join(root,'node_modules/typescript/bin/tsc'),'--target','es2022','--module','commonjs','--moduleResolution','node','--ignoreDeprecations','6.0','--skipLibCheck','--outDir',out,...['addons/sheets/fileCodec.ts','addons/present/fileCodec.ts','workspaceArtifacts/model.ts','workspaceArtifacts/validate.ts'].map(p=>path.join(root,'src/lib',p))],{stdio:'inherit'});
+ writeFileSync(path.join(out,'package.json'),'{"type":"commonjs"}');const require=createRequire(path.join(out,'package.json'));
+ const model=require(path.join(out,'workspaceArtifacts/model.js')), sm=require(path.join(out,'addons/sheets/model.js')), formula=require(path.join(out,'addons/sheets/formula.js')), csv=require(path.join(out,'addons/sheets/csv.js')), wf=require(path.join(out,'addons/sheets/fileCodec.js')), dm=require(path.join(out,'addons/present/model.js')), df=require(path.join(out,'addons/present/fileCodec.js')), xml=require(path.join(out,'workspaceArtifacts/formats/xml.js')),zip=require(path.join(out,'workspaceArtifacts/formats/zip.js')),validation=require(path.join(out,'workspaceArtifacts/validate.js'));
+ async function test(name,fn){await fn();count++;console.log(`PASS ${name}`);}
+ const bytes=b=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);
+ const fields=sm.newWorkbook(),sid=sm.sheetIds(fields)[0],s=sm.getSheet(fields,sid);
+ const set=(r,c,text)=>fields[sm.cellKey(sid,s.rows[r],s.columns[c])]=formula.makeCell(fields,sid,text);
+ const val=(r,c)=>formula.createCalculator(fields).cell(sid,s.rows[r],s.columns[c]);
+ await test('Unicode disjoint prose changes merge without slicing emoji',()=>assert.equal(model.mergeText('a😀b cat','A😀b cat','a😀b dog'),'A😀b dog'));
+ await test('Conflicting insertions are explicit',()=>assert.equal(model.mergeText('ab','aXb','aYb'),null));
+ await test('Large Unicode replacement does not spread into the call stack',()=>assert.equal(model.mergeText('ab','x'.repeat(200000)+'b','ac'),'x'.repeat(200000)+'c'));
+ await test('Independent cell fields merge; competing scalar writes stay conflicts',()=>{assert.deepEqual({...model.rebase({a:1,b:2},{a:3,b:2},{a:1,b:4},'sheet').fields},{a:3,b:4});assert.equal(model.rebase({a:1},{a:12},{a:13},'sheet').conflicts.length,1);});
+ await test('Unicode wire patches are codepoint-indexed',()=>{const p=model.changes({fields:{text:'a😀b'},versions:{text:1},kind:'document'}, {text:'a😺b'})[0];assert.deepEqual(p.textPatch,{start:1,delete:1,insert:'😺'});});
+ await test('CSV preserves leading zeros, Thai, multiline and quotes',()=>{const a=[['00127','ไทย','a\nb','"hello"',''],['0','false','3/4']];assert.deepEqual(csv.parseDelimited(csv.writeDelimited(a),','),a);});
+ await test('CSV safe text neutralizes external formula-looking strings',()=>assert.match(csv.writeDelimited([['=cmd()']],',',true),/['\t]=cmd/));
+ await test('Arithmetic, range, IF, comparisons and number functions',()=>{set(0,0,'10');set(1,0,'20');for(const [i,t,want] of [['=SUM(A1:A2)',30],['=AVERAGE(A1:A2)',15],['=MIN(A1:A2)',10],['=MAX(A1:A2)',20],['=COUNT(A1:A2)',2],['=COUNTA(A1:A2)',2],['=IF(A1<20,3,1/0)',3],['=AND(A1=10,A2=20)',true],['=OR(A1=4,A2=20)',true],['=ROUND(-1.25,1)',-1.3],['=COUNTIF(A1:A2,">10")',1],['=SUMIF(A1:A2,">10")',20]].map((x,i)=>[i,...x])){set(i,1,t);assert.equal(val(i,1),want,t);}});
+ await test('User literal error text is not an actual formula error',()=>{set(20,0,"'#VALUE!");assert.deepEqual(formula.createCalculator(fields).result(sid,s.rows[20],s.columns[0]),{value:'#VALUE!'});});
+ await test('Division and circular-reference errors are surfaced',()=>{set(21,0,'=1/0');assert.equal(val(21,0),'#DIV/0!');set(22,0,'=A23');assert.match(String(val(22,0)),/^#/);});
+ await test('Unsupported formulas are not replaced by cached numeric results',()=>{const c=formula.makeCell(fields,sid,'=WEBSERVICE("https://invalid")');c.cached=42;fields[sm.cellKey(sid,s.rows[23],s.columns[0])]=c;assert.notEqual(val(23,0),42);assert.equal(c.unsupported,true);});
+ await test('Absolute references remain fixed when filling',()=>{const c=formula.makeCell(fields,sid,'=$A$1+A2');const moved=sm.shiftFormula(fields,c.ast,2,1);assert.equal(sm.formulaText(fields,sid,moved),'($A$1+B4)');});
+ await test('References track stable rows across insertion and reject deleted targets',()=>{const c=formula.makeCell(fields,sid,'=A1');s.rows.unshift(crypto.randomUUID());assert.equal(sm.formulaText(fields,sid,c.ast),'A2');s.rows.splice(1,1);assert.equal(sm.formulaText(fields,sid,c.ast),'#REF!');s.rows.splice(0,1);});
+ const wb=wf.workbookFromRows([['00127','ไทย','amount'],['a','hello', '12'],['b','line\nbreak','13']], 'Roundtrip',true);const wi=sm.sheetIds(wb)[0],ws=sm.getSheet(wb,wi);
+ wb[sm.cellKey(wi,ws.rows[1],ws.columns[2])]=formula.makeCell(wb,wi,'12');wb[sm.cellKey(wi,ws.rows[2],ws.columns[2])]=formula.makeCell(wb,wi,'13');wb[sm.cellKey(wi,ws.rows[3],ws.columns[2])]=formula.makeCell(wb,wi,'=SUM(C2:C3)');
+ await test('Native workbook structural validation',()=>validation.validateNativeFields('sheet',wb));
+ const artifactDir=process.env.WORKSPACE_FIXTURE_DIR;if(artifactDir)mkdirSync(artifactDir,{recursive:true});
+ for(const format of ['xlsx','ods'])await test(`${format.toUpperCase()} supported subset round trip`,async()=>{const exported=wf.exportWorkbookBytes(wb,wi,format);if(artifactDir)writeFileSync(path.join(artifactDir,'roundtrip.'+format),exported.bytes);const imported=await wf.importWorkbookBytes(bytes(exported.bytes),'roundtrip.'+format);validation.validateNativeFields('sheet',imported.fields);const i=sm.sheetIds(imported.fields)[0],s=sm.getSheet(imported.fields,i),calc=formula.createCalculator(imported.fields);assert.equal(calc.cell(i,s.rows[0],s.columns[0]),'00127');assert.equal(calc.cell(i,s.rows[0],s.columns[1]),'ไทย');assert.equal(calc.cell(i,s.rows[3],s.columns[2]),25);});
+ await test('ZIP traversal is rejected',async()=>{assert.throws(()=>zip.writeZip({'../escape':'x'}));});
+ await test('ZIP corrupt payload CRC is rejected',async()=>{const b=zip.writeZip({'test.txt':'safe'});b[30+'test.txt'.length]^=1;const entries=await zip.readZip(bytes(b));await assert.rejects(entries.get('test.txt').read());});
+ await test('XML DTD/entities and duplicate attributes are rejected',()=>{for(const input of ['<!DOCTYPE x [<!ENTITY x "bad">]><x>&x;</x>','<x a="1" a="2"/>','<x>&notKnown;</x>','junk<x/>'])assert.throws(()=>xml.xml(input),input);});
+ await test('XML namespace children and escaping preserve text',()=>{const root=xml.xml('<a><b:t>Thai &amp; ไทย</b:t></a>');assert.equal(xml.text(root),'Thai & ไทย');});
+ await test('Native imports reject notes payloads and executable formula nodes',()=>{const d=dm.newDeck();d.secretNotes='private';assert.throws(()=>validation.validateNativeFields('deck',d));const m=structuredClone(wb),k=sm.cellKey(wi,ws.rows[0],ws.columns[0]);m[k]={raw:'=eval()',ast:{type:'javascript',code:'evil'}};assert.throws(()=>validation.validateNativeFields('sheet',m));});
+ const deck=dm.fromMarkdown('# Public\n\nVisible text\n---\n# Secret\n\nHidden words','Example');const di=dm.slideIds(deck);deck[dm.key(di[1])].hidden=true;deck.notes='NEVER_IN_AUDIENCE';
+ await test('Audience rendition excludes hidden slides and unknown source data',()=>{const a=dm.audiencePages(deck);assert.equal(a.length,1);assert.ok(!JSON.stringify(a).includes('NEVER_IN_AUDIENCE'));assert.ok(!JSON.stringify(a).includes('Hidden words'));});
+ for(const format of ['pptx','odp','html'])await test(`${format.toUpperCase()} exports exclude private notes and hidden content`,async()=>{const exp=df.exportDeckBytes(deck,format);if(artifactDir)writeFileSync(path.join(artifactDir,'presentation.'+format),exp.bytes);if(format==='html'){assert.ok(!new TextDecoder().decode(exp.bytes).includes('Hidden words'));}else{const parts=await zip.readZip(bytes(exp.bytes));const decoded=(await Promise.all([...parts.values()].filter(p=>p.name.endsWith('.xml')).map(async p=>new TextDecoder().decode(await p.read())))).join('');assert.ok(!decoded.includes('Hidden words'));assert.ok(!decoded.includes('NEVER_IN_AUDIENCE'));assert.match(decoded,/Visible text/);}});
+ console.log(`\n${count} workspace unit/format checks passed.`);
+}finally{rmSync(out,{recursive:true,force:true});}

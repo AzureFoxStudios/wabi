@@ -989,6 +989,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::domain::Webhook",
         },
         ProjectionRegistration {
+            event_types: &[crate::projections::workspace_artifacts::EVENT],
+            handler: Arc::new(crate::projections::workspace_artifacts::WorkspaceProjection),
+            index_name: crate::projections::workspace_artifacts::INDEX,
+            record_type_name: "workspace_artifacts::EnvelopeV1",
+        },
+        ProjectionRegistration {
             event_types: &["whiteboard_doc_upserted"],
             handler: Arc::new(WhiteboardDocsProjection),
             index_name: "whiteboard_docs",

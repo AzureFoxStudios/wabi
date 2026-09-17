@@ -45,4 +45,4 @@ pub mod user;
 pub mod whiteboard;
 mod path_util;
 
-pub mod games;
+pub mod games;pub mod artifacts;
