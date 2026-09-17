@@ -89,6 +89,9 @@
 <svelte:head><title>Host or join — Wabi</title><meta name="description" content="Host a Wabi community on your computer or join an existing community." /></svelte:head>
 <main class="hosting">
     <header><p class="eyebrow">YOUR COMMUNITY. YOUR COMPUTER.</p><h1>Host or join Wabi</h1><p>One server, whether you run it here or move it to a dedicated machine later.</p></header>
+    {#if host}
+        <p class="small">{host.testBuild ? 'Isolated test installation — use disposable communities only.' : 'Standard installation — do not run destructive recovery tests on real communities.'}<br />Build: <code>{host.buildRevision}</code></p>
+    {/if}
     {#if error || host?.error}<p class="notice error" role="alert">{error || host?.error}</p>{/if}
     {#if message}<p class="notice" role="status">{message}</p>{/if}
     {#if busy}<p role="status" aria-live="polite">{busy}…</p>{/if}
@@ -103,6 +106,7 @@
         {:else if !available}<p>Hosting controls require the desktop application. This browser can still join a server above.</p>
         {:else if !host?.binaryAvailable}<p>This installation does not contain the Wabi Authority. A hosting package bundles it; installing Docker or Node is not required.</p>
         {:else}
+            {#if host.localUrl}<p class="small">Address on this computer only: <code>{host.localUrl}</code>. Do not send this localhost address to guests.</p>{/if}
             <p class="state">{host.running ? (host.ready ? 'Running' : 'Starting or recovering') : 'Stopped'} · {host.sharing === 'lan' ? 'Network listener enabled' : 'Local computer only'}</p>
             {#if !host.running}
                 <button disabled={!!busy} onclick={() => run('Starting community', async () => { host = await hostCommand<HostStatus>('host_start'); })}>Start my community</button>

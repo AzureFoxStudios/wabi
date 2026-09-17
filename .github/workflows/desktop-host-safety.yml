@@ -6,6 +6,7 @@ on:
       - '.github/workflows/desktop-host-safety.yml'
       - 'scripts/host-safety/**'
       - 'src-tauri/src/hosting/**'
+      - 'core/crates/wabi-server/src/bootstrap_guard.rs'
       - 'frontend/src/lib/hostInvites.ts'
       - 'scripts/tests/desktop-host-*.test.mjs'
   workflow_dispatch:
@@ -39,4 +40,4 @@ jobs:
       - name: Invitation and packaging regression tests
         run: |
           node --experimental-strip-types --test scripts/tests/desktop-host-invites.test.mjs
-          node --test scripts/tests/desktop-host-foundation.test.mjs
+          node --test scripts/tests/desktop-host-foundation.test.mjs scripts/tests/desktop-host-evidence.test.mjs

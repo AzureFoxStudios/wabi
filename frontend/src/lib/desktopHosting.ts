@@ -6,6 +6,7 @@ export interface HostStatus {
     running: boolean; ready: boolean; setupRequired: boolean | null; localUrl: string | null;
     sharing: 'local' | 'lan'; error: string | null; dataDirectory: string;
     backupIds: string[]; binaryAvailable: boolean;
+    buildRevision: string; testBuild: boolean;
 }
 export interface HostAccount {
     accessToken: string; refreshToken: string; user: { id: number; username: string };

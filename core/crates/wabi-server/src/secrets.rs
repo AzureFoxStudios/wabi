@@ -1,7 +1,7 @@
 //! First-boot secret resolution.
 //!
 //! Wabi boots with zero required configuration: any missing secret is
-//! generated on first boot and persisted inside the data directory so a
+//! generated for a fresh database and persisted inside the data directory so a
 //! plain `wabi-server` (or `docker compose up`) starts turnkey. Explicit
 //! environment variables always win over persisted files, so operators who
 //! manage secrets externally keep full control.
@@ -9,7 +9,8 @@
 //! Resolution order for both secrets: environment variable > persisted file
 //! in the data dir > freshly generated + persisted. A persisted file that
 //! exists but is corrupt is a hard error — silently regenerating a key would
-//! make existing encrypted data permanently unreadable.
+//! make existing encrypted data permanently unreadable. A missing root key or
+//! manifest in an existing database is also a hard error, not a new first boot.
 
 use std::io::{self, Write};
 use std::path::Path;
@@ -130,6 +131,7 @@ fn resolve_root_key_with(
     env_value: Option<&str>,
     data_dir: &Path,
 ) -> wabidb::error::Result<[u8; 32]> {
+    crate::bootstrap_guard::check(data_dir, env_value.is_some())?;
     if let Some(env) = env_value {
         return decode_root_key_hex(env).map_err(|e| wabidb::error::WabiError::Validation {
             command: "resolve_root_key".into(),

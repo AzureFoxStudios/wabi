@@ -35,6 +35,7 @@ mod nodes;
 mod rate_limit;
 mod replication_transport;
 mod secrets;
+mod bootstrap_guard;
 mod socketio;
 mod socketio_impl;
 mod standby;
