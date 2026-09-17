@@ -1,0 +1,45 @@
+name: Workspace addon development
+
+on:
+  push:
+    branches: [codex/workspace-docs-sheets-present-20260917]
+    paths:
+      - '.github/workflows/workspace-addon-development.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Export exact tracked source (no credentials or runtime data)
+        run: |
+          git archive --format=tar HEAD | gzip > /tmp/wabi-workspace-source.tar.gz
+          git rev-parse HEAD > /tmp/wabi-workspace-source.sha
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-source
+          path: |
+            /tmp/wabi-workspace-source.tar.gz
+            /tmp/wabi-workspace-source.sha
+          retention-days: 3
+      - name: Install the committed frontend dependency tree
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Export development dependency cache
+        run: tar -czf /tmp/wabi-frontend-dependencies.tar.gz -C frontend node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-frontend-dependencies
+          path: /tmp/wabi-frontend-dependencies.tar.gz
+          retention-days: 3
