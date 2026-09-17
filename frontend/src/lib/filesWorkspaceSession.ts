@@ -913,6 +913,15 @@ export function createFilesWorkspaceSession(overrides?: Partial<FilesWorkspaceDe
 		if (!current) return;
 		// Explicit retry owns a fresh scope; retirement checks still fence it.
 		await runUploadJob(current, payload.channelId, scope, hasAccess, null, payload.file);
+		// Match the batch contract: refresh the listing when the retried file
+		// actually landed, so it appears without a manual reload.
+		let landed = false;
+		uploadJobs.subscribe((all) => {
+			landed = all.find((j) => j.id === jobId)?.status === 'done';
+		})();
+		if (!disposed && landed && sessionAlive(scope)) {
+			await loadFiles(payload.channelId);
+		}
 	}
 
 	function dismissUpload(jobId: string): void {

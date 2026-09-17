@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const scratch = await mkdtemp('/tmp/wabi-files-gf07-');
 const results = [], requests = [], consoleErrors = [], pageErrors = [], screenshots = [];
 let vite, browser, page;
-const fixture = { listErrors: new Set(), blobErrors: new Set(), repoMode: 'ok', scope: 'A', gate: null };
+const fixture = { listErrors: new Set(), blobErrors: new Set(), repoMode: 'ok', scope: 'A', gate: null, uploaded: new Map(), uploadErrors: new Set() };
 const contents = {
   'README.md': '# Synthetic Alpha\n\nGF07 fixture content, not external Lore data.',
   'docs/deep/guide & notes.md': '# Nested guide\n\nEncoded nested path fixture.',
@@ -19,7 +19,11 @@ const contents = {
   'logo.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#157f70"/><text x="20" y="55" fill="white">GF07 fixture</text></svg>',
   'beta.md': '# Synthetic Beta\n\nSecond space only.'
 };
-const files = id => (id === 101 ? ['README.md', 'docs/deep/guide & notes.md', 'bundle.bin', 'logo.svg'] : ['beta.md']).map(path => ({ path, size: Buffer.byteLength(contents[path]), status: 'clean', etag: `synthetic-${path}` }));
+const files = id => {
+  const base = id === 101 ? ['README.md', 'docs/deep/guide & notes.md', 'bundle.bin', 'logo.svg'] : ['beta.md'];
+  const extra = [...(fixture.uploaded.get(id) || [])];
+  return base.concat(extra).map(path => ({ path, size: Buffer.byteLength(contents[path] ?? ''), status: 'clean', etag: `synthetic-${path}` }));
+};
 const boundaries = `
 import { writable } from 'svelte/store';
 export const currentChannel=writable('ch_65');
@@ -98,6 +102,14 @@ try {
     await appendFile(`${scratch}/requests.jsonl`,JSON.stringify(requests.at(-1))+'\n');
     const send=(status,body)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(body)});
     if(fixture.gate?.matches({scope,id,path,isList})) { const gate=fixture.gate;gate.seen=true;await gate.promise; }
+    if(route.request().method()==='PUT') {
+      if(fixture.uploadErrors.has(path))return send(500,{error:'Synthetic upload failure'});
+      const body = Buffer.from(route.request().postDataBuffer() || []).toString('utf8');
+      contents[path]=body;
+      if(!fixture.uploaded.has(id))fixture.uploaded.set(id,[]);
+      if(!fixture.uploaded.get(id).includes(path))fixture.uploaded.get(id).push(path);
+      return send(200,{revision:{id:'synthetic-rev',message:'',author:1,createdAt:1},file:{path,size:Buffer.byteLength(body),status:'clean',etag:`synthetic-upload-${path}`},etag:`synthetic-upload-${path}`});
+    }
     if(path) {
       if(fixture.blobErrors.has(path))return send(500,{error:'Synthetic blob failure'});
       return route.fulfill({status:200,contentType:path.endsWith('.svg')?'image/svg+xml':path.endsWith('.bin')?'application/octet-stream':'text/plain',body:contents[path]||'STALE synthetic bytes'});
@@ -133,7 +145,9 @@ try {
   await check('17 optional dependency recovery through Retry',async()=>{fixture.repoMode='ok';await page.getByRole('button',{name:'Retry',exact:true}).click();await fileButton('README.md').waitFor();});
   await check('18 absent repository shows connected-space guidance',async()=>{fixture.repoMode='absent';await page.reload();await page.getByRole('heading',{name:'No connected spaces yet',exact:true}).waitFor();await page.getByText(/Open the Code view on a lore channel/).waitFor();await shot('18-absent');});
   await check('19 mobile Files controls stay within viewport',async()=>{await reset();await page.setViewportSize({width:390,height:844});await shot('19-mobile');const picker=await page.getByLabel('Choose a space').boundingBox();assert.ok(picker.x>=0&&picker.x+picker.width<=390,'space picker fits 390px viewport');assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.setViewportSize({width:1440,height:900});});
-  await check('20 no uncaught browser exceptions',async()=>{assert.deepEqual(pageErrors,[]);});
+  await check('20 upload completes and refreshed listing shows the file',async()=>{await reset();await page.locator('.upload-btn input[type=file]').setInputFiles({name:'brand-new.md',mimeType:'text/markdown',buffer:Buffer.from('# Brand new upload\n')});await fileButton('brand-new.md').waitFor();assert.ok(requests.some(r=>r.method==='PUT'&&r.path==='brand-new.md'),'upload PUT recorded');assert.equal(await page.locator('.upload-job.done').count(),1);await shot('20-upload');});
+  await check('20b failed upload keeps honest error and Retry completes',async()=>{fixture.uploadErrors.add('failing.md');await page.locator('.upload-btn input[type=file]').setInputFiles({name:'failing.md',mimeType:'text/markdown',buffer:Buffer.from('# Failing upload\n')});await page.locator('.upload-job.error').waitFor();assert.match(await page.locator('.upload-job.error .upload-job-error').innerText(),/Synthetic upload failure/);await shot('20b-upload-error');fixture.uploadErrors.delete('failing.md');await page.locator('.upload-job.error').getByRole('button',{name:'Retry',exact:true}).click();await fileButton('failing.md').waitFor();assert.equal(await page.locator('.upload-job.error').count(),0);await shot('20c-upload-retry');});
+  await check('21 no uncaught browser exceptions',async()=>{assert.deepEqual(pageErrors,[]);});
 } catch(error) {
   results.push({name:'HARNESS',status:'FAIL',error:error.stack});console.error(error);
   if(page)await shot('harness-failure').catch(()=>{});
