@@ -1,8 +1,6 @@
 //! Versioned JSON records. These events must never enter the public chat fan-out.
 use serde::{Deserialize, Serialize};
-use crate::error::{Error, Result};
-use crate::projections::{Projection, ProjectionState};
-use crate::storage::record::PlainRecord;
+use crate::{engine::locks::ProjectionState, error::{Result, WabiError}, projections::handler::{DurableEvent, Projection}};
 
 pub const INDEX: &str = "workspace_records_v1";
 pub const EVENT: &str = "workspace_record_replaced_v1";
@@ -30,7 +28,7 @@ pub struct WorkspaceDelta {
     pub updated_at: u64,
 }
 
-fn invalid() -> Error { Error::InvalidArgument("Invalid workspace record".into()) }
+fn invalid() -> WabiError { WabiError::Corrupt { location: INDEX.into(), detail: "Invalid workspace record".into() } }
 
 pub fn decode(bytes: &[u8]) -> Result<WorkspaceRecord> {
     if bytes.len() > MAX_BYTES { return Err(invalid()); }
@@ -58,14 +56,15 @@ pub fn apply_delta(mut row: WorkspaceRecord, change: &WorkspaceDelta) -> Result<
 
 pub struct WorkspaceProjection;
 impl Projection for WorkspaceProjection {
-    fn apply(&self, record: &PlainRecord, state: &ProjectionState) -> Result<()> {
+    fn event_type(&self) -> &str { EVENT }
+    fn apply(&self, record: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let row = if record.event_type == DELTA_EVENT {
-            let change: WorkspaceDelta = serde_json::from_slice(&record.plaintext).map_err(|_| invalid())?;
+            let change: WorkspaceDelta = serde_json::from_slice(&record.payload).map_err(|_| invalid())?;
             let bytes = state.get(INDEX, change.key.as_bytes()).ok_or_else(invalid)?;
             apply_delta(decode(&bytes)?, &change)?
-        } else { decode(&record.plaintext)? };
+        } else { decode(&record.payload)? };
         let bytes = serde_json::to_vec(&row).map_err(|_| invalid())?;
-        state.insert(INDEX, row.key.as_bytes(), &bytes, record.commit_seq);
+        state.insert(INDEX, row.key.as_bytes().to_vec(), bytes, record.commit_seq);
         Ok(())
     }
 }

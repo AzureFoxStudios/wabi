@@ -3525,3 +3525,5 @@ impl WdbAdapter {
         Ok(out)
     }
 }
+
+pub(crate) mod workspace;
