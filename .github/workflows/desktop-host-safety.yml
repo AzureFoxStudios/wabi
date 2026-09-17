@@ -1,0 +1,42 @@
+name: Desktop Host Safety
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-host-safety.yml'
+      - 'scripts/host-safety/**'
+      - 'src-tauri/src/hosting/**'
+      - 'frontend/src/lib/hostInvites.ts'
+      - 'scripts/tests/desktop-host-*.test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-host-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-safety:
+    name: Owned processes, snapshots and invitations (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@1.93
+      - name: Compile and test production process and snapshot modules
+        run: cargo test --locked --manifest-path scripts/host-safety/Cargo.toml -- --nocapture
+      - name: Invitation and packaging regression tests
+        run: |
+          node --experimental-strip-types --test scripts/tests/desktop-host-invites.test.mjs
+          node --test scripts/tests/desktop-host-foundation.test.mjs
