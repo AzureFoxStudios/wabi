@@ -120,6 +120,11 @@
 			}),
 			session.uploadJobs.subscribe((v) => {
 				uploadJobs = v;
+			}),
+			session.onRetired(() => {
+				// Context/scope retirement empties the space map; drop the stale
+				// selection so the auto-pick effect re-resolves once spaces reload.
+				selectedChannelId = null;
 			})
 		];
 		return () => {
@@ -314,7 +319,7 @@
 					<input type="file" multiple style="display:none" onchange={onFileInput} />
 				</label>
 			{/if}
-			<select class="channel-picker" value={selectedChannelId ?? ''} onchange={onPickChannel} aria-label="Choose a space">
+			<select class="channel-picker" value={selectedChannelId === null ? '' : String(selectedChannelId)} onchange={onPickChannel} aria-label="Choose a space">
 				{#if selectedChannelId === null}
 					<option value="" disabled>Choose a space</option>
 				{/if}
