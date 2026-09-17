@@ -1,0 +1,954 @@
+PR 232 build(deps-dev): bump @types/bun from 1.4.0 to 1.4.2 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..c0e593e2 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -43,7 +43,7 @@
+         "@sveltejs/kit": "2.70.3",
+         "@sveltejs/vite-plugin-svelte": "7.3.0",
+         "@tauri-apps/cli": "2.11.4",
+-        "@types/bun": "1.4.0",
++        "@types/bun": "1.4.2",
+         "@types/qrcode": "1.5.6",
+         "playwright": "1.62.1",
+         "svelte": "5.56.8",
+@@ -1666,13 +1666,13 @@
+       }
+     },
+     "node_modules/@types/bun": {
+-      "version": "1.4.0",
+-      "resolved": "https://registry.npmjs.org/@types/bun/-/bun-1.4.0.tgz",
+-      "integrity": "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ==",
++      "version": "1.4.2",
++      "resolved": "https://registry.npmjs.org/@types/bun/-/bun-1.4.2.tgz",
++      "integrity": "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+-        "bun-types": "1.4.0"
++        "bun-types": "1.4.2"
+       }
+     },
+     "node_modules/@types/cookie": {
+@@ -1838,9 +1838,9 @@
+       }
+     },
+     "node_modules/bun-types": {
+-      "version": "1.4.0",
+-      "resolved": "https://registry.npmjs.org/bun-types/-/bun-types-1.4.0.tgz",
+-      "integrity": "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q==",
++      "version": "1.4.2",
++      "resolved": "https://registry.npmjs.org/bun-types/-/bun-types-1.4.2.tgz",
++      "integrity": "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..f3187a08 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -49,7 +49,7 @@
+     "@sveltejs/kit": "2.70.3",
+     "@sveltejs/vite-plugin-svelte": "7.3.0",
+     "@tauri-apps/cli": "2.11.4",
+-    "@types/bun": "1.4.0",
++    "@types/bun": "1.4.2",
+     "@types/qrcode": "1.5.6",
+     "playwright": "1.62.1",
+     "svelte": "5.56.8",
+
+PR 231 build(deps): bump marked from 18.0.12 to 18.0.13 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..16502362 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -14,7 +14,7 @@
+         "dompurify": "3.4.14",
+         "katex": "0.18.4",
+         "livekit-client": "2.22.1",
+-        "marked": "18.0.12",
++        "marked": "18.0.13",
+         "motion": "13.2.0",
+         "opus-recorder": "8.0.5",
+         "prismjs": "1.30.0",
+@@ -2914,9 +2914,9 @@
+       }
+     },
+     "node_modules/marked": {
+-      "version": "18.0.12",
+-      "resolved": "https://registry.npmjs.org/marked/-/marked-18.0.12.tgz",
+-      "integrity": "sha512-LEm4ga2YeI2T3GVHj9b0BaDPPk93LLTHMFeMyQbNIzPxc8vCI0y/scy0ZA6z6lXKyT9j9Nhl/OC6ZYKYGuFScA==",
++      "version": "18.0.13",
++      "resolved": "https://registry.npmjs.org/marked/-/marked-18.0.13.tgz",
++      "integrity": "sha512-xTxVzZsBFwunP6HDmtBkabUQEYArnP7/rMDGmPj9SlrKlQ4i8MdYVow+nJL0eOqwpUqhzBoTBRADGN6uYwPyOw==",
+       "license": "MIT",
+       "bin": {
+         "marked": "bin/marked.js"
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..3b03939b 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -65,7 +65,7 @@
+     "dompurify": "3.4.14",
+     "katex": "0.18.4",
+     "livekit-client": "2.22.1",
+-    "marked": "18.0.12",
++    "marked": "18.0.13",
+     "motion": "13.2.0",
+     "opus-recorder": "8.0.5",
+     "prismjs": "1.30.0",
+
+PR 230 build(deps-dev): bump @codemirror/lang-markdown from 6.5.1 to 6.5.2 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..56d205be 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -32,7 +32,7 @@
+         "@codemirror/lang-java": "6.0.2",
+         "@codemirror/lang-javascript": "6.2.5",
+         "@codemirror/lang-json": "6.0.2",
+-        "@codemirror/lang-markdown": "6.5.1",
++        "@codemirror/lang-markdown": "6.5.2",
+         "@codemirror/lang-python": "6.2.1",
+         "@codemirror/lang-rust": "6.0.2",
+         "@codemirror/state": "6.7.1",
+@@ -181,9 +181,9 @@
+       }
+     },
+     "node_modules/@codemirror/lang-markdown": {
+-      "version": "6.5.1",
+-      "resolved": "https://registry.npmjs.org/@codemirror/lang-markdown/-/lang-markdown-6.5.1.tgz",
+-      "integrity": "sha512-6re5avCNfyRMIoi3XNjbEfQM1vTeVD3JS3g/Fyegyso/eoANFM71Cyvbb66LDyYtQLMEcRFlzioywCqDo9SlLA==",
++      "version": "6.5.2",
++      "resolved": "https://registry.npmjs.org/@codemirror/lang-markdown/-/lang-markdown-6.5.2.tgz",
++      "integrity": "sha512-AwBOdkWYuA//WcM0xO5PfHPUcmz/O2i5o0Nsg1U69SII/loCJlFI1Romd9xp2HYb1kYJRGZotyqRghuHH5n8Kw==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..d21291f5 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -38,7 +38,7 @@
+     "@codemirror/lang-java": "6.0.2",
+     "@codemirror/lang-javascript": "6.2.5",
+     "@codemirror/lang-json": "6.0.2",
+-    "@codemirror/lang-markdown": "6.5.1",
++    "@codemirror/lang-markdown": "6.5.2",
+     "@codemirror/lang-python": "6.2.1",
+     "@codemirror/lang-rust": "6.0.2",
+     "@codemirror/state": "6.7.1",
+
+PR 229 build(deps-dev): bump @sveltejs/adapter-node from 5.5.4 to 5.5.7 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..734e26d8 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -38,7 +38,7 @@
+         "@codemirror/state": "6.7.1",
+         "@codemirror/theme-one-dark": "6.1.3",
+         "@codemirror/view": "6.43.9",
+-        "@sveltejs/adapter-node": "5.5.4",
++        "@sveltejs/adapter-node": "5.5.7",
+         "@sveltejs/adapter-static": "3.0.10",
+         "@sveltejs/kit": "2.70.3",
+         "@sveltejs/vite-plugin-svelte": "7.3.0",
+@@ -926,6 +926,28 @@
+         }
+       }
+     },
++    "node_modules/@rollup/plugin-replace": {
++      "version": "6.0.3",
++      "resolved": "https://registry.npmjs.org/@rollup/plugin-replace/-/plugin-replace-6.0.3.tgz",
++      "integrity": "sha512-J4RZarRvQAm5IF0/LwUUg+obsm+xZhYnbMXmXROyoSE1ATJe3oXSb9L5MMppdxP2ylNSjv6zFBwKYjcKMucVfA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@rollup/pluginutils": "^5.0.1",
++        "magic-string": "^0.30.3"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      },
++      "peerDependencies": {
++        "rollup": "^1.20.0||^2.0.0||^3.0.0||^4.0.0"
++      },
++      "peerDependenciesMeta": {
++        "rollup": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/@rollup/pluginutils": {
+       "version": "5.3.0",
+       "resolved": "https://registry.npmjs.org/@rollup/pluginutils/-/pluginutils-5.3.0.tgz",
+@@ -1331,15 +1353,16 @@
+       }
+     },
+     "node_modules/@sveltejs/adapter-node": {
+-      "version": "5.5.4",
+-      "resolved": "https://registry.npmjs.org/@sveltejs/adapter-node/-/adapter-node-5.5.4.tgz",
+-      "integrity": "sha512-45X92CXW+2J8ZUzPv3eLlKWEzINKiiGeFWTjyER4ZN4sGgNoaoeSkCY/QYNxHpPXy71QPsctwccBo9jJs0ySPQ==",
++      "version": "5.5.7",
++      "resolved": "https://registry.npmjs.org/@sveltejs/adapter-node/-/adapter-node-5.5.7.tgz",
++      "integrity": "sha512-uOfc9eVlI3A37RRSaKcgrheBYPrfJwC9VMqDp8x/O6tlKdcLLvHThSWD0KNIbjQ/d+7bwLGx3vx6aowAcRfd2g==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@rollup/plugin-commonjs": "^29.0.0",
+         "@rollup/plugin-json": "^6.1.0",
+         "@rollup/plugin-node-resolve": "^16.0.0",
++        "@rollup/plugin-replace": "^6.0.3",
+         "rollup": "^4.59.0"
+       },
+       "peerDependencies": {
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..c3cd3174 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -44,7 +44,7 @@
+     "@codemirror/state": "6.7.1",
+     "@codemirror/theme-one-dark": "6.1.3",
+     "@codemirror/view": "6.43.9",
+-    "@sveltejs/adapter-node": "5.5.4",
++    "@sveltejs/adapter-node": "5.5.7",
+     "@sveltejs/adapter-static": "3.0.10",
+     "@sveltejs/kit": "2.70.3",
+     "@sveltejs/vite-plugin-svelte": "7.3.0",
+
+PR 228 build(deps-dev): bump svelte from 5.56.8 to 5.57.0 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..52e21ae7 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -46,7 +46,7 @@
+         "@types/bun": "1.4.0",
+         "@types/qrcode": "1.5.6",
+         "playwright": "1.62.1",
+-        "svelte": "5.56.8",
++        "svelte": "5.57.0",
+         "svelte-check": "4.7.6",
+         "tslib": "2.8.1",
+         "typescript": "6.0.3",
+@@ -1775,7 +1775,8 @@
+       "version": "2.0.7",
+       "resolved": "https://registry.npmjs.org/@types/trusted-types/-/trusted-types-2.0.7.tgz",
+       "integrity": "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==",
+-      "license": "MIT"
++      "license": "MIT",
++      "optional": true
+     },
+     "node_modules/@xyflow/svelte": {
+       "version": "1.6.6",
+@@ -3487,16 +3488,15 @@
+       }
+     },
+     "node_modules/svelte": {
+-      "version": "5.56.8",
+-      "resolved": "https://registry.npmjs.org/svelte/-/svelte-5.56.8.tgz",
+-      "integrity": "sha512-PY8LOw7xP6c8IOiVqdo0sbbZVYhXRSfklOQLAUyGBKqjTX0wx/z4l/9J+PmBpmlLnxzEb1NqltxQ5/wZme/Cmg==",
++      "version": "5.57.0",
++      "resolved": "https://registry.npmjs.org/svelte/-/svelte-5.57.0.tgz",
++      "integrity": "sha512-NdbDn7fl4be1ViUG0oq/lvG6OZy3oENolV2ONjiqqsfVoeAfzaQAKUcEX3MrQod/Bebv1PgwET9rfXhgn9s4Kg==",
+       "license": "MIT",
+       "dependencies": {
+         "@jridgewell/remapping": "^2.3.4",
+         "@jridgewell/sourcemap-codec": "^1.5.0",
+         "@sveltejs/acorn-typescript": "^1.0.10",
+         "@types/estree": "^1.0.5",
+-        "@types/trusted-types": "^2.0.7",
+         "acorn": "^8.12.1",
+         "aria-query": "5.3.1",
+         "axobject-query": "^4.1.0",
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..e953d6da 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -52,7 +52,7 @@
+     "@types/bun": "1.4.0",
+     "@types/qrcode": "1.5.6",
+     "playwright": "1.62.1",
+-    "svelte": "5.56.8",
++    "svelte": "5.57.0",
+     "svelte-check": "4.7.6",
+     "tslib": "2.8.1",
+     "typescript": "6.0.3",
+
+PR 227 build(deps): bump toml from 0.8.23 to 1.1.6+spec-1.1.0
+diff --git a/Cargo.lock b/Cargo.lock
+index 501abd80..182d7411 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -4212,11 +4212,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "serde_spanned"
+-version = "0.6.9"
++version = "1.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
++checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+ dependencies = [
+- "serde",
++ "serde_core",
+ ]
+ 
+ [[package]]
+@@ -4870,44 +4870,42 @@ dependencies = [
+ 
+ [[package]]
+ name = "toml"
+-version = "0.8.23"
++version = "1.1.6+spec-1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
++checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
+ dependencies = [
+- "serde",
++ "indexmap",
++ "serde_core",
+  "serde_spanned",
+  "toml_datetime",
+- "toml_edit",
++ "toml_parser",
++ "toml_writer",
++ "winnow",
+ ]
+ 
+ [[package]]
+ name = "toml_datetime"
+-version = "0.6.11"
++version = "1.1.1+spec-1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
++checksum = "3165f65f62e28e0115a00b2ebdd37eb6f3b641855f9d636d3cd4103767159ad7"
+ dependencies = [
+- "serde",
++ "serde_core",
+ ]
+ 
+ [[package]]
+-name = "toml_edit"
+-version = "0.22.27"
++name = "toml_parser"
++version = "1.1.3+spec-1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
++checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
+ dependencies = [
+- "indexmap",
+- "serde",
+- "serde_spanned",
+- "toml_datetime",
+- "toml_write",
+  "winnow",
+ ]
+ 
+ [[package]]
+-name = "toml_write"
+-version = "0.1.2"
++name = "toml_writer"
++version = "1.1.2+spec-1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
++checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
+ 
+ [[package]]
+ name = "tower"
+@@ -5452,7 +5450,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "tokio",
+- "toml 0.8.23",
++ "toml 1.1.6+spec-1.1.0",
+  "tracing",
+  "tracing-subscriber",
+ ]
+@@ -5488,7 +5486,7 @@ dependencies = [
+  "subtle",
+  "tempfile",
+  "tokio",
+- "toml 0.8.23",
++ "toml 1.1.6+spec-1.1.0",
+  "tracing",
+  "x25519-dalek",
+  "zeroize",
+@@ -6011,12 +6009,9 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
+ 
+ [[package]]
+ name = "winnow"
+-version = "0.7.15"
++version = "1.0.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+-dependencies = [
+- "memchr",
+-]
++checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+ 
+ [[package]]
+ name = "wit-bindgen"
+diff --git a/core/crates/wabi-tui/Cargo.toml b/core/crates/wabi-tui/Cargo.toml
+index 391ee544..afb7badf 100644
+--- a/core/crates/wabi-tui/Cargo.toml
++++ b/core/crates/wabi-tui/Cargo.toml
+@@ -42,7 +42,7 @@ chrono = { version = "0.4", features = ["serde"] }
+ 
+ # Config
+ dirs = "5"
+-toml = "0.8"
++toml = "1.1"
+ 
+ # Logging
+ tracing = "0.1"
+diff --git a/core/crates/wabidb/Cargo.toml b/core/crates/wabidb/Cargo.toml
+index 09fbf60b..a74de271 100644
+--- a/core/crates/wabidb/Cargo.toml
++++ b/core/crates/wabidb/Cargo.toml
+@@ -45,7 +45,7 @@ postcard = { version = "1", features = ["alloc"] }
+ serde_json = "1"
+ 
+ # TOML parsing (used by WabiDbConfig::load_from_file)
+-toml = "0.8"
++toml = "1.1"
+ 
+ # Async trait support (SyncTransport trait)
+ async-trait = "0.1"
+
+PR 226 build(deps-dev): bump playwright from 1.62.1 to 1.63.0 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..851b37f6 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -45,7 +45,7 @@
+         "@tauri-apps/cli": "2.11.4",
+         "@types/bun": "1.4.0",
+         "@types/qrcode": "1.5.6",
+-        "playwright": "1.62.1",
++        "playwright": "1.63.0",
+         "svelte": "5.56.8",
+         "svelte-check": "4.7.6",
+         "tslib": "2.8.1",
+@@ -3124,28 +3124,25 @@
+       }
+     },
+     "node_modules/playwright": {
+-      "version": "1.62.1",
+-      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.62.1.tgz",
+-      "integrity": "sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg==",
++      "version": "1.63.0",
++      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.63.0.tgz",
++      "integrity": "sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==",
+       "dev": true,
+       "license": "Apache-2.0",
+       "dependencies": {
+-        "playwright-core": "1.62.1"
++        "playwright-core": "1.63.0"
+       },
+       "bin": {
+         "playwright": "cli.js"
+       },
+       "engines": {
+         "node": ">=20"
+-      },
+-      "optionalDependencies": {
+-        "fsevents": "2.3.2"
+       }
+     },
+     "node_modules/playwright-core": {
+-      "version": "1.62.1",
+-      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.62.1.tgz",
+-      "integrity": "sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==",
++      "version": "1.63.0",
++      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz",
++      "integrity": "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==",
+       "dev": true,
+       "license": "Apache-2.0",
+       "bin": {
+@@ -3155,21 +3152,6 @@
+         "node": ">=20"
+       }
+     },
+-    "node_modules/playwright/node_modules/fsevents": {
+-      "version": "2.3.2",
+-      "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.2.tgz",
+-      "integrity": "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==",
+-      "dev": true,
+-      "hasInstallScript": true,
+-      "license": "MIT",
+-      "optional": true,
+-      "os": [
+-        "darwin"
+-      ],
+-      "engines": {
+-        "node": "^8.16.0 || ^10.6.0 || >=11.0.0"
+-      }
+-    },
+     "node_modules/pngjs": {
+       "version": "5.0.0",
+       "resolved": "https://registry.npmjs.org/pngjs/-/pngjs-5.0.0.tgz",
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..aa15532a 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -51,7 +51,7 @@
+     "@tauri-apps/cli": "2.11.4",
+     "@types/bun": "1.4.0",
+     "@types/qrcode": "1.5.6",
+-    "playwright": "1.62.1",
++    "playwright": "1.63.0",
+     "svelte": "5.56.8",
+     "svelte-check": "4.7.6",
+     "tslib": "2.8.1",
+
+PR 225 build(deps): bump serde from 1.0.228 to 1.0.229
+diff --git a/Cargo.lock b/Cargo.lock
+index 501abd80..e9a9d274 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -4158,9 +4158,9 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
+ 
+ [[package]]
+ name = "serde"
+-version = "1.0.228"
++version = "1.0.229"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
++checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+ dependencies = [
+  "serde_core",
+  "serde_derive",
+@@ -4168,22 +4168,22 @@ dependencies = [
+ 
+ [[package]]
+ name = "serde_core"
+-version = "1.0.228"
++version = "1.0.229"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
++checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+ dependencies = [
+  "serde_derive",
+ ]
+ 
+ [[package]]
+ name = "serde_derive"
+-version = "1.0.228"
++version = "1.0.229"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
++checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 2.0.117",
++ "syn 3.0.5",
+ ]
+ 
+ [[package]]
+@@ -4578,6 +4578,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "12df2e0110f65b775f769bb17ef989067a1d931b2eb822bd4346631eeada89f9"
+ dependencies = [
+  "proc-macro2",
++ "quote",
+  "unicode-ident",
+ ]
+
+PR 224 build(deps): bump x25519-dalek from 2.0.1 to 3.0.0
+diff --git a/Cargo.lock b/Cargo.lock
+index 501abd80..aee69427 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -77,7 +77,7 @@ dependencies = [
+  "sha2 0.10.9",
+  "sha3",
+  "subtle",
+- "x25519-dalek",
++ "x25519-dalek 2.0.1",
+  "zeroize",
+ ]
+ 
+@@ -5490,7 +5490,7 @@ dependencies = [
+  "tokio",
+  "toml 0.8.23",
+  "tracing",
+- "x25519-dalek",
++ "x25519-dalek 3.0.0",
+  "zeroize",
+ ]
+ 
+@@ -6130,6 +6130,17 @@ dependencies = [
+  "zeroize",
+ ]
+ 
++[[package]]
++name = "x25519-dalek"
++version = "3.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e7e8131a03190127fb2263afc72b322ecadae46b6ff8c6f399ff5d02f5559af6"
++dependencies = [
++ "curve25519-dalek 5.0.0",
++ "rand_core 0.10.1",
++ "zeroize",
++]
++
+ [[package]]
+ name = "yoke"
+ version = "0.8.2"
+diff --git a/core/crates/wabidb/Cargo.toml b/core/crates/wabidb/Cargo.toml
+index 09fbf60b..cd7cae78 100644
+--- a/core/crates/wabidb/Cargo.toml
++++ b/core/crates/wabidb/Cargo.toml
+@@ -26,7 +26,7 @@ rand = "0.8"
+ # Ed25519 signature verification (identity key attestation)
+ ed25519-dalek = "3"
+ # X25519 key exchange (X3DH, signed prekey, one-time prekeys)
+-x25519-dalek = { version = "2", features = ["static_secrets"] }
++x25519-dalek = { version = "3", features = ["static_secrets"] }
+ # Subtle encoding/decoding helpers (constant-time eq, etc.)
+ subtle = "2"
+ # Lock-free skip-list for projection state (per Council Review #0, #1)
+
+PR 223 build(deps-dev): bump @codemirror/state from 6.7.1 to 6.7.4 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..e6649462 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -35,7 +35,7 @@
+         "@codemirror/lang-markdown": "6.5.1",
+         "@codemirror/lang-python": "6.2.1",
+         "@codemirror/lang-rust": "6.0.2",
+-        "@codemirror/state": "6.7.1",
++        "@codemirror/state": "6.7.4",
+         "@codemirror/theme-one-dark": "6.1.3",
+         "@codemirror/view": "6.43.9",
+         "@sveltejs/adapter-node": "5.5.4",
+@@ -249,9 +249,9 @@
+       }
+     },
+     "node_modules/@codemirror/state": {
+-      "version": "6.7.1",
+-      "resolved": "https://registry.npmjs.org/@codemirror/state/-/state-6.7.1.tgz",
+-      "integrity": "sha512-9QzNDgE4EYDnAHfrTlR2lwiPciiOymLtwKK+8yHQzCc7GXhAP9xdEbEJFy2IWB1j9UGUl9BsgMmTo/ImA02T7A==",
++      "version": "6.7.4",
++      "resolved": "https://registry.npmjs.org/@codemirror/state/-/state-6.7.4.tgz",
++      "integrity": "sha512-QhQIVRY+xHZDxwOSFrJ1eUMapJBUID3IdeAjf7dHO7zBUzSkyooHiodnalz5MG3iHzwixKMlAAyn7244y537EA==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..f13ee2f0 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -41,7 +41,7 @@
+     "@codemirror/lang-markdown": "6.5.1",
+     "@codemirror/lang-python": "6.2.1",
+     "@codemirror/lang-rust": "6.0.2",
+-    "@codemirror/state": "6.7.1",
++    "@codemirror/state": "6.7.4",
+     "@codemirror/theme-one-dark": "6.1.3",
+     "@codemirror/view": "6.43.9",
+     "@sveltejs/adapter-node": "5.5.4",
+
+PR 222 build(deps-dev): bump @codemirror/view from 6.43.9 to 6.43.11 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..2e7bbad1 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -37,7 +37,7 @@
+         "@codemirror/lang-rust": "6.0.2",
+         "@codemirror/state": "6.7.1",
+         "@codemirror/theme-one-dark": "6.1.3",
+-        "@codemirror/view": "6.43.9",
++        "@codemirror/view": "6.43.11",
+         "@sveltejs/adapter-node": "5.5.4",
+         "@sveltejs/adapter-static": "3.0.10",
+         "@sveltejs/kit": "2.70.3",
+@@ -272,9 +272,9 @@
+       }
+     },
+     "node_modules/@codemirror/view": {
+-      "version": "6.43.9",
+-      "resolved": "https://registry.npmjs.org/@codemirror/view/-/view-6.43.9.tgz",
+-      "integrity": "sha512-sTuUzTpPMFebRhg6dawChoKKgndIwfjmJgKVxBefPElcU2NwQ6AFroupk0SFqEerQyZOGRfDNnSN8Dw/lMAsXw==",
++      "version": "6.43.11",
++      "resolved": "https://registry.npmjs.org/@codemirror/view/-/view-6.43.11.tgz",
++      "integrity": "sha512-2+esucbQX6wB2JYi1eDvdCPFTA31BN8oSy6xCmk3G6CloV11yOvEjYk+gH7kLrP0MuHG94E8WDhjs5oMiu3+Wg==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..9c745825 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -43,7 +43,7 @@
+     "@codemirror/lang-rust": "6.0.2",
+     "@codemirror/state": "6.7.1",
+     "@codemirror/theme-one-dark": "6.1.3",
+-    "@codemirror/view": "6.43.9",
++    "@codemirror/view": "6.43.11",
+     "@sveltejs/adapter-node": "5.5.4",
+     "@sveltejs/adapter-static": "3.0.10",
+     "@sveltejs/kit": "2.70.3",
+@@ -78,6 +78,6 @@
+     "devalue": "5.9.0",
+     "ws": "8.21.1",
+     "uuid": "11.1.1",
+-    "@codemirror/view": "6.43.9"
++    "@codemirror/view": "6.43.11"
+   }
+ }
+
+PR 221 build(deps): bump reqwest from 0.13.4 to 0.13.5
+diff --git a/Cargo.lock b/Cargo.lock
+index 501abd80..b8e70c64 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -426,6 +426,12 @@ version = "0.22.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+ 
++[[package]]
++name = "base64"
++version = "0.23.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
++
+ [[package]]
+ name = "base64ct"
+ version = "1.8.3"
+@@ -3746,11 +3752,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "reqwest"
+-version = "0.13.4"
++version = "0.13.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
++checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
+ dependencies = [
+- "base64 0.22.1",
++ "base64 0.23.1",
+  "bytes",
+  "encoding_rs",
+  "futures-core",
+@@ -5372,7 +5378,7 @@ dependencies = [
+  "postcard",
+  "rand 0.8.6",
+  "regex",
+- "reqwest 0.13.4",
++ "reqwest 0.13.5",
+  "rust-embed",
+  "serde",
+  "serde_json",
+@@ -5409,7 +5415,7 @@ dependencies = [
+  "clap",
+  "hex",
+  "notify",
+- "reqwest 0.13.4",
++ "reqwest 0.13.5",
+  "serde",
+  "serde_json",
+  "sha2 0.11.0",
+@@ -5447,7 +5453,7 @@ dependencies = [
+  "crossterm 0.29.0",
+  "dirs",
+  "ratatui",
+- "reqwest 0.13.4",
++ "reqwest 0.13.5",
+  "rust_socketio",
+  "serde",
+  "serde_json",
+
+PR 220 build(deps): bump katex from 0.18.4 to 0.18.7 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..b439d3b4 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -12,7 +12,7 @@
+         "@tauri-apps/api": "2.11.1",
+         "@xyflow/svelte": "1.6.6",
+         "dompurify": "3.4.14",
+-        "katex": "0.18.4",
++        "katex": "0.18.7",
+         "livekit-client": "2.22.1",
+         "marked": "18.0.12",
+         "motion": "13.2.0",
+@@ -1996,6 +1996,15 @@
+       "integrity": "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==",
+       "license": "MIT"
+     },
++    "node_modules/commander": {
++      "version": "15.0.0",
++      "resolved": "https://registry.npmjs.org/commander/-/commander-15.0.0.tgz",
++      "integrity": "sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=22.12.0"
++      }
++    },
+     "node_modules/commondir": {
+       "version": "1.0.1",
+       "resolved": "https://registry.npmjs.org/commondir/-/commondir-1.0.1.tgz",
+@@ -2539,30 +2548,21 @@
+       }
+     },
+     "node_modules/katex": {
+-      "version": "0.18.4",
+-      "resolved": "https://registry.npmjs.org/katex/-/katex-0.18.4.tgz",
+-      "integrity": "sha512-IMPntbRLOU+eu88XDiFKqQ8Akhr9Tv7jDMXqPhjG9SI1JMA4DIgXk4x9k4skJz2NZJXBRbC+2pYBLj9olqcZow==",
++      "version": "0.18.7",
++      "resolved": "https://registry.npmjs.org/katex/-/katex-0.18.7.tgz",
++      "integrity": "sha512-h+UCwkZ+4Jz8WQ7MLGfj7UVFrRCizGb912fwF4luGdYsC5paYG1vx+jy+KRcC/XkpjGva/P7nAWuxNnPzRvzHw==",
+       "funding": [
+         "https://opencollective.com/katex",
+         "https://github.com/sponsors/katex"
+       ],
+       "license": "MIT",
+       "dependencies": {
+-        "commander": "^8.3.0"
++        "commander": "^15.0.0"
+       },
+       "bin": {
+         "katex": "cli.js"
+       }
+     },
+-    "node_modules/katex/node_modules/commander": {
+-      "version": "8.3.0",
+-      "resolved": "https://registry.npmjs.org/commander/-/commander-8.3.0.tgz",
+-      "integrity": "sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">= 12"
+-      }
+-    },
+     "node_modules/kleur": {
+       "version": "4.1.5",
+       "resolved": "https://registry.npmjs.org/kleur/-/kleur-4.1.5.tgz",
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..5f9c72a6 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -63,7 +63,7 @@
+     "@tauri-apps/api": "2.11.1",
+     "@xyflow/svelte": "1.6.6",
+     "dompurify": "3.4.14",
+-    "katex": "0.18.4",
++    "katex": "0.18.7",
+     "livekit-client": "2.22.1",
+     "marked": "18.0.12",
+     "motion": "13.2.0",
+
+PR 219 build(deps): bump base64 from 0.22.1 to 0.23.1
+diff --git a/Cargo.lock b/Cargo.lock
+index 501abd80..7c8580f9 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -426,6 +426,12 @@ version = "0.22.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+ 
++[[package]]
++name = "base64"
++version = "0.23.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
++
+ [[package]]
+ name = "base64ct"
+ version = "1.8.3"
+@@ -5357,7 +5363,7 @@ dependencies = [
+  "anyhow",
+  "async-trait",
+  "axum",
+- "base64 0.22.1",
++ "base64 0.23.1",
+  "bcrypt",
+  "chrono",
+  "clap",
+diff --git a/core/crates/wabi-server/Cargo.toml b/core/crates/wabi-server/Cargo.toml
+index 1166758e..8e65ccec 100644
+--- a/core/crates/wabi-server/Cargo.toml
++++ b/core/crates/wabi-server/Cargo.toml
+@@ -79,7 +79,7 @@ clap = { version = "4", features = ["derive"] }
+ # HMAC for TURN
+ hmac = "0.13"
+ sha1 = "0.11"
+-base64 = "0.22"
++base64 = "0.23"
+ 
+ # mDNS LAN discovery
+ mdns-sd = "0.20"
+
+PR 218 build(deps-dev): bump vite from 8.2.2 to 8.3.0 in /frontend
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 337267e5..554c7ebb 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -50,7 +50,7 @@
+         "svelte-check": "4.7.6",
+         "tslib": "2.8.1",
+         "typescript": "6.0.3",
+-        "vite": "8.2.2"
++        "vite": "8.3.0"
+       }
+     },
+     "node_modules/@bufbuild/protobuf": {
+@@ -3111,9 +3111,9 @@
+       "license": "ISC"
+     },
+     "node_modules/picomatch": {
+-      "version": "4.0.5",
+-      "resolved": "https://registry.npmjs.org/picomatch/-/picomatch-4.0.5.tgz",
+-      "integrity": "sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==",
++      "version": "4.0.7",
++      "resolved": "https://registry.npmjs.org/picomatch/-/picomatch-4.0.7.tgz",
++      "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+       "dev": true,
+       "license": "MIT",
+       "engines": {
+@@ -4083,16 +4083,16 @@
+       }
+     },
+     "node_modules/vite": {
+-      "version": "8.2.2",
+-      "resolved": "https://registry.npmjs.org/vite/-/vite-8.2.2.tgz",
+-      "integrity": "sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==",
++      "version": "8.3.0",
++      "resolved": "https://registry.npmjs.org/vite/-/vite-8.3.0.tgz",
++      "integrity": "sha512-lhZBVvEHefgE+HQZC9O7EBJgCU/nVzFNl7vkS4RE0APtWLP02/8QVIkQtzBxPquh7lq5/78NHipTj7ODQ6XuyQ==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "lightningcss": "^1.33.0",
+-        "picomatch": "^4.0.5",
+-        "postcss": "^8.5.26",
+-        "rolldown": "~1.2.4",
++        "picomatch": "^4.0.7",
++        "postcss": "^8.5.28",
++        "rolldown": "~1.2.6",
+         "tinyglobby": "^0.2.17"
+       },
+       "bin": {
+@@ -4109,7 +4109,7 @@
+       },
+       "peerDependencies": {
+         "@types/node": "^20.19.0 || >=22.12.0",
+-        "@vitejs/devtools": "^0.4.0 || ^0.5.0",
++        "@vitejs/devtools": "^0.7.1",
+         "esbuild": "^0.27.0 || ^0.28.0",
+         "jiti": ">=1.21.0",
+         "less": "^4.0.0",
+diff --git a/frontend/package.json b/frontend/package.json
+index 3c82f1c1..eaafea78 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -56,7 +56,7 @@
+     "svelte-check": "4.7.6",
+     "tslib": "2.8.1",
+     "typescript": "6.0.3",
+-    "vite": "8.2.2"
++    "vite": "8.3.0"
+   },
+   "dependencies": {
+     "@giphy/js-fetch-api": "5.8.0",
