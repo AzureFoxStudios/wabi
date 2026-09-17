@@ -52,7 +52,7 @@ fn walk(root: &Path, relative: &Path, files: &mut BTreeMap<String, String>, targ
         let child = relative.join(entry.file_name());
         if kind.is_dir() { walk(root, &child, files, target)?; }
         else if kind.is_file() {
-            // Process locks are runtime leases, not durable community data.
+            // Only these two paths are process leases; uploaded .lock files are data.
             if child == Path::new(".lock") || child == Path::new("wabidb/.lock") { continue; }
             if files.len() >= MAX_FILES { return Err("Snapshot exceeds supported file count".into()); }
             let name = child.to_str().ok_or("Backup contains a non-UTF-8 filename")?.replace('\\', "/");
@@ -100,8 +100,7 @@ impl Drop for SnapshotLease {
 
 pub fn snapshot(data: &Path, destination: &Path) -> Result<()> {
     let _lease = SnapshotLease::acquire(data)?;
-    // Acquire the destination exclusively; never merge with or clean up a
-    // directory supplied by another process after an existence check.
+    // Exclusive creation avoids merging with or removing another process's data.
     fs::create_dir(destination).map_err(|e| format!("Cannot create snapshot: {e}"))?;
     private_dir(destination)?;
     let result = (|| {
@@ -131,14 +130,13 @@ pub fn validate(snapshot: &Path) -> Result<()> {
     verified_manifest(snapshot).map(|_| ())
 }
 fn copy_verified(snapshot: &Path, staging: &Path, manifest: &Manifest) -> Result<()> {
-    // This function owns staging only after exclusive creation succeeds.
+    // Own staging only after exclusive creation succeeds.
     fs::create_dir(staging).map_err(|e| format!("Cannot create restore staging: {e}"))?;
     let result = (|| {
         private_dir(staging)?;
         let mut files = BTreeMap::new();
         walk(&snapshot.join("data"), Path::new(""), &mut files, Some(staging))?;
-        // Recheck against the original validated manifest. A backup may change
-        // after validation; an internally consistent copy is not enough.
+        // A consistent copy is not enough: compare with the original manifest.
         if files != manifest.files {
             return Err("Snapshot changed while restoring; original data was not replaced".into());
         }
@@ -235,7 +233,7 @@ mod tests {
         let t=Temporary::new(); let data=t.data();
         std::os::unix::fs::symlink("/etc/passwd",data.join("escape")).unwrap();
         assert!(snapshot(&data,&t.0.join("1")).is_err());
-        assert!(!t.0.join("1")).exists();
+        assert!(!t.0.join("1").exists());
         assert!(!data.join("wabidb/.lock").exists());
     }
 }
