@@ -60,8 +60,8 @@ add_import(layout,"import WorkspaceHost from '$lib/workspaces/WorkspaceHost.svel
 add_import(layout,"import WorkspaceLinkHandler from '$lib/workspaces/WorkspaceLinkHandler.svelte';")
 add_import(layout,"import { workspaceToolFromTab } from '$lib/workspaces/bridge';")
 p=Path(layout);text=p.read_text()
-if '$: activeOfficeTool = workspaceToolFromTab(activeTabId);' not in text:
-    text=text.replace('</script>',"\t$: activeOfficeTool = workspaceToolFromTab(activeTabId);\n</script>",1)
+if '$: activeOfficeTool = workspaceToolFromTab($activeTabId);' not in text:
+    text=text.replace('</script>',"\t$: activeOfficeTool = workspaceToolFromTab($activeTabId);\n</script>",1)
 if '<WorkspaceLinkHandler />' not in text:text=text.replace('<AuthErrorBanner />','<AuthErrorBanner />\n\t<WorkspaceLinkHandler />',1)
 if '<WorkspaceHost tool={activeOfficeTool}' not in text:
     marker='{#if isModelViewportTabActive}'

@@ -31,6 +31,7 @@ const liveSessions=new Map<string,ArtifactSession>();
 export class ArtifactSession{
     readonly doc=new Y.Doc();readonly origin={};readonly state=writable<SessionState>({tick:0,status:'Loading',error:null,meta:null,reviews:[]});
     readonly undo:Y.UndoManager;
+    private localEpoch=0;private persistedEpoch=0;private persistedMeta="";
     private added:Record<string,Uint8Array>={};private acked:string[]=[];private saving:Promise<void>=Promise.resolve();private syncing:Promise<void>|null=null;private saveTimer:ReturnType<typeof setTimeout>|null=null;private poll:ReturnType<typeof setTimeout>|null=null;private polling=false;private closed=false;private references=1;private abort=new AbortController();private bus:BroadcastChannel|null=null;private unregister:()=>void=()=>{};
     constructor(readonly scope:Scope,public record:LocalArtifact){
         if(record.update.length)Y.applyUpdate(this.doc,record.update,'initial');this.doc.getText('title');this.doc.getText('body');this.doc.getMap('data');
@@ -38,18 +39,18 @@ export class ArtifactSession{
         this.doc.on('update',this.changed);this.bus=typeof BroadcastChannel==='undefined'?null:new BroadcastChannel('wabi-workspace-committed');
         if(this.bus)this.bus.onmessage=event=>{if(event.data===record.key&&!this.closed&&scope.isCurrent())void this.reloadCommitted();};
         this.unregister=registerWorkspaceDisposer(record.kind,async()=>{if(!(await this.close(true)))throw new Error('Save failed. Export recovery before disabling this addon.');});
-        this.show();if(record.meta)this.startPolling();
+        this.persistedMeta=JSON.stringify(record.meta);this.show();if(record.meta)this.startPolling();
     }
     get id(){return this.record.id;}get title(){return this.doc.getText('title').toString();}get body(){return this.doc.getText('body');}get data(){return this.doc.getMap<unknown>('data');}
     get editable(){return !this.record.meta||['owner','editor'].includes(this.record.meta.role);}
     retain(){this.references++;return this;}
-    private changed=(update:Uint8Array,origin:unknown)=>{if(this.closed)return;if(!['initial','remote','storage'].includes(String(origin)))this.added[crypto.randomUUID()]=update;this.state.update(v=>({...v,tick:v.tick+1,status:Object.keys(this.added).length?'Saving on this device…':v.status}));if(this.saveTimer)clearTimeout(this.saveTimer);this.saveTimer=setTimeout(()=>void this.flush().catch(()=>{}),120);};
-    private show(error:string|null=null){const pending=Object.keys(this.record.pending).length+Object.keys(this.added).length;this.state.update(v=>({tick:v.tick+1,meta:this.record.meta,reviews:this.record.reviews,error,status:error?'Needs attention':!this.record.meta?'Saved on this device':pending?(navigator.onLine?'Saved here · waiting to sync':'Offline · changes saved here'):'Synced to this server'}));}
+    private changed=(update:Uint8Array,origin:unknown)=>{if(this.closed)return;if(origin!=='storage')this.localEpoch++;if(!['initial','remote','storage'].includes(String(origin)))this.added[crypto.randomUUID()]=update;this.state.update(v=>({...v,tick:v.tick+1,status:Object.keys(this.added).length?'Saving on this device…':v.status}));if(this.saveTimer)clearTimeout(this.saveTimer);this.saveTimer=setTimeout(()=>void this.flush().catch(()=>{}),120);};
+    private show(error:string|null=null){const pending=Object.keys(this.record.pending).length+Object.keys(this.added).length;this.state.update(v=>({tick:v.tick,meta:this.record.meta,reviews:this.record.reviews,error,status:error?'Needs attention':!this.record.meta?'Saved on this device':pending?(navigator.onLine?'Saved here · waiting to sync':'Offline · changes saved here'):'Synced to this server'}));}
     private async reloadCommitted(){try{const record=await readLocal(this.scope,this.id);if(!record||!this.scope.isCurrent()||this.closed)return;Y.applyUpdate(this.doc,record.update,'storage');if(!this.record.meta||(record.meta&&record.meta.revision>=this.record.meta.revision)){this.record.meta=record.meta;this.record.reviews=record.reviews;}this.record.pending=record.pending;this.show();}catch(error){this.show(String(error));}}
     flush():Promise<void>{
         if(this.saveTimer){clearTimeout(this.saveTimer);this.saveTimer=null;}
-        const action=async()=>{const added={...this.added},ack=[...this.acked];const input={...this.record,title:this.title,update:Y.encodeStateAsUpdate(this.doc),updatedAt:Date.now()};
-            try{const saved=await persist(input,added,ack);for(const id of Object.keys(added))delete this.added[id];this.acked=this.acked.filter(id=>!ack.includes(id));this.record=saved;Y.applyUpdate(this.doc,saved.update,'storage');this.bus?.postMessage(saved.key);this.show();}
+        const action=async()=>{const added={...this.added},ack=[...this.acked];const epoch=this.localEpoch;const metadata=JSON.stringify(this.record.meta);if(epoch===this.persistedEpoch&&!Object.keys(added).length&&!ack.length&&metadata===this.persistedMeta){if(get(this.state).error)this.show();return;}const input={...this.record,title:this.title,update:Y.encodeStateAsUpdate(this.doc),updatedAt:Date.now()};
+            try{const saved=await persist(input,added,ack);this.persistedEpoch=epoch;this.persistedMeta=JSON.stringify(saved.meta);for(const id of Object.keys(added))delete this.added[id];this.acked=this.acked.filter(id=>!ack.includes(id));this.record=saved;Y.applyUpdate(this.doc,saved.update,'storage');this.bus?.postMessage(saved.key);this.show();}
             catch(error){this.show(error instanceof Error?error.message:'Local storage failed');throw error;}
         };const result=this.saving.catch(()=>{}).then(action);this.saving=result;return result;
     }

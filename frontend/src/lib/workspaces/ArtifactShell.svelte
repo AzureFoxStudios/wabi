@@ -10,7 +10,8 @@
     let dialog:HTMLDialogElement;let error=$state('');let busy=$state(false);let reviewOpen=$state(false);let mode=$state<'snapshot'|'live'>(initialShare||'live');
     let recipient=$state('');let recipientRole=$state<Role>('editor');let grants=$state<Record<string,Role>>({});let channelId=$state('');let channelRole=$state<Role>('viewer');let accessRevision=$state(0);let openedInitial=false;
     let comment=$state('');let proposal=$state('');let suggestion=$state(false);let suggestionBase=$state(0);let reviewId=crypto.randomUUID();
-    const editable=$derived(($sessionState.tick,session.editable));
+    const editable=$derived(!$sessionState.meta||["owner","editor"].includes($sessionState.meta.role));
+    const title=$derived.by(()=>{$sessionState.tick;return session.title;});
     async function run(fn:()=>Promise<unknown>){busy=true;error='';try{await fn();}catch(e){error=e instanceof Error?e.message:String(e);}finally{busy=false;}}
     function showSharing(){const m=session.record.meta;mode=initialShare||m?.mode||'live';grants={...(m?.grants||{})};channelId=m?.channelId||'';channelRole=m?.channelRole||'viewer';accessRevision=m?.accessRevision||0;dialog.showModal();}
     $effect(()=>{if(initialShare&&dialog&&!openedInitial){openedInitial=true;showSharing();}});
@@ -24,7 +25,7 @@
 <section class="wabi-workspace" aria-label={`${session.record.kind} workspace`}>
     <header class="workspace-bar">
         <button onclick={()=>run(async()=>{await session.flush();onlibrary();})} disabled={busy}>Library</button>
-        <input class="workspace-title" aria-label="Document title" value={($sessionState.tick,session.title)} maxlength="200" disabled={!editable} onchange={event=>{const value=event.currentTarget.value.trim();if(value)editText(session.doc.getText('title'),value,session.origin);}} />
+        <input class="workspace-title" aria-label="Document title" value={title} maxlength="200" disabled={!editable} onchange={event=>{const value=event.currentTarget.value.trim();if(value)editText(session.doc.getText('title'),value,session.origin);}} />
         <span class="workspace-status" role="status">{$sessionState.status}</span>
         <button onclick={()=>download(`${session.title}.wabi.json`,session.recovery())}>Export backup</button>
         {#if session.record.original}<button onclick={exportOriginal}>Original file</button>{/if}

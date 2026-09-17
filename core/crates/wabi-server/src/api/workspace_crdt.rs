@@ -39,10 +39,10 @@ pub(super) fn merge(a:&Artifact,update:Option<&str>,vector:&str)->Result<MergeRe
     let delta=doc.transact().encode_state_as_update_v1(&vector);
     Ok(MergeResult{changed:before!=after,snapshot:STANDARD.encode(after),delta:STANDARD.encode(delta),title})
 }
-pub(super) fn body_hash(a:&Artifact)->Result<String>{let doc=load(a)?;let text=doc.get_or_insert_text("body").get_string(&doc.transact());Ok(format!("{:x}",Sha256::digest(text.as_bytes())))}
+pub(super) fn body_hash(a:&Artifact)->Result<String>{let doc=load(a)?;let text=doc.get_or_insert_text("body").get_string(&doc.transact());Ok(Sha256::digest(text.as_bytes()).iter().map(|byte|format!("{byte:02x}")).collect::<String>())}
 pub(super) fn replace_body(a:&Artifact,expected:&str,proposal:&str)->Result<String>{
     let doc=load(a)?;let body=doc.get_or_insert_text("body");let current=body.get_string(&doc.transact());
-    if format!("{:x}",Sha256::digest(current.as_bytes()))!=expected{return Err(AppError::Conflict("Text changed after this suggestion was made. Review it against the current text; nothing was replaced.".into()));}
+    if Sha256::digest(current.as_bytes()).iter().map(|byte|format!("{byte:02x}")).collect::<String>()!=expected{return Err(AppError::Conflict("Text changed after this suggestion was made. Review it against the current text; nothing was replaced.".into()));}
     {let mut tx=doc.transact_mut();let len=body.len(&tx);body.remove_range(&mut tx,0,len);body.insert(&mut tx,0,proposal);}
     validate(&doc,&a.kind)?;Ok(STANDARD.encode(snapshot(&doc)))
 }

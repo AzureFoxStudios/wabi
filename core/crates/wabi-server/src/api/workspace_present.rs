@@ -42,7 +42,7 @@ async fn allowed(s:&WorkspaceState,p:&Session,uid:i64)->Result<()>{
     if let Some(channel)=&p.channel_id{channel_access::require_access(&s.app,uid,channel).await?;return Ok(());}
     let(_,a)=artifact(s,&p.artifact_id)?;role(s,&a,uid).await.ok_or_else(missing)?;Ok(())
 }
-fn response(p:&Session,uid:i64,edition:Option<&str>)->Value{json!({"id":p.id,"artifactId":if p.owner_user_id==uid as u64{Some(&p.artifact_id)}else{None},"controller":p.controller,"canControl":p.controller==uid as u64,"generation":p.controller_generation,"sequence":p.sequence,"slideId":p.slide_id,"edition":p.edition,"slides":if edition==Some(p.edition.as_str()){None}else{Some(&p.slides)},"sourceSequence":p.source_sequence,"blank":p.blank,"paused":p.paused,"ended":p.ended,"aspect":p.aspect})}
+fn response(p:&Session,uid:i64,edition:Option<&str>)->Value{json!({"id":p.id,"artifactId":if p.owner_user_id==uid as u64{Some(&p.artifact_id)}else{None},"controller":p.controller,"canControl":p.controller==uid as u64,"generation":p.controller_generation,"sequence":p.sequence,"slideId":p.slide_id,"edition":p.edition,"slides":if p.ended{Some(Vec::<Slide>::new())}else if edition==Some(p.edition.as_str()){None}else{Some(p.slides.clone())},"sourceSequence":p.source_sequence,"blank":p.blank,"paused":p.paused,"ended":p.ended,"aspect":p.aspect})}
 async fn store(s:&WorkspaceState,row:&wabidb::projections::workspace::WorkspaceRecord,p:&Session,uid:u64)->Result<()>{s.app.wdb.workspace_put(uid,&row.key,row.revision,p.owner_user_id,serialize(p)?).await?;Ok(())}
 #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]
 struct Start{id:String,artifact_id:String,channel_id:Option<String>,source_sequence:u64}
