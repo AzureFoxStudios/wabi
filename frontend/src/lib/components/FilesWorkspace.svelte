@@ -1,74 +1,145 @@
 <script lang="ts">
-	import { currentChannel, channels } from '$lib/socket';
-	import { get } from 'svelte/store';
-	import { getAuthToken } from '$lib/authSession';
+	import { currentChannel, channels, type Channel } from '$lib/socket';
+	import { parseLoreChannelId, type LoreRepo, type LoreFileInfo } from '$lib/api/lore';
 	import {
-		parseLoreChannelId,
-		getLoreRepo,
-		listLoreFiles,
-		downloadLoreFile,
-		uploadLoreFile,
-		type LoreRepo,
-		type LoreFileInfo
-	} from '$lib/api/lore';
-	import { showToast } from '$lib/toast';
+		createFilesWorkspaceSession,
+		summarizeUploads,
+		type SpaceRepo,
+		type SearchResult,
+		type PreviewKind,
+		type UploadJob
+	} from '$lib/filesWorkspaceSession';
 	import LoreFileTree from './lore/LoreFileTree.svelte';
 	import LoreFileViewer from './lore/LoreFileViewer.svelte';
 
-	/** A connected space plus the channel it hangs off. */
-	interface SpaceRepo extends LoreRepo {
-		channelKey: string;
-		channelName: string;
-	}
+	// One mounted workspace owns one session: no shared module state, so two
+	// mounted instances (or two servers/accounts) never exchange results.
+	const session = createFilesWorkspaceSession();
 
-	/** One in-flight or finished upload in the batch progress list. */
-	interface UploadJob {
-		name: string;
-		dest: string;
-		status: 'pending' | 'uploading' | 'done' | 'error' | 'conflict';
-		error?: string;
-	}
-
-	let activeChannelId = $derived(get(currentChannel));
-	let allChannels = $derived(get(channels));
+	// Real store subscriptions. $derived(get(store)) reads a snapshot once and
+	// never re-subscribes, so channel switches silently stopped working.
+	let activeChannelId = $state<string>('');
+	let allChannels = $state<Channel[]>([]);
+	$effect(() => {
+		const unActive = currentChannel.subscribe((v) => {
+			activeChannelId = v;
+		});
+		const unAll = channels.subscribe((v) => {
+			allChannels = v;
+		});
+		return () => {
+			unActive();
+			unAll();
+		};
+	});
 	let loreChannels = $derived(allChannels.filter((c) => (c.type as string | undefined) === 'lore'));
 
 	let spaces = $state<Record<number, SpaceRepo>>({});
 	let spacesLoaded = $state(false);
-
-	let selectedChannelId = $state<number | null>(null);
+	let spacesError = $state<string | null>(null);
+	let spacesWarning = $state<string | null>(null);
 	let files = $state<LoreFileInfo[]>([]);
 	let loading = $state(false);
 	let loadError = $state<string | null>(null);
-
 	let selectedPath = $state<string | null>(null);
 	let previewPath = $state<string | null>(null);
 	let previewName = $state('');
-	let previewKind = $state<'image' | 'text' | 'other'>('other');
+	let previewKind = $state<PreviewKind>('other');
 	let previewUrl = $state<string | null>(null);
 	let previewText = $state<string | null>(null);
 	let previewInfo = $state<LoreFileInfo | null>(null);
 	let previewLoading = $state(false);
+	let previewError = $state<string | null>(null);
 	let searchAllSpaces = $state(false);
 	let globalSearchQuery = $state('');
-	let globalSearchResults = $state<Array<{ channelId: number; channelName: string; path: string; size: number }>>([]);
+	let globalSearchResults = $state<SearchResult[]>([]);
 	let globalSearchLoading = $state(false);
-
-	let isDragging = $state(false);
+	let globalSearchError = $state<string | null>(null);
+	let globalSearchWarning = $state<string | null>(null);
+	let globalSearchTouched = $state(false);
 	let uploadJobs = $state<UploadJob[]>([]);
+
+	$effect(() => {
+		const unsubs = [
+			session.spaces.subscribe((v) => {
+				spaces = v;
+			}),
+			session.spacesLoaded.subscribe((v) => {
+				spacesLoaded = v;
+			}),
+			session.spacesError.subscribe((v) => {
+				spacesError = v;
+			}),
+			session.spacesWarning.subscribe((v) => {
+				spacesWarning = v;
+			}),
+			session.files.subscribe((v) => {
+				files = v;
+			}),
+			session.filesLoading.subscribe((v) => {
+				loading = v;
+			}),
+			session.filesError.subscribe((v) => {
+				loadError = v;
+			}),
+			session.previewPath.subscribe((v) => {
+				previewPath = v;
+			}),
+			session.previewName.subscribe((v) => {
+				previewName = v;
+			}),
+			session.previewKind.subscribe((v) => {
+				previewKind = v;
+			}),
+			session.previewUrl.subscribe((v) => {
+				previewUrl = v;
+			}),
+			session.previewText.subscribe((v) => {
+				previewText = v;
+			}),
+			session.previewInfo.subscribe((v) => {
+				previewInfo = v;
+			}),
+			session.previewLoading.subscribe((v) => {
+				previewLoading = v;
+			}),
+			session.previewError.subscribe((v) => {
+				previewError = v;
+			}),
+			session.searchResults.subscribe((v) => {
+				globalSearchResults = v;
+			}),
+			session.searchLoading.subscribe((v) => {
+				globalSearchLoading = v;
+			}),
+			session.searchError.subscribe((v) => {
+				globalSearchError = v;
+			}),
+			session.searchWarning.subscribe((v) => {
+				globalSearchWarning = v;
+			}),
+			session.uploadJobs.subscribe((v) => {
+				uploadJobs = v;
+			})
+		];
+		return () => {
+			for (const un of unsubs) un();
+		};
+	});
+
+	// Disposal revokes object URLs and fences late completions.
+	$effect(() => {
+		return () => {
+			session.dispose();
+		};
+	});
+
+	let selectedChannelId = $state<number | null>(null);
 	/** Uploads land in the folder of the current selection (root when none). */
 	let uploadFolder = $derived(selectedPath?.includes('/') ? selectedPath.slice(0, selectedPath.lastIndexOf('/')) : '');
 
-	const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp'];
-	const TEXT_EXT = [
-		'txt', 'md', 'markdown', 'json', 'ts', 'tsx', 'js', 'jsx', 'rs', 'toml',
-		'css', 'scss', 'html', 'htm', 'xml', 'yaml', 'yml', 'py', 'sh', 'bash',
-		'csv', 'log', 'sql', 'ini', 'conf', 'env', 'gitignore'
-	];
-	/** Concurrent uploads per batch — enough to overlap network latency without hammering the lore CLI. */
-	const UPLOAD_CONCURRENCY = 3;
-
 	let uploading = $derived(uploadJobs.some((j) => j.status === 'pending' || j.status === 'uploading'));
+	let uploadSummary = $derived(summarizeUploads(uploadJobs));
 
 	let selectedSpace = $derived(selectedChannelId !== null ? spaces[selectedChannelId ?? -1] ?? null : null);
 	let mirror = $derived(mirrorInfo(selectedSpace?.class));
@@ -98,141 +169,58 @@
 		return null;
 	}
 
-	async function loadSpaces() {
-		const token = getAuthToken();
-		if (!token) return;
-		spacesLoaded = false;
-		const found: Record<number, SpaceRepo> = {};
-		for (const ch of loreChannels) {
-			const numeric = parseLoreChannelId(ch.id);
-			if (numeric === null) continue;
-			try {
-				const info = await getLoreRepo(token, numeric);
-				if (info) {
-					found[numeric] = { ...info, channelKey: ch.id, channelName: ch.name };
-				}
-			} catch {
-				// Channel has no space attached — skip.
-			}
-		}
-		spaces = found;
-		spacesLoaded = true;
-		if (selectedChannelId === null) {
-			const numeric = parseLoreChannelId(activeChannelId);
-			if (numeric !== null && found[numeric]) {
-				selectedChannelId = numeric;
-			} else {
-				const keys = Object.keys(found);
-				selectedChannelId = keys.length ? Number(keys[0]) : null;
-			}
-		}
+	function reloadSpaces() {
+		void session.loadSpaces(loreChannels.map((c) => ({ id: c.id, name: c.name })));
 	}
 
 	$effect(() => {
-		loreChannels;
-		void loadSpaces();
+		const refs = loreChannels.map((c) => ({ id: c.id, name: c.name }));
+		void session.loadSpaces(refs);
 	});
 
-	/** Load the space's FULL file list — LoreFileTree builds the tree and
-	 *  filters search client-side, so per-prefix fetches are unnecessary. */
-	async function loadFiles(channelId: number) {
-		const token = getAuthToken();
-		if (!token) return;
-		loading = true;
-		loadError = null;
-		try {
-			files = await listLoreFiles(token, channelId);
-		} catch (e) {
-			loadError = e instanceof Error ? e.message : 'Failed to load files';
-			files = [];
-		} finally {
-			loading = false;
+	$effect(() => {
+		if (!spacesLoaded) return;
+		if (selectedChannelId !== null) return;
+		const numeric = parseLoreChannelId(activeChannelId);
+		if (numeric !== null && spaces[numeric]) {
+			selectedChannelId = numeric;
+		} else {
+			const keys = Object.keys(spaces);
+			selectedChannelId = keys.length ? Number(keys[0]) : null;
 		}
-	}
+	});
 
 	$effect(() => {
 		const id = selectedChannelId;
-		if (id !== null) void loadFiles(id);
+		if (id !== null) void session.loadFiles(id);
 	});
 
-	/** Cross-space file search (Enter to run). */
-	async function searchAcrossSpaces(): Promise<void> {
-		const q = globalSearchQuery.trim().toLowerCase();
-		if (!searchAllSpaces || !q) { globalSearchResults = []; return; }
-		const token = getAuthToken();
-		if (!token) return;
-		globalSearchLoading = true;
-		try {
-			const results: Array<{ channelId: number; channelName: string; path: string; size: number }> = [];
-			for (const space of Object.values(spaces)) {
-				const entries = await listLoreFiles(token, space.channelId);
-				for (const file of entries) if (file.path.toLowerCase().includes(q)) results.push({ channelId: space.channelId, channelName: space.channelName, path: file.path, size: file.size });
-			}
-			globalSearchResults = results.slice(0, 100);
-		} finally { globalSearchLoading = false; }
+	function reloadFiles() {
+		if (selectedChannelId !== null) void session.loadFiles(selectedChannelId);
+	}
+
+	/** Cross-space file search (Enter to run). Partial results are kept with an honest warning. */
+	function searchAcrossSpaces(): void {
+		globalSearchTouched = true;
+		void session.searchSpaces(globalSearchQuery, Object.values(spaces));
+	}
+
+	function retrySearch() {
+		void session.searchSpaces(globalSearchQuery, Object.values(spaces));
 	}
 
 	function clearPreview() {
-		previewPath = null;
-		previewName = '';
-		if (previewUrl) URL.revokeObjectURL(previewUrl);
-		previewUrl = null;
-		previewText = null;
-		previewInfo = null;
-		previewKind = 'other';
+		session.closePreview();
 	}
 
-	function extOf(path: string): string {
-		const idx = path.lastIndexOf('.');
-		if (idx === -1) return '';
-		return path.slice(idx + 1).toLowerCase();
+	function openPreview(path: string, channelId = selectedChannelId) {
+		if (channelId === null) return;
+		void session.openPreview(channelId, path, files);
 	}
 
-	async function openPreview(path: string, channelId = selectedChannelId) {
-		const token = getAuthToken();
-		if (!token || channelId === null) return;
-		const info = files.find((f) => f.path === path) ?? null;
-		const isImage = IMAGE_EXT.includes(extOf(path));
-		const isText = TEXT_EXT.includes(extOf(path));
-		if (previewUrl) URL.revokeObjectURL(previewUrl);
-		previewPath = path;
-		previewName = path.split('/').pop() ?? path;
-		previewKind = isImage ? 'image' : isText ? 'text' : 'other';
-		previewUrl = null;
-		previewText = null;
-		previewInfo = info;
-		previewLoading = true;
-		try {
-			const blob = await downloadLoreFile(token, channelId, path);
-			if (previewKind === 'image') {
-				previewUrl = URL.createObjectURL(blob);
-			} else if (previewKind === 'text') {
-				previewText = await blob.text();
-			}
-		} catch (e) {
-			previewKind = 'other';
-			showToast(e instanceof Error ? e.message : 'Could not preview file', 'error');
-		} finally {
-			previewLoading = false;
-		}
-	}
-
-	async function downloadFile(path: string) {
-		const token = getAuthToken();
-		if (!token || selectedChannelId === null) return;
-		try {
-			const blob = await downloadLoreFile(token, selectedChannelId, path);
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = path.split('/').pop() || 'download';
-			document.body.appendChild(a);
-			a.click();
-			a.remove();
-			setTimeout(() => URL.revokeObjectURL(url), 1500);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Download failed', 'error');
-		}
+	function downloadFile(path: string) {
+		if (selectedChannelId === null) return;
+		void session.download(selectedChannelId, path);
 	}
 
 	function onPickChannel(e: Event) {
@@ -242,8 +230,7 @@
 		if (Number.isFinite(id) && id !== selectedChannelId) {
 			selectedChannelId = id;
 			selectedPath = null;
-			files = [];
-			clearPreview();
+			session.closePreview();
 		}
 	}
 
@@ -252,59 +239,26 @@
 		event.preventDefault();
 	}
 
-	/** Batched uploads: a small worker pool so a folder of files doesn't
-	 *  serialize, with a per-file progress list surfaced in the UI. */
-	async function handleUploadFiles(fileList: File[]) {
-		if (isMirror) return;
-		const token = getAuthToken();
+	/** Batched uploads keep the existing server contract (incl. post-batch reload). */
+	function handleUploadFiles(fileList: File[]) {
 		const channelId = selectedChannelId;
-		if (!token || channelId === null) return;
+		if (channelId === null) return;
+		void session.startUploads(channelId, uploadFolder, fileList, { readOnly: isMirror });
+	}
 
-		const jobs: UploadJob[] = fileList.map((file) => ({
-			name: file.name,
-			dest: uploadFolder ? `${uploadFolder}/${file.name}` : file.name,
-			status: 'pending'
-		}));
-		uploadJobs = [...uploadJobs, ...jobs];
-		const baseIndex = uploadJobs.length - jobs.length;
+	function retryUpload(jobId: string) {
+		void session.retryUpload(jobId);
+	}
 
-		let cursor = 0;
-		async function worker() {
-			while (cursor < jobs.length) {
-				const index = cursor++;
-				const file = fileList[index];
-				const job = jobs[index];
-				uploadJobs[baseIndex + index] = { ...job, status: 'uploading' };
-				uploadJobs = [...uploadJobs];
-				try {
-					const result = await uploadLoreFile(token, channelId!, job.dest, file);
-					uploadJobs[baseIndex + index] = { ...job, status: 'done' };
-					uploadJobs = [...uploadJobs];
-					if (result.pending_review) {
-						showToast(`${job.name} saved — waiting for team review`, 'info');
-					}
-				} catch (e) {
-					const message = e instanceof Error ? e.message : 'Upload failed';
-					uploadJobs[baseIndex + index] = { ...job, status: 'error', error: message };
-					uploadJobs = [...uploadJobs];
-					showToast(`${job.name}: ${message}`, 'error');
-				}
-			}
-		}
-		await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, jobs.length) }, worker));
-
-		// Prune finished jobs after a short delay so the user sees the outcome.
-		setTimeout(() => {
-			uploadJobs = uploadJobs.filter((j) => j.status === 'pending' || j.status === 'uploading');
-		}, 4000);
-		await loadFiles(channelId);
+	function dismissUpload(jobId: string) {
+		session.dismissUpload(jobId);
 	}
 
 	function onFileInput(event: Event) {
 		const input = event.target as HTMLInputElement;
 		const list = input?.files ? Array.from(input.files) : [];
 		input.value = '';
-		if (list.length) void handleUploadFiles(list);
+		if (list.length) handleUploadFiles(list);
 	}
 
 	function onDragOver(e: DragEvent) {
@@ -314,16 +268,18 @@
 		isDragging = true;
 	}
 
+	let isDragging = $state(false);
+
 	function onDragLeave(e: DragEvent) {
 		e.preventDefault();
 		isDragging = false;
 	}
 
-	async function onDrop(e: DragEvent) {
+	function onDrop(e: DragEvent) {
 		e.preventDefault();
 		isDragging = false;
 		const list = e.dataTransfer?.files ? Array.from(e.dataTransfer.files) : [];
-		if (list.length) await handleUploadFiles(list);
+		if (list.length) handleUploadFiles(list);
 	}
 </script>
 
@@ -369,10 +325,26 @@
 		</div>
 	</header>
 
+	{#if spacesWarning}
+		<div class="files-warning" role="status">
+			<span>{spacesWarning}</span>
+			<button type="button" class="files-retry" onclick={reloadSpaces}>Retry</button>
+		</div>
+	{/if}
+
 	{#if !spacesLoaded}
 		<div class="files-loading">
 			<span class="spinner"></span>
 			<span>Loading spaces…</span>
+		</div>
+	{:else if spacesError}
+		<div class="files-empty">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" width="64" height="64">
+				<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+			</svg>
+			<h3>Could not load spaces</h3>
+			<p>{spacesError}</p>
+			<button type="button" class="files-retry" onclick={reloadSpaces}>Retry</button>
 		</div>
 	{:else if selectedChannelId === null}
 		<div class="files-empty">
@@ -402,23 +374,40 @@
 							class="global-search-input"
 							type="search"
 							bind:value={globalSearchQuery}
-							onkeydown={(event) => event.key === 'Enter' && void searchAcrossSpaces()}
+							onkeydown={(event) => event.key === 'Enter' && searchAcrossSpaces()}
 							placeholder="Search across every space…"
 							aria-label="Search all spaces"
 						/>
 					{/if}
-					<label class="all-spaces-toggle"><input type="checkbox" bind:checked={searchAllSpaces} onchange={() => !searchAllSpaces && (globalSearchResults = [])} /> Search all spaces</label>
+					<label class="all-spaces-toggle"><input type="checkbox" bind:checked={searchAllSpaces} onchange={() => { if (!searchAllSpaces) void session.searchSpaces('', []); }} /> Search all spaces</label>
 				</div>
 
 				{#if searchAllSpaces}
 					<div class="global-search-list">
 						{#if globalSearchLoading}
 							<div class="files-inline-loading">Searching all spaces…</div>
-						{:else if globalSearchResults.length === 0}
-							<div class="files-empty-folder">Type a query and press Enter.</div>
+						{:else if globalSearchError}
+							<div class="files-error" role="alert">
+								<span>{globalSearchError}</span>
+								<button type="button" class="files-retry" onclick={retrySearch}>Retry</button>
+							</div>
+						{:else if globalSearchWarning}
+							<div class="files-warning" role="status">
+								<span>{globalSearchWarning}</span>
+								<button type="button" class="files-retry" onclick={retrySearch}>Retry</button>
+							</div>
+						{/if}
+						{#if !globalSearchLoading && !globalSearchError && globalSearchResults.length === 0}
+							<div class="files-empty-folder">
+								{#if globalSearchTouched && globalSearchQuery.trim()}
+									No matches for “{globalSearchQuery.trim()}”.
+								{:else}
+									Type a query and press Enter.
+								{/if}
+							</div>
 						{:else}
-							{#each globalSearchResults as result (result.channelId + result.path)}
-								<button type="button" class="global-result" onclick={() => { selectedChannelId = result.channelId; searchAllSpaces = false; void openPreview(result.path, result.channelId); }}>
+							{#each globalSearchResults as result (result.channelId + ':' + result.path)}
+								<button type="button" class="global-result" onclick={() => { selectedChannelId = result.channelId; searchAllSpaces = false; void session.searchSpaces('', []); void openPreview(result.path, result.channelId); }}>
 									<strong>{result.path}</strong>
 									<small>{result.channelName}</small>
 								</button>
@@ -433,7 +422,10 @@
 								<span>Loading files…</span>
 							</div>
 						{:else if loadError}
-							<div class="files-error">{loadError}</div>
+							<div class="files-error" role="alert">
+								<span>{loadError}</span>
+								<button type="button" class="files-retry" onclick={reloadFiles}>Retry</button>
+							</div>
 						{:else}
 							<LoreFileTree
 								{files}
@@ -448,13 +440,28 @@
 				{/if}
 
 				{#if uploadJobs.length > 0}
+					<div class="upload-summary" role="status">
+						<span>{uploadSummary.done} done · {uploadSummary.failed} need attention · {uploadSummary.pending} pending</span>
+						{#if uploadSummary.done > 0}
+							<button type="button" class="files-retry" onclick={() => session.dismissCompleted()}>Dismiss done</button>
+						{/if}
+					</div>
 					<ul class="upload-jobs" aria-label="Upload progress">
-						{#each uploadJobs as job (job.dest)}
+						{#each uploadJobs as job (job.id)}
 							<li class="upload-job {job.status}" title={job.dest}>
 								<span class="upload-job-name">{job.name}</span>
 								<span class="upload-job-status">
-									{#if job.status === 'uploading'}↑{:else if job.status === 'done'}✓{:else if job.status === 'error'}⚠{:else}…{/if}
+									{#if job.status === 'uploading'}↑{:else if job.status === 'done'}✓{:else if job.status === 'error'}⚠{:else if job.status === 'conflict'}⚠{:else if job.status === 'cancelled'}⊘{:else}…{/if}
 								</span>
+								{#if job.error}
+									<span class="upload-job-error">{job.error}</span>
+								{/if}
+								{#if job.status === 'error' || job.status === 'conflict' || job.status === 'cancelled'}
+									<button type="button" class="files-retry" onclick={() => retryUpload(job.id)}>Retry</button>
+								{/if}
+								{#if job.status !== 'pending' && job.status !== 'uploading'}
+									<button type="button" class="files-retry" onclick={() => dismissUpload(job.id)}>Dismiss</button>
+								{/if}
 							</li>
 						{/each}
 					</ul>
@@ -474,7 +481,29 @@
 
 			<aside class="preview-pane">
 				{#if previewPath}
-					{#if previewKind === 'image' && previewUrl}
+					{#if previewLoading}
+						<div class="preview-header">
+							<span class="preview-name" title={previewPath}>{previewName}</span>
+							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
+						</div>
+						<div class="preview-content">
+							<div class="files-inline-loading">
+								<span class="spinner"></span>
+								<span>Loading preview…</span>
+							</div>
+						</div>
+					{:else if previewError && previewKind === 'other' && !previewUrl && !previewText}
+						<div class="preview-header">
+							<span class="preview-name" title={previewPath}>{previewName}</span>
+							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
+						</div>
+						<div class="preview-content">
+							<div class="files-error" role="alert">
+								<span>{previewError}</span>
+								<button type="button" class="files-retry" onclick={() => previewPath && openPreview(previewPath)}>Retry</button>
+							</div>
+						</div>
+					{:else if previewKind === 'image' && previewUrl}
 						<div class="preview-header">
 							<span class="preview-name" title={previewPath}>{previewName}</span>
 							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
@@ -505,7 +534,7 @@
 									<polyline points="14 2 14 8 20 8"/>
 								</svg>
 								<span>No inline preview for this file.</span>
-								<button class="preview-download" onclick={() => void downloadFile(previewPath!)}>Download</button>
+								<button class="preview-download" onclick={() => previewPath && downloadFile(previewPath)}>Download</button>
 							</div>
 						</div>
 					{/if}
@@ -650,6 +679,47 @@
 		line-height: 1.6;
 	}
 
+	.files-retry {
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-sm);
+		border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
+		background: var(--surface-raised);
+		color: var(--text-heading);
+		font-size: var(--font-size-xs);
+		font-weight: 600;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.files-retry:hover {
+		border-color: var(--accent-primary);
+	}
+
+	.files-warning {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		margin: 0 var(--space-3);
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--color-warning, #f59e0b) 12%, transparent);
+		border: 1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent);
+		color: var(--text-heading);
+		font-size: var(--font-size-xs);
+	}
+
+	.upload-summary {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: var(--space-1) var(--space-2);
+		border-top: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
+		color: var(--text-muted);
+		font-size: var(--font-size-xs);
+	}
+
 	.spinner {
 		width: 22px;
 		height: 22px;
@@ -721,8 +791,17 @@
 		white-space: nowrap;
 	}
 
+	.upload-job-error {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.upload-job.done .upload-job-status { color: var(--color-success, #22c55e); }
-	.upload-job.error .upload-job-status { color: var(--color-danger, #ef4444); }
+	.upload-job.error .upload-job-status,
+	.upload-job.conflict .upload-job-status { color: var(--color-danger, #ef4444); }
+	.upload-job.cancelled .upload-job-status { color: var(--color-warning, #f59e0b); }
 	.upload-job.uploading .upload-job-status { color: var(--accent-primary); }
 
 	.files-inline-loading {
@@ -736,6 +815,10 @@
 	}
 
 	.files-error {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-2);
 		padding: var(--space-3);
 		color: var(--color-danger, #ef4444);
 		font-size: var(--font-size-sm);
