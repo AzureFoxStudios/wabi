@@ -1,0 +1,32 @@
+name: Workspace implementation checkout
+on:
+  push:
+    branches: [codex/workspace-addons-20260917]
+    paths: [.github/workflows/workspace-source-checkout.yml]
+permissions:
+  contents: read
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export tracked source for isolated development
+        run: git archive HEAD | gzip > /tmp/wabi-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-source
+          path: /tmp/wabi-source.tar.gz
+          retention-days: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Package compiler dependencies for isolated validation
+        run: tar -czf /tmp/wabi-frontend-deps.tar.gz -C frontend node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-compiler
+          path: /tmp/wabi-frontend-deps.tar.gz
+          retention-days: 2
