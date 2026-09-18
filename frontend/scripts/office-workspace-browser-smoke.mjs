@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {compatibilityFixtures} from './office-compatibility-fixtures.mjs';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -42,8 +43,9 @@ try {
         import {openWorkspace,captureScope} from ${mod('src/lib/workspaces/bridge.ts')};import {account} from './identity.js';
         mount(App,{target:document.getElementById('app')});window.workspaceTest={open:openWorkspace,account,
             async records(kind){const m=await import(${mod('src/lib/workspaces/session.ts')});return m.listLocal(await captureScope(),kind);},
-            async record(id){const m=await import(${mod('src/lib/workspaces/session.ts')});const r=await m.readLocal(await captureScope(),id);return r?{id:r.id,pending:Object.keys(r.pending).length,meta:r.meta,drafts:r.drafts||{}}:null;},
+            async record(id){const m=await import(${mod('src/lib/workspaces/session.ts')});const r=await m.readLocal(await captureScope(),id);return r?{id:r.id,pending:Object.keys(r.pending).length,meta:r.meta,drafts:r.drafts||{},originalName:r.original?.name}:null;},
             async text(id){const m=await import(${mod('src/lib/workspaces/session.ts')});const s=await m.openArtifact(await captureScope(),id,'document');const text=s.body.toString();await s.close();return text;},
+            async pdfText(encoded){const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc=(await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;const task=pdfjs.getDocument({data:Uint8Array.from(atob(encoded),c=>c.charCodeAt(0)),enableXfa:false,useWasm:false,useWorkerFetch:false,disableFontFace:true});try{const pdf=await task.promise;const pages=[];for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);pages.push((await page.getTextContent()).items.map(item=>item.str||'').join(' '));}return pages;}finally{await task.destroy();}},
             async api(route,body){const response=await fetch('/api/workspace'+route,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+account.token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});return{status:response.status,body:await response.json()};}};`);
     await writeFile(f('tsconfig.json'),JSON.stringify({compilerOptions:{target:'ES2022',module:'ESNext',moduleResolution:'bundler',skipLibCheck:true}}));
     await writeFile(f('index.html'),'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#app{height:100%;width:100%;margin:0}body{font-family:system-ui;background:#161826;color:#eef0f8}</style></head><body><div id="app"></div><script type="module" src="/main.js"></script></body></html>');
@@ -88,7 +90,26 @@ try {
             await a.evaluate(()=>window.workspaceTest.open('sheets'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();await a.getByRole('button',{name:'New spreadsheet',exact:true}).click();
             const formula=a.getByLabel('Cell value or formula',{exact:true});await formula.fill('12');await formula.press('Enter');await a.locator('.sheet-grid').press('ArrowRight');await formula.fill('=A1*2');await formula.press('Enter');await a.waitForFunction(()=>Array.from(document.querySelectorAll('.sheet-grid td')).some(element=>element.textContent==='24'));checks++;
             await a.screenshot({path:path.join(artifacts,`${engineName}-sheets.png`)});
-            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();await a.getByRole('button',{name:'New presentation',exact:true}).click();
+            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();
+            if(process.env.WORKSPACE_OFFICE_CONVERTER_TEST==='1'){
+                for(const fixture of await compatibilityFixtures()){
+                    let uploads=0;const track=request=>{if(request.url().endsWith('/api/workspace/conversion')&&request.method()==='POST')uploads++;};a.on('request',track);
+                    await a.locator('input[type="file"]').first().setInputFiles({name:fixture.name,mimeType:fixture.mimeType,buffer:fixture.buffer});
+                    await a.getByRole('heading',{name:'Convert a PowerPoint or OpenDocument presentation',exact:true}).waitFor();
+                    assert.equal(uploads,0,'Selecting an Office file must not upload it');checks++;
+                    const converting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/conversion')&&response.request().method()==='POST');
+                    await a.getByRole('button',{name:'Upload original for static conversion',exact:true}).click();
+                    const converted=await converting;const output=await converted.json();assert.equal(converted.status(),200,JSON.stringify(output));
+                    const pages=await a.evaluate(pdf=>window.workspaceTest.pdfText(pdf),output.pdf);
+                    assert.equal(pages.length,1);assert(pages[0].includes(fixture.expected));assert(!pages.join('').includes('PRIVATE_'));checks++;
+                    await a.getByRole('button',{name:'Create private deck',exact:true}).click();
+                    await a.getByLabel('Slide title',{exact:true}).waitFor();
+                    const records=await a.evaluate(()=>window.workspaceTest.records('present'));const imported=records.find(item=>item.title===fixture.name);
+                    assert(imported);assert.equal((await a.evaluate(id=>window.workspaceTest.record(id),imported.id)).originalName,fixture.name);checks++;
+                    await a.getByRole('button',{name:'Library',exact:true}).click();a.off('request',track);
+                }
+            }
+            await a.getByRole('button',{name:'New presentation',exact:true}).click();
             await a.getByLabel('Slide title',{exact:true}).fill('Visible first slide');await a.getByLabel('Private speaker notes',{exact:true}).fill('PRIVATE_NOTES_MUST_NEVER_REACH_AUDIENCE');
             await a.getByRole('button',{name:'Add',exact:true}).click();await a.getByLabel('Slide title',{exact:true}).fill('HIDDEN_SLIDE_MUST_NEVER_REACH_AUDIENCE');await a.getByRole('button',{name:'Hide from audience',exact:true}).click();
             await a.getByRole('button',{name:'Add',exact:true}).click();await a.getByLabel('Slide title',{exact:true}).fill('Visible final slide');
