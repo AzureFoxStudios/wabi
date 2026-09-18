@@ -1,20 +1,33 @@
 name: Office workspace acceptance
 on:
   push:
-    branches: [codex/docs-sheets-present-20260917]
+    branches: [codex/docs-sheets-present-20260917, main]
     paths:
       - .github/workflows/office-workspace-checks.yml
       - frontend/src/lib/workspaces/**
+      - frontend/src/lib/components/ReaderDocumentWorkbench.svelte
       - frontend/scripts/office-workspace-browser-smoke.mjs
+      - frontend/package.json
+      - frontend/package-lock.json
+      - frontend/vite.config.ts
       - core/crates/wabi-server/src/api/workspace*.rs
+      - core/crates/wabi-server/src/adapter/workspace.rs
       - core/crates/wabi-server/tests/workspace_contract.rs
       - core/crates/wabi-server/examples/workspace_test_host.rs
       - core/crates/wabi-server/Cargo.toml
+      - core/crates/wabidb/src/projections/workspace.rs
   pull_request:
     paths:
       - frontend/src/lib/workspaces/**
+      - frontend/src/lib/components/ReaderDocumentWorkbench.svelte
+      - frontend/scripts/office-workspace-browser-smoke.mjs
+      - frontend/package.json
+      - frontend/package-lock.json
+      - frontend/vite.config.ts
       - core/crates/wabi-server/src/api/workspace*.rs
       - core/crates/wabi-server/tests/workspace_contract.rs
+      - core/crates/wabi-server/src/adapter/workspace.rs
+      - core/crates/wabidb/src/projections/workspace.rs
       - .github/workflows/office-workspace-checks.yml
   workflow_dispatch:
 permissions:
@@ -54,8 +67,10 @@ jobs:
         continue-on-error: true
         working-directory: frontend
         run: |
-          npm run check > /tmp/office-typecheck.log 2>&1
-          bun test src/lib/workspaces > /tmp/office-unit.log 2>&1
+          status=0
+          npm run check > /tmp/office-typecheck.log 2>&1 || status=1
+          bun test src/lib/workspaces > /tmp/office-unit.log 2>&1 || status=1
+          exit "$status"
       - name: Build expanded frontend
         id: expanded
         continue-on-error: true
@@ -69,15 +84,18 @@ jobs:
           find build -name wabi-workspace-bundle.json -exec cp '{}' /tmp/office-evidence/expanded-bundle.json \;
       - name: Real Authority contract, replay tests and browser host
         id: server
+        if: ${{ !cancelled() && steps.expanded.outcome == 'success' }}
         continue-on-error: true
         run: |
-          cargo test -p wabidb workspace --locked > /tmp/office-storage-tests.log 2>&1
-          cargo test -p wabi-server workspace --lib --locked > /tmp/office-server-unit.log 2>&1
-          timeout 600 cargo test -p wabi-server --test workspace_contract --locked -- --nocapture > /tmp/office-contract.log 2>&1
-          cargo build -p wabi-server --example workspace_test_host --locked > /tmp/office-host-build.log 2>&1
+          status=0
+          cargo test -p wabidb workspace --locked > /tmp/office-storage-tests.log 2>&1 || status=1
+          cargo test -p wabi-server workspace --lib --locked > /tmp/office-server-unit.log 2>&1 || status=1
+          timeout 600 cargo test -p wabi-server --test workspace_contract --locked -- --nocapture > /tmp/office-contract.log 2>&1 || status=1
+          cargo build -p wabi-server --example workspace_test_host --locked > /tmp/office-host-build.log 2>&1 || status=1
+          exit "$status"
       - name: Independent-browser acceptance against the real Authority
         id: browsers
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.server.outcome == 'success' && steps.expanded.outcome == 'success' }}
         continue-on-error: true
         run: |
           test -x target/debug/examples/workspace_test_host
@@ -101,6 +119,7 @@ jobs:
           timeout 600 node scripts/office-workspace-browser-smoke.mjs > /tmp/office-browser.log 2>&1
       - name: Verify minimal and independent addon build contents
         id: packages
+        if: ${{ !cancelled() }}
         continue-on-error: true
         working-directory: frontend
         run: |
@@ -129,18 +148,20 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
+          import re, shutil
+          root=Path('/tmp/office-evidence'); root.mkdir(exist_ok=True)
           for file in sorted(Path('/tmp').glob('office-*.log')):
               lines=re.sub(r'\x1b\[[0-9;]*[A-Za-z]','',file.read_text(errors='replace')).splitlines()
               print('\n===== '+file.name+' =====')
               indices=set()
               for i,line in enumerate(lines):
-                  if re.search(r'(^Error:|^error\[|^error:|svelte-check found|test result:|^FAIL|^\(fail\)|AssertionError|Page errors:|TimeoutError|checks completed:)',line):
-                      indices.update(range(max(0,i-2),min(len(lines),i+18)))
-              for i in sorted(indices)[:700]: print(lines[i])
+                  if re.search(r'(^Error:|^error\[|^error:|svelte-check found|test result:|^FAIL|^\(fail\)|AssertionError|Page errors:|TimeoutError|checks completed:|^error: expect)',line):
+                      indices.update(range(max(0,i-3),min(len(lines),i+20)))
+              for i in sorted(indices)[:800]: print(lines[i])
               print('\n'.join(lines[-18:]))
+              shutil.copyfile(file,root/file.name)
           PY
-          git rev-parse HEAD
+          git rev-parse HEAD | tee /tmp/office-evidence/tested-commit.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
