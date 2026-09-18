@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {waitForState,verifyStateWaiter} from './office-state-wait.mjs';
 import {compatibilityFixtures} from './office-compatibility-fixtures.mjs';
 import {nativeCanvasAcceptance} from './office-native-canvas-acceptance.mjs';
 import {documentRecoveryAcceptance} from './office-document-acceptance.mjs';
@@ -22,6 +23,7 @@ await mkdir(artifacts,{recursive:true});
 const f=name=>path.join(fixture,name),mod=relative=>JSON.stringify(path.join(frontend,relative));
 let server,browser,checks=0;const failures=[];
 try {
+    await verifyStateWaiter();
     await writeFile(f('environment.js'),'export const browser=true;export const dev=true;export const building=false;');
     await writeFile(f('identity.js'),`import {writable} from 'svelte/store';
         export const accounts=${JSON.stringify(host.accounts)};
@@ -85,18 +87,18 @@ try {
             await a.locator('.cm-content').click();await a.keyboard.insertText('Original shared lesson คน 🙂');
             await a.getByLabel('Document title',{exact:true}).fill('Browser document '+engineName);await a.getByLabel('Document title',{exact:true}).press('Tab');
             const records=await a.evaluate(()=>window.workspaceTest.records('document')),id=records[0].id;
-            await a.waitForFunction(async id=>(await window.workspaceTest.record(id))?.pending>0,id);checks++;
+            await waitForState(a,async id=>(await window.workspaceTest.record(id))?.pending>0,id);checks++;
             await a.getByRole('button',{name:'Share…',exact:true}).click();await a.getByLabel('Person',{exact:true}).selectOption(String(host.accounts[1].id));await a.getByRole('button',{name:'Add person',exact:true}).click();
             await a.getByRole('button',{name:'Publish and save sharing',exact:true}).click();await a.locator('dialog[open]').waitFor({state:'hidden'});checks++;
             await b.goto(origin+'?account=1&tool=documents');await b.waitForFunction(()=>!!window.workspaceTest);await b.evaluate(id=>window.workspaceTest.open('documents',{id}),id);
             await b.waitForFunction(()=>document.querySelector('.cm-content')?.textContent?.includes('Original shared lesson'));checks++;
-            await ca.setOffline(true);await a.locator('.cm-content').click();await a.keyboard.press('Control+End');await a.keyboard.insertText(' — Alice offline');await a.waitForFunction(async id=>(await window.workspaceTest.record(id))?.pending>0,id);checks++;
-            await b.locator('.cm-content').click();await b.keyboard.press('Control+End');await b.keyboard.insertText(' — Bob online');await b.waitForFunction(async id=>(await window.workspaceTest.record(id))?.pending===0,id);
+            await ca.setOffline(true);await a.locator('.cm-content').click();await a.keyboard.press('Control+End');await a.keyboard.insertText(' — Alice offline');await waitForState(a,async id=>(await window.workspaceTest.record(id))?.pending>0,id);checks++;
+            await b.locator('.cm-content').click();await b.keyboard.press('Control+End');await b.keyboard.insertText(' — Bob online');await waitForState(b,async id=>(await window.workspaceTest.record(id))?.pending===0,id);
             await ca.setOffline(false);await a.waitForFunction(()=>document.querySelector('.cm-content')?.textContent?.includes('Bob online'));await b.waitForFunction(()=>document.querySelector('.cm-content')?.textContent?.includes('Alice offline'));
             assert.equal(await a.evaluate(id=>window.workspaceTest.text(id),id),await b.evaluate(id=>window.workspaceTest.text(id),id));checks++;
             await a.reload();await a.waitForFunction(()=>!!window.workspaceTest);await a.evaluate(id=>window.workspaceTest.open('documents',{id}),id);await a.waitForFunction(()=>document.querySelector('.cm-content')?.textContent?.includes('Alice offline'));checks++;
             await c.goto(origin+'?account=2&tool=audience');await c.waitForFunction(()=>!!window.workspaceTest);const denied=await c.evaluate(id=>window.workspaceTest.api(`/artifacts/${id}/sync`,{vector:''}),id);assert.equal(denied.status,404);checks++;
-            await a.waitForFunction(async id=>(await window.workspaceTest.record(id))?.pending===0,id);
+            await waitForState(a,async id=>(await window.workspaceTest.record(id))?.pending===0,id);
             await a.evaluate(()=>{window.workspaceWrites=0;const put=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){if(this.name==='artifacts')window.workspaceWrites++;return put.apply(this,args);};});
             await a.waitForTimeout(3600);assert.equal(await a.evaluate(()=>window.workspaceWrites),0,'Idle sync must not rewrite the entire document');checks++;
             await a.screenshot({path:path.join(artifacts,`${engineName}-documents.png`)});

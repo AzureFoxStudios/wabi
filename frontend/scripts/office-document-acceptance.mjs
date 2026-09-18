@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { waitForState } from './office-state-wait.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Doc, applyUpdate } from 'yjs';
@@ -36,7 +37,7 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
 
     await commenter.getByRole('button', { name: /^Review\b/ }).click();
     await commenter.getByLabel('Review comment', { exact: true }).fill('RECOVERABLE_COMMENT_DRAFT');
-    await commenter.waitForFunction(async id => Object.values((await window.workspaceTest.record(id))?.drafts || {}).some(draft => draft.text === 'RECOVERABLE_COMMENT_DRAFT'), id);
+    await waitForState(commenter, async id => Object.values((await window.workspaceTest.record(id))?.drafts || {}).some(draft => draft.text === 'RECOVERABLE_COMMENT_DRAFT'), id);
     await commenter.reload();
     await commenter.waitForFunction(() => !!window.workspaceTest);
     await commenter.evaluate(id => window.workspaceTest.open('documents', { id }), id);
@@ -60,17 +61,17 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     await editor.waitForFunction(() => document.querySelector('.cm-content')?.textContent.includes('ACCEPTED_REVIEW_WORDING'));
     passed('owner applies a commenter suggestion and independent editors receive it');
 
-    await owner.waitForFunction(async id => (await window.workspaceTest.record(id))?.pending === 0, id);
-    await editor.waitForFunction(async id => (await window.workspaceTest.record(id))?.pending === 0, id);
+    await waitForState(owner, async id => (await window.workspaceTest.record(id))?.pending === 0, id);
+    await waitForState(editor, async id => (await window.workspaceTest.record(id))?.pending === 0, id);
     const beforeFreeze = (await owner.evaluate(id => window.workspaceTest.record(id), id)).meta;
     await editor.context().setOffline(true);
     await editor.locator('.cm-content').click();
     await editor.keyboard.press('Control+End');
     await editor.keyboard.insertText(' — PRIVATE_OFFLINE_RECOVERY');
-    await editor.waitForFunction(async id => (await window.workspaceTest.record(id))?.pending > 0, id);
+    await waitForState(editor, async id => (await window.workspaceTest.record(id))?.pending > 0, id);
     owner.once('dialog', dialog => dialog.accept());
     await owner.getByRole('button', { name: 'Freeze live editing', exact: true }).click();
-    await owner.waitForFunction(async id => (await window.workspaceTest.record(id))?.meta?.mode === 'snapshot', id);
+    await waitForState(owner, async id => (await window.workspaceTest.record(id))?.meta?.mode === 'snapshot', id);
     const frozen = (await owner.evaluate(id => window.workspaceTest.record(id), id)).meta;
     assert.equal(frozen.generation, beforeFreeze.generation + 1);
     assert.deepEqual(frozen.grants, beforeFreeze.grants);

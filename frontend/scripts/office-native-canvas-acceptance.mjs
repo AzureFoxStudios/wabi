@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { waitForState } from './office-state-wait.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import JSZip from 'jszip';
@@ -26,7 +27,7 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     await page.getByRole('button', { name: 'Add chart', exact: true }).click();
     await page.getByLabel('Object text or data', { exact: true }).fill('Public first\t12\nPublic second\t-4');
     await page.getByLabel('Private speaker notes', { exact: true }).fill('PRIVATE_NATIVE_NOTES');
-    await page.waitForFunction(async id => {
+    await waitForState(page, async id => {
         const record = await window.workspaceTest.record(id);
         return Object.values(record?.data?.slides || {}).some(slide => {
             const objects = Object.values(slide.design?.objects || {});
