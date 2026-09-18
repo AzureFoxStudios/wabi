@@ -483,6 +483,4 @@
 .mobile-nav-grabber { display: none; }
 .mobile-panel-backdrop { display: none; }
 
-/* Closed tabs reveal to 48px on hover/focus; reserve their full hit area too. */
-.closed-stub-space { flex: 0 0 48px; order: 5; pointer-events: none; }
-.closed-stub-space.side-left { order: 0; }
+
