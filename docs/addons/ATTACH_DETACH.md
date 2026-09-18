@@ -50,6 +50,17 @@ runtime unload. Client-only entries (youtube-sync, spotify-sync,
 translator-assist) are always reported as available; backend-backed entries
 (steam) follow the server inventory.
 
+## Orphaned add-on material (not attached to any build)
+
+| Path | State | Action needed |
+|---|---|---|
+| `core/addons/persistence-disk` | 408-line JSONL disk-persistence crate, no `plugin.json`, not a workspace member, not linked into `wabi-server` | Either wire it as an optional feature (per-channel disk persistence) or delete it — today it compiles nowhere |
+| `core/addons/server-map` | Frontend workspace only; no backend crate | Fine as a bundled client add-on; the map workspace UI is imported directly by core panels |
+
+The retired `wabi-mesh` coordinator was removed from the tree (crate, routes, state,
+and inventory entry): multi-node work now goes through helper nodes
+(`/api/nodes`), WabiDB replication, or `WABI_SERVER_ROLE=anchor`.
+
 ## Rules for new add-ons
 
 1. Core must not statically import, auto-start, render, or advertise add-on code.
