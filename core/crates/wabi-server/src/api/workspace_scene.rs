@@ -4,10 +4,10 @@ use serde_json::{json, Value};
 use super::{bad, image_allowed, valid_id, Result};
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
-pub(super) struct Design { pub theme:String, pub objects:Vec<Object> }
+pub(in crate::api) struct Design { pub theme:String, pub objects:Vec<Object> }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
-pub(super) struct Object {
+pub(in crate::api) struct Object {
     pub id:String, pub kind:String, pub x:f64, pub y:f64, pub w:f64, pub h:f64, pub z:f64,
     pub text:String, pub image:Option<String>, pub fill:String, pub color:String, pub font_size:f64,
     pub align:String, pub fit:String, pub crop_x:f64, pub crop_y:f64,

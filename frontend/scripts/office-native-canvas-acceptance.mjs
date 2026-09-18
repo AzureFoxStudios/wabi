@@ -50,7 +50,7 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     await download.saveAs(output);
     const zip = await JSZip.loadAsync(await readFile(output));
     const names = Object.keys(zip.files);
-    assert(!names.some(name => name.startsWith('ppt/embeddings/')), 'Pinned charts must not include an embedded private workbook');
+    assert(!names.some(name => name.startsWith('ppt/embeddings/') && !zip.files[name].dir), 'Pinned charts must not include an embedded private workbook');
     const slide = await zip.file('ppt/slides/slide1.xml').async('string');
     assert(slide.includes('NATIVE_CANVAS_PERSISTED_TEXT'));
     assert(slide.includes('Public first'));

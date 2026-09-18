@@ -74,7 +74,7 @@ test('native PPTX charts export only pinned values and shapes, without embedded 
     const bytes = await pptx.write({ outputType: 'nodebuffer' });
     const zip = await JSZip.loadAsync(bytes);
     const names = Object.keys(zip.files);
-    expect(names.some(name => name.startsWith('ppt/embeddings/'))).toBe(false);
+    expect(names.some(name => name.startsWith('ppt/embeddings/') && !zip.files[name].dir)).toBe(false);
     const slide = await zip.file('ppt/slides/slide1.xml')!.async('string');
     expect(slide).toContain('Pinned public chart'); expect(slide).toContain('First');
     expect(slide).not.toContain('PRIVATE_');

@@ -9,7 +9,7 @@ type Result<T> = std::result::Result<T, AppError>;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-pub(super) struct ProtectedRange {
+pub(in crate::api) struct ProtectedRange {
     pub id:String, pub sheet_id:String, pub rows:Vec<String>, pub columns:Vec<String>, pub label:String,
 }
 fn object(value:&Value)->Result<&Map<String,Value>>{value.as_object().ok_or_else(||bad("Workbook object has an invalid shape"))}
