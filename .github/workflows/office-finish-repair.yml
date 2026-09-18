@@ -9,65 +9,125 @@ jobs:
   repair:
     if: github.repository == 'AzureFoxStudios/wabi' && github.ref == 'refs/heads/codex/docs-sheets-present-20260917'
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: codex/docs-sheets-present-20260917
-      - name: Apply reviewed conversion and acceptance integration
+          ref: ${{ github.sha }}
+      - name: Integrate reviewed native canvas changes atomically
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          pending={}
+          def read(path):
+              if path not in pending: pending[path]=Path(path).read_text()
+              return pending[path]
           def replace(path,before,after,count=1):
-              file=Path(path); text=file.read_text()
-              if before not in text and after and text.count(after)==count:return
+              text=read(path)
+              if after and text.count(after)==count:return
               if text.count(before)!=count:raise RuntimeError(f'{path}: expected {count} anchors, found {text.count(before)}')
-              file.write_text(text.replace(before,after))
-          p='core/crates/wabi-server/src/api/workspace.rs'
-          replace(p, 'use sheet_rules::ProtectedRange;', 'use sheet_rules::ProtectedRange;\n#[path="workspace_conversion.rs"]\npub(super) mod conversion;')
-          replace(p, '.merge(super::workspace_present::routes())', '.merge(super::workspace_present::routes())\n        .merge(conversion::routes())')
-          replace(p, '"officeConversion":false', '"officeConversion":capabilities.present&&conversion::configured()', 2)
-          p='frontend/src/lib/workspaces/present/PresentWorkspace.svelte'
-          replace(p, "    import PresentedVersion from './PresentedVersion.svelte';", "    import PresentedVersion from './PresentedVersion.svelte';\n    import OfficeConversion from './OfficeConversion.svelte';")
-          replace(p, "    let proposed=$state<", "    let pendingOffice=$state<File|null>(null);\n    let proposed=$state<")
-          replace(p, "async function loadFile(file:File){if(!scope)return;", "async function loadFile(file:File){if(!scope)return;if(/\\.(pptx|odp)$/i.test(file.name)){if(file.size>12*1024*1024)throw new Error('Presentation import is limited to 12 MB.');pendingOffice=file;return;}")
-          replace(p, "const result=await(await import('./files')).importSlides(file,importAbort.signal,text=>progress=text);proposed={title:file.name,...result,source:file};previewDialog.showModal();}", "const sourceScope=scope;const signal=importAbort.signal;const result=await(await import('./files')).importSlides(file,signal,text=>{if(!disposed&&sourceScope?.isCurrent())progress=text;});if(disposed||!sourceScope?.isCurrent()||signal.aborted)return;proposed={title:file.name,...result,source:file};previewDialog.showModal();}\n    async function convertedOffice(pdf:File,warnings:string[],original:File){const sourceScope=scope;importAbort.abort();importAbort=new AbortController();const signal=importAbort.signal;const result=await(await import('./files')).importSlides(pdf,signal,text=>{if(!disposed&&sourceScope?.isCurrent())progress=text;});if(disposed||!sourceScope?.isCurrent()||signal.aborted)return;proposed={title:original.name,...result,warnings:[...warnings,...result.warnings],source:original};pendingOffice=null;previewDialog.showModal();}")
-          replace(p, '</script>', '</script>\n{#if scope&&pendingOffice}<OfficeConversion {scope} file={pendingOffice} onconverted={convertedOffice} oncancel={()=>{importAbort.abort();pendingOffice=null;}}/>{/if}')
-          p='frontend/scripts/office-workspace-browser-smoke.mjs'
-          replace(p, "import assert from 'node:assert/strict';", "import assert from 'node:assert/strict';\nimport {compatibilityFixtures} from './office-compatibility-fixtures.mjs';")
-          replace(p, "drafts:r.drafts||{}}:null;", "drafts:r.drafts||{},originalName:r.original?.name}:null;")
-          replace(p, '            async api(route,body){', '''            async pdfText(encoded){const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc=(await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;const task=pdfjs.getDocument({data:Uint8Array.from(atob(encoded),c=>c.charCodeAt(0)),enableXfa:false,useWasm:false,useWorkerFetch:false,disableFontFace:true});try{const pdf=await task.promise;const pages=[];for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);pages.push((await page.getTextContent()).items.map(item=>item.str||'').join(' '));}return pages;}finally{await task.destroy();}},
-                      async api(route,body){''')
-          before="            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();await a.getByRole('button',{name:'New presentation',exact:true}).click();"
-          after="""            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();
-                      if(process.env.WORKSPACE_OFFICE_CONVERTER_TEST==='1'){
-                          for(const fixture of await compatibilityFixtures()){
-                              let uploads=0;const track=request=>{if(request.url().endsWith('/api/workspace/conversion')&&request.method()==='POST')uploads++;};a.on('request',track);
-                              await a.locator('input[type="file"]').first().setInputFiles({name:fixture.name,mimeType:fixture.mimeType,buffer:fixture.buffer});
-                              await a.getByRole('heading',{name:'Convert a PowerPoint or OpenDocument presentation',exact:true}).waitFor();
-                              assert.equal(uploads,0,'Selecting an Office file must not upload it');checks++;
-                              const converting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/conversion')&&response.request().method()==='POST');
-                              await a.getByRole('button',{name:'Upload original for static conversion',exact:true}).click();
-                              const converted=await converting;const output=await converted.json();assert.equal(converted.status(),200,JSON.stringify(output));
-                              const pages=await a.evaluate(pdf=>window.workspaceTest.pdfText(pdf),output.pdf);
-                              assert.equal(pages.length,1);assert(pages[0].includes(fixture.expected));assert(!pages.join('').includes('PRIVATE_'));checks++;
-                              await a.getByRole('button',{name:'Create private deck',exact:true}).click();
-                              await a.getByLabel('Slide title',{exact:true}).waitFor();
-                              const records=await a.evaluate(()=>window.workspaceTest.records('present'));const imported=records.find(item=>item.title===fixture.name);
-                              assert(imported);assert.equal((await a.evaluate(id=>window.workspaceTest.record(id),imported.id)).originalName,fixture.name);checks++;
-                              await a.getByRole('button',{name:'Library',exact:true}).click();a.off('request',track);
-                          }
-                      }
-                      await a.getByRole('button',{name:'New presentation',exact:true}).click();"""
+              pending[path]=text.replace(before,after)
+          # Prevent an obsolete queued source-repair job from applying twice.
+          replace('core/crates/wabi-server/src/api/workspace.rs','use sheet_rules::ProtectedRange;','use self::sheet_rules::ProtectedRange;')
+          p='frontend/src/lib/workspaces/present/nativeScene.ts'
+          replace(p,"import { Y, editText, type ArtifactSession } from '../session';", "import * as Y from 'yjs';\nimport type { ArtifactSession } from '../session';")
+          replace(p,"import { collection } from './model';", '''function collection(root:Y.Map<unknown>):Y.Map<Y.Map<unknown>> {
+              const value=root.get('slides');
+              if(!(value instanceof Y.Map))throw new Error('Unsupported deck data');
+              return value;
+          }
+          function editText(text:Y.Text,value:string,_origin:unknown):void {
+              const before=text.toString();let prefix=0,suffix=0;
+              while(prefix<before.length&&prefix<value.length&&before[prefix]===value[prefix])prefix++;
+              while(suffix<before.length-prefix&&suffix<value.length-prefix&&before[before.length-1-suffix]===value[value.length-1-suffix])suffix++;
+              if(before.length-prefix-suffix)text.delete(prefix,before.length-prefix-suffix);
+              const middle=value.slice(prefix,value.length-suffix);if(middle)text.insert(prefix,middle);
+          }''')
+          replace(p,"    if(!(source instanceof Y.Map))return null;", "    if(!(source instanceof Y.Map))return null;\n    if([...source.keys()].some(key=>!['theme','objects'].includes(key)))throw new Error('Unsupported or private design metadata.');")
+          p='frontend/src/lib/workspaces/present/model.ts'
+          replace(p,"import type { AudienceSlide } from '../bridge';", "import type { AudienceSlide } from '../bridge';\nimport {readDesign,setDesign} from './nativeScene';")
+          replace(p,"position:Number(s.get('position')||0),hidden:", "...(s.get('layout')==='canvas'?{design:readDesign(data,id)||undefined}:{}),position:Number(s.get('position')||0),hidden:")
+          replace(p,"if(seed.image)slide.set('image',seed.image);return id;", "if(seed.image)slide.set('image',seed.image);if(seed.design)setDesign(data,id,{...seed.design,objects:seed.design.objects.map(object=>({...object,id:crypto.randomUUID()}))});return id;")
+          replace(p,"({id:s.id,title:s.title,body:s.body,layout:s.layout,image:s.image})", "({id:s.id,title:s.title,body:s.layout==='canvas'?'':s.body,layout:s.layout,image:s.layout==='canvas'?null:s.image,...(s.layout==='canvas'&&s.design?{design:s.design}:{})})")
+          replace(p,"['title','body','layout','image','position','hidden','removed']", "['title','body','layout','image','position','hidden','removed','design']")
+          replace(p,"throw new Error('Deck has an unsupported or private slide field');}", "throw new Error('Deck has an unsupported or private slide field');if(slide.get('design')!==undefined)readDesign(data,id);if(slide.get('layout')==='canvas'&&!readDesign(data,id))throw new Error('Canvas slide is missing its native objects');}")
+          p='frontend/src/lib/workspaces/bridge.ts'
+          replace(p,'export interface AudienceSlide{id:string;title:string;body:string;layout:string;image:string|null;}',"export interface AudienceSlide{id:string;title:string;body:string;layout:string;image:string|null;design?:import('./scene').SlideDesign;}")
+          p='frontend/src/lib/workspaces/AudienceSlide.svelte'
+          replace(p,"    import type { AudienceSlide } from './bridge';", "    import type { AudienceSlide } from './bridge';\n    import SceneView from './SceneView.svelte';")
+          replace(p,'{#if !blank&&slide}<div class="slide-text">', '{#if !blank&&slide}{#if slide.layout===\'canvas\'&&slide.design}<SceneView design={slide.design}/>{:else}<div class="slide-text">')
+          replace(p,'draggable="false"/>{/if}{/if}', 'draggable="false"/>{/if}{/if}{/if}')
+          p='frontend/src/lib/workspaces/present/versionPreview.ts'
+          replace(p,"import type { AudienceSlide } from '../bridge';", "import type { AudienceSlide } from '../bridge';\nimport {cleanDesign} from '../scene';")
+          replace(p,'slides.map(({ id, title, body, layout, image }) => ({ id, title, body, layout, image }))', "slides.map(({ id, title, body, layout, image, design }) => ({ id, title, body, layout, image, ...(layout==='canvas'&&design?{design:cleanDesign(design)}:{}) }))")
+          p='core/crates/wabi-server/src/api/workspace_present.rs'
+          replace(p,'const LEASE:Duration=Duration::from_secs(15);', 'const LEASE:Duration=Duration::from_secs(15);\n#[path="workspace_scene.rs"]mod scene;')
+          replace(p,'pub image:Option<String>}', 'pub image:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")]pub design:Option<scene::Design>}')
+          replace(p,'["title","body","layout","image","position","removed","hidden"]', '["title","body","layout","image","position","removed","hidden","design"]')
+          replace(p,'["title","text","image","split","quote"]', '["title","text","image","split","quote","canvas"]')
+          replace(p,'        if slide.get("position")', '''        if let Some(design)=slide.get("design"){scene::project(design)?;}
+                  if slide["layout"]=="canvas"&&slide.get("design").is_none(){return Err(bad("Canvas slide requires a native design"));}
+                  if slide.get("position")''')
+          before='    Ok(slides.into_iter().map(|(id,slide)|Slide{id:id.clone(),title:slide["title"].as_str().unwrap_or("").into(),body:slide["body"].as_str().unwrap_or("").into(),layout:slide["layout"].as_str().unwrap_or("text").into(),image:slide["image"].as_str().map(str::to_owned)}).collect())'
+          after='''    slides.into_iter().map(|(id,slide)|{
+                  let canvas=slide["layout"]=="canvas";
+                  Ok(Slide{id:id.clone(),title:slide["title"].as_str().unwrap_or("").into(),
+                      body:if canvas{String::new()}else{slide["body"].as_str().unwrap_or("").into()},
+                      layout:slide["layout"].as_str().unwrap_or("text").into(),
+                      image:if canvas{None}else{slide["image"].as_str().map(str::to_owned)},
+                      design:if canvas{Some(scene::project(&slide["design"])?)}else{None}})
+              }).collect()'''
           replace(p,before,after)
+          p='frontend/src/lib/workspaces/present/PresentWorkspace.svelte'
+          replace(p,"    import PresentedVersion from './PresentedVersion.svelte';", "    import PresentedVersion from './PresentedVersion.svelte';\n    import NativeSlideDesigner from './NativeSlideDesigner.svelte';")
+          replace(p,"import {slideAnchor} from '../anchors';", "import {slideAnchor,objectAnchor} from '../anchors';")
+          replace(p,"let selectedId=$state('');", "let selectedId=$state('');let selectedObject=$state<string|null>(null);")
+          replace(p,"function select(id:string){selectedId=id;", "function select(id:string){selectedObject=null;selectedId=id;")
+          replace(p,"selectionAnchor={current?slideAnchor(current.id,current.title):null}", "selectionAnchor={current?(selectedObject?objectAnchor(current.id,selectedObject,'Slide object'):slideAnchor(current.id,current.title)):null}")
+          replace(p,'<main class="deck-canvas"><AudienceSlideView slide={current} {aspect}/>', '<main class="deck-canvas">{#if current}<NativeSlideDesigner session={active} slide={current} {aspect} onselect={id=>selectedObject=id}/>{/if}')
+          replace(p,'<option value="quote">Quotation</option>', '<option value="quote">Quotation</option>{#if current.design}<option value="canvas">Native canvas</option>{/if}')
+          replace(p,"if(active)await(await import('./files')).exportPptx(active.title,audienceSlides(active.data),aspect);", "const session=active;if(!session)return;const title=session.title,slides=audienceSlides(session.data),ratio=aspect;const files=await import('./files');if(disposed||active!==session||!session.scope.isCurrent())return;await files.exportPptx(title,slides,ratio);")
+          replace(p,"if(active)void import('./files').then(m=>m.printAudience(active!.title,audienceSlides(active!.data),aspect)).catch(e=>error=e.message);", "const session=active;if(session){const title=session.title,slides=audienceSlides(session.data),ratio=aspect;void import('./files').then(m=>{if(!disposed&&active===session&&session.scope.isCurrent())m.printAudience(title,slides,ratio);}).catch(e=>error=e.message);}")
+          p='frontend/src/lib/workspaces/present/NativeSlideDesigner.svelte'
+          replace(p,'.designer-stage{position:relative;width:100%;}', '.designer-stage{position:relative;width:100%;max-width:900px;margin:auto;}')
+          p='frontend/src/lib/workspaces/present/files.ts'
+          replace(p,"import type { AudienceSlide } from '../bridge';", "import type { AudienceSlide } from '../bridge';\nimport {addDesignToPptx,appendDesignToPrint} from './sceneExport';")
+          replace(p,"for(const item of slides){const slide=pptx.addSlide();", "for(const item of slides){const slide=pptx.addSlide();if(item.layout==='canvas'&&item.design){await addDesignToPptx(pptx,slide,item.design,width,height);continue;}")
+          replace(p,"section.className='slide'+(item.layout==='image'?' image':'');", "section.className='slide'+(item.layout==='image'?' image':'');if(item.layout==='canvas'&&item.design){images.push(...appendDesignToPrint(doc,section,item.design));doc.body.append(section);continue;}")
+          p='frontend/src/lib/workspaces/anchors.ts'
+          replace(p,"    | {v:1;kind:'slide';slideId:string;label:string};", "    | {v:1;kind:'slide';slideId:string;label:string}\n    | {v:1;kind:'object';slideId:string;objectId:string;label:string};")
+          replace(p,"        if(value.kind==='slide'", "        if(value.kind==='object'&&identity(value.slideId)&&identity(value.objectId)&&typeof value.label==='string'&&value.label.length<=200)return{v:1,kind:'object',slideId:value.slideId,objectId:value.objectId,label:value.label};\n        if(value.kind==='slide'")
+          replace(p,'export function slideAnchor(', "export function objectAnchor(slideId:string,objectId:string,label:string):string{return encode({v:1,kind:'object',slideId,objectId,label:label.slice(0,200)});}\nexport function slideAnchor(")
+          replace(p,"    if(anchor.kind==='slide'){", "    if(anchor.kind==='slide'||anchor.kind==='object'){")
+          replace(p,"        return{label:anchor.label||'Slide',missing:", "        if(anchor.kind==='object'){const design=slide instanceof Y.Map?slide.get('design'):null;const objects=design instanceof Y.Map?design.get('objects'):null;const object=objects instanceof Y.Map?objects.get(anchor.objectId):null;return{label:anchor.label||'Slide object',missing:!(slide instanceof Y.Map)||!!slide.get('removed')||!(object instanceof Y.Map)||!!object.get('removed')};}\n        return{label:anchor.label||'Slide',missing:")
+          # Never edit source files until every required anchor has been checked.
+          for path,text in pending.items():Path(path).write_text(text)
+          print('\n'.join(sorted(pending)))
           PY
           git diff --check
           git diff --stat
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add core/crates/wabi-server/src/api/workspace.rs frontend/src/lib/workspaces/present/PresentWorkspace.svelte frontend/scripts/office-workspace-browser-smoke.mjs
+          git add core/crates/wabi-server/src/api/workspace.rs core/crates/wabi-server/src/api/workspace_present.rs frontend/src/lib/workspaces/present/nativeScene.ts frontend/src/lib/workspaces/present/model.ts frontend/src/lib/workspaces/present/NativeSlideDesigner.svelte frontend/src/lib/workspaces/present/PresentWorkspace.svelte frontend/src/lib/workspaces/present/versionPreview.ts frontend/src/lib/workspaces/present/files.ts frontend/src/lib/workspaces/AudienceSlide.svelte frontend/src/lib/workspaces/bridge.ts frontend/src/lib/workspaces/anchors.ts
           if ! git diff --cached --quiet; then
-            git commit -m 'feat(present): connect consent-gated Office conversion with real fixture acceptance'
+            git commit -m 'feat(present): integrate native canvas authoring safe rendering export and references'
             git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
           fi
           git rev-parse HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - name: Check the integrated frontend without suppressing failures
+        working-directory: frontend
+        run: |
+          npm ci
+          status=0
+          npm run check > /tmp/office-repair-check.log 2>&1 || status=1
+          bun test src/lib/workspaces > /tmp/office-repair-unit.log 2>&1 || status=1
+          cat /tmp/office-repair-unit.log
+          grep -A 12 -B 2 'Error:' /tmp/office-repair-check.log || true
+          tail -n 8 /tmp/office-repair-check.log
+          exit "$status"
