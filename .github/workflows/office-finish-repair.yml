@@ -18,48 +18,41 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          def replace(path, before, after, count=1):
+          changed=set()
+          def replace(path,before,after,count=1):
               file=Path(path); text=file.read_text()
-              if before not in text and after and text.count(after)==count: return
-              if text.count(before)!=count: raise RuntimeError(f'{path}: expected {count} anchors, found {text.count(before)}')
-              file.write_text(text.replace(before,after))
-          present='frontend/src/lib/workspaces/present/PresentWorkspace.svelte'
-          replace(present, '<script lang="ts">\n', '<script lang="ts">\n    import PresentedVersion from \'./PresentedVersion.svelte\';\n    import {slideAnchor} from \'../anchors\';\n')
-          replace(present, "<ArtifactShell session={active} onlibrary={()=>void run(library)}>", "<ArtifactShell session={active} selectionAnchor={current?slideAnchor(current.id,current.title):null} onlibrary={()=>void run(library)}>")
-          replace(present, '<button disabled={busy} onclick={()=>void run(updateRoom)}>Publish current deck to presentation</button>', '<PresentedVersion session={active} {roomId}/>')
-          file=Path(present); text=file.read_text(); lines=text.splitlines(True)
-          matches=[line for line in lines if line.startswith('    async function updateRoom(){')]
-          if len(matches)>1: raise RuntimeError('Unexpected updateRoom definitions')
-          if matches: file.write_text(text.replace(matches[0],''))
-          replace(present, '<p>{proposed.title} · {proposed.slides.length} slides</p>', '<label>Deck title<input aria-label="Proposed deck title" bind:value={proposed.title} maxlength="200" disabled={busy}/></label><p>{proposed.slides.length} proposed slides · edit text and order before creating a separate private deck.</p>')
-          replace(present, '<h3>Slide {i+1}</h3><AudienceSlideView slide={{...slide,id:String(i)}} aspect={proposed.aspect}/>', '<h3>Slide {i+1}</h3><label>Title<input aria-label={`Proposed slide ${i+1} title`} bind:value={slide.title} maxlength="2000" disabled={busy}/></label><label>Text<textarea aria-label={`Proposed slide ${i+1} text`} bind:value={slide.body} maxlength="16000" disabled={busy}></textarea></label><div class="workspace-toolbar"><button disabled={busy||i===0} onclick={()=>{if(proposed){const item=proposed.slides.splice(i,1)[0];proposed.slides.splice(i-1,0,item);}}}>Move earlier</button><button disabled={busy||i===proposed.slides.length-1} onclick={()=>{if(proposed){const item=proposed.slides.splice(i,1)[0];proposed.slides.splice(i+1,0,item);}}}>Move later</button><button disabled={busy||proposed.slides.length<=1} onclick={()=>proposed?.slides.splice(i,1)}>Remove proposed slide</button></div><AudienceSlideView slide={{...slide,id:String(i)}} aspect={proposed.aspect}/>')
-          shell='frontend/src/lib/workspaces/ArtifactShell.svelte'
-          replace(shell, '<script lang="ts">\n', '<script lang="ts">\n    import ArtifactHandoff from \'./ArtifactHandoff.svelte\';\n')
-          replace(shell, '        {#if $sessionState.meta}\n', '        {#if $sessionState.meta}\n            <ArtifactHandoff {session} anchor={selectionAnchor}/>\n')
-          composer='frontend/src/lib/components/chat/ChatComposer.svelte'
-          replace(composer, '<script lang="ts">\n', '<script lang="ts">\n\timport {composerHandoff,takeComposerHandoff,dismissComposerHandoff,appendHandoffText} from \'$lib/composerHandoff\';\n')
-          replace(composer, '\tfunction snapshotDraft(): ComposerDraft {', '''\t$effect(() => {
-          		const pending = $composerHandoff;
-          		if (!pending || pending.channelId !== draftChannel || draftSurface !== 'channel') return;
-          		if (!pending.isCurrent()) { dismissComposerHandoff(pending.id); return; }
-          		if (!operationCurrent() || isSending || editingMessage) return;
-          		const next = appendHandoffText(messageInput, pending.text, composerInputMaxLength);
-          		if (next === null) return;
-          		if (takeComposerHandoff(pending.id, draftChannel) === null) return;
-          		messageInput = next; syncComposerEntities(); draftOwner.save(snapshotDraft());
-          		void tick().then(() => { if (operationCurrent()) { autoResizeTextarea(); textareaElement?.focus(); } });
-          	});
-          	function snapshotDraft(): ComposerDraft {''')
-          replace(composer, '</script>', '</script>\n{#if $composerHandoff?.channelId === draftChannel && draftSurface === \'channel\'}<p role="status">A workspace reference is waiting. Finish editing or sending the current message, or make room to insert the link. <button type="button" onclick={()=>{if($composerHandoff)dismissComposerHandoff($composerHandoff.id);}}>Dismiss reference</button></p>{/if}')
-          replace('core/crates/wabi-server/src/api/workspace_present.rs', 'if value["schema"]!=1{', 'if value["schema"].as_f64()!=Some(1.0){')
+              if before not in text and after and text.count(after)==count:return
+              if text.count(before)!=count:raise RuntimeError(f'{path}: expected {count} anchors, found {text.count(before)}')
+              file.write_text(text.replace(before,after));changed.add(path)
+          p='frontend/src/lib/workspaces/session.ts'
+          replace(p, '    updatedAt:number;sourceKey?:string;original?', '    updatedAt:number;sourceKey?:string;presentationSession?:string;original?')
+          replace(p, '    async publish(mode:', '''    async rememberPresentation(id:string):Promise<void>{
+                  if(this.closed||!this.scope.isCurrent()||this.record.kind!=='present'||!/^[0-9a-f-]{36}$/i.test(id))throw new Error('Invalid presentation association');
+                  this.record.presentationSession=id;this.localEpoch++;await this.flush();
+              }
+              async publish(mode:''')
+          p='frontend/src/lib/workspaces/present/PresentWorkspace.svelte'
+          replace(p, "    import PresentedVersion from './PresentedVersion.svelte';", "    import PresentedVersion from './PresentedVersion.svelte';\n    import {editionFingerprint} from './versionPreview';")
+          replace(p, "    async function use(session:ArtifactSession){if(disposed||!scope?.isCurrent()){await session.close();return;}await noteChain;if(active&&active!==session&&!(await active.close()))throw new Error('Save or export the current deck before closing it.');stop();active=session;stop=session.state.subscribe(v=>{tick=v.tick;});notes=await readPrivateNotes(scope,session.id);const first=readSlides(session.data)[0];if(first)select(first.id);roomId='';startedLink='';}", "    async function use(session:ArtifactSession){const ticket=++epoch;const valid=()=>!disposed&&!!scope?.isCurrent()&&ticket===epoch;if(!valid()){await session.close();return;}await noteChain;if(!valid()){await session.close();return;}const savedNotes=await readPrivateNotes(session.scope,session.id);if(!valid()){await session.close();return;}const prior=active;if(prior&&prior!==session&&!(await prior.close())){await session.close();throw new Error('Save or export the current deck before closing it.');}if(!valid()){await session.close();return;}stop();active=session;stop=session.state.subscribe(v=>{tick=v.tick;});notes=savedNotes;const first=readSlides(session.data)[0];if(first)select(first.id);roomId=session.record.presentationSession||'';startedLink=roomId?presentationLink(session.scope.server,roomId):'';}")
+          replace(p, "    async function startRoom(){if(!scope||!active)return;await active.flush();await active.publish(active.record.meta?.mode||'snapshot');if(active.record.meta?.mode==='live')await active.sync();const state=await request<AudienceState>(scope,'/presentations',{id:crypto.randomUUID(),artifactId:active.id,channelId:channelId||null,sourceSequence:active.record.meta!.sequence});roomId=state.id;startedLink=presentationLink(scope.server,state.id);startDialog.close();openWorkspace('audience',{sessionId:state.id});}", "    async function startRoom(){if(!scope||!active)return;const session=active,targetChannel=channelId,approved=editionFingerprint(audienceSlides(session.data),aspect);const valid=()=>!disposed&&active===session&&session.scope.isCurrent();await session.flush();if(!valid())return;await session.publish(session.record.meta?.mode||'snapshot');if(!valid())return;if(approved!==editionFingerprint(audienceSlides(session.data),Number(session.data.get('aspect')||16/9)))throw new Error('The deck changed while preparing the presentation. Review the new preview and start again.');const state=await request<AudienceState>(session.scope,'/presentations',{id:crypto.randomUUID(),artifactId:session.id,channelId:targetChannel||null,sourceSequence:session.record.meta!.sequence});if(!valid())return;roomId=state.id;startedLink=presentationLink(session.scope.server,state.id);await session.rememberPresentation(state.id);if(!valid())return;startDialog.close();openWorkspace('audience',{sessionId:state.id});}")
+          p='frontend/src/lib/workspaces/ArtifactHandoff.svelte'
+          replace(p, 'import { channels, switchChannel }', 'import { channels }')
+          replace(p, "    import { captureGroupAccess } from '$lib/groupAccess';\n", '')
+          replace(p, '            const allowed = captureGroupAccess(target.id), scope = session.scope;', "            const {captureGroupAccess}=await import('$lib/groupAccess');\n            const {switchChannel}=await import('$lib/channelStore');\n            check();\n            const allowed = captureGroupAccess(target.id), scope = session.scope;")
+          p='frontend/scripts/office-workspace-browser-smoke.mjs'
+          replace(p, "export const currentChannel=writable('');export const channels=writable([]);", "export const currentChannel=writable('');export const channels=writable([]);export const switchChannel=id=>currentChannel.set(id);")
+          replace(p, "registerAddonTab(){},openAddonTab(id){active.set('addon:'+id)}", "registerAddonTab(){},setActiveChannel(id){active.set('channel:'+id)},openAddonTab(id){active.set('addon:'+id)}")
+          # Keep fixture identity/navigation stubs explicit. Real editor, storage,
+          # permission, publication, and renderer behavior are not mocked.
+          print('\n'.join(sorted(changed)))
           PY
           git diff --check
           git diff --stat
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add frontend/src/lib/workspaces/present/PresentWorkspace.svelte frontend/src/lib/workspaces/ArtifactShell.svelte frontend/src/lib/components/chat/ChatComposer.svelte core/crates/wabi-server/src/api/workspace_present.rs
+          git add frontend/src/lib/workspaces/session.ts frontend/src/lib/workspaces/present/PresentWorkspace.svelte frontend/src/lib/workspaces/ArtifactHandoff.svelte frontend/scripts/office-workspace-browser-smoke.mjs
           if ! git diff --cached --quiet; then
-            git commit -m 'feat(office): integrate approved editions editable conversion previews and safe handoffs'
+            git commit -m 'fix(present): preserve active sessions and reject stale asynchronous work'
             git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
           fi
           git rev-parse HEAD
