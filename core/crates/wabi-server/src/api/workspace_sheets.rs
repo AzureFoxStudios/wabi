@@ -113,7 +113,7 @@ pub(crate) fn enforce(before:&Value,after:&Value,ranges:&[ProtectedRange])->Resu
         let mut after=before.clone();after["sheets"][sheet]["ops"]["new"]=json!({"cell":"other|c","input":"3"});assert!(enforce(&before,&after,std::slice::from_ref(&range)).is_ok());
         after["sheets"][sheet]["ops"]["new"]=json!({"cell":"r|c","input":"3"});assert!(enforce(&before,&after,std::slice::from_ref(&range)).is_err());
         after=before.clone();after["sheets"][sheet]["styles"]["r|c"]=json!({"bold":true});assert!(enforce(&before,&after,std::slice::from_ref(&range)).is_err());
-        after=before.clone();after["sheets"][sheet]["rows"][row]["removed"]=true;assert!(enforce(&before,&after,&[range]).is_err());
+        after=before.clone();after["sheets"][sheet]["rows"][row]["removed"]=json!(true);assert!(enforce(&before,&after,&[range]).is_err());
     }
     #[test] fn workspace_formula_validator_rejects_executable_and_unknown_nodes(){
         assert!(expression(&json!({"type":"call","name":"FETCH","args":[]}),0,&mut 0).is_err());
