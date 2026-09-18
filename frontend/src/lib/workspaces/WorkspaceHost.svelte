@@ -3,6 +3,7 @@
     import { notebookOwner } from '$lib/notes/scope';
     import { hydrateWorkspaceAddons, setWorkspaceAddonEnabled, workspaceAddonEnabled } from './addonState';
     import { captureScope, request, type Tool } from './bridge';
+    import FileExportNotice from './FileExportNotice.svelte';
     import './workspace.css';
     let { tool }: { tool: Tool } = $props();
     let WorkspaceComponent = $state<Component | null>(null);
@@ -38,6 +39,7 @@
         {#if (tool==='sheets'||tool==='present')&&available&&enabled}<button onclick={()=>void disable()}>Disable {tool==='sheets'?'Sheets':'Present'} on this device</button>{/if}
         <button onclick={()=>void serverSettings()}>Workspace server settings</button>
     </div>
+    <FileExportNotice/>
     {#if capabilities}<div class="workspace-host-settings"><span>Shared Documents are available. Office workspaces use the same account and permission service.</span>
         {#if capabilities.admin}<label><input type="checkbox" bind:checked={capabilities.sheets}/> Allow shared spreadsheets</label><label><input type="checkbox" bind:checked={capabilities.present}/> Allow shared decks and presentations</label><button onclick={()=>void saveServerSettings()}>Save server settings</button>
         {:else}<span>Shared Sheets: {capabilities.sheets?'enabled':'disabled'} · Present: {capabilities.present?'enabled':'disabled'}</span>{/if}

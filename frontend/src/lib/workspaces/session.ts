@@ -262,8 +262,5 @@ export async function makePrivateCopy(session:ArtifactSession):Promise<ArtifactS
     }
     return copy;
 }
-export function download(name:string,text:string|Blob,type='application/json'){
-    const blob=typeof text==='string'?new Blob([text],{type}):text,url=URL.createObjectURL(blob),link=document.createElement('a');
-    link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-}
+export { download } from './fileExport';
 export {Y};
