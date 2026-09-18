@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: codex/docs-sheets-present-20260917
-      - name: Apply reviewed integration edits
+      - name: Apply reviewed conversion and acceptance integration
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -24,35 +24,72 @@ jobs:
               if before not in text and after and text.count(after)==count:return
               if text.count(before)!=count:raise RuntimeError(f'{path}: expected {count} anchors, found {text.count(before)}')
               file.write_text(text.replace(before,after));changed.add(path)
-          p='frontend/src/lib/workspaces/session.ts'
-          replace(p, '    updatedAt:number;sourceKey?:string;original?', '    updatedAt:number;sourceKey?:string;presentationSession?:string;original?')
-          replace(p, '    async publish(mode:', '''    async rememberPresentation(id:string):Promise<void>{
-                  if(this.closed||!this.scope.isCurrent()||this.record.kind!=='present'||!/^[0-9a-f-]{36}$/i.test(id))throw new Error('Invalid presentation association');
-                  this.record.presentationSession=id;this.localEpoch++;await this.flush();
-              }
-              async publish(mode:''')
+          p='core/crates/wabi-server/src/api/workspace.rs'
+          replace(p, 'use sheet_rules::ProtectedRange;', 'use sheet_rules::ProtectedRange;\n#[path="workspace_conversion.rs"]\npub(super) mod conversion;')
+          replace(p, '.merge(super::workspace_present::routes())', '.merge(super::workspace_present::routes())\n        .merge(conversion::routes())')
+          replace(p, '"officeConversion":false', '"officeConversion":capabilities.present&&conversion::configured()', 2)
           p='frontend/src/lib/workspaces/present/PresentWorkspace.svelte'
-          replace(p, "    import PresentedVersion from './PresentedVersion.svelte';", "    import PresentedVersion from './PresentedVersion.svelte';\n    import {editionFingerprint} from './versionPreview';")
-          replace(p, "    async function use(session:ArtifactSession){if(disposed||!scope?.isCurrent()){await session.close();return;}await noteChain;if(active&&active!==session&&!(await active.close()))throw new Error('Save or export the current deck before closing it.');stop();active=session;stop=session.state.subscribe(v=>{tick=v.tick;});notes=await readPrivateNotes(scope,session.id);const first=readSlides(session.data)[0];if(first)select(first.id);roomId='';startedLink='';}", "    async function use(session:ArtifactSession){const ticket=++epoch;const valid=()=>!disposed&&!!scope?.isCurrent()&&ticket===epoch;if(!valid()){await session.close();return;}await noteChain;if(!valid()){await session.close();return;}const savedNotes=await readPrivateNotes(session.scope,session.id);if(!valid()){await session.close();return;}const prior=active;if(prior&&prior!==session&&!(await prior.close())){await session.close();throw new Error('Save or export the current deck before closing it.');}if(!valid()){await session.close();return;}stop();active=session;stop=session.state.subscribe(v=>{tick=v.tick;});notes=savedNotes;const first=readSlides(session.data)[0];if(first)select(first.id);roomId=session.record.presentationSession||'';startedLink=roomId?presentationLink(session.scope.server,roomId):'';}")
-          replace(p, "    async function startRoom(){if(!scope||!active)return;await active.flush();await active.publish(active.record.meta?.mode||'snapshot');if(active.record.meta?.mode==='live')await active.sync();const state=await request<AudienceState>(scope,'/presentations',{id:crypto.randomUUID(),artifactId:active.id,channelId:channelId||null,sourceSequence:active.record.meta!.sequence});roomId=state.id;startedLink=presentationLink(scope.server,state.id);startDialog.close();openWorkspace('audience',{sessionId:state.id});}", "    async function startRoom(){if(!scope||!active)return;const session=active,targetChannel=channelId,approved=editionFingerprint(audienceSlides(session.data),aspect);const valid=()=>!disposed&&active===session&&session.scope.isCurrent();await session.flush();if(!valid())return;await session.publish(session.record.meta?.mode||'snapshot');if(!valid())return;if(approved!==editionFingerprint(audienceSlides(session.data),Number(session.data.get('aspect')||16/9)))throw new Error('The deck changed while preparing the presentation. Review the new preview and start again.');const state=await request<AudienceState>(session.scope,'/presentations',{id:crypto.randomUUID(),artifactId:session.id,channelId:targetChannel||null,sourceSequence:session.record.meta!.sequence});if(!valid())return;roomId=state.id;startedLink=presentationLink(session.scope.server,state.id);await session.rememberPresentation(state.id);if(!valid())return;startDialog.close();openWorkspace('audience',{sessionId:state.id});}")
-          p='frontend/src/lib/workspaces/ArtifactHandoff.svelte'
-          replace(p, 'import { channels, switchChannel }', 'import { channels }')
-          replace(p, "    import { captureGroupAccess } from '$lib/groupAccess';\n", '')
-          replace(p, '            const allowed = captureGroupAccess(target.id), scope = session.scope;', "            const {captureGroupAccess}=await import('$lib/groupAccess');\n            const {switchChannel}=await import('$lib/channelStore');\n            check();\n            const allowed = captureGroupAccess(target.id), scope = session.scope;")
+          replace(p, "    import PresentedVersion from './PresentedVersion.svelte';", "    import PresentedVersion from './PresentedVersion.svelte';\n    import OfficeConversion from './OfficeConversion.svelte';")
+          replace(p, "    let proposed=$state<", "    let pendingOffice=$state<File|null>(null);\n    let proposed=$state<")
+          replace(p, "async function loadFile(file:File){if(!scope)return;", "async function loadFile(file:File){if(!scope)return;if(/\\.(pptx|odp)$/i.test(file.name)){if(file.size>12*1024*1024)throw new Error('Presentation import is limited to 12 MB.');pendingOffice=file;return;}")
+          replace(p, "const result=await(await import('./files')).importSlides(file,importAbort.signal,text=>progress=text);proposed={title:file.name,...result,source:file};previewDialog.showModal();}", "const sourceScope=scope;const signal=importAbort.signal;const result=await(await import('./files')).importSlides(file,signal,text=>{if(!disposed&&sourceScope?.isCurrent())progress=text;});if(disposed||!sourceScope?.isCurrent()||signal.aborted)return;proposed={title:file.name,...result,source:file};previewDialog.showModal();}\n    async function convertedOffice(pdf:File,warnings:string[],original:File){const sourceScope=scope;importAbort.abort();importAbort=new AbortController();const signal=importAbort.signal;const result=await(await import('./files')).importSlides(pdf,signal,text=>{if(!disposed&&sourceScope?.isCurrent())progress=text;});if(disposed||!sourceScope?.isCurrent()||signal.aborted)return;proposed={title:original.name,...result,warnings:[...warnings,...result.warnings],source:original};pendingOffice=null;previewDialog.showModal();}")
+          replace(p, '</script>', '</script>\n{#if scope&&pendingOffice}<OfficeConversion {scope} file={pendingOffice} onconverted={convertedOffice} oncancel={()=>{importAbort.abort();pendingOffice=null;}}/>{/if}')
           p='frontend/scripts/office-workspace-browser-smoke.mjs'
-          replace(p, "export const currentChannel=writable('');export const channels=writable([]);", "export const currentChannel=writable('');export const channels=writable([]);export const switchChannel=id=>currentChannel.set(id);")
-          replace(p, "registerAddonTab(){},openAddonTab(id){active.set('addon:'+id)}", "registerAddonTab(){},setActiveChannel(id){active.set('channel:'+id)},openAddonTab(id){active.set('addon:'+id)}")
-          # Keep fixture identity/navigation stubs explicit. Real editor, storage,
-          # permission, publication, and renderer behavior are not mocked.
+          replace(p, "import assert from 'node:assert/strict';", "import assert from 'node:assert/strict';\nimport {compatibilityFixtures} from './office-compatibility-fixtures.mjs';")
+          replace(p, "drafts:r.drafts||{}}:null;", "drafts:r.drafts||{},originalName:r.original?.name}:null;")
+          replace(p, '            async api(route,body){', '''            async pdfText(encoded){const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc=(await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;const task=pdfjs.getDocument({data:Uint8Array.from(atob(encoded),c=>c.charCodeAt(0)),enableXfa:false,useWasm:false,useWorkerFetch:false,disableFontFace:true});try{const pdf=await task.promise;const pages=[];for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);pages.push((await page.getTextContent()).items.map(item=>item.str||'').join(' '));}return pages;}finally{await task.destroy();}},
+                      async api(route,body){''')
+          before="            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();await a.getByRole('button',{name:'New presentation',exact:true}).click();"
+          after="""            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();
+                      if(process.env.WORKSPACE_OFFICE_CONVERTER_TEST==='1'){
+                          for(const fixture of await compatibilityFixtures()){
+                              let uploads=0;const track=request=>{if(request.url().endsWith('/api/workspace/conversion')&&request.method()==='POST')uploads++;};a.on('request',track);
+                              await a.locator('input[type="file"]').first().setInputFiles({name:fixture.name,mimeType:fixture.mimeType,buffer:fixture.buffer});
+                              await a.getByRole('heading',{name:'Convert a PowerPoint or OpenDocument presentation',exact:true}).waitFor();
+                              assert.equal(uploads,0,'Selecting an Office file must not upload it');checks++;
+                              const converting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/conversion')&&response.request().method()==='POST');
+                              await a.getByRole('button',{name:'Upload original for static conversion',exact:true}).click();
+                              const converted=await converting;const output=await converted.json();assert.equal(converted.status(),200,JSON.stringify(output));
+                              const pages=await a.evaluate(pdf=>window.workspaceTest.pdfText(pdf),output.pdf);
+                              assert.equal(pages.length,1);assert(pages[0].includes(fixture.expected));assert(!pages.join('').includes('PRIVATE_'));checks++;
+                              await a.getByRole('button',{name:'Create private deck',exact:true}).click();
+                              await a.getByLabel('Slide title',{exact:true}).waitFor();
+                              const records=await a.evaluate(()=>window.workspaceTest.records('present'));const imported=records.find(item=>item.title===fixture.name);
+                              assert(imported);assert.equal((await a.evaluate(id=>window.workspaceTest.record(id),imported.id)).originalName,fixture.name);checks++;
+                              await a.getByRole('button',{name:'Library',exact:true}).click();a.off('request',track);
+                          }
+                      }
+                      await a.getByRole('button',{name:'New presentation',exact:true}).click();"""
+          replace(p,before,after)
+          p='.github/workflows/office-workspace-checks.yml'
+          replace(p, '      - name: Independent-browser acceptance against the real Authority', '''      - name: Start isolated optional Office converter
+                  if: ${{ !cancelled() && steps.server.outcome == 'success' }}
+                  run: |
+                    docker network create --internal wabi-office-test
+                    docker run -d --name wabi-office-converter --network wabi-office-test -p 127.0.0.1:3005:3000 --read-only --user 1001:1001 --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 128 --memory 2g --cpus 1 --tmpfs /tmp:rw,nosuid,nodev,size=536870912,uid=1001,gid=1001,mode=1770 gotenberg/gotenberg:8.37.0 gotenberg --api-timeout=25s --api-body-limit=13MB --api-disable-download-from=true --webhook-disable=true --chromium-disable-routes=true --pdfengines-disable-routes=true --libreoffice-deny-list='.*' --libreoffice-deny-private-ips=true --libreoffice-deny-public-ips=true --libreoffice-restart-after=1 --libreoffice-max-queue-size=1
+                    for attempt in $(seq 1 60); do
+                      curl --fail --silent http://127.0.0.1:3005/health >/dev/null && break
+                      sleep 1
+                    done
+                    curl --fail --silent http://127.0.0.1:3005/health
+                - name: Independent-browser acceptance against the real Authority''')
+          replace(p, '          export WORKSPACE_BROWSER=chromium,firefox', '          export WORKSPACE_BROWSER=chromium,firefox\n          export WABI_OFFICE_CONVERTER_ENABLED=1\n          export WABI_OFFICE_CONVERTER_URL=http://127.0.0.1:3005\n          export WORKSPACE_OFFICE_CONVERTER_TEST=1')
+          replace(p, '      - name: Diagnostic summary', '''      - name: Collect converter diagnostics and stop owned sidecar
+                  if: always()
+                  run: |
+                    docker logs wabi-office-converter > /tmp/office-converter.log 2>&1 || true
+                    docker rm -f wabi-office-converter || true
+                    docker network rm wabi-office-test || true
+                - name: Diagnostic summary''')
           print('\n'.join(sorted(changed)))
           PY
           git diff --check
           git diff --stat
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add frontend/src/lib/workspaces/session.ts frontend/src/lib/workspaces/present/PresentWorkspace.svelte frontend/src/lib/workspaces/ArtifactHandoff.svelte frontend/scripts/office-workspace-browser-smoke.mjs
+          git add core/crates/wabi-server/src/api/workspace.rs frontend/src/lib/workspaces/present/PresentWorkspace.svelte frontend/scripts/office-workspace-browser-smoke.mjs .github/workflows/office-workspace-checks.yml
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(present): preserve active sessions and reject stale asynchronous work'
+            git commit -m 'feat(present): connect consent-gated Office conversion with real fixture acceptance'
             git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
           fi
           git rev-parse HEAD
