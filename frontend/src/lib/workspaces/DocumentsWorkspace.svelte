@@ -8,7 +8,7 @@
     import { ArtifactSession,createArtifact,openArtifact,listLocal,download,Y,from64 } from './session';
     import { captureScope,targets,type Scope,type Target } from './bridge';
     import './workspace.css';
-    let scope=$state<Scope|null>(null);let active=$state<ArtifactSession|null>(null);let error=$state('');let loading=$state(true);let initialShare=$state<'snapshot'|'live'|undefined>();let preview=$state(true);let tick=$state(0);let stop:()=>void=()=>{};let generation=0;let previousTarget:unknown;let previousTarget:unknown;
+    let scope=$state<Scope|null>(null);let active=$state<ArtifactSession|null>(null);let error=$state('');let loading=$state(true);let initialShare=$state<'snapshot'|'live'|undefined>();let preview=$state(true);let tick=$state(0);let stop:()=>void=()=>{};let generation=0;let previousTarget:unknown;
     const html=$derived.by(()=>{tick;if(!active)return '';const text=active.body.toString();if(active.record.format==='text'||active.record.format==='code')return DOMPurify.sanitize(`<pre>${text.replaceAll('&','&amp;').replaceAll('<','&lt;')}</pre>`);const rendered=active.record.format==='html'?text:marked.parse(text,{async:false});return DOMPurify.sanitize(rendered,{FORBID_TAGS:['img','iframe','video','audio','object','embed','style','form'],FORBID_ATTR:['style','srcset','target'],ALLOW_DATA_ATTR:false});});
     async function use(session:ArtifactSession){if(active&&active!==session){if(!(await active.close()))throw new Error('Save the current document or export recovery before closing it.');}stop();active=session;stop=session.state.subscribe(()=>tick++);}
     async function run(fn:()=>Promise<void>){error='';loading=true;try{await fn();}catch(e){error=e instanceof Error?e.message:String(e);}finally{loading=false;}}
