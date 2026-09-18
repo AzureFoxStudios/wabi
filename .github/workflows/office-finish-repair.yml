@@ -18,18 +18,18 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          def replace(path, before, after):
+          def replace(path, before, after, count=1):
               file = Path(path)
               text = file.read_text()
-              if before not in text and after in text:
+              if before not in text and text.count(after) == count:
                   return
-              if text.count(before) != 1:
-                  raise RuntimeError(f'{path}: repair anchor must occur exactly once')
-              file.write_text(text.replace(before, after, 1))
+              if text.count(before) != count:
+                  raise RuntimeError(f'{path}: expected {count} repair anchors, found {text.count(before)}')
+              file.write_text(text.replace(before, after))
           replace('frontend/src/lib/workspaces/sheets/SheetsGrid.svelte', '{#each cellDrafts as[id,entry](id)}', '{#each cellDrafts as [id, entry] (id)}')
           replace('core/crates/wabi-server/src/api/workspace_sheets.rs', 'after["sheets"][sheet]["rows"][row]["removed"]=true;', 'after["sheets"][sheet]["rows"][row]["removed"]=json!(true);')
           replace('frontend/src/lib/components/ReaderDocumentWorkbench.svelte', 'function saveLabel(): string {', 'function saveLabel(activeDocument: ReaderLocalDocument | null, saveState: string, online: boolean): string {')
-          replace('frontend/src/lib/components/ReaderDocumentWorkbench.svelte', '{saveLabel()}', '{saveLabel(activeDocument, saveState, online)}')
+          replace('frontend/src/lib/components/ReaderDocumentWorkbench.svelte', '{saveLabel()}', '{saveLabel(activeDocument, saveState, online)}', 2)
           PY
           git diff --check
           git diff --stat
@@ -37,7 +37,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add frontend/src/lib/workspaces/sheets/SheetsGrid.svelte core/crates/wabi-server/src/api/workspace_sheets.rs frontend/src/lib/components/ReaderDocumentWorkbench.svelte
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(office): compile draft recovery and update Reader save state reactively'
+            git commit -m 'fix(office): compile draft recovery and update both Reader save indicators'
             git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
           fi
           git rev-parse HEAD
