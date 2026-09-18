@@ -20,9 +20,20 @@ pub fn shared_http_client() -> SharedHttpClient {
         .redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(12))
         .build().expect("Steam HTTPS client configuration"))
 }
-pub fn enabled() -> bool { std::env::var("WABI_STEAM_ENABLED").as_deref() == Ok("1") }
+/// Steam is compiled in; this resolves the runtime switch (env → persisted → off).
+pub async fn enabled_for(state: &AppState) -> bool {
+    state
+        .addon_enabled("steam", Some("WABI_STEAM_ENABLED"), false)
+        .await
+}
 fn key() -> Option<String> { std::env::var("STEAM_API_KEY").ok().map(|s|s.trim().to_string()).filter(|s|!s.is_empty()) }
-fn require_enabled() -> Result<()> { if enabled() { Ok(()) } else { Err(AppError::NotFound("Steam addon is disabled on this server".into())) } }
+async fn require_enabled(state: &AppState) -> Result<()> {
+    if enabled_for(state).await {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("Steam addon is disabled on this server".into()))
+    }
+}
 fn origin(raw: &str) -> Result<String> {
     let u = reqwest::Url::parse(raw).map_err(|_|bad("Configure WABI_STEAM_PUBLIC_URL as an HTTPS origin"))?;
     let loopback = matches!(u.host_str(), Some("localhost"|"127.0.0.1"|"[::1]"));
@@ -89,8 +100,9 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 }
 async fn capabilities(auth: AuthUser, State(state): State<Arc<AppState>>) -> Result<Json<Value>> {
     account(&state,&auth).await?;
-    Ok(Json(json!({"enabled":enabled(),"linking":enabled() && configured_origin().is_ok(),
-        "library":enabled() && key().is_some(),"liveActivity":false,"sessionJoining":false})))
+    let on = enabled_for(&state).await;
+    Ok(Json(json!({"enabled":on,"linking":on && configured_origin().is_ok(),
+        "library":on && key().is_some(),"liveActivity":false,"sessionJoining":false})))
 }
 async fn retired_status(auth: AuthUser, State(state): State<Arc<AppState>>) -> Result<Json<Value>> {
     account(&state,&auth).await?;
@@ -99,7 +111,7 @@ async fn retired_status(auth: AuthUser, State(state): State<Arc<AppState>>) -> R
 #[derive(Deserialize)] #[serde(deny_unknown_fields)]
 struct Revision { revision: String }
 async fn start(auth: AuthUser, State(state): State<Arc<AppState>>, Json(body): Json<Revision>) -> Result<Json<Value>> {
-    require_enabled()?; let uid=account(&state,&auth).await?;
+    require_enabled(&state).await?; let uid=account(&state,&auth).await?;
     if auth.jti.is_empty() {return Err(AppError::Unauthorized("Sign in again before linking Steam".into()));}
     let base=configured_origin()?;
     let row=state.wdb.get_game_profile(uid)?;
@@ -170,7 +182,7 @@ fn verified_body(bytes: &[u8]) -> bool {
     fields.get("ns")==Some(&NS) && fields.get("is_valid")==Some(&"true")
 }
 async fn callback(State(state): State<Arc<AppState>>, RawQuery(raw): RawQuery) -> Result<Response> {
-    require_enabled()?;
+    require_enabled(&state).await?;
     let fields=callback_fields(raw.as_deref().unwrap_or(""))?;
     let ticket=fields.get("ticket").filter(|s|valid_secret(s)).ok_or_else(||bad("Missing connection ticket"))?;
     let (steam_id, nonce)={
@@ -205,7 +217,7 @@ async fn callback(State(state): State<Arc<AppState>>, RawQuery(raw): RawQuery) -
 #[derive(Deserialize)] #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct Complete { ticket: String, proof: String, receipt: String }
 async fn complete(auth: AuthUser, State(state): State<Arc<AppState>>, Json(body): Json<Complete>) -> Result<Json<Value>> {
-    require_enabled()?; let uid=account(&state,&auth).await?;
+    require_enabled(&state).await?; let uid=account(&state,&auth).await?;
     if !valid_secret(&body.ticket) || !valid_secret(&body.proof) || !valid_secret(&body.receipt) {return Err(bad("Paste the complete connection code"));}
     let mut runtime=state.steam_cache.lock().await; runtime.admit(uid,"complete",8)?;
     let flow=runtime.flows.get(&body.ticket).ok_or_else(||bad("Connection expired; start again"))?;
@@ -249,7 +261,7 @@ fn library_entries(value: &Value) -> Result<Value> {
     Ok(json!({"availability":"available","games":games}))
 }
 async fn library(auth: AuthUser, State(state): State<Arc<AppState>>) -> Result<Json<Value>> {
-    require_enabled()?;let uid=account(&state,&auth).await?;
+    require_enabled(&state).await?;let uid=account(&state,&auth).await?;
     let api_key=key().ok_or_else(||bad("The server has no Steam API key; manual entry and linking still work"))?;
     let row=state.wdb.get_game_profile(uid)?;
     let id=row.steam_id.as_deref().filter(|s|steam_id(s)).ok_or_else(||bad("Connect your Steam account first"))?;

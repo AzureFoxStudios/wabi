@@ -19,6 +19,8 @@ export interface AddonCapabilityRecord {
 	cargoFeature?: string | null;
 	/** Env var that switches this add-on on/off at runtime, when one exists. */
 	runtimeEnv?: string | null;
+	/** True when the owner can flip this add-on in-app (Server Center → Add-ons). */
+	runtimeSwitch?: boolean;
 	permissions?: string[];
 	frontend?: {
 		bundled?: boolean;
@@ -45,6 +47,7 @@ export interface PluginApiRecord {
 	compiled?: boolean;
 	cargoFeature?: string | null;
 	runtimeEnv?: string | null;
+	runtimeSwitch?: boolean;
 	signerKeyId?: string | null;
 	frontendEntry?: string | null;
 	backendEntry?: string | null;
@@ -105,6 +108,7 @@ export function capabilityToPluginRecord(cap: AddonCapabilityRecord): PluginApiR
 		compiled: cap.compiled !== false,
 		cargoFeature: cap.cargoFeature ?? null,
 		runtimeEnv: cap.runtimeEnv ?? null,
+		runtimeSwitch: cap.runtimeSwitch === true,
 		hasFrontend: bundled,
 		hasBackend,
 		// Never a remote URL — only a marker when bundled (Finding 14).

@@ -3,6 +3,7 @@
 //! the public API (adapter, state, socketio types, etc.)
 
 pub mod adapter;
+pub mod addon_switches;
 pub mod anchor;
 pub mod api;
 pub mod app_router;
