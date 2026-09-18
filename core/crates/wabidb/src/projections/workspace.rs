@@ -57,12 +57,19 @@ pub fn apply_delta(mut row: WorkspaceRecord, change: &WorkspaceDelta) -> Result<
 pub struct WorkspaceProjection;
 impl Projection for WorkspaceProjection {
     fn event_type(&self) -> &str { EVENT }
+    // DispatchTable reads the handler's event_types, not the registry metadata.
+    // Omitting DELTA_EVENT would persist updates without applying them to reads.
+    fn event_types(&self) -> Vec<&str> { vec![EVENT, DELTA_EVENT] }
     fn apply(&self, record: &DurableEvent, state: &ProjectionState) -> Result<()> {
-        let row = if record.event_type == DELTA_EVENT {
-            let change: WorkspaceDelta = serde_json::from_slice(&record.payload).map_err(|_| invalid())?;
-            let bytes = state.get(INDEX, change.key.as_bytes()).ok_or_else(invalid)?;
-            apply_delta(decode(&bytes)?, &change)?
-        } else { decode(&record.payload)? };
+        let row = match record.event_type.as_str() {
+            DELTA_EVENT => {
+                let change: WorkspaceDelta = serde_json::from_slice(&record.payload).map_err(|_| invalid())?;
+                let bytes = state.get(INDEX, change.key.as_bytes()).ok_or_else(invalid)?;
+                apply_delta(decode(&bytes)?, &change)?
+            }
+            EVENT => decode(&record.payload)?,
+            _ => return Err(invalid()),
+        };
         let bytes = serde_json::to_vec(&row).map_err(|_| invalid())?;
         state.insert(INDEX, row.key.as_bytes().to_vec(), bytes, record.commit_seq);
         Ok(())
@@ -81,5 +88,12 @@ impl Projection for WorkspaceProjection {
         let mut d=WorkspaceDelta{key:"artifact:test".into(),expected_revision:1,update:"abc".into(),title:"B".into(),sequence:2,updated_at:3};
         let next=apply_delta(row(),&d).unwrap(); assert_eq!(next.revision,2); assert_eq!(next.owner_user_id,2); assert_eq!(next.value["updates"][0],"abc");
         d.expected_revision=0; assert!(apply_delta(row(),&d).is_err());
+    }
+    #[test] fn workspace_dispatch_contains_snapshot_and_delta_handlers() {
+        use crate::projections::handler::DispatchTable;
+        let table=DispatchTable::new(vec![std::sync::Arc::new(WorkspaceProjection)]).unwrap();
+        assert!(table.get(EVENT).is_some());
+        assert!(table.get(DELTA_EVENT).is_some());
+        assert_eq!(table.len(),2);
     }
 }
