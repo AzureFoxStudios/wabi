@@ -102,8 +102,6 @@ pub struct AppState {
     pub connected_users: crate::socketio::ConnectedUsers,
     /// Blacklist manager for bans
     pub blacklist: RwLock<Option<Arc<BlacklistManager>>>,
-    /// Mesh service for multi-node coordination
-    pub mesh_service: RwLock<Option<Arc<crate::mesh::MeshService>>>,
     /// Lore addon service for version-controlled binary storage
     #[cfg(feature = "wabi-lore")]
     pub lore_service: RwLock<Option<Arc<crate::lore::LoreService>>>,
@@ -380,7 +378,6 @@ impl AppState {
             sio: RwLock::new(None),
             connected_users: Arc::new(RwLock::new(HashMap::new())),
             blacklist: RwLock::new(None),
-            mesh_service: RwLock::new(None),
             #[cfg(feature = "wabi-lore")]
             lore_service: RwLock::new(None),
             membership_gate: Default::default(),
@@ -411,43 +408,11 @@ impl AppState {
         guard.clone()
     }
 
-    /// Set the mesh service (called during startup)
-    pub async fn set_mesh_service(&self, mesh: Arc<crate::mesh::MeshService>) {
-        let mut guard = self.mesh_service.write().await;
-        *guard = Some(mesh);
-    }
-
-    /// Get the mesh service (if initialized)
-    pub async fn get_mesh_status(&self) -> anyhow::Result<crate::mesh::MeshStatus> {
-        let guard = self.mesh_service.read().await;
-        match guard.as_ref() {
-            Some(mesh) => Ok(mesh.get_status().await),
-            None => Err(anyhow::anyhow!("Mesh service not initialized")),
-        }
-    }
-
-    /// Record a heartbeat from a peer node
-    pub async fn record_heartbeat(&self, node_id: &str, timestamp: i64) {
-        let guard = self.mesh_service.read().await;
-        if let Some(mesh) = guard.as_ref() {
-            mesh.record_heartbeat(node_id, timestamp).await;
-        }
-    }
-
     /// Set the Lore service (called during startup)
     #[cfg(feature = "wabi-lore")]
     pub async fn set_lore_service(&self, lore: Arc<crate::lore::LoreService>) {
         let mut guard = self.lore_service.write().await;
         *guard = Some(lore);
-    }
-
-    /// Get mesh configuration
-    pub async fn get_mesh_config(&self) -> anyhow::Result<crate::mesh::MeshConfig> {
-        let guard = self.mesh_service.read().await;
-        match guard.as_ref() {
-            Some(mesh) => Ok(mesh.config.clone()),
-            None => Err(anyhow::anyhow!("Mesh service not initialized")),
-        }
     }
 
     /// Load the owner from the authoritative WDB store.

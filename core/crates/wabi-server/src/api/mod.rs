@@ -23,7 +23,6 @@ pub mod jobs;
 pub mod lan;
 pub mod media;
 pub(crate) mod media_node_catalog;
-pub mod mesh;
 pub mod tailcat;
 #[cfg(feature = "wabi-lore")]
 pub mod lore;

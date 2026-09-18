@@ -25,7 +25,6 @@ mod jobs;
 mod lan;
 mod mdns;
 mod media;
-mod mesh;
 mod metrics;
 #[cfg(feature = "wabi-lore")]
 mod lore;
@@ -377,25 +376,6 @@ async fn main() -> anyhow::Result<()> {
 
     info!("📡 Starting server on {}:{}", config.host, config.port);
 
-    // Initialize mesh service if enabled
-    let mesh_service = if config.mesh_enabled {
-        let mesh_config = crate::mesh::MeshConfig {
-            node_id: config.node_id.clone(),
-            is_primary: config.is_primary,
-            mesh_enabled: config.mesh_enabled,
-            mesh_peers: config.mesh_peers.clone(),
-        };
-        match crate::mesh::MeshService::new(mesh_config, config.mesh_peers.clone()).await {
-            Ok(service) => Some(service),
-            Err(e) => {
-                tracing::warn!("[mesh] Failed to initialize mesh service: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     // Create application state
     let state = Arc::new(AppState::new(config.clone()).await?);
 
@@ -408,11 +388,6 @@ async fn main() -> anyhow::Result<()> {
             Err(e) => tracing::warn!("[bot:hermes] registration failed: {e}"),
         }
     });
-
-    // Set mesh service in application state if initialized
-    if let Some(mesh) = mesh_service {
-        state.set_mesh_service(Arc::new(mesh)).await;
-    }
 
     // Stale heartbeat detector: marks helpers offline if >120s since last heartbeat
     {

@@ -53,7 +53,10 @@ pub struct ServerConfig {
     pub blacklist_file: String,
     /// Maximum request body size in bytes (default: 50GB for self-hosted "adult choice")
     pub max_body_size: Option<usize>,
-    /// Mesh coordination configuration
+    /// Retired mesh coordination flags. The legacy `wabi-mesh` coordinator is
+    /// gone (see docs/architecture/SERVER_MESH_PLAN.md); these remain only so old
+    /// configs/env vars still parse. Nothing reads them at runtime.
+    #[serde(default)]
     pub mesh_enabled: bool,
     pub mesh_peers: Vec<String>,
     /// Lore addon configuration (version-controlled binary storage)

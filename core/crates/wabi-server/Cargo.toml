@@ -105,8 +105,17 @@ jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 
 [features]
 default = []
+# Curated add-on bundle (compile-time attach/detach).
 addons = ["wabi-webhooks", "wabi-lore"]
+# Per-add-on aliases so `--features lore` reads cleanly in build commands.
+lore = ["wabi-lore"]
+webhooks = ["wabi-webhooks"]
+# Payment rails (roadmap Phases 2-4) — compile-time optional.
 payments-rails = ["wabi-payments-crypto", "wabi-payments-eu", "wabi-payments-us"]
+payments = ["payments-rails"]
+# Everything this tree can attach. Always-compiled add-ons (tailcat, steam) are
+# runtime-gated instead: see docs/addons/ATTACH_DETACH.md.
+full = ["addons", "payments-rails"]
 
 [lib]
 name = "wabi_server"

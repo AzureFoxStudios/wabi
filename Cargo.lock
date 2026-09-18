@@ -5314,18 +5314,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wabi-mesh"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "wabi-payments-crypto"
 version = "0.1.0"
 dependencies = [

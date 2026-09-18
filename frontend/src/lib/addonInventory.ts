@@ -13,8 +13,12 @@ export interface AddonCapabilityRecord {
 	version: string;
 	description?: string;
 	enabled?: boolean;
+	/** Always compiled into the server binary (no cargo feature to detach it). */
+	compiled?: boolean;
 	backendRuntime?: string;
 	cargoFeature?: string | null;
+	/** Env var that switches this add-on on/off at runtime, when one exists. */
+	runtimeEnv?: string | null;
 	permissions?: string[];
 	frontend?: {
 		bundled?: boolean;
@@ -38,6 +42,9 @@ export interface PluginApiRecord {
 	version?: string;
 	description?: string;
 	enabled?: boolean;
+	compiled?: boolean;
+	cargoFeature?: string | null;
+	runtimeEnv?: string | null;
 	signerKeyId?: string | null;
 	frontendEntry?: string | null;
 	backendEntry?: string | null;
@@ -95,6 +102,9 @@ export function capabilityToPluginRecord(cap: AddonCapabilityRecord): PluginApiR
 		version: cap.version,
 		description: cap.description,
 		enabled: cap.enabled !== false,
+		compiled: cap.compiled !== false,
+		cargoFeature: cap.cargoFeature ?? null,
+		runtimeEnv: cap.runtimeEnv ?? null,
 		hasFrontend: bundled,
 		hasBackend,
 		// Never a remote URL — only a marker when bundled (Finding 14).
