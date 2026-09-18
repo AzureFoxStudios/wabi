@@ -105,7 +105,7 @@
 		if (activeDocumentId) void flushReaderDocument(activeDocumentId);
 	});
 
-	function saveLabel(): string {
+	function saveLabel(activeDocument: ReaderLocalDocument | null, saveState: string, online: boolean): string {
 		if (!activeDocument) return 'Read only';
 		if (saveState === 'dirty' || saveState === 'saving') return 'Saving locally…';
 		if (saveState === 'error') return 'Local save needs attention';
@@ -346,7 +346,7 @@
 		<div class="reader-document-actions">
 			{#if canReturnToNote}<button type="button" class="reader-action-emphasis" on:click={returnToNote}>Return to note</button>{/if}
 			{#if activeDocument}
-				<span class="reader-local-save" class:error={saveState === 'error'}>{saveLabel()}</span>
+				<span class="reader-local-save" class:error={saveState === 'error'}>{saveLabel(activeDocument, saveState, online)}</span>
 				{#if activeDocument.kind === 'working-copy'}
 					<button type="button" class="reader-action-emphasis" on:click={promoteCurrentDocument}>Save as Wabi Document</button>
 					{#if showingLocalDraft}
@@ -424,7 +424,7 @@
 					aria-label="Document content"
 				></textarea>
 				<div class="reader-editor-foot">
-					<span>{editorText.length.toLocaleString()} characters · {saveLabel()}</span>
+					<span>{editorText.length.toLocaleString()} characters · {saveLabel(activeDocument, saveState, online)}</span>
 					{#if mode === 'suggest' && activeSuggestionId}
 						<div class="reader-suggestion-actions">
 							<button type="button" class="reader-action-emphasis" on:click={() => applySuggestion(activeSuggestionId!)}>Apply suggestion</button>
