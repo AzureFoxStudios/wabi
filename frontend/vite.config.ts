@@ -1,5 +1,5 @@
 import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
@@ -16,9 +16,54 @@ if ([...workspaceSelection].some(v => !['none', 'all', 'sheets', 'present'].incl
 const workspacePackaged = { sheets: workspaceSelection.has('all') || workspaceSelection.has('sheets'), present: workspaceSelection.has('all') || workspaceSelection.has('present') };
 const workspaceEntry = (name: 'sheets' | 'present') => fileURLToPath(new URL(workspacePackaged[name] ? `./src/lib/workspaces/${name}/addon.ts` : './src/lib/workspaces/addonUnavailable.ts', import.meta.url));
 
+interface WorkspaceChunkEvidence {
+    file: string;
+    kind: 'bundle' | 'worker';
+    bytes: number;
+    gzipBytes: number;
+    entry: boolean;
+    imports: string[];
+    dynamicImports: string[];
+    modules: string[];
+}
+const workspaceWorkers = new Map<string, WorkspaceChunkEvidence>();
+function workspaceBundleEvidence(kind: 'bundle' | 'worker'): Plugin {
+    return {
+        name: `wabi-workspace-${kind}-evidence`,
+        apply: 'build',
+        generateBundle(_options, bundle) {
+            const chunks: WorkspaceChunkEvidence[] = Object.entries(bundle).flatMap(([file, output]) => output.type === 'chunk' ? [{
+                file,
+                kind,
+                bytes: Buffer.byteLength(output.code),
+                gzipBytes: gzipSync(output.code).byteLength,
+                entry: output.isEntry,
+                imports: output.imports,
+                dynamicImports: output.dynamicImports,
+                // Absence checks are meaningful only over the complete module
+                // inventory, not a prefiltered list of expected dependencies.
+                modules: Object.keys(output.modules)
+            }] : []);
+            if (kind === 'worker') {
+                for (const chunk of chunks) workspaceWorkers.set(chunk.file, chunk);
+                return;
+            }
+            const assets = Object.entries(bundle).flatMap(([file, output]) => output.type === 'asset' ? [{
+                file,
+                bytes: typeof output.source === 'string' ? Buffer.byteLength(output.source) : output.source.byteLength
+            }] : []);
+            this.emitFile({
+                type: 'asset',
+                fileName: 'wabi-workspace-bundle.json',
+                source: JSON.stringify({ schema: 1, packaged: workspacePackaged, chunks: [...chunks, ...workspaceWorkers.values()], assets }, null, 2)
+            });
+        }
+    };
+}
+
 export default defineConfig({
 	resolve: { alias: { '@wabi/workspace-sheets': workspaceEntry('sheets'), '@wabi/workspace-present': workspaceEntry('present') } },
-	worker: { format: 'es' },
+	worker: { format: 'es', plugins: () => [workspaceBundleEvidence('worker')] },
 	// Tauri requires specific builder config
 	build: {
 		target: isTauri ? 'ES2021' : ['ES2020', ...browserTargets],
@@ -56,14 +101,7 @@ export default defineConfig({
 		'__WABI_CLIENT_BUILD__': JSON.stringify({ version: clientVersion, sourceRevision: clientRevision })
 	},
 	plugins: [
-        {
-            name: 'wabi-workspace-bundle-evidence',
-            apply: 'build',
-            generateBundle(_options, bundle) {
-                const chunks = Object.entries(bundle).flatMap(([file, output]) => output.type === 'chunk' ? [{ file, bytes: Buffer.byteLength(output.code), gzipBytes: gzipSync(output.code).byteLength, entry: output.isEntry, imports: output.imports, dynamicImports: output.dynamicImports, modules: Object.keys(output.modules).filter(id => /workspaces\/|node_modules\/(?:xlsx|pptxgenjs|pdfjs-dist|yjs|y-codemirror)/.test(id)) }] : []);
-                this.emitFile({ type: 'asset', fileName: 'wabi-workspace-bundle.json', source: JSON.stringify({ schema: 1, packaged: workspacePackaged, chunks }, null, 2) });
-            }
-        },
+        workspaceBundleEvidence('bundle'),
         sveltekit(),
 		{
 			name: 'wabi-build-identity',
