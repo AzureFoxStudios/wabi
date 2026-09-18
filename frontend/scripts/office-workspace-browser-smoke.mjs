@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {compatibilityFixtures} from './office-compatibility-fixtures.mjs';
 import {nativeCanvasAcceptance} from './office-native-canvas-acceptance.mjs';
+import {documentRecoveryAcceptance} from './office-document-acceptance.mjs';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -136,6 +137,9 @@ try {
             await b.screenshot({path:path.join(artifacts,`${engineName}-audience.png`)});const joined=payloads.join('\n');assert(!joined.includes('PRIVATE_NOTES_MUST_NEVER_REACH_AUDIENCE'));assert(!joined.includes('HIDDEN_SLIDE_MUST_NEVER_REACH_AUDIENCE'));checks++;
             await a.getByLabel('New presenter account ID',{exact:true}).fill(String(host.accounts[1].id));await a.getByRole('button',{name:'Pass control',exact:true}).click();await b.getByRole('button',{name:'End presentation',exact:true}).waitFor();await b.getByRole('button',{name:'End presentation',exact:true}).click();await b.waitForFunction(()=>document.body.textContent.includes('Ended'));checks++;
             const ended=await b.evaluate(id=>window.workspaceTest.api(`/presentations/${id}`),session.id);assert.equal(ended.body.ended,true);assert.deepEqual(ended.body.slides,[]);checks++;
+            await a.evaluate(id=>window.workspaceTest.open('documents',{id}),id);await a.locator('.cm-content').waitFor();
+            await b.evaluate(id=>window.workspaceTest.open('documents',{id}),id);await b.locator('.cm-content').waitFor();
+            checks+=await documentRecoveryAcceptance(a,b,c,host.accounts,id,artifacts,engineName);
             assert.deepEqual(errors,[]);checks++;console.log(`${engineName}: real-Authority editor and audience checks passed`);
         }catch(error){
             failures.push(`${engineName}: ${error.stack||error}`);
