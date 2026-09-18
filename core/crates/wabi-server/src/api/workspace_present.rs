@@ -52,7 +52,7 @@ pub(super) fn rendition(value:&Value)->Result<Vec<Slide>>{
             body:if canvas{String::new()}else{slide["body"].as_str().unwrap_or("").into()},
             layout:slide["layout"].as_str().unwrap_or("text").into(),
             image:if canvas{None}else{slide["image"].as_str().map(str::to_owned)},
-            design:if canvas{Some(scene::project(&slide["design"])?)}else{None}})
+            design:if canvas{Some(scene::audience(&slide["design"])?)}else{None}})
     }).collect()
 }
 #[derive(Clone,Serialize,Deserialize)]

@@ -42,6 +42,11 @@ pub(super) fn project(source:&Value)->Result<Design> {
     objects.sort_by(|a,b|a.z.total_cmp(&b.z).then_with(||a.id.cmp(&b.id)));
     Ok(Design{theme:theme.into(),objects})
 }
+pub(super) fn audience(source:&Value)->Result<Design>{
+    let design=project(source)?;
+    if design.objects.iter().any(|object|object.kind=="image"&&object.image.is_some()&&object.fit=="cover") {return Err(bad("Finalize image crops before publishing an audience rendition"));}
+    Ok(design)
+}
 #[cfg(test)]mod tests {
     use super::*;
     fn fixture()->Value { json!({"theme":"paper","objects":{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa":{"kind":"text","x":0.1,"y":0.1,"w":0.8,"h":0.2,"z":0,"text":"Public","image":null,"fill":"transparent","color":"#242836","fontSize":24,"align":"left","fit":"contain","cropX":0.5,"cropY":0.5}}}) }
