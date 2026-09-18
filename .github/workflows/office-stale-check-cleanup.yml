@@ -1,0 +1,48 @@
+name: Office stale check cleanup
+on:
+  push:
+    branches: [codex/office-check-cleanup-20260918]
+    paths: [.github/workflows/office-stale-check-cleanup.yml]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  cleanup:
+    if: github.repository == 'AzureFoxStudios/wabi' && github.ref == 'refs/heads/codex/office-check-cleanup-20260918'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Cancel only obsolete checks from the office feature branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.parse, urllib.error
+          repo='AzureFoxStudios/wabi'
+          branch='codex/docs-sheets-present-20260917'
+          root='https://api.github.com/repos/'+repo
+          headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          def request(path,method='GET'):
+              req=urllib.request.Request(root+path,headers=headers,method=method)
+              with urllib.request.urlopen(req,timeout=20) as response:
+                  raw=response.read()
+                  return json.loads(raw) if raw else None
+          current=request('/git/ref/heads/'+branch)['object']['sha']
+          keep={current,'910f7ae60537c60e99961fd2afdaf02b750fefad'}
+          names={'CI','Build and Release','Native Mobile Build','CodeQL Advanced','Reader checks','Office workspace acceptance'}
+          candidates=[]
+          for page in range(1,11):
+              runs=request('/actions/runs?'+urllib.parse.urlencode({'branch':branch,'per_page':100,'page':page}))['workflow_runs']
+              for run in runs:
+                  if (run['head_branch']==branch and run.get('head_repository',{}).get('full_name')==repo and run['event'] in {'push','pull_request'} and run['name'] in names and run['head_sha'] not in keep and run['status'] in {'queued','in_progress','waiting','requested','pending'} and run['created_at']>='2026-09-17T14:00:00Z'):
+                      candidates.append((int(run['id']),run['name'],run['head_sha']))
+              if len(runs)<100:break
+          for run_id,name,sha in candidates:
+              try:
+                  request('/actions/runs/'+str(run_id)+'/cancel','POST')
+                  print(f'Cancelled superseded check {run_id}: {name} at {sha}')
+              except urllib.error.HTTPError as error:
+                  if error.code==409:print(f'Check {run_id} finished before cancellation')
+                  else:raise
+          print(f'Protected current head {current}; requested cancellation of {len(candidates)} obsolete checks. No source-writing workflow, current-head check, or other branch was cancelled.')
+          PY
