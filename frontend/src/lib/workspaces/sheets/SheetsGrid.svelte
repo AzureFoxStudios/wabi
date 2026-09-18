@@ -3,7 +3,7 @@
     import {download,Y,type ArtifactSession,type PrivateDraft} from '../session';
     import {request,type Meta,type ProtectedRange} from '../bridge';
     import {parseAnchor,rangeAnchor} from '../anchors';
-    import {orderedSheets,snapshot,sheets,axes,setCell,setCells,setStyle,styleOf,formatValue,addSheet,renameSheet,reorderSheet,removeSheet,restoreSheet,insertAxis,removeAxis,reorderRows,columnWidth,setColumnWidth,fill,recoverRemoved,cachedResultIsStale,cellKey,heads,inputOf,type CellStyle,type CellTarget} from './model';
+    import {orderedSheets,snapshot,sheets,setCell,setCells,setStyle,styleOf,formatValue,addSheet,renameSheet,reorderSheet,removeSheet,restoreSheet,insertAxis,removeAxis,reorderRows,columnWidth,setColumnWidth,fill,recoverRemoved,cachedResultIsStale,cellKey,heads,inputOf,type CellStyle,type CellTarget} from './model';
     import {columnName,type Calculation} from './formula';
     import {SheetWorker} from './workerClient';
     let {session,onselection,onactivesheet,focusAnchor}:{session:ArtifactSession;onselection?:(anchor:string|null)=>void;onactivesheet?:(id:string)=>void;focusAnchor?:string|null}=$props();
@@ -12,35 +12,47 @@
     let filter=$state(''),sort=$state<'none'|'asc'|'desc'>('none'),scrollTop=$state(0),viewportHeight=$state(600);
     let grid:HTMLDivElement,formulaInput:HTMLInputElement;
     let draft=$state(''),editing=$state(false),error=$state(''),notice=$state(''),chart=$state<'none'|'bar'|'line'|'pie'>('none');
-    let editingTarget:{sheet:string;row:string;column:string;parents:string[]}|null=null,bufferId='cell:'+crypto.randomUUID();
+    let editingTarget:{sheet:string;row:string;column:string;parents:string[]}|null=null;
+    let bufferId='cell:'+crypto.randomUUID();
     let protectionOpen=$state(false),protectBusy=$state(false),recoveryOpen=$state(false),freeze=$state(true);
     let calculations=$state<Calculation>({values:{},errors:{}}),calculating=$state(false),dataEpoch=$state(0);
-    let calculationId=0,calculationTimer:ReturnType<typeof setTimeout>|undefined,disposed=false,lastAnchor:string|null=null,lastFocused:string|null|undefined,lastSheet='';
-    const changed=()=>dataEpoch++;session.doc.on('update',changed);const engine=new SheetWorker();
-    const available=$derived((dataEpoch,orderedSheets(session.data)));
-    const book=$derived((dataEpoch,snapshot(session.data)));
+    let calculationId=0,calculationTimer:ReturnType<typeof setTimeout>|undefined,disposed=false;
+    let lastAnchor:string|null=null,lastFocused:string|null|undefined,lastSheet='';
+    const changed=()=>dataEpoch++;
+    session.doc.on('update',changed);
+    const engine=new SheetWorker();
+    const available=$derived.by(()=>{dataEpoch;return orderedSheets(session.data);});
+    const book=$derived.by(()=>{dataEpoch;return snapshot(session.data);});
     const current=$derived(book.sheets.find(sheet=>sheet.id===sheetId)||book.sheets[0]);
     const ysheet=$derived(current?sheets(session.data).get(current.id):undefined);
-    const editable=$derived(($sessionState.meta,session.editable));
+    const editable=$derived.by(()=>{$sessionState.meta;return session.editable;});
     const protections=$derived($sessionState.meta?.protectedRanges||[]);
     const cellDrafts=$derived(Object.entries($sessionState.drafts).filter(([,entry])=>entry.kind==='cell'));
-    const removedSheets=$derived((dataEpoch,Array.from(sheets(session.data),([id,sheet])=>({id,name:String(sheet.get('name')),removed:sheet.get('removed')})).filter(sheet=>sheet.removed)));
+    const removedSheets=$derived.by(()=>{
+        dataEpoch;
+        const entries=Array.from(sheets(session.data),([id,sheet])=>({id,name:String(sheet.get('name')),removed:sheet.get('removed')}));
+        return entries.filter(sheet=>sheet.removed);
+    });
     const rowHeight=$derived.by(()=>{dataEpoch;const styles=ysheet?.get('styles');return styles instanceof Y.Map&&Array.from(styles.values()).some(style=>(style as CellStyle).wrap)?72:32;});
     const rows=$derived.by(()=>{
         if(!current)return[];let result=current.rows;
         if(filter){const query=filter.toLocaleLowerCase();result=result.filter(row=>current.columns.some(column=>value(row.id,column.id).toLocaleLowerCase().includes(query)));}
         if(sort!=='none'&&selectedColumn)result=[...result].sort((a,b)=>value(a.id,selectedColumn).localeCompare(value(b.id,selectedColumn),undefined,{numeric:true})*(sort==='asc'?1:-1));return result;
     });
-    const first=$derived(Math.max(0,Math.floor(scrollTop/rowHeight)-5)),last=$derived(Math.min(rows.length,first+Math.ceil(viewportHeight/rowHeight)+12)),visible=$derived(rows.slice(first,last));
+    const first=$derived(Math.max(0,Math.floor(scrollTop/rowHeight)-5));
+    const last=$derived(Math.min(rows.length,first+Math.ceil(viewportHeight/rowHeight)+12));
+    const visible=$derived(rows.slice(first,last));
     const selectedVersions=$derived(current?heads(current.cells[cellKey(selectedRow,selectedColumn)]||[]):[]);
     const selection=$derived.by(()=>{
-        if(!current)return[];const a=rows.findIndex(row=>row.id===selectedRow),b=rows.findIndex(row=>row.id===(endRow||selectedRow)),c=current.columns.findIndex(column=>column.id===selectedColumn),d=current.columns.findIndex(column=>column.id===(endColumn||selectedColumn));
+        if(!current)return[];
+        const a=rows.findIndex(row=>row.id===selectedRow),b=rows.findIndex(row=>row.id===(endRow||selectedRow));
+        const c=current.columns.findIndex(column=>column.id===selectedColumn),d=current.columns.findIndex(column=>column.id===(endColumn||selectedColumn));
         if(Math.min(a,b,c,d)<0)return[];const result:CellTarget[]=[];
         for(let r=Math.min(a,b);r<=Math.max(a,b);r++)for(let x=Math.min(c,d);x<=Math.max(c,d);x++)result.push({row:rows[r].id,column:current.columns[x].id});return result;
     });
     const selectedSet=$derived(new Set(selection.map(cell=>cellKey(cell.row,cell.column))));
     const selectionProtected=$derived(selection.some(cell=>isProtected(cell.row,cell.column)));
-    const selectedStyle=$derived((dataEpoch,ysheet?styleOf(ysheet,selectedRow,selectedColumn):{}));
+    const selectedStyle=$derived.by(()=>{dataEpoch;return ysheet?styleOf(ysheet,selectedRow,selectedColumn):{} as CellStyle;});
     const allowSelected=$derived(editable&&!selectionProtected);
     function isProtected(row:string,column:string){return $sessionState.meta?.role!=='owner'&&protections.some(range=>range.sheetId===current?.id&&range.rows.includes(row)&&range.columns.includes(column));}
     function permitted(cells:CellTarget[]){if(!editable)throw new Error('This workbook is read-only.');if(cells.some(cell=>isProtected(cell.row,cell.column)))throw new Error('This selection includes an owner-protected cell. Make a private copy or ask the owner to remove protection.');}
@@ -53,7 +65,7 @@
     });
     $effect(()=>{
         let anchor:string|null=null;
-        if(current&&selection.length){const rs=[...new Set(selection.map(cell=>cell.row))],cs=[...new Set(selection.map(cell=>cell.column))];if(rs.length<=40&&cs.length<=40){try{anchor=rangeAnchor(current.id,rs,cs,`${current.name}: ${columnName(current.columns.findIndex(column=>column.id===cs[0]))}${current.rows.findIndex(row=>row.id===rs[0])+1}`);}catch{/* Larger ranges still support ordinary editing. */}}}
+        if(current&&selection.length){const rs=[...new Set(selection.map(cell=>cell.row))],cs=[...new Set(selection.map(cell=>cell.column))];if(rs.length<=40&&cs.length<=40){try{anchor=rangeAnchor(current.id,rs,cs,`${current.name}: ${columnName(current.columns.findIndex(column=>column.id===cs[0]))}${current.rows.findIndex(row=>row.id===rs[0])+1}`);}catch{/* Large ranges still support ordinary editing. */}}}
         if(anchor!==lastAnchor){lastAnchor=anchor;onselection?.(anchor);}if(current&&lastSheet!==current.id){lastSheet=current.id;onactivesheet?.(current.id);}
     });
     $effect(()=>{
@@ -70,8 +82,7 @@
     function beginEdit(){if(!editable||!current||isProtected(selectedRow,selectedColumn))return;if(!editingTarget){editingTarget={sheet:current.id,row:selectedRow,column:selectedColumn,parents:selectedVersions.map(version=>version.id)};bufferId='cell:'+crypto.randomUUID();}editing=true;}
     function stage(value:string){draft=value;if(!editingTarget)beginEdit();if(!editingTarget)return;const target=editingTarget;attempt(()=>session.stageDraft(bufferId,{kind:'cell',text:value,context:{...target},updatedAt:Date.now()}));}
     function commit():boolean{
-        if(!editing)return true;if(!editingTarget)return false;
-        const target=editingTarget;
+        if(!editing)return true;if(!editingTarget)return false;const target=editingTarget;
         try{
             if(!editable)throw new Error('Editing permission changed. The unsubmitted cell draft is retained privately.');
             if($sessionState.meta?.role!=='owner'&&protections.some(range=>range.sheetId===target.sheet&&range.rows.includes(target.row)&&range.columns.includes(target.column)))throw new Error('This cell is now protected. The draft is retained privately.');
