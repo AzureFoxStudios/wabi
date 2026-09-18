@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 const clientVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const candidateRevision = process.env.WABI_SOURCE_REVISION ?? '';
@@ -59,7 +60,7 @@ export default defineConfig({
             name: 'wabi-workspace-bundle-evidence',
             apply: 'build',
             generateBundle(_options, bundle) {
-                const chunks = Object.entries(bundle).flatMap(([file, output]) => output.type === 'chunk' ? [{ file, entry: output.isEntry, imports: output.imports, dynamicImports: output.dynamicImports, modules: Object.keys(output.modules).filter(id => /workspaces\/|node_modules\/(?:xlsx|pptxgenjs|pdfjs-dist|yjs|y-codemirror)/.test(id)) }] : []);
+                const chunks = Object.entries(bundle).flatMap(([file, output]) => output.type === 'chunk' ? [{ file, bytes: Buffer.byteLength(output.code), gzipBytes: gzipSync(output.code).byteLength, entry: output.isEntry, imports: output.imports, dynamicImports: output.dynamicImports, modules: Object.keys(output.modules).filter(id => /workspaces\/|node_modules\/(?:xlsx|pptxgenjs|pdfjs-dist|yjs|y-codemirror)/.test(id)) }] : []);
                 this.emitFile({ type: 'asset', fileName: 'wabi-workspace-bundle.json', source: JSON.stringify({ schema: 1, packaged: workspacePackaged, chunks }, null, 2) });
             }
         },

@@ -27,7 +27,7 @@ export async function addDesignToPptx(pptx:PptxGenJS,slide:PptxSlide,source:Slid
         else if(object.kind==='line')slide.addShape(pptx.ShapeType.line,{x,y,w,h,line:{color:hex(object.color),width:2}});
         else if(object.kind==='table'){
             const rows=tableRows(object.text);
-            if(rows.length)slide.addTable(rows,{...textOptions,fontSize:object.fontSize*.72*.72,border:{type:'solid',pt:1,color:hex(object.color)},rowH:h/rows.length,autoPage:false});
+            if(rows.length)slide.addTable(rows.map(row=>row.map(text=>({text}))),{...textOptions,fontSize:object.fontSize*.72*.72,border:{type:'solid',pt:1,color:hex(object.color)},rowH:h/rows.length,autoPage:false});
             else slide.addText('Table data exceeds the supported row/column limits.',textOptions);
         }else if(object.kind==='chart'){
             // Export bars and labels, not an embedded Excel workbook or a live data link.
