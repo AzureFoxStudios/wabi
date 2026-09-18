@@ -1,4 +1,5 @@
 <script lang="ts">
+	import {composerHandoff,takeComposerHandoff,dismissComposerHandoff,appendHandoffText} from '$lib/composerHandoff';
 	import { stopPropagation } from 'svelte/legacy';
 
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte';
@@ -177,6 +178,17 @@ import type { MediaAlbum } from '$lib/api';
 	$effect(() => { const p = previewUnicodeEmojiConversion(messageInput, $emojis as unknown as Emoji[]); unicodeComposerPreview = p.convertedText; unicodeComposerPreviewTokens = p.convertedTokens; });
 	$effect(() => { const p = previewUnicodeEmojiConversion(gifCaptionInput, $emojis as unknown as Emoji[]); unicodeGifCaptionPreview = p.convertedText; unicodeGifCaptionPreviewTokens = p.convertedTokens; });
 
+	$effect(() => {
+		const pending = $composerHandoff;
+		if (!pending || pending.channelId !== draftChannel || draftSurface !== 'channel') return;
+		if (!pending.isCurrent()) { dismissComposerHandoff(pending.id); return; }
+		if (!operationCurrent() || isSending || editingMessage) return;
+		const next = appendHandoffText(messageInput, pending.text, composerInputMaxLength);
+		if (next === null) return;
+		if (takeComposerHandoff(pending.id, draftChannel) === null) return;
+		messageInput = next; syncComposerEntities(); draftOwner.save(snapshotDraft());
+		void tick().then(() => { if (operationCurrent()) { autoResizeTextarea(); textareaElement?.focus(); } });
+	});
 	function snapshotDraft(): ComposerDraft {
 		// Svelte's snapshot structured-clones Files. Keep these immutable browser
 		// objects by reference so a send can identify exactly which selection it
@@ -584,6 +596,7 @@ import type { MediaAlbum } from '$lib/api';
 		if (sendCooldownTimer) { clearTimeout(sendCooldownTimer); sendCooldownTimer = null; }
 	});
 </script>
+{#if $composerHandoff?.channelId === draftChannel && draftSurface === 'channel'}<p role="status">A workspace reference is waiting. Finish editing or sending the current message, or make room to insert the link. <button type="button" onclick={()=>{if($composerHandoff)dismissComposerHandoff($composerHandoff.id);}}>Dismiss reference</button></p>{/if}
 
 <VideoCompressionController bind:this={videoCompressionController} />
 <EditReplyStatus {editingMessage} {replyingTo} onCancelEdit={cancelEdit} onCancelReply={cancelReply} />

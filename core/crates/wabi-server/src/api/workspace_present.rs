@@ -25,7 +25,7 @@ fn image_allowed(image:&str)->bool{
     match prefix{"data:image/png;base64"=>raw.starts_with(b"\x89PNG\r\n\x1a\n"),"data:image/jpeg;base64"=>raw.starts_with(b"\xff\xd8\xff"),"data:image/webp;base64"=>raw.starts_with(b"RIFF")&&raw.get(8..12)==Some(b"WEBP"),_=>false}
 }
 pub(super) fn validate_deck(value:&Value)->Result<()>{
-    if value["schema"]!=1{return Err(bad("Unsupported deck schema"));}
+    if value["schema"].as_f64()!=Some(1.0){return Err(bad("Unsupported deck schema"));}
     if value.as_object().is_none_or(|map|map.keys().any(|key|!["schema","aspect","slides"].contains(&key.as_str()))){return Err(bad("Unknown deck property; private notes must remain separate"));}
     if !value["aspect"].is_null()&&value["aspect"].as_f64().is_none_or(|ratio|!ratio.is_finite()||!(0.5..=3.0).contains(&ratio)){return Err(bad("Invalid slide aspect ratio"));}
     let slides=value["slides"].as_object().ok_or_else(||bad("Deck has no slides"))?;if slides.len()>200{return Err(bad("Deck slide limit exceeded"));}
