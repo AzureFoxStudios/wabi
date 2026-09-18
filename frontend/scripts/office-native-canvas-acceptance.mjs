@@ -9,6 +9,9 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     await page.getByRole('button', { name: 'New presentation', exact: true }).click();
     await page.getByLabel('Slide title', { exact: true }).fill('Canvas regression');
     await page.getByLabel('Slide text', { exact: true }).fill('Public copied text');
+    // Non-canvas slides start with the advanced controls collapsed. Exercise
+    // the same disclosure a person uses, rather than forcing a hidden control.
+    await page.locator('.designer-controls > summary').click();
     await page.getByLabel('Native slide preset', { exact: true }).selectOption('comparison');
     await page.getByRole('button', { name: 'Apply native layout', exact: true }).click();
     await page.locator('.designer-stage .scene').waitFor();
