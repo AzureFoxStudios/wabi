@@ -32,6 +32,16 @@ impl WdbAdapter {
         Ok(())
     }
 
+    // The sequencer receipt includes projection completion. Verify the actual read
+    // model before acknowledging a write; a missing handler must not look saved.
+    fn workspace_receipt(&self, expected: WorkspaceRecord) -> ApiResult<WorkspaceRecord> {
+        let actual=self.workspace_get(&expected.key)?;
+        if actual.as_ref()!=Some(&expected) {
+            return Err(AppError::Internal("Workspace commit was not applied to its read model; retain the pending local changes".into()));
+        }
+        Ok(expected)
+    }
+
     pub async fn workspace_put(&self, actor: u64, key: &str, expected: u64, owner: u64, value: serde_json::Value) -> ApiResult<WorkspaceRecord> {
         let _guard = WRITES.lock().await;
         let before = self.workspace_get(key)?;
@@ -42,7 +52,7 @@ impl WdbAdapter {
         let bytes = serde_json::to_vec(&row).map_err(|e| AppError::Internal(e.to_string()))?;
         workspace::decode(&bytes).map_err(|_| AppError::BadRequest("Workspace exceeds supported storage limits".into()))?;
         self.commit_workspace_event(actor, key, workspace::EVENT, bytes).await?;
-        Ok(row)
+        self.workspace_receipt(row)
     }
 
     pub async fn workspace_append(&self, actor: u64, delta: WorkspaceDelta) -> ApiResult<WorkspaceRecord> {
@@ -52,7 +62,7 @@ impl WdbAdapter {
         let row = workspace::apply_delta(before, &delta).map_err(|_| AppError::BadRequest("Workspace update exceeds supported limits".into()))?;
         let bytes = serde_json::to_vec(&delta).map_err(|e| AppError::Internal(e.to_string()))?;
         self.commit_workspace_event(actor, &delta.key, workspace::DELTA_EVENT, bytes).await?;
-        Ok(row)
+        self.workspace_receipt(row)
     }
 }
 
@@ -69,8 +79,11 @@ impl WdbAdapter {
         assert_eq!(store.workspace_get("artifact:test").unwrap().unwrap(),first);
         assert_eq!(store.workspace_list("artifact:").unwrap().len(),1);
         let d = WorkspaceDelta{key:first.key,expected_revision:1,update:"abc".into(),title:"Updated".into(),sequence:2,updated_at:3};
-        store.workspace_append(uid,d).await.unwrap();
-        assert_eq!(store.workspace_get("artifact:test").unwrap().unwrap().value["updates"][0],"abc");
+        let accepted=store.workspace_append(uid,d.clone()).await.unwrap();
+        assert_eq!(store.workspace_get("artifact:test").unwrap().unwrap(),accepted);
+        assert_eq!(accepted.value["updates"][0],"abc");
+        assert!(store.workspace_append(uid,d).await.is_err());
+        assert_eq!(store.workspace_get("artifact:test").unwrap().unwrap(),accepted);
         assert!(store.is_healthy());
     }
 }
