@@ -17,6 +17,9 @@ fn allowed(value:&Value,fields:&[&str])->Result<()>{if object(value)?.keys().any
 fn text(value:&Value,limit:usize)->Result<()>{if value.as_str().is_none_or(|text|text.len()>limit){return Err(bad("Workbook text exceeds its supported limit"));}Ok(())}
 fn optional_bool(value:&Value)->Result<()>{if !value.is_null()&&!value.is_boolean(){return Err(bad("Workbook flag has an invalid type"));}Ok(())}
 fn finite(value:&Value)->bool{value.as_f64().is_some_and(f64::is_finite)}
+// JavaScript/Yrs values can arrive as 140 or 140.0. Both encode the same
+// bounded integer; fractional, negative and non-finite values remain invalid.
+fn integer(value:&Value,min:f64,max:f64)->bool{value.as_f64().is_some_and(|n|n.is_finite()&&n.fract()==0.0&&n>=min&&n<=max)}
 fn scalar(value:&Value)->Result<()>{if !(value.is_null()||value.is_boolean()||finite(value)||value.as_str().is_some_and(|s|s.len()<=32768)){return Err(bad("Cell scalar has an invalid type or size"));}Ok(())}
 fn reference(value:&Value)->Result<()>{
     allowed(value,&["type","sheet","row","column","absoluteRow","absoluteColumn"])?;
@@ -43,13 +46,13 @@ fn style(value:&Value)->Result<()>{
     if !value["format"].is_null()&&!["general","number","percent","currency","text","date"].contains(&value["format"].as_str().unwrap_or("")){return Err(bad("Invalid number format"));}
     if !value["align"].is_null()&&!["left","center","right"].contains(&value["align"].as_str().unwrap_or("")){return Err(bad("Invalid alignment"));}
     if let Some(fill)=value["fill"].as_str(){if !fill.is_empty()&&!(fill.len()==7&&fill.starts_with('#')&&fill[1..].bytes().all(|b|b.is_ascii_hexdigit())){return Err(bad("Invalid fill color"));}}else if !value["fill"].is_null(){return Err(bad("Invalid fill color"));}
-    if !value["precision"].is_null()&&value["precision"].as_u64().is_none_or(|n|n>10){return Err(bad("Invalid decimal precision"));}
+    if !value["precision"].is_null()&&!integer(&value["precision"],0.0,10.0){return Err(bad("Invalid decimal precision"));}
     if let Some(currency)=value["currency"].as_str(){if currency.len()!=3||!currency.bytes().all(|b|b.is_ascii_uppercase()){return Err(bad("Invalid currency code"));}}else if !value["currency"].is_null(){return Err(bad("Invalid currency code"));}Ok(())
 }
 fn cell_parts(cell:&str)->Result<(&str,&str)>{let (row,column)=cell.split_once('|').ok_or_else(||bad("Invalid cell identity"))?;valid_id(row)?;valid_id(column)?;Ok((row,column))}
 
 pub(crate) fn validate(value:&Value)->Result<()>{
-    allowed(value,&["schema","sheets"])?;if value["schema"]!=1{return Err(bad("Unsupported workbook schema"));}
+    allowed(value,&["schema","sheets"])?;if !integer(&value["schema"],1.0,1.0){return Err(bad("Unsupported workbook schema"));}
     let sheets=object(&value["sheets"])?;if sheets.is_empty()||sheets.len()>20{return Err(bad("Workbook must contain 1–20 sheets"));}
     for (sheet_id,sheet) in sheets {
         valid_id(sheet_id)?;allowed(sheet,&["name","position","removed","rows","columns","ops","styles","structureEdits"])?;text(&sheet["name"],400)?;
@@ -57,7 +60,7 @@ pub(crate) fn validate(value:&Value)->Result<()>{
         for (name,limit) in [("rows",12000),("columns",512)]{
             let axis=object(&sheet[name])?;if axis.is_empty()||axis.len()>limit{return Err(bad("Workbook axis limit exceeded"));}
             let mut active=0;
-            for (id,item) in axis {valid_id(id)?;allowed(item,&["id","position","removed","width"])?;if item["id"]!=id.as_str()||!finite(&item["position"]){return Err(bad("Invalid row or column identity"));}optional_bool(&item["removed"])?;if item["removed"]!=true{active+=1;}if !item["width"].is_null()&&item["width"].as_u64().is_none_or(|n|!(60..=600).contains(&n)){return Err(bad("Invalid column width"));}}
+            for (id,item) in axis {valid_id(id)?;allowed(item,&["id","position","removed","width"])?;if item["id"]!=id.as_str()||!finite(&item["position"]){return Err(bad("Invalid row or column identity"));}optional_bool(&item["removed"])?;if item["removed"]!=true{active+=1;}if !item["width"].is_null()&&!integer(&item["width"],60.0,600.0){return Err(bad("Invalid column width"));}}
             if active==0||active>if name=="rows"{10000}else{256}{return Err(bad("Unsupported active grid dimensions"));}
         }
         let ops=object(&sheet["ops"])?;if ops.len()>200000{return Err(bad("Workbook edit-history limit exceeded"));}
@@ -104,8 +107,8 @@ pub(crate) fn enforce(before:&Value,after:&Value,ranges:&[ProtectedRange])->Resu
 #[cfg(test)] mod tests {
     use super::*;
     #[test] fn workspace_protection_blocks_value_style_and_deletion_but_not_other_cells(){
-        let sheet="a",row="r",column="c";
-        let before=json!({"sheets":{sheet:{"rows":{row:{"removed":false}},"columns":{column:{"removed":false}},"ops":{},"styles":{}}}});
+        let (sheet,row,column)=("a","r","c");
+        let before=json!({"sheets":{"a":{"rows":{"r":{"removed":false}},"columns":{"c":{"removed":false}},"ops":{},"styles":{}}}});
         let range=ProtectedRange{id:"range".into(),sheet_id:sheet.into(),rows:vec![row.into()],columns:vec![column.into()],label:"Protected".into()};
         let mut after=before.clone();after["sheets"][sheet]["ops"]["new"]=json!({"cell":"other|c","input":"3"});assert!(enforce(&before,&after,std::slice::from_ref(&range)).is_ok());
         after["sheets"][sheet]["ops"]["new"]=json!({"cell":"r|c","input":"3"});assert!(enforce(&before,&after,std::slice::from_ref(&range)).is_err());
@@ -116,5 +119,10 @@ pub(crate) fn enforce(before:&Value,after:&Value,ranges:&[ProtectedRange])->Resu
         assert!(expression(&json!({"type":"call","name":"FETCH","args":[]}),0,&mut 0).is_err());
         assert!(expression(&json!({"type":"value","value":4}),0,&mut 0).is_ok());
         assert!(expression(&json!({"type":"value","value":{"script":"evil"}}),0,&mut 0).is_err());
+    }
+    #[test] fn workspace_integer_fields_accept_equivalent_yjs_numbers_only(){
+        assert!(integer(&json!(140),60.0,600.0));assert!(integer(&json!(140.0),60.0,600.0));
+        assert!(!integer(&json!(140.5),60.0,600.0));assert!(!integer(&json!("140"),60.0,600.0));
+        assert!(style(&json!({"precision":2.0})).is_ok());assert!(style(&json!({"precision":2.5})).is_err());
     }
 }
