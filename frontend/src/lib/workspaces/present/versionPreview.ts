@@ -1,4 +1,5 @@
 import type { AudienceSlide } from '../bridge';
+import {cleanDesign} from '../scene';
 
 export interface ApprovedEdition {
     slides: AudienceSlide[];
@@ -10,7 +11,7 @@ export interface ApprovedEdition {
 
 /** Fingerprint only the audience DTO, not notes, source history, or hidden slides. */
 export function editionFingerprint(slides: AudienceSlide[], aspect: number): string {
-    return JSON.stringify({ aspect, slides: slides.map(({ id, title, body, layout, image }) => ({ id, title, body, layout, image })) });
+    return JSON.stringify({ aspect, slides: slides.map(({ id, title, body, layout, image, design }) => ({ id, title, body, layout, image, ...(layout==='canvas'&&design?{design:cleanDesign(design)}:{}) })) });
 }
 
 export function prepareEdition(slides: AudienceSlide[], aspect: number, currentSlideId: string): ApprovedEdition {

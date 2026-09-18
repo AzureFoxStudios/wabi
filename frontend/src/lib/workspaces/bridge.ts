@@ -85,7 +85,7 @@ export async function request<T>(scope:Scope,path:string,body?:unknown,method?:s
 const disposers=new Map<ArtifactKind,Set<()=>Promise<void>>>();
 export function registerWorkspaceDisposer(kind:ArtifactKind,fn:()=>Promise<void>){let set=disposers.get(kind);if(!set)disposers.set(kind,set=new Set());set.add(fn);return()=>set!.delete(fn);}
 export async function closeWorkspaceKind(kind:ArtifactKind){for(const fn of [...(disposers.get(kind)||[])])await fn();}
-export interface AudienceSlide{id:string;title:string;body:string;layout:string;image:string|null;}
+export interface AudienceSlide{id:string;title:string;body:string;layout:string;image:string|null;design?:import('./scene').SlideDesign;}
 export interface AudienceState{id:string;controller:number;canControl:boolean;generation:number;sequence:number;slideId:string;edition:string;slides:AudienceSlide[]|null;sourceSequence:number;blank:boolean;paused:boolean;ended:boolean;aspect:number;controllerConnected?:boolean;pointer?:{x:number;y:number;slideId:string}|null;}
 export function workspaceToolFromTab(tab:string|null|undefined):Tool|null {
     const id=tab?.startsWith('addon:workspace-')?tab.slice('addon:workspace-'.length):'';

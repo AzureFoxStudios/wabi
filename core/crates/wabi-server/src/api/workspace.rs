@@ -10,7 +10,7 @@ use wabidb::{engine::wabi_store::WabiStore,projections::workspace::{WorkspaceDel
 use super::workspace_crdt as crdt;
 #[path="workspace_sheets.rs"]
 pub(super) mod sheet_rules;
-use sheet_rules::ProtectedRange;
+use self::sheet_rules::ProtectedRange;
 #[path="workspace_conversion.rs"]
 pub(super) mod conversion;
 

@@ -10,9 +10,10 @@ use crate::{auth_extractor::AuthUser,error::AppError,channel_access};
 use wabidb::{engine::wabi_store::WabiStore,projections::workspace::WorkspaceRecord};
 type Result<T>=std::result::Result<T,AppError>;
 const LEASE:Duration=Duration::from_secs(15);
+#[path="workspace_scene.rs"]mod scene;
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-pub(super) struct Slide{pub id:String,pub title:String,pub body:String,pub layout:String,pub image:Option<String>}
+pub(super) struct Slide{pub id:String,pub title:String,pub body:String,pub layout:String,pub image:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")]pub design:Option<scene::Design>}
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub(super) struct Pointer{pub x:f64,pub y:f64,pub slide_id:String}
@@ -31,19 +32,28 @@ pub(super) fn validate_deck(value:&Value)->Result<()>{
     let slides=value["slides"].as_object().ok_or_else(||bad("Deck has no slides"))?;if slides.len()>200{return Err(bad("Deck slide limit exceeded"));}
     for(id,slide)in slides{
         valid_id(id)?;let object=slide.as_object().ok_or_else(||bad("Invalid slide"))?;
-        if object.keys().any(|key|!["title","body","layout","image","position","removed","hidden"].contains(&key.as_str())){return Err(bad("Private notes and unknown slide fields cannot be published"));}
+        if object.keys().any(|key|!["title","body","layout","image","position","removed","hidden","design"].contains(&key.as_str())){return Err(bad("Private notes and unknown slide fields cannot be published"));}
         for(key,max)in[("title",2000),("body",16000)]{if slide.get(key).is_some_and(|value|value.as_str().is_none_or(|text|text.len()>max)){return Err(bad("Slide text exceeds limits"));}}
         if let Some(image)=slide.get("image"){if !image.is_null()&&image.as_str().is_none_or(|image|!image_allowed(image)){return Err(bad("Only bounded inline PNG, JPEG, or WebP images are supported"));}}
+        if let Some(design)=slide.get("design"){scene::project(design)?;}
+        if slide["layout"]=="canvas"&&slide.get("design").is_none(){return Err(bad("Canvas slide requires a native design"));}
         if slide.get("position").is_some_and(|value|value.as_f64().is_none_or(|n|!n.is_finite())){return Err(bad("Invalid slide position"));}
         if slide.get("hidden").is_some_and(|value|!value.is_boolean())||slide.get("removed").is_some_and(|value|!value.is_boolean()){return Err(bad("Invalid slide visibility"));}
-        if slide.get("layout").is_some_and(|value|!["title","text","image","split","quote"].contains(&value.as_str().unwrap_or(""))){return Err(bad("Unsupported slide layout"));}
+        if slide.get("layout").is_some_and(|value|!["title","text","image","split","quote","canvas"].contains(&value.as_str().unwrap_or(""))){return Err(bad("Unsupported slide layout"));}
     }Ok(())
 }
 pub(super) fn rendition(value:&Value)->Result<Vec<Slide>>{
     validate_deck(value)?;let mut slides:Vec<_>=value["slides"].as_object().unwrap().iter().filter(|(_,slide)|slide["removed"]!=true&&slide["hidden"]!=true).collect();
     slides.sort_by(|(ai,a),(bi,b)|a["position"].as_f64().unwrap_or(0.0).total_cmp(&b["position"].as_f64().unwrap_or(0.0)).then_with(||ai.cmp(bi)));
     if slides.is_empty()||slides.len()>100{return Err(bad("A presentation needs 1–100 visible slides"));}
-    Ok(slides.into_iter().map(|(id,slide)|Slide{id:id.clone(),title:slide["title"].as_str().unwrap_or("").into(),body:slide["body"].as_str().unwrap_or("").into(),layout:slide["layout"].as_str().unwrap_or("text").into(),image:slide["image"].as_str().map(str::to_owned)}).collect())
+    slides.into_iter().map(|(id,slide)|{
+        let canvas=slide["layout"]=="canvas";
+        Ok(Slide{id:id.clone(),title:slide["title"].as_str().unwrap_or("").into(),
+            body:if canvas{String::new()}else{slide["body"].as_str().unwrap_or("").into()},
+            layout:slide["layout"].as_str().unwrap_or("text").into(),
+            image:if canvas{None}else{slide["image"].as_str().map(str::to_owned)},
+            design:if canvas{Some(scene::project(&slide["design"])?)}else{None}})
+    }).collect()
 }
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(rename_all="camelCase")]
