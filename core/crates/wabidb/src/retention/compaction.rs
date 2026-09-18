@@ -28,7 +28,7 @@
 use crate::error::{ErrorCategory, Result, WabiError};
 use crate::format::record::HEADER_LEN;
 use crate::retention::tombstone::TombstoneTable;
-use crate::stream_log::recovery::scan_segment_file;
+use crate::stream_log::recovery::scan_segment_file_readonly;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
@@ -69,8 +69,9 @@ pub async fn compact_segment(
     stream_id: &str,
     tombstone_table: &TombstoneTable,
 ) -> Result<CompactionResult> {
-    // 1. Scan the original segment.
-    let recovery = scan_segment_file(original_path).await.map_err(|e| {
+    // 1. Scan the original segment (read-only — compaction must not
+    //    truncate or modify the original file).
+    let recovery = scan_segment_file_readonly(original_path).await.map_err(|e| {
         WabiError::Corrupt {
             location: format!("scan_segment_file({})", original_path.display()),
             detail: format!("{e}"),
