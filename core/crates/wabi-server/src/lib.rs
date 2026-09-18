@@ -20,7 +20,6 @@ pub mod jobs;
 pub mod lan;
 pub mod mdns;
 pub mod media;
-pub mod mesh;
 pub mod metrics;
 pub mod nodes;
 pub mod rate_limit;

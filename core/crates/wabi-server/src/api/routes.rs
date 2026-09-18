@@ -8,7 +8,7 @@ use crate::state::AppState;
 
 use super::{
     addons, admin, albums, auth, blobs, bots, cad, calls, channels, e2ee, emoji, forum, gallery, incidents,
-    jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
+    jobs, lan, media, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
     standby, steam, sync, upload, user, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
@@ -70,8 +70,6 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/blobs", blobs::routes(state.clone()))
         // CAD preview conversion (authenticated, optional helper-backed)
         .nest("/cad", cad::routes(state.clone()))
-        // Legacy mesh coordination compatibility routes.
-        .nest("/mesh", mesh::routes(state.clone()))
         // Break-glass operator routes (loopback + WABI_OPERATOR_SECRET only)
         .nest("/operator", operator::routes(state.clone()))
         // Addon capability list/get + nested lore (when feature on).

@@ -59,6 +59,28 @@
 		addonSearchQuery = '';
 	}
 
+	/** How this add-on is attached: build-time feature and/or runtime switch. */
+	function attachMeta(addon: DetectedAddon): string {
+		const parts = [`id: ${addon.id}`, `version: ${addon.version}`];
+		parts.push(addon.cargoFeature ? `build: --features ${addon.cargoFeature}` : 'always compiled');
+		if (addon.runtimeEnv) parts.push(`runtime: ${addon.runtimeEnv}=1`);
+		return parts.join(' · ');
+	}
+
+	function serverAddonDescription(addon: DetectedAddon): string {
+		const detach = addon.cargoFeature
+			? `Detach it by rebuilding without the ${addon.cargoFeature} cargo feature.`
+			: 'Always compiled into this server binary — detaching needs a rebuild.';
+		const runtime = addon.runtimeEnv
+			? ` Runtime switch on the host: ${addon.runtimeEnv}=1.`
+			: '';
+		return `Server add-on. ${detach}${runtime}`;
+	}
+
+	function bundledAddonDescription(): string {
+		return 'Bundled with this client build (static allowlist — never a remote import). Remove it from the allowlist and rebuild the frontend to detach.';
+	}
+
 	/**
 	 * A4: inventory only from GET /api/addons (via addonDetection).
 	 * No package install, no broken ./plugins/*.svelte glob, no import theater.
@@ -181,11 +203,11 @@
 					<AddonRow
 						id={`server:${addon.id}`}
 						label={addon.name}
-						description="Compiled into this server binary (Cargo feature). There is no runtime package install from this UI."
-						enabled={true}
-						locked={true}
+						description={serverAddonDescription(addon)}
+						enabled={addon.enabled}
+						locked={addon.compiled}
 						badge="Server"
-						meta={`id: ${addon.id} · version: ${addon.version} · ${addon.source}`}
+						meta={attachMeta(addon)}
 					/>
 				{:else}
 					<div class="addon-group-note">
@@ -200,11 +222,11 @@
 					<AddonRow
 						id={`bundled:${addon.id}`}
 						label={addon.name}
-						description="Bundled with this client build. Frontend modules load only via the static allowlist (never remote import)."
-						enabled={true}
+						description={bundledAddonDescription()}
+						enabled={addon.enabled}
 						locked={true}
 						badge="Bundled"
-						meta={`id: ${addon.id} · version: ${addon.version} · ${addon.source}`}
+						meta={attachMeta(addon)}
 					/>
 				{/each}
 			{/if}
