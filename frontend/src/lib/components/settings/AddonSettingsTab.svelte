@@ -11,6 +11,7 @@
 		fetchPluginInventory,
 		pluginBackendAddons,
 		pluginFrontendAddons,
+		switchAddon,
 		type DetectedAddon
 	} from './addonDetection';
 	import { getServerUrl } from '$lib/serverUrl';
@@ -39,6 +40,9 @@
 	let enabledOnly = $state(false);
 	/** Blender's category dropdown: All / Server / Bundled / one local section. */
 	let categoryFilter = $state<AddonCategoryFilter>('all');
+	/** In-app switch feedback (owner action on a compiled-in add-on). */
+	let addonSwitchBusy = $state<string | null>(null);
+	let addonSwitchStatus = $state('');
 	let translatorAddonDetected = $derived(
 		[...frontendAddons, ...backendAddons].some((addon) => addon.id === 'translator-assist')
 	);
@@ -64,6 +68,7 @@
 		const parts = [`id: ${addon.id}`, `version: ${addon.version}`];
 		parts.push(addon.cargoFeature ? `build: --features ${addon.cargoFeature}` : 'always compiled');
 		if (addon.runtimeEnv) parts.push(`runtime: ${addon.runtimeEnv}=1`);
+		parts.push(addon.runtimeSwitch ? 'switch: in-app' : 'switch: rebuild only');
 		return parts.join(' · ');
 	}
 
@@ -79,6 +84,31 @@
 
 	function bundledAddonDescription(): string {
 		return 'Bundled with this client build (static allowlist — never a remote import). Remove it from the allowlist and rebuild the frontend to detach.';
+	}
+
+	/**
+	 * Flip a compiled-in add-on from the app (owner/admin). Steam and tailcat
+	 * apply immediately; lore attaches to its service at startup, so the server
+	 * tells us when a restart is needed.
+	 */
+	async function toggleServerAddon(addon: DetectedAddon): Promise<void> {
+		if (!addon.runtimeSwitch || addonSwitchBusy) return;
+		const next = !addon.enabled;
+		addonSwitchBusy = addon.id;
+		addonSwitchStatus = '';
+		const result = await switchAddon(getServerUrl(), getAuthToken(), addon.id, next);
+		addonSwitchBusy = null;
+		if (!result) {
+			addonSwitchStatus = `Could not switch ${addon.name}. This action needs an owner or admin session on this server.`;
+			return;
+		}
+		backendAddons = backendAddons.map((entry) =>
+			entry.id === addon.id ? { ...entry, enabled: result.enabled } : entry
+		);
+		addonSwitchStatus = result.appliesOnRestart
+			? `${addon.name} ${result.enabled ? 'enabled' : 'disabled'} — applies after the next server restart.`
+			: `${addon.name} ${result.enabled ? 'enabled' : 'disabled'}.`;
+		void refreshAddonDetection();
 	}
 
 	/**
@@ -192,6 +222,9 @@
 					</button>
 				{/if}
 			</div>
+			{#if addonSwitchStatus}
+				<div class="addon-status-note addon-switch-status" role="status">{addonSwitchStatus}</div>
+			{/if}
 		</div>
 		<div class="addons-settings-window-body">
 			{#if addonsError}
@@ -205,9 +238,10 @@
 						label={addon.name}
 						description={serverAddonDescription(addon)}
 						enabled={addon.enabled}
-						locked={addon.compiled}
+						locked={!addon.runtimeSwitch}
 						badge="Server"
 						meta={attachMeta(addon)}
+						onToggle={addon.runtimeSwitch ? () => void toggleServerAddon(addon) : undefined}
 					/>
 				{:else}
 					<div class="addon-group-note">

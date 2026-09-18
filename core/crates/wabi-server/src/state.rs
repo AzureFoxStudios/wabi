@@ -102,6 +102,8 @@ pub struct AppState {
     pub connected_users: crate::socketio::ConnectedUsers,
     /// Blacklist manager for bans
     pub blacklist: RwLock<Option<Arc<BlacklistManager>>>,
+    /// Runtime add-on switches (in-app; see addon_switches.rs). Env vars win.
+    pub addon_switches: RwLock<crate::addon_switches::AddonSwitches>,
     /// Lore addon service for version-controlled binary storage
     #[cfg(feature = "wabi-lore")]
     pub lore_service: RwLock<Option<Arc<crate::lore::LoreService>>>,
@@ -280,6 +282,8 @@ impl AppState {
             crate::api::retention_policy::timed_ms(label).map(|ms| (channel.clone(), ms))
         ).collect();
         let owner_user_id = RwLock::new(None);
+        let addon_switches =
+            RwLock::new(crate::addon_switches::AddonSwitches::load(&config.data_dir));
         let node_registry = NodeRegistry::new_persistent(
             config.node_id.clone(),
             PathBuf::from(&config.data_dir).join("node_registry.json"),
@@ -378,6 +382,7 @@ impl AppState {
             sio: RwLock::new(None),
             connected_users: Arc::new(RwLock::new(HashMap::new())),
             blacklist: RwLock::new(None),
+            addon_switches,
             #[cfg(feature = "wabi-lore")]
             lore_service: RwLock::new(None),
             membership_gate: Default::default(),
@@ -406,6 +411,21 @@ impl AppState {
     pub async fn get_blacklist(&self) -> Option<Arc<BlacklistManager>> {
         let guard = self.blacklist.read().await;
         guard.clone()
+    }
+
+    /// Effective runtime state of a compiled-in add-on: env → persisted → default.
+    pub async fn addon_enabled(&self, id: &str, env_var: Option<&str>, default: bool) -> bool {
+        self.addon_switches
+            .read()
+            .await
+            .resolve(id, env_var, default)
+    }
+
+    /// Persist an in-app add-on switch change (owner action).
+    pub async fn set_addon_enabled(&self, id: &str, enabled: bool) -> anyhow::Result<()> {
+        let mut guard = self.addon_switches.write().await;
+        guard.set(id, enabled);
+        guard.save(&self.config.data_dir)
     }
 
     /// Set the Lore service (called during startup)

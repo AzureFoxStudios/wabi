@@ -7,6 +7,7 @@
 //! - WebSocket real-time communication
 
 mod adapter;
+mod addon_switches;
 mod anchor;
 mod api;
 mod app_router;
@@ -583,7 +584,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize Lore addon service if enabled
     #[cfg(feature = "wabi-lore")]
-    if config.lore.enabled {
+    // Lore is compiled in, but the runtime switch (env → persisted → off) decides
+    // whether this process tries to attach to the Lore service at all.
+    let lore_addon_enabled = state
+        .addon_enabled("lore", Some("WABI_LORE_ENABLED"), false)
+        .await;
+    if lore_addon_enabled {
         let lore_config = crate::lore::LoreConfig {
             enabled: true,
             mode: match config.lore.mode.as_str() {

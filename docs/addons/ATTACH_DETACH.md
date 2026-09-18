@@ -9,6 +9,26 @@ Settings → Add-ons shows exactly this: every add-on the server reports, whethe
 it is on, how it is attached (`build: --features …` / `always compiled`), and
 which runtime switch applies.
 
+## In-app switches (Settings → Add-ons)
+
+Compiled-in add-ons can be turned on/off from the app by an owner/admin — no
+compose edit, no rebuild:
+
+| Add-on | Applies | Notes |
+|---|---|---|
+| Steam | immediately | Routes 404 while off |
+| Tailcat | immediately | Uses its own manager (kill-switch semantics) |
+| Lore | next restart | The Lore service attaches at startup (health check + rehydrate) |
+
+The switch is persisted in `<data_dir>/addons.json`
+(`{"switches": {"steam": true}}`) and resolved as
+**env var → persisted switch → compiled default**, so an operator who sets
+`WABI_STEAM_ENABLED=1` in compose keeps control.
+
+API: `POST /api/addons/{id}/switch` with `{"enabled": true|false}` (owner/admin
+session required). `GET /api/addons` reports `runtimeSwitch` per add-on so the
+UI knows which rows are flippable, and `enabled` always reflects live state.
+
 ## Build-time attach / detach
 
 ```bash

@@ -10,7 +10,7 @@ use axum::{extract::State, Json, Router};
 use serde::Serialize;
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::state::AppState;
 
 /// Frontend contribution block from the canonical plugin schema.
@@ -40,6 +40,8 @@ pub struct AddonCapability {
     pub cargo_feature: Option<String>,
     /// Env var that switches this add-on on/off at runtime, when one exists.
     pub runtime_env: Option<String>,
+    /// True when the owner can flip this add-on in-app (Server Center → Add-ons).
+    pub runtime_switch: bool,
     pub permissions: Vec<String>,
     pub frontend: FrontendInfo,
 }
@@ -71,6 +73,7 @@ pub struct AddonsListResponse {
 pub struct AddonRuntimeFlags {
     pub tailcat_enabled: bool,
     pub lore_enabled: bool,
+    pub steam_enabled: bool,
 }
 
 /// Build the inventory from compile-time features + runtime flags.
@@ -78,17 +81,19 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
     let AddonRuntimeFlags {
         tailcat_enabled,
         lore_enabled,
+        steam_enabled,
     } = runtime;
     let mut out = Vec::new();
 
     out.push(AddonCapability {
         id: "steam".into(), name: "Steam".into(), version: "0.1.0".into(),
         description: "Verified account linking and private, selective game import".into(),
-        enabled: crate::api::steam::enabled(),
+        enabled: steam_enabled,
         compiled: true,
         backend_runtime: "rust".into(),
         cargo_feature: None,
         runtime_env: Some("WABI_STEAM_ENABLED".into()),
+        runtime_switch: true,
         permissions: vec!["network:outbound".into()],
         frontend: FrontendInfo { bundled: true, contributions: FrontendContributions {
             channel_types: vec![], workspace_panels: vec![], settings_pages: vec!["steam".into()], mobile_tabs: vec![],
@@ -107,6 +112,7 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         backend_runtime: "rust".into(),
         cargo_feature: None,
         runtime_env: None,
+        runtime_switch: true,
         permissions: vec!["network:outbound".into(), "process:spawn".into()],
         frontend: FrontendInfo {
             bundled: false,
@@ -131,6 +137,7 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         backend_runtime: "rust".into(),
         cargo_feature: Some("wabi-lore".into()),
         runtime_env: Some("WABI_LORE_ENABLED".into()),
+        runtime_switch: true,
         permissions: vec![
             "network:outbound".into(),
             "filesystem:read".into(),
@@ -163,6 +170,7 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         backend_runtime: "rust".into(),
         cargo_feature: Some("wabi-webhooks".into()),
         runtime_env: None,
+        runtime_switch: false,
         permissions: vec!["network:outbound".into()],
         frontend: FrontendInfo {
             bundled: false,
@@ -188,6 +196,7 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         backend_runtime: "rust".into(),
         cargo_feature: Some("payments-rails".into()),
         runtime_env: None,
+        runtime_switch: false,
         permissions: vec![],
         frontend: FrontendInfo {
             bundled: false,
@@ -211,6 +220,7 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         backend_runtime: "rust".into(),
         cargo_feature: Some("payments-rails".into()),
         runtime_env: None,
+        runtime_switch: false,
         permissions: vec![],
         frontend: FrontendInfo {
             bundled: false,
@@ -234,6 +244,7 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         backend_runtime: "rust".into(),
         cargo_feature: Some("payments-rails".into()),
         runtime_env: None,
+        runtime_switch: false,
         permissions: vec![],
         frontend: FrontendInfo {
             bundled: false,
@@ -259,6 +270,9 @@ async fn enabled_addons(state: &AppState) -> Vec<AddonCapability> {
         lore_enabled: state.lore_service.read().await.is_some(),
         #[cfg(not(feature = "wabi-lore"))]
         lore_enabled: false,
+        steam_enabled: state
+            .addon_enabled("steam", Some("WABI_STEAM_ENABLED"), false)
+            .await,
     })
 }
 
@@ -286,6 +300,58 @@ async fn get_addon(
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct SwitchRequest {
+    enabled: bool,
+}
+
+/// POST /api/addons/{id}/switch — owner/admin toggles a compiled-in add-on.
+///
+/// Applies immediately for steam (routes consult the switch per request) and
+/// tailcat (its own manager is the kill-switch). Lore initializes at startup,
+/// so the response says `appliesOnRestart: true`.
+async fn switch_addon(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<SwitchRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let actor = crate::api::admin::admin_auth(&headers, &state)
+        .await
+        .map_err(|resp| match resp.status() {
+            axum::http::StatusCode::FORBIDDEN => {
+                AppError::Forbidden("Admin access required".into())
+            }
+            _ => AppError::Unauthorized("Authentication required".into()),
+        })?;
+
+    let id = id.trim().to_lowercase();
+    if !crate::addon_switches::AddonSwitches::is_switchable(&id) {
+        return Err(AppError::NotFound(format!(
+            "addon is not switchable at runtime: {id}"
+        )));
+    }
+
+    if id == "tailcat" {
+        state
+            .tailcat
+            .set_enabled(body.enabled, actor)
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+    } else {
+        state
+            .set_addon_enabled(&id, body.enabled)
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+    }
+
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "enabled": body.enabled,
+        "appliesOnRestart": id == "lore",
+    })))
+}
+
 /// Routes nested at `/addons` under the API router → `/api/addons`, `/api/addons/{id}`.
 ///
 /// Lore feature routes are nested *inside* this router at `/lore/...` so they
@@ -296,7 +362,9 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/", axum::routing::get(list_addons))
         // Simple single-segment id only. Multi-segment paths under /addons/lore
         // are handled by the nested lore router below.
-        .route("/{id}", axum::routing::get(get_addon));
+        .route("/{id}", axum::routing::get(get_addon))
+        // Owner action: flip a compiled-in add-on on/off without a rebuild.
+        .route("/{id}/switch", axum::routing::post(switch_addon));
 
     #[cfg(feature = "wabi-lore")]
     let router = router.nest("/lore", crate::api::lore::routes(state.clone()));
@@ -314,6 +382,7 @@ mod tests {
         AddonRuntimeFlags {
             tailcat_enabled: tailcat,
             lore_enabled: lore,
+            steam_enabled: false,
         }
     }
 
@@ -336,6 +405,21 @@ mod tests {
 
         let steam = addons.iter().find(|a| a.id == "steam").expect("steam");
         assert_eq!(steam.runtime_env.as_deref(), Some("WABI_STEAM_ENABLED"));
+        assert!(steam.runtime_switch, "steam flips in-app");
+        assert!(!steam.enabled, "steam starts off until switched on");
+    }
+
+    #[test]
+    fn switchable_flags_match_the_runtime_switch_set() {
+        let addons = enabled_addons_with(flags(true, true));
+        for addon in &addons {
+            assert_eq!(
+                addon.runtime_switch,
+                crate::addon_switches::AddonSwitches::is_switchable(&addon.id),
+                "runtime_switch must mirror the switchable set for {}",
+                addon.id
+            );
+        }
     }
 
     #[test]

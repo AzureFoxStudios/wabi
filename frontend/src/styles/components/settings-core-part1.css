@@ -443,6 +443,15 @@
 	}
 
 
+	.addon-switch-status {
+		padding: 0.3rem 0.55rem;
+		border: 1px solid color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 34%, transparent);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 10%, transparent);
+		color: var(--text-secondary);
+	}
+
+
 	.addon-search-clear {
 		padding: 0.2rem 0.5rem;
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
