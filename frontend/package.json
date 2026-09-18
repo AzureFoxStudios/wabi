@@ -56,7 +56,8 @@
     "svelte-check": "4.7.6",
     "tslib": "2.8.1",
     "typescript": "6.0.3",
-    "vite": "8.2.2"
+    "vite": "8.2.2",
+    "jszip": "3.10.1"
   },
   "dependencies": {
     "@giphy/js-fetch-api": "5.8.0",
@@ -68,7 +69,7 @@
     "marked": "18.0.12",
     "motion": "13.2.0",
     "opus-recorder": "8.0.5",
-    "pdfjs-dist": "5.7.284",
+    "pdfjs-dist": "6.2.108",
     "pptxgenjs": "4.0.1",
     "prismjs": "1.30.0",
     "qrcode": "1.5.4",
@@ -79,10 +80,12 @@
     "yjs": "13.6.27"
   },
   "overrides": {
-    "socket.io-parser": "4.2.6",
-    "devalue": "5.9.0",
+    "socket.io-parser": "4.2.7",
+    "devalue": "5.9.2",
     "ws": "8.21.1",
     "uuid": "11.1.1",
-    "@codemirror/view": "6.43.9"
+    "@codemirror/view": "6.43.9",
+    "cookie": "0.7.2",
+    "esbuild": "0.25.12"
   }
 }
