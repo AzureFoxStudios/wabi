@@ -1,4 +1,5 @@
 <script lang="ts">
+    import ArtifactHandoff from './ArtifactHandoff.svelte';
     import {onDestroy,type Snippet} from 'svelte';
     import {serverMembers} from '$lib/presenceIdentity';
     import {channels} from '$lib/channelStore';
@@ -76,6 +77,7 @@
         <button disabled={busy} onclick={()=>run(privateCopy)}>Make private copy</button>
         {#if !$sessionState.meta||$sessionState.meta.role==='owner'}<button class="primary" onclick={showSharing}>Share…</button>{/if}
         {#if $sessionState.meta}
+            <ArtifactHandoff {session} anchor={selectionAnchor}/>
             <button onclick={()=>run(()=>navigator.clipboard.writeText(workspaceLink(session.scope.server,session.id,session.record.kind)))}>Copy link</button>
             <button onclick={()=>reviewOpen=!reviewOpen}>Review {$sessionState.reviews.filter(item=>item.state==='open').length||''}</button>
             {#if selectionAnchor}<button onclick={()=>{reviewAnchor=selectionAnchor;reviewOpen=true;}}>Comment on selection</button><button onclick={()=>run(copyReference)}>Copy selection link</button>{/if}
