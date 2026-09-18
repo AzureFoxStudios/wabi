@@ -30,10 +30,10 @@ try {
         export const getGuestSessionId=()=>null;export const onAuthSessionCleared=()=>()=>{};
         export const serverMembers=writable(accounts.map(a=>({dbUserId:a.id,username:a.name})));
         export const currentUser=writable({dbUserId:account.id,username:account.name});
-        export const currentChannel=writable('');export const channels=writable([]);`);
+        export const currentChannel=writable('');export const channels=writable([]);export const switchChannel=id=>currentChannel.set(id);`);
     await writeFile(f('tabs.js'),`import {writable} from 'svelte/store';
         export const active=writable('addon:workspace-'+(new URLSearchParams(location.search).get('tool')||'documents'));
-        export const mobileTabQueue={activeTabId:active,registerAddonTab(){},openAddonTab(id){active.set('addon:'+id)},unregisterAddonTab(){active.set('none')}};`);
+        export const mobileTabQueue={activeTabId:active,registerAddonTab(){},setActiveChannel(id){active.set('channel:'+id)},openAddonTab(id){active.set('addon:'+id)},unregisterAddonTab(){active.set('none')}};`);
     await writeFile(f('App.svelte'),`<script>
         import WorkspaceHost from ${mod('src/lib/workspaces/WorkspaceHost.svelte')};import {active} from './tabs.js';
         import {workspaceToolFromTab} from ${mod('src/lib/workspaces/bridge.ts')};$:tool=workspaceToolFromTab($active);

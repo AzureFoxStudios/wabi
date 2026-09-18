@@ -1,10 +1,9 @@
 <script lang="ts">
     import { onDestroy } from 'svelte';
     import { get } from 'svelte/store';
-    import { channels, switchChannel } from '$lib/channelStore';
+    import { channels } from '$lib/channelStore';
     import { currentUser } from '$lib/presenceIdentity';
     import { mobileTabQueue } from '$lib/mobileTabQueue';
-    import { captureGroupAccess } from '$lib/groupAccess';
     import { stageComposerHandoff } from '$lib/composerHandoff';
     import { workspaceLink } from './bridge';
     import { linkAnchor } from './anchors';
@@ -36,6 +35,9 @@
             check();
             const target = get(channels).find(channel => channel.id === channelId && channel.type === 'text');
             if (!target) throw new Error('Choose an available text channel.');
+            const {captureGroupAccess}=await import('$lib/groupAccess');
+            const {switchChannel}=await import('$lib/channelStore');
+            check();
             const allowed = captureGroupAccess(target.id), scope = session.scope;
             await session.flush(); check();
             if (!allowed()) throw new Error('Channel access changed.');
