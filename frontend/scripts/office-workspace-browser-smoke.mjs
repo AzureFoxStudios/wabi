@@ -44,7 +44,18 @@ try {
         import {openWorkspace,captureScope} from ${mod('src/lib/workspaces/bridge.ts')};import {account} from './identity.js';
         mount(App,{target:document.getElementById('app')});window.workspaceTest={open:openWorkspace,account,
             async records(kind){const m=await import(${mod('src/lib/workspaces/session.ts')});return m.listLocal(await captureScope(),kind);},
-            async record(id){const m=await import(${mod('src/lib/workspaces/session.ts')});const r=await m.readLocal(await captureScope(),id);return r?{id:r.id,pending:Object.keys(r.pending).length,meta:r.meta,drafts:r.drafts||{},originalName:r.original?.name,data:doc.getMap('data').toJSON()}:null;},
+            async record(id){
+                const m=await import(${mod('src/lib/workspaces/session.ts')});
+                const r=await m.readLocal(await captureScope(),id);
+                if(!r)return null;
+                // Inspect committed bytes, not a live editor session: opening one
+                // here could itself save or sync and invalidate durability checks.
+                const doc=new m.Y.Doc();
+                try{
+                    if(r.update.length)m.Y.applyUpdate(doc,r.update);
+                    return {id:r.id,pending:Object.keys(r.pending).length,meta:r.meta,drafts:r.drafts||{},originalName:r.original?.name,data:doc.getMap('data').toJSON()};
+                }finally{doc.destroy();}
+            },
             async text(id){const m=await import(${mod('src/lib/workspaces/session.ts')});const s=await m.openArtifact(await captureScope(),id,'document');const text=s.body.toString();await s.close();return text;},
             async pdfText(encoded){const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc=(await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;const task=pdfjs.getDocument({data:Uint8Array.from(atob(encoded),c=>c.charCodeAt(0)),enableXfa:false,useWasm:false,useWorkerFetch:false,disableFontFace:true});try{const pdf=await task.promise;const pages=[];for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);pages.push((await page.getTextContent()).items.map(item=>item.str||'').join(' '));}return pages;}finally{await task.destroy();}},
             async api(route,body){const response=await fetch('/api/workspace'+route,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+account.token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});return{status:response.status,body:await response.json()};}};`);
