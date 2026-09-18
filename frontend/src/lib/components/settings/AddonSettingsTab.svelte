@@ -1,7 +1,12 @@
 <script lang="ts">
 	import GamesSettingsEntry from '$lib/games/GamesSettingsEntry.svelte';
-	import type { AddonSectionId } from './addonSettingsRegistry';
-	import { createAddonSettingsView } from './addonSettingsView';
+	import {
+		ADDON_SECTION_IDS,
+		ADDON_SECTION_LABELS,
+		type AddonSectionId
+	} from './addonSettingsRegistry';
+	import { createAddonSettingsView, type AddonCategoryFilter } from './addonSettingsView';
+	import { addonEnabledState } from './addonEnabledRegistry.svelte';
 	import {
 		fetchPluginInventory,
 		pluginBackendAddons,
@@ -11,7 +16,7 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
 	import { onMount } from 'svelte';
-	import AddonManifestSection from './addons/AddonManifestSection.svelte';
+	import AddonRow from './addons/AddonRow.svelte';
 	import ChatSection from './addons/ChatSection.svelte';
 	import SpoilersSection from './addons/SpoilersSection.svelte';
 	import SearchSection from './addons/SearchSection.svelte';
@@ -30,23 +35,25 @@
 	let addonsLoading = $state(false);
 	let addonsError = $state('');
 	let addonSearchQuery = $state('');
-	// Finding 22: default to first rendered section (chat). 'dms' was removed.
-	let activeAddonSection = $state<AddonSectionId | null>('chat');
+	/** Blender's "Enabled Only" filter. */
+	let enabledOnly = $state(false);
+	/** Blender's category dropdown: All / Server / Bundled / one local section. */
+	let categoryFilter = $state<AddonCategoryFilter>('all');
 	let translatorAddonDetected = $derived(
 		[...frontendAddons, ...backendAddons].some((addon) => addon.id === 'translator-assist')
 	);
 	let addonView = $derived(
-		createAddonSettingsView(addonSearchQuery, activeAddonSection, translatorAddonDetected)
+		createAddonSettingsView(addonSearchQuery, enabledOnly, addonEnabledState, categoryFilter)
 	);
 	let localAddonControlMatches = $derived(addonView.localAddonControlMatches);
 	let addonSectionMatchCount = $derived(addonView.addonSectionMatchCount);
-	let isAddonSectionOpen = $derived(addonView.isAddonSectionOpen);
 	let availableLocalAddonControlCount = $derived(addonView.availableLocalAddonControlCount);
 	let visibleLocalAddonControlCount = $derived(addonView.visibleLocalAddonControlCount);
-
-	function toggleAddonSection(section: AddonSectionId): void {
-		activeAddonSection = activeAddonSection === section ? null : section;
-	}
+	let hasVisibleRows = $derived(
+		visibleLocalAddonControlCount > 0 ||
+			(addonView.showServerRows && backendAddons.length > 0) ||
+			(addonView.showBundledRows && frontendAddons.length > 0)
+	);
 
 	function clearAddonSearchQuery(): void {
 		addonSearchQuery = '';
@@ -83,36 +90,27 @@
 	onMount(() => {
 		void refreshAddonDetection();
 	});
-
 </script>
 
 <div class="settings-section">
 	<GamesSettingsEntry />
-	<AddonManifestSection
-		{frontendAddons}
-		{backendAddons}
-		{addonsLastDetectedAt}
-		{addonsLoading}
-		{addonsError}
-		{refreshAddonDetection}
-	/>
 
 	<div class="addons-settings-window">
 		<div class="addons-settings-window-header">
-			<div class="setting-info">
-				<span class="setting-label">Local controls</span>
-				<span class="setting-description"
-					>Local device controls. Search expands matches.</span
-				>
-			</div>
 			<div class="addons-settings-toolbar">
 				<label class="addons-search-field">
-					<span class="addons-search-label">Search add-ons</span>
+					<span class="addons-search-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24">
+							<circle cx="11" cy="11" r="7" />
+							<path d="M20 20l-3.6-3.6" />
+						</svg>
+					</span>
 					<input
 						type="search"
-						class="theme-select addon-search-input"
+						class="addon-search-input"
 						bind:value={addonSearchQuery}
-						placeholder="Filter add-ons…"
+						placeholder="Search add-ons…"
+						aria-label="Search add-ons"
 						name="addon-filter"
 						id="settings-addon-filter"
 						autocomplete="off"
@@ -124,93 +122,116 @@
 						data-form-type="other"
 					/>
 				</label>
-				<div class="addons-search-meta">
-					<span class="runtime-note"
-						>Showing {visibleLocalAddonControlCount} of {availableLocalAddonControlCount} local
-						add-ons</span
+				<label class="addon-enabled-only">
+					<input type="checkbox" bind:checked={enabledOnly} />
+					<span>Enabled Only</span>
+				</label>
+				<div class="addon-toolbar-actions">
+					<label class="addon-category-filter">
+						<span class="visually-hidden">Add-on category</span>
+						<select class="addon-category-select" bind:value={categoryFilter}>
+							<option value="all">All</option>
+							<option value="server">Server</option>
+							<option value="bundled">Bundled</option>
+							{#each ADDON_SECTION_IDS as section (section)}
+								<option value={section}>
+									{ADDON_SECTION_LABELS[section]} ({addonSectionMatchCount(section)})
+								</option>
+							{/each}
+						</select>
+					</label>
+					<button
+						type="button"
+						class="addon-icon-btn"
+						onclick={refreshAddonDetection}
+						disabled={addonsLoading}
+						title="Refresh add-on inventory"
+						aria-label="Refresh add-on inventory"
 					>
-					{#if addonSearchQuery.trim()}
-						<button
-							type="button"
-							class="action-btn secondary addon-search-clear"
-							onclick={clearAddonSearchQuery}
-						>
-							Clear Search
-						</button>
-					{/if}
+						<svg viewBox="0 0 24 24" aria-hidden="true">
+							<path d="M21 12a9 9 0 1 1-2.6-6.4" />
+							<path d="M21 4v5h-5" />
+						</svg>
+					</button>
 				</div>
+			</div>
+			<div class="addons-search-meta">
+				<span class="addon-status-note">
+					Showing {visibleLocalAddonControlCount} of {availableLocalAddonControlCount} local add-ons{#if addonsLastDetectedAt}
+						· inventory refreshed {addonsLastDetectedAt}{/if}
+				</span>
+				{#if addonSearchQuery.trim()}
+					<button
+						type="button"
+						class="addon-search-clear"
+						onclick={clearAddonSearchQuery}
+					>
+						Clear
+					</button>
+				{/if}
 			</div>
 		</div>
 		<div class="addons-settings-window-body">
-			{#if visibleLocalAddonControlCount === 0}
-				<div class="addon-empty-state">
-					<div class="addon-empty-state-title">No local add-ons matched that search.</div>
-					<div class="runtime-note">Try another keyword, or clear the filter to show everything again.</div>
-					<button
-						type="button"
-						class="action-btn secondary addon-search-clear"
-						onclick={clearAddonSearchQuery}
-					>
-						Clear Search
-					</button>
-				</div>
+			{#if addonsError}
+				<div class="runtime-note addon-error">{addonsError}</div>
 			{/if}
+
+			{#if addonView.showServerRows}
+				{#each backendAddons as addon (addon.id)}
+					<AddonRow
+						id={`server:${addon.id}`}
+						label={addon.name}
+						description="Compiled into this server binary (Cargo feature). There is no runtime package install from this UI."
+						enabled={true}
+						locked={true}
+						badge="Server"
+						meta={`id: ${addon.id} · version: ${addon.version} · ${addon.source}`}
+					/>
+				{:else}
+					<div class="addon-group-note">
+						No backend add-ons enabled in this server build. Enable Cargo features (e.g.
+						<code>--features addons</code>) and restart the server.
+					</div>
+				{/each}
+			{/if}
+
+			{#if addonView.showBundledRows && frontendAddons.length > 0}
+				{#each frontendAddons as addon (addon.id + addon.source)}
+					<AddonRow
+						id={`bundled:${addon.id}`}
+						label={addon.name}
+						description="Bundled with this client build. Frontend modules load only via the static allowlist (never remote import)."
+						enabled={true}
+						locked={true}
+						badge="Bundled"
+						meta={`id: ${addon.id} · version: ${addon.version} · ${addon.source}`}
+					/>
+				{/each}
+			{/if}
+
+			{#if addonView.showLocalRows}
+				{#if !hasVisibleRows}
+					<div class="addon-empty-state">
+						<div class="addon-empty-state-title">No add-ons matched that filter.</div>
+						<div class="runtime-note">
+							Try another keyword, turn off Enabled Only, or clear the category filter.
+						</div>
+						<button type="button" class="addon-search-clear" onclick={clearAddonSearchQuery}>
+							Clear search
+						</button>
+					</div>
+				{/if}
 				<!-- Keep section instances alive through empty searches so local edits survive. -->
-				<ChatSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
-				<SpoilersSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
-				<SearchSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
-				<NavigationSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
-				<IdentitySection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
-				<NotificationsSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
-				<MediaSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
-				<AppearanceSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
-				<UtilitiesSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-					{translatorAddonDetected}
-				/>
+				<ChatSection {localAddonControlMatches} />
+				<SpoilersSection {localAddonControlMatches} />
+				<SearchSection {localAddonControlMatches} />
+				<NavigationSection {localAddonControlMatches} />
+				<IdentitySection {localAddonControlMatches} />
+				<NotificationsSection {localAddonControlMatches} />
+				<MediaSection {localAddonControlMatches} />
+				<AppearanceSection {localAddonControlMatches} />
+				<UtilitiesSection {localAddonControlMatches} {translatorAddonDetected} />
+			{/if}
 		</div>
 	</div>
 </div>

@@ -1,16 +1,12 @@
 <script lang="ts">
-	import { get } from 'svelte/store';
-	import { emojis } from '$lib/socket';
-	import type { Emoji } from '$lib/socket';
 	import {
 		composerEnhancementSettingsStore, setCharCounterEnabled, setSpellCheckEnabled,
 		setSplitLargeMessagesEnabled, setSplitLargeMessagesChunkSize, setWriteUpperCaseEnabled
 	} from '$lib/composerEnhancements';
 	import {
 		displayEnhancementSettingsStore, setClickableMentionsEnabled, setMessageUtilitiesEnabled,
-		setPersonalPinsEnabled, setQuickMentionEnabled, setRevealAllSpoilersEnabled,
-		setRevealAllSpoilersMinRole, setTimestampDisplayMode,
-		type RevealAllSpoilersMinRole, type TimestampDisplayMode
+		setPersonalPinsEnabled, setQuickMentionEnabled, setTimestampDisplayMode,
+		type TimestampDisplayMode
 	} from '$lib/displayEnhancements';
 	import { clearAllPersonalPins, personalPinsStore } from '$lib/personalPins';
 	import {
@@ -18,13 +14,12 @@
 		setUnicodeEmojiConversionEnabled, setUnicodeEmojiDefaultSourceEnabled,
 		setUnicodeEmojiOpenmojiSourceEnabled, unicodeEmojiTelemetryStore, unicodeEmojiSettingsStore
 	} from '$lib/unicodeEmojis';
-	import type { AddonSectionId } from '../addonSettingsRegistry';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
+	import AddonRow from './AddonRow.svelte';
 
 	export let localAddonControlMatches: (controlId: string) => boolean;
-	export let isAddonSectionOpen: (section: AddonSectionId) => boolean;
-	export let toggleAddonSection: (section: AddonSectionId) => void;
-	export let addonSectionMatchCount: (section: AddonSectionId) => number;
+
+	const SECTION = ADDON_SECTION_LABELS.chat;
 
 	let spellCheckEnabled = true;
 	let charCounterEnabled = true;
@@ -34,8 +29,6 @@
 	let writeUpperCaseEnabled = false;
 	let clickableMentionsEnabled = true;
 	let timestampDisplayMode: TimestampDisplayMode = 'compact';
-	let revealAllSpoilersEnabled = true;
-	let revealAllSpoilersMinRole: RevealAllSpoilersMinRole = 'member';
 	let messageUtilitiesEnabled = true;
 	let quickMentionEnabled = true;
 	let personalPinsEnabled = true;
@@ -53,8 +46,6 @@
 	$: writeUpperCaseEnabled = $composerEnhancementSettingsStore.writeUpperCaseEnabled;
 	$: clickableMentionsEnabled = $displayEnhancementSettingsStore.clickableMentionsEnabled;
 	$: timestampDisplayMode = $displayEnhancementSettingsStore.timestampDisplayMode;
-	$: revealAllSpoilersEnabled = $displayEnhancementSettingsStore.revealAllSpoilersEnabled;
-	$: revealAllSpoilersMinRole = $displayEnhancementSettingsStore.revealAllSpoilersMinRole;
 	$: messageUtilitiesEnabled = $displayEnhancementSettingsStore.messageUtilitiesEnabled;
 	$: quickMentionEnabled = $displayEnhancementSettingsStore.quickMentionEnabled;
 	$: personalPinsEnabled = $displayEnhancementSettingsStore.personalPinsEnabled;
@@ -95,16 +86,6 @@
 	function updateTimestampDisplayMode(mode: string): void {
 		if (mode === 'compact' || mode === 'complete' || mode === 'detailed') {
 			setTimestampDisplayMode(mode as TimestampDisplayMode);
-		}
-	}
-
-	function toggleRevealAllSpoilersAddon(): void {
-		setRevealAllSpoilersEnabled(!revealAllSpoilersEnabled);
-	}
-
-	function updateRevealAllSpoilersRole(role: string): void {
-		if (role === 'guest' || role === 'member' || role === 'mod' || role === 'admin' || role === 'owner') {
-			setRevealAllSpoilersMinRole(role as RevealAllSpoilersMinRole);
 		}
 	}
 
@@ -182,221 +163,209 @@
 	}
 </script>
 
-{#if localAddonControlMatches('spellcheck') || localAddonControlMatches('char_counter') || localAddonControlMatches('split_large_messages') || localAddonControlMatches('write_upper_case') || localAddonControlMatches('clickable_mentions') || localAddonControlMatches('complete_timestamps') || localAddonControlMatches('message_utilities') || localAddonControlMatches('quick_mention') || localAddonControlMatches('personal_pins') || localAddonControlMatches('unicode_emojis')}
-<section class="addon-accordion-section">
-	<button
-		type="button"
-		class="addon-accordion-trigger"
-		aria-expanded={isAddonSectionOpen('chat')}
-		aria-controls="addon-section-chat"
-		on:click={() => toggleAddonSection('chat')}
+{#if localAddonControlMatches('spellcheck')}
+	<AddonRow
+		id="spellcheck"
+		label="SpellCheck (MVP)"
+		description="Use browser spellcheck in the main chat and DM composers."
+		enabled={spellCheckEnabled}
+		badge={SECTION}
+		onToggle={toggleSpellCheckAddon}
+	/>
+{/if}
+
+{#if localAddonControlMatches('char_counter')}
+	<AddonRow
+		id="char_counter"
+		label="CharCounter (MVP)"
+		description="Show live character counters in the main chat and DM composers."
+		enabled={charCounterEnabled}
+		badge={SECTION}
+		onToggle={toggleCharCounterAddon}
+	/>
+{/if}
+
+{#if localAddonControlMatches('split_large_messages')}
+	<AddonRow
+		id="split_large_messages"
+		label="SplitLargeMessages (MVP)"
+		description="Automatically split long outgoing text into multiple messages."
+		enabled={splitLargeMessagesEnabled}
+		badge={SECTION}
+		onToggle={toggleSplitLargeMessagesAddon}
 	>
-		<span class="addon-accordion-trigger-main">
-			<span class="addon-section-chevron" aria-hidden="true">
-				<svg viewBox="0 0 24 24">
-					<path d="M9 6l6 6-6 6"></path>
-				</svg>
-			</span>
-			<span class="addon-accordion-label">{ADDON_SECTION_LABELS.chat}</span>
-		</span>
-		<span class="addon-accordion-count">{addonSectionMatchCount('chat')}</span>
-	</button>
-	{#if isAddonSectionOpen('chat')}
-	<div class="addon-accordion-body" id="addon-section-chat">
-		{#if localAddonControlMatches('spellcheck')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">SpellCheck (MVP)</span>
-					<span class="setting-description">Use browser spellcheck in the main chat and DM composers.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={spellCheckEnabled} on:click={toggleSpellCheckAddon}>
-					</button>
-				</div>
+		{#snippet preferences()}
+			<label class="addon-pref-field">
+				<span>Chunk size</span>
+				<input
+					type="number"
+					min="250"
+					max="4000"
+					step="50"
+					value={splitLargeMessagesChunkSize}
+					on:change={(event) => updateSplitLargeMessagesChunkSize(event.currentTarget.value)}
+					disabled={!splitLargeMessagesEnabled}
+				/>
+			</label>
+			<div class="runtime-note">
+				Composer max length: {splitLargeMessagesInputMaxLength} characters.
+				{splitLargeMessagesEnabled
+					? ` Messages are split into chunks of up to ${splitLargeMessagesChunkSize} characters.`
+					: ' Long posts stay intact and switch to Reader previews after 2,000 characters.'}
 			</div>
-		{/if}
+		{/snippet}
+	</AddonRow>
+{/if}
 
-		{#if localAddonControlMatches('char_counter')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">CharCounter (MVP)</span>
-					<span class="setting-description">Show live character counters in the main chat and DM composers.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={charCounterEnabled} on:click={toggleCharCounterAddon}>
-					</button>
-				</div>
+{#if localAddonControlMatches('write_upper_case')}
+	<AddonRow
+		id="write_upper_case"
+		label="WriteUpperCase"
+		description="Auto-capitalize sentence starts for outgoing text (main chat, DM, and GIF captions)."
+		enabled={writeUpperCaseEnabled}
+		badge={SECTION}
+		onToggle={toggleWriteUpperCaseAddon}
+	/>
+{/if}
+
+{#if localAddonControlMatches('clickable_mentions')}
+	<AddonRow
+		id="clickable_mentions"
+		label="ClickableMentions"
+		description="Open user popouts by clicking usernames and @mentions in message content."
+		enabled={clickableMentionsEnabled}
+		badge={SECTION}
+		onToggle={toggleClickableMentionsAddon}
+	/>
+{/if}
+
+{#if localAddonControlMatches('complete_timestamps')}
+	<AddonRow
+		id="complete_timestamps"
+		label="CompleteTimestamps"
+		description="Choose the timestamp detail level shown in message rows."
+		enabled={timestampDisplayMode !== 'compact'}
+		badge={SECTION}
+		onToggle={() => updateTimestampDisplayMode(timestampDisplayMode === 'compact' ? 'complete' : 'compact')}
+	>
+		{#snippet preferences()}
+			<label class="addon-pref-field">
+				<span>Timestamp mode</span>
+				<select
+					class="theme-select"
+					value={timestampDisplayMode}
+					on:change={(event) => updateTimestampDisplayMode(event.currentTarget.value)}
+				>
+					<option value="compact">Compact (time only)</option>
+					<option value="complete">Complete (date + time)</option>
+					<option value="detailed">Detailed (full locale)</option>
+				</select>
+			</label>
+		{/snippet}
+	</AddonRow>
+{/if}
+
+{#if localAddonControlMatches('message_utilities')}
+	<AddonRow
+		id="message_utilities"
+		label="MessageUtilities"
+		description="Show extra quick message tools in hover actions (quick mention, pin, edit)."
+		enabled={messageUtilitiesEnabled}
+		badge={SECTION}
+		onToggle={toggleMessageUtilitiesAddon}
+	/>
+{/if}
+
+{#if localAddonControlMatches('quick_mention')}
+	<AddonRow
+		id="quick_mention"
+		label="QuickMention"
+		description="Adds a fast mention action in message context/utility actions."
+		enabled={quickMentionEnabled}
+		badge={SECTION}
+		onToggle={toggleQuickMentionAddon}
+	/>
+{/if}
+
+{#if localAddonControlMatches('personal_pins')}
+	<AddonRow
+		id="personal_pins"
+		label="PersonalPins"
+		description="Pin messages locally on this device without affecting shared channel pins."
+		enabled={personalPinsEnabled}
+		badge={SECTION}
+		onToggle={togglePersonalPinsAddon}
+	>
+		{#snippet preferences()}
+			<div class="runtime-note">Local personal pins: {personalPinCount}</div>
+			<div class="settings-row-actions">
+				<button
+					class="action-btn secondary"
+					on:click={clearPersonalPinsAddon}
+					disabled={personalPinCount === 0}
+				>
+					Clear Local Pins
+				</button>
 			</div>
-		{/if}
+		{/snippet}
+	</AddonRow>
+{/if}
 
-		{#if localAddonControlMatches('split_large_messages')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">SplitLargeMessages (MVP)</span>
-					<span class="setting-description">Automatically split long outgoing text into multiple messages.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={splitLargeMessagesEnabled} on:click={toggleSplitLargeMessagesAddon}>
-					</button>
-					<label class="upload-limit-row split-chunk-size-row">
-						<span>Chunk size</span>
-						<input
-							type="number"
-							min="250"
-							max="4000"
-							step="50"
-							value={splitLargeMessagesChunkSize}
-							on:change={(event) => updateSplitLargeMessagesChunkSize(event.currentTarget.value)}
-							disabled={!splitLargeMessagesEnabled}
-						/>
-					</label>
-				</div>
+{#if localAddonControlMatches('unicode_emojis')}
+	<AddonRow
+		id="unicode_emojis"
+		label="UnicodeEmojis"
+		description="Convert outgoing default/OpenMoji shortcodes (for example :smile:) into native Unicode emoji. Custom emoji shortcodes stay unchanged."
+		enabled={unicodeEmojisEnabled}
+		badge={SECTION}
+		onToggle={toggleUnicodeEmojisAddon}
+	>
+		{#snippet preferences()}
+			<label class="addon-pref-check">
+				<input
+					type="checkbox"
+					checked={unicodeConvertDefaultEnabled}
+					on:change={toggleUnicodeDefaultSource}
+				/>
+				<span>Convert default emoji shortcodes</span>
+			</label>
+			<label class="addon-pref-check">
+				<input
+					type="checkbox"
+					checked={unicodeConvertOpenmojiEnabled}
+					on:change={toggleUnicodeOpenmojiSource}
+				/>
+				<span>Convert OpenMoji shortcodes</span>
+			</label>
+			<div class="runtime-note">Applies to main chat, DM sends, and GIF captions.</div>
+			{#if unicodeEmojisEnabled}
 				<div class="runtime-note">
-					Composer max length: {splitLargeMessagesInputMaxLength} characters. {splitLargeMessagesEnabled ? `Messages are split into chunks of up to ${splitLargeMessagesChunkSize} characters.` : 'Long posts stay intact and switch to Reader previews after 2,000 characters.'}
-				</div>
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('write_upper_case')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">WriteUpperCase</span>
-					<span class="setting-description">Auto-capitalize sentence starts for outgoing text (main chat, DM, and GIF captions).</span>
+					Local counters (device-only):
+					converted {$unicodeEmojiTelemetryStore.convertedTokens},
+					unknown {$unicodeEmojiTelemetryStore.unknownTokens},
+					shortcode collisions {$unicodeEmojiTelemetryStore.shortcodeCollisions}.
 				</div>
 				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={writeUpperCaseEnabled} on:click={toggleWriteUpperCaseAddon}>
-					</button>
-				</div>
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('clickable_mentions')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">ClickableMentions</span>
-					<span class="setting-description">Open user popouts by clicking usernames and @mentions in message content.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={clickableMentionsEnabled} on:click={toggleClickableMentionsAddon}>
-					</button>
-				</div>
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('complete_timestamps')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">CompleteTimestamps</span>
-					<span class="setting-description">Choose the timestamp detail level shown in message rows.</span>
-				</div>
-				<label class="upload-limit-row">
-					<span>Timestamp mode</span>
-					<select
-						class="theme-select"
-						value={timestampDisplayMode}
-						on:change={(event) => updateTimestampDisplayMode(event.currentTarget.value)}
+					<button
+						class="action-btn secondary"
+						on:click={resetUnicodeEmojisTelemetry}
+						disabled={$unicodeEmojiTelemetryStore.convertedTokens +
+							$unicodeEmojiTelemetryStore.unknownTokens +
+							$unicodeEmojiTelemetryStore.shortcodeCollisions === 0}
 					>
-						<option value="compact">Compact (time only)</option>
-						<option value="complete">Complete (date + time)</option>
-						<option value="detailed">Detailed (full locale)</option>
-					</select>
-				</label>
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('message_utilities')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">MessageUtilities</span>
-					<span class="setting-description">Show extra quick message tools in hover actions (quick mention, pin, edit).</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={messageUtilitiesEnabled} on:click={toggleMessageUtilitiesAddon}>
+						Reset Unicode Counters
+					</button>
+					<button class="action-btn secondary" on:click={() => void exportUnicodeEmojisPrefs()}>
+						Export Unicode Prefs
+					</button>
+					<button class="action-btn secondary" on:click={importUnicodeEmojisPrefs}>
+						Import Unicode Prefs
 					</button>
 				</div>
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('quick_mention')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">QuickMention</span>
-					<span class="setting-description">Adds a fast mention action in message context/utility actions.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={quickMentionEnabled} on:click={toggleQuickMentionAddon}>
-					</button>
-				</div>
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('personal_pins')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">PersonalPins</span>
-					<span class="setting-description">Pin messages locally on this device without affecting shared channel pins.</span>
-				</div>
-				<div class="runtime-note">Local personal pins: {personalPinCount}</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={personalPinsEnabled} on:click={togglePersonalPinsAddon}>
-					</button>
-					<button class="action-btn secondary" on:click={clearPersonalPinsAddon} disabled={personalPinCount === 0}>
-						Clear Local Pins
-					</button>
-				</div>
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('unicode_emojis')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">UnicodeEmojis</span>
-					<span class="setting-description">Convert outgoing default/OpenMoji shortcodes (for example <code>:smile:</code>) into native Unicode emoji. Custom emoji shortcodes stay unchanged.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={unicodeEmojisEnabled} on:click={toggleUnicodeEmojisAddon}>
-					</button>
-				</div>
-				{#if unicodeEmojisEnabled}
-					<div class="settings-row-actions">
-						<button class="toggle-btn" class:active={unicodeConvertDefaultEnabled} on:click={toggleUnicodeDefaultSource} aria-label="Default emoji source" aria-pressed={unicodeConvertDefaultEnabled}></button>
-						<button class="toggle-btn" class:active={unicodeConvertOpenmojiEnabled} on:click={toggleUnicodeOpenmojiSource} aria-label="OpenMoji emoji source" aria-pressed={unicodeConvertOpenmojiEnabled}></button>
-					</div>
+				{#if unicodeEmojisPrefsStatus}
+					<div class="runtime-note">{unicodeEmojisPrefsStatus}</div>
 				{/if}
-				<div class="runtime-note">Applies to main chat, DM sends, and GIF captions.</div>
-				{#if unicodeEmojisEnabled}
-					<div class="runtime-note">
-						Local counters (device-only):
-						converted {$unicodeEmojiTelemetryStore.convertedTokens},
-						unknown {$unicodeEmojiTelemetryStore.unknownTokens},
-						shortcode collisions {$unicodeEmojiTelemetryStore.shortcodeCollisions}.
-					</div>
-					<div class="settings-row-actions">
-						<button
-							class="action-btn secondary"
-							on:click={resetUnicodeEmojisTelemetry}
-							disabled={
-								$unicodeEmojiTelemetryStore.convertedTokens +
-								$unicodeEmojiTelemetryStore.unknownTokens +
-								$unicodeEmojiTelemetryStore.shortcodeCollisions === 0
-							}
-						>
-							Reset Unicode Counters
-						</button>
-						<button class="action-btn secondary" on:click={() => void exportUnicodeEmojisPrefs()}>
-							Export Unicode Prefs
-						</button>
-						<button class="action-btn secondary" on:click={importUnicodeEmojisPrefs}>
-							Import Unicode Prefs
-						</button>
-					</div>
-					{#if unicodeEmojisPrefsStatus}
-						<div class="runtime-note">{unicodeEmojisPrefsStatus}</div>
-					{/if}
-				{/if}
-			</div>
-		{/if}
-	</div>
-	{/if}
-</section>
+			{/if}
+		{/snippet}
+	</AddonRow>
 {/if}

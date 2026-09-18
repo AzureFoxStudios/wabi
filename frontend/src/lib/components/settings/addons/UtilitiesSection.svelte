@@ -11,15 +11,14 @@
 		type TranslatorModelId
 	} from '$lib/components/message/messageTranslator';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
-	import type { AddonSectionId } from '../addonSettingsRegistry';
+	import AddonRow from './AddonRow.svelte';
 
 	export let localAddonControlMatches: (controlId: string) => boolean;
-	export let isAddonSectionOpen: (section: AddonSectionId) => boolean;
-	export let toggleAddonSection: (section: AddonSectionId) => void;
-	export let addonSectionMatchCount: (section: AddonSectionId) => number;
 	// Kept for call-site compatibility. Translator Assist is a bundled client addon,
 	// so discoverability no longer depends on an archived/runtime backend package.
 	export let translatorAddonDetected: boolean;
+
+	const SECTION = ADDON_SECTION_LABELS.utilities;
 
 	const TRANSLATOR_MODEL_OPTIONS: Array<{ id: TranslatorModelId; label: string }> = [
 		{ id: 'libretranslate-local', label: 'LibreTranslate on this device' },
@@ -101,6 +100,11 @@
 		}
 	}
 
+	function toggleTranslatorAddon(): void {
+		translatorMode = translatorMode === 'off' ? 'on-demand' : 'off';
+		saveTranslatorAddonSettings();
+	}
+
 	function addChatAliasFromDraft(): void {
 		const trigger = chatAliasTriggerDraft.trim();
 		const replacement = chatAliasReplacementDraft.trim();
@@ -163,228 +167,234 @@
 	}
 </script>
 
-{#if localAddonControlMatches('translator_addon') || localAddonControlMatches('chat_aliases') || localAddonControlMatches('chat_filter') || localAddonControlMatches('custom_quoter')}
-<section class="addon-accordion-section">
-	<button
-		type="button"
-		class="addon-accordion-trigger"
-		aria-expanded={isAddonSectionOpen('utilities')}
-		aria-controls="addon-section-utilities"
-		on:click={() => toggleAddonSection('utilities')}
+{#if localAddonControlMatches('translator_addon')}
+	<AddonRow
+		id="translator_addon"
+		label="Translator Assist"
+		description="Optional, local-first message translation. Wabi does not proxy message text through the server."
+		enabled={translatorMode !== 'off'}
+		badge={SECTION}
+		onToggle={toggleTranslatorAddon}
 	>
-		<span class="addon-accordion-trigger-main">
-			<span class="addon-section-chevron" aria-hidden="true">
-				<svg viewBox="0 0 24 24">
-					<path d="M9 6l6 6-6 6"></path>
-				</svg>
-			</span>
-			<span class="addon-accordion-label">{ADDON_SECTION_LABELS.utilities}</span>
-		</span>
-		<span class="addon-accordion-count">{addonSectionMatchCount('utilities')}</span>
-	</button>
-	{#if isAddonSectionOpen('utilities')}
-	<div class="addon-accordion-body" id="addon-section-utilities">
-		{#if localAddonControlMatches('translator_addon')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">Translator Assist</span>
-					<span class="setting-description">Optional, local-first message translation. Wabi does not proxy message text through the server.</span>
-				</div>
-				<div class="upload-limit-grid">
-					<label class="upload-limit-row">
-						<span>Mode</span>
-						<select bind:value={translatorMode} class="theme-select" on:change={saveTranslatorAddonSettings}>
-							<option value="off">Off</option>
-							<option value="on-demand">Translate when asked</option>
-							<option value="auto">Automatic — translate languages I don't understand</option>
-						</select>
-					</label>
-					<label class="upload-limit-row">
-						<span>Provider</span>
-						<select bind:value={translatorModel} class="theme-select" on:change={handleTranslatorModelChange}>
-							{#each TRANSLATOR_MODEL_OPTIONS as modelOption}
-								<option value={modelOption.id}>{modelOption.label}</option>
-							{/each}
-						</select>
-					</label>
-					{#if translatorModel === 'libretranslate-self-hosted'}
-						<label class="upload-limit-row">
-							<span>Translator endpoint</span>
-							<input
-								type="url"
-								bind:value={translatorProviderUrl}
-								placeholder="https://translate.example.com/translate"
-								on:blur={saveTranslatorAddonSettings}
-							/>
-						</label>
-					{/if}
-					<label class="upload-limit-row">
-						<span>Translate into</span>
-						<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" on:blur={saveTranslatorAddonSettings} />
-					</label>
-					<label class="upload-limit-row">
-						<span>Languages I understand</span>
-						<input type="text" maxlength="96" bind:value={translatorUnderstoodLanguages} placeholder="en, th" on:blur={saveTranslatorAddonSettings} />
-					</label>
-				</div>
-
-				{#if translatorModel === 'libretranslate-local'}
-					<div class="runtime-note">
-						Local mode connects only to <code>127.0.0.1:5000</code>. Wabi does not bundle the translation service or its language models.
-					</div>
-					<div class="runtime-note">
-						One-command Docker setup: <code>{LOCAL_TRANSLATOR_DOCKER_COMMAND}</code>
-					</div>
-					<div class="settings-row-actions">
-						<button class="action-btn secondary" type="button" on:click={copyLocalTranslatorCommand}>Copy setup command</button>
-						<button class="action-btn secondary" type="button" on:click={checkTranslatorProvider} disabled={translatorProbeState === 'checking'}>
-							{translatorProbeState === 'checking' ? 'Checking…' : 'Check translator'}
-						</button>
-					</div>
-				{:else}
-					<div class="runtime-note">
-						Self-hosted mode connects directly from your client to an HTTPS LibreTranslate endpoint you chose. The Wabi Authority never relays the message text.
-					</div>
-					<div class="settings-row-actions">
-						<button class="action-btn secondary" type="button" on:click={checkTranslatorProvider} disabled={translatorProbeState === 'checking'}>
-							{translatorProbeState === 'checking' ? 'Checking…' : 'Check translator'}
-						</button>
-					</div>
-				{/if}
-
-				{#if translatorMode === 'auto'}
-					<div class="runtime-note">
-						Automatic mode considers incoming text only when it enters or approaches your viewport. It skips your own messages, commands, code-only/URL-only posts, and languages listed above. A remote self-hosted provider receives the visible message text needed for detection and translation.
-					</div>
-				{:else if translatorMode === 'off'}
-					<div class="runtime-note">Translator Assist is off. Translation controls stay out of chat and no translation requests are made.</div>
-				{/if}
-				{#if translatorProbeMessage}
-					<div class="runtime-note" role="status">
-						{translatorProbeState === 'ok' ? '✓' : translatorProbeState === 'error' ? '!' : ''} {translatorProbeMessage}
-					</div>
-				{/if}
-				{#if translatorSettingsSavedAt}
-					<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
-				{/if}
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('chat_aliases')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">ChatAliases (MVP)</span>
-					<span class="setting-description">Create slash aliases. Use <code>{'{args}'}</code> in replacement to inject trailing arguments.</span>
-				</div>
-				<div class="settings-row-actions">
-					<input
-						type="text"
-						class="theme-select alias-input"
-						placeholder="/shrug"
-						bind:value={chatAliasTriggerDraft}
-					/>
-					<input
-						type="text"
-						class="theme-select alias-input"
-						placeholder="Replacement text or /command"
-						bind:value={chatAliasReplacementDraft}
-					/>
-					<button
-						class="action-btn"
-						on:click={addChatAliasFromDraft}
-						disabled={!chatAliasTriggerDraft.trim() || !chatAliasReplacementDraft.trim()}
-					>
-						Add Alias
-					</button>
-				</div>
-				{#if $chatAliasesStore.length === 0}
-					<div class="runtime-note">No aliases configured yet.</div>
-				{:else}
-					<div class="addons-list">
-						{#each $chatAliasesStore as alias (alias.id)}
-							<div class="addon-row">
-								<div class="addon-name">{alias.trigger} -> {alias.replacement}</div>
-								<div class="settings-row-actions">
-									<button class="action-btn secondary" on:click={() => toggleChatAliasEnabled(alias)}>
-										{alias.enabled ? 'Disable' : 'Enable'}
-									</button>
-									<button class="action-btn secondary" on:click={() => editChatAlias(alias)}>Edit</button>
-									<button class="action-btn danger" on:click={() => removeChatAlias(alias.id)}>Delete</button>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('chat_filter')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">ChatFilter (MVP)</span>
-					<span class="setting-description">Censor or hide messages containing blocked terms.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={$chatFilterStore.enabled} on:click={toggleChatFilterEnabled}>
-					</button>
-					<select
-						class="theme-select"
-						value={$chatFilterStore.mode}
-						on:change={(event) => updateChatFilterMode(event.currentTarget.value as ChatFilterMode)}
-						disabled={!$chatFilterStore.enabled}
-					>
-						<option value="censor">Censor text</option>
-						<option value="hide">Hide full message</option>
+		{#snippet preferences()}
+			<div class="upload-limit-grid">
+				<label class="upload-limit-row">
+					<span>Mode</span>
+					<select bind:value={translatorMode} class="theme-select" on:change={saveTranslatorAddonSettings}>
+						<option value="off">Off</option>
+						<option value="on-demand">Translate when asked</option>
+						<option value="auto">Automatic — translate languages I don't understand</option>
 					</select>
-					<button class="action-btn secondary" on:click={editChatFilterTerms}>
-						Edit Terms ({$chatFilterStore.terms.length})
-					</button>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={$chatFilterStore.applyToIncoming} on:click={toggleChatFilterIncoming}>
-						Incoming {$chatFilterStore.applyToIncoming ? 'ON' : 'OFF'}
-					</button>
-					<button class="toggle-btn" class:active={$chatFilterStore.applyToOutgoing} on:click={toggleChatFilterOutgoing}>
-						Outgoing {$chatFilterStore.applyToOutgoing ? 'ON' : 'OFF'}
-					</button>
-				</div>
-				{#if $chatFilterStore.mode === 'censor'}
+				</label>
+				<label class="upload-limit-row">
+					<span>Provider</span>
+					<select bind:value={translatorModel} class="theme-select" on:change={handleTranslatorModelChange}>
+						{#each TRANSLATOR_MODEL_OPTIONS as modelOption}
+							<option value={modelOption.id}>{modelOption.label}</option>
+						{/each}
+					</select>
+				</label>
+				{#if translatorModel === 'libretranslate-self-hosted'}
 					<label class="upload-limit-row">
-						<span>Replacement token</span>
+						<span>Translator endpoint</span>
 						<input
-							type="text"
-							maxlength="24"
-							value={$chatFilterStore.replacement}
-							on:input={(event) => updateChatFilterReplacement(event.currentTarget.value)}
+							type="url"
+							bind:value={translatorProviderUrl}
+							placeholder="https://translate.example.com/translate"
+							on:blur={saveTranslatorAddonSettings}
 						/>
 					</label>
 				{/if}
-				<div class="runtime-note">
-					Current blocked terms: {$chatFilterStore.terms.length > 0 ? $chatFilterStore.terms.join(', ') : '(none)'}
-				</div>
+				<label class="upload-limit-row">
+					<span>Translate into</span>
+					<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" on:blur={saveTranslatorAddonSettings} />
+				</label>
+				<label class="upload-limit-row">
+					<span>Languages I understand</span>
+					<input type="text" maxlength="96" bind:value={translatorUnderstoodLanguages} placeholder="en, th" on:blur={saveTranslatorAddonSettings} />
+				</label>
 			</div>
-		{/if}
 
-		{#if localAddonControlMatches('custom_quoter')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">CustomQuoter (MVP)</span>
-					<span class="setting-description">Template used by message action <strong>Copy Quote</strong>.</span>
+			{#if translatorModel === 'libretranslate-local'}
+				<div class="runtime-note">
+					Local mode connects only to <code>127.0.0.1:5000</code>. Wabi does not bundle the translation service or its language models.
 				</div>
-				<textarea
-					class="addon-template-input"
-					rows="3"
-					bind:value={quoteTemplateDraft}
-					placeholder={'> {text}\\n- {user} ({timestamp})'}
-				></textarea>
-				<div class="runtime-note">Placeholders: <code>{'{user}'}</code> <code>{'{text}'}</code> <code>{'{timestamp}'}</code> <code>{'{channel}'}</code> <code>{'{message_id}'}</code></div>
+				<div class="runtime-note">
+					One-command Docker setup: <code>{LOCAL_TRANSLATOR_DOCKER_COMMAND}</code>
+				</div>
 				<div class="settings-row-actions">
-					<button class="action-btn" on:click={saveQuoteTemplate}>Save Template</button>
-					<button class="action-btn secondary" on:click={resetQuoteTemplateFromSettings}>Reset Default</button>
+					<button class="action-btn secondary" type="button" on:click={copyLocalTranslatorCommand}>Copy setup command</button>
+					<button class="action-btn secondary" type="button" on:click={checkTranslatorProvider} disabled={translatorProbeState === 'checking'}>
+						{translatorProbeState === 'checking' ? 'Checking…' : 'Check translator'}
+					</button>
 				</div>
+			{:else}
+				<div class="runtime-note">
+					Self-hosted mode connects directly from your client to an HTTPS LibreTranslate endpoint you chose. The Wabi Authority never relays the message text.
+				</div>
+				<div class="settings-row-actions">
+					<button class="action-btn secondary" type="button" on:click={checkTranslatorProvider} disabled={translatorProbeState === 'checking'}>
+						{translatorProbeState === 'checking' ? 'Checking…' : 'Check translator'}
+					</button>
+				</div>
+			{/if}
+
+			{#if translatorMode === 'auto'}
+				<div class="runtime-note">
+					Automatic mode considers incoming text only when it enters or approaches your viewport. It skips your own messages, commands, code-only/URL-only posts, and languages listed above. A remote self-hosted provider receives the visible message text needed for detection and translation.
+				</div>
+			{:else if translatorMode === 'off'}
+				<div class="runtime-note">Translator Assist is off. Translation controls stay out of chat and no translation requests are made.</div>
+			{/if}
+			{#if translatorProbeMessage}
+				<div class="runtime-note" role="status">
+					{translatorProbeState === 'ok' ? '✓' : translatorProbeState === 'error' ? '!' : ''} {translatorProbeMessage}
+				</div>
+			{/if}
+			{#if translatorSettingsSavedAt}
+				<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
+			{/if}
+		{/snippet}
+	</AddonRow>
+{/if}
+
+{#if localAddonControlMatches('chat_aliases')}
+	<AddonRow
+		id="chat_aliases"
+		label="ChatAliases (MVP)"
+		description={'Create slash aliases. Use {args} in replacement to inject trailing arguments.'}
+		enabled={true}
+		locked={true}
+		badge={SECTION}
+	>
+		{#snippet preferences()}
+			<div class="settings-row-actions">
+				<input
+					type="text"
+					class="theme-select alias-input"
+					placeholder="/shrug"
+					bind:value={chatAliasTriggerDraft}
+				/>
+				<input
+					type="text"
+					class="theme-select alias-input"
+					placeholder="Replacement text or /command"
+					bind:value={chatAliasReplacementDraft}
+				/>
+				<button
+					class="action-btn"
+					on:click={addChatAliasFromDraft}
+					disabled={!chatAliasTriggerDraft.trim() || !chatAliasReplacementDraft.trim()}
+				>
+					Add Alias
+				</button>
 			</div>
-		{/if}
-	</div>
-	{/if}
-</section>
+			{#if $chatAliasesStore.length === 0}
+				<div class="runtime-note">No aliases configured yet.</div>
+			{:else}
+				<div class="addons-list">
+					{#each $chatAliasesStore as alias (alias.id)}
+						<div class="addon-row">
+							<div class="addon-name">{alias.trigger} -> {alias.replacement}</div>
+							<div class="settings-row-actions">
+								<button class="action-btn secondary" on:click={() => toggleChatAliasEnabled(alias)}>
+									{alias.enabled ? 'Disable' : 'Enable'}
+								</button>
+								<button class="action-btn secondary" on:click={() => editChatAlias(alias)}>Edit</button>
+								<button class="action-btn danger" on:click={() => removeChatAlias(alias.id)}>Delete</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/snippet}
+	</AddonRow>
+{/if}
+
+{#if localAddonControlMatches('chat_filter')}
+	<AddonRow
+		id="chat_filter"
+		label="ChatFilter (MVP)"
+		description="Censor or hide messages containing blocked terms."
+		enabled={$chatFilterStore.enabled}
+		badge={SECTION}
+		onToggle={toggleChatFilterEnabled}
+	>
+		{#snippet preferences()}
+			<label class="addon-pref-field">
+				<span>Filter mode</span>
+				<select
+					class="theme-select"
+					value={$chatFilterStore.mode}
+					on:change={(event) => updateChatFilterMode(event.currentTarget.value as ChatFilterMode)}
+					disabled={!$chatFilterStore.enabled}
+				>
+					<option value="censor">Censor text</option>
+					<option value="hide">Hide full message</option>
+				</select>
+			</label>
+			<div class="settings-row-actions">
+				<button class="action-btn secondary" on:click={editChatFilterTerms}>
+					Edit Terms ({$chatFilterStore.terms.length})
+				</button>
+			</div>
+			<label class="addon-pref-check">
+				<input
+					type="checkbox"
+					checked={$chatFilterStore.applyToIncoming}
+					on:change={toggleChatFilterIncoming}
+					disabled={!$chatFilterStore.enabled}
+				/>
+				<span>Apply to incoming messages</span>
+			</label>
+			<label class="addon-pref-check">
+				<input
+					type="checkbox"
+					checked={$chatFilterStore.applyToOutgoing}
+					on:change={toggleChatFilterOutgoing}
+					disabled={!$chatFilterStore.enabled}
+				/>
+				<span>Apply to outgoing messages</span>
+			</label>
+			{#if $chatFilterStore.mode === 'censor'}
+				<label class="addon-pref-field">
+					<span>Replacement token</span>
+					<input
+						type="text"
+						maxlength="24"
+						value={$chatFilterStore.replacement}
+						on:input={(event) => updateChatFilterReplacement(event.currentTarget.value)}
+					/>
+				</label>
+			{/if}
+			<div class="runtime-note">
+				Current blocked terms: {$chatFilterStore.terms.length > 0 ? $chatFilterStore.terms.join(', ') : '(none)'}
+			</div>
+		{/snippet}
+	</AddonRow>
+{/if}
+
+{#if localAddonControlMatches('custom_quoter')}
+	<AddonRow
+		id="custom_quoter"
+		label="CustomQuoter (MVP)"
+		description="Template used by message action Copy Quote."
+		enabled={true}
+		locked={true}
+		badge={SECTION}
+	>
+		{#snippet preferences()}
+			<textarea
+				class="addon-template-input"
+				rows="3"
+				bind:value={quoteTemplateDraft}
+				placeholder={'> {text}\\n- {user} ({timestamp})'}
+			></textarea>
+			<div class="runtime-note">Placeholders: <code>{'{user}'}</code> <code>{'{text}'}</code> <code>{'{timestamp}'}</code> <code>{'{channel}'}</code> <code>{'{message_id}'}</code></div>
+			<div class="settings-row-actions">
+				<button class="action-btn" on:click={saveQuoteTemplate}>Save Template</button>
+				<button class="action-btn secondary" on:click={resetQuoteTemplateFromSettings}>Reset Default</button>
+			</div>
+		{/snippet}
+	</AddonRow>
 {/if}
