@@ -11,6 +11,8 @@ use super::workspace_crdt as crdt;
 #[path="workspace_sheets.rs"]
 pub(super) mod sheet_rules;
 use sheet_rules::ProtectedRange;
+#[path="workspace_conversion.rs"]
+pub(super) mod conversion;
 
 type Result<T>=std::result::Result<T,AppError>;
 #[derive(Clone,Copy,Debug,Serialize,Deserialize,PartialEq,Eq,PartialOrd,Ord)]
@@ -58,6 +60,7 @@ pub fn routes(app:Arc<AppState>)->Router<Arc<AppState>> {
         .route("/artifacts/{id}/protection",axum::routing::post(set_protection))
         .route("/artifacts/{id}/reviews",axum::routing::post(review))
         .merge(super::workspace_present::routes())
+        .merge(conversion::routes())
         .layer(DefaultBodyLimit::max(18*1024*1024)).with_state(state)
 }
 impl axum::extract::FromRef<WorkspaceState> for Arc<AppState>{fn from_ref(state:&WorkspaceState)->Self{state.app.clone()}}
@@ -88,13 +91,13 @@ pub(super) fn meta(row:&WorkspaceRecord,artifact:&Artifact,role:Role)->Value {
 pub(super) async fn save(state:&WorkspaceState,row:&WorkspaceRecord,artifact:&Artifact,user:u64)->Result<WorkspaceRecord>{state.app.wdb.workspace_put(user,&row.key,row.revision,artifact.owner_user_id,serialize(artifact)?).await}
 async fn capabilities(State(state):State<WorkspaceState>,auth:AuthUser)->Result<Json<Value>> {
     admit(&state,&auth).await?;let capabilities=caps(&state)?;
-    Ok(Json(json!({"documents":true,"sheets":capabilities.sheets,"present":capabilities.present,"officeConversion":false,"admin":state.app.is_admin(auth.user_id).await})))
+    Ok(Json(json!({"documents":true,"sheets":capabilities.sheets,"present":capabilities.present,"officeConversion":capabilities.present&&conversion::configured(),"admin":state.app.is_admin(auth.user_id).await})))
 }
 async fn set_capabilities(State(state):State<WorkspaceState>,auth:AuthUser,Json(capabilities):Json<Capabilities>)->Result<Json<Value>> {
     admit(&state,&auth).await?;if !state.app.is_admin(auth.user_id).await{return Err(AppError::Forbidden("Server administrator required".into()));}
     let _lock=state.runtime.gate.lock().await;let old=state.app.wdb.workspace_get("settings")?;
     state.app.wdb.workspace_put(auth.user_id as u64,"settings",old.as_ref().map_or(0,|row|row.revision),old.as_ref().map_or(auth.user_id as u64,|row|row.owner_user_id),serialize(&capabilities)?).await?;
-    Ok(Json(json!({"documents":true,"sheets":capabilities.sheets,"present":capabilities.present,"officeConversion":false,"admin":true})))
+    Ok(Json(json!({"documents":true,"sheets":capabilities.sheets,"present":capabilities.present,"officeConversion":capabilities.present&&conversion::configured(),"admin":true})))
 }
 async fn list_artifacts(State(state):State<WorkspaceState>,auth:AuthUser)->Result<Json<Value>> {
     admit(&state,&auth).await?;let _membership=state.app.membership_gate.read().await;let _lock=state.runtime.gate.lock().await;
