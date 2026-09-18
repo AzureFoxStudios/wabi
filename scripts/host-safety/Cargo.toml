@@ -1,0 +1,16 @@
+[package]
+name = "wabi-host-safety-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Keep safety tests independent of the GUI, GPU and webview dependency trees.
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+sha2 = "=0.10.9"

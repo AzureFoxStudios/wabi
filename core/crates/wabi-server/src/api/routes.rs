@@ -30,6 +30,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/setup", public::setup_routes(state.clone()))
         // Auth routes
         .nest("/auth", auth::routes(state.clone()))
+        .nest("/invites", super::invites::routes(state.clone()))
         // Bot account routes (owner-only token lifecycle)
         .nest("/bot", bots::routes(state.clone()))
         .nest("/games", super::games::routes(state.clone()))

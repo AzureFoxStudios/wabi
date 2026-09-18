@@ -17,17 +17,21 @@ use crate::state::AppState;
 use serde_json::{json, Value};
 use wabidb::engine::wabi_store::WabiStore;
 
-fn load_auth_policy(state: &AppState) -> Value {
-    std::fs::read_to_string(std::path::PathBuf::from(&state.config.data_dir).join("admin_policies.json"))
-        .ok()
-        .and_then(|raw| serde_json::from_str::<serde_json::Map<String, Value>>(&raw).ok())
-        .and_then(|map| map.get("auth_policy").cloned())
-        .unwrap_or_else(|| json!({
-            "mode": "open",
-            "allowGuest": true,
-            "allowRegister": true,
-            "emailVerifyRequired": false
-        }))
+fn load_auth_policy(state: &AppState) -> Result<Value> {
+    let path = std::path::Path::new(&state.config.data_dir).join("admin_policies.json");
+    match std::fs::read(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(json!({
+            "mode":"open", "allowGuest":true, "allowRegister":true, "emailVerifyRequired":false
+        })),
+        Err(error) => Err(AppError::Internal(format!("Cannot read admission policy: {error}"))),
+        Ok(bytes) => {
+            let map: serde_json::Map<String, Value> = serde_json::from_slice(&bytes)
+                .map_err(|_| AppError::Internal("Admission policy is damaged; registration refused".into()))?;
+            let policy = map.get("auth_policy").cloned().unwrap_or_else(|| json!({}));
+            if !policy.is_object() { return Err(AppError::Internal("Invalid admission policy".into())); }
+            Ok(policy)
+        }
+    }
 }
 
 /// Create auth router
@@ -56,6 +60,8 @@ struct RegisterRequest {
     email: Option<String>,
     password: String,
     handle: Option<String>,
+    #[serde(rename = "inviteToken")]
+    invite_token: Option<String>,
 }
 
 /// Auth user profile — matches frontend AuthUserProfile contract
@@ -115,6 +121,9 @@ async fn handle_register(
     // registrations can't interleave with the claim. The claim ignores the
     // auth policy — the owner account is bootstrap, not a join.
     let _setup_guard = if state.needs_setup().await {
+        if req.invite_token.is_some() {
+            return Err(AppError::Forbidden("An invitation cannot claim an unconfigured server".into()));
+        }
         let guard = state.setup_claim_lock.lock().await;
         if !state.needs_setup().await {
             return Err(AppError::Conflict(
@@ -123,11 +132,11 @@ async fn handle_register(
         }
         Some(guard)
     } else {
-        let auth_policy = load_auth_policy(&state);
+        let auth_policy = load_auth_policy(&state)?;
         if auth_policy.get("allowRegister").and_then(Value::as_bool) == Some(false) {
             return Err(AppError::Forbidden("Registration is closed on this server".into()));
         }
-        if auth_policy.get("mode").and_then(Value::as_str) == Some("invite") {
+        if auth_policy.get("mode").and_then(Value::as_str) == Some("invite") && req.invite_token.is_none() {
             return Err(AppError::Forbidden("An invite is required to register on this server".into()));
         }
         None
@@ -159,6 +168,14 @@ async fn handle_register(
     if existing.is_some() {
         return Err(AppError::BadRequest("Username already taken".into()));
     }
+
+    // Serialize one-use redemption across simultaneous registrations. Burn a
+    // grant durably before create_user: a crash cannot replay admission.
+    let _invite_guard = if let Some(token) = req.invite_token.as_deref() {
+        let guard = super::invites::GRANTS.lock().await;
+        super::invites::consume(&state.config.data_dir, token)?;
+        Some(guard)
+    } else { None };
 
     let handle = req.handle.clone().unwrap_or_else(|| req.username.to_lowercase());
     let user_id_u64 = state
@@ -461,7 +478,7 @@ async fn handle_guest(
     }
     drop(guest_limiter);
 
-    let auth_policy = load_auth_policy(&state);
+    let auth_policy = load_auth_policy(&state)?;
     if auth_policy.get("allowGuest").and_then(Value::as_bool) == Some(false) {
         return Err(AppError::Forbidden("Guest access is disabled on this server".into()));
     }
@@ -824,6 +841,7 @@ mod tests {
             email: None,
             password: "password123".into(),
             handle: Some("testuser".into()),
+            invite_token: None,
         };
         let resp = handle_register(State(state.clone()), Json(register_req)).await.unwrap();
         let refresh_token = resp.0.refresh_token.clone();
@@ -847,6 +865,7 @@ mod tests {
             email: None,
             password: "password123".into(),
             handle: Some("theftuser".into()),
+            invite_token: None,
         };
         let resp = handle_register(State(state.clone()), Json(register_req)).await.unwrap();
         let refresh_token = resp.0.refresh_token.clone();
