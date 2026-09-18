@@ -14,30 +14,52 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: codex/docs-sheets-present-20260917
-      - name: Apply exact reviewed source repairs
+      - name: Apply reviewed integration edits
         run: |
           python3 - <<'PY'
           from pathlib import Path
           def replace(path, before, after, count=1):
-              file = Path(path)
-              text = file.read_text()
-              if before not in text and text.count(after) == count:
-                  return
-              if text.count(before) != count:
-                  raise RuntimeError(f'{path}: expected {count} repair anchors, found {text.count(before)}')
-              file.write_text(text.replace(before, after))
-          replace('frontend/src/lib/workspaces/sheets/SheetsGrid.svelte', '{#each cellDrafts as[id,entry](id)}', '{#each cellDrafts as [id, entry] (id)}')
-          replace('core/crates/wabi-server/src/api/workspace_sheets.rs', 'after["sheets"][sheet]["rows"][row]["removed"]=true;', 'after["sheets"][sheet]["rows"][row]["removed"]=json!(true);')
-          replace('frontend/src/lib/components/ReaderDocumentWorkbench.svelte', 'function saveLabel(): string {', 'function saveLabel(activeDocument: ReaderLocalDocument | null, saveState: string, online: boolean): string {')
-          replace('frontend/src/lib/components/ReaderDocumentWorkbench.svelte', '{saveLabel()}', '{saveLabel(activeDocument, saveState, online)}', 2)
+              file=Path(path); text=file.read_text()
+              if before not in text and after and text.count(after)==count: return
+              if text.count(before)!=count: raise RuntimeError(f'{path}: expected {count} anchors, found {text.count(before)}')
+              file.write_text(text.replace(before,after))
+          present='frontend/src/lib/workspaces/present/PresentWorkspace.svelte'
+          replace(present, '<script lang="ts">\n', '<script lang="ts">\n    import PresentedVersion from \'./PresentedVersion.svelte\';\n    import {slideAnchor} from \'../anchors\';\n')
+          replace(present, "<ArtifactShell session={active} onlibrary={()=>void run(library)}>", "<ArtifactShell session={active} selectionAnchor={current?slideAnchor(current.id,current.title):null} onlibrary={()=>void run(library)}>")
+          replace(present, '<button disabled={busy} onclick={()=>void run(updateRoom)}>Publish current deck to presentation</button>', '<PresentedVersion session={active} {roomId}/>')
+          file=Path(present); text=file.read_text(); lines=text.splitlines(True)
+          matches=[line for line in lines if line.startswith('    async function updateRoom(){')]
+          if len(matches)>1: raise RuntimeError('Unexpected updateRoom definitions')
+          if matches: file.write_text(text.replace(matches[0],''))
+          replace(present, '<p>{proposed.title} · {proposed.slides.length} slides</p>', '<label>Deck title<input aria-label="Proposed deck title" bind:value={proposed.title} maxlength="200" disabled={busy}/></label><p>{proposed.slides.length} proposed slides · edit text and order before creating a separate private deck.</p>')
+          replace(present, '<h3>Slide {i+1}</h3><AudienceSlideView slide={{...slide,id:String(i)}} aspect={proposed.aspect}/>', '<h3>Slide {i+1}</h3><label>Title<input aria-label={`Proposed slide ${i+1} title`} bind:value={slide.title} maxlength="2000" disabled={busy}/></label><label>Text<textarea aria-label={`Proposed slide ${i+1} text`} bind:value={slide.body} maxlength="16000" disabled={busy}></textarea></label><div class="workspace-toolbar"><button disabled={busy||i===0} onclick={()=>{if(proposed){const item=proposed.slides.splice(i,1)[0];proposed.slides.splice(i-1,0,item);}}}>Move earlier</button><button disabled={busy||i===proposed.slides.length-1} onclick={()=>{if(proposed){const item=proposed.slides.splice(i,1)[0];proposed.slides.splice(i+1,0,item);}}}>Move later</button><button disabled={busy||proposed.slides.length<=1} onclick={()=>proposed?.slides.splice(i,1)}>Remove proposed slide</button></div><AudienceSlideView slide={{...slide,id:String(i)}} aspect={proposed.aspect}/>')
+          shell='frontend/src/lib/workspaces/ArtifactShell.svelte'
+          replace(shell, '<script lang="ts">\n', '<script lang="ts">\n    import ArtifactHandoff from \'./ArtifactHandoff.svelte\';\n')
+          replace(shell, '        {#if $sessionState.meta}\n', '        {#if $sessionState.meta}\n            <ArtifactHandoff {session} anchor={selectionAnchor}/>\n')
+          composer='frontend/src/lib/components/chat/ChatComposer.svelte'
+          replace(composer, '<script lang="ts">\n', '<script lang="ts">\n\timport {composerHandoff,takeComposerHandoff,dismissComposerHandoff,appendHandoffText} from \'$lib/composerHandoff\';\n')
+          replace(composer, '\tfunction snapshotDraft(): ComposerDraft {', '''\t$effect(() => {
+          		const pending = $composerHandoff;
+          		if (!pending || pending.channelId !== draftChannel || draftSurface !== 'channel') return;
+          		if (!pending.isCurrent()) { dismissComposerHandoff(pending.id); return; }
+          		if (!operationCurrent() || isSending || editingMessage) return;
+          		const next = appendHandoffText(messageInput, pending.text, composerInputMaxLength);
+          		if (next === null) return;
+          		if (takeComposerHandoff(pending.id, draftChannel) === null) return;
+          		messageInput = next; syncComposerEntities(); draftOwner.save(snapshotDraft());
+          		void tick().then(() => { if (operationCurrent()) { autoResizeTextarea(); textareaElement?.focus(); } });
+          	});
+          	function snapshotDraft(): ComposerDraft {''')
+          replace(composer, '</script>', '</script>\n{#if $composerHandoff?.channelId === draftChannel && draftSurface === \'channel\'}<p role="status">A workspace reference is waiting. Finish editing or sending the current message, or make room to insert the link. <button type="button" onclick={()=>{if($composerHandoff)dismissComposerHandoff($composerHandoff.id);}}>Dismiss reference</button></p>{/if}')
+          replace('core/crates/wabi-server/src/api/workspace_present.rs', 'if value["schema"]!=1{', 'if value["schema"].as_f64()!=Some(1.0){')
           PY
           git diff --check
           git diff --stat
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add frontend/src/lib/workspaces/sheets/SheetsGrid.svelte core/crates/wabi-server/src/api/workspace_sheets.rs frontend/src/lib/components/ReaderDocumentWorkbench.svelte
+          git add frontend/src/lib/workspaces/present/PresentWorkspace.svelte frontend/src/lib/workspaces/ArtifactShell.svelte frontend/src/lib/components/chat/ChatComposer.svelte core/crates/wabi-server/src/api/workspace_present.rs
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(office): compile draft recovery and update both Reader save indicators'
+            git commit -m 'feat(office): integrate approved editions editable conversion previews and safe handoffs'
             git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
           fi
           git rev-parse HEAD
