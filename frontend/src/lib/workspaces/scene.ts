@@ -33,6 +33,11 @@ export function cleanDesign(value: unknown): SlideDesign {
     if (new Set(objects.map(object => object.id)).size !== objects.length) throw new Error('Duplicate slide object identity.');
     return { theme:value.theme as SceneTheme, objects:objects.sort((a,b) => a.z-b.z || a.id.localeCompare(b.id)) };
 }
+export function publicDesign(value:unknown):SlideDesign {
+    const design=cleanDesign(value);
+    if(design.objects.some(object=>object.kind==='image'&&object.image&&object.fit==='cover'))throw new Error('Finalize each image crop before presenting or exporting the audience version.');
+    return design;
+}
 export function tableRows(text: string): string[][] {
     const rows = text.split(/\r?\n/).filter(line => line.length).map(line => line.split('\t'));
     return rows.length <= 20 && rows.every(row => row.length <= 8) ? rows : [];

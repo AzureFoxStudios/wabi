@@ -5,13 +5,14 @@
     import type { AudienceSlide } from '../bridge';
     import { type SceneObject, type SceneKind, type SceneTheme } from '../scene';
     import { readDesign, presetDesign, setDesign, addSceneObject, patchSceneObject, removeSceneObject, setSceneTheme, type ScenePreset } from './nativeScene';
-    let {session,slide,aspect,onselect=()=>{}}:{session:ArtifactSession;slide:AudienceSlide;aspect:number;onselect?:(id:string|null)=>void}=$props();
+    let {session,slide,aspect,selectedObjectId=null,onselect=()=>{}}:{session:ArtifactSession;slide:AudienceSlide;aspect:number;selectedObjectId?:string|null;onselect?:(id:string|null)=>void}=$props();
     let tick=$state(0),selected=$state(''),error=$state(''),busy=$state(false),preset=$state<ScenePreset>('body');
     let stage=$state<HTMLDivElement>(),imageInput=$state<HTMLInputElement>();
     const abort=new AbortController();let disposed=false;
     const design=$derived.by(()=>{tick;try{return slide.layout==='canvas'?readDesign(session.data,slide.id):null;}catch{return null;}});
     const chosen=$derived(design?.objects.find(object=>object.id===selected)||null);
     const editable=$derived.by(()=>{tick;return session.editable&&!session.isClosed;});
+    $effect(()=>{if(selectedObjectId&&design?.objects.some(object=>object.id===selectedObjectId))selected=selectedObjectId;});
     $effect(()=>session.state.subscribe(value=>tick=value.tick));
     $effect(()=>{if(selected&&!design?.objects.some(object=>object.id===selected)){selected='';onselect(null);}});
     onDestroy(()=>{disposed=true;abort.abort();});
@@ -22,6 +23,19 @@
     function patch(value:Partial<SceneObject>){if(chosen)run(()=>patchSceneObject(session,slide.id,chosen!.id,value));}
     function number(field:'x'|'y'|'w'|'h'|'fontSize'|'cropX'|'cropY',value:number){if(!chosen||!Number.isFinite(value))return;const limit=field==='x'?1-chosen.w:field==='y'?1-chosen.h:field==='w'?1-chosen.x:field==='h'?1-chosen.y:field==='fontSize'?72:1;const min=field==='w'||field==='h'?.02:field==='fontSize'?12:0;patch({[field]:Math.max(min,Math.min(limit,value))});}
     async function image(file:File){if(!chosen||busy||!editable)return;const id=chosen.id,slideId=slide.id,captured=session;busy=true;error='';try{const value=await(await import('./files')).rasterImage(file,abort.signal);if(disposed||session!==captured||!captured.scope.isCurrent()||slide.id!==slideId)return;patchSceneObject(captured,slideId,id,{image:value});}catch(e){if(!disposed)error=e instanceof Error?e.message:String(e);}finally{if(!disposed)busy=false;}}
+    async function finishCrop(){
+        if(!chosen||busy||!editable)return;
+        const object={...chosen},id=slide.id,captured=session,ratio=aspect;
+        busy=true;error='';
+        try{
+            const image=await(await import('./finalizeCrop')).finalizeCrop(object,ratio,abort.signal);
+            if(disposed||session!==captured||!captured.scope.isCurrent()||slide.id!==id)return;
+            const latest=readDesign(captured.data,id)?.objects.find(item=>item.id===object.id);
+            if(!latest||JSON.stringify(latest)!==JSON.stringify(object))throw new Error('The image changed while cropping. Review the latest object and try again.');
+            patchSceneObject(captured,id,object.id,{image,fit:'contain',cropX:.5,cropY:.5});
+        }catch(e){if(!disposed)error=e instanceof Error?e.message:String(e);}
+        finally{if(!disposed)busy=false;}
+    }
     function move(event:KeyboardEvent,object:SceneObject){if(!editable||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();const distance=event.shiftKey?.05:.01;run(()=>patchSceneObject(session,slide.id,object.id,{x:Math.max(0,Math.min(1-object.w,object.x+(event.key==='ArrowRight'?distance:event.key==='ArrowLeft'?-distance:0))),y:Math.max(0,Math.min(1-object.h,object.y+(event.key==='ArrowDown'?distance:event.key==='ArrowUp'?-distance:0)))}));}
     let drag:{id:string;slideId:string;x:number;y:number;px:number;py:number;width:number;height:number;target:HTMLElement;pointer:number}|null=null;
     function startDrag(event:PointerEvent,object:SceneObject){choose(object.id);if(!editable||event.button!==0||!stage)return;const rect=stage.getBoundingClientRect();const target=event.currentTarget as HTMLElement;target.setPointerCapture(event.pointerId);drag={id:object.id,slideId:slide.id,x:object.x,y:object.y,px:event.clientX,py:event.clientY,width:rect.width,height:rect.height,target,pointer:event.pointerId};}
@@ -47,7 +61,7 @@
         <label>Text alignment<select aria-label="Object text alignment" value={chosen.align} disabled={!editable} onchange={event=>patch({align:event.currentTarget.value as SceneObject['align']})}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
     </div><label>Object text / image description / tab-separated data<textarea aria-label="Object text or data" value={chosen.text} maxlength="6000" disabled={!editable} oninput={event=>patch({text:event.currentTarget.value})}></textarea></label>
     <div class="workspace-toolbar"><button disabled={!editable} onclick={()=>patch({x:0})}>Align left</button><button disabled={!editable} onclick={()=>patch({x:(1-chosen!.w)/2})}>Center horizontally</button><button disabled={!editable} onclick={()=>patch({x:1-chosen!.w})}>Align right</button><button disabled={!editable} onclick={()=>patch({y:(1-chosen!.h)/2})}>Center vertically</button><button disabled={!editable} onclick={()=>patch({z:Math.min(999999,Math.max(0,...design!.objects.map(o=>o.z))+1)})}>Bring forward</button><button disabled={!editable} onclick={()=>patch({z:Math.max(-999999,Math.min(0,...design!.objects.map(o=>o.z))-1)})}>Send behind</button><button disabled={!editable} onclick={()=>run(()=>removeSceneObject(session,slide.id,chosen!.id))}>Remove object</button></div>
-    {#if chosen.kind==='image'}<div class="workspace-toolbar"><button disabled={!editable||busy} onclick={()=>imageInput?.click()}>Replace object image</button><select aria-label="Image fit or crop" value={chosen.fit} disabled={!editable} onchange={event=>patch({fit:event.currentTarget.value as SceneObject['fit']})}><option value="contain">Fit whole image</option><option value="cover">Crop to object</option></select><label>Crop horizontal<input aria-label="Image crop horizontal" type="range" min="0" max="1" step="0.01" value={chosen.cropX} disabled={!editable} oninput={event=>number('cropX',Number(event.currentTarget.value))}/></label><label>Crop vertical<input aria-label="Image crop vertical" type="range" min="0" max="1" step="0.01" value={chosen.cropY} disabled={!editable} oninput={event=>number('cropY',Number(event.currentTarget.value))}/></label></div>{/if}
+    {#if chosen.kind==='image'}<div class="workspace-toolbar"><button disabled={!editable||busy} onclick={()=>imageInput?.click()}>Replace object image</button>{#if chosen.image&&chosen.fit==='cover'}<button disabled={!editable||busy} onclick={()=>void finishCrop()}>Finalize image crop</button><span>Finalize before presenting: only the visible pixels will enter the audience image. Undo restores the authoring original.</span>{/if}<select aria-label="Image fit or crop" value={chosen.fit} disabled={!editable} onchange={event=>patch({fit:event.currentTarget.value as SceneObject['fit']})}><option value="contain">Fit whole image</option><option value="cover">Crop to object</option></select><label>Crop horizontal<input aria-label="Image crop horizontal" type="range" min="0" max="1" step="0.01" value={chosen.cropX} disabled={!editable} oninput={event=>number('cropX',Number(event.currentTarget.value))}/></label><label>Crop vertical<input aria-label="Image crop vertical" type="range" min="0" max="1" step="0.01" value={chosen.cropY} disabled={!editable} oninput={event=>number('cropY',Number(event.currentTarget.value))}/></label></div>{/if}
     {/if}
     {#if error}<p role="alert">{error}</p>{/if}{#if busy}<p role="status">Preparing the object image…</p>{/if}
 </details>
