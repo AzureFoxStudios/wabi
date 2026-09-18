@@ -1,12 +1,25 @@
-import { Y, editText, type ArtifactSession } from '../session';
+import * as Y from 'yjs';
+import type { ArtifactSession } from '../session';
 import { cleanDesign, cleanSceneObject, scenePalette, type SceneObject, type SceneKind, type SceneTheme, type SlideDesign } from '../scene';
-import { collection } from './model';
+function collection(root:Y.Map<unknown>):Y.Map<Y.Map<unknown>> {
+    const value=root.get('slides');
+    if(!(value instanceof Y.Map))throw new Error('Unsupported deck data');
+    return value;
+}
+function editText(text:Y.Text,value:string,_origin:unknown):void {
+    const before=text.toString();let prefix=0,suffix=0;
+    while(prefix<before.length&&prefix<value.length&&before[prefix]===value[prefix])prefix++;
+    while(suffix<before.length-prefix&&suffix<value.length-prefix&&before[before.length-1-suffix]===value[value.length-1-suffix])suffix++;
+    if(before.length-prefix-suffix)text.delete(prefix,before.length-prefix-suffix);
+    const middle=value.slice(prefix,value.length-suffix);if(middle)text.insert(prefix,middle);
+}
 
 export type ScenePreset = 'blank'|'title'|'body'|'caption'|'comparison'|'grid'|'table'|'chart';
 const defaults = (kind:SceneKind, theme:SceneTheme):Omit<SceneObject,'id'> => ({kind,x:.1,y:.1,w:.8,h:.18,z:0,text:kind==='text'?'New text':'',image:null,fill:kind==='rect'||kind==='ellipse'?scenePalette[theme].accent:'transparent',color:scenePalette[theme].foreground,fontSize:24,align:'left',fit:'contain',cropX:.5,cropY:.5});
 export function readDesign(root:Y.Map<unknown>, slideId:string):SlideDesign|null {
     const source=collection(root).get(slideId)?.get('design');
     if(!(source instanceof Y.Map))return null;
+    if([...source.keys()].some(key=>!['theme','objects'].includes(key)))throw new Error('Unsupported or private design metadata.');
     const objects=source.get('objects');
     if(!(objects instanceof Y.Map))throw new Error('Slide objects are damaged; export recovery before replacing them.');
     const visible=[];
