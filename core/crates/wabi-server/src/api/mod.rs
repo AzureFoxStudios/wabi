@@ -38,7 +38,6 @@ pub mod public;
 pub mod routes;
 pub mod standby;
 pub mod sync;
-pub mod state;
 pub mod steam;
 pub mod upload;
 pub mod user;
