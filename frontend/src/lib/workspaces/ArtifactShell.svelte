@@ -29,6 +29,18 @@
     }
     $effect(()=>{if(initialShare&&dialog&&!openedInitial){openedInitial=true;showSharing();}});
     async function share(){await session.publish(mode);await session.access(grants,channelId||null,channelRole,mode,accessRevision||session.record.meta!.accessRevision);if(alive)dialog?.close();}
+    async function freezeLiveEditing(){
+        if(session.record.meta?.role!=='owner'||session.record.meta.mode!=='live')throw new Error('Only the owner can freeze a collaborative document.');
+        if(!window.confirm('Freeze live editing? Existing shared content and access will remain. Later edits stay private until you explicitly publish or resume collaboration.'))return;
+        await session.sync();
+        if(!alive||!session.scope.isCurrent())return;
+        const meta=session.record.meta;
+        if(!meta||meta.role!=='owner'||meta.mode!=='live')throw new Error('Sharing changed. Review the current document before freezing.');
+        // Preserve the current grants and compare the ACL revision. The server
+        // increments the mode generation, rejecting late old-generation writes.
+        await session.access(meta.grants||{},meta.channelId||null,meta.channelRole,'snapshot',meta.accessRevision);
+        if(alive)notice='Live editing is frozen. Shared content and access are retained; subsequent edits remain private until explicitly published.';
+    }
     function addRecipient(){if(!/^[1-9]\d*$/.test(recipient))return;grants={...grants,[recipient]:recipientRole};recipient='';}
     function recipientName(id:string){return $serverMembers.find(user=>String(user.dbUserId)===id)?.username||`Account ${id}`;}
     function stageReview(){
@@ -75,8 +87,12 @@
         <button onclick={backup}>Export backup</button>
         {#if session.record.original}<button onclick={exportOriginal}>Original file</button>{/if}
         <button disabled={busy} onclick={()=>run(privateCopy)}>Make private copy</button>
-        {#if !$sessionState.meta||$sessionState.meta.role==='owner'}<button class="primary" onclick={showSharing}>Share…</button>{/if}
+        {#if !$sessionState.meta||$sessionState.meta.role==='owner'}<button class="primary" disabled={busy} onclick={showSharing}>Share…</button>{/if}
         {#if $sessionState.meta}
+            {#if $sessionState.meta.role==='owner'}
+                {#if $sessionState.meta.mode==='live'}<button disabled={busy} onclick={()=>run(freezeLiveEditing)}>Freeze live editing</button>
+                {:else}<button disabled={busy} onclick={()=>{showSharing();mode='live';}}>Resume collaboration…</button>{/if}
+            {/if}
             <ArtifactHandoff {session} anchor={selectionAnchor}/>
             <button onclick={()=>run(()=>navigator.clipboard.writeText(workspaceLink(session.scope.server,session.id,session.record.kind)))}>Copy link</button>
             <button onclick={()=>reviewOpen=!reviewOpen}>Review {$sessionState.reviews.filter(item=>item.state==='open').length||''}</button>

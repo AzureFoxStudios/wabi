@@ -58,10 +58,14 @@ fn validate_archive(raw: &[u8], extension: &str) -> Result<()> {
         let mut entry = archive.by_index(index).map_err(|_| bad("Encrypted or damaged Office archives are not supported"))?;
         let name = entry.name().to_owned();
         let lower = name.to_ascii_lowercase();
+        let directory = entry.is_dir();
         if name.is_empty() || name.contains(['\\', '\0']) || name.starts_with('/') || name.split('/').any(|part| part == "..") || !names.insert(name.clone()) || entry.unix_mode().is_some_and(|mode| mode & 0o170000 == 0o120000) {
             return Err(bad("Unsafe or duplicate Office archive entry"));
         }
-        if lower.contains("vbaproject") || lower.contains("vbasignature") || lower.starts_with("basic/") || lower.starts_with("scripts/") || lower.contains("/activex/") || lower.contains("/embeddings/") {
+        // Ordinary PowerPoint writers include empty embeddings/ directories.
+        // A directory descriptor is not a program, but files below it remain
+        // forbidden and directory entries must be proven empty below.
+        if !directory && (lower.contains("vbaproject") || lower.contains("vbasignature") || lower.starts_with("basic/") || lower.starts_with("scripts/") || lower.contains("/activex/") || lower.contains("/embeddings/")) {
             return Err(bad("Macros, ActiveX, and embedded programs are not supported by Office conversion"));
         }
         if entry.size() > 24 * 1024 * 1024 || entry.size() > entry.compressed_size().max(1).saturating_mul(250) { return Err(bad("Office archive expansion limit exceeded")); }
@@ -69,6 +73,7 @@ fn validate_archive(raw: &[u8], extension: &str) -> Result<()> {
         let limit = (24 * 1024 * 1024u64).min(EXPANDED_LIMIT.saturating_sub(expanded));
         (&mut entry).take(limit + 1).read_to_end(&mut bytes).map_err(|_| bad("Damaged Office archive content"))?;
         if bytes.len() as u64 > limit || bytes.len() as u64 != entry.size() { return Err(bad("Office archive expansion limit exceeded")); }
+        if directory && !bytes.is_empty() { return Err(bad("Office directory entries cannot contain a payload")); }
         expanded += bytes.len() as u64;
         if name == "mimetype" { odf_type = bytes == b"application/vnd.oasis.opendocument.presentation"; }
     }
@@ -175,8 +180,24 @@ mod tests {
         let odp = archive(&[("mimetype", b"application/vnd.oasis.opendocument.presentation"), ("content.xml", b"slides"), ("META-INF/manifest.xml", b"manifest")]);
         assert!(validate_archive(&odp, "odp").is_ok());
     }
+    #[test] fn workspace_conversion_allows_empty_directories_not_disguised_payloads() {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer.start_file("[Content_Types].xml", zip::write::SimpleFileOptions::default()).unwrap();
+        writer.write_all(b"types").unwrap();
+        writer.start_file("ppt/presentation.xml", zip::write::SimpleFileOptions::default()).unwrap();
+        writer.write_all(b"slides").unwrap();
+        for directory in ["ppt/embeddings/", "ppt/activeX/", "Basic/", "Scripts/"] {
+            writer.add_directory(directory, zip::write::SimpleFileOptions::default()).unwrap();
+        }
+        let raw = writer.finish().unwrap().into_inner();
+        assert!(validate_archive(&raw, "pptx").is_ok());
+        for directory in ["ppt/embeddings/", "ppt/activeX/", "Basic/", "Scripts/"] {
+            let disguised = archive(&[("[Content_Types].xml", b"types"), ("ppt/presentation.xml", b"slides"), (directory, b"payload")]);
+            assert!(validate_archive(&disguised, "pptx").is_err(), "{directory}");
+        }
+    }
     #[test] fn workspace_conversion_rejects_programs_and_expansion_bombs() {
-        for name in ["../escape", "ppt/vbaProject.bin", "Basic/module.xml", "Scripts/code.py", "ppt/embeddings/program.bin"] {
+        for name in ["../escape", "ppt/vbaProject.bin", "Basic/module.xml", "Scripts/code.py", "ppt/embeddings/program.bin", "ppt/activeX/control.xml"] {
             let raw = archive(&[("[Content_Types].xml", b"types"), ("ppt/presentation.xml", b"slides"), (name, b"payload")]);
             assert!(validate_archive(&raw, "pptx").is_err(), "{name}");
         }
