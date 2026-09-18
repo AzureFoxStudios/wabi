@@ -556,6 +556,15 @@ pub fn crash_point(name: &str) {
     {
         if let Ok(target) = std::env::var("WABIDB_CRASH_AT") {
             if target == name {
+                // Write a crash signal file BEFORE exiting. This lets the
+                // parent distinguish an intentional crash at this boundary
+                // from a fallback panic ("child did not crash") or unrelated
+                // failure. Without this, any non-zero exit satisfies the
+                // parent's status check — a false positive.
+                if let Ok(dir) = std::env::var("WABIDB_DATA_DIR") {
+                    let signal_path = std::path::Path::new(&dir).join("crash_signal.txt");
+                    let _ = std::fs::write(&signal_path, name);
+                }
                 tracing::warn!("CRASH INJECTION: {name}");
                 use std::io::Write;
                 let _ = std::io::stderr().flush();

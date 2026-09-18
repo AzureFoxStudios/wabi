@@ -231,6 +231,18 @@ fn spawn_crash_child(
     cmd.status()
 }
 
+/// Read the crash signal file written by `crash_point()`. This proves the
+/// hook fired at the expected boundary, distinguishing an intentional crash
+/// from a fallback panic ("child did not crash") or unrelated failure that
+/// also exits non-zero.
+fn validate_crash_signal(data_dir: &std::path::Path) -> Option<String> {
+    let signal_path = data_dir.join("crash_signal.txt");
+    std::fs::read_to_string(&signal_path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Open the engine, register a stream, and commit `n` commands.
 /// After this, the engine will have committed seq 1..=n.
 ///
@@ -388,6 +400,15 @@ fn crash_before_any_write() {
     let status = spawn_crash_child(dir.path(), "crash_before_any_write").unwrap();
     assert!(!status.success(), "child should have crashed at boundary 0");
 
+    // Validate the crash signal: proves the crash hook fired at the
+    // expected boundary, not a fallback panic or unrelated failure.
+    let signal = validate_crash_signal(dir.path());
+    assert_eq!(
+        signal,
+        Some("crash_before_any_write".to_string()),
+        "crash signal file must confirm the expected boundary was reached"
+    );
+
     // Verify recovery: engine reopens with prior commits intact.
     parent_rt.block_on(verify_recovery(dir.path(), 100));
 }
@@ -406,6 +427,14 @@ fn crash_mid_stream_write() {
     let status = spawn_crash_child(dir.path(), "crash_mid_stream_write").unwrap();
     assert!(!status.success(), "child should have crashed at boundary 1");
 
+    // Validate the crash signal.
+    let signal = validate_crash_signal(dir.path());
+    assert_eq!(
+        signal,
+        Some("crash_mid_stream_write".to_string()),
+        "crash signal file must confirm boundary 1 was reached"
+    );
+
     // Verify recovery: engine reopens with prior commits intact.
     parent_rt.block_on(verify_recovery(dir.path(), 100));
 }
@@ -423,6 +452,14 @@ fn crash_before_index_fsync() {
 
     let status = spawn_crash_child(dir.path(), "crash_before_index_fsync").unwrap();
     assert!(!status.success(), "child should have crashed at boundary 2");
+
+    // Validate the crash signal.
+    let signal = validate_crash_signal(dir.path());
+    assert_eq!(
+        signal,
+        Some("crash_before_index_fsync".to_string()),
+        "crash signal file must confirm boundary 2 was reached"
+    );
 
     // Verify recovery: engine reopens with prior commits intact.
     parent_rt.block_on(verify_recovery(dir.path(), 100));
@@ -443,6 +480,14 @@ fn crash_after_index_fsync() {
     let status = spawn_crash_child(dir.path(), "crash_after_index_fsync").unwrap();
     assert!(!status.success(), "child should have crashed at boundary 3");
 
+    // Validate the crash signal.
+    let signal = validate_crash_signal(dir.path());
+    assert_eq!(
+        signal,
+        Some("crash_after_index_fsync".to_string()),
+        "crash signal file must confirm boundary 3 was reached"
+    );
+
     // Verify recovery: engine reopens with prior commits intact.
     parent_rt.block_on(verify_recovery(dir.path(), 100));
 }
@@ -461,6 +506,14 @@ fn crash_after_projection_update() {
 
     let status = spawn_crash_child(dir.path(), "crash_after_projection_update").unwrap();
     assert!(!status.success(), "child should have crashed at boundary 4");
+
+    // Validate the crash signal.
+    let signal = validate_crash_signal(dir.path());
+    assert_eq!(
+        signal,
+        Some("crash_after_projection_update".to_string()),
+        "crash signal file must confirm boundary 4 was reached"
+    );
 
     // Verify recovery: engine reopens with prior commits intact.
     parent_rt.block_on(verify_recovery(dir.path(), 100));
