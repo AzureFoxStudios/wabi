@@ -1,12 +1,13 @@
 name: Office workspace acceptance
 on:
   push:
-    branches: [codex/docs-sheets-present-20260917, main]
+    branches: [main]
     paths:
       - .github/workflows/office-workspace-checks.yml
       - frontend/src/lib/workspaces/**
+      - frontend/src/lib/composerHandoff.ts
       - frontend/src/lib/components/ReaderDocumentWorkbench.svelte
-      - frontend/scripts/office-workspace-browser-smoke.mjs
+      - frontend/scripts/office-*.mjs
       - frontend/package.json
       - frontend/package-lock.json
       - frontend/vite.config.ts
@@ -16,19 +17,23 @@ on:
       - core/crates/wabi-server/examples/workspace_test_host.rs
       - core/crates/wabi-server/Cargo.toml
       - core/crates/wabidb/src/projections/workspace.rs
+      - docker-compose.office.yml
   pull_request:
     paths:
       - frontend/src/lib/workspaces/**
+      - frontend/src/lib/composerHandoff.ts
       - frontend/src/lib/components/ReaderDocumentWorkbench.svelte
-      - frontend/scripts/office-workspace-browser-smoke.mjs
+      - frontend/scripts/office-*.mjs
       - frontend/package.json
       - frontend/package-lock.json
       - frontend/vite.config.ts
       - core/crates/wabi-server/src/api/workspace*.rs
       - core/crates/wabi-server/tests/workspace_contract.rs
       - core/crates/wabi-server/src/adapter/workspace.rs
+      - core/crates/wabi-server/examples/workspace_test_host.rs
       - core/crates/wabidb/src/projections/workspace.rs
       - .github/workflows/office-workspace-checks.yml
+      - docker-compose.office.yml
   workflow_dispatch:
 permissions:
   contents: read
@@ -93,9 +98,22 @@ jobs:
           timeout 600 cargo test -p wabi-server --test workspace_contract --locked -- --nocapture > /tmp/office-contract.log 2>&1 || status=1
           cargo build -p wabi-server --example workspace_test_host --locked > /tmp/office-host-build.log 2>&1 || status=1
           exit "$status"
+      - name: Start isolated optional Office converter
+        id: converter
+        if: ${{ !cancelled() && steps.server.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.office.yml --profile office-conversion config --quiet
+          docker network create --internal wabi-office-test
+          docker run -d --name wabi-office-converter --network wabi-office-test -p 127.0.0.1:3005:3000 --read-only --user 1001:1001 --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 128 --memory 2g --cpus 1 --tmpfs /tmp:rw,nosuid,nodev,size=536870912,uid=1001,gid=1001,mode=1770 gotenberg/gotenberg:8.37.0 gotenberg --api-timeout=25s --api-body-limit=13MB --api-disable-download-from=true --webhook-disable=true --chromium-disable-routes=true --pdfengines-disable-routes=true --libreoffice-deny-list='.*' --libreoffice-deny-private-ips=true --libreoffice-deny-public-ips=true --libreoffice-restart-after=1 --libreoffice-max-queue-size=1
+          for attempt in $(seq 1 60); do
+            curl --fail --silent http://127.0.0.1:3005/health >/dev/null && break
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3005/health
       - name: Independent-browser acceptance against the real Authority
         id: browsers
-        if: ${{ !cancelled() && steps.server.outcome == 'success' && steps.expanded.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.server.outcome == 'success' && steps.expanded.outcome == 'success' && steps.converter.outcome == 'success' }}
         continue-on-error: true
         run: |
           test -x target/debug/examples/workspace_test_host
@@ -105,6 +123,9 @@ jobs:
           export WABI_WORKSPACE_E2E_DIR="$(mktemp -d /tmp/wabi-office-e2e.XXXXXX)"
           export WORKSPACE_ARTIFACT_DIR=/tmp/office-evidence/screenshots
           export WORKSPACE_BROWSER=chromium,firefox
+          export WABI_OFFICE_CONVERTER_ENABLED=1
+          export WABI_OFFICE_CONVERTER_URL=http://127.0.0.1:3005
+          export WORKSPACE_OFFICE_CONVERTER_TEST=1
           mkdir -p "$WORKSPACE_ARTIFACT_DIR"
           target/debug/examples/workspace_test_host > /tmp/office-host.log 2>&1 &
           host_pid=$!
@@ -143,6 +164,12 @@ jobs:
                   assert not any('/xlsx/' in m for m in modules),name
               print(f'{name}: authoring module boundary verified: {sorted(detected)}')
           PY
+      - name: Collect converter diagnostics and stop owned sidecar
+        if: always()
+        run: |
+          docker logs wabi-office-converter > /tmp/office-converter.log 2>&1 || true
+          docker rm -f wabi-office-converter || true
+          docker network rm wabi-office-test || true
       - name: Diagnostic summary
         if: always()
         run: |
@@ -174,8 +201,9 @@ jobs:
           FRONTEND: ${{ steps.frontend.outcome }}
           EXPANDED: ${{ steps.expanded.outcome }}
           SERVER: ${{ steps.server.outcome }}
+          CONVERTER: ${{ steps.converter.outcome }}
           BROWSERS: ${{ steps.browsers.outcome }}
           PACKAGES: ${{ steps.packages.outcome }}
         run: |
-          echo "frontend=$FRONTEND expanded=$EXPANDED server=$SERVER browsers=$BROWSERS packages=$PACKAGES"
-          test "$FRONTEND" = success && test "$EXPANDED" = success && test "$SERVER" = success && test "$BROWSERS" = success && test "$PACKAGES" = success
+          echo "frontend=$FRONTEND expanded=$EXPANDED server=$SERVER converter=$CONVERTER browsers=$BROWSERS packages=$PACKAGES"
+          test "$FRONTEND" = success && test "$EXPANDED" = success && test "$SERVER" = success && test "$CONVERTER" = success && test "$BROWSERS" = success && test "$PACKAGES" = success
