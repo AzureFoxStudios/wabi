@@ -6,6 +6,7 @@ description = "Wabi self-hosted authority/helper/anchor server"
 license = "MIT"
 
 [dependencies]
+yrs = { version = "=0.24.0", features = ["sync"] }
 # Web framework
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tokio = { version = "1", features = ["full"] }
@@ -115,3 +116,11 @@ path = "src/lib.rs"
 [[bin]]
 name = "wabi-server"
 path = "src/main.rs"
+
+[[test]]
+name = "workspace_contract"
+path = "tests/workspace_contract.rs"
+
+[[example]]
+name = "workspace_test_host"
+path = "examples/workspace_test_host.rs"

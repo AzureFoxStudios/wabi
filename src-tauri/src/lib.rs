@@ -36,6 +36,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
         commands::open_model_viewer,
         recording::save_call_recording,
+        workspace_export::workspace_export_file,
         tailcat::tailcat_register_key,
         tailcat::tailcat_connect,
         tailcat::tailcat_disconnect,
@@ -55,6 +56,7 @@ pub fn run() {
 
 mod commands;
 mod recording;
+mod workspace_export;
 mod tailcat;
 mod lore_local;
 pub mod tailcat_proxy;

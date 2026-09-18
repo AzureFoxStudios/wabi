@@ -1,5 +1,8 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
+	import { workspaceToolFromTab } from '$lib/workspaces/bridge';
+	import WorkspaceLinkHandler from '$lib/workspaces/WorkspaceLinkHandler.svelte';
+	import WorkspaceHost from '$lib/workspaces/WorkspaceHost.svelte';
 	import { fly } from 'svelte/transition';
 	import GamesHost from '$lib/games/GamesHost.svelte';
 	import { layoutStore } from '$lib/layoutStore';
@@ -940,6 +943,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	} else if (!mobileNavVisible) {
 		mobileNavVisible = true;
 	}
+	$: activeOfficeTool = workspaceToolFromTab($activeTabId);
 </script>
 
 <svelte:window
@@ -952,6 +956,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 />
 
 <AuthErrorBanner />
+	<WorkspaceLinkHandler />
 
 {#if $centerPanelView === 'admin'}
 	{#if AdminCenterStageCmp}
@@ -1176,7 +1181,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				<WorkspaceViewBar activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
 			{/if}
 			<div class="chat-surface">
-				{#if isModelViewportTabActive}
+				{#if activeOfficeTool}
+					<WorkspaceHost tool={activeOfficeTool} />
+				{:else if isModelViewportTabActive}
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
 					{:else}
