@@ -9,6 +9,7 @@ use tauri::{
 
 mod recording;
 mod lore_local;
+mod workspace_export;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -44,6 +45,7 @@ pub fn run() {
             get_platform,
             open_external_url,
             recording::save_call_recording,
+            workspace_export::workspace_export_file,
             lore_local::lore_local_choose,
             lore_local::lore_local_scan,
             lore_local::lore_local_save_state,
