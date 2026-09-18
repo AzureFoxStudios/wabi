@@ -6,7 +6,7 @@ export interface PrivateDraft {kind:'cell'|'review';text:string;context:Record<s
 export interface LocalArtifact {
     schema:1;key:string;scopeId:string;id:string;kind:ArtifactKind;format:string;title:string;
     update:Uint8Array;pending:Record<string,Uint8Array>;meta:Meta|null;reviews:Review[];
-    updatedAt:number;sourceKey?:string;original?:{name:string;type:string;blob:Blob};
+    updatedAt:number;sourceKey?:string;presentationSession?:string;original?:{name:string;type:string;blob:Blob};
     /** Private editing buffers, never included in a network update. */
     drafts?:Record<string,PrivateDraft>;
 }
@@ -161,6 +161,10 @@ export class ArtifactSession {
         Y.applyUpdate(this.doc,from64(response.delta),'remote');
         if(!this.record.meta||response.meta.revision>=this.record.meta.revision){this.record.meta=response.meta;this.record.reviews=response.reviews;}
         this.acked.push(...ack);
+    }
+    async rememberPresentation(id:string):Promise<void>{
+        if(this.closed||!this.scope.isCurrent()||this.record.kind!=='present'||!/^[0-9a-f-]{36}$/i.test(id))throw new Error('Invalid presentation association');
+        this.record.presentationSession=id;this.localEpoch++;await this.flush();
     }
     async publish(mode:'snapshot'|'live'){
         if(this.record.meta){await this.sync(true);return;}
