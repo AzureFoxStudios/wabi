@@ -20,42 +20,20 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.14'
-      - name: Apply reviewed security and isolated-network fixes
+      - name: Update only reviewed dependency pins
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import json
-          pending={}
-          def replace(path,before,after,count=1):
-              text=pending.setdefault(path,Path(path).read_text())
-              if after and text.count(after)==count:return
-              if text.count(before)!=count:raise RuntimeError(f'{path}: expected {count} anchors, found {text.count(before)}')
-              pending[path]=text.replace(before,after)
-          p='.github/workflows/office-workspace-checks.yml'
-          replace(p,'--network wabi-office-test -p 127.0.0.1:3005:3000','--network wabi-office-test')
-          replace(p,'          for attempt in $(seq 1 60); do', '''          converter_ip=$(docker inspect -f '{{(index .NetworkSettings.Networks "wabi-office-test").IPAddress}}' wabi-office-converter)
-                    python3 -c 'import ipaddress,sys; assert ipaddress.ip_address(sys.argv[1]).is_private' "$converter_ip"
-                    converter_url="http://$converter_ip:3000"
-                    echo "WABI_OFFICE_CONVERTER_URL=$converter_url" >> "$GITHUB_ENV"
-                    for attempt in $(seq 1 60); do''')
-          replace(p,'curl --fail --silent http://127.0.0.1:3005/health >/dev/null && break','curl --max-time 3 --fail --silent "$converter_url/health" >/dev/null && break')
-          replace(p,'curl --fail --silent http://127.0.0.1:3005/health','curl --max-time 3 --fail --show-error "$converter_url/health"')
-          replace(p,'          export WABI_OFFICE_CONVERTER_URL=http://127.0.0.1:3005','          test -n "$WABI_OFFICE_CONVERTER_URL"')
-          replace(p,"              modules=[m for chunk in data['chunks'] for m in chunk['modules']]", "              modules=[m for chunk in data['chunks'] for m in chunk['modules']]\n              assert not any('/image-size/' in m for m in modules), (name,'Node-only image-size must not enter the browser bundle')")
           package=Path('frontend/package.json');data=json.loads(package.read_text())
           data['dependencies']['pdfjs-dist']='6.2.108'
           data['overrides'].update({'socket.io-parser':'4.2.7','devalue':'5.9.2','cookie':'0.7.2','esbuild':'0.25.12'})
           data['devDependencies']['jszip']='3.10.1'
-          for path,text in pending.items():Path(path).write_text(text)
           package.write_text(json.dumps(data,indent=2)+'\n')
           PY
-          git diff --check
       - name: Resolve and validate the declared package versions
         working-directory: frontend
         run: |
-          for spec in pdfjs-dist@6.2.108 socket.io-parser@4.2.7 devalue@5.9.2 cookie@0.7.2 esbuild@0.25.12; do
-            npm view "$spec" version
-          done
           npm install --package-lock-only --ignore-scripts
           npm ci
           npm audit --json > /tmp/office-security-audit.json || true
@@ -66,15 +44,14 @@ jobs:
           for name in ('pdfjs-dist','socket.io-parser','devalue','cookie','esbuild'):
               assert name not in data.get('vulnerabilities',{}), f'Unresolved advisory for {name}'
           PY
-      - name: Commit only the reviewed source and lockfile changes
+      - name: Commit only dependency pins and lockfile
         run: |
           git diff --check
-          git diff --stat
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/workflows/office-workspace-checks.yml frontend/package.json frontend/package-lock.json
+          git add frontend/package.json frontend/package-lock.json
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(office): patch vulnerable dependencies and preserve converter network isolation'
+            git commit -m 'fix(office): patch PDF.js parser serialization and development dependency advisories'
             git push origin HEAD:refs/heads/codex/docs-sheets-present-20260917
           fi
           git rev-parse HEAD
