@@ -52,20 +52,67 @@ export function shiftFormula(expr:Expr,book:WorkbookSnapshot,dr:number,dc:number
 }
 export function literal(input:string):Scalar{if(input==='')return null;if(input.startsWith("'"))return input.slice(1);if(/^(?:true|false)$/i.test(input))return input.toLowerCase()==='true';if(/^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(input)){const n=Number(input);if(Number.isFinite(n))return n;}return input;}
 export interface Calculation {values:Record<string,Scalar>;errors:Record<string,string>;}
-export function calculate(book:WorkbookSnapshot):Calculation{
-    const values:Record<string,Scalar>={},errors:Record<string,string>={},visiting=new Set<string>();let operations=0;
+
+export function calculate(book:WorkbookSnapshot):Calculation {
+    const values:Record<string,Scalar>={},errors:Record<string,string>={},visiting=new Set<string>();
+    // Rebuilt for this immutable input only: never reuse stale axis positions
+    // after a collaborator inserts, removes or reorders a row/sheet.
+    const indexes=new Map(book.sheets.map(sheet=>[sheet.id,{
+        sheet,
+        rows:new Map(sheet.rows.map((row,index)=>[row.id,index])),
+        columns:new Map(sheet.columns.map((column,index)=>[column.id,index]))
+    }]));
+    let operations=0;
     const budget=()=>{if(++operations>2_000_000)throw new FormulaError('#LIMIT!');};
     const number=(value:Scalar)=>{if(value===null||value==='')return 0;if(typeof value==='boolean')return Number(value);if(typeof value==='number')return value;if(typeof value==='string'&&value.trim()!==''&&Number.isFinite(Number(value)))return Number(value);throw new FormulaError('#VALUE!');};
     const truth=(v:Scalar)=>typeof v==='string'?v!==''&&v.toLowerCase()!=='false':!!v;
     const flatten=(value:Scalar|Scalar[])=>Array.isArray(value)?value:[value];
     function one(value:Scalar|Scalar[]){if(Array.isArray(value)){if(value.length!==1)throw new FormulaError('#VALUE!');return value[0];}return value;}
-    function cell(sheetId:string,row:string,column:string):Scalar{budget();const id=`${sheetId}/${cellKey(row,column)}`;if(id in errors)throw new FormulaError(errors[id]);if(id in values)return values[id];const sheet=book.sheets.find(s=>s.id===sheetId);if(!sheet||!sheet.rows.some(r=>r.id===row)||!sheet.columns.some(c=>c.id===column))throw new FormulaError('#REF!');if(visiting.has(id))throw new FormulaError('#CYCLE!');if(visiting.size>128)throw new FormulaError('#LIMIT!');visiting.add(id);
-        try{const latest=heads(sheet.cells[cellKey(row,column)]||[]);if(latest.length>1)throw new FormulaError('#CONFLICT!');const v=latest[0];let result:Scalar=null;if(v){if(v.parseError)throw new FormulaError(v.parseError);result=v.expression?one(evaluate(v.expression)):v.literal!==undefined?v.literal:literal(v.input);if(typeof result==='number'&&!Number.isFinite(result))throw new FormulaError('#NUM!');}values[id]=result;return result;}catch(e){errors[id]=e instanceof FormulaError?e.code:'#ERROR!';throw e;}finally{visiting.delete(id);}
+    function cell(sheetId:string,row:string,column:string):Scalar {
+        const id=`${sheetId}/${cellKey(row,column)}`;
+        if(Object.hasOwn(errors,id))throw new FormulaError(errors[id]);
+        if(Object.hasOwn(values,id)){budget();return values[id];}
+        let entered=false;
+        try {
+            budget();
+            const indexed=indexes.get(sheetId);
+            if(!indexed||!indexed.rows.has(row)||!indexed.columns.has(column))throw new FormulaError('#REF!');
+            if(visiting.has(id))throw new FormulaError('#CYCLE!');
+            if(visiting.size>128)throw new FormulaError('#LIMIT!');
+            visiting.add(id);entered=true;
+            const latest=heads(indexed.sheet.cells[cellKey(row,column)]||[]);
+            if(latest.length>1)throw new FormulaError('#CONFLICT!');
+            const version=latest[0];
+            let result:Scalar=null;
+            if(version){
+                if(version.parseError)throw new FormulaError(version.parseError);
+                result=version.expression?one(evaluate(version.expression)):version.literal!==undefined?version.literal:literal(version.input);
+                if(typeof result==='number'&&!Number.isFinite(result))throw new FormulaError('#NUM!');
+            }
+            values[id]=result;
+            return result;
+        } catch(error) {
+            // Budget/ref errors must be visible too, rather than an omitted
+            // value which the grid could display as an innocent blank.
+            errors[id]=error instanceof FormulaError?error.code:'#ERROR!';
+            throw error;
+        } finally {if(entered)visiting.delete(id);}
     }
     function criterion(expected:Scalar){if(typeof expected!=='string')return(v:Scalar)=>v===expected;const m=/^(<>|>=|<=|>|<|=)?(.*)$/.exec(expected)!;const op=m[1]||'=',raw=m[2],target=raw.trim()!==''&&Number.isFinite(Number(raw))?Number(raw):raw.toLowerCase();return(v:Scalar)=>{const value=typeof target==='number'?number(v):String(v??'').toLowerCase();switch(op){case'=':return value===target;case'<>':return value!==target;case'>':return value>target;case'<':return value<target;case'>=':return value>=target;default:return value<=target;}};}
     function evaluate(expr:Expr):Scalar|Scalar[]{budget();switch(expr.type){
         case'value':return expr.value;case'ref':return cell(expr.sheet,expr.row,expr.column);
-        case'range':{if(expr.from.sheet!==expr.to.sheet)throw new FormulaError('#REF!');const sheet=book.sheets.find(s=>s.id===expr.from.sheet);if(!sheet)throw new FormulaError('#REF!');const r1=sheet.rows.findIndex(x=>x.id===expr.from.row),r2=sheet.rows.findIndex(x=>x.id===expr.to.row),c1=sheet.columns.findIndex(x=>x.id===expr.from.column),c2=sheet.columns.findIndex(x=>x.id===expr.to.column);if(Math.min(r1,r2,c1,c2)<0)throw new FormulaError('#REF!');if((Math.abs(r2-r1)+1)*(Math.abs(c2-c1)+1)>100000)throw new FormulaError('#LIMIT!');const result:Scalar[]=[];for(let r=Math.min(r1,r2);r<=Math.max(r1,r2);r++)for(let c=Math.min(c1,c2);c<=Math.max(c1,c2);c++)result.push(cell(sheet.id,sheet.rows[r].id,sheet.columns[c].id));return result;}
+        case'range':{
+            if(expr.from.sheet!==expr.to.sheet)throw new FormulaError('#REF!');
+            const indexed=indexes.get(expr.from.sheet);
+            if(!indexed)throw new FormulaError('#REF!');
+            const {sheet,rows,columns}=indexed;
+            const r1=rows.get(expr.from.row),r2=rows.get(expr.to.row),c1=columns.get(expr.from.column),c2=columns.get(expr.to.column);
+            if(r1===undefined||r2===undefined||c1===undefined||c2===undefined)throw new FormulaError('#REF!');
+            if((Math.abs(r2-r1)+1)*(Math.abs(c2-c1)+1)>100000)throw new FormulaError('#LIMIT!');
+            const result:Scalar[]=[];
+            for(let r=Math.min(r1,r2);r<=Math.max(r1,r2);r++)for(let c=Math.min(c1,c2);c<=Math.max(c1,c2);c++)result.push(cell(sheet.id,sheet.rows[r].id,sheet.columns[c].id));
+            return result;
+        }
         case'unary':return(expr.op==='-'?-1:1)*number(one(evaluate(expr.value)));
         case'binary':{const a=one(evaluate(expr.left)),b=one(evaluate(expr.right));switch(expr.op){case'&':return String(a??'')+String(b??'');case'=':return typeof a==='string'&&typeof b==='string'?a.toLowerCase()===b.toLowerCase():a===b;case'<>':return a!==b;case'>':return number(a)>number(b);case'<':return number(a)<number(b);case'>=':return number(a)>=number(b);case'<=':return number(a)<=number(b);case'+':return number(a)+number(b);case'-':return number(a)-number(b);case'*':return number(a)*number(b);case'/':if(number(b)===0)throw new FormulaError('#DIV/0!');return number(a)/number(b);case'^':return number(a)**number(b);default:throw new FormulaError('#UNSUPPORTED!');}}
         case'call':{const args=expr.args;const required=(min:number,max=min)=>{if(args.length<min||args.length>max)throw new FormulaError('#ARGS!');};if(expr.name==='IF'){required(2,3);return truth(one(evaluate(args[0])))?evaluate(args[1]):args[2]?evaluate(args[2]):false;}
@@ -74,6 +121,9 @@ export function calculate(book:WorkbookSnapshot):Calculation{
             if(expr.name==='ABS'||expr.name==='NOT'){required(1);const x=one(evaluate(args[0]));return expr.name==='ABS'?Math.abs(number(x)):!truth(x);}
             required(1,128);const all=args.flatMap(arg=>flatten(evaluate(arg)));const nums=all.filter((v):v is number=>typeof v==='number');switch(expr.name){case'SUM':return nums.reduce((a,b)=>a+b,0);case'AVERAGE':if(!nums.length)throw new FormulaError('#DIV/0!');return nums.reduce((a,b)=>a+b,0)/nums.length;case'MIN':return nums.length?nums.reduce((a,b)=>Math.min(a,b)):0;case'MAX':return nums.length?nums.reduce((a,b)=>Math.max(a,b)):0;case'COUNT':return nums.length;case'COUNTA':return all.filter(v=>v!==null&&v!=='').length;case'AND':return all.every(truth);case'OR':return all.some(truth);case'CONCAT':return all.map(v=>String(v??'')).join('');default:throw new FormulaError('#UNSUPPORTED!');}}
     }}
-    for(const sheet of book.sheets)for(const key of Object.keys(sheet.cells)){const [row,column]=key.split('|');try{cell(sheet.id,row,column);}catch{/* Per-cell diagnostics are the result. */}}
+    for(const sheet of book.sheets)for(const key of Object.keys(sheet.cells)){
+        const [row,column]=key.split('|'),id=`${sheet.id}/${key}`;
+        try{cell(sheet.id,row,column);}catch(error){errors[id]=error instanceof FormulaError?error.code:'#ERROR!';}
+    }
     return{values,errors};
 }
