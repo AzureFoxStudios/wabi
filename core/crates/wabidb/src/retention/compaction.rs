@@ -26,6 +26,7 @@
 //!   to the originals (just re-serialized into a new segment).
 
 use crate::error::{ErrorCategory, Result, WabiError};
+use crate::format::record::HEADER_LEN;
 use crate::retention::tombstone::TombstoneTable;
 use crate::stream_log::recovery::scan_segment_file;
 use std::path::{Path, PathBuf};
@@ -139,6 +140,15 @@ pub async fn compact_segment(
         let encoded_header = record.header.encode();
         kept_bytes.extend_from_slice(&encoded_header);
         kept_bytes.extend_from_slice(&record.payload);
+        // Zero-pad to the next 16-byte boundary, matching SegmentWriter::append.
+        // The segment reader requires this padding; without it, re-reading the
+        // compacted segment misaligns the next record's header and the reader
+        // stops at the first "non-zero padding" byte, returning zero records.
+        // Zero records triggers the empty-file deletion path — data loss.
+        let pad_len = record.header.total_size() - HEADER_LEN as usize - record.payload.len();
+        if pad_len > 0 {
+            kept_bytes.extend_from_slice(&vec![0u8; pad_len]);
+        }
     }
 
     // Write to temp, fsync, atomic rename.
