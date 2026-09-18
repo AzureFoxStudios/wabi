@@ -2,81 +2,87 @@ import { describe, expect, test } from 'bun:test';
 import { ADDON_SECTION_IDS, LOCAL_ADDON_CONTROL_META } from './addonSettingsRegistry';
 import { createAddonSettingsView } from './addonSettingsView';
 
+const NO_STATE: Record<string, boolean> = {};
+
 describe('add-on settings render snapshots', () => {
 	test('every available control contributes to its section and the total', () => {
-		for (const translatorDetected of [false, true]) {
-			const view = createAddonSettingsView('', 'chat', translatorDetected);
-			let total = 0;
-			for (const section of ADDON_SECTION_IDS) {
-				const count = Object.entries(LOCAL_ADDON_CONTROL_META).filter(
-					([id, meta]) => meta.section === section && view.localAddonControlMatches(id)
-				).length;
-				expect(view.addonSectionMatchCount(section)).toBe(count);
-				total += count;
-			}
-			expect(view.visibleLocalAddonControlCount).toBe(total);
-			expect(view.availableLocalAddonControlCount).toBe(total);
+		const view = createAddonSettingsView('', false, NO_STATE);
+		let total = 0;
+		for (const section of ADDON_SECTION_IDS) {
+			const count = Object.entries(LOCAL_ADDON_CONTROL_META).filter(
+				([id, meta]) => meta.section === section && view.localAddonControlMatches(id)
+			).length;
+			expect(view.addonSectionMatchCount(section)).toBe(count);
+			total += count;
 		}
+		expect(view.visibleLocalAddonControlCount).toBe(total);
+		expect(view.availableLocalAddonControlCount).toBe(total);
 	});
 
-	test('changing the query updates section visibility, expansion, and callback props together', () => {
-		const before = createAddonSettingsView('', 'chat', false);
-		const after = createAddonSettingsView('MoreQuickReacts', 'chat', false);
-		expect(before.isAddonSectionOpen('chat')).toBe(true);
-		expect(before.isAddonSectionOpen('media')).toBe(false);
+	test('changing the query updates visibility and counts together', () => {
+		const before = createAddonSettingsView('', false, NO_STATE);
+		const after = createAddonSettingsView('MoreQuickReacts', false, NO_STATE);
+		expect(before.visibleLocalAddonControlCount).toBe(before.availableLocalAddonControlCount);
 		expect(after.visibleLocalAddonControlCount).toBe(1);
 		expect(after.localAddonControlMatches('more_quick_reacts')).toBe(true);
 		expect(after.localAddonControlMatches('spellcheck')).toBe(false);
-		expect(after.isAddonSectionOpen('media')).toBe(true);
-		expect(after.isAddonSectionOpen('chat')).toBe(false);
 		expect(after.addonSectionMatchCount('media')).toBe(1);
 		expect(after.localAddonControlMatches).not.toBe(before.localAddonControlMatches);
-		expect(after.isAddonSectionOpen).not.toBe(before.isAddonSectionOpen);
 		expect(after.addonSectionMatchCount).not.toBe(before.addonSectionMatchCount);
 		// Earlier rendered snapshots never start reading a later query by closure.
 		expect(before.localAddonControlMatches('spellcheck')).toBe(true);
 	});
 
-	test('search expands all matching sections and clearing restores manual selection', () => {
-		const search = createAddonSettingsView('emoji', 'utilities', false);
-		expect(search.isAddonSectionOpen('chat')).toBe(true);
-		expect(search.isAddonSectionOpen('media')).toBe(true);
-		expect(search.isAddonSectionOpen('utilities')).toBe(false);
-		const cleared = createAddonSettingsView('', 'utilities', false);
-		for (const section of ADDON_SECTION_IDS) {
-			expect(cleared.isAddonSectionOpen(section)).toBe(section === 'utilities');
-		}
+	test('enabled-only hides rows reported as off and keeps unreported rows visible', () => {
+		const state = { spellcheck: false, char_counter: true };
+		const filtered = createAddonSettingsView('', true, state);
+		expect(filtered.localAddonControlMatches('spellcheck')).toBe(false);
+		expect(filtered.localAddonControlMatches('char_counter')).toBe(true);
+		// A control that has not reported yet must not disappear.
+		expect(filtered.localAddonControlMatches('more_quick_reacts')).toBe(true);
+		expect(filtered.visibleLocalAddonControlCount).toBe(
+			filtered.availableLocalAddonControlCount - 1
+		);
+		const unfiltered = createAddonSettingsView('', false, state);
+		expect(unfiltered.localAddonControlMatches('spellcheck')).toBe(true);
 	});
 
-	test('manual accordion selection and collapse work across every section', () => {
-		for (const active of [...ADDON_SECTION_IDS, null]) {
-			const view = createAddonSettingsView('', active, false);
-			for (const section of ADDON_SECTION_IDS) {
-				expect(view.isAddonSectionOpen(section)).toBe(section === active);
-			}
-		}
+	test('category filter narrows local rows and toggles the server/bundled groups', () => {
+		const media = createAddonSettingsView('', false, NO_STATE, 'media');
+		expect(media.showLocalRows).toBe(true);
+		expect(media.showServerRows).toBe(false);
+		expect(media.showBundledRows).toBe(false);
+		expect(media.localAddonControlMatches('more_quick_reacts')).toBe(true);
+		expect(media.localAddonControlMatches('spellcheck')).toBe(false);
+
+		const server = createAddonSettingsView('', false, NO_STATE, 'server');
+		expect(server.showServerRows).toBe(true);
+		expect(server.showLocalRows).toBe(false);
+		expect(server.visibleLocalAddonControlCount).toBe(0);
+
+		const all = createAddonSettingsView('', false, NO_STATE, 'all');
+		expect(all.showServerRows).toBe(true);
+		expect(all.showBundledRows).toBe(true);
+		expect(all.showLocalRows).toBe(true);
 	});
 
 	test('translator settings stay discoverable regardless of runtime detection', () => {
-		const undetected = createAddonSettingsView('translator', 'chat', false);
-		expect(undetected.visibleLocalAddonControlCount).toBe(1);
-		expect(undetected.localAddonControlMatches('translator_addon')).toBe(true);
-		expect(undetected.isAddonSectionOpen('utilities')).toBe(true);
-		const detected = createAddonSettingsView('translator', 'chat', true);
-		expect(detected.availableLocalAddonControlCount).toBe(undetected.availableLocalAddonControlCount);
-		expect(detected.visibleLocalAddonControlCount).toBe(undetected.visibleLocalAddonControlCount);
-		expect(detected.localAddonControlMatches('translator_addon')).toBe(true);
-		expect(detected.addonSectionMatchCount('utilities')).toBe(undetected.addonSectionMatchCount('utilities'));
+		const view = createAddonSettingsView('translator', false, NO_STATE);
+		expect(view.visibleLocalAddonControlCount).toBe(1);
+		expect(view.localAddonControlMatches('translator_addon')).toBe(true);
+		expect(view.addonSectionMatchCount('utilities')).toBe(1);
 	});
 
 	test('unknown, removed, and nonmatching controls do not advertise phantom matches', () => {
 		for (const query of ['not-an-addon-at-all', 'LINE DM', 'PinDMs']) {
-			const view = createAddonSettingsView(query, 'chat', false);
+			const view = createAddonSettingsView(query, false, NO_STATE);
 			expect(view.visibleLocalAddonControlCount).toBe(0);
 			for (const section of ADDON_SECTION_IDS) {
-				expect(view.isAddonSectionOpen(section)).toBe(false);
+				expect(view.addonSectionMatchCount(section)).toBe(0);
 			}
 		}
-		expect(createAddonSettingsView('', 'chat', true).localAddonControlMatches('toString')).toBe(false);
+		expect(
+			createAddonSettingsView('', false, NO_STATE).localAddonControlMatches('toString')
+		).toBe(false);
 	});
 });

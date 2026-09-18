@@ -122,7 +122,7 @@
 
 		.addons-settings-window {
 			/* The Settings content owns mobile scrolling. A capped inner window
-			   clips the filter when its header and accordion exceed half a screen. */
+			   clips the filter when its header and list exceed half a screen. */
 			max-height: none;
 			flex-shrink: 0;
 		}
@@ -133,7 +133,7 @@
 		}
 
 		.addons-search-field {
-			/* The desktop 260px flex basis is a width, not a mobile height. */
+			/* The desktop 240px flex basis is a width, not a mobile height. */
 			flex: 0 0 auto;
 		}
 
@@ -145,10 +145,17 @@
 			min-height: 0;
 			flex: none;
 			overflow: visible;
-			padding: 0.85rem;
 		}
 
-		.addon-accordion-body {
-			padding: 0.85rem;
+		.addon-prefs-row-head {
+			padding: 0 0.7rem;
+		}
+
+		.addon-prefs-row-body {
+			padding: 0.15rem 0.7rem 0.8rem 1.9rem;
+		}
+
+		.addon-prefs-row-label {
+			white-space: normal;
 		}
 	}

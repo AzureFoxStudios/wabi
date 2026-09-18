@@ -2,12 +2,11 @@
 	import { displayEnhancementSettingsStore, setFriendNotificationsEnabled, setFriendNotificationsTrackedOnly } from '$lib/displayEnhancements';
 	import { clearAllTrackedPersonStatusAlerts, trackedStatusAlertPersonCountStore } from '$lib/peopleTracker';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
-	import type { AddonSectionId } from '../addonSettingsRegistry';
+	import AddonRow from './AddonRow.svelte';
 
 	export let localAddonControlMatches: (controlId: string) => boolean;
-	export let isAddonSectionOpen: (section: AddonSectionId) => boolean;
-	export let toggleAddonSection: (section: AddonSectionId) => void;
-	export let addonSectionMatchCount: (section: AddonSectionId) => number;
+
+	const SECTION = ADDON_SECTION_LABELS.notifications;
 
 	let friendNotificationsEnabled = false;
 	let friendNotificationsTrackedOnly = true;
@@ -30,59 +29,36 @@
 </script>
 
 {#if localAddonControlMatches('friend_notifications')}
-<section class="addon-accordion-section">
-	<button
-		type="button"
-		class="addon-accordion-trigger"
-		aria-expanded={isAddonSectionOpen('notifications')}
-		aria-controls="addon-section-notifications"
-		on:click={() => toggleAddonSection('notifications')}
+	<AddonRow
+		id="friend_notifications"
+		label="FriendNotifications"
+		description="Desktop notifications when people change presence status."
+		enabled={friendNotificationsEnabled}
+		badge={SECTION}
+		onToggle={toggleFriendNotificationsAddon}
 	>
-		<span class="addon-accordion-trigger-main">
-			<span class="addon-section-chevron" aria-hidden="true">
-				<svg viewBox="0 0 24 24">
-					<path d="M9 6l6 6-6 6"></path>
-				</svg>
-			</span>
-			<span class="addon-accordion-label">{ADDON_SECTION_LABELS.notifications}</span>
-		</span>
-		<span class="addon-accordion-count">{addonSectionMatchCount('notifications')}</span>
-	</button>
-	{#if isAddonSectionOpen('notifications')}
-	<div class="addon-accordion-body" id="addon-section-notifications">
-		{#if localAddonControlMatches('friend_notifications')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">FriendNotifications</span>
-					<span class="setting-description">Desktop notifications when people change presence status.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={friendNotificationsEnabled} on:click={toggleFriendNotificationsAddon}>
-					</button>
-					<button
-						class="toggle-btn"
-						class:active={friendNotificationsTrackedOnly}
-						on:click={toggleFriendNotificationsTrackedOnlyAddon}
-						disabled={!friendNotificationsEnabled}
-					>
-						Status alerts list only: {friendNotificationsTrackedOnly ? 'ON' : 'OFF'}
-					</button>
-				</div>
-				<div class="runtime-note">
-					Tracked people for status alerts: {$trackedStatusAlertPersonCountStore}. Use the People tab context menu to enable or disable alerts per person on each server.
-				</div>
-				<div class="settings-row-actions">
-					<button
-						class="action-btn secondary"
-						on:click={clearFriendNotificationTrackedUsers}
-						disabled={$trackedStatusAlertPersonCountStore === 0}
-					>
-						Clear Status Alerts List
-					</button>
-				</div>
+		{#snippet preferences()}
+			<label class="addon-pref-check">
+				<input
+					type="checkbox"
+					checked={friendNotificationsTrackedOnly}
+					on:change={toggleFriendNotificationsTrackedOnlyAddon}
+					disabled={!friendNotificationsEnabled}
+				/>
+				<span>Status alerts list only</span>
+			</label>
+			<div class="runtime-note">
+				Tracked people for status alerts: {$trackedStatusAlertPersonCountStore}. Use the People tab context menu to enable or disable alerts per person on each server.
 			</div>
-		{/if}
-	</div>
-	{/if}
-</section>
+			<div class="settings-row-actions">
+				<button
+					class="action-btn secondary"
+					on:click={clearFriendNotificationTrackedUsers}
+					disabled={$trackedStatusAlertPersonCountStore === 0}
+				>
+					Clear Status Alerts List
+				</button>
+			</div>
+		{/snippet}
+	</AddonRow>
 {/if}
