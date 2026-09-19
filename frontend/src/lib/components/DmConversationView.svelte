@@ -9,6 +9,8 @@
   import { filterMessages } from './chat/search';
   import type { Channel, Message, User } from '$lib/socket-types';
   import { resolveDmOtherUser } from '$lib/dmConversations';
+  import { cachedE2eeStatus, refreshE2eeStatus, turnOnE2ee } from '$lib/dm/dmE2eeState';
+  import type { E2eeRoomStatus } from '$lib/e2ee';
 
   export let context: 'center' | 'right' = 'right';
   export let channelIdProp: string | null = null;
@@ -36,6 +38,41 @@
   let isTextareaFocused = false;
   let chatContainer: HTMLDivElement | undefined;
   let chatComposer: ChatComposer;
+
+  // ── E2EE conversation state ──────────────────────────────────────────────
+  let e2eeStatus: E2eeRoomStatus | null = $state(null);
+  let e2eeBusy = $state(false);
+  let e2eeError = $state('');
+
+  $: e2eeEnabled = !!e2eeStatus?.enabled;
+
+  async function loadE2eeStatus(): Promise<void> {
+    if (!channelId) {
+      e2eeStatus = null;
+      return;
+    }
+    e2eeStatus = cachedE2eeStatus(channelId) ?? null;
+    // Refresh once so the pill reflects the real server state after a restart.
+    e2eeStatus = await refreshE2eeStatus(channelId);
+  }
+
+  async function enableE2ee(): Promise<void> {
+    if (!channelId || e2eeBusy) return;
+    e2eeBusy = true;
+    e2eeError = '';
+    try {
+      const status = await turnOnE2ee(channelId);
+      if (!status) {
+        e2eeError = 'Could not enable encryption on this device. Check that you are signed in and try again.';
+        return;
+      }
+      e2eeStatus = status;
+    } finally {
+      e2eeBusy = false;
+    }
+  }
+
+  $: if (channelId) void loadE2eeStatus();
 
   function handleReply(msg: Message) {
     replyingTo = msg;
@@ -76,7 +113,28 @@
       <div class="dm-header-meta">
         <span class="dm-badge">{isGroup ? 'Group' : 'DM'}</span>
         {#if !isGroup && !otherUser}<span role="status">Recipient details aren’t available. Reconnect to refresh this conversation.</span>{/if}
+        {#if isGroup}
+          <span class="dm-header-pill" title="The server operator is part of the trust boundary. Experimental encryption is not a verified confidentiality guarantee.">Server-readable by default</span>
+        {:else if e2eeEnabled}
+          <span class="dm-header-pill dm-header-pill-secure" title="End-to-end encrypted · experimental · not independently verified">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
+            End-to-end encrypted
+          </span>
+        {:else}
+          <button
+            type="button"
+            class="dm-header-pill dm-header-pill-action"
+            title="The server operator is part of the trust boundary. Turn on end-to-end encryption for this conversation?"
+            onclick={() => enableE2ee()}
+            disabled={e2eeBusy}
+          >
+            {e2eeBusy ? 'Enabling…' : 'Enable encryption'}
+          </button>
+        {/if}
       </div>
+      {#if e2eeError}
+        <div class="dm-e2ee-error" role="alert">{e2eeError}</div>
+      {/if}
     </div>
     <div class="dm-header-actions">
       <button class="dm-header-action" title={context === 'right' ? 'Open in main view' : 'Move to side panel'} on:click={handleToggleSurface}>
@@ -134,6 +192,8 @@
       channelId={channelId}
       draftSurface={`dm-${context}`}
       paymentButtonEnabled={false}
+      encryptSend={e2eeEnabled}
+      e2eeStatus={e2eeStatus}
       bind:replyingTo
       bind:composerVisible
       bind:isTextareaFocused
@@ -215,6 +275,55 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-size: var(--font-size-xs, 11px);
+  }
+
+  /* E2EE header pill: muted warning when off, green lock when encrypted. */
+  .dm-header-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    max-width: 22rem;
+    padding: 0.12rem 0.45rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .dm-header-pill-action {
+    cursor: pointer;
+    transition: background var(--duration-fast), color var(--duration-fast);
+  }
+
+  .dm-header-pill-action:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-secondary, #818cf8) 16%, transparent);
+    color: var(--text-heading);
+  }
+
+  .dm-header-pill-action:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  .dm-header-pill-secure {
+    color: color-mix(in srgb, #34d399 88%, var(--text-heading) 12%);
+    border-color: color-mix(in srgb, #34d399 36%, transparent);
+    background: color-mix(in srgb, #34d399 10%, transparent);
+  }
+
+  .dm-header-pill-secure svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  .dm-e2ee-error {
+    width: 100%;
+    font-size: 0.7rem;
+    color: var(--text-danger, #ff8a80);
   }
 
   .dm-header-actions {

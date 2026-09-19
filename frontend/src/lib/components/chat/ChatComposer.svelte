@@ -42,12 +42,17 @@ import type { MediaAlbum } from '$lib/api';
 	import type { MediaAlbumScopeType } from '$lib/api';
 	import type { FilePreview } from './fileHandlers';
 	import type { MentionSuggestion } from './types';
+	import type { E2eeRoomStatus } from '$lib/e2ee';
+	import { encryptMessageForChannel } from '$lib/e2ee';
 
 	interface Props {
 		isDMChannel?: boolean;
 		channelId?: string | null;
 		draftSurface?: string;
 		paymentButtonEnabled?: boolean;
+		/** E2EE: on send, wrap the payload text in an encrypted envelope instead of sending plaintext. */
+		encryptSend?: boolean;
+		e2eeStatus?: E2eeRoomStatus | null;
 		replyingTo?: Message | null;
 		composerVisible?: boolean;
 		isTextareaFocused?: boolean;
@@ -57,6 +62,8 @@ import type { MediaAlbum } from '$lib/api';
 
 	let {
 		isDMChannel = false,
+		encryptSend = false,
+		e2eeStatus = null,
 		channelId = null,
 		draftSurface = 'channel',
 		paymentButtonEnabled = false,
@@ -66,6 +73,36 @@ import type { MediaAlbum } from '$lib/api';
 		onExecuteCommand,
 		onOpenPaymentSheet
 	}: Props = $props();
+
+	/** E2EE indicator: plaintext shows a muted "Server-readable" note; encrypted messages show a lock. */
+	let e2eeIndicator = $derived.by(() => {
+		if (!encryptSend) {
+			return {
+				icon: '⚠',
+				label: 'Server-readable',
+				title: 'Messages are readable by the server operator. Turn on end-to-end encryption from the DM header to encrypt them.',
+				locked: false
+			};
+		}
+		return {
+			icon: '🔒',
+			label: 'End-to-end encrypted',
+			title: 'Messages are encrypted on this device (experimental — not independently verified).',
+			locked: true
+		};
+	});
+
+	/** Mirror the derived indicator into state so the template can read it. */
+	let e2eeIndicatorState = $state<{ icon: string; label: string; title: string; locked: boolean }>({
+		icon: '⚠',
+		label: 'Server-readable',
+		title: '',
+		locked: false
+	});
+
+	$effect(() => {
+		e2eeIndicatorState = e2eeIndicator;
+	});
 
 	const dispatch = createEventDispatcher();
 	type SendChatMessage = (
@@ -364,10 +401,26 @@ import type { MediaAlbum } from '$lib/api';
 				});
 			}
 		} else {
-			const kind = detectMessageKind(processed.text, $emojis as unknown as Emoji[]);
+			// E2EE: wrap outgoing text in an encrypted envelope before chunking or
+			// payload building, so replyTo/spoiler/entities ride inside the sealed payload.
+			let outgoingText = processed.text;
+			if (encryptSend && !processed.text.startsWith('wabi-e2ee-v1:')) {
+				const encrypted = await encryptMessageForChannel(
+					draftChannel,
+					processed.text,
+					'text',
+					{ replyTo: replyId, isSpoiler: spoiler, entities: normalizedEntities }
+				);
+				if (encrypted) {
+					outgoingText = encrypted.wireText;
+					// Encryption absorbs replyTo/isSpoiler/entities into the envelope.
+					markAsSpoiler = false;
+				}
+			}
+			const kind = detectMessageKind(outgoingText, $emojis as unknown as Emoji[]);
 			if (kind.type === 'emoji') {
 				payloads.push({
-					text: processed.text,
+					text: outgoingText,
 					type: 'emoji',
 					opts: {
 						emojiUrl: kind.emojiUrl,
@@ -378,7 +431,7 @@ import type { MediaAlbum } from '$lib/api';
 				});
 			} else {
 				payloads.push({
-					text: processed.text,
+					text: outgoingText,
 					type: 'text',
 					opts: {
 						replyTo: replyId,
@@ -616,6 +669,10 @@ import type { MediaAlbum } from '$lib/api';
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple class="hidden" />
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
+	<div class="composer-e2ee-status" class:locked={e2eeIndicatorState.locked} title={e2eeIndicatorState.title} aria-live="polite">
+		<span class="composer-e2ee-icon" aria-hidden="true">{e2eeIndicatorState.icon}</span>
+		<span class="composer-e2ee-label">{e2eeIndicatorState.label}</span>
+	</div>
 	<div class="input-container">
 		<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
 		<textarea bind:this={textareaElement} bind:value={messageInput} onpaste={handlePaste} oninput={() => { handleInput(); handleInputChange(); }} onkeydown={handleKeyDown} onfocus={() => { isTextareaFocused = true; composerVisible = true; }} onblur={() => { isTextareaFocused = false; }} placeholder={$isMobile ? 'Message...' : $_('chat.compose.placeholder')} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} rows="1"></textarea>

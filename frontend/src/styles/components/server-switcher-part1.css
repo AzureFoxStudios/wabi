@@ -108,38 +108,46 @@
 
 .switcher-close {
 	position: absolute;
-	top: 0.95rem;
-	right: 0.95rem;
-	width: 34px;
-	height: 34px;
+	top: 0.85rem;
+	right: 0.85rem;
+	width: 32px;
+	height: 32px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	padding: 0;
-	border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
+	border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
 	border-radius: var(--radius-md);
-	background: var(--surface-overlay, rgba(3, 7, 18, 0.42));
-	color: var(--text-inverse, var(--text-inverse, #f8fafc));
+	background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
+	color: var(--text-secondary);
 	cursor: pointer;
 	z-index: 2;
+	transition: background var(--duration-fast), color var(--duration-fast);
 }
 
 .switcher-close svg {
-	width: 16px;
-	height: 16px;
+	width: 15px;
+	height: 15px;
 	fill: none;
 	stroke: currentColor;
 	stroke-width: 2;
 	stroke-linecap: round;
+	stroke-linejoin: round;
 }
 
 .server-switcher.dock-right .switcher-close {
 	right: auto;
-	left: 0.95rem;
+	left: 0.85rem;
 }
 
 .switcher-close:hover {
-	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
+	background: color-mix(in srgb, var(--surface-hover) 82%, transparent);
+	color: var(--text-heading);
+}
+
+.switcher-close:focus-visible {
+	outline: 2px solid var(--accent-primary-color, var(--accent-primary));
+	outline-offset: 2px;
 }
 
 .switcher-body {
