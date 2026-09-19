@@ -1,0 +1,72 @@
+{
+  "boundary": "SYNTHETIC API/auth; real current-source GalleryChannel, GalleryLightbox, stores and API clients; NOT backend/runtime acceptance",
+  "head": "c723198416270c2ed40919107e2b4101eec99c6b",
+  "assertions": [
+    {
+      "name": "Initial render: nine works, six recent and three older",
+      "status": "PASS"
+    },
+    {
+      "name": "Search filters FULL collection before recent split: older caption match is reachable",
+      "status": "PASS"
+    },
+    {
+      "name": "Nonempty matching results must not simultaneously claim no works match",
+      "status": "PASS"
+    },
+    {
+      "name": "No-match state and Clear filters restore all nine works",
+      "status": "PASS"
+    },
+    {
+      "name": "Media filters: Images = eight; Video = one; All = nine",
+      "status": "PASS"
+    },
+    {
+      "name": "Offline creator stable-id filter yields four works and Show all restores nine",
+      "status": "PASS"
+    },
+    {
+      "name": "Partial album 503 keeps seven works, explicit warning; Retry restores nine",
+      "status": "PASS"
+    },
+    {
+      "name": "Total album 503 shows error not empty; Retry restores nine",
+      "status": "PASS"
+    },
+    {
+      "name": "Feedback unsent marker/text survives work navigation and close/reopen",
+      "status": "PASS"
+    },
+    {
+      "name": "Feedback failed save retains draft; Send retry persists to synthetic API and clears submitted draft",
+      "status": "PASS"
+    },
+    {
+      "name": "Two mounted Gallery surfaces maintain independent filters and survive panel disposal",
+      "status": "PASS"
+    },
+    {
+      "name": "Existing saved marker must not block placing a second marker",
+      "status": "PASS"
+    },
+    {
+      "name": "Panel feedback draft does not replace center feedback draft on same work",
+      "status": "PASS"
+    },
+    {
+      "name": "No uncaught browser page errors",
+      "status": "PASS"
+    },
+    {
+      "name": "No unconfigured API or off-origin requests escaped the synthetic boundary",
+      "status": "PASS"
+    }
+  ],
+  "pageErrors": [],
+  "unexpectedRequests": [],
+  "counts": {
+    "passed": 15,
+    "failed": 0
+  }
+}

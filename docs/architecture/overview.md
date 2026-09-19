@@ -173,3 +173,7 @@ Expiry still calls ordinary logical deletion. It does not purge the original eve
 Exact retention labels and timers are now initialized synchronously in `AppState::new` from validated `channel_retention.json` before WabiDB opens. Router construction no longer spawns a hydration task. Malformed/unreadable files fail startup; reads and mutations propagate errors instead of synthesizing an empty policy map. No persistent record schema changed.
 
 Realtime channel settings delegate retention changes to `api::channels::apply_channel_retention`, matching the REST path. Settings receipts contain only the changed fields instead of representing omitted retention/spoiler values as null resets.
+
+### Album media metadata (September 19 finish follow-up)
+
+The album REST add-item path passes optional file size and MIME metadata through `WabiStore::add_item` to the existing `AlbumItemRecord.size` and `.mime` fields. Older builds discarded those values. This changes no postcard field order or record shape; existing records with absent metadata remain readable and are not rewritten. Client-supplied MIME is presentation metadata, not validation of uploaded bytes.
