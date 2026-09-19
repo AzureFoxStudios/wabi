@@ -236,6 +236,8 @@ async fn add_item(
             &payload.attachment_url,
             &payload.attachment_name,
             payload.caption.as_deref(),
+            payload.attachment_size,
+            payload.attachment_mime.as_deref(),
             auth.user_id as u64,
         )
         .await?;

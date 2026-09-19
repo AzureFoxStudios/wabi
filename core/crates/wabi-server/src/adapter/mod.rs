@@ -1924,7 +1924,7 @@ impl WabiStore for WdbAdapter {
         Ok(records.into_iter().map(wabidb::domain::AlbumItem::from).collect())
     }
 
-    async fn add_item(&self, album_id: &str, url: &str, name: &str, caption: Option<&str>, user_id: u64) -> Result<String> {
+    async fn add_item(&self, album_id: &str, url: &str, name: &str, caption: Option<&str>, size: Option<i64>, mime: Option<&str>, user_id: u64) -> Result<String> {
         use wabidb::projections::album_items::{encode_record, AlbumItemRecord};
         let now = now_micros();
         let record = AlbumItemRecord {
@@ -1932,8 +1932,8 @@ impl WabiStore for WdbAdapter {
             album_id: album_id.to_string(),
             url: url.to_string(),
             name: name.to_string(),
-            size: None,
-            mime: None,
+            size,
+            mime: mime.map(String::from),
             caption: caption.map(String::from),
             sort_order: 0,
             created_at_micros: now,
