@@ -234,6 +234,36 @@
 		letter-spacing: 0.01em;
 	}
 
+	/* E2EE composer status: muted warning when plaintext, green lock when encrypted. */
+	.composer-e2ee-status {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		width: 100%;
+		padding: 0.2rem var(--space-3, 0.75rem);
+		font-size: var(--text-xs, 0.75rem);
+		color: var(--text-muted, #9999ff);
+	}
+
+	.composer-e2ee-status .composer-e2ee-icon {
+		display: inline-flex;
+		font-size: 0.7rem;
+		line-height: 1;
+	}
+
+	.composer-e2ee-status .composer-e2ee-label {
+		font-weight: 500;
+		letter-spacing: 0.01em;
+	}
+
+	.composer-e2ee-status.locked {
+		color: color-mix(in srgb, #34d399 88%, var(--text-heading) 12%);
+	}
+
+	.composer-e2ee-status.locked .composer-e2ee-icon {
+		color: #34d399;
+	}
+
 
 	textarea {
 		flex: 1;
