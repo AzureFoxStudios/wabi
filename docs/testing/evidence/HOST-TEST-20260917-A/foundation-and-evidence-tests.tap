@@ -1,0 +1,118 @@
+TAP version 13
+# Subtest: hashes actual bytes and never claims physical acceptance
+ok 1 - hashes actual bytes and never claims physical acceptance
+  ---
+  duration_ms: 48.398796
+  type: 'test'
+  ...
+# Subtest: rejects missing or abbreviated source revisions
+ok 2 - rejects missing or abbreviated source revisions
+  ---
+  duration_ms: 7.745965
+  type: 'test'
+  ...
+# Subtest: rejects a raw Linux executable substituted for the installer
+ok 3 - rejects a raw Linux executable substituted for the installer
+  ---
+  duration_ms: 11.215996
+  type: 'test'
+  ...
+# Subtest: rejects missing or empty artifacts
+ok 4 - rejects missing or empty artifacts
+  ---
+  duration_ms: 21.256399
+  type: 'test'
+  ...
+# Subtest: rejects wrong architecture
+ok 5 - rejects wrong architecture
+  ---
+  duration_ms: 12.320075
+  type: 'test'
+  ...
+# Subtest: rejects duplicate executable content across roles
+ok 6 - rejects duplicate executable content across roles
+  ---
+  duration_ms: 28.838889
+  type: 'test'
+  ...
+# Subtest: refuses unsupported target and duplicate paths
+ok 7 - refuses unsupported target and duplicate paths
+  ---
+  duration_ms: 6.951419
+  type: 'test'
+  ...
+# Subtest: never overwrites existing evidence
+ok 8 - never overwrites existing evidence
+  ---
+  duration_ms: 13.756054
+  type: 'test'
+  ...
+# Subtest: rejects symlink artifacts
+ok 9 - rejects symlink artifacts
+  ---
+  duration_ms: 9.569225
+  type: 'test'
+  ...
+# Subtest: isolated test configuration leaves the normal identity unchanged
+ok 10 - isolated test configuration leaves the normal identity unchanged
+  ---
+  duration_ms: 4.906392
+  type: 'test'
+  ...
+# Subtest: accept supported Linux and Windows CPU headers
+ok 11 - accept supported Linux and Windows CPU headers
+  ---
+  duration_ms: 3.576501
+  type: 'test'
+  ...
+# Subtest: reject wrong OS, CPU, malformed files and unsupported targets
+ok 12 - reject wrong OS, CPU, malformed files and unsupported targets
+  ---
+  duration_ms: 2.172026
+  type: 'test'
+  ...
+# Subtest: stage without execution and refuse an accidental overwrite
+ok 13 - stage without execution and refuse an accidental overwrite
+  ---
+  duration_ms: 42.024867
+  type: 'test'
+  ...
+# Subtest: stage Windows sidecar with the required executable suffix
+ok 14 - stage Windows sidecar with the required executable suffix
+  ---
+  duration_ms: 6.951625
+  type: 'test'
+  ...
+# Subtest: desktop entrypoint delegates to the declared library
+ok 15 - desktop entrypoint delegates to the declared library
+  ---
+  duration_ms: 5.697869
+  type: 'test'
+  ...
+# Subtest: shared initialization retains desktop plugins and private access commands
+ok 16 - shared initialization retains desktop plugins and private access commands
+  ---
+  duration_ms: 5.906799
+  type: 'test'
+  ...
+# Subtest: Authority and Anchor use the shared bind policy and actual assigned port
+ok 17 - Authority and Anchor use the shared bind policy and actual assigned port
+  ---
+  duration_ms: 2.060441
+  type: 'test'
+  ...
+# Subtest: hosting overlay retains the existing Tailcat sidecar
+ok 18 - hosting overlay retains the existing Tailcat sidecar
+  ---
+  duration_ms: 2.255772
+  type: 'test'
+  ...
+1..18
+# tests 18
+# suites 0
+# pass 18
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 494.888342

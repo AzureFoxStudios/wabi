@@ -1,0 +1,164 @@
+name: Desktop Host Integration
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-host-integration.yml'
+      - 'src-tauri/**'
+      - 'core/crates/wabi-server/**'
+      - 'core/addons/tailcat/**'
+      - 'frontend/src/**'
+      - 'scripts/**'
+      - 'docs/testing/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-host-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-snapshot:
+    name: Reproducible integration source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        shell: bash
+        run: |
+          git archive --format=tar.gz --output="${RUNNER_TEMP}/wabi-host-source.tar.gz" HEAD
+          git rev-parse HEAD > "${RUNNER_TEMP}/SOURCE_REVISION.txt"
+          cd "${RUNNER_TEMP}"
+          sha256sum wabi-host-source.tar.gz > SOURCE_SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wabi-host-integration-source
+          path: |
+            ${{ runner.temp }}/wabi-host-source.tar.gz
+            ${{ runner.temp }}/SOURCE_REVISION.txt
+            ${{ runner.temp }}/SOURCE_SHA256SUMS.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  integration:
+    name: Real Authority and native host (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      WABI_SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: dtolnay/rust-toolchain@1.93
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            src-tauri -> target
+      - name: Linux native dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav patchelf
+      - name: Locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Frontend validation
+        working-directory: frontend
+        run: |
+          bun test src/lib
+          bun run check
+      - name: Actual owned-process and invitation parser tests
+        shell: bash
+        run: |
+          node --experimental-strip-types --test scripts/tests/desktop-host-invites.test.mjs
+          node --test scripts/tests/desktop-host-foundation.test.mjs scripts/tests/desktop-host-evidence.test.mjs
+          rustc --edition=2021 --test src-tauri/src/hosting/process.rs -o "$RUNNER_TEMP/host-process-tests.exe"
+          "$RUNNER_TEMP/host-process-tests.exe" --nocapture
+      - name: Build static frontend
+        working-directory: frontend
+        run: npm run build:static
+      - name: Compile and test real Authority
+        run: |
+          cargo test --locked -p wabi-server
+          cargo build --locked -p wabi-server
+      - name: Real Authority launch, admission and restart rehearsal
+        shell: bash
+        run: |
+          BINARY=target/debug/wabi-server
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; fi
+          node scripts/desktop-host-smoke.mjs "$BINARY"
+          node scripts/desktop-host-account-smoke.mjs "$BINARY"
+      - name: Stage real packaged dependencies
+        shell: bash
+        run: |
+          ./scripts/fetch-tailcat-sidecar.sh
+          TARGET=$(rustc -vV | sed -n 's/^host: //p')
+          BINARY=target/debug/wabi-server
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; fi
+          node scripts/stage-desktop-host.mjs --target "$TARGET" --binary "$BINARY"
+      - name: Native host compilation and archive tests
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib hosting::
+      - name: Build desktop executable
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build release Authority for the test installer
+        run: cargo build --locked --release -p wabi-server
+      - name: Stage release Authority and build isolated hosting installer
+        shell: bash
+        run: |
+          TARGET=$(rustc -vV | sed -n 's/^host: //p')
+          BINARY=target/release/wabi-server
+          BUNDLE=appimage
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; BUNDLE=nsis; fi
+          node scripts/stage-desktop-host.mjs --target "$TARGET" --binary "$BINARY" --overwrite
+          node frontend/node_modules/@tauri-apps/cli/tauri.js build --ci --config src-tauri/tauri.hosting.conf.json --config src-tauri/tauri.hosttest.conf.json --bundles "$BUNDLE"
+      - name: Record installer and binary evidence
+        shell: bash
+        run: |
+          TARGET=$(rustc -vV | sed -n 's/^host: //p')
+          SERVER=target/release/wabi-server
+          DESKTOP=src-tauri/target/release/wabi-desktop
+          PATTERN='*.AppImage'
+          if [[ "$RUNNER_OS" == Windows ]]; then SERVER="$SERVER.exe"; DESKTOP="$DESKTOP.exe"; PATTERN='*-setup.exe'; fi
+          mapfile -t PACKAGES < <(find src-tauri/target/release/bundle -type f -name "$PATTERN")
+          if [[ ${#PACKAGES[@]} != 1 ]]; then echo 'Expected exactly one test installer'; exit 1; fi
+          node scripts/host-test-evidence.mjs --revision "$WABI_SOURCE_REVISION" --target "$TARGET" --installer "${PACKAGES[0]}" --server "$SERVER" --desktop "$DESKTOP" --output host-test-evidence.json
+      - name: Retain test installer only after all gates pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: wabi-host-test-package-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/**/*-setup.exe
+            src-tauri/target/release/wabi-desktop*
+            target/release/wabi-server*
+            host-test-evidence.json
+            docs/testing/DESKTOP_HOST_TEST_DOSSIER.md
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-host-evidence-${{ matrix.os }}
+          path: |
+            frontend/.svelte-kit/tsconfig.json
+            src-tauri/target/debug/wabi-desktop.exe
+            src-tauri/target/debug/wabi-desktop
+          if-no-files-found: warn
+          retention-days: 3
