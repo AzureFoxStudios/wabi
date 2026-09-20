@@ -8,6 +8,7 @@
 	export let onNewChild: ((parent: WikiPage | null) => void) | undefined = undefined;
 	export let searchQuery = '';
 	export let onSearch: ((q: string) => void) | undefined = undefined;
+	export let emptyStateLabel: string | null = null;
 
 	let collapsed = new Set<string>();
 	let previousSearch = '';
@@ -126,8 +127,8 @@
 	<div class="wiki-tree-list" role="tree" aria-label="Wiki pages">
 		{#if visibleTree.length === 0}
 			<div class="wiki-empty" style="padding: var(--space-8);">
-				<p>{normalizedQuery ? 'No matching pages' : 'No pages yet'}</p>
-				{#if normalizedQuery}<button type="button" class="wiki-tree-new-btn" on:click={() => { searchQuery = ''; onSearch?.(''); }}>Clear search</button>{/if}
+				<p role="status">{emptyStateLabel ?? (normalizedQuery ? 'No matching pages' : 'No pages yet')}</p>
+				{#if normalizedQuery && !emptyStateLabel}<button type="button" class="wiki-tree-new-btn" on:click={() => { searchQuery = ''; onSearch?.(''); }}>Clear search</button>{/if}
 			</div>
 		{:else}
 			{#each visibleTree as node (node.page.pageId)}

@@ -235,7 +235,7 @@
 	}
 
 
-	textarea {
+	:where(.input-container) > textarea {
 		flex: 1;
 		min-height: 36px;
 		max-height: 160px;
@@ -255,24 +255,24 @@
 		transition: box-shadow var(--duration-fast, 150ms) ease;
 	}
 
-textarea:focus-visible {
+:where(.input-container) > textarea:focus-visible {
 		outline: 2px solid color-mix(in srgb, var(--accent-primary-color) 75%, transparent);
 		outline-offset: 2px;
 		border-radius: var(--radius-sm, 4px);
 	}
 
 
-	textarea::-webkit-scrollbar {
+	:where(.input-container) > textarea::-webkit-scrollbar {
 		width: 8px;
 	}
 
 
-	textarea::-webkit-scrollbar-track {
+	:where(.input-container) > textarea::-webkit-scrollbar-track {
 		background: transparent;
 	}
 
 
-	textarea::-webkit-scrollbar-thumb {
+	:where(.input-container) > textarea::-webkit-scrollbar-thumb {
 		background: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%);
 		border-radius: var(--radius-full);
 	}

@@ -88,7 +88,7 @@
 .switcher-showcase-copy h2 {
 	margin: 0;
 	font-size: var(--text-xl);
-	color: var(--text-inverse, var(--text-inverse, #f8fafc));
+	color: var(--text-heading);
 }
 
 .switcher-showcase-copy p {
@@ -180,7 +180,7 @@
 
 .switcher-move-banner-copy strong {
 	font-size: var(--font-size-base);
-	color: var(--text-inverse, var(--text-inverse, #f8fafc));
+	color: var(--text-heading);
 }
 
 .switcher-move-banner-copy span {

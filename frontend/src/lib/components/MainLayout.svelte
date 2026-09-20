@@ -1440,14 +1440,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	.center-dm-layout {
-		display: grid;
-		grid-template-columns: 300px minmax(0, 1fr);
+		display: flex;
+		container: center-dm / inline-size;
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
 	}
 
 	.center-dm-list {
+		flex: 0 0 300px;
 		min-width: 0;
 		overflow: hidden;
 		display: flex;
@@ -1456,6 +1457,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	.center-dm-thread {
+		flex: 1;
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
@@ -1473,15 +1475,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		font-size: 0.95rem;
 	}
 
-	@media (max-width: 768px) {
-		.center-dm-layout {
-			grid-template-columns: 1fr;
-		}
+	/* Docked panels reduce available space independently of the viewport. */
+	@container center-dm (max-width: 720px) {
 		.center-dm-list {
-			display: none;
+			flex-basis: 100%;
+			border-right: 0;
 		}
-		.center-dm-layout:not(:has(.center-dm-thread .dm-conversation)) .center-dm-list {
-			display: flex;
+		.center-dm-list:has(+ .center-dm-thread :global(.dm-conversation)),
+		.center-dm-thread:not(:has(:global(.dm-conversation))) {
+			display: none;
 		}
 	}
 

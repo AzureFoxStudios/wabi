@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
   import { channels, channelMessages, currentUser, users, serverMembers, channelUnreadCounts, createDM, joinChannel } from '$lib/socket';
@@ -120,7 +121,7 @@
     }
   }
 
-  function openInCenter(channel: Channel, fallbackUser: User | null = null) {
+  async function openInCenter(channel: Channel, fallbackUser: User | null = null) {
     const other = fallbackUser || otherUserFor(channel);
     if (channel.type === 'group') {
       layoutStore.openCenterGroupDm(channel.id, channel);
@@ -128,6 +129,11 @@
       layoutStore.openCenterDm(channel.id, other);
     }
     joinChannel(channel.id);
+    await tick();
+    const list = document.querySelector('.center-dm-list');
+    if (list && getComputedStyle(list).display === 'none') {
+      document.querySelector<HTMLButtonElement>('.center-dm-thread .dm-header-back')?.focus();
+    }
   }
 
   function openInSidePanel(channel: Channel, fallbackUser: User | null = null) {
@@ -288,7 +294,7 @@
         <span class="dm-hub-title">Direct Messages</span>
         <span class="dm-hub-subtitle">Your conversations</span>
       </div>
-      <button class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New conversation">
+      <button class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New conversation" aria-label="New conversation" aria-expanded={showPeoplePicker}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
@@ -313,7 +319,7 @@
       {#if dmChannels.length === 0}
         <div class="dm-hub-empty">
           <p>No conversations yet.</p>
-          <button class="dm-hub-empty-btn" on:click={() => (showPeoplePicker = true)}>
+          <button class="dm-hub-empty-btn ui-btn ui-btn-primary" on:click={() => (showPeoplePicker = true)}>
             Start a conversation
           </button>
         </div>
@@ -323,6 +329,8 @@
           {@const unread = $channelUnreadCounts[channel.id] || 0}
           <button
             class="dm-hub-conversation"
+            data-dm-channel-id={channel.id}
+            aria-pressed={$centerDmChannelId === channel.id}
             class:active={$centerDmChannelId === channel.id}
             class:unread={unread > 0}
             on:click={() => openInCenter(channel)}
@@ -439,8 +447,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
     border: 1px solid var(--color-border-primary, #302b63);
     border-radius: var(--radius-md, 8px);
     background: var(--surface-raised, rgba(255, 255, 255, 0.04));
@@ -504,18 +513,8 @@
   }
 
 	.dm-hub-empty-btn {
-		padding: var(--space-2, 8px) var(--space-4, 16px);
-		background: var(--accent-primary-color, #6366f1);
-		color: var(--text-on-accent, #fff);
-		border: none;
-		border-radius: var(--radius-md, 8px);
-		font-size: var(--font-size-sm, 13px);
-		font-weight: var(--font-weight-medium, 500);
-		cursor: pointer;
+		min-height: 40px;
 	}
-  .dm-hub-empty-btn:hover {
-    opacity: var(--opacity-90, 0.9);
-  }
 
   .dm-hub-conversation {
     display: flex;
