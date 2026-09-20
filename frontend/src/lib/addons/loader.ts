@@ -19,6 +19,8 @@ const loadedAddons = new Map<string, AddonInstance>();
  * model-viewer stays off this map (three.js) so Tauri desktop does not pull it.
  */
 const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
+	'sheets': () => import('@wabi/workspace-sheets'),
+	'present': () => import('@wabi/workspace-present'),
 	'steam': () => import('$lib/games/GamesSettingsEntry.svelte'),
 	'youtube-sync': () => import('$lib/components/plugins/YouTubeWatchEmbed.svelte'),
 	'spotify-sync': () => import('$lib/components/plugins/SpotifyControlsEmbed.svelte'),
@@ -26,6 +28,8 @@ const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
 };
 
 const LOCAL_MANIFESTS: Record<string, AddonManifest> = {
+	'sheets': { id: 'sheets', name: 'Sheets', version: '0.1.0', frontendEntry: 'bundled:sheets', dependencies: [] },
+	'present': { id: 'present', name: 'Present', version: '0.1.0', frontendEntry: 'bundled:present', dependencies: [] },
 	'steam': { id:'steam',name:'Steam',version:'0.1.0',frontendEntry:'bundled:steam',dependencies:[] },
 	'youtube-sync': {
 		id: 'youtube-sync',
@@ -216,6 +220,7 @@ export async function disableAddon(addonId: string): Promise<void> {
 			await instance.frontendModule.onDisable();
 		} catch (err) {
 			console.error(`[Addons] Disable error for ${addonId}:`, err);
+			if (addonId === 'sheets' || addonId === 'present') throw err;
 		}
 	}
 
