@@ -1,3 +1,4 @@
+import { isShowcaseMode } from './showcase/mode';
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { brandName } from './branding';
@@ -8,6 +9,7 @@ type Listener = (...args: any[]) => void;
 
 const LOCAL_MOCK_FLAG = 'VITE_WABI_LOCAL_MOCK';
 const LOCAL_MOCK_STORAGE_KEY = 'wabi:local-mock:messages:v1';
+let messageSequence = 0;
 
 function localMockAvatar(label: string, background: string): string {
 	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="24" fill="${background}"/><text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="44" font-weight="800" fill="#06111d">${label}</text></svg>`;
@@ -15,7 +17,7 @@ function localMockAvatar(label: string, background: string): string {
 }
 
 export function isLocalMockMode(): boolean {
-	return import.meta.env[LOCAL_MOCK_FLAG] === '1' || import.meta.env[LOCAL_MOCK_FLAG] === 'true';
+	return isShowcaseMode() || import.meta.env[LOCAL_MOCK_FLAG] === '1' || import.meta.env[LOCAL_MOCK_FLAG] === 'true';
 }
 
 export class LocalMockSocket {
@@ -295,7 +297,7 @@ async function handleLocalEmit(mock: LocalMockSocket, event: string, args: any[]
 		const payload = args[0] || {};
 		const channelId = String(payload.channelId || 'general');
 		const clientMessageId = payload.clientMessageId || `local:${Date.now()}`;
-		const messageId = `local-msg-${Date.now()}`;
+		const messageId = `local-msg-${Date.now()}-${++messageSequence}`;
 		const { channelMessages } = await import('./messageStore');
 		channelMessages.update((state) => {
 			const messages = state[channelId] || [];
