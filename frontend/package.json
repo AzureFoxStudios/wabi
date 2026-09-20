@@ -26,7 +26,9 @@
     "tauri-android-build": "tauri android build",
     "tauri-ios-init": "tauri ios init",
     "tauri-ios-dev": "tauri ios dev",
-    "tauri-ios-build": "tauri ios build"
+    "tauri-ios-build": "tauri ios build",
+    "dev:showcase": "VITE_WABI_SHOWCASE=1 vite dev --host 127.0.0.1 --port 5196 --strictPort",
+    "showcase:screenshots": "node scripts/showcase-screenshots.mjs"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "6.20.3",

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { currentChannel, channels, currentUser } from '$lib/socket';
 	import { createForumWorkspace, type ForumPost } from '$lib/forumStore';
 	const forumWorkspace = createForumWorkspace();
@@ -197,7 +197,13 @@
 				allThreads.find((t) => t.thread_id === pending.postId);
 			if (hit) {
 				takePendingNav('forum_post', effectiveChannel);
-				selectThread(hit);
+				// Let the loaded thread list settle before changing the selection.
+				// Otherwise legacy reactive ordering can highlight the row while
+				// leaving the reading pane on its previous empty state.
+				const targetChannel = effectiveChannel;
+				void tick().then(() => {
+					if (effectiveChannel === targetChannel) selectThread(hit);
+				});
 			}
 		}
 	}

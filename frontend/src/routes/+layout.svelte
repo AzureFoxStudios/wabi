@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isShowcaseMode } from '$lib/showcase/mode';
 	import '../styles/styles.css';
 	// Phase 4 boot optimization: katex/prism CSS moved next to their JS usage
 	// in $lib/markdown.ts so they load with the lazy app chunk, not at login.
@@ -73,6 +74,7 @@ function isLocalPreviewHost(): boolean {
 
 	onMount(async () => {
 		startupMark('layout:onMount:start');
+		if (isShowcaseMode()) { initEmojis(); return; }
 
 		cleanupInstallPrompt = startInstallPromptCapture();
 		cleanupMobileShell = startMobileShell();
