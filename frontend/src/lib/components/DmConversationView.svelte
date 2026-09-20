@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { selectedDmChannelId, dmOtherUser } from '$lib/layoutStoreStates';
   import { channelMessages, currentUser, channels, users, serverMembers, joinChannel } from '$lib/socket';
@@ -41,9 +42,14 @@
     replyingTo = msg;
   }
 
-  function handleClose() {
+  async function handleClose() {
     if (context === 'center') {
+      const closedChannelId = channelId;
       layoutStore.closeCenterDm();
+      await tick();
+      const row = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-dm-channel-id]'))
+        .find((node) => node.dataset.dmChannelId === closedChannelId);
+      row?.focus();
     } else {
       layoutStore.closeDM();
     }
@@ -66,7 +72,7 @@
 
 <div class="dm-conversation">
   <div class="dm-header">
-    <button class="dm-header-back" on:click={handleClose} title="Close DM">
+    <button class="dm-header-back" on:click={handleClose} title={context === 'center' ? 'Back to conversations' : 'Close DM'} aria-label={context === 'center' ? 'Back to conversations' : 'Close DM'}>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="15 18 9 12 15 6" />
       </svg>
@@ -79,12 +85,12 @@
       </div>
     </div>
     <div class="dm-header-actions">
-      <button class="dm-header-action" title={context === 'right' ? 'Open in main view' : 'Move to side panel'} on:click={handleToggleSurface}>
+      <button class="dm-header-action" title={context === 'right' ? 'Open in main view' : 'Move to side panel'} aria-label={context === 'right' ? 'Open in main view' : 'Move to side panel'} on:click={handleToggleSurface}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+          <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" />
         </svg>
       </button>
-      <button class="dm-header-action" title="Close DM (Esc)" on:click={handleClose}>
+      <button class="dm-header-action" title="Close DM (Esc)" aria-label="Close DM" on:click={handleClose}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18" />
           <line x1="6" y1="6" x2="18" y2="18" />
@@ -147,8 +153,11 @@
 <style>
   .dm-conversation {
     display: flex;
+    container: dm-conversation / inline-size;
     flex-direction: column;
     height: 100%;
+    min-width: 0;
+    min-height: 0;
     overflow: hidden;
     background: var(--surface-base, #24243e);
   }
@@ -161,17 +170,18 @@
     border-bottom: 1px solid var(--color-border-primary, #302b63);
     background: var(--surface-raised, #302b63);
     flex-shrink: 0;
-    min-height: 48px;
+    min-height: 72px;
   }
 
   .dm-header-back {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
     border: none;
-    border-radius: var(--radius-sm, 4px);
+    border-radius: var(--radius-md, 8px);
     background: transparent;
     color: var(--text-secondary, #b3b3ff);
     cursor: pointer;
@@ -203,6 +213,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-wrap: wrap;
     font-size: var(--text-xs, 11px);
   }
 
@@ -228,10 +239,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     border: none;
-    border-radius: var(--radius-sm, 4px);
+    border-radius: var(--radius-md, 8px);
     background: transparent;
     color: var(--text-secondary, #b3b3ff);
     cursor: pointer;
@@ -252,5 +263,24 @@
   .dm-composer {
     flex-shrink: 0;
     border-top: 1px solid var(--color-border-primary, #302b63);
+  }
+
+  @container dm-conversation (max-width: 420px) {
+    .dm-messages :global(.message-header .header-left) {
+      flex-wrap: wrap;
+      min-width: 0;
+      row-gap: var(--space-1);
+    }
+    .dm-messages :global(.message-header .username) {
+      white-space: nowrap;
+    }
+    .dm-composer :global(.input-container) {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .dm-composer :global(.input-container textarea) {
+      flex: 1 0 100%;
+      width: 100%;
+    }
   }
 </style>

@@ -238,12 +238,12 @@
 
 {#if isOpen}
 	<div
-		class="modal-overlay"
+		class="modal-overlay wabi-settings-overlay"
 		role="presentation"
 		on:click={closeModal}
 	>
 		<div
-			class="modal-content"
+			class="modal-content wabi-settings-modal"
 			role="dialog"
 			aria-modal="true"
 			aria-label={$t('settings.title')}

@@ -6,7 +6,7 @@
 
 
 	@media (max-width: 768px) {
-		.modal-overlay {
+		.modal-overlay.wabi-settings-overlay {
 			align-items: flex-end;
 			padding: 0;
 		}

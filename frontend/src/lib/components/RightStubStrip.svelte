@@ -83,6 +83,8 @@
 	onMount(() => {
 		function handleKeydown(event: KeyboardEvent) {
 			if (event.defaultPrevented || event.key !== 'Escape') return;
+			// Dialogs own Escape before this earlier document listener runs.
+			if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"]')) return;
 			if (contextMenu) {
 				event.preventDefault();
 				hideContextMenu(true);

@@ -254,7 +254,7 @@
 
 .weekday-header {
 	display: grid;
-	grid-template-columns: repeat(7, 1fr);
+	grid-template-columns: repeat(7, minmax(0, 1fr));
 	background: var(--biz-bg-tertiary, #243044);
 	border-bottom: 1px solid var(--biz-border, #2d3a4d);
 }
@@ -270,11 +270,12 @@
 
 .days-grid {
 	display: grid;
-	grid-template-columns: repeat(7, 1fr);
+	grid-template-columns: repeat(7, minmax(0, 1fr));
 	flex: 1;
 }
 
 .day-cell {
+	min-width: 0;
 	border-right: 1px solid var(--biz-border, #2d3a4d);
 	border-bottom: 1px solid var(--biz-border, #2d3a4d);
 	padding: 0.5rem;
@@ -327,7 +328,7 @@
 }
 
 .event-pill {
-	font-size: 0.7rem;
+	font-size: var(--font-size-xs);
 	padding: 2px 6px;
 	border-radius: 4px;
 	border: 0;
@@ -338,7 +339,7 @@
 	cursor: pointer;
 	display: flex;
 	gap: 4px;
-	font: inherit;
+	font-family: inherit;
 	text-align: left;
 }
 
@@ -347,7 +348,7 @@
 }
 
 .task-pill {
-	font-size: 0.7rem;
+	font-size: var(--font-size-xs);
 	padding: 2px 6px;
 	border-radius: 4px;
 	background: var(--biz-bg-tertiary, #243044);
@@ -363,7 +364,7 @@
 	display: flex;
 	align-items: center;
 	gap: 4px;
-	font: inherit;
+	font-family: inherit;
 	text-align: left;
 }
 

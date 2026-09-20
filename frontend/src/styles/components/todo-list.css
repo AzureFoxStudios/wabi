@@ -4,20 +4,20 @@
 		flex-direction: column;
 	}
 
-	.todo-header {
+	:where(.todo-container, .todo-task-modal) .todo-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 1rem;
 	}
 
-	.header-left {
+	:where(.todo-container, .todo-task-modal) .header-left {
 		display: flex;
 		align-items: center;
 		gap: 1.5rem;
 	}
 
-	.header-right {
+	:where(.todo-container, .todo-task-modal) .header-right {
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
@@ -38,7 +38,7 @@
 		gap: 0.5rem;
 	}
 
-	.settings-icon {
+	:where(.todo-container, .todo-task-modal) .settings-icon {
 		width: 18px;
 		height: 18px;
 		flex-shrink: 0;
@@ -55,19 +55,19 @@
 	   (.column-settings, .column-toggle). Dead classes (.column-toggles,
 	   .toggle-color) removed with it. */
 
-	.todo-header h1 {
+	:where(.todo-container, .todo-task-modal) .todo-header h1 {
 		margin: 0;
 		font-size: 1.5rem;
 	}
 
-	.view-toggle {
+	:where(.todo-container, .todo-task-modal) .view-toggle {
 		display: flex;
 		background: var(--surface-base, #16213e);
 		border-radius: 8px;
 		padding: 4px;
 	}
 
-	.view-toggle button {
+	:where(.todo-container, .todo-task-modal) .view-toggle button {
 		padding: 0.4rem 0.8rem;
 		border: none;
 		background: transparent;
@@ -78,12 +78,12 @@
 		transition: all 0.2s;
 	}
 
-	.view-toggle button.active {
+	:where(.todo-container, .todo-task-modal) .view-toggle button.active {
 		background: var(--accent, var(--accent-primary-color));
 		color: white;
 	}
 
-	.add-btn {
+	:where(.todo-container, .todo-task-modal) .add-btn {
 		padding: 0.6rem 1.2rem;
 		background: var(--accent, var(--accent-primary-color));
 		color: white;
@@ -94,7 +94,7 @@
 		transition: all 0.2s;
 	}
 
-	.add-btn:hover {
+	:where(.todo-container, .todo-task-modal) .add-btn:hover {
 		background: var(--accent-primary, #4752c4);
 	}
 
@@ -111,7 +111,7 @@
 	   Also removed: legacy .column-settings / .column-toggle / .empty-column
 	   duplicates — kanban-board-part1.css owns those for the live board. */
 
-	.todo-card {
+	:where(.todo-container, .todo-task-modal) .todo-card {
 		background: var(--surface-raised, #1f2937);
 		border-radius: 8px;
 		padding: 0.75rem;
@@ -120,22 +120,22 @@
 		border: 1px solid transparent;
 	}
 
-	.todo-card:hover {
+	:where(.todo-container, .todo-task-modal) .todo-card:hover {
 		border-color: var(--accent, var(--accent-primary-color));
 	}
 
-	.todo-card.overdue {
+	:where(.todo-container, .todo-task-modal) .todo-card.overdue {
 		border-left: 3px solid var(--color-danger, #ef4444);
 	}
 
-	.card-header {
+	:where(.todo-container, .todo-task-modal) .card-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 0.5rem;
 	}
 
-	.priority-badge {
+	:where(.todo-container, .todo-task-modal) .priority-badge {
 		font-size: 0.65rem;
 		padding: 0.15rem 0.4rem;
 		border-radius: 4px;
@@ -144,22 +144,22 @@
 		font-weight: 600;
 	}
 
-	.priority-badge.small {
+	:where(.todo-container, .todo-task-modal) .priority-badge.small {
 		font-size: 0.6rem;
 	}
 
-	.card-actions {
+	:where(.todo-container, .todo-task-modal) .card-actions {
 		display: flex;
 		gap: 0.25rem;
 		opacity: 0;
 		transition: opacity 0.2s;
 	}
 
-	.todo-card:hover .card-actions {
+	:where(.todo-container, .todo-task-modal) .todo-card:hover .card-actions {
 		opacity: 1;
 	}
 
-	.icon-btn {
+	:where(.todo-container, .todo-task-modal) .icon-btn {
 		background: transparent;
 		border: none;
 		cursor: pointer;
@@ -169,17 +169,17 @@
 		transition: background 0.2s;
 	}
 
-	.icon-btn:hover {
+	:where(.todo-container, .todo-task-modal) .icon-btn:hover {
 		background: var(--surface-base, #16213e);
 	}
 
-	.card-title {
+	:where(.todo-container, .todo-task-modal) .card-title {
 		margin: 0 0 0.25rem 0;
 		font-size: 0.9rem;
 		font-weight: 500;
 	}
 
-	.card-desc {
+	:where(.todo-container, .todo-task-modal) .card-desc {
 		margin: 0;
 		font-size: 0.8rem;
 		color: var(--text-secondary, #888);
@@ -191,7 +191,7 @@
 		-webkit-box-orient: vertical;
 	}
 
-	.card-footer {
+	:where(.todo-container, .todo-task-modal) .card-footer {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -200,27 +200,27 @@
 		gap: 0.25rem;
 	}
 
-	.due-date {
+	:where(.todo-container, .todo-task-modal) .due-date {
 		font-size: 0.75rem;
 		color: var(--text-secondary, #888);
 	}
 
-	.time-estimate {
+	:where(.todo-container, .todo-task-modal) .time-estimate {
 		font-size: 0.75rem;
 		color: var(--accent, var(--accent-primary-color));
 		font-weight: 600;
 	}
 
-	.due-date.overdue {
+	:where(.todo-container, .todo-task-modal) .due-date.overdue {
 		color: var(--color-danger, #ef4444);
 	}
 
-	.tags {
+	:where(.todo-container, .todo-task-modal) .tags {
 		display: flex;
 		gap: 0.25rem;
 	}
 
-	.tag {
+	:where(.todo-container, .todo-task-modal) .tag {
 		font-size: 0.65rem;
 		padding: 0.1rem 0.35rem;
 		background: var(--surface-base, #16213e);
@@ -232,12 +232,12 @@
 	   the live empty-column (dashed drop-target button) on the board. */
 
 	/* List View */
-	.list-view {
+	:where(.todo-container, .todo-task-modal) .list-view {
 		flex: 1;
 		overflow: auto;
 	}
 
-	.todo-table {
+	:where(.todo-container, .todo-task-modal) .todo-table {
 		width: 100%;
 		border-collapse: collapse;
 		background: var(--surface-base, #16213e);
@@ -245,14 +245,14 @@
 		overflow: hidden;
 	}
 
-	.todo-table th,
-	.todo-table td {
+	:where(.todo-container, .todo-task-modal) .todo-table th,
+	:where(.todo-container, .todo-task-modal) .todo-table td {
 		padding: 0.75rem 1rem;
 		text-align: left;
 		border-bottom: 1px solid var(--border-color, #2a2a4a);
 	}
 
-	.todo-table th {
+	:where(.todo-container, .todo-task-modal) .todo-table th {
 		background: var(--surface-raised, #1f2937);
 		font-size: 0.8rem;
 		font-weight: 600;
@@ -260,30 +260,30 @@
 		color: var(--text-secondary, #888);
 	}
 
-	.todo-table tr.overdue td {
+	:where(.todo-container, .todo-task-modal) .todo-table tr.overdue td {
 		background: rgba(239, 68, 68, 0.1);
 	}
 
-	.todo-table tr.done .todo-title {
+	:where(.todo-container, .todo-task-modal) .todo-table tr.done .todo-title {
 		text-decoration: line-through;
 		color: var(--text-secondary, #888);
 	}
 
-	.title-cell {
+	:where(.todo-container, .todo-task-modal) .title-cell {
 		display: flex;
 		flex-direction: column;
 	}
 
-	.todo-title {
+	:where(.todo-container, .todo-task-modal) .todo-title {
 		font-weight: 500;
 	}
 
-	.todo-desc {
+	:where(.todo-container, .todo-task-modal) .todo-desc {
 		font-size: 0.8rem;
 		color: var(--text-secondary, #888);
 	}
 
-	.status-select {
+	:where(.todo-container, .todo-task-modal) .status-select {
 		padding: 0.35rem 0.5rem;
 		background: var(--surface-raised, #1f2937);
 		border: 1px solid var(--border-color, #2a2a4a);
@@ -292,19 +292,19 @@
 		font-size: 0.8rem;
 	}
 
-	.table-actions {
+	:where(.todo-container, .todo-task-modal) .table-actions {
 		display: flex;
 		gap: 0.25rem;
 	}
 
-	.empty-state {
+	:where(.todo-container, .todo-task-modal) .empty-state {
 		text-align: center;
 		padding: var(--space-12);
 		color: var(--text-secondary, #888);
 	}
 
 	/* Modal */
-	.modal-overlay {
+	:where(.todo-container) .modal-overlay, :where(.todo-task-modal).modal-overlay {
 		position: fixed;
 		top: 0;
 		left: 0;
@@ -317,7 +317,7 @@
 		z-index: var(--z-modal);
 	}
 
-	.modal {
+	:where(.todo-container, .todo-task-modal) .modal {
 		background: var(--surface-base, #16213e);
 		border-radius: 12px;
 		width: 100%;
@@ -326,7 +326,7 @@
 		overflow-y: auto;
 	}
 
-	.modal-header {
+	:where(.todo-container, .todo-task-modal) .modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -334,12 +334,12 @@
 		border-bottom: 1px solid var(--border-color, #2a2a4a);
 	}
 
-	.modal-header h2 {
+	:where(.todo-container, .todo-task-modal) .modal-header h2 {
 		margin: 0;
 		font-size: 1.1rem;
 	}
 
-	.close-btn {
+	:where(.todo-container, .todo-task-modal) .close-btn {
 		background: transparent;
 		border: none;
 		color: var(--text-secondary, #888);
@@ -348,24 +348,24 @@
 		line-height: 1;
 	}
 
-	form {
+	:where(.todo-container, .todo-task-modal) form {
 		padding: 1.25rem;
 	}
 
-	.form-group {
+	:where(.todo-container, .todo-task-modal) .form-group {
 		margin-bottom: 1rem;
 	}
 
-	.form-group label {
+	:where(.todo-container, .todo-task-modal) .form-group label {
 		display: block;
 		font-size: 0.85rem;
 		margin-bottom: 0.35rem;
 		color: var(--text-secondary, #aaa);
 	}
 
-	.form-group input,
-	.form-group textarea,
-	.form-group select {
+	:where(.todo-container, .todo-task-modal) .form-group input,
+	:where(.todo-container, .todo-task-modal) .form-group textarea,
+	:where(.todo-container, .todo-task-modal) .form-group select {
 		width: 100%;
 		padding: 0.6rem 0.75rem;
 		background: var(--surface-raised, #1f2937);
@@ -375,27 +375,27 @@
 		font-size: 0.9rem;
 	}
 
-	.form-group input:focus,
-	.form-group textarea:focus,
-	.form-group select:focus {
+	:where(.todo-container, .todo-task-modal) .form-group input:focus,
+	:where(.todo-container, .todo-task-modal) .form-group textarea:focus,
+	:where(.todo-container, .todo-task-modal) .form-group select:focus {
 		outline: none;
 		border-color: var(--accent, var(--accent-primary-color));
 	}
 
-	.form-row {
+	:where(.todo-container, .todo-task-modal) .form-row {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 1rem;
 	}
 
-	.form-actions {
+	:where(.todo-container, .todo-task-modal) .form-actions {
 		display: flex;
 		justify-content: flex-end;
 		gap: 0.75rem;
 		margin-top: 1.5rem;
 	}
 
-	.cancel-btn {
+	:where(.todo-container, .todo-task-modal) .cancel-btn {
 		padding: 0.6rem 1rem;
 		background: transparent;
 		border: 1px solid var(--border-color, #2a2a4a);
@@ -405,11 +405,11 @@
 		transition: all 0.2s;
 	}
 
-	.cancel-btn:hover {
+	:where(.todo-container, .todo-task-modal) .cancel-btn:hover {
 		background: var(--surface-raised, #1f2937);
 	}
 
-	.submit-btn {
+	:where(.todo-container, .todo-task-modal) .submit-btn {
 		padding: 0.6rem 1.25rem;
 		background: var(--accent, var(--accent-primary-color));
 		border: none;
@@ -420,26 +420,26 @@
 		transition: all 0.2s;
 	}
 
-	.submit-btn:hover {
+	:where(.todo-container, .todo-task-modal) .submit-btn:hover {
 		background: var(--accent-primary, #4752c4);
 	}
 
-	.submit-btn:disabled,
-	.add-btn:disabled,
-	.icon-btn:disabled {
+	:where(.todo-container, .todo-task-modal) .submit-btn:disabled,
+	:where(.todo-container, .todo-task-modal) .add-btn:disabled,
+	:where(.todo-container, .todo-task-modal) .icon-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
 
-	.icon-btn:disabled:hover {
+	:where(.todo-container, .todo-task-modal) .icon-btn:disabled:hover {
 		background: none;
 	}
 
-	.checkbox-group {
+	:where(.todo-container, .todo-task-modal) .checkbox-group {
 		margin-bottom: 0.75rem;
 	}
 
-	.checkbox-label {
+	:where(.todo-container, .todo-task-modal) .checkbox-label {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
@@ -449,13 +449,13 @@
 		font-size: 0.95rem;
 	}
 
-	.checkbox-label input[type="checkbox"] {
+	:where(.todo-container, .todo-task-modal) .checkbox-label input[type="checkbox"] {
 		cursor: pointer;
 		width: 18px;
 		height: 18px;
 	}
 
-	.signature {
+	:where(.todo-container, .todo-task-modal) .signature {
 		font-size: 0.75rem;
 		color: var(--color-warning);
 		padding: 0.2rem 0.5rem;
@@ -468,24 +468,24 @@
 	}
 
 	@media (max-width: 900px) {
-		.header-right {
+		:where(.todo-container, .todo-task-modal) .header-right {
 			flex-wrap: wrap;
 		}
 	}
 
 	@media (max-width: 600px) {
-		.form-row {
+		:where(.todo-container, .todo-task-modal) .form-row {
 			grid-template-columns: 1fr;
 		}
 
-		.todo-header {
+		:where(.todo-container, .todo-task-modal) .todo-header {
 			flex-direction: column;
 			gap: 1rem;
 			align-items: stretch;
 		}
 
-		.header-left,
-		.header-right {
+		:where(.todo-container, .todo-task-modal) .header-left,
+		:where(.todo-container, .todo-task-modal) .header-right {
 			justify-content: center;
 		}
 	}

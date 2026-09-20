@@ -49,11 +49,13 @@
 	let addonSectionMatchCount = $derived(addonView.addonSectionMatchCount);
 	let availableLocalAddonControlCount = $derived(addonView.availableLocalAddonControlCount);
 	let visibleLocalAddonControlCount = $derived(addonView.visibleLocalAddonControlCount);
-	let hasVisibleRows = $derived(
-		visibleLocalAddonControlCount > 0 ||
-			(addonView.showServerRows && backendAddons.length > 0) ||
-			(addonView.showBundledRows && frontendAddons.length > 0)
-	);
+	let visibleBackendAddons = $derived(addonView.showServerRows
+		? backendAddons.filter((addon) => addonView.inventoryAddonMatches(addon, 'server')) : []);
+	let visibleFrontendAddons = $derived(addonView.showBundledRows
+		? frontendAddons.filter((addon) => addonView.inventoryAddonMatches(addon, 'bundled')) : []);
+	let visibleAddonControlCount = $derived(visibleLocalAddonControlCount + visibleBackendAddons.length + visibleFrontendAddons.length);
+	let availableAddonControlCount = $derived(availableLocalAddonControlCount + backendAddons.length + frontendAddons.length);
+	let hasVisibleRows = $derived(visibleAddonControlCount > 0);
 
 	function clearAddonSearchQuery(): void {
 		addonSearchQuery = '';
@@ -128,8 +130,7 @@
 				</label>
 				<div class="addon-toolbar-actions">
 					<label class="addon-category-filter">
-						<span class="visually-hidden">Add-on category</span>
-						<select class="addon-category-select" bind:value={categoryFilter}>
+						<select class="addon-category-select" aria-label="Add-on category" bind:value={categoryFilter}>
 							<option value="all">All</option>
 							<option value="server">Server</option>
 							<option value="bundled">Bundled</option>
@@ -157,7 +158,7 @@
 			</div>
 			<div class="addons-search-meta">
 				<span class="addon-status-note">
-					Showing {visibleLocalAddonControlCount} of {availableLocalAddonControlCount} local add-ons{#if addonsLastDetectedAt}
+					Showing {visibleAddonControlCount} of {availableAddonControlCount} add-ons{#if addonsLastDetectedAt}
 						· inventory refreshed {addonsLastDetectedAt}{/if}
 				</span>
 				{#if addonSearchQuery.trim()}
@@ -177,7 +178,7 @@
 			{/if}
 
 			{#if addonView.showServerRows}
-				{#each backendAddons as addon (addon.id)}
+				{#each visibleBackendAddons as addon (addon.id)}
 					<AddonRow
 						id={`server:${addon.id}`}
 						label={addon.name}
@@ -187,16 +188,11 @@
 						badge="Server"
 						meta={`id: ${addon.id} · version: ${addon.version} · ${addon.source}`}
 					/>
-				{:else}
-					<div class="addon-group-note">
-						No backend add-ons enabled in this server build. Enable Cargo features (e.g.
-						<code>--features addons</code>) and restart the server.
-					</div>
 				{/each}
 			{/if}
 
 			{#if addonView.showBundledRows && frontendAddons.length > 0}
-				{#each frontendAddons as addon (addon.id + addon.source)}
+				{#each visibleFrontendAddons as addon (addon.id + addon.source)}
 					<AddonRow
 						id={`bundled:${addon.id}`}
 						label={addon.name}
@@ -209,18 +205,18 @@
 				{/each}
 			{/if}
 
-			{#if addonView.showLocalRows}
-				{#if !hasVisibleRows}
-					<div class="addon-empty-state">
-						<div class="addon-empty-state-title">No add-ons matched that filter.</div>
-						<div class="runtime-note">
-							Try another keyword, turn off Enabled Only, or clear the category filter.
-						</div>
-						<button type="button" class="addon-search-clear" onclick={clearAddonSearchQuery}>
-							Clear search
-						</button>
+			{#if !hasVisibleRows && !addonsLoading && !addonsError}
+				<div class="addon-empty-state">
+					<div class="addon-empty-state-title">No add-ons matched that filter.</div>
+					<div class="runtime-note">
+						Try another keyword, turn off Enabled Only, or clear the category filter.
 					</div>
-				{/if}
+					<button type="button" class="addon-search-clear" onclick={() => { clearAddonSearchQuery(); enabledOnly = false; categoryFilter = 'all'; }}>
+						Clear filters
+					</button>
+				</div>
+			{/if}
+			{#if addonView.showLocalRows}
 				<!-- Keep section instances alive through empty searches so local edits survive. -->
 				<ChatSection {localAddonControlMatches} />
 				<SpoilersSection {localAddonControlMatches} />
@@ -235,3 +231,13 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	.addons-settings-toolbar { gap: var(--space-2); }
+	.addon-toolbar-actions { display: flex; align-items: center; gap: var(--space-2); }
+	.addons-settings-toolbar .addons-search-field { height: 40px; border-radius: var(--radius-control, var(--radius-md)); }
+	.addons-settings-toolbar input.addon-search-input { height: 100%; padding: 0; background: transparent; }
+	.addons-settings-toolbar select.addon-category-select { height: 40px; min-width: 130px; padding: 0 var(--space-3); border-radius: var(--radius-control, var(--radius-md)); }
+	.addons-settings-toolbar .addon-icon-btn { width: 40px; height: 40px; border-radius: var(--radius-control, var(--radius-md)); }
+	.addon-empty-state { margin: var(--space-3); border-radius: var(--radius-lg); }
+</style>
