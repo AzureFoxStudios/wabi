@@ -282,7 +282,10 @@
 		}
 		try { localStorage.setItem('wabi-voice-duration-mode', 'off'); } catch {}
 		voiceDurationMode = 'off';
-		voiceDurationTicker = setInterval(() => { nowMs = Date.now(); }, 1000);
+		// Duration labels are off by default — do not start the 1s nowMs ticker
+		// until the user enables a duration mode (see setVoiceDurationMode).
+		// An unconditional interval re-invalidated the whole channel list every
+		// second while nothing rendered the durations.
 		const onPtr = (e: PointerEvent) => { if (!glimpseChannelId) return; const t = e.target as HTMLElement | null; if (!t || glimpsePopover?.contains(t) || t.closest('.channel-btn')) return; glimpseChannelId = null; };
 		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && glimpseChannelId) glimpseChannelId = null; };
 		// Peek is position:fixed — scrolling anywhere outside detaches it from
@@ -438,7 +441,16 @@
 	function handleVoiceChannelDragOver(e: DragEvent, chId: string) { if (!draggedVoiceMember || draggedVoiceMember.channelId === chId) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; voiceDropTargetChannelId = chId; }
 	function handleVoiceChannelDragLeave(chId: string) { if (voiceDropTargetChannelId === chId) voiceDropTargetChannelId = null; }
 	function handleVoiceChannelDrop(e: DragEvent, chId: string) { if (!draggedVoiceMember || draggedVoiceMember.channelId === chId) return; e.preventDefault(); e.stopPropagation(); moveUserToVoiceChannel(draggedVoiceMember.userId, chId); draggedVoiceMember = null; voiceDropTargetChannelId = null; }
-	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') { voiceDurationMode = mode; try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {} }
+	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') {
+		voiceDurationMode = mode;
+		try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {}
+		if (mode === 'off') {
+			if (voiceDurationTicker) { clearInterval(voiceDurationTicker); voiceDurationTicker = null; }
+		} else if (!voiceDurationTicker) {
+			nowMs = Date.now();
+			voiceDurationTicker = setInterval(() => { nowMs = Date.now(); }, 1000);
+		}
+	}
 
 	// ========================================================================
 	// DRAG & DROP — single-coordinator model
