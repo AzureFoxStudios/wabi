@@ -25,6 +25,12 @@ export const channelUnreadCounts = writable<Record<string, number>>({});
 
 const channelSliceStores = new Map<string, Writable<Message[]>>();
 const e2eeHydrating = new Set<string>();
+// Track which channel|message keys we've already scanned so later updates
+// only re-check messages that are new or whose text changed, instead of
+// re-walking every message in every channel on every channelMessages update
+// (idle after login: presence/reaction/slice updates fire often).
+const e2eeSeen = new Set<string>();
+const e2eeSeenText = new Map<string, string>();
 
 /**
  * One receive boundary for live messages, history, reconnects and edits. The
@@ -35,10 +41,21 @@ channelMessages.subscribe((state) => {
 	for (const [channelId, messages] of Object.entries(state)) {
 		for (const message of messages) {
 			const ciphertext = typeof message?.text === 'string' ? message.text : '';
-			if (!ciphertext.startsWith(E2EE_MESSAGE_PREFIX)) continue;
+			const scanKey = `${channelId}|${message.id || message.clientMessageId || ''}`;
+			const seenText = e2eeSeenText.get(scanKey);
+			if (e2eeSeen.has(scanKey) && seenText === ciphertext) continue;
+			if (!ciphertext.startsWith(E2EE_MESSAGE_PREFIX)) {
+				// Plaintext (or non-string): remember we scanned it so we don't
+				// re-check this identity every subsequent store update.
+				e2eeSeen.add(scanKey);
+				e2eeSeenText.set(scanKey, ciphertext);
+				continue;
+			}
 			const key = `${channelId}|${message.id}|${message.clientMessageId || ''}|${ciphertext}`;
 			if (e2eeHydrating.has(key)) continue;
 			e2eeHydrating.add(key);
+			e2eeSeen.add(scanKey);
+			e2eeSeenText.set(scanKey, ciphertext);
 			void prepareIncomingE2eeMessage(channelId, message)
 				.then((prepared) => {
 					channelMessages.update((current) => {
