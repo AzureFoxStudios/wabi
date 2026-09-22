@@ -49,6 +49,13 @@
 		speed: 1,
 	};
 	let hidden = false;
+	// Pause the rAF chain after this much time without user input. Ambient
+	// effects only need to move while someone is looking/interacting; a static
+	// last frame freezes the backdrop so frost blur stops re-sampling every
+	// frame (WebKit software path was ~40% CPU on continuous canvas redraw).
+	const IDLE_PAUSE_MS = 2000;
+	let idleTimer = 0;
+	let pausedForIdle = false;
 
 	const watermarkSuits = [
 		{ glyph: '♠', left: '6%', top: '12%', size: '22vh', color: 'rgba(246, 240, 226, 0.045)', rotate: '-12deg' },
@@ -120,11 +127,17 @@
 
 		syncSize();
 		effect.init(canvas, config);
+		if (pausedForIdle) {
+			// Paint one frame so a theme/effect change while idle is visible
+			// without restarting the rAF chain.
+			effect.render(0, config);
+			return;
+		}
 		if (!hidden && !document.hidden) startLoop();
 	}
 
 	function startLoop() {
-		if (animId || currentEffectId === 'none') return;
+		if (animId || currentEffectId === 'none' || pausedForIdle) return;
 		lastTime = performance.now();
 		animId = requestAnimationFrame(loop);
 	}
@@ -183,6 +196,18 @@
 		setHidden(document.hidden);
 	}
 
+	function handleAmbientActivity() {
+		if (pausedForIdle) {
+			pausedForIdle = false;
+			if (!hidden && !document.hidden) startLoop();
+		}
+		window.clearTimeout(idleTimer);
+		idleTimer = window.setTimeout(() => {
+			pausedForIdle = true;
+			stopLoop();
+		}, IDLE_PAUSE_MS);
+	}
+
 	let observer: MutationObserver | null = null;
 	let unlistenWindowState: (() => void) | null = null;
 
@@ -206,6 +231,12 @@
 
 		window.addEventListener('resize', handleResize);
 		document.addEventListener('visibilitychange', handleVisibility);
+		window.addEventListener('pointerdown', handleAmbientActivity, { passive: true });
+		window.addEventListener('pointermove', handleAmbientActivity, { passive: true });
+		window.addEventListener('keydown', handleAmbientActivity, { passive: true });
+		window.addEventListener('wheel', handleAmbientActivity, { passive: true });
+		window.addEventListener('touchstart', handleAmbientActivity, { passive: true });
+		handleAmbientActivity();
 
 		// Desktop: WebKitGTK does not set document.hidden when the window is
 		// minimized, so the ambient canvas would keep software-rendering at
@@ -249,6 +280,12 @@
 		if (effect) effect.destroy();
 		window.removeEventListener('resize', handleResize);
 		document.removeEventListener('visibilitychange', handleVisibility);
+		window.removeEventListener('pointerdown', handleAmbientActivity);
+		window.removeEventListener('pointermove', handleAmbientActivity);
+		window.removeEventListener('keydown', handleAmbientActivity);
+		window.removeEventListener('wheel', handleAmbientActivity);
+		window.removeEventListener('touchstart', handleAmbientActivity);
+		window.clearTimeout(idleTimer);
 		if (unlistenWindowState) unlistenWindowState();
 		if (observer) observer.disconnect();
 	});
