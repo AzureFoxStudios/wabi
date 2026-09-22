@@ -6,24 +6,23 @@
    ========================================================================== */
 
 /* --- Token-driven live dot (green, pulsing) --- */
+/* Pulse opacity only — animating box-shadow radius/color forces a full
+   recompose every frame while any LIVE pill is on screen. */
 .live-dot {
 	width: 5px;
 	height: 5px;
 	border-radius: 50%;
 	background: var(--color-success, #22c55e);
-	box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success, #22c55e) 70%, transparent);
 	animation: wabi-live-pulse 1.8s ease-out infinite;
 }
 
 @keyframes wabi-live-pulse {
-	0% {
-		box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success, #22c55e) 70%, transparent);
+	0%,
+	100% {
+		opacity: 1;
 	}
 	70% {
-		box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success, #22c55e) 0%, transparent);
-	}
-	100% {
-		box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success, #22c55e) 0%, transparent);
+		opacity: 0.45;
 	}
 }
 
