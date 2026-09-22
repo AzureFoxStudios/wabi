@@ -120,29 +120,47 @@
 
 		syncSize();
 		effect.init(canvas, config);
+		if (!hidden && !document.hidden) startLoop();
+	}
+
+	function startLoop() {
+		if (animId || currentEffectId === 'none') return;
 		lastTime = performance.now();
-		loop();
+		animId = requestAnimationFrame(loop);
+	}
+
+	function stopLoop() {
+		if (!animId) return;
+		cancelAnimationFrame(animId);
+		animId = 0;
 	}
 
 	function loop(time?: number) {
+		// Document hidden or window minimized: stop the rAF chain entirely
+		// instead of re-queueing. Re-queueing keeps the WebKit software
+		// compositor scheduling ~25-60fps work on a surface nobody sees.
+		if (hidden || document.hidden) {
+			animId = 0;
+			return;
+		}
 		const now = time ?? performance.now();
 		const dt = now - lastTime;
 		const effect = effectsRegistry.get(currentEffectId);
-		const frameIntervalMs = effect?.frameIntervalMs ?? 40;
+		if (!effect) {
+			animId = 0;
+			return;
+		}
+		const frameIntervalMs = effect.frameIntervalMs ?? 40;
 		if (dt < frameIntervalMs) {
 			animId = requestAnimationFrame(loop);
 			return;
 		}
-		if (hidden) {
-			lastTime = now;
-			animId = requestAnimationFrame(loop);
-			return;
-		}
 		lastTime = now;
-		if (effect) {
-			currentConfig = readConfig().config;
-			effect.render(dt, currentConfig);
-		}
+		// readConfig() does getComputedStyle + 6 custom-property lookups.
+		// Doing that every rendered frame is pure style-engine churn while the
+		// effect id already matched at switchEffect(); cache it and refresh
+		// only when the theme/style observer detects a change.
+		effect.render(dt, currentConfig);
 		animId = requestAnimationFrame(loop);
 	}
 
@@ -150,15 +168,23 @@
 		syncSize();
 	}
 
-	function handleVisibility() {
-		hidden = document.hidden;
-		if (!hidden) {
-			// Reset lastTime so we don't get a huge delta on resume
-			lastTime = performance.now();
+	function setHidden(next: boolean) {
+		const was = hidden;
+		hidden = next;
+		if (was && !next) {
+			// Resume: reset lastTime so we don't get a huge delta, then restart.
+			if (currentEffectId !== 'none') startLoop();
+		} else if (!was && next) {
+			stopLoop();
 		}
 	}
 
+	function handleVisibility() {
+		setHidden(document.hidden);
+	}
+
 	let observer: MutationObserver | null = null;
+	let unlistenWindowState: (() => void) | null = null;
 
 	onMount(() => {
 		if (!browser) return;
@@ -167,8 +193,7 @@
 		mq.addEventListener('change', (e) => {
 			reducedMotion = e.matches;
 			if (reducedMotion) {
-				if (animId) cancelAnimationFrame(animId);
-				animId = 0;
+				stopLoop();
 				const prev = effectsRegistry.get(currentEffectId);
 				if (prev) prev.destroy();
 				currentEffectId = '';
@@ -182,6 +207,16 @@
 		window.addEventListener('resize', handleResize);
 		document.addEventListener('visibilitychange', handleVisibility);
 
+		// Desktop: WebKitGTK does not set document.hidden when the window is
+		// minimized, so the ambient canvas would keep software-rendering at
+		// full frame rate on a hidden surface (observed ~20-70% CPU in the
+		// Tauri shell). Pause via the Tauri window-state signal instead.
+		void import('$lib/tauri-window').then(({ listenForWindowStateChanges }) =>
+			listenForWindowStateChanges((state) => {
+				setHidden(state === 'minimized' || document.hidden);
+			})
+		).then((unlisten) => { unlistenWindowState = unlisten; });
+
 		observer = new MutationObserver((mutations) => {
 			for (const m of mutations) {
 				if (m.type === 'attributes' && m.attributeName === 'data-theme') {
@@ -191,8 +226,14 @@
 				// The effects tab applies tweaks as inline style vars (no theme
 				// change) — live-switch when the active effect id changes.
 				if (m.type === 'attributes' && m.attributeName === 'style') {
-					if (readConfig().id !== currentEffectId) {
+					const { id, config } = readConfig();
+					currentConfig = config;
+					if (id !== currentEffectId) {
 						switchEffect();
+					} else {
+						// Same effect, tweaked params (speed/intensity/color) — just
+						// refresh the cached config; the next rendered frame uses it.
+						currentConfig = config;
 					}
 					break;
 				}
@@ -203,11 +244,12 @@
 
 	onDestroy(() => {
 		if (!browser) return;
-		if (animId) cancelAnimationFrame(animId);
+		stopLoop();
 		const effect = effectsRegistry.get(currentEffectId);
 		if (effect) effect.destroy();
 		window.removeEventListener('resize', handleResize);
 		document.removeEventListener('visibilitychange', handleVisibility);
+		if (unlistenWindowState) unlistenWindowState();
 		if (observer) observer.disconnect();
 	});
 </script>

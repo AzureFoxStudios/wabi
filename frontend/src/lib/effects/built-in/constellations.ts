@@ -25,12 +25,19 @@ export class ConstellationsEffect implements AmbientEffect {
 
 	init(canvas: HTMLCanvasElement, _config: EffectConfig): void {
 		this.ctx = canvas.getContext('2d');
-		this.generateStars(canvas.width, canvas.height);
+		// Use CSS dimensions (clientWidth/Height) so star density is stable
+		// across DPR; resize() will re-seed with the same coordinate space.
+		const w = canvas.clientWidth || canvas.width;
+		const h = canvas.clientHeight || canvas.height;
+		this.generateStars(w, h);
 	}
 
 	private generateStars(w: number, h: number): void {
+		// Size is CSS pixels (effect.resize passes client dims). Cap the star
+		// count so a large display cannot explode the O(n²) link pass into
+		// tens of thousands of pair checks per frame.
 		const area = w * h;
-		const count = Math.max(40, Math.floor(area / 6000));
+		const count = Math.min(160, Math.max(40, Math.floor(area / 6000)));
 		this.stars = Array.from({ length: count }, () => ({
 			x: Math.random() * w,
 			y: Math.random() * h,
@@ -43,8 +50,9 @@ export class ConstellationsEffect implements AmbientEffect {
 	render(_deltaTime: number, config: EffectConfig): void {
 		if (!this.ctx) return;
 		const ctx = this.ctx;
-		const w = ctx.canvas.width;
-		const h = ctx.canvas.height;
+		// Match the CSS-pixel coordinate space used by resize()/init().
+		const w = ctx.canvas.clientWidth || ctx.canvas.width;
+		const h = ctx.canvas.clientHeight || ctx.canvas.height;
 
 		ctx.clearRect(0, 0, w, h);
 
@@ -64,6 +72,7 @@ export class ConstellationsEffect implements AmbientEffect {
 		}
 
 		const connectionDist = 120 * config.size;
+		const connectionDistSq = connectionDist * connectionDist;
 		const lineAlpha = alpha * 0.4;
 		ctx.strokeStyle = config.color;
 
@@ -73,8 +82,9 @@ export class ConstellationsEffect implements AmbientEffect {
 				const b = this.stars[j];
 				const dx = a.x - b.x;
 				const dy = a.y - b.y;
-				const dist = Math.sqrt(dx * dx + dy * dy);
-				if (dist < connectionDist) {
+				const distSq = dx * dx + dy * dy;
+				if (distSq < connectionDistSq) {
+					const dist = Math.sqrt(distSq);
 					// signature: links shimmer — each line's opacity breathes with
 					// a per-link phase so the constellation flickers like it's
 					// alive instead of holding a static web.
@@ -101,6 +111,9 @@ export class ConstellationsEffect implements AmbientEffect {
 		}
 
 		ctx.globalAlpha = 1;
+		// Caller applies ctx.scale(dpr, dpr); clear in CSS pixels to cover
+		// the full backing store without using device-pixel dims above.
+		// (clearRect already ran above with CSS dims after the dpr scale.)
 	}
 
 	resize(w: number, h: number): void {
