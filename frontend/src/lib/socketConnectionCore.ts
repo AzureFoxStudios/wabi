@@ -1143,12 +1143,25 @@ export class SocketManager {
 			const matches = (u: { id: string; dbUserId?: number | null }): boolean =>
 				(payload.dbUserId != null && u.dbUserId === payload.dbUserId) ||
 				(payload.id != null && u.id === payload.id);
-			const applyStatus = (u: User & { dbUserId?: number | null }): User =>
-				matches(u) ? { ...u, status: payload.status as User['status'] } : u;
-			users.update((list) => list.map(applyStatus));
-			serverMembers.update((list) => list.map(applyStatus));
+			// Only rebuild the array when a matched user's status actually
+			// changes. Map-to-new-array on every presence tick fans out a new
+			// reference to every subscriber (sidebar, user list, message
+			// presence badges) even when nothing differed.
+			const applyStatus = <T extends User>(list: T[]): T[] => {
+				let changed = false;
+				const next = list.map((u) => {
+					if (!matches(u) || u.status === payload.status) return u;
+					changed = true;
+					return { ...u, status: payload.status as User['status'] };
+				});
+				return changed ? next : list;
+			};
+			users.update((list) => applyStatus(list));
+			serverMembers.update((list) => applyStatus(list));
 			const me = get(currentUser);
-			if (me && matches(me)) currentUser.set({ ...me, status: payload.status as User['status'] });
+			if (me && matches(me) && me.status !== payload.status) {
+				currentUser.set({ ...me, status: payload.status as User['status'] });
+			}
 		});
 
 		on('profile-updated', (user: User) => {
@@ -1177,7 +1190,6 @@ export class SocketManager {
 		});
 
 		on('voice-channel-state', (payload: { channelId?: string; members?: any[] }) => {
-			console.log('[voice-channel-state] received:', JSON.stringify(payload));
 			if (!payload?.channelId) return;
 			const members = Array.isArray(payload.members) ? payload.members : [];
 			_setVoiceChannelMembers(payload.channelId, members);
@@ -1197,7 +1209,6 @@ export class SocketManager {
 						}))
 				);
 			}
-			console.log('[voice-channel-state] set members for', payload.channelId, 'count:', members.length);
 			// Roster snapshots are observations, not new call intent. The call
 			// owner/watchdog controls transport setup after correlated admission.
 		});
@@ -1552,56 +1563,6 @@ export class SocketManager {
 				_setUserBadges(payload.dbUserId, Array.isArray(payload.badges) ? payload.badges : []);
 			}
 		);
-
-		on('emoji-reaction-added', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
-			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;
-			const userIdStr = `user-${payload.userId}`;
-			channelMessages.update((state) => {
-				const next = { ...state };
-				for (const channelId of Object.keys(next)) {
-					const messages = next[channelId];
-					const idx = messages.findIndex((m) => m.id === payload.messageId);
-					if (idx === -1) continue;
-					const message = messages[idx];
-					const reactions = { ...(message.reactions || {}) };
-					const existing = reactions[payload.emojiId] ? [...reactions[payload.emojiId]] : [];
-					if (!existing.includes(userIdStr)) {
-						existing.push(userIdStr);
-					}
-					reactions[payload.emojiId] = existing;
-					const updated = [...messages];
-					updated[idx] = { ...message, reactions };
-					next[channelId] = updated;
-				}
-				return next;
-			});
-		});
-
-		on('emoji-reaction-removed', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
-			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;
-			const userIdStr = `user-${payload.userId}`;
-			channelMessages.update((state) => {
-				const next = { ...state };
-				for (const channelId of Object.keys(next)) {
-					const messages = next[channelId];
-					const idx = messages.findIndex((m) => m.id === payload.messageId);
-					if (idx === -1) continue;
-					const message = messages[idx];
-					const reactions = { ...(message.reactions || {}) };
-					const existing = reactions[payload.emojiId] ? [...reactions[payload.emojiId]] : [];
-					const filtered = existing.filter((id) => id !== userIdStr);
-					if (filtered.length > 0) {
-						reactions[payload.emojiId] = filtered;
-					} else {
-						delete reactions[payload.emojiId];
-					}
-					const updated = [...messages];
-					updated[idx] = { ...message, reactions };
-					next[channelId] = updated;
-				}
-				return next;
-			});
-		});
 	}
 }
 
