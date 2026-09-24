@@ -45,7 +45,7 @@ postcard = { version = "1", features = ["alloc"] }
 serde_json = "1"
 
 # TOML parsing (used by WabiDbConfig::load_from_file)
-toml = "0.8"
+toml = "1.1"
 
 # Async trait support (SyncTransport trait)
 async-trait = "0.1"
