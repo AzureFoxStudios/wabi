@@ -59,7 +59,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/{id}", axum::routing::patch(update_channel))
         .route("/{id}", axum::routing::delete(delete_channel))
         .route("/{id}/join", axum::routing::post(join_channel))
-        .route("/{id}/retention", axum::routing::put(set_channel_retention))
+        .route("/{id}/retention", axum::routing::get(get_channel_retention_epochs).put(set_channel_retention))
         .route("/{channel_id}/reactions", axum::routing::get(list_channel_reactions))
         .with_state(state)
 }
@@ -144,9 +144,23 @@ pub(crate) async fn apply_channel_retention(
             .filter(|ms| *ms > 0 && *ms <= 365 * 86_400_000)
             .ok_or_else(|| AppError::BadRequest("Unsupported retention duration".into()))?)
     };
+    let previous_label = if let Some(current) = state.channel_auto_delete_label.read().await.get(channel_id).cloned() {
+        current
+    } else {
+        match state.wdb.get_channel_retention(channel_id).await? {
+            Some(policy) if policy.days == 0 => "forever".to_string(),
+            Some(policy) => format!("{}d", policy.days),
+            None => "24h".to_string(),
+        }
+    };
+    crate::api::retention_policy::compact_empty_epochs(&state.config.data_dir, channel_id, |from, through| {
+        Ok(!wabidb::projections::messages::MessagesProjection::list_messages_in_time_range(
+            &state.wdb.engine().projection_state(), channel_id, from, through, 1,
+        )?.is_empty())
+    }).map_err(|e| AppError::Internal(format!("compact retention history: {e}")))?;
     // The exact file is authoritative. Failed writes must not change runtime
     // behavior or the database's legacy whole-day compatibility record.
-    crate::api::retention_policy::set(&state.config.data_dir, channel_id, &label)
+    crate::api::retention_policy::set_with_previous(&state.config.data_dir, channel_id, &label, &previous_label)
         .map_err(|e| AppError::Internal(format!("persist exact retention: {e}")))?;
     {
         let mut labels = state.channel_auto_delete_label.write().await;
@@ -155,12 +169,43 @@ pub(crate) async fn apply_channel_retention(
         if let Some(ms) = timer { timers.insert(channel_id.to_string(), ms); }
         else { timers.remove(channel_id); }
     }
+    let fast = crate::api::retention_policy::epochs(&state.config.data_dir, channel_id)?
+        .is_some_and(|epochs| epochs.iter().any(|epoch| crate::api::retention_policy::timed_ms(&epoch.label)
+            .is_some_and(|ms| ms > 0 && ms <= 60_000)));
+    let mut fast_channels = state.fast_retention_channels.write().await;
+    if fast { fast_channels.insert(channel_id.to_string()); }
+    else { fast_channels.remove(channel_id); }
     Ok(label)
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SetRetentionRequest { retention: String }
+
+async fn get_channel_retention_epochs(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    crate::channel_access::require_access(&state, auth.user_id, &id).await?;
+    let epochs = match crate::api::retention_policy::epochs(&state.config.data_dir, &id)? {
+        Some(epochs) => epochs,
+        None => {
+            let label = match state.wdb.get_channel_retention(&id).await? {
+                Some(policy) if policy.days == 0 => "forever".to_string(),
+                Some(policy) => format!("{}d", policy.days),
+                None => "24h".to_string(),
+            };
+            vec![crate::api::retention_policy::RetentionEpoch { from_micros: 0, label }]
+        }
+    };
+    let epochs = epochs.into_iter().map(|epoch| serde_json::json!({
+        "fromMicros": epoch.from_micros,
+        "label": epoch.label,
+        "durationMs": crate::api::retention_policy::timed_ms(&epoch.label),
+    })).collect::<Vec<_>>();
+    Ok(Json(serde_json::json!({ "channelId": id, "epochs": epochs })))
+}
 
 async fn set_channel_retention(
     State(state): State<Arc<AppState>>,
@@ -373,6 +418,7 @@ async fn delete_channel(
         let _ = crate::api::retention_policy::remove(&state.config.data_dir, channel_id);
         state.channel_auto_delete_ms.write().await.remove(channel_id);
         state.channel_auto_delete_label.write().await.remove(channel_id);
+        state.fast_retention_channels.write().await.remove(channel_id);
     }
     {
         let mut session = state.session_messages.write().await;

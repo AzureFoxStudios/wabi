@@ -679,3 +679,55 @@ async fn direct_message_history_pages_past_one_hundred_and_survives_reconnect() 
     })).await;
     assert_eq!(reconnected.event("history-error").await["requestId"], "bad-cursor");
 }
+
+#[tokio::test]
+async fn group_message_history_pages_past_one_hundred_and_survives_reconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let owner = state.wdb.create_user("group_owner", None, "registered-test-hash").await.unwrap();
+    let member = state.wdb.create_user("group_member", None, "registered-test-hash").await.unwrap();
+    let group = "group-history-pages";
+    state.wdb.create_group(group, "History room", owner, &[owner, member]).await.unwrap();
+    let app = router(&state);
+    let credential = token(&state, member);
+    let mut client = Client::connect(&app, &credential).await;
+    let mut ids = Vec::new();
+    for index in 0..125 {
+        ids.push(state.wdb.send_message(group, owner, &format!("group-page-{index}"), false, &[]).await.unwrap());
+    }
+
+    client.emit("load-history", json!({"channelId":group,"limit":100,"requestId":"latest"})).await;
+    let latest = client.event("history-loaded").await;
+    let latest_ids: Vec<_> = latest["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(latest["requestId"], "latest");
+    assert_eq!(latest_ids, ids[25..].to_vec());
+    assert_eq!(latest["hasMore"], true);
+
+    let mut reconnected = Client::connect(&app, &credential).await;
+    reconnected.emit("join-channel", json!(group)).await;
+    let snapshot = reconnected.event("channel-messages").await;
+    assert_eq!(snapshot["messages"].as_array().unwrap().len(), 50);
+    reconnected.emit("load-history", json!({
+        "channelId":group,"beforeMessageId":latest_ids[0],"limit":30,"requestId":"older"
+    })).await;
+    let older = reconnected.event("history-loaded").await;
+    let older_ids: Vec<_> = older["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(older_ids, ids[..25].to_vec());
+    assert_eq!(older["hasMore"], false);
+
+    reconnected.emit("load-history", json!({
+        "channelId":group,"afterMessageId":ids[100],"limit":30,"requestId":"newer"
+    })).await;
+    let newer = reconnected.event("history-loaded").await;
+    let newer_ids: Vec<_> = newer["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(newer_ids, ids[101..].to_vec());
+    assert_eq!(newer["hasMore"], false);
+
+    reconnected.emit("load-history", json!({
+        "channelId":group,"beforeMessageId":"missing-row","limit":30,"requestId":"bad-cursor"
+    })).await;
+    assert_eq!(reconnected.event("history-error").await["requestId"], "bad-cursor");
+}

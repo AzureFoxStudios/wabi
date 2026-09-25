@@ -2,9 +2,11 @@
   import { afterUpdate, onMount, tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { selectedDmChannelId, dmOtherUser } from '$lib/layoutStoreStates';
-  import { channelMessages, currentUser, channels, users, serverMembers, joinChannel, loadHistory, markChannelAsRead, sendMessage } from '$lib/socket';
+  import { channelMessages, channelHasMoreHistory, channelHistoryLoading, currentUser, channels, users, serverMembers, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, updateChannelSettings } from '$lib/socket';
+  import { DEFAULT_DM_RETENTION, MESSAGE_RETENTION_LABELS, MESSAGE_RETENTION_PRESETS, normalizeMessageRetentionDuration } from '../../../../shared/messageRetention.js';
   import ChatComposer from './chat/ChatComposer.svelte';
   import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
+  import GroupSettingsPanel from './GroupSettingsPanel.svelte';
   import { formatTypingUsers } from './chat/typing';
   import { channelPaneInTransition, channelPaneOutTransition } from './chat/transitions';
   import { filterMessages } from './chat/search';
@@ -23,12 +25,14 @@
   let lastJoinedChannelId = '';
 
   $: channelId = channelIdProp ?? $selectedDmChannelId;
-  $: channel = channelProp ?? (channelId ? ($channels || []).find((c: { id: string }) => c.id === channelId) || null : null);
+  $: channel = (channelId ? ($channels || []).find((c: { id: string }) => c.id === channelId) || null : null) ?? channelProp;
   $: isGroup = channel?.type === 'group';
   $: layoutOtherUser = context === 'right' ? $dmOtherUser : null;
   $: otherUser = otherUserProp ?? layoutOtherUser ?? resolveDmOtherUser(channel, $currentUser, $users, $serverMembers);
   $: if (channelId && channelId !== lastJoinedChannelId) {
     lastJoinedChannelId = channelId;
+    showGroupSettings = false;
+    olderAnchor = null;
     joinChannel(channelId);
     loadHistory(channelId, { limit: 50 });
     followLatest = true;
@@ -38,6 +42,17 @@
   $: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
   $: pinnedMessages = messages.filter((m: Message) => m.isPinned);
   $: channelDisplayName = isGroup ? (channel?.name || 'Group message') : (otherUser?.username || otherUser?.handle || 'Recipient unavailable');
+  $: selectedRetention = channel?.autoDeleteAfter === null || String(channel?.autoDeleteAfter) === 'forever'
+    ? ''
+    : channel?.autoDeleteAfter || DEFAULT_DM_RETENTION;
+
+  function handleRetentionChange(event: Event): void {
+    const select = event.currentTarget as HTMLSelectElement;
+    if (!channelId || !channel) return;
+    const next = normalizeMessageRetentionDuration(select.value);
+    select.value = selectedRetention;
+    void updateChannelSettings(channelId, { autoDeleteAfter: next });
+  }
 
   let replyingTo: Message | null = null;
   let composerVisible = true;
@@ -47,6 +62,8 @@
   let followLatest = true;
   let showJumpToLatest = false;
   let lastMessageKey = '';
+  let showGroupSettings = false;
+  let olderAnchor: { channelId: string; firstId: string; height: number; top: number } | null = null;
 
   // ── E2EE conversation state ──────────────────────────────────────────────
   let e2eeStatus: E2eeRoomStatus | null = null;
@@ -118,6 +135,16 @@
     if (!chatContainer) return;
     followLatest = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 128;
     showJumpToLatest = !followLatest && messages.length > 0;
+    if (chatContainer.scrollTop < 72) loadEarlier();
+  }
+
+  function loadEarlier(): void {
+    if (!channelId || !chatContainer || olderAnchor || !$channelHasMoreHistory[channelId] || $channelHistoryLoading[channelId]) return;
+    const firstId = messages.find((message: Message) => message.id && !message.id.startsWith('optimistic:'))?.id;
+    if (!firstId) return;
+    olderAnchor = { channelId, firstId, height: chatContainer.scrollHeight, top: chatContainer.scrollTop };
+    followLatest = false;
+    loadOlderHistory(channelId);
   }
 
   async function scrollToLatest(): Promise<void> {
@@ -129,6 +156,16 @@
   }
 
   afterUpdate(() => {
+    if (olderAnchor && olderAnchor.channelId !== channelId) olderAnchor = null;
+    if (olderAnchor && chatContainer) {
+      const firstId = messages.find((message: Message) => message.id && !message.id.startsWith('optimistic:'))?.id;
+      if (firstId && firstId !== olderAnchor.firstId) {
+        chatContainer.scrollTop = olderAnchor.top + chatContainer.scrollHeight - olderAnchor.height;
+        olderAnchor = null;
+      } else if (!$channelHistoryLoading[channelId || '']) {
+        olderAnchor = null;
+      }
+    }
     const newest = messages.at(-1);
     const nextKey = `${channelId}:${messages.length}:${newest?.id || ''}`;
     if (nextKey !== lastMessageKey) {
@@ -145,6 +182,10 @@
   });
 
   async function handleClose() {
+    if (showGroupSettings) {
+      showGroupSettings = false;
+      return;
+    }
     if (context === 'center') {
       const closedChannelId = channelId;
       layoutStore.closeCenterDm();
@@ -215,6 +256,11 @@
       {/if}
     </div>
     <div class="dm-header-actions">
+      {#if isGroup}
+        <button type="button" class="dm-header-action" title={showGroupSettings ? 'Back to group messages' : 'Group settings'} aria-label={showGroupSettings ? 'Back to group messages' : 'Group settings'} aria-pressed={showGroupSettings} on:click={() => (showGroupSettings = !showGroupSettings)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/><circle cx="18" cy="9" r="2"/><path d="M18 15a4 4 0 0 1 4 4v1"/></svg>
+        </button>
+      {/if}
       <button class="dm-header-action" title={context === 'right' ? 'Open in main view' : 'Move to side panel'} aria-label={context === 'right' ? 'Open in main view' : 'Move to side panel'} on:click={handleToggleSurface}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" />
@@ -223,11 +269,33 @@
     </div>
   </div>
 
+  {#if channelId && channel}
+    <div class="dm-retention-bar">
+      <label class="dm-retention-control">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.5v3.7l2.35 1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Keep new messages</span>
+        <select value={selectedRetention} on:change={handleRetentionChange} aria-label="Retention for new messages">
+          <option value="">Forever</option>
+          {#each MESSAGE_RETENTION_PRESETS as duration}
+            <option value={duration}>{MESSAGE_RETENTION_LABELS[duration]}</option>
+          {/each}
+        </select>
+      </label>
+      <span class="dm-retention-hint">Earlier messages keep their original lifetime.</span>
+    </div>
+  {/if}
+
   <div
     class="dm-messages"
+    class:hidden={showGroupSettings}
     bind:this={chatContainer}
     on:scroll={handleScroll}
   >
+    {#if channelId && $channelHasMoreHistory[channelId]}
+      <button type="button" class="dm-load-earlier" disabled={$channelHistoryLoading[channelId]} on:click={loadEarlier}>
+        {$channelHistoryLoading[channelId] ? 'Loading earlier messages…' : 'Load earlier messages'}
+      </button>
+    {/if}
     <ChatMessagesPane
       currentChannel={channelId || ''}
       messageDomScope={`dm-conversation-${context}`}
@@ -258,11 +326,15 @@
     />
   </div>
 
-  {#if showJumpToLatest}
+  {#if showGroupSettings && isGroup && channel}
+    <div class="dm-group-settings" aria-label="Group settings"><GroupSettingsPanel {channel} /></div>
+  {/if}
+
+  {#if showJumpToLatest && !showGroupSettings}
     <button type="button" class="dm-jump-latest" on:click={() => void scrollToLatest()}>↓ New messages</button>
   {/if}
 
-  <div class="dm-composer">
+  <div class="dm-composer" class:hidden={showGroupSettings}>
     {#key `${context}:${$currentUser?.dbUserId || $currentUser?.id || ''}:${channelId}`}
     <ChatComposer
       bind:this={chatComposer}
@@ -283,6 +355,56 @@
 </div>
 
 <style>
+  .dm-retention-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem 0.85rem;
+    flex-wrap: wrap;
+    min-height: 2.25rem;
+    padding: 0.3rem 0.85rem;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-app);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+  }
+
+  .dm-retention-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    white-space: nowrap;
+  }
+
+  .dm-retention-control svg {
+    width: 0.82rem;
+    height: 0.82rem;
+    opacity: 0.7;
+  }
+
+  .dm-retention-control select {
+    max-width: 8.5rem;
+    min-height: 1.65rem;
+    padding: 0 0.55rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    background: var(--surface-raised);
+    color: var(--text-heading);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .dm-retention-control select:focus-visible {
+    outline: 2px solid var(--accent-primary-color);
+    outline-offset: 2px;
+  }
+
+  .dm-retention-hint { opacity: 0.74; }
+
+  @container dm-conversation (max-width: 420px) {
+    .dm-retention-bar { gap: 0.2rem; padding-inline: 0.65rem; }
+    .dm-retention-hint { flex-basis: 100%; margin-left: 1.2rem; }
+  }
+
   .dm-conversation {
     position: relative;
     display: flex;
@@ -456,6 +578,16 @@
     min-height: 0;
     padding: var(--space-2);
   }
+  .dm-messages.hidden, .dm-composer.hidden { display: none; }
+  .dm-group-settings { flex: 1; min-height: 0; overflow: hidden; }
+
+  .dm-load-earlier {
+    display: block; min-height: 36px; margin: var(--space-1) auto var(--space-3); padding: 0 var(--space-3);
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-full);
+    background: var(--surface-raised); color: var(--text-secondary); font: inherit; cursor: pointer;
+  }
+  .dm-load-earlier:hover:not(:disabled) { color: var(--text-heading); background: var(--surface-hover); }
+  .dm-load-earlier:disabled { opacity: .65; cursor: wait; }
 
   .dm-jump-latest {
     position: absolute;

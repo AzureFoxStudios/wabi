@@ -158,6 +158,12 @@ async fn handle_send_message(
     let sender_username = auth.username;
 
     // Reuse the same WDB write path as REST /api/messages.
+    let retention_guard = state.retention_policy_lock.lock().await;
+    if state.channel_auto_delete_label.read().await.get(&req.channel_id).is_some_and(|label| label == "live") {
+        return Err(AppError::BadRequest(
+            "Bot sends are unavailable in Live rooms because this endpoint stores messages".into(),
+        ));
+    }
     let created_at_micros = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_micros() as i64)
@@ -177,6 +183,7 @@ async fn handle_send_message(
         .wdb
         .send_message(&req.channel_id, sender_id, &req.content, is_spoiler, &[])
         .await?;
+    drop(retention_guard);
 
     let message_view = json!({
         "id": message_id.clone(),

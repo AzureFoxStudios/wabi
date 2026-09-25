@@ -24,7 +24,7 @@ JWT material is also sensitive. Losing/rotating it is primarily a session/login 
 
 ## Exact retention policy
 
-Include `channel_retention.json` in the stopped data-directory backup. It distinguishes Live mode and sub-day durations from WabiDB's whole-day compatibility policy. Startup validates and loads it before serving requests; damaged or unreadable state stops startup while preserving the file. Restore a matching backup rather than deleting the file or replacing it with an empty object. Removing it can change the storage mode after restart. See [message retention](../features/MESSAGE_RETENTION.md).
+Include `channel_retention.json` in the stopped data-directory backup. It distinguishes Live mode and sub-day durations from WabiDB's whole-day compatibility policy, and records when each policy began so older messages keep their original lifetime. Startup validates and loads it before serving requests; damaged or unreadable state stops startup while preserving the file. Restore a matching backup rather than deleting the file or replacing it with an empty object. Removing it can change the storage mode or expiry of existing messages after restart. An older server binary does not understand the policy timeline: it can apply the latest setting to older messages and expire them early. Roll back the binary only with a matching stopped backup of both WabiDB and this sidecar, or migrate the timeline explicitly. See [message retention](../features/MESSAGE_RETENTION.md).
 
 ## Experimental encryption registry
 

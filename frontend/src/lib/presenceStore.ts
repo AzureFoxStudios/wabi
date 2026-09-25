@@ -13,7 +13,7 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { getSocket } from './socketConnection';
-import type { User, UserBadge } from './socket-types';
+import type { Channel, User, UserBadge } from './socket-types';
 import type { WhiteboardPresenceUser } from './whiteboard/boardTypes';
 import { FALLBACK_BADGE_CATALOG } from './badges';
 import { performGroupOperation } from './groupOperations';
@@ -347,8 +347,10 @@ export async function unbanUser(userId: string | number): Promise<void> {
 // PUBLIC API - Group Operations
 // ============================================================================
 
-export async function createGroup(groupName: string, userIds: string[]): Promise<void> {
-	await performGroupOperation('create', { groupName, userIds });
+export async function createGroup(groupName: string, userIds: string[]): Promise<Channel> {
+	const result = await performGroupOperation('create', { groupName, userIds });
+	if (!result.channel) throw new Error('The server did not return the new group. Refresh and try again.');
+	return result.channel;
 }
 
 export async function leaveGroup(groupId: string): Promise<void> {

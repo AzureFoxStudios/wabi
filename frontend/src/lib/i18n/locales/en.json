@@ -309,9 +309,10 @@
     "edited": "edited",
     "translated_label": "Translated",
     "deletion": {
-      "scheduled_title": "This message is scheduled for auto-deletion",
-      "deleting": "Deleting...",
-      "deletes_in": "Deletes in {duration}"
+      "scheduled_title": "This message is scheduled to leave chat; copies may remain in backups",
+      "deleting": "Leaving chat...",
+      "retention_lifetime": "{duration} retention",
+      "deletes_in": "Leaves chat in {duration}"
     },
     "persistence": {
       "failed": "Not saved",

@@ -72,7 +72,7 @@ import { get } from 'svelte/store';
 		// Opt into Live (session-only, no persistence).
 		if (isLiveRetention(next) && !isLiveRetention(prev)) {
 			const ok = window.confirm(
-				`Make #${channel.name} a Live room?\n\nMessages are session-only and are lost when the server restarts. No history is stored. Note: Live is not private from the server owner while messages are live.`
+				`Make #${channel.name} a Live room?\n\nNew messages are session-only and are lost when the server restarts. Earlier retained messages keep their original policy in storage, but may be hidden from chat while Live mode is active. Live is not private from the server owner while messages are live.`
 			);
 			if (!ok) return;
 			saveChannelSettings(LIVE_RETENTION);
@@ -83,24 +83,12 @@ import { get } from 'svelte/store';
 			saveChannelSettings(next);
 			return;
 		}
-		// Opt into keep-forever (persistence).
+		// Opt into keep-forever (persistence) for future messages.
 		if (next === null && prev !== null) {
 			const ok = window.confirm(
-				`Keep messages in #${channel.name} forever?\n\nThis opts into persistence. History will be stored until you purge it or change retention.`
+				`Keep new messages in #${channel.name} forever?\n\nEarlier messages keep the retention policy they had when sent. New history stays in chat until it is separately removed.`
 			);
 			if (!ok) return;
-		}
-		// Leaving forever → timed: offer purge of stored history.
-		if (prev === null && next !== null) {
-			const purge = window.confirm(
-				`Switch #${channel.name} back to timed chat (${next})?\n\nOK = also purge existing stored messages now.\nCancel = keep old messages, only apply the timer to new ones.`
-			);
-			saveChannelSettings(next);
-			if (purge) {
-				// Slight delay so settings save emits first.
-				setTimeout(() => clearAllMessages(), 50);
-			}
-			return;
 		}
 		saveChannelSettings(next);
 	}
@@ -329,7 +317,7 @@ import { get } from 'svelte/store';
 		return Object.keys(next).length > 0 ? next : undefined;
 	}
 
-	function saveChannelSettings(autoDeleteAfter: RetentionChoice = channel.autoDeleteAfter || null): void {
+	function saveChannelSettings(autoDeleteAfter: RetentionChoice = channel.autoDeleteAfter === undefined ? DEFAULT_CHANNEL_RETENTION : channel.autoDeleteAfter): void {
 		const liveUpdates: Record<string, unknown> = {};
 		if (isLiveRetention(tempLiveTtl ? undefined : channel.autoDeleteAfter) || isLiveRetention(autoDeleteAfter)) {
 			const ttlMs = parseDurationToMs(tempLiveTtl);
@@ -429,7 +417,7 @@ import { get } from 'svelte/store';
 				<div class="setting-group">
 					<span class="setting-label">Message retention</span>
 					<p class="setting-description">
-						Live (session only) · Timed (default 24 hours) · Keep forever (opt-in persistence).
+						Changes apply to new messages. Earlier messages keep their original lifetime, but may be hidden while Live mode is active. Live is session only; timed defaults to 24 hours.
 					</p>
 
 					<div class="auto-delete-options">

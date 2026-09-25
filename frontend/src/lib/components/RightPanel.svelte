@@ -8,7 +8,7 @@
 	import QuickResourcesPanel from './QuickResourcesPanel.svelte';
 	import './RightPanel.css';
 
-	const dispatch = createEventDispatcher<{ openSettings: { paymentSurface: 'connections' }; }>();
+	const dispatch = createEventDispatcher<{ openSettings: { paymentSurface?: 'connections' } | undefined; }>();
 
 	let rightPanelHeight = $state(0);
 

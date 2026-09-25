@@ -10,7 +10,7 @@ Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)
 
 ## What Wabi includes
 
-- **Communication** — channels, one-to-one DMs, group conversations, replies, presence, typing indicators, roles, and guest access.
+- **Communication** — channels, server-local friends, one-to-one DMs, group conversations, replies, presence, typing indicators, roles, and guest access.
 - **Optional translation** — local-first Translator Assist provides on-demand and viewport-aware automatic translation through user-controlled LibreTranslate endpoints, without making translation a Wabi server dependency or bundling language models.
 - **Calls** — voice, video, and screen sharing with Wabi's current call transports plus optional coturn TURN and LiveKit SFU deployment paths.
 - **Collaborative workspaces** — whiteboards, wiki/content surfaces, Planner/Notes-style workspaces, files/media, Reader, and dockable layouts instead of forcing every task through a chat scrollback.
@@ -26,6 +26,7 @@ Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)
 |---|---|
 | Authority server + WabiDB | ✅ Core path |
 | Chat, DMs, groups, roles, presence | ✅ Core path |
+| Server-local friend requests and friendships | ✅ Available on the current Tim release branch; physical phone acceptance pending |
 | Translator Assist | 🔌 Optional, off by default; local/self-hosted LibreTranslate |
 | Voice/video/screen sharing | ✅ Available; transport/device hardening continues |
 | Whiteboards, wiki, Reader, workspace shell | ✅ Available |

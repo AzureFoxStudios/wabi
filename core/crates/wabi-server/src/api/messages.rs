@@ -172,6 +172,9 @@ async fn send_message(
     let sender_id = auth.user_id as u64;
     let sender_username = auth.username;
     let message_type = if e2ee { "text".to_string() } else { req.message_type.unwrap_or_else(|| "text".into()) };
+    // A retention epoch must not be inserted between selecting Live/durable
+    // mode and assigning the durable message its database timestamp.
+    let retention_guard = state.retention_policy_lock.lock().await;
     let created_at_micros = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0);
     let is_live = state.channel_auto_delete_label.read().await.get(&req.channel_id).map(|s| s == "live").unwrap_or(false);
@@ -195,6 +198,7 @@ async fn send_message(
             "type": message_type.clone(), "isSpoiler": is_spoiler, "encrypted": e2ee,
         }));
     }
+    drop(retention_guard);
 
     // E2EE means no server-side content fan-out. Webhooks, Steam detection,
     // previews and classifiers cannot receive plaintext that the server never had.

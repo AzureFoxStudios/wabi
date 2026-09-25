@@ -10,6 +10,7 @@
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import { getSocket, type User } from '$lib/socket';
 	import { showToast } from '$lib/toast';
+	import { MESSAGE_RETENTION_LABELS } from '../../../../../shared/messageRetention.js';
 	import type { WorkspaceViewKey } from './types';
 
 	type ChannelPrivacySummary = {
@@ -74,14 +75,20 @@
 	}
 
 	function retentionLabel(value: string): string {
-		if (value === 'live') return 'Live · not retained';
-		if (value === 'forever') return 'Forever';
-		return value;
+		if (value === 'live') return 'Live session';
+		if (value === 'forever') return 'Keep forever';
+		return MESSAGE_RETENTION_LABELS[value as keyof typeof MESSAGE_RETENTION_LABELS] || value;
 	}
 
 	onMount(() => {
 		const socket = getSocket();
 		if (!socket) return;
+		const refreshChannelRetention = (payload: { channelId?: string; autoDeleteAfter?: unknown }) => {
+			if (payload?.channelId !== currentChannel || !('autoDeleteAfter' in payload)) return;
+			const key = `${$activeServerUrl}|${currentChannel}`;
+			privacyRequestKey = key;
+			void refreshPrivacySummary(currentChannel, key);
+		};
 		const refreshPolicy = () => {
 			// Policy changes are not silent: refresh the visible contract now and
 			// tell the member that the operator changed the server privacy policy.
@@ -92,8 +99,12 @@
 			}
 			showToast('Server privacy policy changed. The room privacy labels have been refreshed.', 'info');
 		};
+		socket.on('channel-updated', refreshChannelRetention);
 		socket.on('privacy-policy-updated', refreshPolicy);
-		return () => { socket.off('privacy-policy-updated', refreshPolicy); };
+		return () => {
+			socket.off('channel-updated', refreshChannelRetention);
+			socket.off('privacy-policy-updated', refreshPolicy);
+		};
 	});
 
 	export let dmCallTargetUser: User | null = null;
@@ -137,11 +148,11 @@
 		{/if}
 		{#if selectedWorkspaceView === 'messages' && privacySummary}
 			<span
-				class="spoiler-channel-badge"
+				class="retention-channel-badge"
 				title={privacySummary.retention === 'live'
-					? 'Messages in this room are session-only. The server can still read them while they are live.'
-					: `Message retention for this room: ${privacySummary.retention}.`}
-			>◷ {retentionLabel(privacySummary.retention)}</span>
+					? 'New messages are session-only. The server can still read them while they are live.'
+					: `New messages: ${retentionLabel(privacySummary.retention)}. Earlier messages keep the lifetime set when they were sent.`}
+			><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.5v3.7l2.35 1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{retentionLabel(privacySummary.retention)}</span></span>
 			<span
 				class="spoiler-channel-badge"
 				title={privacySummary.e2ee
