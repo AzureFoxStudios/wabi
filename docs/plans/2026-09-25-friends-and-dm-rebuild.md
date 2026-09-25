@@ -112,3 +112,23 @@ predeployment runtime data and previous binary was saved at
 Physical phone PWA acceptance is still required before claiming reliable mobile
 delivery on real devices. The older binary cannot safely be restored after new
 friendship events have been written, because it cannot replay that new event.
+
+The follow-up at `7cfed649a05cab56f1f8338dd6faaf3cf708622a` passed a
+125-message group pagination regression and an Authority retention smoke test
+that covered expiry before and after restart. A disposable two-account browser
+test covered People actions, group history, direct messages, desktop and phone
+viewport layouts, an embedded static PWA's online/offline replay, and a
+five-second policy change that preserved earlier messages. Frontend checking
+finished with zero errors; the static build embedded 201 offline assets with
+build ID `faa44f67519637be`.
+
+The addon-enabled release binary (SHA-256
+`82feeb901118fb837c7c61e7cddb8efbe7c0e5497bd1733c80420250df325432`)
+booted against disposable data on Iyoku, then deployed to Tim on 2026-09-25.
+The stopped data, retention sidecar, uploads, configuration and prior binary
+were saved at
+`/home/tim/wabi-backups/authority-20260925-followup-7cfed649` before the
+swap. The Tim service is healthy; the public page, health endpoint, embedded
+precache and Socket.IO handshake passed. A physical-phone PWA check remains
+open. Do not roll back only the binary after new friendship or retention epoch
+writes; restore the matching stopped data and sidecar backup with it.

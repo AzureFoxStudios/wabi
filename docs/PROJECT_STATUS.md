@@ -32,6 +32,18 @@ health endpoint and realtime handshake passed after deployment. Physical phone
 acceptance remains pending, and this branch has not been merged into `main`.
 See [the rebuild contract](plans/2026-09-25-friends-and-dm-rebuild.md).
 
+The 2026-09-25 follow-up (`7cfed649`) is also live on Tim. It makes People
+menus, profile and friend actions usable by mouse and touch, fixes mobile
+navigation into a full direct message view, and adds a center-stage group chat
+with creation, membership controls and older-history loading. Timed retention
+changes now affect only messages sent afterward; the five-second policy sweeps
+quickly without deleting earlier history, and the message timer and room badge
+have been refreshed. The follow-up passed disposable two-account browser and
+installed-PWA flows, group and retention regressions, and public health/page/
+realtime checks. Physical-phone acceptance is still pending. Live mode can
+temporarily hide older durable history while selected, and messages deleted
+before this repair cannot be recovered.
+
 ## Production-finish candidate — not yet merged or deployed
 
 `codex/production-finish-20260915` adds account/server-scoped local Notes with transactional saves, independent editor drafts, conflict recovery, trash, titled wiki-links/backlinks, explicit legacy recovery, JSON backup/import, portable Markdown archives, keyboard link completion, a reading view, explicit broken-link reconnect and a shared scratchpad. Reader storage upgrades preserve older writing, and a scoped return control links Reader copies to their source notes. Profile annotations now use scoped, revision-checked writes. See [Local Notes](features/LOCAL_NOTES.md) for storage boundaries, backup limits and unfinished acceptance work.
