@@ -132,6 +132,9 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         connected.get(&socket.id.to_string()).map(|u| u.color.clone()).unwrap_or_else(|| "#98D8C8".to_string())
     };
     let message_id;
+    // Policy transitions and message commits share one ordering boundary.
+    // Otherwise a message can select an old mode but land in a new epoch.
+    let retention_guard = state.app.retention_policy_lock.lock().await;
     let timestamp = now_ms();
     let is_live = channel_is_live(&state.app, &channel_id).await;
     let requested_spoiler = cmd.get("isSpoiler").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -210,6 +213,7 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         if msgs.len() >= cap as usize { msgs.drain(0..msgs.len() - (cap as usize).saturating_sub(1)); }
         msgs.push(message_view.clone());
     }
+    drop(retention_guard);
 
     let _ = socket.emit("message-accepted", &json!({
         "channelId": channel_id, "messageId": message_id, "clientMessageId": client_message_id, "timestamp": timestamp,
@@ -251,7 +255,7 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
         return;
     }
     let limit = req.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).min(100) as usize;
-    let dm_cursor = if channel_kind.as_deref() == Some("dm") {
+    let conversation_cursor = if matches!(channel_kind.as_deref(), Some("dm" | "group")) {
         let before = req.get("beforeMessageId").and_then(Value::as_str).filter(|id| !id.is_empty());
         let after = req.get("afterMessageId").and_then(Value::as_str).filter(|id| !id.is_empty());
         if before.is_some() && after.is_some() {
@@ -277,7 +281,7 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
         // For persisted rooms the durable tail is authoritative. A nonempty
         // session cache can be missing REST sends or older messages, so it
         // must never replace that tail (especially limit:1 DM previews).
-        let history = if let Some(cursor) = dm_cursor {
+        let history = if let Some(cursor) = conversation_cursor {
             state.app.wdb.list_messages_page(&channel_id, cursor, limit).await
         } else {
             state.app.wdb.list_messages_typed(&channel_id, limit as u64).await

@@ -469,23 +469,39 @@ impl MessagesProjection {
         cutoff_micros: i64,
         limit: usize,
     ) -> Result<Vec<MessageRecord>> {
+        Self::list_messages_in_time_range(state, channel_id, 0, cutoff_micros, limit)
+    }
+
+    /// Select a policy epoch's own creation interval before applying a batch
+    /// limit. Older forever-retained messages cannot crowd out newer expired
+    /// rows when a channel switches to a short future-only timer.
+    pub fn list_messages_in_time_range(
+        state: &ProjectionState,
+        channel_id: &str,
+        from_micros: i64,
+        through_micros: i64,
+        limit: usize,
+    ) -> Result<Vec<MessageRecord>> {
         use std::ops::Bound::{Excluded, Included};
-        if limit == 0 || cutoff_micros < 0 { return Ok(Vec::new()); }
+        let from_micros = from_micros.max(0);
+        if limit == 0 || through_micros < from_micros { return Ok(Vec::new()); }
         let mut prefix = (channel_id.len() as u64).to_le_bytes().to_vec();
         prefix.extend_from_slice(channel_id.as_bytes());
+        let mut lower = prefix.clone();
+        lower.extend_from_slice(&(from_micros as u64).to_be_bytes());
         let mut upper = prefix.clone();
         // All supported timestamps are nonnegative. u64 also represents the
         // exclusive successor of i64::MAX without overflowing.
-        upper.extend_from_slice(&(cutoff_micros as u64 + 1).to_be_bytes());
+        upper.extend_from_slice(&(through_micros as u64 + 1).to_be_bytes());
         state.with_index("messages_by_channel_time", |index| {
             let mut seen = std::collections::HashSet::new();
             let mut records = Vec::with_capacity(limit.min(1000));
-            for entry in index.range((Included(prefix), Excluded(upper))).rev() {
+            for entry in index.range((Included(lower), Excluded(upper))).rev() {
                 let record = decode_record(entry.value())?;
                 // Edits and deletes append index versions at the same original
                 // timestamp. Resolve the latest version before applying the limit.
                 if !seen.insert(record.message_id.clone()) || record.is_deleted { continue; }
-                if record.created_at_micros <= cutoff_micros {
+                if record.created_at_micros >= from_micros && record.created_at_micros <= through_micros {
                     records.push(record);
                     if records.len() == limit { break; }
                 }
@@ -1884,6 +1900,22 @@ mod tests {
         assert_eq!(expired[0].message_id, "old-canary");
         assert!(MessagesProjection::list_messages_expired(&state, "busy", 9, 1000).unwrap().is_empty());
         assert!(MessagesProjection::list_messages_expired(&state, "busy", 10, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn retention_epoch_range_skips_older_forever_history_before_batch_limit() {
+        let state = ProjectionState::new();
+        let projection = MessagesProjection;
+        for seq in 1..=1001 {
+            let old = base_record(&format!("forever-{seq}"), "room", seq as i64);
+            projection.apply(&make_event(seq, "message_created", &old), &state).unwrap();
+        }
+        let short = base_record("short-expired", "room", 2_000);
+        projection.apply(&make_event(1002, "message_created", &short), &state).unwrap();
+        let expired = MessagesProjection::list_messages_in_time_range(&state, "room", 1_500, 2_000, 1).unwrap();
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].message_id, "short-expired");
+        assert!(MessagesProjection::list_messages_in_time_range(&state, "room", 1_500, 1_999, 1).unwrap().is_empty());
     }
 
     #[test]

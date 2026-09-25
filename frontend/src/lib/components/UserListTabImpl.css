@@ -102,6 +102,56 @@
 		margin-bottom: 0.08rem;
 	}
 
+	.user-row-shell {
+		display: flex;
+		align-items: center;
+		width: 100%;
+		border-radius: 10px;
+	}
+
+	.user-row-shell .user-row {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.user-row-actions {
+		flex: 0 0 30px;
+		min-width: 30px;
+		min-height: 30px;
+		margin-right: 0.2rem;
+		border: 0;
+		border-radius: 8px;
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: 1.2rem;
+		line-height: 1;
+		cursor: pointer;
+		opacity: 0;
+		transition: opacity 0.15s, background 0.15s;
+	}
+
+	.user-row-shell:hover .user-row,
+	.user-row-shell:focus-within .user-row {
+		background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
+	}
+
+	.user-row-shell:hover .user-row-actions,
+	.user-row-shell:focus-within .user-row-actions {
+		opacity: 1;
+	}
+
+	.user-row-actions:hover,
+	.user-row-actions:focus-visible {
+		background: var(--surface-hover, var(--surface-raised));
+		color: var(--text-heading);
+	}
+
+	.user-row-actions:focus-visible {
+		outline: 2px solid var(--accent-primary-color, var(--accent-primary));
+		outline-offset: 1px;
+	}
+
 	.user-row:hover {
 		background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
 		transform: translateY(-1px);
@@ -196,6 +246,7 @@
 	}
 
 	@media (max-width: 768px) {
+		.user-row-actions { flex-basis: 44px; min-width: 44px; min-height: 44px; margin-right: 0.35rem; opacity: 1; }
 		.friend-search,
 		.friend-select {
 			font-size: 16px;
@@ -220,6 +271,10 @@
 		.user-display-name { font-size: 1rem; }
 		.user-handle { font-size: 0.8rem; }
 
+	}
+
+	@media (pointer: coarse) {
+		.user-row-actions { min-width: 44px; min-height: 44px; opacity: 1; }
 	}
 
 	.user-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }

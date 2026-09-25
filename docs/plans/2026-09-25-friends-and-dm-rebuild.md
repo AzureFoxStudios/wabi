@@ -3,8 +3,8 @@
 The `codex/friends-dm-release-20260925` branch was deployed on Tim on
 2026-09-25, but has not been merged into `main`. Friends are scoped to one
 Authority. They do not create global identities, federation or cross-server
-messages. Direct messages remain server-readable unless a room's experimental
-encryption path is deliberately enabled.
+messages. Direct messages and group rooms are server-readable. The experimental
+encryption path is not a shipped confidentiality guarantee.
 
 ## Durable friend relationship
 
@@ -51,11 +51,45 @@ returns the latest stored message even when the in-memory cache is stale. A
 `live` retention room still uses only its session buffer by design. The
 `join-channel` snapshot follows the same durable-tail rule for retained rooms
 so reconnect cannot replace correct history with an incomplete cache.
-Retained DMs also support `beforeMessageId` and `afterMessageId` in
+Retained DMs and groups also support `beforeMessageId` and `afterMessageId` in
 `load-history`. The channel-scoped durable time index returns at most 100 rows
 per page in chronological order, with `hasMore` in the requested direction.
-An unknown or cross-channel cursor returns `history-error`. Existing non-DM
+An unknown or cross-channel cursor returns `history-error`. Public channel
 history behavior is unchanged.
+
+The DM hub opens group creation in center stage. A newly created group opens
+there immediately. Group settings in the center conversation expose the
+existing add, remove and leave actions; older history can be requested in the
+center conversation and right panel. Group invitees are active registered
+members of the same Authority, rather than a friends-only list. Group content
+is server-readable, and custom group avatars are not yet supported.
+
+The People tab exposes a right-click menu and a visible More button for touch
+and keyboard use. Both include View Profile and relevant friend actions. The
+menu now rebuilds from current membership and friendship state, so opening it
+after the tab loads does not leave it empty. Profile details use the shared
+user popout; this is not a cross-server identity/profile system.
+
+## Timed retention follow-up
+
+The retention label previously applied the current timer to all messages in a
+channel. A switch to 5 seconds could therefore hide or delete older history.
+The follow-up stores per-channel policy epochs in the existing
+`channel_retention.json` sidecar. Each new policy applies only to messages sent
+after its effective timestamp; earlier messages keep their previous lifetime.
+Existing sidecars with only a `channels` map are read as one policy starting
+at time zero. This adds no postcard record change. The authenticated retention
+endpoint gives clients the same timeline for per-message countdowns.
+
+The server checks channels with short retention epochs every second, using a
+bounded WabiDB time-index query for each timed epoch; a full sweep still runs
+once per minute. Durable deletion is based on the original message timestamp,
+including after restart. Changing a room to Live keeps earlier durable rows
+under their prior policy, but Live mode's session-only history view can hide
+those rows until the room returns to retained mode. Messages already deleted
+by an older server cannot be recovered by this change. Older binaries ignore
+the epoch timeline and are unsafe for rollback after policy changes; restore a
+matching stopped WabiDB and sidecar backup if rollback is required.
 
 ## Verification and remaining acceptance
 

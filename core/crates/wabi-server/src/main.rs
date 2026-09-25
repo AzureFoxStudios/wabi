@@ -500,52 +500,69 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Load blacklist
-    // Durable retention sweep: detached per-message timers cannot survive a
-    // restart, so periodically reconcile persisted messages against each
-    // channel's retention policy as well.
+    // Durable retention sweep. Short policies need second-level precision;
+    // the full channel scan still runs once a minute. Every pass uses the
+    // persisted message timestamp so restart cannot extend a short timer.
     {
         let state = state.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let mut last_full_sweep: Option<std::time::Instant> = None;
             loop {
                 interval.tick().await;
-                let channels = match state.wdb.list_channels(None).await {
-                    Ok(channels) => channels,
-                    Err(error) => {
-                        tracing::warn!("[retention-reaper] failed to list channels: {error}");
-                        continue;
-                    }
+                let full_sweep_due = last_full_sweep
+                    .is_none_or(|last| last.elapsed() >= std::time::Duration::from_secs(60));
+                let channel_ids: Vec<String> = if full_sweep_due {
+                    let channels = match state.wdb.list_channels(None).await {
+                        Ok(channels) => channels,
+                        Err(error) => {
+                            tracing::warn!("[retention-reaper] failed to list channels: {error}");
+                            continue;
+                        }
+                    };
+                    last_full_sweep = Some(std::time::Instant::now());
+                    channels.into_iter().map(|channel| channel.channel_id).collect()
+                } else {
+                    state.fast_retention_channels.read().await.iter().cloned().collect()
                 };
                 let now_micros = chrono::Utc::now().timestamp_micros();
-                for channel in channels {
+                for channel_id in channel_ids {
                     // Serialize against policy changes through this deletion batch.
                     let _policy_guard = state.retention_policy_lock.lock().await;
-                    let effective_micros = match api::retention_policy::channel_expiry_micros(&state, &channel.channel_id).await {
-                        Ok(Some(micros)) => micros,
-                        Ok(None) => continue,
+                    let ranges = match api::retention_policy::epochs(&state.config.data_dir, &channel_id) {
+                        Ok(Some(epochs)) => api::retention_policy::expired_ranges(&epochs, now_micros),
+                        Ok(None) => match api::retention_policy::channel_expiry_micros(&state, &channel_id).await {
+                            Ok(Some(micros)) => vec![(0, now_micros.saturating_sub(micros))],
+                            Ok(None) => continue,
+                            Err(error) => {
+                                tracing::warn!(channel = %channel_id, "[retention-reaper] policy lookup failed: {error}");
+                                continue;
+                            }
+                        },
                         Err(error) => {
-                            tracing::warn!(channel = %channel.channel_id, "[retention-reaper] policy lookup failed: {error}");
+                            tracing::warn!(channel = %channel_id, "[retention-reaper] policy lookup failed: {error}");
                             continue;
                         }
                     };
-                    let cutoff = now_micros.saturating_sub(effective_micros);
-                    let messages = match wabidb::projections::messages::MessagesProjection::list_messages_expired(
-                        &state.wdb.engine().projection_state(), &channel.channel_id, cutoff, 1000,
-                    ) {
-                        Ok(messages) => messages,
-                        Err(error) => {
-                            tracing::warn!(channel = %channel.channel_id, "[retention-reaper] message lookup failed: {error}");
-                            continue;
-                        }
-                    };
-                    for message in messages {
-                        if state.wdb.delete_message(&message.message_id, 0).await.is_err() {
-                            continue;
-                        }
-                        state.session_messages.write().await.entry(channel.channel_id.clone()).or_default().retain(|item| item.get("id").and_then(|value| value.as_str()) != Some(message.message_id.as_str()));
-                        if let Some(io) = state.sio.read().await.clone() {
-                            let _ = io.to(channel.channel_id.clone()).emit("message-deleted", &serde_json::json!({"channelId": channel.channel_id, "messageId": message.message_id})).await;
+                    for (from, through) in ranges {
+                        let messages = match wabidb::projections::messages::MessagesProjection::list_messages_in_time_range(
+                            &state.wdb.engine().projection_state(), &channel_id, from, through, 1000,
+                        ) {
+                            Ok(messages) => messages,
+                            Err(error) => {
+                                tracing::warn!(channel = %channel_id, "[retention-reaper] message lookup failed: {error}");
+                                continue;
+                            }
+                        };
+                        for message in messages {
+                            if state.wdb.delete_message(&message.message_id, 0).await.is_err() {
+                                continue;
+                            }
+                            state.session_messages.write().await.entry(channel_id.clone()).or_default().retain(|item| item.get("id").and_then(|value| value.as_str()) != Some(message.message_id.as_str()));
+                            if let Some(io) = state.sio.read().await.clone() {
+                                let _ = io.to(channel_id.clone()).emit("message-deleted", &serde_json::json!({"channelId": channel_id, "messageId": message.message_id})).await;
+                            }
                         }
                     }
                 }

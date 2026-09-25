@@ -55,6 +55,10 @@ pub struct AppState {
     /// In-memory for full preset support (5s..90d); also mirrored to WDB days when >= 1d.
     pub channel_auto_delete_ms: Arc<RwLock<HashMap<String, u64>>>,
     pub retention_policy_lock: tokio::sync::Mutex<()>,
+    /// Channels with any sub-minute retention epoch. Hydrated before serving
+    /// and updated with each policy change; the fast sweep never rereads the
+    /// complete sidecar on every tick.
+    pub fast_retention_channels: Arc<RwLock<HashSet<String>>>,
     /// channel_id -> frontend label (e.g. "5s", "24h") for channel-updated payloads
     pub channel_auto_delete_label: Arc<RwLock<HashMap<String, String>>>,
     /// Per-channel live room TTL in milliseconds. Default: 10 minutes.
@@ -281,6 +285,8 @@ impl AppState {
         let retention_timers = retention_labels.iter().filter_map(|(channel, label)|
             crate::api::retention_policy::timed_ms(label).map(|ms| (channel.clone(), ms))
         ).collect();
+        let fast_retention_channels = crate::api::retention_policy::fast_sweep_channels(&config.data_dir)?
+            .into_iter().collect();
         let owner_user_id = RwLock::new(None);
         let addon_switches =
             RwLock::new(crate::addon_switches::AddonSwitches::load(&config.data_dir));
@@ -361,6 +367,7 @@ impl AppState {
             session_messages: Arc::new(RwLock::new(HashMap::new())),
             channel_auto_delete_ms: Arc::new(RwLock::new(retention_timers)),
             retention_policy_lock: tokio::sync::Mutex::new(()),
+            fast_retention_channels: Arc::new(RwLock::new(fast_retention_channels)),
             channel_auto_delete_label: Arc::new(RwLock::new(retention_labels)),
             live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
             live_channel_cap: Arc::new(RwLock::new(HashMap::new())),

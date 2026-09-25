@@ -9,12 +9,14 @@
   import PeoplePicker from './PeoplePicker.svelte';
   import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
   import FriendsPanel from './FriendsPanel.svelte';
+  import CreateGroupModal from './CreateGroupModal.svelte';
   import { friendships, startFriendshipSync } from '$lib/friendships';
   import { mediaUrl } from '$lib/mediaUrl';
 
   import { openDetachedPanel } from '$lib/detachedPanels';
 
   let showPeoplePicker = false;
+  let showCreateGroup = false;
   let activeTab: 'messages' | 'friends' = 'messages';
   let pendingDmUser: User | null = null;
   let pendingDmError = '';
@@ -148,6 +150,14 @@
       layoutStore.openDM(channel.id, other);
     }
     joinChannel(channel.id);
+  }
+
+  function openCreatedGroup(channel: Channel) {
+    activeTab = 'messages';
+    showPeoplePicker = false;
+    layoutStore.openCenterGroupDm(channel.id, channel);
+    joinChannel(channel.id);
+    markChannelAsRead(channel.id);
   }
 
   function handleContextMenu(channel: Channel, e: MouseEvent) {
@@ -300,12 +310,18 @@
         <span class="dm-hub-subtitle">{activeTab === 'friends' ? 'People on this server' : 'Your conversations'}</span>
       </div>
       {#if activeTab === 'messages'}
-      <button class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New conversation" aria-label="New conversation" aria-expanded={showPeoplePicker}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+      <div class="dm-hub-actions">
+        <button type="button" class="dm-hub-group-btn" on:click={() => (showCreateGroup = true)} title="Create group" aria-label="Create group">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/><circle cx="18" cy="9" r="2"/><path d="M18 15a4 4 0 0 1 4 4v1"/></svg>
+          <span>New group</span>
+        </button>
+        <button type="button" class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New direct message" aria-label="New direct message" aria-expanded={showPeoplePicker}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </button>
+      </div>
       {/if}
     </div>
 
@@ -395,6 +411,8 @@
   on:close={() => (contextMenuOpen = false)}
 />
 
+<CreateGroupModal bind:isOpen={showCreateGroup} onCreated={openCreatedGroup} />
+
 <style>
   .dm-hub {
     display: flex;
@@ -474,6 +492,17 @@
     font-size: var(--font-size-sm, 13px);
     color: var(--text-muted, #9999ff);
   }
+
+  .dm-hub-actions { display: flex; align-items: center; gap: var(--space-2, 8px); flex-shrink: 0; }
+  .dm-hub-group-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2, 8px);
+    min-height: 40px; padding: 0 var(--space-3, 12px);
+    border: 1px solid var(--color-border-primary, #302b63); border-radius: var(--radius-md, 8px);
+    background: var(--surface-raised, rgba(255, 255, 255, 0.04)); color: var(--text-secondary, #b3b3ff);
+    font: inherit; font-size: var(--font-size-sm, 13px); font-weight: 600; cursor: pointer;
+  }
+  .dm-hub-group-btn:hover { background: color-mix(in srgb, var(--text-heading) 8%, transparent); color: var(--text-heading, #e0e0ff); }
+  .dm-hub-group-btn:focus-visible { outline: 2px solid var(--accent-primary-color, #6366f1); outline-offset: 2px; }
 
   .dm-hub-new-btn {
     display: flex;
@@ -766,6 +795,7 @@
 		.dm-hub-header { padding: var(--space-3, 12px) var(--space-4, 16px); }
 		.dm-hub-picker { padding: var(--space-3, 12px) var(--space-4, 16px); }
 		.dm-hub-new-btn { width: 44px; height: 44px; }
+		.dm-hub-group-btn { min-height: 44px; }
 		.dm-hub-scroll { padding: var(--space-3, 12px); }
 		.dm-hub-conversation { padding: var(--space-3, 12px); }
 		.dm-hub-avatar,
@@ -781,9 +811,10 @@
 		.dm-hub-tab { min-height: 40px; }
 		.notes-external-toggle { width: 36px; height: 36px; }
 	}
+	@media (max-width: 520px) { .dm-hub-group-btn { width: 44px; padding: 0; } .dm-hub-group-btn span { display: none; } }
 
 	@media (prefers-reduced-motion: reduce) {
-		.dm-hub-new-btn, .dm-hub-conversation, .dm-hub-tab, .dm-hub-empty-btn,
+		.dm-hub-new-btn, .dm-hub-group-btn, .dm-hub-conversation, .dm-hub-tab, .dm-hub-empty-btn,
 		.notes-external-toggle, .notes-external-test { transition: none; }
 	}
 </style>

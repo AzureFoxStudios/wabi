@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, createGroup } from '$lib/socket';
-	import type { User } from '$lib/socket';
+	import type { Channel, User } from '$lib/socket';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { overlayStyle } from '$lib/overlayStyle';
 
-	let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
+	let { isOpen = $bindable(false), onCreated }: { isOpen?: boolean; onCreated?: (channel: Channel) => void } = $props();
 
 	let searchQuery = $state('');
 	let groupName = $state('');
@@ -57,9 +57,10 @@
 		pending = true;
 		operationError = '';
 		try {
-			await createGroup(groupName.trim(), memberIds);
+			const channel = await createGroup(groupName.trim(), memberIds);
 			pending = false;
 			closeModal();
+			onCreated?.(channel);
 		} catch (error) {
 			operationError = error instanceof Error ? error.message : 'Could not confirm group creation';
 		} finally { pending = false; }

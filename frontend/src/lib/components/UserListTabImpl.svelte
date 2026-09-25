@@ -1,19 +1,24 @@
 <script lang="ts">
 	import './UserListTabImpl.css';
-	import { get } from 'svelte/store';
-	import { onMount } from 'svelte';
-	import { users, serverMembers, currentUser, channels, createDM, joinChannel, socket, roleDefinitions } from '$lib/socket';
+	import { get, type Readable } from 'svelte/store';
+	import { createEventDispatcher, onMount } from 'svelte';
+	import { users, serverMembers, currentUser, currentChannel, channels, createDM, joinChannel, socket, roleDefinitions } from '$lib/socket';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { showToast } from '$lib/toast';
 	import { layoutStore } from '$lib/layoutStore';
+	import { activeRightTab, activeWorkspace, centerDmChannelId, centerPanelView, rightPanelMode, selectedDmChannelId } from '$lib/layoutStoreStates';
 	import type { User } from '$lib/socket';
 	import { resolveDmEntry } from '$lib/dmEntry';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+	import UserPopout from '$lib/components/UserPopout.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { rememberPeople } from '$lib/peopleTracker';
+	import { getAuthToken } from '$lib/authSession';
+	import { canFriendUser, friendshipRelation } from '$lib/friendshipRelation';
+	import { acceptFriendship, dismissFriendship, friendships, removeFriendship, requestFriendship, startFriendshipSync } from '$lib/friendships';
 	import { getStatusColor } from './userPanelHelpers';
 	import { overlayStyle } from '$lib/overlayStyle';
 	import {
@@ -40,8 +45,14 @@
 	} from './userListHelpers';
 
 	let contextMenuUser: User | null = null;
+	let contextMenuAnchor: HTMLElement | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
+	let profileUser: User | null = null;
+	let profileAnchor: HTMLElement | null = null;
+	let showProfile = false;
+	let friendActionBusy = false;
+	const dispatch = createEventDispatcher<{ openSettings: void }>();
 	let friendSearchQuery = '';
 	let friendPresenceFilter: 'all' | 'active' | 'away' | 'busy' | 'offline' = 'all';
 	let friendSortMode: 'role' | 'name' | 'status' = 'role';
@@ -54,15 +65,40 @@
 
 	const BANNER_VISIBILITY_KEY = 'wabi:profile:visibility';
 
+	function dismissOnNavigationChange<T>(store: Readable<T>): () => void {
+		let seenInitial = false;
+		let previous: T;
+		return store.subscribe((next) => {
+			if (seenInitial && next !== previous) closePeopleOverlays();
+			previous = next;
+			seenInitial = true;
+		});
+	}
+
 	onMount(() => {
+		const stopFriendshipSync = startFriendshipSync();
+		const stopNavigation = [
+			dismissOnNavigationChange(centerDmChannelId),
+			dismissOnNavigationChange(selectedDmChannelId),
+			dismissOnNavigationChange(currentChannel),
+			dismissOnNavigationChange(centerPanelView),
+			dismissOnNavigationChange(activeRightTab),
+			dismissOnNavigationChange(rightPanelMode),
+			dismissOnNavigationChange(activeWorkspace)
+		];
 		try {
 			const raw = localStorage.getItem(BANNER_VISIBILITY_KEY);
-			if (!raw) return;
-			const v = JSON.parse(raw);
-			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+			if (raw) {
+				const v = JSON.parse(raw);
+				if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
+			}
 		} catch {
 			// ignore malformed local state
 		}
+		return () => {
+			for (const stop of stopNavigation) stop();
+			stopFriendshipSync();
+		};
 	});
 
 	$: rolePriority = buildRolePriority($roleDefinitions);
@@ -92,11 +128,6 @@
 			seen.add(key);
 			return true;
 		});
-	}
-
-	function hasContextLocalNickname(): boolean {
-		if (!contextMenuUser) return false;
-		return Boolean(getLocalNickname(contextMenuUser));
 	}
 
 	function promptSetContextLocalNickname(): void {
@@ -158,16 +189,85 @@
 		openDirectConversationWithUser(user);
 	}
 
+	function openContextMenu(user: User, anchor: HTMLElement, x: number, y: number) {
+		closeProfile();
+		contextMenuUser = user;
+		contextMenuAnchor = anchor;
+		contextMenuPosition = { x, y };
+		showContextMenu = true;
+	}
+
 	function handleRightClick(event: MouseEvent, user: User) {
 		event.preventDefault();
-		contextMenuUser = user;
-		contextMenuPosition = { x: event.clientX, y: event.clientY };
-		showContextMenu = true;
+		event.stopPropagation();
+		openContextMenu(user, event.currentTarget as HTMLElement, event.clientX, event.clientY);
+	}
+
+	function handleMoreClick(event: MouseEvent, user: User) {
+		event.stopPropagation();
+		const anchor = event.currentTarget as HTMLElement;
+		const rect = anchor.getBoundingClientRect();
+		openContextMenu(user, anchor, rect.right, rect.bottom);
 	}
 
 	function closeContextMenu() {
 		showContextMenu = false;
 		contextMenuUser = null;
+		contextMenuAnchor = null;
+	}
+
+	function closeProfile() {
+		showProfile = false;
+		profileUser = null;
+		profileAnchor = null;
+	}
+
+	function closePeopleOverlays() {
+		closeContextMenu();
+		closeProfile();
+	}
+
+	function handleContextProfile() {
+		const target = contextMenuUser;
+		const anchor = contextMenuAnchor;
+		closeContextMenu();
+		if (!target || !anchor) return;
+		// The selected menu item is outside the profile card. Open after its
+		// click has bubbled, or the card's outside-click listener closes it.
+		setTimeout(() => {
+			if (!anchor.isConnected) return;
+			profileUser = target;
+			profileAnchor = anchor;
+			showProfile = true;
+		}, 0);
+	}
+
+	async function handleContextFriendAction() {
+		const target = contextMenuUser;
+		const relation = friendshipRelation($friendships, target?.dbUserId);
+		closeContextMenu();
+		if (!target || !canFriendUser(target) || !$currentUser?.dbUserId || !$friendships.ready || friendActionBusy) return;
+		friendActionBusy = true;
+		try {
+			if (relation.kind === 'friend') {
+				if (!window.confirm(`Remove ${target.username} from your friends?`)) return;
+				await removeFriendship(target.dbUserId!);
+				showToast(`Removed ${target.username} from friends.`, 'info');
+			} else if (relation.kind === 'incoming') {
+				await acceptFriendship(relation.request.id);
+				showToast(`You and ${target.username} are friends.`, 'info');
+			} else if (relation.kind === 'outgoing') {
+				await dismissFriendship(relation.request.id);
+				showToast(`Request to ${target.username} cancelled.`, 'info');
+			} else {
+				await requestFriendship(target.dbUserId!);
+				showToast(`Friend request sent to ${target.username}.`, 'info');
+			}
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Could not update friendship.', 'error');
+		} finally {
+			friendActionBusy = false;
+		}
 	}
 
 	function handleContextMessage() {
@@ -192,11 +292,11 @@
 		});
 		if (result.ok === false) {
 			showToast(result.error, 'error');
-			layoutStore.showDMsTab();
 			return;
 		}
 
-		layoutStore.openDM(result.channelId, user);
+		layoutStore.openCenterDm(result.channelId, user);
+		if ($layoutStore.isMobile) layoutStore.closeRightPanel();
 		joinChannel(result.channelId);
 	}
 
@@ -272,23 +372,27 @@
 		}
 	}
 
-	function buildMenuCtx(): BuildMenuContext {
-		return {
-			contextMenuUser,
-			currentUser: $currentUser,
-			rolePriority,
-			localNicknamesEnabled: localNickEnabled,
-			hasLocalNickname: hasContextLocalNickname(),
-			socket: $socket,
-			bannedUserIds: $bannedUserIds,
-			roleDefinitions: $roleDefinitions
-		};
-	}
-
-	$: rawMenuItems = buildUserMenuItems(buildMenuCtx());
+	// Keep every menu input visible to Svelte's dependency tracking. Building
+	// this through a zero-argument helper left the menu empty after right-click.
+	$: rawMenuItems = buildUserMenuItems({
+		contextMenuUser,
+		currentUser: $currentUser,
+		friendRelation: friendshipRelation($friendships, contextMenuUser?.dbUserId),
+		friendsAvailable: Boolean($currentUser?.dbUserId && getAuthToken()),
+		friendsReady: $friendships.ready,
+		friendActionBusy,
+		rolePriority,
+		localNicknamesEnabled: localNickEnabled,
+		hasLocalNickname: Boolean(contextMenuUser && getLocalNickname(contextMenuUser)),
+		socket: $socket,
+		bannedUserIds: $bannedUserIds,
+		roleDefinitions: $roleDefinitions
+	} satisfies BuildMenuContext);
 	$: userMenuItems = rawMenuItems.map((item: ContextMenuItem) => {
 		const handlers: Record<string, () => void> = {
+			profile: handleContextProfile,
 			message: handleContextMessage,
+			'friend-action': handleContextFriendAction,
 			'request-payment': handleContextRequestPayment,
 			voice: handleContextVoiceCall,
 			video: handleContextVideoCall,
@@ -348,11 +452,13 @@
 				{getRoleLabel(role, roleLabelMap)} - {groupedUsers[role].length}
 			</div>
 			{#each groupedUsers[role] as user, i (getUserRowKey(user, role, i))}
-				<button
-					class="user-row"
-					on:click={() => handleUserClick(user)}
-					on:contextmenu={(e) => handleRightClick(e, user)}
-				>
+				<div class="user-row-shell">
+					<button
+						class="user-row"
+						aria-label={isCurrentUserEntry(user, $currentUser) ? 'Open Notes' : `Message ${getDisplayName(user)}`}
+						on:click={() => handleUserClick(user)}
+						on:contextmenu={(e) => handleRightClick(e, user)}
+					>
 					<div class="user-avatar-wrap">
 						{#if user.profilePicture}
 							<img src={user.profilePicture} alt={getDisplayName(user)} class="user-avatar" />
@@ -377,7 +483,9 @@
 							<span class="user-handle">@{user.handle}</span>
 						{/if}
 					</div>
-				</button>
+					</button>
+					<button type="button" class="user-row-actions" aria-label={`Actions for ${getDisplayName(user)}`} title={`Actions for ${getDisplayName(user)}`} on:click={(e) => handleMoreClick(e, user)} on:contextmenu={(e) => handleRightClick(e, user)}>⋯</button>
+				</div>
 			{/each}
 		</div>
 	{/each}
@@ -390,11 +498,13 @@
 			</button>
 			{#if offlineSectionExpanded}
 				{#each offlineUsers as user, i (getUserRowKey(user, 'offline', i))}
-					<button
-						class="user-row offline"
-						on:click={() => handleUserClick(user)}
-						on:contextmenu={(e) => handleRightClick(e, user)}
-					>
+					<div class="user-row-shell">
+						<button
+							class="user-row offline"
+							aria-label={isCurrentUserEntry(user, $currentUser) ? 'Open Notes' : `Message ${getDisplayName(user)}`}
+							on:click={() => handleUserClick(user)}
+							on:contextmenu={(e) => handleRightClick(e, user)}
+						>
 						<div class="user-avatar-wrap">
 							{#if user.profilePicture}
 								<img src={user.profilePicture} alt={getDisplayName(user)} class="user-avatar" />
@@ -419,7 +529,9 @@
 								<span class="user-handle">@{user.handle}</span>
 							{/if}
 						</div>
-					</button>
+						</button>
+						<button type="button" class="user-row-actions" aria-label={`Actions for ${getDisplayName(user)}`} title={`Actions for ${getDisplayName(user)}`} on:click={(e) => handleMoreClick(e, user)} on:contextmenu={(e) => handleRightClick(e, user)}>⋯</button>
+					</div>
 				{/each}
 			{/if}
 		</div>
@@ -437,5 +549,13 @@
 		ariaLabel="User list actions"
 		headerLabel={contextMenuUser ? getDisplayName(contextMenuUser) : null}
 		on:close={closeContextMenu}
+	/>
+	<UserPopout
+		user={profileUser}
+		bind:isOpen={showProfile}
+		anchorElement={profileAnchor}
+		isOwnProfile={Boolean(profileUser && isCurrentUserEntry(profileUser, $currentUser))}
+		on:close={closeProfile}
+		on:openFullProfile={() => dispatch('openSettings')}
 	/>
 </div>

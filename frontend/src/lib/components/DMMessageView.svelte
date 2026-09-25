@@ -7,7 +7,7 @@
 	import { getLineDmResolvedProfile, lineDmAddonStore } from '$lib/lineDmAddon';
 	import { openPreferredMapSurface } from '$lib/mapWorkspace';
 	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
-	import { channelMessagesStore, channels, currentUser, joinChannel, loadHistory, markChannelAsRead, sendMessage, syncNewerMessages, updateChannelSettings, type Channel, type Message, type User } from '$lib/socket';
+	import { channelMessagesStore, channelHasMoreHistory, channelHistoryLoading, channels, currentUser, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, syncNewerMessages, updateChannelSettings, type Channel, type Message, type User } from '$lib/socket';
 	import { showToast } from '$lib/toast';
 	import {
 		DEFAULT_DM_RETENTION,
@@ -46,6 +46,7 @@
 	let followLatest = true;
 	let showJumpToLatest = false;
 	let lastMessageKey = '';
+	let olderAnchor: { channelId: string; firstId: string; height: number; top: number } | null = null;
 
 	$: activeChannel = channel || $channels.find((entry) => entry.id === channelId);
 	$: isGroup = activeChannel?.type === 'group';
@@ -54,7 +55,7 @@
 	$: messages = $messagesForChannel || [];
 	$: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
 	$: pinnedMessages = messages.filter((message: Message) => message.isPinned);
-	$: selectedRetention = activeChannel?.autoDeleteAfter === null
+	$: selectedRetention = activeChannel?.autoDeleteAfter === null || String(activeChannel?.autoDeleteAfter) === 'forever'
 		? ''
 		: activeChannel?.autoDeleteAfter || DEFAULT_DM_RETENTION;
 	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken()) && $paymentAccessStore.loaded && $paymentAccessStore.canCreate;
@@ -62,6 +63,7 @@
 	$: wallpaperUrl = $lineDmAddonStore.enabled && lineDmProfile.wallpaperUrl ? `url("${lineDmProfile.wallpaperUrl}")` : 'none';
 	$: if (channelId && channelId !== joinedChannelId) {
 		joinedChannelId = channelId;
+		olderAnchor = null;
 		joinChannel(channelId);
 		loadHistory(channelId, { limit: 50 });
 		void syncNewerMessages(channelId);
@@ -81,7 +83,11 @@
 	function handleRetentionChange(event: Event): void {
 		const select = event.currentTarget as HTMLSelectElement;
 		if (!activeChannel) return;
-		updateChannelSettings(activeChannel.id, { autoDeleteAfter: normalizeMessageRetentionDuration(select.value) });
+		const next = normalizeMessageRetentionDuration(select.value);
+		// The control reflects the server-confirmed policy, not a speculative
+		// selection that might fail to persist while this device is offline.
+		select.value = selectedRetention;
+		void updateChannelSettings(activeChannel.id, { autoDeleteAfter: next });
 	}
 
 	function openPaymentSheet(prefill: { amountInput?: string | null; description?: string | null; customerRef?: string | null } = {}): void {
@@ -141,6 +147,16 @@
 		if (!messagesContainer) return;
 		followLatest = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 80;
 		showJumpToLatest = !followLatest && messages.length > 0;
+		if (messagesContainer.scrollTop < 72) loadEarlier();
+	}
+
+	function loadEarlier(): void {
+		if (!channelId || !messagesContainer || olderAnchor || !$channelHasMoreHistory[channelId] || $channelHistoryLoading[channelId]) return;
+		const firstId = messages.find((message: Message) => message.id && !message.id.startsWith('optimistic:'))?.id;
+		if (!firstId) return;
+		olderAnchor = { channelId, firstId, height: messagesContainer.scrollHeight, top: messagesContainer.scrollTop };
+		followLatest = false;
+		loadOlderHistory(channelId);
 	}
 
 	function markVisibleMessagesRead(): void {
@@ -158,6 +174,16 @@
 	}
 
 	afterUpdate(() => {
+		if (olderAnchor && olderAnchor.channelId !== channelId) olderAnchor = null;
+		if (olderAnchor && messagesContainer) {
+			const firstId = messages.find((message: Message) => message.id && !message.id.startsWith('optimistic:'))?.id;
+			if (firstId && firstId !== olderAnchor.firstId) {
+				messagesContainer.scrollTop = olderAnchor.top + messagesContainer.scrollHeight - olderAnchor.height;
+				olderAnchor = null;
+			} else if (!$channelHistoryLoading[channelId]) {
+				olderAnchor = null;
+			}
+		}
 		const newest = messages.at(-1);
 		const nextKey = `${channelId}:${messages.length}:${newest?.id || ''}`;
 		if (nextKey !== lastMessageKey) {
@@ -187,15 +213,18 @@
 	style:--dm-wallpaper-repeat={lineDmProfile.wallpaperRepeat}
 >
 	<div class="dm-conversation-tools">
+		<div class="dm-retention-setting">
 		<label class="dm-retention-control">
-			<span>Keep messages</span>
-			<select value={selectedRetention} on:change={handleRetentionChange} aria-label="Message retention">
+			<span>Keep new messages</span>
+			<select value={selectedRetention} on:change={handleRetentionChange} aria-label="Retention for new messages">
 				<option value="">Forever</option>
 				{#each MESSAGE_RETENTION_PRESETS as duration}
 					<option value={duration}>{MESSAGE_RETENTION_LABELS[duration]}</option>
 				{/each}
 			</select>
 		</label>
+		<span class="dm-retention-hint">Earlier messages keep their original lifetime.</span>
+		</div>
 		<div class="dm-tool-actions">
 			{#if !isGroup && !e2eeStatus?.enabled}
 				<button type="button" class="dm-tool-button" on:click={() => void enableE2ee()} disabled={e2eeBusy} title="Experimental end-to-end encryption; not independently verified">
@@ -212,6 +241,11 @@
 	<div class="dm-conversation-content" class:with-notes={showNotes}>
 		<div class="dm-conversation-main">
 			<div class="dm-conversation-messages" bind:this={messagesContainer} on:scroll={handleScroll}>
+				{#if $channelHasMoreHistory[channelId]}
+					<button type="button" class="dm-load-earlier" disabled={$channelHistoryLoading[channelId]} on:click={loadEarlier}>
+						{$channelHistoryLoading[channelId] ? 'Loading earlier messages…' : 'Load earlier messages'}
+					</button>
+				{/if}
 				<ChatMessagesPane
 					currentChannel={channelId}
 					messageDomScope="dm-right"
@@ -328,7 +362,9 @@
 	}
 	.dm-retention-control,
 	.dm-tool-actions { display: flex; align-items: center; gap: var(--space-2); }
+	.dm-retention-setting { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
 	.dm-retention-control { color: var(--text-secondary); font-size: var(--text-xs); }
+	.dm-retention-hint { color: var(--text-tertiary, var(--text-secondary)); font-size: 0.68rem; line-height: 1.25; }
 	.dm-retention-control select {
 		max-width: 9rem;
 		min-height: 32px;
@@ -370,6 +406,13 @@
 		padding: var(--space-2);
 		background: color-mix(in srgb, var(--surface-base) 84%, transparent);
 	}
+	.dm-load-earlier {
+		display: block; min-height: 36px; margin: var(--space-1) auto var(--space-3); padding: 0 var(--space-3);
+		border: 1px solid var(--border-subtle); border-radius: var(--radius-full);
+		background: var(--surface-raised); color: var(--text-secondary); font: inherit; cursor: pointer;
+	}
+	.dm-load-earlier:hover:not(:disabled) { color: var(--text-heading); background: var(--surface-hover); }
+	.dm-load-earlier:disabled { opacity: .65; cursor: wait; }
 	.dm-conversation-composer { flex-shrink: 0; min-width: 0; }
 	.dm-conversation-notes { min-width: 0; min-height: 0; border-left: 1px solid var(--border-subtle); }
 	.dm-jump-latest {

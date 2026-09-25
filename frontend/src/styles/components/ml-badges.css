@@ -82,18 +82,30 @@
 
 
 	.deletion-timer {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
 		font-size: var(--text-xs);
-		color: var(--color-warning, rgba(255, 164, 120, 0.95));
-		background: var(--bg-warning, rgba(255, 140, 92, 0.12));
-		border: 1px solid var(--border-warning, rgba(255, 140, 92, 0.28));
-		padding: 0.1rem 0.35rem;
-		border-radius: var(--radius-full);
+		font-weight: var(--font-weight-medium);
+		color: var(--text-secondary);
+		line-height: 1.2;
+		font-variant-numeric: tabular-nums;
+		opacity: 0.78;
 		white-space: nowrap;
+	}
+
+	.deletion-timer::before {
+		content: '';
+		width: 0.2rem;
+		height: 0.2rem;
+		border-radius: 50%;
+		background: currentColor;
+		flex: none;
 	}
 
 
 	.grouped-deletion-meta {
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.18rem;
 	}
 
 

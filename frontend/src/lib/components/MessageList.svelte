@@ -48,7 +48,7 @@
 	} from '$lib/accessibility';
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
-	import { getServerUrl } from '$lib/serverUrl';
+	import { activeServerUrl, getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
 		import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
@@ -56,7 +56,8 @@
 	import { showToast } from '$lib/toast';
 	import { _ } from '$lib/i18n';
 	import { addMediaAlbumItem, createMediaAlbum, listMediaAlbums, type MediaAlbumScopeType } from '$lib/api';
-	import { messageRetentionToMs, DEFAULT_CHANNEL_RETENTION } from '../../../../shared/messageRetention.js';
+	import { retentionClockShouldTick } from '$lib/messageRetentionClock';
+	import { messageDeadlineFromTimeline, parseRetentionTimeline, type RetentionEpoch } from '$lib/messageRetentionTimeline';
 	import {
 		applyChatFilter,
 		chatFilterStore,
@@ -304,12 +305,16 @@
 	}
 	const DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS = 60 * 60 * 1000;
 	let nowMs = Date.now();
-	let lastTickerMs = Date.now();
 	// t_28bc75b1: memo for the render block — the deadline-filtered message
 	// list and the earliest pending expiry, so per-second ticks skip the
 	// filter when nothing has actually expired.
 	let earliestPendingDeadline: number | null = null;
 	let lastFilteredMessages: Message[] | null = null;
+	let retentionEpochs: RetentionEpoch[] | null = null;
+	let retentionRequestKey = '';
+	let retentionRequestGeneration = 0;
+	let lastRenderRetentionEpochs: RetentionEpoch[] | null = null;
+	let lastRenderChannelId = '';
 	let deletionCountdownMode: DeletionCountdownMode = 'static';
 
 	function formatDurationCompact(durationMs: number): string {
@@ -327,21 +332,38 @@
 		return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
 	}
 
-	function getChannelDeleteDurationMs(channelId: string): number | null {
-		const channel = $channels.find((ch) => ch.id === channelId);
-		// null = keep forever (opt-in); unset/undefined = default 24h ephemeral
-		const d = channel?.autoDeleteAfter;
-		if (d === null) return null;
-		return messageRetentionToMs(d ?? DEFAULT_CHANNEL_RETENTION);
-	}
-
 	function getMessageDeletionDeadline(message: Message): number | null {
 		if (typeof message.scheduledDeletionTime === 'number') {
 			return message.scheduledDeletionTime;
 		}
-		const channelDurationMs = getChannelDeleteDurationMs(activeChannelId);
-		if (!channelDurationMs) return null;
-		return message.timestamp + channelDurationMs;
+		return messageDeadlineFromTimeline(message.timestamp, retentionEpochs);
+	}
+
+	async function refreshRetentionEpochs(channel: string, key: string, generation: number): Promise<void> {
+		const token = getSessionAuthToken();
+		if (!token) return;
+		try {
+			const response = await fetch(`${getServerUrl()}/api/channels/${encodeURIComponent(channel)}/retention`, {
+				headers: { Authorization: `Bearer ${token}` },
+				credentials: 'include'
+			});
+			if (!response.ok) return;
+			const epochs = parseRetentionTimeline(await response.json());
+			if (key === retentionRequestKey && generation === retentionRequestGeneration) retentionEpochs = epochs;
+		} catch {
+			// Unknown policy: leave rows visible until an authoritative delete event.
+		}
+	}
+
+	$: if (browser && activeChannelId) {
+		const policyValue = activeMessageChannel?.autoDeleteAfter;
+		const policyKey = policyValue === undefined ? 'unset' : policyValue === null ? 'forever' : String(policyValue);
+		const key = `${$activeServerUrl}|${$currentUser?.dbUserId ?? $currentUser?.id ?? ''}|${activeChannelId}|${policyKey}`;
+		if (key !== retentionRequestKey) {
+			retentionRequestKey = key;
+			retentionEpochs = null;
+			void refreshRetentionEpochs(activeChannelId, key, ++retentionRequestGeneration);
+		}
 	}
 
 	function getMessageDeletionLabel(message: Message): string | null {
@@ -351,6 +373,11 @@
 		const remaining = deadline - nowMs;
 		if (remaining > DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS) return null;
 		if (remaining <= 0) return get(_)('messages.deletion.deleting');
+		if (deletionCountdownMode === 'static') {
+			return get(_)('messages.deletion.retention_lifetime', {
+				values: { duration: formatDurationCompact(Math.max(1_000, deadline - message.timestamp)) }
+			});
+		}
 		return get(_)('messages.deletion.deletes_in', { values: { duration: formatDurationCompact(remaining) } });
 	}
 
@@ -1724,29 +1751,20 @@
 		});
 
 		const timer = window.setInterval(() => {
-			if (deletionCountdownMode !== 'live') return;
-			// t_28bc75b1: only bump nowMs when some visible message is actually
-			// inside its countdown window. The old unconditional Date.now() each
-			// second invalidated the visibleMessages reactive block — full
-			// filter -> slice -> dedupe over up to 360 messages per tick — even
-			// when nothing was expiring. Labels outside the window are static
-			// text; they only need a refresh on ingest or mode change.
 			const now = Date.now();
-			for (const message of messages) {
-				const deadline = getMessageDeletionDeadline(message);
-				if (
-					deadline !== null &&
-					deadline > now &&
-					deadline - now <= DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS
-				) {
-					nowMs = now;
-					return;
+			let hasVisibleCountdown = false;
+			if (deletionCountdownMode === 'live') {
+				for (const message of messages) {
+					const deadline = getMessageDeletionDeadline(message);
+					if (deadline !== null && deadline > now && deadline - now <= DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS) {
+						hasVisibleCountdown = true;
+					break;
+					}
 				}
 			}
-			// No live countdown in view: keep nowMs stale so the render block
-			// doesn't invalidate, but remember the freshest time for the next
-			// genuine bump.
-			lastTickerMs = now;
+			if (retentionClockShouldTick(deletionCountdownMode, now, earliestPendingDeadline, hasVisibleCountdown)) {
+				nowMs = now;
+			}
 		}, 1000);
 		return () => {
 			clearBurstAnimationReset();
@@ -1879,6 +1897,9 @@
 		const boundedLimit = Math.min(Math.max(messageRenderLimit, MESSAGE_RENDER_BATCH), MESSAGE_RENDER_MAX);
 		messageRenderLimit = boundedLimit;
 		visibleMessageStart = Math.max(0, messages.length - boundedLimit);
+		const policyChanged = retentionEpochs !== lastRenderRetentionEpochs || activeChannelId !== lastRenderChannelId;
+		const messagesReplaced = messages !== lastRenderSourceMessages;
+		if (messagesReplaced || policyChanged) nowMs = Date.now();
 		// t_28bc75b1: expiry filtering only needs re-evaluation when a message
 		// has actually crossed its deadline — not on every nowMs tick. Track
 		// the earliest pending deadline; if none is due yet, reuse the previous
@@ -1888,11 +1909,12 @@
 		// uniqueness; the keyed {#each} below is the final backstop.
 		const expiredSinceLastPass =
 			earliestPendingDeadline !== null && nowMs >= earliestPendingDeadline;
-		const messagesReplaced = messages !== lastRenderSourceMessages;
-		if (!messagesReplaced && !expiredSinceLastPass && lastFilteredMessages !== null) {
+		if (!messagesReplaced && !policyChanged && !expiredSinceLastPass && lastFilteredMessages !== null) {
 			visibleMessages = lastFilteredMessages.slice(visibleMessageStart);
 		} else {
 			lastRenderSourceMessages = messages;
+			lastRenderRetentionEpochs = retentionEpochs;
+			lastRenderChannelId = activeChannelId;
 			const filtered: Message[] = [];
 			let earliest: number | null = null;
 			for (const message of messages) {

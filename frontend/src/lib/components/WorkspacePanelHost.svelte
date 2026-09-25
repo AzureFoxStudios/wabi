@@ -36,12 +36,12 @@
 	}
 
 	const dispatch = createEventDispatcher<{
-		openSettings: { paymentSurface: 'connections' };
+		openSettings: { paymentSurface?: 'connections' } | undefined;
 	}>();
 </script>
 
 {#if panel.component === 'users'}
-	<UserListTab />
+	<UserListTab on:openSettings={() => dispatch('openSettings', undefined)} />
 {:else if panel.component === 'calls'}
 	<CallsPanel />
 {:else if panel.component === 'dms'}

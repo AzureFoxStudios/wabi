@@ -86,6 +86,7 @@ try {
 
 	const alice = await api('/api/auth/register', 'POST', { username: 'dm_alice', password: 'Local-only-dm-9825!' });
 	const bob = await api('/api/auth/register', 'POST', { username: 'dm_bob', password: 'Local-only-dm-9825!' });
+	const charlie = await api('/api/auth/register', 'POST', { username: 'dm_charlie', password: 'Local-only-dm-9825!' });
 	const a = await connect(alice);
 	const b = await connect(bob);
 
@@ -197,6 +198,63 @@ try {
 	await desktop.locator('.friends-panel .friend-row').filter({ hasText: 'dm_bob' }).getByRole('button', { name: 'Message' }).waitFor();
 	await desktop.screenshot({ path: `${scratch}/friends-desktop.png` });
 	await mobile.screenshot({ path: `${scratch}/friends-mobile.png` });
+
+	await desktop.evaluate(async () => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.showUsersTab();
+	});
+	const people = desktop.locator('.user-list-tab');
+	const bobRow = people.locator('.user-row-shell').filter({ hasText: 'dm_bob' });
+	await bobRow.locator('.user-row').click({ button: 'right' });
+	const peopleMenu = desktop.getByRole('menu', { name: 'User list actions' });
+	await peopleMenu.getByRole('menuitem', { name: 'View Profile' }).waitFor();
+	await peopleMenu.getByRole('menuitem', { name: 'Remove Friend' }).waitFor();
+	await desktop.screenshot({ path: `${scratch}/people-right-click.png` });
+	await peopleMenu.getByRole('menuitem', { name: 'View Profile' }).click();
+	await desktop.getByRole('dialog', { name: 'User profile' }).waitFor();
+	await desktop.getByRole('dialog', { name: 'User profile' }).getByRole('button', { name: 'Friends' }).waitFor();
+	await desktop.screenshot({ path: `${scratch}/people-profile.png` });
+	await desktop.locator('.dm-hub-title').click({ force: true });
+	await desktop.getByRole('dialog', { name: 'User profile' }).waitFor({ state: 'hidden' });
+	await bobRow.getByRole('button', { name: 'Actions for dm_bob' }).click({ force: true });
+	await peopleMenu.getByRole('menuitem', { name: 'View Profile' }).waitFor();
+	await desktop.locator('.dm-hub-title').click({ force: true });
+
+	await people.getByRole('button', { name: /Offline/ }).click();
+	const charlieRow = people.locator('.user-row-shell').filter({ hasText: 'dm_charlie' });
+	await charlieRow.locator('.user-row').click({ button: 'right' });
+	await peopleMenu.getByRole('menuitem', { name: 'Add Friend' }).waitFor();
+	await peopleMenu.getByRole('menuitem', { name: 'Add Friend' }).click();
+	let charlieSnapshot;
+	for (let attempt = 0; attempt < 30; attempt++) {
+		charlieSnapshot = await api('/api/friends', 'GET', null, alice.accessToken);
+		if (charlieSnapshot.outgoing.some((request) => request.user_id === charlie.user.id)) break;
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	assert.ok(charlieSnapshot.outgoing.some((request) => request.user_id === charlie.user.id), 'People menu sends durable friend request to an offline member');
+	await charlieRow.locator('.user-row').click({ button: 'right' });
+	await peopleMenu.getByRole('menuitem', { name: 'Cancel Friend Request' }).waitFor();
+	await desktop.evaluate(async (channelId) => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.openCenterDm(channelId, null);
+	}, dm.channelId);
+	await peopleMenu.waitFor({ state: 'hidden' });
+	await desktop.locator('.dm-conversation .input-container textarea').click();
+
+	await mobile.evaluate(async () => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.showUsersTab();
+	});
+	const mobileBobRow = mobile.locator('.user-list-tab .user-row-shell').filter({ hasText: 'dm_alice' });
+	await mobileBobRow.getByRole('button', { name: 'Actions for dm_alice' }).waitFor({ state: 'visible' });
+	await mobileBobRow.getByRole('button', { name: 'Actions for dm_alice' }).click();
+	await mobile.getByRole('menu', { name: 'User list actions' }).getByRole('menuitem', { name: 'View Profile' }).waitFor();
+	await mobile.screenshot({ path: `${scratch}/people-mobile-actions.png` });
+	await mobile.getByRole('menu', { name: 'User list actions' }).getByRole('menuitem', { name: 'Message' }).click();
+	await mobile.getByRole('menu', { name: 'User list actions' }).waitFor({ state: 'hidden' });
+	await mobile.locator('.dm-conversation').waitFor({ state: 'visible' });
+	await mobile.locator('.mobile-right-overlay.visible').waitFor({ state: 'hidden' });
+	await mobile.locator('.dm-conversation .input-container textarea').click();
 
 	// Use the Rust Authority's embedded static frontend on a non-local test host.
 	// localhost is deliberately excluded from Wabi's production service worker
@@ -338,6 +396,63 @@ try {
 	await pwaPhone.locator('#friends-search').fill('hermes-bot');
 	const hermesRows = pwaPhone.locator('.friends-panel .friend-row').filter({ hasText: 'hermes-bot' });
 	assert.equal(await hermesRows.getByRole('button', { name: 'Add friend' }).count(), 0, 'bot account is never an Add friend candidate');
+
+	// Retention is assigned when each message is sent. A later shorter policy
+	// must not wipe the conversation's earlier history or extend a 5s message.
+	await desktop.evaluate(async (channelId) => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.closeRightPanel();
+		layoutStore.openCenterDm(channelId, null);
+	}, dm.channelId);
+	await desktop.locator('.dm-conversation').waitFor({ state: 'visible' });
+	await mobile.locator('.dm-conversation').waitFor({ state: 'visible' });
+	await mobile.locator('.mobile-right-overlay.visible').waitFor({ state: 'hidden' });
+	const retentionSelect = desktop.locator('.dm-conversation select[aria-label="Retention for new messages"]');
+	const thirtySave = desktop.waitForResponse((response) => response.url().includes(`/api/channels/${encodeURIComponent(dm.channelId)}/retention`) && response.request().method() === 'PUT');
+	await retentionSelect.selectOption('30s');
+	assert.equal((await thirtySave).status(), 200);
+	await desktop.locator('.dm-conversation .input-container textarea').fill('retention visual preview');
+	await desktop.locator('.dm-conversation .send-button').click();
+	const visualRow = desktop.locator('.dm-conversation .message').filter({ hasText: 'retention visual preview' });
+	await visualRow.locator('.deletion-timer').waitFor({ state: 'visible' });
+	assert.match(await visualRow.locator('.deletion-timer').innerText(), /30s retention/, 'Static badge states the original policy lifetime instead of a frozen countdown');
+	const mobileVisualTimer = mobile.locator('.dm-conversation .message').filter({ hasText: 'retention visual preview' }).locator('.deletion-timer');
+	await mobileVisualTimer.waitFor({ state: 'visible' });
+	assert.match(await mobileVisualTimer.innerText(), /30s retention/, 'phone-sized Static badge states the original lifetime');
+	await desktop.screenshot({ path: `${scratch}/retention-desktop.png` });
+	await mobile.screenshot({ path: `${scratch}/retention-mobile.png` });
+	const fiveSave = desktop.waitForResponse((response) => response.url().includes(`/api/channels/${encodeURIComponent(dm.channelId)}/retention`) && response.request().method() === 'PUT');
+	await retentionSelect.selectOption('5s');
+	assert.equal((await fiveSave).status(), 200);
+	await desktop.locator('.dm-conversation .input-container textarea').fill('five-second retention proof');
+	const shortRemovalDeadline = Date.now() + 9000;
+	await desktop.locator('.dm-conversation .send-button').click();
+	const shortRow = desktop.locator('.dm-conversation .message').filter({ hasText: 'five-second retention proof' });
+	await shortRow.waitFor({ state: 'visible' });
+	await shortRow.waitFor({ state: 'hidden', timeout: Math.max(1000, shortRemovalDeadline - Date.now()) });
+	await visualRow.waitFor({ state: 'visible' });
+	await desktop.locator('.dm-conversation').getByText('hello from Bob').waitFor({ state: 'visible' });
+	let retainedHistory;
+	do {
+		retainedHistory = await api(`/api/messages/${dm.channelId}`, 'GET', null, alice.accessToken);
+		if (!retainedHistory.messages.some((message) => message.content === 'five-second retention proof')) break;
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	} while (Date.now() < shortRemovalDeadline);
+	assert.ok(retainedHistory.messages.some((message) => message.content === 'hello from Bob'), 'older DM history remains after a 5s selection');
+	assert.ok(retainedHistory.messages.some((message) => message.content === 'retention visual preview'), '30s message keeps its original lifetime');
+	assert.ok(!retainedHistory.messages.some((message) => message.content === 'five-second retention proof'), '5s message leaves server history promptly');
+	const headerChannel = reloadedAlice.init.channels.find((channel) => channel.type === 'text' && channel.name === 'general');
+	assert.ok(headerChannel, 'starter text channel is available for header visual QA');
+	await api(`/api/channels/${headerChannel.id}/retention`, 'PUT', { retention: '30s' }, alice.accessToken);
+	await desktop.evaluate(async () => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.closeCenterDm();
+		layoutStore.closeRightPanel();
+	});
+	await desktop.locator(`.channel-item[data-channel-id="${headerChannel.id}"] .channel-btn`).click();
+	await desktop.locator('.chat-header .retention-channel-badge').getByText('30 seconds').waitFor({ state: 'visible' });
+	await desktop.screenshot({ path: `${scratch}/retention-header-desktop.png` });
+
 	const logoutRoster = await desktop.evaluate(async (serverUrl) => {
 		const { clearAuthSession } = await import('/src/lib/authSession.ts');
 		const { users, serverMembers, currentUser } = await import('/src/lib/presenceIdentity.ts');
@@ -357,7 +472,7 @@ try {
 	assert.ok(logoutRoster.before.members > 0 && logoutRoster.before.user, 'account roster exists before logout');
 	assert.deepEqual(logoutRoster.after, { users: 0, members: 0, user: null }, 'logout clears account-scoped roster immediately');
 
-	console.log(`PASS: friendship UI, two-way live DM, receipts, reconnect history, previews, bot exclusion, mobile UI, and embedded phone PWA send/reconnect (${offlineResult}; ${scratch})`);
+	console.log(`PASS: friendship UI, two-way live DM, receipts, reconnect history, previews, bot exclusion, mobile UI, future-only 5s retention, and embedded phone PWA send/reconnect (${offlineResult}; ${scratch})`);
 } finally {
 	for (const socket of sockets) socket.disconnect();
 	await pwaBrowser?.close();
