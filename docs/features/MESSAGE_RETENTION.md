@@ -10,7 +10,7 @@ The Authority applies Live, timed, or Forever policies per channel. Changing the
 | Timed | Messages are durably written, then logically deleted after becoming eligible for the periodic sweep. Each message keeps the lifetime selected when it was sent, even after later policy changes. |
 | Forever | No timed expiry; members' permitted manual deletion still applies. |
 
-Timed expiry is not an exact delivery-time deadline. Channels with a timer of one minute or less have a one-second sweep; every channel also receives a full sweep once per minute. Each pass processes at most 1,000 eligible messages per policy generation. A backlog can take additional passes. The candidate fixes the millisecond-to-microsecond conversion and selects expired records within each generation before limiting the batch, so earlier Forever history cannot hide newer eligible messages.
+Timed expiry is not an exact delivery-time deadline. Channels with a timer of one minute or less have a one-second sweep; every channel also receives a full sweep once per minute. Each pass processes at most 1,000 eligible messages per policy generation. A backlog can take additional passes. The Tim release fixes the millisecond-to-microsecond conversion and selects expired records within each generation before limiting the batch, so earlier Forever history cannot hide newer eligible messages.
 
 Policy changes append an effective-at generation to `channel_retention.json`. Sends and policy updates share an ordering lock: a message that selected the old policy completes its durable or session write before the new generation begins. Existing sidecars with only a `channels` map are accepted; their one saved label is treated as having applied since the channel began because no older changes were recorded. The authenticated timeline endpoint gives the browser each message's original deadline. Empty old generations are compacted during changes, and the number of generations per channel is bounded.
 
@@ -26,7 +26,7 @@ Attachment files, explicitly saved report evidence, client caches, exports and b
 
 ## Reproduce the current boundary safely
 
-Run only against a candidate binary and disposable state:
+Run only against a test binary and disposable state:
 
 ```bash
 cargo test --locked -p wabidb --lib projections::messages
@@ -43,7 +43,7 @@ These are bounded checks. They do not certify report-evidence expiry, every clie
 
 ## Damaged exact-policy file
 
-The candidate loads `channel_retention.json` before opening WabiDB or serving requests. Invalid JSON, missing required fields, unsupported modes and unreadable files stop startup without replacing the file. This prevents Live storage behavior from briefly falling back to durable writes while a background task loads settings.
+The Authority loads `channel_retention.json` before opening WabiDB or serving requests. Invalid JSON, missing required fields, unsupported modes and unreadable files stop startup without replacing the file. This prevents Live storage behavior from briefly falling back to durable writes while a background task loads settings.
 
 If the file becomes damaged while the server is running, existing in-memory policies remain in effect. Policy lookup reports an error and policy changes reject the damaged file before changing runtime policy. Preserve the bytes and restore a matching stopped-instance backup; do not delete the file to clear the error. A missing file is still accepted for a fresh installation and cannot distinguish accidental deletion from a never-configured instance. The exact file is authoritative: updates save it before changing runtime policy. The older database day count is only a compatibility fallback and cannot override an explicit Live, Forever or timed choice. Its adapter write has no registered projection handler. Active settings and first-owner setup no longer emit that ineffective write; both save the exact-policy file. Preserve that file with backups. Policy changes, member sends, bot/Lore durable sends and each deletion batch share a lock; a settings request can wait for an active write or batch to finish. This is not a cross-store transaction or a power-loss certificate.
 

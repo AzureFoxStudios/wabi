@@ -166,7 +166,7 @@ The bot send endpoint rejects Live rooms because it only supports durable delive
 | Frontend WabiDB client | `frontend/src/lib/wabidb/` |
 | Plans / handoffs | `docs/plans/`, `docs/HANDOFF-hermes.md` |
 
-### Timed retention query (production-finish candidate)
+### Timed retention query (Tim release branch, not yet merged)
 
 The Authority's full sweep runs once per minute, while channels with a five-second, thirty-second or one-minute policy generation are checked each second. It selects up to 1,000 undeleted expired records per channel and policy generation from `messages_by_channel_time`, bounding the indexed creation-time range before applying the batch limit. Recent traffic and older messages from a forever-retained generation therefore cannot hide expired records. The existing commit-sequence suffix resolves edit/delete versions before counting candidates. This adds no events, record fields, indexes or postcard migration. Timestamps use the existing nonnegative Unix-microsecond ordering.
 
