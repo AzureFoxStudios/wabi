@@ -1,7 +1,8 @@
-# Friends and direct message rebuild candidate (2026-09-25)
+# Friends and direct message rebuild (2026-09-25)
 
-This is a branch candidate, not a deployed product claim. Friends are scoped to
-one Authority. They do not create global identities, federation or cross-server
+The `codex/friends-dm-release-20260925` branch was deployed on Tim on
+2026-09-25, but has not been merged into `main`. Friends are scoped to one
+Authority. They do not create global identities, federation or cross-server
 messages. Direct messages remain server-readable unless a room's experimental
 encryption path is deliberately enabled.
 
@@ -61,8 +62,19 @@ history behavior is unchanged.
 The `friends_contract` integration test exercises request/accept/remove,
 authorization and a WabiDB reopen. `message_delivery_contract` exercises two
 real Socket.IO clients: DM creation, repeat open, a send to an unopened
-recipient, and latest durable history after an out-of-band write. A real phone
-PWA and Tim deployment still need device testing before claiming that mobile
-delivery and the entire conversation experience are reliable.
-The pagination regression walks 125 durable DM messages through latest,
-before and after pages across a second connection.
+recipient, and latest durable history after an out-of-band write. The pagination
+regression walks 125 durable DM messages through latest, before and after pages
+across a second connection.
+
+The exact deployed release binary passed a disposable two-account browser test
+of friend actions, two-way DM delivery, read receipts, reconnect history,
+previews, bot exclusion and responsive layout. The same test exercised an
+embedded static PWA in a phone-sized browser: online send, offline queued reply,
+reconnect delivery exactly once, and queue label clearing. The public Tim route
+then returned the page without browser errors, health and Socket.IO passed, and
+the precache manifest listed 201 embedded assets. A cold backup of Tim's
+predeployment runtime data and previous binary was saved at
+`/home/tim/Desktop/Wabi/.deploy-backups/2026-09-25-friends-dm-1660fea3`.
+Physical phone PWA acceptance is still required before claiming reliable mobile
+delivery on real devices. The older binary cannot safely be restored after new
+friendship events have been written, because it cannot replay that new event.

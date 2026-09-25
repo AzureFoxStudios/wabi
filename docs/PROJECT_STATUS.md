@@ -20,13 +20,17 @@ The intended model is:
 
 Wabi is not trying to become a centralized hosted social network, a Matrix/ActivityPub-style federation protocol, or a distributed active-active database product.
 
-## Friends and direct message repair candidate — not deployed
+## Friends and direct message repair — deployed on Tim, pending phone acceptance
 
-The current branch adds server-local friend requests and accepted friendships,
-plus direct message room, fanout and history repairs. The friend relationship
-is a durable Authority record; it does not grant access to a DM. Browser and
-physical phone acceptance, including the Tim deployment, remain pending. See
-[the rebuild contract](plans/2026-09-25-friends-and-dm-rebuild.md).
+The `codex/friends-dm-release-20260925` branch adds server-local friend requests
+and accepted friendships, plus direct message room, fanout and history repairs.
+The friend relationship is a durable Authority record; it does not grant access
+to a DM. The tested release binary and embedded static frontend were deployed
+to Tim on 2026-09-25. A disposable two-account browser test covered desktop,
+mobile viewport and embedded PWA queue/reconnect behavior; the public page,
+health endpoint and realtime handshake passed after deployment. Physical phone
+acceptance remains pending, and this branch has not been merged into `main`.
+See [the rebuild contract](plans/2026-09-25-friends-and-dm-rebuild.md).
 
 ## Production-finish candidate — not yet merged or deployed
 

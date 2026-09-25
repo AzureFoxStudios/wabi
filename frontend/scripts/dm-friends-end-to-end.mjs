@@ -1,7 +1,7 @@
 // Disposable two-account Authority proof. Never point this at a live server.
 // Run after building wabi-server: WABI_DM_TEST_BINARY=../target/debug/wabi-server node scripts/dm-friends-end-to-end.mjs
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, realpath } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,8 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
 const frontendRoot = fileURLToPath(new URL('../', import.meta.url));
+const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
+const dependencyRoot = await realpath(`${frontendRoot}/node_modules`).catch(() => frontendRoot);
 const scratch = await mkdtemp('/tmp/wabi-dm-friends-');
 console.log(`Disposable DM smoke artifacts: ${scratch}`);
 const listener = net.createServer();
@@ -136,7 +138,10 @@ try {
 
 	process.env.VITE_SOCKET_URL = origin;
 	process.env.VITE_WABI_LOCAL_MOCK = '0';
-	vite = await createServer({ root: frontendRoot, server: { host: '127.0.0.1', port: 0, open: false } });
+	vite = await createServer({ root: frontendRoot, server: {
+		host: '127.0.0.1', port: 0, open: false,
+		fs: { allow: [projectRoot, dependencyRoot] }
+	} });
 	await vite.listen();
 	const app = `http://127.0.0.1:${vite.httpServer.address().port}`;
 	browser = await chromium.launch({ headless: false, ...(process.env.WABI_SMOKE_CHROMIUM_PATH ? { executablePath: process.env.WABI_SMOKE_CHROMIUM_PATH } : {}) });
