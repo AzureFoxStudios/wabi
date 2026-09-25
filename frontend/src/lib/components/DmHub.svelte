@@ -1,18 +1,25 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
-  import { channels, channelMessages, currentUser, users, serverMembers, channelUnreadCounts, createDM, joinChannel } from '$lib/socket';
+  import { channels, channelMessages, currentUser, users, serverMembers, channelUnreadCounts, createDM, joinChannel, markChannelAsRead } from '$lib/socket';
   import type { Channel, User, Message } from '$lib/socket-types';
   import { getDmDirectoryKey } from '$lib/dmUserDirectory';
   import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
   import PeoplePicker from './PeoplePicker.svelte';
   import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+  import FriendsPanel from './FriendsPanel.svelte';
+  import { friendships, startFriendshipSync } from '$lib/friendships';
+  import { mediaUrl } from '$lib/mediaUrl';
 
   import { openDetachedPanel } from '$lib/detachedPanels';
 
   let showPeoplePicker = false;
+  let activeTab: 'messages' | 'friends' = 'messages';
   let pendingDmUser: User | null = null;
   let pendingDmError = '';
+
+  onMount(startFriendshipSync);
 
   let showExternalConfig = false;
   let externalApp = 'obsidian' as 'obsidian' | 'notion' | 'logseq' | 'custom' | 'none';
@@ -84,13 +91,14 @@
   }
 
   function lastMessagePreview(channel: Channel): string {
-    const msgs: Message[] = $channelMessages[channel.id] || [];
-    if (msgs.length === 0) return '';
+    const msgs: Message[] | undefined = $channelMessages[channel.id];
+    if (!msgs) return 'Open to load conversation';
+    if (msgs.length === 0) return 'No messages yet';
     const last = msgs[msgs.length - 1];
     if (last.type === 'file') return last.fileName || '[File]';
     if (last.type === 'gif') return '[GIF]';
     if (last.type === 'emoji') return '[Emoji]';
-    return last.text || '';
+    return last.text || 'Message';
   }
 
   function lastMessageTime(channel: Channel): string {
@@ -121,6 +129,7 @@
   }
 
   function openInCenter(channel: Channel, fallbackUser: User | null = null) {
+    activeTab = 'messages';
     const other = fallbackUser || otherUserFor(channel);
     if (channel.type === 'group') {
       layoutStore.openCenterGroupDm(channel.id, channel);
@@ -128,6 +137,7 @@
       layoutStore.openCenterDm(channel.id, other);
     }
     joinChannel(channel.id);
+    markChannelAsRead(channel.id);
   }
 
   function openInSidePanel(channel: Channel, fallbackUser: User | null = null) {
@@ -171,6 +181,7 @@
   }
 
   async function handlePersonSelected(user: User) {
+    activeTab = 'messages';
     pendingDmError = '';
     showPeoplePicker = false;
     if (isSelfUser(user)) return;
@@ -285,17 +296,27 @@
 <div class="dm-hub">
     <div class="dm-hub-header">
       <div class="dm-hub-title-wrap">
-        <span class="dm-hub-title">Direct Messages</span>
-        <span class="dm-hub-subtitle">Your conversations</span>
+        <span class="dm-hub-title">{activeTab === 'friends' ? 'Friends' : 'Messages'}</span>
+        <span class="dm-hub-subtitle">{activeTab === 'friends' ? 'People on this server' : 'Your conversations'}</span>
       </div>
-      <button class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New conversation">
+      {#if activeTab === 'messages'}
+      <button class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New conversation" aria-label="New conversation" aria-expanded={showPeoplePicker}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
       </button>
+      {/if}
     </div>
 
+    <nav class="dm-hub-tabs" aria-label="Messages and friends">
+      <button type="button" class="dm-hub-tab" class:active={activeTab === 'messages'} aria-pressed={activeTab === 'messages'} on:click={() => (activeTab = 'messages')}>Messages</button>
+      <button type="button" class="dm-hub-tab" class:active={activeTab === 'friends'} aria-pressed={activeTab === 'friends'} on:click={() => { activeTab = 'friends'; showPeoplePicker = false; }}>
+        Friends{#if $friendships.incoming.length > 0}<span class="dm-hub-request-badge" aria-label={`${$friendships.incoming.length} pending friend requests`}>{$friendships.incoming.length}</span>{/if}
+      </button>
+    </nav>
+
+    {#if activeTab === 'messages'}
     {#if showPeoplePicker}
       <div class="dm-hub-picker">
         <PeoplePicker on:select={async (e) => handlePersonSelected(e.detail)} on:close={() => (showPeoplePicker = false)} />
@@ -313,7 +334,7 @@
       {#if dmChannels.length === 0}
         <div class="dm-hub-empty">
           <p>No conversations yet.</p>
-          <button class="dm-hub-empty-btn" on:click={() => (showPeoplePicker = true)}>
+          <button class="dm-hub-empty-btn ui-btn ui-btn-primary" on:click={() => (showPeoplePicker = true)}>
             Start a conversation
           </button>
         </div>
@@ -323,6 +344,7 @@
           {@const unread = $channelUnreadCounts[channel.id] || 0}
           <button
             class="dm-hub-conversation"
+            data-dm-channel-id={channel.id}
             class:active={$centerDmChannelId === channel.id}
             class:unread={unread > 0}
             on:click={() => openInCenter(channel)}
@@ -330,7 +352,7 @@
           >
             <div class="dm-hub-avatar-wrap">
               {#if conversationAvatar(channel)}
-                <img class="dm-hub-avatar" src={conversationAvatar(channel)} alt="" />
+                <img class="dm-hub-avatar" src={mediaUrl(conversationAvatar(channel)!)} alt="" />
               {:else}
                 <div class="dm-hub-avatar dm-hub-avatar-placeholder">
                   {(conversationLabel(channel) || '?')[0]}
@@ -348,7 +370,7 @@
                 {/if}
               </div>
               <div class="dm-hub-bottom">
-                <span class="dm-hub-preview">{lastMessagePreview(channel) || 'No messages yet'}</span>
+                <span class="dm-hub-preview">{lastMessagePreview(channel)}</span>
                 {#if unread > 0}
                   <span class="dm-hub-badge">{unread > 99 ? '99+' : unread}</span>
                 {/if}
@@ -358,6 +380,9 @@
         {/each}
       {/if}
     </div>
+    {:else}
+      <FriendsPanel on:message={(event) => handlePersonSelected(event.detail)} />
+    {/if}
   </div>
 
 <ContextMenu
@@ -386,6 +411,21 @@
     padding: var(--space-1, 4px) var(--space-3, 12px) 0;
     border-bottom: 1px solid var(--color-border-primary, #302b63);
     flex-shrink: 0;
+  }
+
+  .dm-hub-request-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: var(--space-2, 8px);
+    padding: 0 var(--space-1, 4px);
+    border-radius: var(--radius-full, 9999px);
+    background: var(--accent-primary-color, var(--accent-primary));
+    color: var(--text-on-accent, #fff);
+    font-size: var(--font-size-xs, 11px);
+    line-height: 1;
   }
 
   .dm-hub-tab {
@@ -439,8 +479,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
     border: 1px solid var(--color-border-primary, #302b63);
     border-radius: var(--radius-md, 8px);
     background: var(--surface-raised, rgba(255, 255, 255, 0.04));
@@ -504,18 +545,8 @@
   }
 
 	.dm-hub-empty-btn {
-		padding: var(--space-2, 8px) var(--space-4, 16px);
-		background: var(--accent-primary-color, #6366f1);
-		color: var(--text-on-accent, #fff);
-		border: none;
-		border-radius: var(--radius-md, 8px);
-		font-size: var(--font-size-sm, 13px);
-		font-weight: var(--font-weight-medium, 500);
-		cursor: pointer;
+		min-height: 40px;
 	}
-  .dm-hub-empty-btn:hover {
-    opacity: var(--opacity-90, 0.9);
-  }
 
   .dm-hub-conversation {
     display: flex;

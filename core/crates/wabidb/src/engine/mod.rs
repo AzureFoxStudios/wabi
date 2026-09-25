@@ -1138,6 +1138,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::payments",
         },
         ProjectionRegistration {
+            event_types: &[crate::projections::friends::EVENT],
+            handler: Arc::new(crate::projections::friends::FriendsProjection),
+            index_name: crate::projections::friends::INDEX,
+            record_type_name: "wabidb::projections::friends::FriendRelationship",
+        },
+        ProjectionRegistration {
             event_types: &[crate::projections::game_profiles::EVENT],
             handler: Arc::new(crate::projections::game_profiles::GameProfilesProjection),
             index_name: crate::projections::game_profiles::INDEX,

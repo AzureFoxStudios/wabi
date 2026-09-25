@@ -398,12 +398,13 @@
 
 	.popout-container .actions {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 8px;
 		margin-bottom: 8px;
 	}
 
 	.popout-container .action-btn {
-		flex: 1;
+		flex: 1 1 110px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -614,4 +615,3 @@
 .popout-container .share-btn:hover {
 	background: var(--surface-hover);
 }
-

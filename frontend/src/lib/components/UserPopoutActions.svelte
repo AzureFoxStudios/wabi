@@ -1,15 +1,49 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { openGames } from '$lib/games/navigation';
 	import { showToast } from '$lib/toast';
+	import { getAuthToken } from '$lib/authSession';
 
 	import type { User } from '$lib/socket';
+	import { canFriendUser as isFriendEligible, friendshipRelation } from '$lib/friendshipRelation';
+	import { acceptFriendship, dismissFriendship, friendships, removeFriendship, requestFriendship, startFriendshipSync } from '$lib/friendships';
 
 	export let isOwnProfile = false;
 	export let profileExpanded = false;
 	export let localNicknamesEnabled = false;
 	export let localNickname = '';
 	export let user: User | null = null;
+	let friendActionBusy = false;
+	let friendActionError = '';
+	$: friendRelation = friendshipRelation($friendships, user?.dbUserId);
+	$: canFriendUser = isFriendEligible(user) && Boolean(getAuthToken()) && $friendships.ready;
+	onMount(startFriendshipSync);
+
+	async function handleFriendAction() {
+		if (!canFriendUser || !user?.dbUserId || friendActionBusy || !$friendships.ready) return;
+		friendActionBusy = true;
+		friendActionError = '';
+		try {
+			if (friendRelation.kind === 'none') await requestFriendship(user.dbUserId);
+			else if (friendRelation.kind === 'incoming') await acceptFriendship(friendRelation.request.id);
+			else if (friendRelation.kind === 'outgoing') await dismissFriendship(friendRelation.request.id);
+		} catch (error) {
+			friendActionError = error instanceof Error ? error.message : 'Could not update friendship.';
+		} finally {
+			friendActionBusy = false;
+		}
+	}
+
+	async function handleRemoveFriend() {
+		if (!user?.dbUserId || friendActionBusy) return;
+		if (!window.confirm(`Remove ${user.username} from your friends?`)) return;
+		friendActionBusy = true;
+		friendActionError = '';
+		try { await removeFriendship(user.dbUserId); }
+		catch (error) { friendActionError = error instanceof Error ? error.message : 'Could not remove friend.'; }
+		finally { friendActionBusy = false; }
+	}
 	export let onOpenDM: () => void = () => {};
 	export let onOpenFullProfile: () => void = () => {};
 	export let onOpenSettings: () => void = () => {};
@@ -53,6 +87,11 @@
 			</svg>
 			{$_('user.popout.message')}
 		</button>
+		{#if canFriendUser}
+			<button class="action-btn secondary" on:click={handleFriendAction} disabled={friendActionBusy || !$friendships.ready || friendRelation.kind === 'friend'}>
+				{#if friendActionBusy}Saving…{:else if !$friendships.ready}Checking…{:else if friendRelation.kind === 'friend'}Friends{:else if friendRelation.kind === 'incoming'}Accept request{:else if friendRelation.kind === 'outgoing'}Cancel request{:else}Add friend{/if}
+			</button>
+		{/if}
 	{/if}
 	<button class="action-btn secondary" on:click={onOpenFullProfile}>
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -62,11 +101,14 @@
 	</button>
 </div>
 
+{#if friendActionError}<p class="friend-action-error" role="alert">{friendActionError}</p>{/if}
+
 {#if isOwnProfile}
 	<div class="own-profile-note">Voice controls live in the active call bar.</div>
 {/if}
 
 <style>
+	.friend-action-error { margin: 0.35rem 0.65rem; color: var(--color-danger, #ef4444); font-size: 0.75rem; }
 	.own-profile-note {
 		padding: 0.45rem 0.65rem;
 		font-size: 0.72rem;
@@ -137,6 +179,9 @@
 {/if}
 
 <div class="context-actions">
+	{#if !isOwnProfile && canFriendUser && friendRelation.kind === 'friend'}
+		<button class="context-btn danger" on:click={handleRemoveFriend} disabled={friendActionBusy}>Remove friend</button>
+	{/if}
 	{#if !isOwnProfile && localNicknamesEnabled}
 		<button class="context-btn" on:click={onSetLocalNickname}>
 			Set Local Nickname

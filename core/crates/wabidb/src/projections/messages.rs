@@ -191,6 +191,94 @@ fn is_uuid_generation_id(message_id: &str) -> bool {
 
 pub struct MessagesProjection;
 
+/// A stable history boundary within one channel. Message IDs are UUIDs, so
+/// the timestamp and ID together provide a total order for cursor pages.
+pub enum MessagePageCursor<'a> {
+    Latest,
+    Before(&'a str),
+    After(&'a str),
+}
+
+pub struct MessagePage {
+    pub messages: Vec<MessageRecord>,
+    pub has_more: bool,
+}
+
+struct PageCollector {
+    cursor: Option<(i64, String)>,
+    after: bool,
+    target: usize,
+    timestamp: Option<i64>,
+    bucket: std::collections::BTreeMap<String, MessageRecord>,
+    messages: Vec<MessageRecord>,
+}
+
+impl PageCollector {
+    fn flush(&mut self) {
+        let mut bucket: Vec<_> = std::mem::take(&mut self.bucket)
+            .into_values()
+            .filter(|record| !record.is_deleted)
+            .filter(|record| match &self.cursor {
+                Some((time, id)) if self.after =>
+                    (record.created_at_micros, record.message_id.as_str()) > (*time, id.as_str()),
+                Some((time, id)) =>
+                    (record.created_at_micros, record.message_id.as_str()) < (*time, id.as_str()),
+                None => true,
+            })
+            .collect();
+        // BTreeMap yields ascending IDs. Newest-first pages reverse each
+        // timestamp bucket before the final page is turned chronological.
+        if !self.after {
+            bucket.reverse();
+        }
+        self.messages.extend(bucket);
+    }
+
+    fn visit(&mut self, value: &[u8]) -> Result<bool> {
+        let record = decode_record(value)?;
+        if self.timestamp.is_some_and(|time| time != record.created_at_micros) {
+            self.flush();
+            if self.messages.len() >= self.target {
+                return Ok(false);
+            }
+        }
+        self.timestamp = Some(record.created_at_micros);
+        // The time index contains every edit/delete version. Reverse scans
+        // see the latest first; forward scans replace old versions until the
+        // whole timestamp bucket has been visited.
+        if self.after {
+            self.bucket.insert(record.message_id.clone(), record);
+        } else {
+            self.bucket.entry(record.message_id.clone()).or_insert(record);
+        }
+        Ok(true)
+    }
+
+    fn finish(mut self, limit: usize) -> MessagePage {
+        self.flush();
+        let has_more = self.messages.len() > limit;
+        self.messages.truncate(limit);
+        if !self.after {
+            self.messages.reverse();
+        }
+        MessagePage { messages: self.messages, has_more }
+    }
+}
+
+fn prefix_successor(prefix: &[u8]) -> Vec<u8> {
+    let mut next = prefix.to_vec();
+    for index in (0..next.len()).rev() {
+        if next[index] < u8::MAX {
+            next[index] += 1;
+            next.truncate(index + 1);
+            return next;
+        }
+    }
+    // Channel prefixes begin with an encoded length and cannot consist only
+    // of 0xff bytes in a valid record.
+    unreachable!("channel prefix has no successor")
+}
+
 impl Projection for MessagesProjection {
     fn event_type(&self) -> &str {
         "message_created"
@@ -304,6 +392,72 @@ impl MessagesProjection {
         results_rev.reverse();
         results_rev.truncate(limit);
         Ok(results_rev)
+    }
+
+    /// Read a bounded chronological page from the durable time index. The
+    /// cursor is looked up through the channel-scoped primary key, so a
+    /// message from another room cannot reveal or steer this room's history.
+    /// `has_more` describes the requested direction: older for Latest/Before,
+    /// newer for After.
+    pub fn list_messages_page(
+        state: &ProjectionState,
+        channel_id: &str,
+        cursor: MessagePageCursor<'_>,
+        limit: usize,
+    ) -> Result<MessagePage> {
+        use std::ops::Bound::{Excluded, Included};
+
+        if limit == 0 {
+            return Ok(MessagePage { messages: Vec::new(), has_more: false });
+        }
+        let after = matches!(&cursor, MessagePageCursor::After(_));
+        let boundary = match cursor {
+            MessagePageCursor::Latest => None,
+            MessagePageCursor::Before(id) | MessagePageCursor::After(id) => {
+                let record = Self::get_message(state, channel_id, id)?.ok_or_else(||
+                    crate::error::WabiError::Validation {
+                        command: "load_history".into(),
+                        reason: "Cursor message was not found in this channel".into(),
+                    })?;
+                Some((record.created_at_micros, record.message_id))
+            }
+        };
+        let mut prefix = (channel_id.len() as u64).to_le_bytes().to_vec();
+        prefix.extend_from_slice(channel_id.as_bytes());
+        let mut lower = prefix.clone();
+        let mut upper = prefix_successor(&prefix);
+        if let Some((time, _)) = &boundary {
+            if after {
+                lower.extend_from_slice(&time.to_be_bytes());
+            } else {
+                // Include the complete boundary timestamp bucket; the ID
+                // comparison inside PageCollector excludes the cursor itself.
+                let mut timestamp_prefix = prefix.clone();
+                timestamp_prefix.extend_from_slice(&time.to_be_bytes());
+                upper = prefix_successor(&timestamp_prefix);
+            }
+        }
+        let mut page = PageCollector {
+            cursor: boundary,
+            after,
+            target: limit.saturating_add(1),
+            timestamp: None,
+            bucket: std::collections::BTreeMap::new(),
+            messages: Vec::with_capacity(limit.saturating_add(1)),
+        };
+        state.with_index("messages_by_channel_time", |index| -> Result<()> {
+            if after {
+                for entry in index.range((Included(lower), Excluded(upper))) {
+                    if !page.visit(entry.value())? { break; }
+                }
+            } else {
+                for entry in index.range((Included(lower), Excluded(upper))).rev() {
+                    if !page.visit(entry.value())? { break; }
+                }
+            }
+            Ok(())
+        })?;
+        Ok(page.finish(limit))
     }
 
     /// Select expired records before applying a batch limit. A busy channel's

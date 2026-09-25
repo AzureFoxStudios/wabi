@@ -214,7 +214,23 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     let _ = socket.emit("message-accepted", &json!({
         "channelId": channel_id, "messageId": message_id, "clientMessageId": client_message_id, "timestamp": timestamp,
     }));
-    let _ = io.to(channel_id).emit("message", &json!({ "channelId": cmd.get("channelId"), "message": message_view })).await;
+    let payload = json!({ "channelId": &channel_id, "message": message_view });
+    if channel_kind.as_deref() == Some("dm") {
+        // Route by current account membership so the recipient's other tabs
+        // and newly connected devices receive a DM even before opening it.
+        // Do not also emit to the channel room: that duplicates each message.
+        match state.app.wdb.list_channel_members(&channel_id).await {
+            Ok(members) => {
+                let rooms: Vec<_> = members.into_iter().map(|member| format!("user-{}", member.user_id)).collect();
+                if let Err(error) = io.to(rooms).emit("message", &payload).await {
+                    warn!("Failed to broadcast DM {}: {}", channel_id, error);
+                }
+            }
+            Err(error) => warn!("Failed to load DM recipients for {}: {}", channel_id, error),
+        }
+    } else if let Err(error) = io.to(channel_id).emit("message", &payload).await {
+        warn!("Failed to broadcast message: {}", error);
+    }
 }
 
 #[allow(dead_code)]
@@ -235,14 +251,52 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
         return;
     }
     let limit = req.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).min(100) as usize;
+    let dm_cursor = if channel_kind.as_deref() == Some("dm") {
+        let before = req.get("beforeMessageId").and_then(Value::as_str).filter(|id| !id.is_empty());
+        let after = req.get("afterMessageId").and_then(Value::as_str).filter(|id| !id.is_empty());
+        if before.is_some() && after.is_some() {
+            let _ = socket.emit("history-error", &json!({
+                "channelId": &channel_id, "requestId": req.get("requestId"),
+                "error": "Choose one history cursor",
+            }));
+            return;
+        }
+        Some(match (before, after) {
+            (Some(id), _) => wabidb::projections::messages::MessagePageCursor::Before(id),
+            (_, Some(id)) => wabidb::projections::messages::MessagePageCursor::After(id),
+            _ => wabidb::projections::messages::MessagePageCursor::Latest,
+        })
+    } else { None };
     let session_msgs: Vec<Value> = {
         let session = state.app.session_messages.read().await;
         session.get(&channel_id).map(|msgs| msgs.iter().rev().take(limit).rev().cloned().collect()).unwrap_or_default()
     };
-    let messages: Vec<serde_json::Value> = if !session_msgs.is_empty() {
-        session_msgs
+    let (messages, has_more): (Vec<serde_json::Value>, bool) = if channel_is_live(&state.app, &channel_id).await {
+        (session_msgs, false)
     } else {
-        let typed_msgs = state.app.wdb.list_messages_typed(&channel_id, limit as u64).await.unwrap_or_default();
+        // For persisted rooms the durable tail is authoritative. A nonempty
+        // session cache can be missing REST sends or older messages, so it
+        // must never replace that tail (especially limit:1 DM previews).
+        let history = if let Some(cursor) = dm_cursor {
+            state.app.wdb.list_messages_page(&channel_id, cursor, limit).await
+        } else {
+            state.app.wdb.list_messages_typed(&channel_id, limit as u64).await
+                .map(|messages| (messages, false))
+        };
+        let (typed_msgs, has_more) = match history {
+            Ok(page) => page,
+            Err(error) => {
+                warn!("history read failed for {}: {}", channel_id, error);
+                let _ = socket.emit("history-error", &json!({
+                    "channelId": &channel_id, "requestId": req.get("requestId"), "error": "History could not be loaded",
+                }));
+                return;
+            }
+        };
+        let cache_by_id: std::collections::HashMap<String, Value> = session_msgs.into_iter()
+            .filter_map(|message| message.get("id").and_then(Value::as_str)
+                .map(|id| (id.to_string(), message.clone())))
+            .collect();
         let mut name_by_id: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
         let distinct_ids: Vec<u64> = {
             let seen: std::collections::HashSet<u64> = typed_msgs.iter().map(|m| m.author_user_id).collect();
@@ -251,7 +305,8 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
         for id in distinct_ids {
             if let Ok(Some(u)) = state.app.wdb.get_user(id).await { name_by_id.insert(id, u.username); }
         }
-        typed_msgs.into_iter().map(|m| {
+        let messages = typed_msgs.into_iter().map(|m| {
+            if let Some(cached) = cache_by_id.get(&m.message_id) { return cached.clone(); }
             let uname = m.author_username.clone().filter(|s| !s.is_empty())
                 .or_else(|| name_by_id.get(&m.author_user_id).cloned()).unwrap_or_default();
             let encrypted = crate::api::e2ee::is_ciphertext(&m.content);
@@ -264,10 +319,11 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
                     "fileUrl": f.file_url, "fileName": f.file_name, "fileSize": f.file_size,
                 })).collect::<Vec<_>>(),
             })
-        }).collect()
+        }).collect();
+        (messages, has_more)
     };
     let _ = socket.emit("history-loaded", &json!({
-        "channelId": channel_id, "messages": messages, "hasMore": false,
+        "channelId": channel_id, "messages": messages, "hasMore": has_more,
         "direction": req.get("direction").unwrap_or(&json!("before")), "requestId": req.get("requestId"),
     }));
 }

@@ -173,10 +173,15 @@ export async function sendMessage(
 	const trimmed = content.trim();
 	if (!trimmed && type === 'text') return { ok: false, reason: 'empty' };
 
-	const sock = getSocket();
-	const online = get(connected);
+	const server = normalizeServerUrl(getServerUrl());
+	const generation = authSessionGeneration(server);
+	const realm = groupMembership.realm();
+	const guest = getGuestSessionId();
 	const db = getWabiDB();
-	if (!sock && !(db && !online)) return { ok: false, reason: 'no_socket' };
+	const initialSocket = getSocket();
+	if ((!initialSocket || !get(connected) || initialSocket.connected === false) && !db) {
+		return { ok: false, reason: 'no_socket' };
+	}
 
 	let wireText = trimmed;
 	let wireType: MessageType = type;
@@ -196,6 +201,16 @@ export async function sendMessage(
 			return { ok: false, reason: 'queue_failed' };
 		}
 	}
+	// Encryption can cross a reconnect, logout, or server switch. A stale socket
+	// must never receive a message prepared for another account or server.
+	if (normalizeServerUrl(getServerUrl()) !== server || authSessionGeneration(server) !== generation ||
+		groupMembership.realm() !== realm || getGuestSessionId() !== guest) {
+		return { ok: false, reason: 'no_socket' };
+	}
+	if (!groupMembership.acceptsContent(channelId)) return { ok: false, reason: 'no_channel' };
+	const sock = getSocket();
+	const online = Boolean(sock && get(connected) && sock.connected !== false);
+	if (!online && !db) return { ok: false, reason: 'no_socket' };
 
 	const clientMessageId = createClientMessageId(channelId);
 	const me = get(currentUser);
@@ -239,9 +254,6 @@ export async function sendMessage(
 	if (db && !online) {
 		const groupRealm = groupMembership.realm();
 		const lease = groupMembership.tracks(channelId) ? groupMembership.capture(channelId) : null;
-		const server = normalizeServerUrl(getServerUrl());
-		const generation = authSessionGeneration(server);
-		const guest = getGuestSessionId();
 		let sessionCurrent = true;
 		const unsubscribe = onAuthSessionCleared(clearedServer => {
 			if (normalizeServerUrl(clearedServer) === server) sessionCurrent = false;
@@ -283,6 +295,7 @@ export async function sendMessage(
 		sock!.emit('message', { ...wireOptions, channelId, text: wireText, type: wireType, clientMessageId });
 	} catch {
 		messageDeliveries.unconfirm(sock!, { channelId, clientMessageId });
+		return { ok: false, reason: 'no_socket' };
 	}
 	return { ok: true, clientMessageId };
 }

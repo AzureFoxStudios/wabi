@@ -580,6 +580,29 @@ struct SocketClient {
 }
 
 #[tokio::test]
+async fn bot_presence_views_include_registry_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, _, _) = users(&state).await;
+    let bot = state.wdb.create_user("roster_bot", Some("roster_bot"), "dummy-bot-hash").await.unwrap();
+    state.bot_registry.create(bot).await;
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut bot_client = SocketClient::handshake(&app, &jwt(&state, bot)).await;
+    bot_client.emit("join", json!("roster_bot")).await;
+    let init = bot_client.event("init").await;
+    let bot_member = init["serverMembers"].as_array().unwrap().iter()
+        .find(|user| user["dbUserId"] == bot).unwrap();
+    assert_eq!(bot_member["isBot"], true);
+    let bot_online = init["users"].as_array().unwrap().iter()
+        .find(|user| user["dbUserId"] == bot).unwrap();
+    assert_eq!(bot_online["isBot"], true);
+    let human_member = init["serverMembers"].as_array().unwrap().iter()
+        .find(|user| user["dbUserId"] == member).unwrap();
+    assert_eq!(human_member["isBot"], false);
+}
+
+#[tokio::test]
 async fn voice_admission_rejects_private_missing_and_nonmember_channels() {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;

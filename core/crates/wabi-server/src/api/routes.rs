@@ -8,7 +8,7 @@ use crate::state::AppState;
 
 use super::{
     addons, admin, albums, auth, blobs, bots, cad, calls, channels, e2ee, emoji, forum, gallery, incidents,
-    jobs, lan, media, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
+    friends, jobs, lan, media, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
     standby, steam, sync, upload, user, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
@@ -35,6 +35,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/games", super::games::routes(state.clone()))
         // User routes
         .nest("/user", user::routes(state.clone()))
+        .nest("/friends", friends::routes(state.clone()))
         // Member-visible privacy/retention contract
         .nest("/privacy", privacy::routes(state.clone()))
         // Operator-blind private-room device/key registry. The server stores

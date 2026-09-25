@@ -6,7 +6,12 @@
 //             media SWR revalidate is tied to event.waitUntil.
 
 const MEDIA_CACHE = 'media-cache-v3';
-const SHELL_CACHE = 'shell-cache-v3';
+// The static build fills these markers with a content-derived ID and the full
+// immutable asset list. A missing build step must not claim offline readiness.
+const BUILD_ID = 'unversioned';
+const APP_PRECACHE_URLS = [];
+const SHELL_CACHE = `shell-cache-${BUILD_ID}`;
+const APP_ASSET_CACHE = `app-assets-${BUILD_ID}`;
 
 const MAX_MEDIA_ENTRIES = 300;
 // Capability-URL uploads: short retention. Logout also deletes this cache.
@@ -27,21 +32,26 @@ const SHELL_PRECACHE_URLS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
-      const cache = await caches.open(SHELL_CACHE);
-      // Best-effort: one failure must not abort the whole install.
-      await Promise.all(
-        SHELL_PRECACHE_URLS.map(async (path) => {
-          try {
-            const req = new Request(path, { cache: 'reload', credentials: 'same-origin' });
-            const res = await fetch(req);
-            if (res && res.ok) {
-              await cache.put(path === '/' ? '/' : path, res.clone());
-            }
-          } catch {
-            // ignore individual precache failures
-          }
-        })
-      );
+      if (BUILD_ID === 'unversioned' || APP_PRECACHE_URLS.length === 0) {
+        throw new Error('Static build did not provide an offline asset list');
+      }
+      const shell = await caches.open(SHELL_CACHE);
+      const app = await caches.open(APP_ASSET_CACHE);
+      const putRequired = async (cache, path) => {
+        if (await cache.match(path)) return;
+        const response = await fetch(new Request(path, { cache: 'reload', credentials: 'same-origin' }));
+        if (!response.ok || response.type !== 'basic') throw new Error(`Cannot precache ${path}: ${response.status}`);
+        await cache.put(path, response);
+      };
+      // A failed chunk leaves the previous worker and its complete caches
+      // active. Keep concurrency bounded for phones and smaller servers.
+      for (const paths of [SHELL_PRECACHE_URLS, APP_PRECACHE_URLS]) {
+        for (let index = 0; index < paths.length; index += 12) {
+          await Promise.all(paths.slice(index, index + 12).map(path =>
+            putRequired(paths === SHELL_PRECACHE_URLS ? shell : app, path)
+          ));
+        }
+      }
       await self.skipWaiting();
     })()
   );
@@ -72,6 +82,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // The cached HTML shell needs its versioned JS/CSS to start offline.
+  // These hashed build assets are public and immutable; API and uploads keep
+  // their separate network/cache policies below.
+  if (request.method === 'GET' && url.origin === self.location.origin && url.pathname.startsWith('/_app/immutable/')) {
+    event.respondWith(immutableAssetHandler(request));
+    return;
+  }
+
   // Media — network-preferring SWR with real max-age (cachePut stamps age)
   if (
     url.pathname.startsWith('/uploads/') ||
@@ -96,6 +114,19 @@ self.addEventListener('fetch', (event) => {
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
+
+async function immutableAssetHandler(request) {
+  const cache = await caches.open(APP_ASSET_CACHE);
+  // A tab opened before an update may still request an old hashed chunk.
+  // Activation retains one prior asset cache for exactly this transition.
+  const cached = (await cache.match(request)) || (await caches.match(request));
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok && response.type === 'basic') {
+    await cache.put(request, response.clone());
+  }
+  return response;
+}
 
 async function navigationHandler(request, event) {
   try {
@@ -247,12 +278,14 @@ async function trimCache(cache, maxEntries) {
 }
 
 /**
- * Delete caches whose names we no longer use (stale workbox caches, old versions).
- * shell-cache-v2 drops empty v1 shells; media-cache-v2 drops unstamped v1 media.
+ * Keep one prior shell/asset pair for pages opened before an update. Their
+ * hashed imports may still be in flight after the new worker claims clients.
  */
 async function deleteOldCaches() {
-  const expectedCaches = [MEDIA_CACHE, SHELL_CACHE];
   const keys = await caches.keys();
+  const previousShell = keys.filter(key => key.startsWith('shell-cache-') && key !== SHELL_CACHE).at(-1);
+  const previousAssets = keys.filter(key => key.startsWith('app-assets-') && key !== APP_ASSET_CACHE).at(-1);
+  const expectedCaches = [MEDIA_CACHE, SHELL_CACHE, APP_ASSET_CACHE, previousShell, previousAssets];
   return Promise.all(
     keys
       .filter((key) => !expectedCaches.includes(key))
@@ -321,4 +354,3 @@ self.addEventListener('message', (event) => {
   if (data.type === 'wabi-skip-waiting') self.skipWaiting();
   if (data.type === 'wabi-clear-media-cache') event.waitUntil(caches.delete(MEDIA_CACHE));
 });
-
