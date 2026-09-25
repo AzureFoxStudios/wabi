@@ -265,7 +265,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_create_dm(socket, data, s, io).await }
+                    async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_create_dm(socket, data, s, io).await }
                 }
             });
 

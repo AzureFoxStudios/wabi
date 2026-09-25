@@ -16,6 +16,7 @@ pub mod cad;
 pub mod channels;
 pub mod emoji;
 pub mod forum;
+pub mod friends;
 pub mod gallery;
 pub mod incidents;
 pub mod wiki;

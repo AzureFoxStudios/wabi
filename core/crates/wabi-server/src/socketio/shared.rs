@@ -946,6 +946,10 @@ async fn connected_user_to_view(user: &ConnectedUser, _owner_id: Option<i64>, st
     };
 
     let badges = badges_json_for(state, user.db_user_id.unwrap_or(0)).await;
+    let is_bot = match user.db_user_id {
+        Some(db_id) if db_id > 0 => state.app.is_bot_user(db_id as u64).await,
+        _ => false,
+    };
 
     json!({
         "id":          user.stable_id,
@@ -966,6 +970,7 @@ async fn connected_user_to_view(user: &ConnectedUser, _owner_id: Option<i64>, st
         "highestRole": role,
         "badges":      badges,
         "isRegistered": is_registered,
+        "isBot": is_bot,
     })
 }
 

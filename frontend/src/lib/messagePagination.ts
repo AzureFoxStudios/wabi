@@ -27,6 +27,8 @@ export const channelOldestMessageId = writable<Record<string, string | null>>({}
 interface PendingHistoryRequest {
 	requestId: string;
 	requestKey: string;
+	channelId: string;
+	preview: boolean;
 }
 
 const pendingHistoryRequests = new Map<string, PendingHistoryRequest>();
@@ -65,7 +67,10 @@ export function loadHistory(channelId: string, options?: {
 	if (pendingHistoryRequests.has(requestKey)) return;
 
 	const requestId = createHistoryRequestId(channelId);
-	pendingHistoryRequests.set(requestKey, { requestId, requestKey });
+	pendingHistoryRequests.set(requestKey, {
+		requestId, requestKey, channelId,
+		preview: options?.limit === 1 && !options.beforeMessageId && !options.afterMessageId
+	});
 
 	channelHistoryLoading.update((state) => ({
 		...state,
@@ -87,6 +92,36 @@ export function loadHistory(channelId: string, options?: {
 		channelId,
 		...options
 	});
+}
+
+/** Fetch one server-owned row so an unopened DM has a truthful preview. */
+export function loadDmPreview(channelId: string): void {
+	loadHistory(channelId, { limit: 1 });
+}
+
+/** A response from an older socket must not settle a new connection's request. */
+export function _completeHistoryRequest(channelId: string, requestId: string | null | undefined): PendingHistoryRequest | null {
+	if (!requestId) return null;
+	const entry = [...pendingHistoryRequests.entries()].find(([, request]) =>
+		request.channelId === channelId && request.requestId === requestId);
+	if (!entry) return null;
+	pendingHistoryRequests.delete(entry[0]);
+	if (![...pendingHistoryRequests.values()].some((request) => request.channelId === channelId)) {
+		channelHistoryLoading.update((state) => ({ ...state, [channelId]: false }));
+	}
+	return entry[1];
+}
+
+export function _failHistoryRequests(channelId: string): void {
+	for (const [key, request] of pendingHistoryRequests) {
+		if (request.channelId === channelId) pendingHistoryRequests.delete(key);
+	}
+	channelHistoryLoading.update((state) => ({ ...state, [channelId]: false }));
+}
+
+export function _resetHistoryRequests(): void {
+	pendingHistoryRequests.clear();
+	channelHistoryLoading.set({});
 }
 
 export function loadOlderHistory(channelId: string): void {
@@ -112,9 +147,5 @@ export function _getPendingHistoryRequest(channelId: string): PendingHistoryRequ
 }
 
 export function _deletePendingHistoryRequest(channelId: string): void {
-	for (const [key, request] of pendingHistoryRequests.entries()) {
-		if (request.requestId.startsWith(channelId + ':')) {
-			pendingHistoryRequests.delete(key);
-		}
-	}
+	_failHistoryRequests(channelId);
 }

@@ -1,6 +1,6 @@
 # Wabi Project Status
 
-**Updated:** 2026-09-15
+**Updated:** 2026-09-25
 
 **Purpose:** canonical product-status boundary for operators, contributors, reviewers, and AI agents.
 
@@ -19,6 +19,14 @@ The intended model is:
 - optional helpers may improve media, ingress, private reachability, or other scoped functions without becoming additional state authorities.
 
 Wabi is not trying to become a centralized hosted social network, a Matrix/ActivityPub-style federation protocol, or a distributed active-active database product.
+
+## Friends and direct message repair candidate — not deployed
+
+The current branch adds server-local friend requests and accepted friendships,
+plus direct message room, fanout and history repairs. The friend relationship
+is a durable Authority record; it does not grant access to a DM. Browser and
+physical phone acceptance, including the Tim deployment, remain pending. See
+[the rebuild contract](plans/2026-09-25-friends-and-dm-rebuild.md).
 
 ## Production-finish candidate — not yet merged or deployed
 

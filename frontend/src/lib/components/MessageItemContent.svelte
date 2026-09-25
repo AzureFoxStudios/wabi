@@ -19,6 +19,7 @@
 	import { overlayStyle } from '$lib/overlayStyle';
 
 	export let message: Message;
+	export let messageDomId = '';
 	export let author: User | undefined;
 	export let displayUsername: string;
 	export let replyToMsg: Message | undefined;
@@ -203,7 +204,8 @@
 {#if !filteredMessage.hidden && isRenderableMessage(message)}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		id="message-{message.id}"
+		id={messageDomId || `message-${message.id}`}
+		data-message-id={message.id}
 		class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinned ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''} {deletionModeEnabled ? 'deletion-mode-active' : ''} {message.deliveryState === 'sending' ? 'is-sending' : ''} {message.deliveryState === 'failed' ? 'is-send-failed' : ''}"
 		title={ownMessage && message.deliveryState === 'failed' ? (message.deliveryError || 'Delivery not confirmed. Check this conversation before sending again.') : undefined}
 		on:contextmenu={(e) => onContextMenu(e, message)}

@@ -122,6 +122,7 @@ import type { MediaAlbum } from '$lib/api';
 	const restoredDraft = draftOwner.initial;
 	let mounted = true;
 	let isSending = $state(draftOwner.isSending());
+	let commandBusy = $state(false);
 	const operationCurrent = () => mounted && draftOwner.current();
 	let messageInput = $state(restoredDraft?.text || '');
 	let gifCaptionInput = $state(restoredDraft?.gifCaption || '');
@@ -317,7 +318,7 @@ import type { MediaAlbum } from '$lib/api';
 	function cancelReply() { replyingTo = null; }
 	function clearAfterSend() { messageInput = ''; resetComposerEntityState(); showMentionSuggestions = false; showMediaMenu = false; sendCooldownMessage = ''; sendTyping(false, effectiveChannel); if (typingTimeout) clearTimeout(typingTimeout); if (textareaElement) textareaElement.style.height = 'auto'; textareaElement?.focus(); }
 	async function handleSubmit() {
-		if (isSending || isUploading || !operationCurrent()) return;
+		if (isSending || commandBusy || isUploading || !operationCurrent()) return;
 		const hasFiles = selectedFiles.length > 0;
 		const hasText = Boolean(messageInput.trim());
 		if (!hasFiles && !hasText) return;
@@ -366,9 +367,16 @@ import type { MediaAlbum } from '$lib/api';
 		}
 
 		if (processed.text.startsWith('/')) {
-			void onExecuteCommand(processed.text);
-			messageInput = '';
-			resetComposerEntityState();
+			const inputAtSubmit = messageInput;
+			commandBusy = true;
+			try {
+				await onExecuteCommand(processed.text);
+				if (operationCurrent() && messageInput === inputAtSubmit) clearAfterSend();
+			} catch (error) {
+				if (operationCurrent()) showToast(error instanceof Error ? error.message : 'Command was not sent. Try again.', 'error');
+			} finally {
+				commandBusy = false;
+			}
 			return;
 		}
 

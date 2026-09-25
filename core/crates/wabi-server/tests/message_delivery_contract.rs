@@ -580,3 +580,102 @@ async fn legacy_persistence_retry_reports_unsupported_without_acknowledging_or_m
         .values()
         .all(Vec::is_empty));
 }
+
+#[tokio::test]
+async fn direct_message_reaches_unopened_recipient_and_history_uses_latest_durable_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let sender_id = state.wdb.create_user("sender", None, "registered-test-hash").await.unwrap();
+    let recipient_id = state.wdb.create_user("recipient", None, "registered-test-hash").await.unwrap();
+    let app = router(&state);
+    let mut sender = Client::connect(&app, &token(&state, sender_id)).await;
+    let mut recipient = Client::connect(&app, &token(&state, recipient_id)).await;
+    sender.emit("create-dm", json!({"targetUserId": format!("user-{recipient_id}")})).await;
+    let created = sender.event("dm-created").await;
+    let channel = created["channelId"].as_str().unwrap().to_string();
+    assert_eq!(recipient.event("dm-channel-added").await["channelId"], channel);
+    assert_eq!(state.wdb.list_channel_members(&channel).await.unwrap().len(), 2);
+
+    // Reopening is a success, and sending does not depend on a join-channel
+    // round trip on either the desktop or the recipient's phone.
+    sender.emit("create-dm", json!({"targetUserId": format!("user-{recipient_id}")})).await;
+    assert_eq!(sender.event("dm-created").await["channelId"], channel);
+    sender.emit("message", json!({"channelId":channel,"clientMessageId":"dm-first","text":"hello from first device"})).await;
+    assert_eq!(sender.event("message-accepted").await["clientMessageId"], "dm-first");
+    assert_eq!(recipient.event("message").await["message"]["text"], "hello from first device");
+    assert_eq!(state.wdb.list_messages_typed(&channel, 10).await.unwrap().len(), 1);
+
+    // A second writer can add a durable row while the first is still cached
+    // in session memory. limit:1 must return the actual durable tail.
+    state.wdb.send_message(&channel, recipient_id, "newest durable DM", false, &[]).await.unwrap();
+    sender.emit("load-history", json!({"channelId":channel,"limit":1,"requestId":"dm-preview"})).await;
+    let history = sender.event("history-loaded").await;
+    assert_eq!(history["requestId"], "dm-preview");
+    assert_eq!(history["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(history["messages"][0]["text"], "newest durable DM");
+    sender.emit("join-channel", json!(channel)).await;
+    let joined = sender.event("channel-messages").await;
+    assert_eq!(joined["messages"].as_array().unwrap().last().unwrap()["text"], "newest durable DM");
+}
+
+#[tokio::test]
+async fn direct_message_history_pages_past_one_hundred_and_survives_reconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let sender_id = state.wdb.create_user("page_sender", None, "registered-test-hash").await.unwrap();
+    let recipient_id = state.wdb.create_user("page_recipient", None, "registered-test-hash").await.unwrap();
+    let app = router(&state);
+    let credential = token(&state, sender_id);
+    let mut sender = Client::connect(&app, &credential).await;
+    sender.emit("create-dm", json!({"targetUserId": format!("user-{recipient_id}")})).await;
+    let channel = sender.event("dm-created").await["channelId"].as_str().unwrap().to_string();
+    let mut ids = Vec::new();
+    for index in 0..125 {
+        ids.push(state.wdb.send_message(&channel, sender_id, &format!("page-{index}"), false, &[]).await.unwrap());
+    }
+
+    sender.emit("load-history", json!({"channelId":channel,"limit":100,"requestId":"latest"})).await;
+    let latest = sender.event("history-loaded").await;
+    let latest_ids: Vec<_> = latest["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(latest["requestId"], "latest");
+    assert_eq!(latest_ids.len(), 100);
+    assert_eq!(latest["hasMore"], true);
+    assert_eq!(latest_ids, ids[25..].to_vec());
+
+    // A fresh phone/desktop connection can resume from a message ID without
+    // relying on the original socket's in-memory message cache.
+    let mut reconnected = Client::connect(&app, &credential).await;
+    reconnected.emit("join-channel", json!(channel)).await;
+    let snapshot = reconnected.event("channel-messages").await;
+    assert_eq!(snapshot["messages"].as_array().unwrap().len(), 50);
+    reconnected.emit("load-history", json!({
+        "channelId":channel,"beforeMessageId":latest_ids[0],"limit":30,"requestId":"older"
+    })).await;
+    let older = reconnected.event("history-loaded").await;
+    let older_ids: Vec<_> = older["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(older["requestId"], "older");
+    assert_eq!(older_ids, ids[..25].to_vec());
+    assert_eq!(older["hasMore"], false);
+
+    reconnected.emit("load-history", json!({
+        "channelId":channel,"afterMessageId":ids[10],"limit":30,"requestId":"newer"
+    })).await;
+    let newer = reconnected.event("history-loaded").await;
+    let newer_ids: Vec<_> = newer["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(newer_ids, ids[11..41].to_vec());
+    assert_eq!(newer["hasMore"], true);
+    reconnected.emit("load-history", json!({
+        "channelId":channel,"afterMessageId":ids[124],"limit":30,"requestId":"end"
+    })).await;
+    let end = reconnected.event("history-loaded").await;
+    assert_eq!(end["messages"], json!([]));
+    assert_eq!(end["hasMore"], false);
+
+    reconnected.emit("load-history", json!({
+        "channelId":channel,"beforeMessageId":"missing-row","limit":30,"requestId":"bad-cursor"
+    })).await;
+    assert_eq!(reconnected.event("history-error").await["requestId"], "bad-cursor");
+}

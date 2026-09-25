@@ -9,7 +9,7 @@ import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { authStore } from './authStore';
 import { getServerUrl, normalizeServerUrl } from './serverUrl';
-import { getAuthToken, getGuestSessionId, authSessionGeneration } from './authSession';
+import { getAuthToken, getGuestSessionId, authSessionGeneration, onAuthSessionCleared } from './authSession';
 import { tryRefresh } from './api/authRefresh';
 import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
 import { callSessionManager, backfillCallSessionChannelNames } from './callSessionManager';
@@ -29,7 +29,11 @@ import { messageDeliveries, parseMessageAcceptance, parseMessageFailure, isOwnMe
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
 import { upsertBreakoutRooms, removeBreakoutRooms } from './breakoutChannels';
-import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
+import { channelMessages, _incrementUnreadCount, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
+import {
+	loadDmPreview, _completeHistoryRequest, _failHistoryRequests, _resetHistoryRequests,
+	channelHasMoreHistory, channelOldestMessageId
+} from './messagePagination';
 import { isRenderableMessage } from '$lib/displayEnhancements';
 import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
 import { recordSuccessfulServerConnection } from './savedServerActions';
@@ -90,6 +94,23 @@ function dedupeMessagesKeepOrder(items: Message[]): Message[] {
 		out.push(byKey.get(key) || m);
 	});
 	return out;
+}
+
+function mergeHistoryMessages(existing: Message[], incoming: Message[]): Message[] {
+	const merged = [...existing];
+	for (const message of incoming) {
+		const index = merged.findIndex((candidate) => isSameMessageRow(candidate, message));
+		if (index >= 0) merged[index] = mergeMessageRow(merged[index], message);
+		else merged.push(message);
+	}
+	merged.sort((left, right) => {
+		const time = (Number(left.timestamp) || 0) - (Number(right.timestamp) || 0);
+		if (time) return time;
+		const sequence = (Number((left as Message & { commitSeq?: number }).commitSeq) || 0) -
+			(Number((right as Message & { commitSeq?: number }).commitSeq) || 0);
+		return sequence;
+	});
+	return dedupeMessagesKeepOrder(merged);
 }
 
 /** Collapse list items that would crash Svelte keyed {#each} blocks. */
@@ -220,6 +241,23 @@ export class SocketManager {
 	constructor() {
 		this.heartbeat = new SocketHeartbeat(() => this.socketInstance?.disconnect());
 		this.reconnect = new SocketReconnectionManager();
+		onAuthSessionCleared((server) => {
+			if (normalizeServerUrl(this.currentServerUrl || '') !== server) return;
+			this.reconnect.cancelReconnect();
+			this.heartbeat.stop();
+			this.destroySocket();
+			this.username = '';
+			this.authToken = null;
+			this.currentServerUrl = null;
+			this.transition('disconnected');
+			this.clearAccountRoster();
+		});
+	}
+
+	private clearAccountRoster(): void {
+		_setUsers([]);
+		_setServerMembers([]);
+		_setCurrentUser(null);
 	}
 
 	// ==================== STATE MACHINE ====================
@@ -370,13 +408,15 @@ export class SocketManager {
 	connect(username: string, authToken?: string): Socket | null {
 		if (!browser) return null;
 		const isReconnectAttempt = this.state === 'reconnecting' || this.reconnect.getAttemptCount() > 0;
+		const nextServerUrl = normalizeServerUrl(getServerUrl()) || getServerUrl();
 
 		if (this.state === 'connecting') {
 			console.log('[SocketManager] Connection in progress, returning existing socket');
 			return this.socketInstance;
 		}
 
-		if (this.state === 'connected' && this.socketInstance && this.username === username) {
+		if (this.state === 'connected' && this.socketInstance && this.username === username &&
+			this.currentServerUrl === nextServerUrl) {
 			console.log('[SocketManager] Already connected with same username');
 			return this.socketInstance;
 		}
@@ -385,7 +425,8 @@ export class SocketManager {
 		// starting a connection (e.g. overlapping bootstrap + login handlers, or
 		// aggressive HMR remounts) must not spin up a second socket that the
 		// server would then kick, triggering a disconnect/reconnect storm.
-		if (this.socketInstance && Date.now() - this.lastConnectStartedAt < 500) {
+		if (this.socketInstance && this.username === username && this.currentServerUrl === nextServerUrl &&
+			Date.now() - this.lastConnectStartedAt < 500) {
 			console.log('[SocketManager] Ignoring duplicate connect() within cooldown window');
 			return this.socketInstance;
 		}
@@ -394,6 +435,9 @@ export class SocketManager {
 		if (!this.canTransition('connecting')) {
 			console.warn(`[SocketManager] Cannot connect from state: ${this.state}`);
 			this.forceReset();
+		}
+		if (this.currentServerUrl && (this.currentServerUrl !== nextServerUrl || this.username !== username)) {
+			this.clearAccountRoster();
 		}
 
 		this.transition('connecting');
@@ -454,6 +498,7 @@ export class SocketManager {
 		this.currentServerUrl = null;
 		this.shouldSyncAfterReconnect = false;
 		this.transition('disconnected');
+		this.clearAccountRoster();
 	}
 
 	private forceReset(): void {
@@ -628,6 +673,7 @@ export class SocketManager {
 			roleDefinitions?: unknown[];
 			voiceState?: Record<string, unknown>;
 		}) => {
+			_resetHistoryRequests();
 			const offered = dedupeByIdKey(normalizeChannelList(payload?.channels));
 			const nextChannels = offered.filter(channel => channel.type !== 'group' || (realm && groupMembership.apply(channel, realm)));
 			if (realm) {
@@ -700,6 +746,12 @@ export class SocketManager {
 				upsertUser(serverMembers, me);
 			}
 			_setCurrentUser(me);
+			// The initial channel list contains existing conversations, but their
+			// messages have not been loaded. Fetch one durable row per conversation
+			// so previews and ordering survive a reload on both devices.
+			for (const channel of nextChannels) {
+				if (channel.type === 'dm' || channel.type === 'group') loadDmPreview(channel.id);
+			}
 
 			for (const [channelId, members] of Object.entries(payload?.voiceState || {})) {
 				if (Array.isArray(members)) {
@@ -834,6 +886,31 @@ export class SocketManager {
 			});
 		});
 
+		on('history-loaded', (payload: {
+			channelId?: string; requestId?: string; messages?: Message[]; hasMore?: boolean
+		}) => {
+			if (!payload?.channelId) return;
+			const request = _completeHistoryRequest(payload.channelId, payload.requestId);
+			if (!request) return;
+			const incoming = dedupeMessagesKeepOrder(
+				(Array.isArray(payload.messages) ? payload.messages : []).map(scopedMessageCorrelation)
+			);
+			channelMessages.update((state) => ({
+				...state,
+				[payload.channelId!]: mergeHistoryMessages(state[payload.channelId!] || [], incoming)
+			}));
+			if (!request.preview) {
+				channelHasMoreHistory.update((state) => ({ ...state, [payload.channelId!]: payload.hasMore === true }));
+				const oldest = (get(channelMessages)[payload.channelId] || []).find((message) =>
+					Boolean(message.id) && !message.id.startsWith('optimistic:'))?.id || null;
+				channelOldestMessageId.update((state) => ({ ...state, [payload.channelId!]: oldest }));
+			}
+		});
+		on('history-error', (payload: { channelId?: string; error?: string }) => {
+			if (payload?.channelId) _failHistoryRequests(payload.channelId);
+			console.warn('[socket] history-error', payload?.channelId, payload?.error);
+		});
+
 		on('message', (payload: { channelId?: string; message?: Message }) => {
 			if (!payload?.channelId || !payload.message) return;
 			if (!isRenderableMessage(payload.message)) {
@@ -842,6 +919,7 @@ export class SocketManager {
 			}
 			const channelId = payload.channelId;
 			const message = scopedMessageCorrelation(payload.message);
+			let inserted = false;
 			channelMessages.update((state) => {
 				const existing = state[channelId] || [];
 				const duplicateIndex = existing.findIndex((candidate) =>
@@ -853,8 +931,12 @@ export class SocketManager {
 								index === duplicateIndex ? mergeMessageRow(candidate, message) : candidate
 							)
 						: [...existing, message];
+				inserted = duplicateIndex < 0;
 				return { ...state, [channelId]: dedupeMessagesKeepOrder(next) };
 			});
+			if (inserted && !isOwnMessage(message, get(currentUser)) && get(currentChannel) !== channelId) {
+				_incrementUnreadCount(channelId, message.id);
+			}
 		});
 
 		on('message-accepted', (raw: unknown) => {
@@ -1022,7 +1104,6 @@ export class SocketManager {
 			'add-member-error',
 			'avatar-error',
 			'join-error',
-			'history-error',
 			'sync-error',
 			'wiki-error',
 			'forum-error',

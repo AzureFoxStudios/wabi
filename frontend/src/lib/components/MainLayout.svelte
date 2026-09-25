@@ -240,6 +240,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		layoutStore.closeDM();
+		layoutStore.closeCenterDm();
 		activeView = 'dm';
 		try {
 			history.pushState({ wabiMobileSheet: 'messages' }, '');

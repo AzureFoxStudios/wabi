@@ -90,6 +90,7 @@
 	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
 	export let messages: Message[];
 	export let channelId: string | null = null;
+	export let messageDomScope = '';
 	export let onReply: (message: Message) => void = () => {};
 	export let onQuickMention: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -1617,7 +1618,7 @@
 	// Jump to referenced message
 	let highlightedMessageId: string | null = null;
 	function jumpToMessage(messageId: string) {
-		const messageElement = document.getElementById(`message-${messageId}`);
+		const messageElement = document.getElementById(messageDomScope ? `message-${messageDomScope}-${messageId}` : `message-${messageId}`);
 		if (messageElement) {
 			messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			// Highlight the message briefly
@@ -1995,6 +1996,7 @@
 
 		<MessageItem
 			{message}
+			messageDomId={messageDomScope ? `message-${messageDomScope}-${message.id}` : `message-${message.id}`}
 			{author}
 			{displayUsername}
 			replyToMsg={replyToMsg}

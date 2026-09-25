@@ -132,6 +132,13 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
             return;
         }
     };
+    // A restored phone or desktop session receives private conversation
+    // updates before the conversation is explicitly opened.
+    for channel in &visible {
+        if crate::channel_access::is_conversation(channel.channel_kind) {
+            socket.join(channel.channel_id.clone());
+        }
+    }
     let mut channels = Vec::with_capacity(visible.len());
     for channel in visible {
         if channel.channel_kind == wabidb::domain::ChannelKind::GroupDm {
@@ -338,6 +345,7 @@ async fn build_user_view(
     let (banner_url, overlay_url) = media_banner_overlay(&media);
     let (overlay_scale, overlay_ox, overlay_oy) = media_overlay_alignment(&media);
     let badges = badges_json_for(state, db_user_id).await;
+    let is_bot = db_user_id > 0 && state.app.is_bot_user(db_user_id as u64).await;
 
     json!({
         "id": stable_id,
@@ -359,6 +367,7 @@ async fn build_user_view(
         "badges": badges,
         "usernameFont": username_font.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
         "isRegistered": is_registered,
+        "isBot": is_bot,
     })
 }
 
@@ -943,8 +952,10 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
     let session = state.app.session_messages.read().await;
     let session_msgs = session.get(&channel_id).cloned().unwrap_or_default();
     drop(session);
+    let is_live = state.app.channel_auto_delete_label.read().await
+        .get(&channel_id).is_some_and(|label| label == "live");
 
-    let all: Vec<Value> = if !session_msgs.is_empty() {
+    let all: Vec<Value> = if is_live {
         let mut msgs = session_msgs;
         msgs.sort_by_key(|m| m.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0));
         // Collapse duplicate message ids — duplicate keys crash Svelte keyed each.
@@ -970,18 +981,23 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
             .rev()
             .collect()
     } else {
-        // Fall back to WDB for persisted messages when the in-memory
-        // session cache is empty (e.g. after page reload). Map the domain
-        // Message to the frontend protocol shape (id, userId, user, timestamp).
+        // Retained rooms use the durable tail even when session memory is
+        // nonempty. The cache can omit older and REST-written messages.
         // Resolve author usernames so the client shows a real name (and a
         // `user-<dbId>` id it can look up in its cache) instead of a bare
         // numeric id + empty username that renders as "Unknown user".
-        let typed_msgs = state
-            .app
-            .wdb
-            .list_messages_typed(&channel_id, 50)
-            .await
-            .unwrap_or_default();
+        let typed_msgs = match state.app.wdb.list_messages_typed(&channel_id, 50).await {
+            Ok(messages) => messages,
+            Err(error) => {
+                warn!("join history failed for {}: {}", channel_id, error);
+                let _ = socket.emit("join-error", &json!({"channelId": &channel_id, "error": "Messages could not be loaded"}));
+                return;
+            }
+        };
+        let cache_by_id: std::collections::HashMap<String, Value> = session_msgs.into_iter()
+            .filter_map(|message| message.get("id").and_then(Value::as_str)
+                .map(|id| (id.to_string(), message.clone())))
+            .collect();
         let mut name_by_id: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
         let distinct_ids: Vec<u64> = {
             let mut seen: std::collections::HashSet<u64> =
@@ -996,6 +1012,7 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
         typed_msgs
             .into_iter()
             .map(|m| {
+                if let Some(cached) = cache_by_id.get(&m.message_id) { return cached.clone(); }
                 let uname = m
                     .author_username
                     .clone()
@@ -1013,6 +1030,11 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
                     "editedAt": m.edited_at_micros.map(|e| e / 1000),
                     "commitSeq": m.commit_seq,
                     "isDeleted": m.is_deleted,
+                    "isSpoiler": m.is_spoiler,
+                    "encrypted": crate::api::e2ee::is_ciphertext(&m.content),
+                    "files": m.files.iter().map(|f| json!({
+                        "fileUrl": f.file_url, "fileName": f.file_name, "fileSize": f.file_size,
+                    })).collect::<Vec<_>>(),
                 })
             })
             .collect()
@@ -1025,14 +1047,6 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
 
     // Emit a live-buffer-snapshot for live channels so the joining client
     // gets the current in-memory buffer (which may differ from WDB history).
-    let is_live = state
-        .app
-        .channel_auto_delete_label
-        .read()
-        .await
-        .get(&channel_id)
-        .map(|s| s == "live")
-        .unwrap_or(false);
     if is_live {
         let cap = state
             .app

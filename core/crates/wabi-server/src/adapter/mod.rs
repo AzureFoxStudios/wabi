@@ -34,6 +34,8 @@ use wabidb::format::record::RecordKind;
 use wabidb::sequencer::types::{CommandCommit, EventToWrite};
 
 mod group_commands;
+pub(crate) mod friends;
+mod messages_page;
 pub(crate) mod game_profiles;
 
 /// Adapter from the WabiClient method shape to wabidb commands.
@@ -892,32 +894,13 @@ impl WabiStore for WdbAdapter {
         members: Option<&[String]>,
         my_user_id: i64,
     ) -> Result<String> {
-        let payload = serde_json::json!({
-            "channel_id": channel_id,
-            "name": name,
-            "channel_kind": wabidb::domain::ChannelKind::Dm as u8,
-            "owner_user_id": my_user_id,
-            "created_at_micros": now_micros(),
-        });
-        self.run(
-            my_user_id as u64,
-            "create_dm_channel",
-            channel_id.into(),
-            "channel_created",
-            6,
-            Self::payload_json(&payload)?,
-            true,
-            None,
-        )
-        .await?;
-        if let Some(member_ids) = members {
-            for m in member_ids.iter() {
-                let user_id = m.trim_start_matches("user-").parse::<u64>().unwrap_or(0);
-                if user_id > 0 {
-                    self.add_channel_member(channel_id, user_id, wabidb::domain::MemberRole::Member).await?;
-                }
-            }
-        }
+        let member_ids: Option<Vec<u64>> = members.and_then(|members| members.iter()
+            .map(|member| member.strip_prefix("user-").unwrap_or(member).parse::<u64>().ok())
+            .collect());
+        let member_ids = member_ids.ok_or_else(|| WabiError::Validation {
+            command: "create_dm".into(), reason: "two registered participants are required".into(),
+        })?;
+        self.create_dm_command(channel_id, name, my_user_id as u64, &member_ids).await?;
         Ok(channel_id.to_string())
     }
 

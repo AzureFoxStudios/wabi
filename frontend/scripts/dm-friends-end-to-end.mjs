@@ -1,0 +1,367 @@
+// Disposable two-account Authority proof. Never point this at a live server.
+// Run after building wabi-server: WABI_DM_TEST_BINARY=../target/debug/wabi-server node scripts/dm-friends-end-to-end.mjs
+import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import net from 'node:net';
+import { io } from 'socket.io-client';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+
+const frontendRoot = fileURLToPath(new URL('../', import.meta.url));
+const scratch = await mkdtemp('/tmp/wabi-dm-friends-');
+console.log(`Disposable DM smoke artifacts: ${scratch}`);
+const listener = net.createServer();
+await new Promise((resolve) => listener.listen(0, '127.0.0.1', resolve));
+const port = listener.address().port;
+await new Promise((resolve) => listener.close(resolve));
+const origin = `http://127.0.0.1:${port}`;
+const pwaOrigin = `http://wabi.test:${port}`;
+const binary = process.env.WABI_DM_TEST_BINARY || fileURLToPath(new URL('../../target/debug/wabi-server', import.meta.url));
+const server = spawn(binary, ['--data-dir', `${scratch}/data`, '--host', '127.0.0.1', '--port', String(port)], {
+	cwd: scratch,
+	env: { PATH: process.env.PATH, WABI_LOG_DIR: `${scratch}/logs` },
+	stdio: ['ignore', 'pipe', 'pipe']
+});
+const log = createWriteStream(`${scratch}/server.log`, { mode: 0o600 });
+server.stdout.pipe(log);
+server.stderr.pipe(log);
+const sockets = [];
+let vite;
+let browser;
+let pwaBrowser;
+
+function event(socket, name, predicate = () => true, timeoutMs = 20000) {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			socket.off(name, receive);
+			reject(new Error(`Timed out waiting for ${name}`));
+		}, timeoutMs);
+		const receive = (payload) => {
+			if (!predicate(payload)) return;
+			clearTimeout(timeout);
+			socket.off(name, receive);
+			resolve(payload);
+		};
+		socket.on(name, receive);
+	});
+}
+
+async function api(path, method, body, token) {
+	const response = await fetch(`${origin}${path}`, {
+		method,
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			...(body ? { 'Content-Type': 'application/json' } : {})
+		},
+		...(body ? { body: JSON.stringify(body) } : {})
+	});
+	const data = await response.json().catch(() => null);
+	assert.equal(response.status, 200, `${method} ${path}: ${response.status} ${JSON.stringify(data)}`);
+	return data;
+}
+
+async function connect(account) {
+	const socket = io(origin, { autoConnect: false, reconnection: false, transports: ['websocket'], auth: { token: account.accessToken } });
+	sockets.push(socket);
+	const initialized = event(socket, 'init');
+	socket.on('connect', () => socket.emit('join', account.user.username));
+	socket.connect();
+	return { socket, init: await initialized };
+}
+
+try {
+	let ready = false;
+	for (let attempt = 0; attempt < 150; attempt++) {
+		if (server.exitCode !== null) throw new Error(`Disposable Authority exited; inspect ${scratch}/server.log`);
+		try { ready = (await fetch(`${origin}/readyz`)).ok; } catch { /* booting */ }
+		if (ready) break;
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	assert.ok(ready, 'disposable Authority ready');
+
+	const alice = await api('/api/auth/register', 'POST', { username: 'dm_alice', password: 'Local-only-dm-9825!' });
+	const bob = await api('/api/auth/register', 'POST', { username: 'dm_bob', password: 'Local-only-dm-9825!' });
+	const a = await connect(alice);
+	const b = await connect(bob);
+
+	await api('/api/friends/requests', 'POST', { user_id: bob.user.id }, alice.accessToken);
+	let snapshot = await api('/api/friends', 'GET', null, bob.accessToken);
+	assert.equal(snapshot.incoming.length, 1, 'Bob receives friend request');
+	assert.equal(snapshot.incoming[0].user_id, alice.user.id);
+	await api(`/api/friends/requests/${snapshot.incoming[0].id}/accept`, 'POST', null, bob.accessToken);
+	for (const account of [alice, bob]) {
+		snapshot = await api('/api/friends', 'GET', null, account.accessToken);
+		assert.equal(snapshot.friends.length, 1, 'accepted friendship visible to both accounts');
+	}
+
+	const recipientAdded = event(b.socket, 'dm-channel-added');
+	const created = event(a.socket, 'dm-created');
+	a.socket.emit('create-dm', { targetUserId: `user-${bob.user.id}` });
+	const dm = await created;
+	const recipient = await recipientAdded;
+	assert.equal(recipient.channelId, dm.channelId, 'both members learn the same DM');
+	assert.ok(dm.channelId.startsWith('dm-user-'));
+
+	const firstId = 'dm-alice-first';
+	const firstAccepted = event(a.socket, 'message-accepted', (row) => row.clientMessageId === firstId);
+	const firstReceived = event(b.socket, 'message', (row) => row.channelId === dm.channelId && row.message?.text === 'hello from Alice');
+	a.socket.emit('message', { channelId: dm.channelId, clientMessageId: firstId, text: 'hello from Alice', type: 'text' });
+	const receipt = await firstAccepted;
+	await firstReceived;
+	assert.ok(receipt.messageId.startsWith('msg_'), 'sender receives durable message ID');
+
+	const secondId = 'dm-bob-reply';
+	const secondAccepted = event(b.socket, 'message-accepted', (row) => row.clientMessageId === secondId);
+	const secondReceived = event(a.socket, 'message', (row) => row.channelId === dm.channelId && row.message?.text === 'hello from Bob');
+	b.socket.emit('message', { channelId: dm.channelId, clientMessageId: secondId, text: 'hello from Bob', type: 'text' });
+	await secondAccepted;
+	await secondReceived;
+
+	for (const socket of sockets) socket.disconnect();
+	const reloadedAlice = await connect(alice);
+	const reloadedBob = await connect(bob);
+	for (const peer of [reloadedAlice, reloadedBob]) {
+		assert.ok(peer.init.channels.some((channel) => channel.id === dm.channelId), 'DM survives reconnect');
+		const history = event(peer.socket, 'history-loaded', (row) => row.channelId === dm.channelId && row.requestId === 'proof-history');
+		peer.socket.emit('load-history', { channelId: dm.channelId, requestId: 'proof-history', limit: 50 });
+		const loaded = await history;
+		assert.deepEqual(loaded.messages.map((row) => row.text), ['hello from Alice', 'hello from Bob']);
+	}
+	const last = event(reloadedBob.socket, 'history-loaded', (row) => row.requestId === 'proof-preview');
+	reloadedBob.socket.emit('load-history', { channelId: dm.channelId, requestId: 'proof-preview', limit: 1 });
+	assert.deepEqual((await last).messages.map((row) => row.text), ['hello from Bob'], 'DM list preview uses latest durable row');
+
+	process.env.VITE_SOCKET_URL = origin;
+	process.env.VITE_WABI_LOCAL_MOCK = '0';
+	vite = await createServer({ root: frontendRoot, server: { host: '127.0.0.1', port: 0, open: false } });
+	await vite.listen();
+	const app = `http://127.0.0.1:${vite.httpServer.address().port}`;
+	browser = await chromium.launch({ headless: false, ...(process.env.WABI_SMOKE_CHROMIUM_PATH ? { executablePath: process.env.WABI_SMOKE_CHROMIUM_PATH } : {}) });
+	async function openApp(account, mobile) {
+		const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1360, height: 860 }, isMobile: mobile, hasTouch: mobile });
+		await context.addInitScript(({ serverUrl, login }) => {
+			const scope = encodeURIComponent(serverUrl);
+			sessionStorage.setItem(`wabi_auth_token:${scope}`, login.accessToken);
+			localStorage.setItem(`wabi_username:${scope}`, login.user.username);
+			localStorage.setItem(`wabi_db_user_id:${scope}`, String(login.user.id));
+			localStorage.setItem('notificationsEnabled', 'false');
+		}, { serverUrl: origin, login: account });
+		const page = await context.newPage();
+		page.setDefaultTimeout(30000);
+		await page.goto(app, { waitUntil: 'domcontentloaded' });
+		await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+		await page.waitForFunction(async (channelId) => {
+			const { channels } = await import('/src/lib/channelStore.ts');
+			let state;
+			channels.subscribe((value) => { state = value; })();
+			return state?.some((channel) => channel.id === channelId);
+		}, dm.channelId);
+		await page.evaluate(async (channelId) => {
+			const { layoutStore } = await import('/src/lib/layoutStore.ts');
+			layoutStore.openCenterDm(channelId, null);
+		}, dm.channelId);
+		await page.locator('.dm-conversation').waitFor({ state: 'visible' });
+		return page;
+	}
+	const desktop = await openApp(alice, false);
+	const mobile = await openApp(bob, true);
+	await desktop.locator('.dm-conversation').getByText('hello from Bob').waitFor();
+	await mobile.locator('.dm-conversation').getByText('hello from Alice').waitFor();
+	for (const page of [desktop, mobile]) {
+		const conversation = page.locator(`.dm-hub-conversation[data-dm-channel-id="${dm.channelId}"]`);
+		await conversation.locator('.dm-hub-preview').getByText('hello from Bob').waitFor({ state: 'attached' });
+	}
+	await desktop.screenshot({ path: `${scratch}/dm-desktop.png` });
+	await mobile.screenshot({ path: `${scratch}/dm-mobile.png` });
+	await mobile.locator('.dm-conversation .input-container textarea').fill('phone viewport reply');
+	await mobile.locator('.dm-conversation .send-button').click();
+	await desktop.locator('.dm-conversation').getByText('phone viewport reply').waitFor();
+	await desktop.locator('.messages-hub-btn').click();
+	await desktop.locator('.dm-conversation .dm-header-back').click();
+	await desktop.locator('.dm-hub-tabs').getByRole('button', { name: /Friends/ }).click();
+	await desktop.locator('.friends-panel').getByText('dm_bob').waitFor();
+	// Exercise the visible friend actions as well as the API contract above.
+	await api(`/api/friends/${bob.user.id}`, 'DELETE', null, alice.accessToken);
+	await desktop.locator('.friends-panel .friend-row').filter({ hasText: 'dm_bob' }).getByRole('button', { name: 'Add friend' }).click();
+	await mobile.locator('.mobile-bottom-nav').getByRole('button', { name: 'Messages' }).click();
+	await mobile.locator('.dm-hub-tabs').getByRole('button', { name: /Friends/ }).click();
+	await mobile.locator('.friends-panel .friend-row').filter({ hasText: 'dm_alice' }).getByRole('button', { name: 'Accept' }).click();
+	await desktop.locator('.friends-panel .friend-row').filter({ hasText: 'dm_bob' }).getByRole('button', { name: 'Message' }).waitFor();
+	await desktop.screenshot({ path: `${scratch}/friends-desktop.png` });
+	await mobile.screenshot({ path: `${scratch}/friends-mobile.png` });
+
+	// Use the Rust Authority's embedded static frontend on a non-local test host.
+	// localhost is deliberately excluded from Wabi's production service worker
+	// path, so the Vite viewport check above cannot exercise the PWA send path.
+	pwaBrowser = await chromium.launch({
+		headless: false,
+		...(process.env.WABI_SMOKE_CHROMIUM_PATH ? { executablePath: process.env.WABI_SMOKE_CHROMIUM_PATH } : {}),
+		args: [
+			'--host-resolver-rules=MAP wabi.test 127.0.0.1',
+			`--unsafely-treat-insecure-origin-as-secure=${pwaOrigin}`,
+			'--no-proxy-server'
+		]
+	});
+	const pwaContext = await pwaBrowser.newContext({
+		viewport: { width: 390, height: 844 },
+		isMobile: true,
+		hasTouch: true,
+		serviceWorkers: 'allow'
+	});
+	await pwaContext.addInitScript(({ serverUrl, login }) => {
+		const scope = encodeURIComponent(serverUrl);
+		sessionStorage.setItem('wabi.serverUrlSession', serverUrl);
+		sessionStorage.setItem(`wabi_auth_token:${scope}`, login.accessToken);
+		localStorage.setItem(`wabi_username:${scope}`, login.user.username);
+		localStorage.setItem(`wabi_db_user_id:${scope}`, String(login.user.id));
+		localStorage.setItem('notificationsEnabled', 'false');
+	}, { serverUrl: pwaOrigin, login: bob });
+	const pwaPhone = await pwaContext.newPage();
+	const pwaTransports = [];
+	const pwaReceiptFrames = [];
+	pwaPhone.on('websocket', (transport) => {
+		if (!transport.url().includes('/socket.io/')) return;
+		pwaTransports.push(transport);
+		transport.on('framereceived', (frame) => {
+			const payload = String(frame.payload);
+			if (payload.includes('message-accepted') || payload.includes('message-error')) pwaReceiptFrames.push(payload);
+		});
+	});
+	pwaPhone.setDefaultTimeout(30000);
+	await pwaPhone.goto(pwaOrigin, { waitUntil: 'domcontentloaded' });
+	await pwaPhone.locator('.mobile-bottom-nav').waitFor({ state: 'visible', timeout: 60000 });
+	const sw = await pwaPhone.evaluate(async () => {
+		const registration = await Promise.race([
+			navigator.serviceWorker.ready,
+			new Promise((_, reject) => setTimeout(() => reject(new Error('Service worker did not activate')), 60000))
+		]);
+		const manifest = await fetch('/manifest.webmanifest').then((response) => response.json());
+		return { script: registration.active?.scriptURL, state: registration.active?.state, display: manifest.display };
+	});
+	assert.match(sw.script, /\/sw\.js\?v=/, 'embedded frontend registered production service worker');
+	assert.equal(sw.state, 'activated', 'service worker activated');
+	assert.equal(sw.display, 'standalone', 'embedded frontend supplies installable manifest');
+	await pwaPhone.reload({ waitUntil: 'load' });
+	assert.equal(await pwaPhone.evaluate(() => Boolean(navigator.serviceWorker.controller)), true, 'PWA reload is service-worker controlled');
+	await pwaPhone.locator('.mobile-bottom-nav').getByRole('button', { name: 'Messages' }).click();
+	const pwaConversation = pwaPhone.locator(`.dm-hub-conversation[data-dm-channel-id="${dm.channelId}"]`);
+	await pwaConversation.waitFor({ state: 'visible' });
+	await pwaConversation.click();
+	await pwaPhone.locator('.dm-conversation').getByText('hello from Alice').waitFor();
+	const pwaReply = 'phone PWA embedded reply';
+	const pwaReceived = event(reloadedAlice.socket, 'message', (row) => row.channelId === dm.channelId && row.message?.text === pwaReply);
+	await pwaPhone.locator('.dm-conversation .input-container textarea').fill(pwaReply);
+	await pwaPhone.locator('.dm-conversation .send-button').click();
+	await pwaReceived;
+	await pwaPhone.screenshot({ path: `${scratch}/dm-phone-pwa.png` });
+
+	// Simulate a real phone losing its connection while the installed PWA stays
+	// open. Wait for both the browser's offline state and the live transport to
+	// close so this send exercises the offline path, not a stale connected socket.
+	const liveTransports = pwaTransports.filter((transport) => !transport.isClosed());
+	assert.ok(liveTransports.length > 0, 'embedded PWA has a live Socket.IO transport before going offline');
+	const offlineReply = 'phone PWA offline replay';
+	const offlineArrivals = [];
+	const observeOfflineReply = (row) => {
+		if (row.channelId === dm.channelId && row.message?.text === offlineReply) offlineArrivals.push(row);
+	};
+	reloadedAlice.socket.on('message', observeOfflineReply);
+	await pwaContext.setOffline(true);
+	await pwaPhone.locator('.badge--offline').waitFor({ state: 'visible' });
+	assert.equal(await pwaPhone.evaluate(() => navigator.onLine), false, 'PWA browser reports offline');
+	const transportDeadline = Date.now() + 15000;
+	while (liveTransports.some((transport) => !transport.isClosed()) && Date.now() < transportDeadline) {
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	assert.ok(liveTransports.every((transport) => transport.isClosed()), 'PWA Socket.IO transport closed before offline send');
+	const pwaTextarea = pwaPhone.locator('.dm-conversation .input-container textarea');
+	await pwaTextarea.fill(offlineReply);
+	await pwaPhone.locator('.dm-conversation .send-button').click();
+	const offlineOutcome = await pwaPhone.waitForFunction((reply) => {
+		const queued = [...document.querySelectorAll('.dm-conversation .message')].some((message) =>
+			message.textContent?.includes(reply) && message.textContent?.includes('Queued — will send when online')
+		);
+		const preservedDraft = document.querySelector('.dm-conversation .input-container textarea')?.value === reply &&
+			document.querySelector('#wabi-toast-container')?.textContent?.includes('Your draft is unchanged.');
+		return queued ? 'queued' : preservedDraft ? 'draft-preserved' : false;
+	}, offlineReply, { timeout: 15000 });
+	const offlineResult = await offlineOutcome.jsonValue();
+	assert.equal(offlineArrivals.length, 0, 'offline reply did not reach Alice before reconnection');
+	if (offlineResult === 'queued') {
+		assert.equal(await pwaTextarea.inputValue(), '', 'queued offline reply clears only the accepted draft');
+	} else {
+		assert.equal(offlineResult, 'draft-preserved', 'offline send has an explicit outcome');
+		assert.equal(await pwaTextarea.inputValue(), offlineReply, 'failed offline reply remains editable');
+	}
+	await pwaPhone.screenshot({ path: `${scratch}/dm-phone-pwa-offline.png` });
+	await pwaContext.setOffline(false);
+	await pwaPhone.locator('.badge--online').waitFor({ state: 'visible', timeout: 45000 });
+	if (offlineResult === 'queued') {
+		const deliveryDeadline = Date.now() + 30000;
+		while (offlineArrivals.length === 0 && Date.now() < deliveryDeadline) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		assert.equal(offlineArrivals.length, 1, 'Alice receives the queued reply after PWA reconnection');
+	}
+	const offlineHistory = event(reloadedAlice.socket, 'history-loaded', (row) => row.channelId === dm.channelId && row.requestId === 'proof-pwa-offline', 30000);
+	reloadedAlice.socket.emit('load-history', { channelId: dm.channelId, requestId: 'proof-pwa-offline', limit: 50 });
+	const durableOfflineRows = (await offlineHistory).messages.filter((row) => row.text === offlineReply);
+	assert.equal(durableOfflineRows.length, offlineResult === 'queued' ? 1 : 0, 'offline reply has exactly the expected number of durable copies');
+	reloadedAlice.socket.off('message', observeOfflineReply);
+	if (offlineResult === 'queued') {
+		// Alice's receipt and history can precede Bob's next browser paint. The
+		// PWA proof is complete only after Bob's optimistic row is reconciled.
+		try {
+			await pwaPhone.waitForFunction((reply) => {
+				const rows = [...document.querySelectorAll('.dm-conversation .message')]
+					.filter((message) => message.textContent?.includes(reply));
+				return rows.length === 1 && !rows[0].querySelector('.message-delivery-row');
+			}, offlineReply, { timeout: 15000 });
+		} catch (error) {
+			const rows = await pwaPhone.evaluate((reply) => [...document.querySelectorAll('.dm-conversation .message')]
+				.filter((message) => message.textContent?.includes(reply))
+				.map((message) => ({ id: message.getAttribute('data-message-id'), status: message.querySelector('.message-delivery-row')?.textContent?.trim() })), offlineReply);
+			throw new Error(`Queued label did not settle after durable acceptance (${scratch}): ${JSON.stringify({ rows, pwaReceiptFrames, aliceArrivals: offlineArrivals })}`, { cause: error });
+		}
+	}
+	await pwaPhone.screenshot({ path: `${scratch}/dm-phone-pwa-reconnected.png` });
+	await pwaPhone.locator('.dm-conversation .dm-header-back').click();
+	await pwaPhone.locator('.dm-hub-tabs').getByRole('button', { name: /Friends/ }).click();
+	await pwaPhone.locator('#friends-search').fill('hermes-bot');
+	const hermesRows = pwaPhone.locator('.friends-panel .friend-row').filter({ hasText: 'hermes-bot' });
+	assert.equal(await hermesRows.getByRole('button', { name: 'Add friend' }).count(), 0, 'bot account is never an Add friend candidate');
+	const logoutRoster = await desktop.evaluate(async (serverUrl) => {
+		const { clearAuthSession } = await import('/src/lib/authSession.ts');
+		const { users, serverMembers, currentUser } = await import('/src/lib/presenceIdentity.ts');
+		const read = (store) => {
+			let value;
+			const unsubscribe = store.subscribe((next) => { value = next; });
+			unsubscribe();
+			return value;
+		};
+		const before = { members: read(serverMembers).length, user: read(currentUser)?.username };
+		clearAuthSession(serverUrl);
+		return {
+			before,
+			after: { users: read(users).length, members: read(serverMembers).length, user: read(currentUser) }
+		};
+	}, origin);
+	assert.ok(logoutRoster.before.members > 0 && logoutRoster.before.user, 'account roster exists before logout');
+	assert.deepEqual(logoutRoster.after, { users: 0, members: 0, user: null }, 'logout clears account-scoped roster immediately');
+
+	console.log(`PASS: friendship UI, two-way live DM, receipts, reconnect history, previews, bot exclusion, mobile UI, and embedded phone PWA send/reconnect (${offlineResult}; ${scratch})`);
+} finally {
+	for (const socket of sockets) socket.disconnect();
+	await pwaBrowser?.close();
+	await browser?.close();
+	await vite?.close();
+	server.kill('SIGTERM');
+	await new Promise((resolve) => {
+		if (server.exitCode !== null) resolve();
+		else { server.once('exit', resolve); setTimeout(resolve, 5000); }
+	});
+	log.end();
+}
