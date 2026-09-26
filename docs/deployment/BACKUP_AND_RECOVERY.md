@@ -32,7 +32,7 @@ Include `e2ee_state.json`, when present, in the full stopped data-directory back
 
 If Wabi reports that encryption state cannot be read, preserve the damaged file and restore the registry from the matching backup. Do not remove it or replace it with `{}` to make sending resume. Malformed or unreadable state pauses sends and registry updates; a missing file is still treated as an unused registry. Restoring an older valid registry can roll back device revocations and room epochs, so this is not a standalone safe rollback procedure. Coordinate recovery of the complete instance and affected devices.
 
-## Shared conversation notes (follow-up candidate)
+## Shared conversation notes
 
 The follow-up Shared notes feature writes `conversation_notes.json` beside the WabiDB data, outside WabiDB's event log. Preserve it with the **stopped** Authority data-directory backup, including when restoring to another machine. A WabiDB-only export cannot recover these notes. Personal browser Notes are separate and require their own client-side backup.
 

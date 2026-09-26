@@ -78,8 +78,11 @@ On final account disconnect, the Authority sends `call-ended` only to that
 account's active direct-call peers. The client also checks the peer identity
 before ending its current direct call. Unrelated account departures must not
 tear down a call. Group member departure remains scoped to its group session.
-Browser checks and socket contract tests do not establish physical-device
-audio/video acceptance; a two-device phone and desktop call is still required.
+Disposable two-account browser checks exercised direct P2P video tracks and
+both direct and group camera encode/decode on the default WabiDB relay. Group
+P2P remains audio-only. These checks and the socket contract tests do not
+establish physical-device audio/video acceptance; a phone and desktop call is
+still required.
 
 ## Persisted call-state authorization (2026-09-07)
 

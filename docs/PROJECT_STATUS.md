@@ -54,7 +54,7 @@ release passed a fresh embedded-build smoke check; Tim's public page,
 health/readiness and Socket.IO polling probes passed after the swap. Physical
 phone acceptance remains open.
 
-### Experimental new-room encryption default — deployed on Tim
+### Experimental conversation encryption — deployed on Tim
 
 The Tim release branch adds an experimental default for newly created DMs and
 groups. Each new room starts encryption-pending. Registered participants'
@@ -63,23 +63,22 @@ after every participant has a registered device. The Authority rejects
 plaintext sends while encryption is pending. A participant can explicitly
 choose server-readable chat instead; that choice stops automatic enablement,
 and **each sender** must confirm server-readable mode before sending plaintext.
-An earlier room without the new policy keeps its previous behavior, including
-server-readable mode unless participants had already enabled experimental
-encryption. Damaged encryption-registry state blocks sends and key changes
+The original rollout left earlier rooms in their previous mode. Damaged
+encryption-registry state blocks sends and key changes
 instead of silently resetting. The cosmetic “Sealed / Private / Open” menu no
 longer appears as a security control. This rollout remains under acceptance
 testing, including physical phones, and is **not an independently verified
 E2EE or operator-blind guarantee**. See [the privacy stance](PRIVACY_STANCE.md)
 for the trust boundary.
 
-The 2026-09-26 follow-up candidate also registers signed-in browser devices and
-upgrades **future messages** in older readable rooms to the experimental
-encrypted mode once every participant has a registered device. Historical
-plaintext remains server-readable. This follow-up is not yet deployed or
-merged; it does not retroactively encrypt old messages or establish an
-independently verified E2EE guarantee.
+The 2026-09-26 follow-up (`e2639368`) is live on Tim. It registers signed-in
+browser devices and upgrades **future messages** in older readable rooms to
+experimental encryption once every participant has a registered device, unless
+an explicit server-readable choice is in force. Historical plaintext remains
+server-readable. This branch is not merged; physical-phone acceptance and
+independent E2EE verification remain open.
 
-### Shared conversation notes — follow-up candidate
+### Shared conversation notes — deployed on Tim, pending phone acceptance
 
 `codex/dm-call-notes-followup-20260926` adds a collapsed-by-default Shared notes
 panel for DMs and groups. Saved notes use a separate Authority-backed store,
@@ -88,9 +87,21 @@ for recipients. Existing personal browser Notes remain private and are not
 uploaded automatically. Readable rooms store readable notes; experimental
 encrypted rooms store signed ciphertext envelopes and pending rooms reject
 plaintext. Shared notes outlive message timers until removed or the room is
-deleted, and Authority data-directory backups include them. This work is a
-candidate, not yet deployed or merged. See [Local Notes](features/LOCAL_NOTES.md)
+deleted, and Authority data-directory backups include them. The 2026-09-26
+follow-up is live on Tim but not merged. See [Local Notes](features/LOCAL_NOTES.md)
 for the detailed storage and backup boundary.
+
+The exact release binary SHA-256 is
+`57452407550d192214e6d4362325b84b689aea169a508f9e0e0ce0e2b87e565c`;
+its embedded PWA build ID is `bc3da61ab7d3546f`. Tim was stopped for a full
+data/uploads/config/binary backup at
+`/home/tim/wabi-backups/authority-20260926-dm-call-notes-followup` before the
+swap. Disposable two-account tests covered encrypted shared-note delivery and
+reload, default-relay DM/group camera frames, and two controlled phone PWAs
+exchanging durable messages, including HTTP polling and offline replay. Tim
+origin and public readiness, application shell, protected note/admin routes,
+realtime polling, and the Lore addon passed after restart. Physical devices
+remain an acceptance gate.
 
 ## Production-finish candidate — not yet merged or deployed
 
@@ -177,7 +188,7 @@ Calling works, but performance and correctness work continues across browser/nat
 Wabi is privacy-oriented through self-hosting and minimized central dependence, but **self-hosted does not mean zero-trust**.
 
 - The server operator controls the instance and can access server-readable content.
-- New DMs/groups in the Tim rollout begin encryption-pending and may move to experimental encrypted text after participant devices are ready. Explicit server-readable fallback needs each sender's confirmation; earlier rooms retain their previous policy. First-seen device keys come from the Authority, and the full client/protocol has not been independently verified.
+- New DMs/groups in the Tim rollout begin encryption-pending and may move to experimental encrypted text after participant devices are ready. Updated clients also upgrade future messages in older readable rooms when all devices are ready, unless server-readable mode was explicitly selected; historical plaintext remains readable. Explicit server-readable fallback needs each sender's confirmation. First-seen device keys come from the Authority, and the full client/protocol has not been independently verified.
 - Retention and confidentiality are separate. A message that is not retained after its configured lifetime is still visible to the server while it exists.
 - Client-local preferences/effects/queues remain a different trust boundary from server state.
 - Optional reverse proxies, tunnels, DERP relays, media services, external tools, and plugins add their own operators/software to the trust chain.
