@@ -14,6 +14,7 @@ pub mod auth;
 pub mod blobs;
 pub mod cad;
 pub mod channels;
+pub mod conversation_notes;
 pub mod emoji;
 pub mod forum;
 pub mod friends;

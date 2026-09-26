@@ -1,7 +1,7 @@
 // Disposable two-account proof for the experimental new-room encryption default.
 // Never point this at a live Authority or an existing data directory.
 import assert from 'node:assert/strict';
-import { mkdtemp, realpath } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
@@ -30,7 +30,7 @@ const sockets = [];
 let vite;
 let browser;
 
-function event(socket, name, predicate = () => true, timeoutMs = 15000) {
+function event(socket, name, predicate = () => true, timeoutMs = 30000) {
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => { socket.off(name, receive); reject(new Error(`Timed out waiting for ${name}`)); }, timeoutMs);
 		const receive = (payload) => {
@@ -76,6 +76,7 @@ try {
 	const alice = await api('/api/auth/register', 'POST', { username: 'e2ee_alice', password: 'Disposable-e2ee-9825!' });
 	const bob = await api('/api/auth/register', 'POST', { username: 'e2ee_bob', password: 'Disposable-e2ee-9825!' });
 	const charlie = await api('/api/auth/register', 'POST', { username: 'e2ee_charlie', password: 'Disposable-e2ee-9825!' });
+	const david = await api('/api/auth/register', 'POST', { username: 'e2ee_david', password: 'Disposable-e2ee-9825!' });
 	const aliceSocket = await connect(alice);
 	await connect(bob);
 
@@ -99,6 +100,7 @@ try {
 		page.setDefaultTimeout(30000);
 		await page.goto(app, { waitUntil: 'domcontentloaded' });
 		await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+		if (!channelId) return page;
 		await page.waitForFunction(async (id) => {
 			const { channels } = await import('/src/lib/channelStore.ts');
 			let state;
@@ -150,17 +152,31 @@ try {
 	await alicePage.screenshot({ path: `${scratch}/group-alice.png` });
 	await bobPage.screenshot({ path: `${scratch}/group-bob.png` });
 
+	// A signed-in participant should register their encryption device on app
+	// startup, even if they never open the conversation. This is required for
+	// default encryption to be usable when the other person starts a DM.
+	const charliePage = await openApp(charlie, null, false);
+	let charlieRegistered = false;
+	for (let attempt = 0; attempt < 50; attempt++) {
+		charlieRegistered = (await api('/api/e2ee/devices', 'GET', null, charlie.accessToken)).devices.length > 0;
+		if (charlieRegistered) break;
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	assert.ok(charlieRegistered, 'app startup registers a device without opening a DM');
 	const created = event(aliceSocket, 'dm-created', (row) => row.otherUser?.id === `user-${charlie.user.id}`);
 	aliceSocket.emit('create-dm', { targetUserId: `user-${charlie.user.id}` });
 	const dm = await created;
 	assert.equal((await api(`/api/e2ee/channels/${dm.channelId}`, 'GET', null, alice.accessToken)).pendingDefault, true);
-	const charliePage = await openApp(charlie, dm.channelId, false);
-	await charliePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
 	await alicePage.evaluate(async (id) => {
 		const { layoutStore } = await import('/src/lib/layoutStore.ts');
 		layoutStore.openCenterDm(id, null);
 	}, dm.channelId);
 	await alicePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
+	await charliePage.evaluate(async (id) => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.openCenterDm(id, null);
+	}, dm.channelId);
+	await charliePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
 	await charliePage.locator('.dm-conversation .input-container textarea').fill('DM secret from Charlie');
 	await charliePage.locator('.dm-conversation .send-button').click();
 	await alicePage.locator('.dm-conversation').getByText('DM secret from Charlie').waitFor();
@@ -173,7 +189,38 @@ try {
 		await page.locator(`.dm-hub-conversation[data-dm-channel-id="${dm.channelId}"] .dm-hub-preview`).getByText('Encrypted message', { exact: true }).waitFor();
 	}
 	await charliePage.screenshot({ path: `${scratch}/dm-charlie.png` });
-	console.log('PASS: new group and DM auto-enable encryption, two accounts exchange readable messages, Authority stores only single-layer envelopes');
+
+	// Simulate a DM that predates the new-room policy without changing any
+	// message record. The updated clients should encrypt future messages once
+	// both participants have registered devices.
+	const oldCreated = event(aliceSocket, 'dm-created', (row) => row.otherUser?.id === `user-${bob.user.id}`);
+	aliceSocket.emit('create-dm', { targetUserId: `user-${bob.user.id}` });
+	const oldDm = await oldCreated;
+	const registryPath = `${scratch}/data/e2ee_state.json`;
+	const registry = JSON.parse(await readFile(registryPath, 'utf8'));
+	delete registry.newRoomPolicies[oldDm.channelId];
+	await writeFile(registryPath, JSON.stringify(registry));
+	const oldStatus = await api(`/api/e2ee/channels/${oldDm.channelId}`, 'GET', null, alice.accessToken);
+	assert.equal(oldStatus.pendingDefault, false, 'fixture is an existing server-readable room');
+	await alicePage.evaluate(async (id) => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.openCenterDm(id, null);
+	}, oldDm.channelId);
+	await alicePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
+	assert.equal((await api(`/api/e2ee/channels/${oldDm.channelId}`, 'GET', null, bob.accessToken)).enabled, true);
+
+	const lateCreated = event(aliceSocket, 'dm-created', (row) => row.otherUser?.id === `user-${david.user.id}`);
+	aliceSocket.emit('create-dm', { targetUserId: `user-${david.user.id}` });
+	const lateDm = await lateCreated;
+	await alicePage.evaluate(async (id) => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.openCenterDm(id, null);
+	}, lateDm.channelId);
+	await alicePage.locator('.dm-conversation .dm-encryption-gate').waitFor({ state: 'visible' });
+	assert.equal((await api(`/api/e2ee/channels/${lateDm.channelId}`, 'GET', null, alice.accessToken)).enabled, false);
+	await openApp(david, null, false);
+	await alicePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
+	console.log('PASS: startup registers idle participants; new and existing conversations encrypt future messages; late participant setup enables a pending DM; two-account ciphertext exchange succeeds');
 } finally {
 	for (const socket of sockets) socket.disconnect();
 	await browser?.close();

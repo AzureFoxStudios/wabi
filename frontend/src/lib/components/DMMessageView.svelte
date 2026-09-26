@@ -7,20 +7,20 @@
 	import { getLineDmResolvedProfile, lineDmAddonStore } from '$lib/lineDmAddon';
 	import { openPreferredMapSurface } from '$lib/mapWorkspace';
 	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
-	import { channelMessagesStore, channelHasMoreHistory, channelHistoryLoading, channels, currentUser, getSocket, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, syncNewerMessages, updateChannelSettings, type Channel, type Message, type User } from '$lib/socket';
+	import { channelMessagesStore, channelHasMoreHistory, channelHistoryLoading, channels, currentUser, users, serverMembers, getSocket, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, syncNewerMessages, updateChannelSettings, type Channel, type Message, type User } from '$lib/socket';
+	import { missingDeviceParticipantLabel } from '$lib/dmPresentation';
 	import { showToast } from '$lib/toast';
 	import {
 		DEFAULT_DM_RETENTION,
-		MESSAGE_RETENTION_LABELS,
-		MESSAGE_RETENTION_PRESETS,
 		normalizeMessageRetentionDuration
 	} from '../../../../shared/messageRetention.js';
 	import ChatComposer from './chat/ChatComposer.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
+	import DmRetentionControl from './DmRetentionControl.svelte';
 	import { filterMessages } from './chat/search';
 	import { formatTypingUsers } from './chat/typing';
 	import { channelPaneInTransition, channelPaneOutTransition } from './chat/transitions';
-	import NotesWorkspace from './NotesWorkspace.svelte';
+	import SharedConversationNotes from './SharedConversationNotes.svelte';
 	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
 
 	export let channelId: string;
@@ -34,6 +34,7 @@
 	let composerVisible = true;
 	let isTextareaFocused = false;
 	let showNotes = false;
+	let notesMounted = false;
 	let paymentSheetOpen = false;
 	let paymentSheetOpenSeed = 0;
 	let paymentPrefill: { amountInput?: string | null; description?: string | null; customerRef?: string | null } = {};
@@ -61,9 +62,12 @@
 		: activeChannel?.autoDeleteAfter || DEFAULT_DM_RETENTION;
 	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken()) && $paymentAccessStore.loaded && $paymentAccessStore.canCreate;
 	$: lineDmProfile = getLineDmResolvedProfile(channelId, $lineDmAddonStore);
+	$: missingDeviceLabel = missingDeviceParticipantLabel(e2eeStatus?.missingUserIds || [], [...$serverMembers, ...$users]);
 	$: wallpaperUrl = $lineDmAddonStore.enabled && lineDmProfile.wallpaperUrl ? `url("${lineDmProfile.wallpaperUrl}")` : 'none';
 	$: if (channelId && channelId !== joinedChannelId) {
 		joinedChannelId = channelId;
+		showNotes = false;
+		notesMounted = false;
 		olderAnchor = null;
 		joinChannel(channelId);
 		loadHistory(channelId, { limit: 50 });
@@ -117,6 +121,8 @@
 				if (status) e2eeStatus = status;
 				else e2eeError = 'Could not update encryption keys. Check participant devices and try again.';
 			}
+		} catch (error) {
+			if (mounted && channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not update encryption keys. Try again.';
 		} finally {
 			if (mounted) e2eeBusy = false;
 		}
@@ -152,6 +158,8 @@
 			if (!mounted || targetChannelId !== channelId) return;
 			if (status) e2eeStatus = status;
 			else e2eeError = 'Could not enable encryption on this device. Try again after reconnecting.';
+		} catch (error) {
+			if (mounted && channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not enable encryption. Try again.';
 		} finally {
 			if (mounted) e2eeBusy = false;
 		}
@@ -183,6 +191,11 @@
 
 	function handleQuickMention(message: Message): void {
 		chatComposer?.insertQuickMention(message.user);
+	}
+
+	function toggleSharedNotes(): void {
+		showNotes = !showNotes;
+		if (showNotes) notesMounted = true;
 	}
 
 	function handleScroll(): void {
@@ -255,7 +268,7 @@
 		bindSocket();
 		const poll = window.setInterval(() => {
 			bindSocket();
-			if (channelId && e2eeStatus?.pendingDefault && !e2eeChecking && !e2eeBusy) void loadE2eeStatus(channelId);
+			if (channelId && e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.serverReadableSelected && !e2eeChecking && !e2eeBusy) void loadE2eeStatus(channelId);
 		}, 5000);
 		return () => {
 			document.removeEventListener('visibilitychange', markVisibleMessagesRead);
@@ -279,30 +292,21 @@
 	style:--dm-wallpaper-repeat={lineDmProfile.wallpaperRepeat}
 >
 	<div class="dm-conversation-tools">
-		<div class="dm-retention-setting">
-		<label class="dm-retention-control">
-			<span>Keep new messages</span>
-			<select value={selectedRetention} on:change={handleRetentionChange} aria-label="Retention for new messages">
-				<option value="">Forever</option>
-				{#each MESSAGE_RETENTION_PRESETS as duration}
-					<option value={duration}>{MESSAGE_RETENTION_LABELS[duration]}</option>
-				{/each}
-			</select>
-		</label>
-		<span class="dm-retention-hint">Earlier messages keep their original lifetime.</span>
-		</div>
+		<DmRetentionControl value={selectedRetention} onChange={handleRetentionChange} compact />
 		<div class="dm-tool-actions">
-			{#if e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault}
-				<button type="button" class="dm-tool-button" on:click={() => void enableE2ee()} disabled={e2eeBusy} title="Experimental end-to-end encryption; not independently verified">
-					{e2eeBusy ? 'Enabling…' : 'Enable encryption'}
+			{#if e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault && e2eeStatus.missingUserIds.length === 0}
+				<button type="button" class="dm-tool-button" on:click={() => void enableE2ee()} disabled={e2eeBusy} title="Turn on experimental encryption for new messages. Device identities and the complete client are not independently verified.">
+					{e2eeBusy ? 'Enabling…' : 'Encrypt new messages'}
 				</button>
 			{/if}
-			{#if e2eeStatus?.enabled}<span class="dm-tool-encryption-status" title="Experimental encryption; device identities and client have not been independently verified">Encrypted · experimental</span>{/if}
+			{#if e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault && !e2eeStatus.serverReadableSelected && e2eeStatus.missingUserIds.length > 0}<span class="dm-tool-wait" role="status">Waiting for participant devices: {missingDeviceLabel}. New messages remain server-readable until encryption starts.</span>{/if}
+			{#if e2eeStatus?.serverReadableSelected && e2eeStatus.serverReadableAllowedByMe}<span class="dm-tool-encryption-status">Server-readable by choice</span>{/if}
+			{#if e2eeStatus?.enabled}<span class="dm-tool-encryption-status" title="New messages are encrypted. Earlier messages keep their previous protection. Device identities and the complete client have not been independently verified.">New messages encrypted · experimental</span>{/if}
 			{#if e2eeStatus?.pendingDefault}<span class="dm-tool-encryption-status">Encryption pending</span>{/if}
 			{#if e2eeStatus?.serverReadableSelected && !e2eeStatus.serverReadableAllowedByMe}<span class="dm-tool-encryption-status">Your confirmation needed</span>{/if}
 			<button type="button" class="dm-tool-button" on:click={() => void openPreferredMapSurface()} title="Open map">Map</button>
 			<button type="button" class="dm-tool-button" on:click={() => openPaymentSheet()} disabled={!paymentButtonEnabled} title="Create payment request">Pay</button>
-			<button type="button" class="dm-tool-button" class:active={showNotes} aria-pressed={showNotes} on:click={() => showNotes = !showNotes}>Notes</button>
+			<button type="button" class="dm-tool-button" class:active={showNotes} aria-pressed={showNotes} on:click={toggleSharedNotes}>Shared notes</button>
 		</div>
 	</div>
 	{#if e2eeError}<div class="dm-tool-error" role="alert">{e2eeError}</div>{/if}
@@ -373,7 +377,7 @@
 							<button type="button" on:click={() => void updateEncryptionKeys()} disabled={e2eeBusy}>Trust current devices · update keys</button>
 						{:else if e2eeStatus?.pendingDefault}
 							<strong>Encryption is waiting for participant devices.</strong>
-							<span>{e2eeStatus.missingUserIds.length} participant{e2eeStatus.missingUserIds.length === 1 ? '' : 's'} still need to open updated Wabi. Messages cannot be sent until encryption starts or someone chooses server-readable chat.</span>
+							<span>{e2eeStatus.missingUserIds.length ? `Device setup is still needed for ${missingDeviceLabel}.` : 'Participant devices are ready; encryption is starting.'} Messages cannot be sent until encryption starts or someone chooses server-readable chat.</span>
 							<div class="dm-encryption-actions">
 								<button type="button" on:click={() => void loadE2eeStatus(channelId)} disabled={e2eeChecking}>Check again</button>
 								<button type="button" on:click={() => void useServerReadable()} disabled={e2eeBusy}>Use server-readable messages</button>
@@ -391,9 +395,9 @@
 				{/if}
 			</div>
 		</div>
-		{#if showNotes}
-			<div class="dm-conversation-notes">
-				<NotesWorkspace title={isGroup ? 'Group Notes' : 'DM Notes'} contextChannelId={channelId} emptyMessage="No notes in this conversation yet." placeholder="Write a note specific to this conversation..." />
+		{#if notesMounted}
+			<div class="dm-conversation-notes" class:hidden={!showNotes}>
+				<SharedConversationNotes {channelId} surface="right" />
 			</div>
 		{/if}
 	</div>
@@ -460,22 +464,9 @@
 		border-bottom: 1px solid var(--border-subtle);
 		background: color-mix(in srgb, var(--surface-base) 94%, transparent);
 	}
-	.dm-retention-control,
 	.dm-tool-actions { display: flex; align-items: center; gap: var(--space-2); }
-	.dm-retention-setting { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
-	.dm-retention-control { color: var(--text-secondary); font-size: var(--text-xs); }
-	.dm-retention-hint { color: var(--text-tertiary, var(--text-secondary)); font-size: 0.68rem; line-height: 1.25; }
-	.dm-retention-control select {
-		max-width: 9rem;
-		min-height: 32px;
-		padding: 0 var(--space-2);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		background: var(--surface-raised);
-		color: var(--text-heading);
-		font: inherit;
-	}
 	.dm-tool-actions { flex-wrap: wrap; }
+	.dm-tool-wait { flex: 1 1 100%; color: var(--text-secondary); font-size: var(--font-size-xs, 11px); line-height: 1.35; }
 	.dm-tool-button {
 		min-height: 32px;
 		padding: 0 var(--space-2);
@@ -515,6 +506,7 @@
 	.dm-load-earlier:disabled { opacity: .65; cursor: wait; }
 	.dm-conversation-composer { flex-shrink: 0; min-width: 0; }
 	.dm-conversation-notes { min-width: 0; min-height: 0; border-left: 1px solid var(--border-subtle); }
+	.dm-conversation-notes.hidden { display: none; }
 	.dm-jump-latest {
 		position: absolute;
 		bottom: calc(var(--app-chrome-height) + var(--space-3));
@@ -530,12 +522,12 @@
 		cursor: pointer;
 	}
 	@container dm-conversation (max-width: 600px) {
-		.dm-conversation-content.with-notes { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(180px, 35%); }
-		.dm-conversation-notes { border-left: 0; border-top: 1px solid var(--border-subtle); }
+		.dm-conversation-content.with-notes { display: flex; flex-direction: column; }
+		.dm-conversation-content.with-notes .dm-conversation-main { display: none; }
+		.dm-conversation-content.with-notes .dm-conversation-notes { flex: 1; height: 100%; border-left: 0; }
 	}
 	@container dm-conversation (max-width: 420px) {
 		.dm-conversation-tools { align-items: stretch; }
-		.dm-retention-control { justify-content: space-between; width: 100%; }
 		.dm-tool-actions { width: 100%; }
 		.dm-tool-button { min-height: 40px; }
 		.dm-conversation-messages { padding: var(--space-1); }

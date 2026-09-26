@@ -239,6 +239,110 @@ async fn denied_writes_do_not_reach_projections_or_live_cache() {
 }
 
 #[tokio::test]
+async fn shared_dm_notes_persist_for_members_and_reject_outsiders_or_peer_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (author, outsider, recipient) = users(&state).await;
+    let dm = channel(&state, author, ChannelKind::Dm).await;
+    state.wdb.add_channel_member(&dm, recipient, MemberRole::Member).await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let path = format!("/conversation-notes/{dm}");
+    let author_token = jwt(&state, author);
+    let recipient_token = jwt(&state, recipient);
+    let outsider_token = jwt(&state, outsider);
+    let readable = json!({"title":"Meeting details","text":"Please bring the draft"}).to_string();
+
+    assert_eq!(request(&app, Method::GET, &path, &outsider_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(request(&app, Method::POST, &path, &outsider_token, json!({"content":readable})).await.0, StatusCode::FORBIDDEN);
+    let (status, note) = request(&app, Method::POST, &path, &author_token, json!({"content":readable})).await;
+    assert_eq!(status, StatusCode::OK, "{note}");
+    let id = note["id"].as_str().unwrap();
+    assert_eq!(note["authorUserId"], author);
+    assert_eq!(note["revision"], 1);
+    let note_path = format!("{path}/{id}");
+    let (status, received) = request(&app, Method::GET, &path, &recipient_token, json!(null)).await;
+    assert_eq!(status, StatusCode::OK, "{received}");
+    assert_eq!(received["notes"][0]["content"], readable, "recipient reads the saved note from disk");
+    let weak_store = Arc::downgrade(&state.wdb);
+    drop(app);
+    drop(state);
+    for _ in 0..500 {
+        if weak_store.strong_count() == 0 { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(weak_store.strong_count(), 0, "first Authority released its store before restart");
+    let state = server(dir.path()).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    assert_eq!(request(&app, Method::GET, &path, &recipient_token, json!(null)).await.1["notes"][0]["content"], readable,
+        "recipient still sees the shared note after Authority restart");
+    assert_eq!(request(&app, Method::PUT, &note_path, &recipient_token, json!({"content":readable,"revision":1})).await.0, StatusCode::FORBIDDEN);
+
+    let revision_two = json!({"title":"Meeting details","text":"Bring the final draft"}).to_string();
+    let (status, changed) = request(&app, Method::PUT, &note_path, &author_token, json!({"content":revision_two,"revision":1})).await;
+    assert_eq!(status, StatusCode::OK, "{changed}");
+    assert_eq!(changed["revision"], 2);
+    assert_eq!(request(&app, Method::PUT, &note_path, &author_token, json!({"content":readable,"revision":1})).await.0, StatusCode::CONFLICT);
+    assert_eq!(request(&app, Method::GET, &path, &recipient_token, json!(null)).await.1["notes"][0]["content"], revision_two);
+
+    state.wdb.remove_channel_member(&dm, recipient).await.unwrap();
+    assert_eq!(request(&app, Method::GET, &path, &recipient_token, json!(null)).await.0, StatusCode::FORBIDDEN,
+        "membership removal revokes saved note reads immediately");
+    assert_eq!(request(&app, Method::DELETE, &note_path, &outsider_token, json!({"revision":2})).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(request(&app, Method::DELETE, &note_path, &author_token, json!({"revision":2})).await.0, StatusCode::OK);
+    assert_eq!(request(&app, Method::GET, &path, &author_token, json!(null)).await.1["notes"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn new_dm_shared_notes_reject_plaintext_while_encryption_is_pending() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (author, _, peer) = users(&state).await;
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut creator = SocketClient::connect(&app, &jwt(&state, author)).await;
+    creator.emit("create-dm", json!({"targetUserId": format!("user-{peer}")})).await;
+    let dm = creator.event("dm-created").await["channelId"].as_str().unwrap().to_string();
+    let path = format!("/conversation-notes/{dm}");
+    let readable = json!({"title":"Do not leak","text":"pending room secret"}).to_string();
+    let (status, body) = request(&app, Method::POST, &path, &jwt(&state, author), json!({"content":readable})).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(request(&app, Method::GET, &path, &jwt(&state, peer), json!(null)).await.1["notes"].as_array().unwrap().len(), 0);
+    assert!(!dir.path().join("conversation_notes.json").exists(), "rejected note was never persisted");
+}
+
+#[tokio::test]
+async fn deleting_a_group_removes_its_shared_notes_sidecar_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (author, _, recipient) = users(&state).await;
+    let group = "group-shared-notes-cleanup";
+    let first_revision = state.wdb.create_group(group, "notes cleanup", author, &[author, recipient]).await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let path = format!("/conversation-notes/{group}");
+    let readable = json!({"title":"Group plan","text":"Visible to both members"}).to_string();
+    assert_eq!(request(&app, Method::POST, &path, &jwt(&state, author), json!({"content":readable})).await.0, StatusCode::OK);
+    assert_eq!(request(&app, Method::GET, &path, &jwt(&state, recipient), json!(null)).await.1["notes"].as_array().unwrap().len(), 1);
+
+    let mut first = SocketClient::connect(&app, &jwt(&state, author)).await;
+    let mut second = SocketClient::connect(&app, &jwt(&state, recipient)).await;
+    let leave = |uid, revision: u64| json!({"channelId":group,"requestId":uuid::Uuid::new_v4().to_string(),
+        "expectedRevision":revision.to_string(),"userId":format!("user-{uid}"),"targetUserId":format!("user-{uid}")});
+    first.emit("leave-group", leave(author, first_revision)).await;
+    let first_result = first.event("group-operation-result").await;
+    assert_eq!(first_result["ok"], true, "{first_result}");
+    assert_eq!(request(&app, Method::GET, &path, &jwt(&state, recipient), json!(null)).await.1["notes"].as_array().unwrap().len(), 1,
+        "remaining member keeps the note");
+    let next_revision = first_result["membershipRevision"].as_str().unwrap().parse::<u64>().unwrap();
+    second.emit("leave-group", leave(recipient, next_revision)).await;
+    let second_result = second.event("group-operation-result").await;
+    assert_eq!(second_result["ok"], true, "{second_result}");
+    assert!(state.wdb.get_channel(group).await.unwrap().is_none());
+    let sidecar: Value = serde_json::from_slice(&std::fs::read(dir.path().join("conversation_notes.json")).unwrap()).unwrap();
+    assert!(sidecar["notes"].as_array().unwrap().is_empty(), "deleted group notes remain in the sidecar: {sidecar}");
+}
+
+#[tokio::test]
 async fn private_conversations_cannot_be_discovered_or_self_joined_even_by_owner() {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
@@ -659,6 +763,82 @@ async fn group_answer_requires_current_membership_even_when_call_exists() {
     assert_eq!(invited.event("call-error").await["channelId"], group);
     invited.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}")})).await;
     invited.event("wabidb-call-denied").await;
+}
+
+#[tokio::test]
+async fn direct_call_rings_invisible_account_and_unrelated_end_does_not_end_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (caller_id, recipient_id, stranger_id) = users(&state).await;
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut caller = SocketClient::connect(&app, &jwt(&state, caller_id)).await;
+    let mut recipient = SocketClient::connect(&app, &jwt(&state, recipient_id)).await;
+    let stranger = SocketClient::connect(&app, &jwt(&state, stranger_id)).await;
+    recipient.emit("set-presence", json!({"presence":"invisible"})).await;
+    // The polling fixture does not expose the layer-owned presence map, and
+    // namespace broadcasts are not delivered through this test transport.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    caller.emit("call-initiate", json!({
+        "targetUserId": format!("user-{recipient_id}"), "requestId": "call-1", "isVideoCall": true,
+    })).await;
+    let ringing = caller.event("call-ringing").await;
+    assert_eq!(ringing["targetUserId"], format!("user-{recipient_id}"));
+    assert_eq!(ringing["requestId"], "call-1");
+    let invite = recipient.event("call-incoming").await;
+    assert_eq!(invite["userId"], format!("user-{caller_id}"));
+    assert_eq!(invite["isVideoCall"], true);
+
+    stranger.emit("call-end", json!({})).await;
+    recipient.emit("call-answer", json!({"callerId":format!("user-{caller_id}"),"isVideoCall":true})).await;
+    assert_eq!(caller.event("call-accepted").await["userId"], format!("user-{recipient_id}"));
+    assert!(caller.events.iter().all(|event| event[0] != "call-ended"),
+        "an unrelated account ending a call must not end this call");
+    caller.emit("call-end", json!({"participants":[format!("user-{recipient_id}")]})).await;
+    assert_eq!(recipient.event("call-ended").await["userId"], format!("user-{caller_id}"));
+}
+
+#[tokio::test]
+async fn calls_can_start_for_offline_members_without_presence_admission() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (caller_id, recipient_id, _) = users(&state).await;
+    let group = channel(&state, caller_id, ChannelKind::GroupDm).await;
+    state.wdb.add_channel_member(&group, recipient_id, MemberRole::Member).await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut caller = SocketClient::connect(&app, &jwt(&state, caller_id)).await;
+
+    caller.emit("call-initiate", json!({"targetUserId":format!("user-{recipient_id}"),"requestId":"offline-dm"})).await;
+    assert_eq!(caller.event("call-ringing").await["requestId"], "offline-dm");
+    caller.emit("call-cancel", json!({"targetUserId":format!("user-{recipient_id}")})).await;
+    let mut recipient = SocketClient::connect(&app, &jwt(&state, recipient_id)).await;
+    recipient.emit("call-answer", json!({"callerId":format!("user-{caller_id}")})).await;
+    assert_eq!(recipient.event("call-error").await["code"], "caller_unavailable");
+
+    caller.emit("call-initiate", json!({"channelId":group,"requestId":"offline-group"})).await;
+    let started = caller.event("group-call-started").await;
+    assert_eq!(started["requestId"], "offline-group");
+    assert_eq!(started["established"], false);
+    caller.emit("call-cancel", json!({"channelId":group})).await;
+    recipient.emit("call-answer", json!({"channelId":group,"requestId":"late-group-answer"})).await;
+    assert_eq!(recipient.event("call-error").await["code"], "caller_unavailable");
+}
+
+#[tokio::test]
+async fn one_member_group_call_reports_no_recipients_immediately() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (caller_id, _, _) = users(&state).await;
+    let group = channel(&state, caller_id, ChannelKind::GroupDm).await;
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut caller = SocketClient::connect(&app, &jwt(&state, caller_id)).await;
+    caller.emit("call-initiate", json!({"channelId":group,"requestId":"solo"})).await;
+    let error = caller.event("call-error").await;
+    assert_eq!(error["requestId"], "solo");
+    assert_eq!(error["code"], "no_recipients");
 }
 
 impl SocketClient {

@@ -146,7 +146,7 @@ import {
 } from './presenceStore';
 import { _setTypingUsers, _clearTypingUsers } from './typingStore';
 import { restorePresence } from './presenceControl';
-import { incomingCall, outgoingCall } from './callingStateStores';
+import { incomingCall, outgoingCall, activeCallSessionId } from './callingStateStores';
 
 /**
  * L2: normalize wire channel payloads so Chat routes to LoreChannel.
@@ -745,6 +745,16 @@ export class SocketManager {
 				upsertUser(serverMembers, me);
 			}
 			_setCurrentUser(me);
+			// An updated client must advertise its encryption device even when the
+			// user has not opened a DM yet. Otherwise the other participant cannot
+			// enable the default encryption policy for a new conversation.
+			if (me?.isRegistered) {
+				void import('./e2ee').then(({ ensureE2eeDeviceRegistered }) => {
+					if (currentConnection()) return ensureE2eeDeviceRegistered();
+				}).catch(() => {
+					// The conversation surface retries and shows the actionable error.
+				});
+			}
 			// The initial channel list contains existing conversations, but their
 			// messages have not been loaded. Fetch one durable row per conversation
 			// so previews and ordering survive a reload on both devices.
@@ -1453,6 +1463,10 @@ export class SocketManager {
 		// =====================================================================
 		on('call-incoming', (payload: { userId?: string; username?: string; isVideoCall?: boolean; channelId?: string; channelName?: string }) => {
 			if (!payload?.userId) return;
+			if (get(incomingCall) || get(outgoingCall) || get(activeCallSessionId)) {
+				sock.emit('call-reject', { callerId: payload.userId, channelId: payload.channelId, reason: 'busy' });
+				return;
+			}
 			incomingCall.set({
 				userId: payload.userId,
 				username: payload.username || 'User',
@@ -1462,18 +1476,33 @@ export class SocketManager {
 			});
 		});
 
+		on('call-ringing', (payload: { targetUserId?: string; requestId?: string }) => {
+			if (!payload?.targetUserId) return;
+			void import('./calling').then(({ markDirectCallRinging }) =>
+				markDirectCallRinging(payload.targetUserId!, payload.requestId)
+			).catch((error) => console.warn('[Socket] Failed to update call status:', error));
+		});
+
 		on('call-accepted', (payload: { userId?: string; username?: string; isVideoCall?: boolean }) => {
 			if (!payload?.userId) return;
 			const pending = get(outgoingCall);
 			const targetId = pending?.targetUserId || payload.userId;
-			void import('./calling').then(async ({ beginEstablishedDirectCall, createCallOffer }) => {
+			void import('./calling').then(async ({ beginEstablishedDirectCall, createCallOffer, handleDirectCallFailure }) => {
 				if (!beginEstablishedDirectCall()) return;
-				await createCallOffer(
-					sock,
-					targetId,
-					payload.username || 'User',
-					pending?.channelId ? { channelId: pending.channelId } : {}
-				);
+				try {
+					await createCallOffer(
+						sock,
+						targetId,
+						payload.username || 'User',
+						pending?.channelId ? { channelId: pending.channelId } : {}
+						);
+				} catch (error) {
+					// Admission already linked both accounts. Tell the other side when
+					// our media setup fails so it does not wait in a silent call.
+					if (sock.connected) sock.emit('call-end', { participants: [targetId] });
+					handleDirectCallFailure(targetId, 'error', 'Could not connect the call. Check your connection and try again.');
+					throw error;
+				}
 			}).catch((error) => console.warn('[Socket] Failed to create call offer:', error));
 		});
 
@@ -1513,16 +1542,21 @@ export class SocketManager {
 				.catch((error) => console.warn('[Socket] Failed to handle call cancelled:', error));
 		});
 
-		on('call-rejected', (payload: { userId?: string; callerId?: string }) => {
+		on('call-rejected', (payload: { userId?: string; callerId?: string; reason?: string }) => {
 			const id = payload?.callerId || payload?.userId || '';
-			void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(id))
+			void import('./calling').then(({ handleDirectCallFailure }) =>
+				handleDirectCallFailure(id, payload?.reason === 'busy' ? 'error' : payload?.reason === 'could_not_answer' ? 'error' : 'declined',
+					payload?.reason === 'busy' ? 'They are already in another call.' : 'They could not answer the call.')
+			)
 				.catch((error) => console.warn('[Socket] Failed to handle call rejected:', error));
 		});
 
 		on('call-error', (payload: { code?: string; message?: string; targetUserId?: string }) => {
 			console.warn('[Socket] call-error:', payload?.code, payload?.message);
 			if (payload?.targetUserId) {
-				void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(payload.targetUserId!))
+				void import('./calling').then(({ handleDirectCallFailure }) =>
+					handleDirectCallFailure(payload.targetUserId!, 'error', payload.message)
+				)
 					.catch((error) => console.warn('[Socket] Failed to handle call error:', error));
 			}
 		});
