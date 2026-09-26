@@ -1,7 +1,7 @@
 # Wabi Privacy and Operator Responsibility
 
 **Status:** current product/privacy boundary  
-**Updated:** 2026-09-16
+**Updated:** 2026-09-26
 **Not legal advice.** Laws and operator obligations vary by jurisdiction.
 
 Wabi's privacy model starts with **self-hosting and explicit trust boundaries**, not with the claim that the server cannot see anything.
@@ -13,7 +13,7 @@ A Wabi community chooses its own server and operator instead of being required t
 - Wabi does not require a central Wabi account or global identity service.
 - Independent Wabi servers do not federate or share account databases.
 - The server operator controls the instance and its durable data.
-- **DMs and private rooms are not end-to-end encrypted today. Their text and attachments must be treated as server-readable.**
+- **The deployed DM/private-room path remains server-readable.** An unshipped branch candidate tries encrypted messages by default in newly created rooms, with the experimental limits below.
 - Retention and confidentiality are separate. “Deleted later” or “not written to disk” does not mean “hidden from the server.”
 - Optional proxies, tunnels, DERP relays, media services, external tools, and plugins add their own trust boundaries.
 
@@ -39,8 +39,8 @@ Wabi should provide useful moderation, reporting, audit, export, and recovery to
 | Live/ephemeral public chat | Server-readable while live | Not durably retained by that mode |
 | Timed public chat | Server-readable | Visible until expiry/deletion; underlying event records and backups may remain |
 | Forever/archived public chat | Server-readable | Visible until explicitly deleted; underlying event records and backups may remain |
-| DM | **Server-readable; E2EE unshipped** | Policy/implementation dependent |
-| Private/group room | **Server-readable; E2EE unshipped** | Policy/implementation dependent |
+| DM | Deployed path is **server-readable**; branch candidate has an experimental encrypted default only for new rooms | Policy/implementation dependent |
+| Private/group room | Deployed path is **server-readable**; branch candidate has an experimental encrypted default only for new rooms | Policy/implementation dependent |
 | Presence/typing/transient call state | Server/runtime-visible | Intended to be transient |
 | Client-local preferences/effects | Device-local unless a feature explicitly syncs them | Local lifecycle |
 
@@ -65,7 +65,41 @@ Before Wabi can claim operator-blind private messaging, tests must cover at leas
 7. downgrade to plaintext cannot happen silently;
 8. retention/deletion semantics are defined for ciphertext, keys, attachments, indexes, and backups.
 
-Until that entire path ships and is verified, docs and UI must say **server-readable**.
+Until that entire path ships and is verified, docs and UI must identify
+unencrypted rooms as **server-readable** and encrypted rooms as
+**experimental**, without claiming verified protection from an operator.
+
+### New-room candidate behavior and limits
+
+The unshipped branch candidate records a pending-encryption policy in
+`e2ee_state.json` before a new DM or group is created. A message in that room
+cannot be stored as plaintext while pending. When every participant has opened
+an updated Wabi client and registered a device, a participant client can wrap
+the room key to those devices and enable encrypted messages. Text then uses the
+experimental client-side encryption path. Attachment encryption code exists,
+but its complete upload/download path still needs separate acceptance. If a member
+has no device, the composer explains the wait and offers an explicit
+server-readable choice. That choice pauses automatic enablement; **each sender**
+must confirm server-readable mode before their own plaintext sends are
+accepted. A room that becomes encrypted cannot be downgraded. Existing rooms
+without a new-room policy keep their earlier server-readable behavior until a
+participant manually enables experimental encryption.
+
+The Authority supplies first-seen device public keys. Automatic setup trusts
+those keys before users verify fingerprints out of band, so a malicious
+Authority can substitute device identities during setup. The browser also
+receives the app code from the Authority and stores its private key and local
+wrapping secret in browser storage; clearing that storage can make older
+ciphertext unreadable on that device. This candidate is **not an independently
+verified operator-blind confidentiality guarantee**. It needs a protocol,
+client-integrity, key-verification, recovery, attachment and multi-device
+review before that claim changes.
+
+The new-room policy is a JSON sidecar addition, so its state must be backed up
+with `e2ee_state.json`. Rolling back to an older Authority binary that ignores
+this policy can accept plaintext in a room that was pending encryption. Use a
+matching stopped-instance backup for rollback. Do not delete the registry to
+clear a problem; damaged registry state blocks sends and key changes.
 
 ### Experimental registry and recovery boundary
 

@@ -50,6 +50,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
 	import { formatMobileUnreadBadge, nextMobileBackSurface, sumUnreadConversationCount } from '$lib/mobileShellModel';
+	import { friendships, startFriendshipSync } from '$lib/friendships';
+	import { showToast } from '$lib/toast';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
 	// activation. Only .svelte components go lazy; utility-module imports
@@ -78,6 +80,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	$: totalUnreadDMs = sumUnreadConversationCount($channelUnreadCounts, $channels);
 	$: mobileUnreadBadge = formatMobileUnreadBadge(totalUnreadDMs);
+	$: mobileFriendRequestBadge = formatMobileUnreadBadge($friendships.incoming.length);
+	let hubRequestSequence = 0;
+	let friendsOpenRequest = 0;
+	let messagesOpenRequest = 0;
+	let dmHubActiveTab: 'messages' | 'friends' = 'messages';
+	let unsubscribeFriendshipSync: (() => void) | null = null;
+	let unsubscribeFriendRequestNotices: (() => void) | null = null;
+	let knownIncomingRequestIds: Set<string> | null = null;
 
 	let resizingChannel = false;
 	let resizingRight = false;
@@ -236,18 +246,44 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		scheduleMobileNavIdleHide();
 	}
 
-	function openMobileMessages(): void {
+	function selectMessagesHub(closeConversation = false): void {
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
-		layoutStore.closeDM();
+		if (closeConversation) layoutStore.closeCenterDm();
+		activeView = 'dm';
+		dmHubActiveTab = 'messages';
+		messagesOpenRequest = ++hubRequestSequence;
+	}
+
+	function openFriendsHub(): void {
+		layoutStore.showMobileChannels.set(false);
+		layoutStore.closeRightPanel();
 		layoutStore.closeCenterDm();
 		activeView = 'dm';
+		dmHubActiveTab = 'friends';
+		friendsOpenRequest = ++hubRequestSequence;
+		scheduleMobileNavIdleHide();
+	}
+
+	function openMobileMessages(): void {
+		layoutStore.closeDM();
+		selectMessagesHub(true);
 		try {
 			history.pushState({ wabiMobileSheet: 'messages' }, '');
 		} catch {
 			/* ignore */
 		}
 		scheduleMobileNavIdleHide();
+	}
+
+	function openMobileFriends(): void {
+		layoutStore.closeDM();
+		openFriendsHub();
+		try {
+			history.pushState({ wabiMobileSheet: 'friends' }, '');
+		} catch {
+			/* ignore */
+		}
 	}
 
 	function openMobileYou(): void {
@@ -282,6 +318,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				layoutStore.openCenterDm(detail.channelId, null);
 				void joinChannel(detail.channelId);
 			}
+			return;
+		}
+		if (detail.view === 'friends') {
+			openFriendsHub();
 			return;
 		}
 		if (detail.view === 'settings') openSettings();
@@ -329,6 +369,24 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	onMount(() => {
+		unsubscribeFriendshipSync = startFriendshipSync();
+		unsubscribeFriendRequestNotices = friendships.subscribe((state) => {
+			if (!state.ready) {
+				knownIncomingRequestIds = null;
+				return;
+			}
+			const nextIds = new Set(state.incoming.map((request) => request.id));
+			if (knownIncomingRequestIds !== null) {
+				const newRequests = state.incoming.filter((request) => !knownIncomingRequestIds?.has(request.id));
+				if (newRequests.length === 1) {
+					const person = newRequests[0];
+					showToast(`Friend request from ${person.handle ? `@${person.handle}` : person.username}. Open Friends to respond.`, 'info', 8000);
+				} else if (newRequests.length > 1) {
+					showToast(`${newRequests.length} new friend requests. Open Friends to respond.`, 'info', 8000);
+				}
+			}
+			knownIncomingRequestIds = nextIds;
+		});
 		// Mobile navigation is structural chrome, not transient decoration.
 		// Keep it present while the phone shell is active; the keyboard and
 		// full-screen call surfaces are the only normal takeovers.
@@ -464,6 +522,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	});
 
 	onDestroy(() => {
+		unsubscribeFriendRequestNotices?.();
+		unsubscribeFriendRequestNotices = null;
+		unsubscribeFriendshipSync?.();
+		unsubscribeFriendshipSync = null;
 		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(READER_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(MAP_ADDON_ID);
@@ -973,7 +1035,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			<span></span>
 		</button>
 	{/if}
-	<!-- Mobile Bottom Navigation Bar — Chat · Browse · Messages · You -->
+	<!-- Mobile Bottom Navigation Bar — Chat · Browse · Messages · Friends · You -->
 	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible}>
 		<button
 			type="button"
@@ -1004,7 +1066,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</button>
 		<button
 			type="button"
-			class:active={activeView === 'dm' && !$layoutStore.showMobileChannels}
+			class:active={activeView === 'dm' && dmHubActiveTab === 'messages' && !$layoutStore.showMobileChannels}
 			on:click={openMobileMessages}
 			on:touchstart={handleMobileNavTouchStart}
 			on:touchmove={handleMobileNavTouchMove}
@@ -1017,6 +1079,23 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{/if}
 			</span>
 			<span>{$_('shell.mobile.messages')}</span>
+		</button>
+		<button
+			type="button"
+			class:active={activeView === 'dm' && dmHubActiveTab === 'friends' && !$layoutStore.showMobileChannels}
+			on:click={openMobileFriends}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+			aria-label={$friendships.incoming.length > 0 ? `Friends, ${$friendships.incoming.length} requests waiting` : 'Friends'}
+		>
+			<span class="mobile-nav-icon-wrap">
+				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+				{#if mobileFriendRequestBadge}
+					<span class="mobile-nav-badge" aria-label={`${$friendships.incoming.length} friend requests`}>{mobileFriendRequestBadge}</span>
+				{/if}
+			</span>
+			<span>Friends</span>
 		</button>
 		<button
 			type="button"
@@ -1091,8 +1170,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	>
 		<ChannelSidebar
 			on:close={() => layoutStore.showMobileChannels.set(false)}
+			on:openMessages={() => selectMessagesHub(true)}
+			on:openFriends={openFriendsHub}
 			on:openServerSwitcher={openServerSwitcher}
 			bind:activeView
+			dmHubTab={dmHubActiveTab}
+			friendRequestCount={$friendships.incoming.length}
 			on:logout
 			on:openSettings={() => openSettings()}
 		/>
@@ -1236,9 +1319,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 						<div class="lazy-panel-placeholder" aria-busy="true"></div>
 					{/if}
 				{:else if ($layoutStore.centerDmChannelId || activeView === 'dm') && $activeWorkspaceView !== 'whiteboard'}
-					<div class="center-dm-layout">
+					<div class="center-dm-layout" class:friends-directory={dmHubActiveTab === 'friends' && !$layoutStore.centerDmChannelId}>
 						<div class="center-dm-list">
-							<DmHub />
+							<DmHub {friendsOpenRequest} {messagesOpenRequest} on:tabChange={(event) => (dmHubActiveTab = event.detail.tab)} />
 						</div>
 						<div class="center-dm-thread">
 							{#if $layoutStore.centerDmChannelId}
@@ -1446,6 +1529,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
+	}
+	.center-dm-layout.friends-directory {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.center-dm-layout.friends-directory .center-dm-thread {
+		display: none;
+	}
+	.center-dm-layout.friends-directory .center-dm-list {
+		border-right: 0;
 	}
 
 	.center-dm-list {

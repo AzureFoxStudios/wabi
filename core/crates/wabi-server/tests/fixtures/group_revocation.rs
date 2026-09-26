@@ -386,7 +386,7 @@ async fn removal_evicts_chat_boards_relay_and_call_consent_on_every_device_only_
         &first.socket_id,
         &format!("wabidb-call-channel:{other}")
     ));
-    let io = state.sio.read().await.clone().unwrap();
+    let io = state.socket_io().unwrap();
     for room in [
         id.to_string(),
         format!("wb:{id}"),

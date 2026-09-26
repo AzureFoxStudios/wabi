@@ -51,6 +51,8 @@ async fn on_edit_message(socket: SocketRef, data: Value, state: SioState, io: So
     let my_user_id = identity.user_id;
     let my_username = identity.username;
 
+    // Keep edits ordered with encryption mode changes just like new sends.
+    let encryption_policy_guard = state.app.retention_policy_lock.lock().await;
     // An E2EE edit is a fresh signed ciphertext envelope for the current room
     // epoch. Plaintext/stale epochs are rejected exactly like a new message.
     let e2ee = match crate::api::e2ee::validate_outbound_message(
@@ -129,6 +131,7 @@ async fn on_edit_message(socket: SocketRef, data: Value, state: SioState, io: So
         }
     }
 
+    drop(encryption_policy_guard);
     let _ = io.to(channel_id.clone()).emit(
         "message-edited",
         &json!({ "channelId": channel_id, "messageId": message_id, "newText": new_text, "encrypted": e2ee }),

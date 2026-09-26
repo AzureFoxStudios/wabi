@@ -49,6 +49,10 @@ export type WrappedRoomKey = {
 
 export type E2eeRoomStatus = {
 	enabled: boolean;
+	/** New private rooms start here until encryption or an explicit readable choice. */
+	pendingDefault?: boolean;
+	serverReadableSelected?: boolean;
+	serverReadableAllowedByMe?: boolean;
 	epoch: number;
 	membershipRevision: string;
 	currentMembershipRevision: string;
@@ -152,6 +156,9 @@ function realm(): { server: string; token: string; userId: number; key: string }
 	if (!userId) throw new Error('E2EE requires a registered account.');
 	return { server, token, userId, key: `${server}|${userId}` };
 }
+
+/** A status cache must never cross servers or signed-in accounts. */
+export function e2eeClientRealmKey(): string { return realm().key; }
 
 function safeLocalGet(key: string): string | null {
 	try { return localStorage.getItem(key); } catch { return null; }
@@ -268,7 +275,11 @@ async function loadLocalIdentity(): Promise<LocalIdentity> {
 	};
 }
 
-export async function ensureE2eeDeviceRegistered(): Promise<LocalIdentity> {
+const deviceRegistrationInFlight = new Map<string, Promise<LocalIdentity>>();
+const deviceRegistrationSuccess = new Map<string, { identity: LocalIdentity; until: number }>();
+const DEVICE_REGISTRATION_TTL_MS = 30_000;
+
+async function registerCurrentDevice(): Promise<LocalIdentity> {
 	const identity = await loadLocalIdentity();
 	const response = await authorizedFetch('/api/e2ee/devices', {
 		method: 'POST',
@@ -283,9 +294,30 @@ export async function ensureE2eeDeviceRegistered(): Promise<LocalIdentity> {
 	return identity;
 }
 
+export async function ensureE2eeDeviceRegistered(): Promise<LocalIdentity> {
+	const key = e2eeClientRealmKey();
+	const recent = deviceRegistrationSuccess.get(key);
+	if (recent && recent.until > Date.now()) return recent.identity;
+	const existing = deviceRegistrationInFlight.get(key);
+	if (existing) return existing;
+	const pending = registerCurrentDevice();
+	deviceRegistrationInFlight.set(key, pending);
+	try {
+		const identity = await pending;
+		deviceRegistrationSuccess.set(key, { identity, until: Date.now() + DEVICE_REGISTRATION_TTL_MS });
+		return identity;
+	}
+	finally { if (deviceRegistrationInFlight.get(key) === pending) deviceRegistrationInFlight.delete(key); }
+}
+
+export async function allowServerReadableRoom(channelId: string): Promise<void> {
+	await responseJson(await authorizedFetch(`/api/e2ee/channels/${encodeURIComponent(channelId)}/allow-server-readable`, { method: 'POST' }));
+}
+
 export async function revokeCurrentE2eeDevice(): Promise<void> {
 	const identity = await loadLocalIdentity();
 	await responseJson(await authorizedFetch(`/api/e2ee/devices/${encodeURIComponent(identity.deviceId)}`, { method: 'DELETE' }));
+	deviceRegistrationSuccess.delete(e2eeClientRealmKey());
 }
 
 export async function fingerprintDevice(device: Pick<E2eeDeviceBundle, 'encryptionPublicKey' | 'signingPublicKey'>): Promise<string> {
@@ -349,7 +381,9 @@ export async function getE2eeRoomStatus(channelId: string, allowCached = true): 
 		const response = await authorizedFetch(`/api/e2ee/channels/${encodeURIComponent(channelId)}`);
 		const status = await responseJson(response) as E2eeRoomStatus;
 		cacheRoomStatus(channelId, status);
-		return status;
+		// cacheRoomStatus rejects a disabled response after this device has
+		// observed encryption. Return that pinned boundary to callers too.
+		return cachedRoomStatus(channelId) ?? status;
 	} catch (error) {
 		if (allowCached) {
 			const cached = cachedRoomStatus(channelId);
@@ -552,7 +586,11 @@ export async function encryptMessageForChannel(
 	channelId: string, text: string, type: string, options: Record<string, unknown> = {},
 ): Promise<null | { wireText: string; wireType: 'text'; wireOptions: Record<string, unknown>; epoch: number }> {
 	let status = await getE2eeRoomStatus(channelId);
-	if (!status.enabled) return null;
+	if (!status.enabled) {
+		if (status.pendingDefault) throw new Error('Encryption is pending. Wait for participants to prepare their devices, or explicitly choose server-readable messages.');
+		if (status.serverReadableSelected && !status.serverReadableAllowedByMe) throw new Error('Confirm server-readable messages on your own device before sending.');
+		return null;
+	}
 	if (status.needsRekey) status = await rekeyE2eeRoom(channelId, false);
 	const identity = await ensureE2eeDeviceRegistered();
 	const roomKeyBytes = await currentRoomKey(channelId, status.epoch, status);
@@ -677,7 +715,11 @@ export async function encryptAttachmentForChannel(
 	channelId: string, file: File,
 ): Promise<null | { file: File; metadata: E2eeAttachmentMeta; originalName: string }> {
 	let status = await getE2eeRoomStatus(channelId);
-	if (!status.enabled) return null;
+	if (!status.enabled) {
+		if (status.pendingDefault) throw new Error('Encryption is pending. The file was not uploaded. Wait for participants or choose server-readable messages.');
+		if (status.serverReadableSelected && !status.serverReadableAllowedByMe) throw new Error('Confirm server-readable messages before uploading a file.');
+		return null;
+	}
 	if (status.needsRekey) status = await rekeyE2eeRoom(channelId, false);
 	const keyBytes = await currentRoomKey(channelId, status.epoch, status);
 	const key = await requireCrypto().importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt']);

@@ -35,7 +35,7 @@ async fn emit_steam_join_events(
 ) {
     let appids = find_steam_join_appids(content);
     if appids.is_empty() { return; }
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         for appid in appids {
             let payload = json!({
                 "appid": appid, "messageId": message_id, "channelId": channel_id,
@@ -131,6 +131,9 @@ async fn send_message(
 ) -> Result<Json<MessageResponse>> {
     crate::channel_access::require_access(&state, auth.user_id, &req.channel_id).await?;
 
+    // Serialize policy changes with the message commit so a pending room
+    // cannot write plaintext after a participant enables encryption.
+    let retention_guard = state.retention_policy_lock.lock().await;
     // This check happens BEFORE every server content feature. In an E2EE room,
     // plaintext is rejected and the server sees only a versioned ciphertext
     // envelope. Membership/device changes fail closed until clients rekey.
@@ -174,7 +177,6 @@ async fn send_message(
     let message_type = if e2ee { "text".to_string() } else { req.message_type.unwrap_or_else(|| "text".into()) };
     // A retention epoch must not be inserted between selecting Live/durable
     // mode and assigning the durable message its database timestamp.
-    let retention_guard = state.retention_policy_lock.lock().await;
     let created_at_micros = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0);
     let is_live = state.channel_auto_delete_label.read().await.get(&req.channel_id).map(|s| s == "live").unwrap_or(false);

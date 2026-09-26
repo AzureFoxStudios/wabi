@@ -99,7 +99,7 @@ pub struct AppState {
     /// Media room routing registry (voice/video assignment to helper nodes)
     pub media_registry: crate::media::MediaRoomRegistry,
     /// Current Socket.IO handle for HTTP handlers that need to broadcast.
-    pub sio: RwLock<Option<socketioxide::SocketIo>>,
+    pub sio: std::sync::RwLock<Option<socketioxide::SocketIo>>,
     /// Shared socket.io presence map (socket_id → ConnectedUser). Populated
     /// by `create_socket_layer` at startup; lets HTTP handlers (admin
     /// metrics) read online-socket counts without going through SioState.
@@ -274,6 +274,19 @@ impl RevocationStore {
 }
 
 impl AppState {
+    /// Socket.IO is installed synchronously while the router is constructed.
+    /// A Tokio try_write could lose this handle forever if a startup reader
+    /// happened to hold the lock at that instant.
+    pub fn set_socket_io(&self, io: socketioxide::SocketIo) {
+        *self.sio.write().expect("Socket.IO handle lock poisoned") = Some(io);
+    }
+
+    /// Clone the handle before any async broadcast so the lock is never held
+    /// across an await point.
+    pub fn socket_io(&self) -> Option<socketioxide::SocketIo> {
+        self.sio.read().expect("Socket.IO handle lock poisoned").clone()
+    }
+
     /// Build the application state. Opens the WabiDB engine at
     /// `<data_dir>/wabidb/`. WDB is fully decommissioned — no WDB
     /// initialization, no compat shim.
@@ -386,7 +399,7 @@ impl AppState {
             bot_registry,
             upload_registry,
             media_registry,
-            sio: RwLock::new(None),
+            sio: std::sync::RwLock::new(None),
             connected_users: Arc::new(RwLock::new(HashMap::new())),
             blacklist: RwLock::new(None),
             addon_switches,

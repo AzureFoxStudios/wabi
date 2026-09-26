@@ -791,7 +791,7 @@ async fn voice_consent_is_device_owned_and_kick_revokes_only_that_channels_media
     first.event("voice-self-kicked").await;
     second.event("voice-self-kicked").await;
     // Inspect the real server rooms, not the UI's reaction to a kick.
-    let io = state.sio.read().await.clone().unwrap();
+    let io = state.socket_io().unwrap();
     for client in [&first, &second] {
         let socket = io.sockets().into_iter().find(|s| s.id.to_string() == client.socket_id).unwrap();
         assert!(!socket.rooms().iter().any(|r| r.as_ref() == room));

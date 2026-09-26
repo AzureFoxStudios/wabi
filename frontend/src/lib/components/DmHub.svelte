@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
   import { channels, channelMessages, currentUser, users, serverMembers, channelUnreadCounts, createDM, joinChannel, markChannelAsRead } from '$lib/socket';
@@ -12,8 +12,13 @@
   import CreateGroupModal from './CreateGroupModal.svelte';
   import { friendships, startFriendshipSync } from '$lib/friendships';
   import { mediaUrl } from '$lib/mediaUrl';
+  import { E2EE_MESSAGE_PREFIX } from '$lib/e2ee';
 
   import { openDetachedPanel } from '$lib/detachedPanels';
+
+  export let friendsOpenRequest = 0;
+  export let messagesOpenRequest = 0;
+  const dispatch = createEventDispatcher<{ tabChange: { tab: 'messages' | 'friends' } }>();
 
   let showPeoplePicker = false;
   let showCreateGroup = false;
@@ -21,7 +26,26 @@
   let pendingDmUser: User | null = null;
   let pendingDmError = '';
 
-  onMount(startFriendshipSync);
+  onMount(() => {
+    const stopSync = startFriendshipSync();
+    dispatch('tabChange', { tab: activeTab });
+    return stopSync;
+  });
+
+  function selectTab(tab: 'messages' | 'friends') {
+    if (tab === 'friends') {
+      showPeoplePicker = false;
+      layoutStore.closeCenterDm();
+    }
+    if (activeTab === tab) return;
+    activeTab = tab;
+    dispatch('tabChange', { tab });
+  }
+
+  // Both request props use one increasing sequence in MainLayout, so the
+  // latest sidebar navigation still wins when this component remounts.
+  $: if (friendsOpenRequest > messagesOpenRequest) selectTab('friends');
+  $: if (messagesOpenRequest > friendsOpenRequest) selectTab('messages');
 
   let showExternalConfig = false;
   let externalApp = 'obsidian' as 'obsidian' | 'notion' | 'logseq' | 'custom' | 'none';
@@ -42,15 +66,15 @@
    * the same millisecond need a deterministic tie-break, and seq gives
    * that for free — directly analogous to Discord's last_message_id snowflake.
    */
-  function sortDms(a: Channel, b: Channel): number {
+  function sortDms(a: Channel, b: Channel, messagesByChannel: Record<string, Message[]>): number {
     // 1. Pinned first
     const aPinned = ((a as any).pinnedBy?.length ?? 0) > 0 ? 1 : 0;
     const bPinned = ((b as any).pinnedBy?.length ?? 0) > 0 ? 1 : 0;
     if (aPinned !== bPinned) return bPinned - aPinned;
 
     // 2. Last timestamp desc (most recent first)
-    const aMsgs = $channelMessages[a.id] || [];
-    const bMsgs = $channelMessages[b.id] || [];
+    const aMsgs = messagesByChannel[a.id] || [];
+    const bMsgs = messagesByChannel[b.id] || [];
     const aLastTs = aMsgs.length ? aMsgs[aMsgs.length - 1].timestamp : 0;
     const bLastTs = bMsgs.length ? bMsgs[bMsgs.length - 1].timestamp : 0;
     if (aLastTs !== bLastTs) return bLastTs - aLastTs;
@@ -64,9 +88,11 @@
     return conversationLabel(a).localeCompare(conversationLabel(b));
   }
 
+  // Keep the message store as an explicit reactive dependency. Reads hidden
+  // inside helper functions did not refresh previews or conversation ordering.
   $: dmChannels = ($channels || [])
     .filter((ch: Channel) => ch.type === "dm" || ch.type === "group")
-    .sort(sortDms);
+    .sort((a, b) => sortDms(a, b, $channelMessages));
 
   let contextMenuOpen = false;
   let contextMenuPos = { x: 0, y: 0 };
@@ -92,19 +118,19 @@
     return other?.profilePicture || null;
   }
 
-  function lastMessagePreview(channel: Channel): string {
-    const msgs: Message[] | undefined = $channelMessages[channel.id];
+  function lastMessagePreview(msgs: Message[] | undefined): string {
     if (!msgs) return 'Open to load conversation';
-    if (msgs.length === 0) return 'No messages yet';
+    if (msgs.length === 0) return 'No messages to show';
     const last = msgs[msgs.length - 1];
+    if (last.encrypted || last.text?.startsWith(E2EE_MESSAGE_PREFIX)) return 'Encrypted message';
     if (last.type === 'file') return last.fileName || '[File]';
     if (last.type === 'gif') return '[GIF]';
     if (last.type === 'emoji') return '[Emoji]';
     return last.text || 'Message';
   }
 
-  function lastMessageTime(channel: Channel): string {
-    const msgs: Message[] = $channelMessages[channel.id] || [];
+  function lastMessageTime(msgs: Message[] | undefined): string {
+    msgs ||= [];
     if (msgs.length === 0) return '';
     const ts = msgs[msgs.length - 1].timestamp;
     const d = new Date(ts);
@@ -131,7 +157,7 @@
   }
 
   function openInCenter(channel: Channel, fallbackUser: User | null = null) {
-    activeTab = 'messages';
+    selectTab('messages');
     const other = fallbackUser || otherUserFor(channel);
     if (channel.type === 'group') {
       layoutStore.openCenterGroupDm(channel.id, channel);
@@ -153,7 +179,7 @@
   }
 
   function openCreatedGroup(channel: Channel) {
-    activeTab = 'messages';
+    selectTab('messages');
     showPeoplePicker = false;
     layoutStore.openCenterGroupDm(channel.id, channel);
     joinChannel(channel.id);
@@ -191,7 +217,7 @@
   }
 
   async function handlePersonSelected(user: User) {
-    activeTab = 'messages';
+    selectTab('messages');
     pendingDmError = '';
     showPeoplePicker = false;
     if (isSelfUser(user)) return;
@@ -326,9 +352,9 @@
     </div>
 
     <nav class="dm-hub-tabs" aria-label="Messages and friends">
-      <button type="button" class="dm-hub-tab" class:active={activeTab === 'messages'} aria-pressed={activeTab === 'messages'} on:click={() => (activeTab = 'messages')}>Messages</button>
-      <button type="button" class="dm-hub-tab" class:active={activeTab === 'friends'} aria-pressed={activeTab === 'friends'} on:click={() => { activeTab = 'friends'; showPeoplePicker = false; }}>
-        Friends{#if $friendships.incoming.length > 0}<span class="dm-hub-request-badge" aria-label={`${$friendships.incoming.length} pending friend requests`}>{$friendships.incoming.length}</span>{/if}
+      <button type="button" class="dm-hub-tab" class:active={activeTab === 'messages'} aria-pressed={activeTab === 'messages'} on:click={() => selectTab('messages')}>Messages</button>
+      <button type="button" class="dm-hub-tab" class:active={activeTab === 'friends'} aria-pressed={activeTab === 'friends'} on:click={() => selectTab('friends')}>
+        Friends{#if $friendships.incoming.length > 0}<span class="dm-hub-request-badge" aria-label={`${$friendships.incoming.length} pending friend requests`}>{$friendships.incoming.length}</span>{:else if $friendships.outgoing.length > 0}<span class="dm-hub-sent-count" aria-label={`${$friendships.outgoing.length} sent friend requests`}>{$friendships.outgoing.length} sent</span>{/if}
       </button>
     </nav>
 
@@ -358,6 +384,7 @@
         {#each dmChannels as channel (channel.id)}
           {@const other = otherUserFor(channel)}
           {@const unread = $channelUnreadCounts[channel.id] || 0}
+          {@const previewMessages = $channelMessages[channel.id]}
           <button
             class="dm-hub-conversation"
             data-dm-channel-id={channel.id}
@@ -381,12 +408,12 @@
             <div class="dm-hub-body">
               <div class="dm-hub-top">
                 <span class="dm-hub-name">{conversationLabel(channel)}</span>
-                {#if lastMessageTime(channel)}
-                  <span class="dm-hub-time">{lastMessageTime(channel)}</span>
+                {#if lastMessageTime(previewMessages)}
+                  <span class="dm-hub-time">{lastMessageTime(previewMessages)}</span>
                 {/if}
               </div>
               <div class="dm-hub-bottom">
-                <span class="dm-hub-preview">{lastMessagePreview(channel)}</span>
+                <span class="dm-hub-preview">{lastMessagePreview(previewMessages)}</span>
                 {#if unread > 0}
                   <span class="dm-hub-badge">{unread > 99 ? '99+' : unread}</span>
                 {/if}
@@ -417,6 +444,7 @@
   .dm-hub {
     display: flex;
     flex-direction: column;
+    container: dm-hub / inline-size;
     height: 100%;
     min-height: 0;
     overflow: hidden;
@@ -444,6 +472,12 @@
     color: var(--text-on-accent, #fff);
     font-size: var(--font-size-xs, 11px);
     line-height: 1;
+  }
+
+  .dm-hub-sent-count {
+    margin-left: var(--space-2, 8px);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs, 11px);
   }
 
   .dm-hub-tab {
@@ -503,6 +537,12 @@
   }
   .dm-hub-group-btn:hover { background: color-mix(in srgb, var(--text-heading) 8%, transparent); color: var(--text-heading, #e0e0ff); }
   .dm-hub-group-btn:focus-visible { outline: 2px solid var(--accent-primary-color, #6366f1); outline-offset: 2px; }
+
+  @container dm-hub (max-width: 360px) {
+    .dm-hub-header { padding-inline: var(--space-3, 12px); }
+    .dm-hub-group-btn { width: 40px; padding: 0; }
+    .dm-hub-group-btn span { display: none; }
+  }
 
   .dm-hub-new-btn {
     display: flex;

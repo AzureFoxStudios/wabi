@@ -731,3 +731,61 @@ async fn group_message_history_pages_past_one_hundred_and_survives_reconnect() {
     })).await;
     assert_eq!(reconnected.event("history-error").await["requestId"], "bad-cursor");
 }
+
+#[tokio::test]
+async fn friend_requests_reach_both_signed_in_sockets_and_remain_visible_to_each_account() {
+    async fn friend_api(app: &Router, method: Method, path: &str, token: &str, body: Value) -> Value {
+        let response = app.clone().oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let alice = state.wdb.create_user("friend_alice", None, "registered-test-hash").await.unwrap();
+    let bob = state.wdb.create_user("friend_bob", None, "registered-test-hash").await.unwrap();
+    // A startup reader must not cause the one-time HTTP broadcast handle to
+    // be silently discarded. This used to happen with sio.try_write().
+    let state_for_reader = state.clone();
+    let (reader_ready, reader_started) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let _guard = state_for_reader.sio.try_read().unwrap();
+        reader_ready.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+    });
+    reader_started.recv().unwrap();
+    let layer = wabi_server::socketio::create_socket_layer(state.clone());
+    reader.join().unwrap();
+    assert!(state.socket_io().is_some(), "HTTP handlers need the live Socket.IO handle");
+    let app = create_api_router(state.clone()).with_state(state.clone()).layer(layer);
+    let alice_token = token(&state, alice);
+    let bob_token = token(&state, bob);
+    let mut alice_socket = Client::connect(&app, &alice_token).await;
+    let mut bob_socket = Client::connect(&app, &bob_token).await;
+
+    friend_api(&app, Method::POST, "/friends/requests", &alice_token, json!({"user_id": bob})).await;
+    assert_eq!(alice_socket.event("friends-updated").await["userId"], alice);
+    assert_eq!(bob_socket.event("friends-updated").await["userId"], bob);
+    let alice_list = friend_api(&app, Method::GET, "/friends", &alice_token, json!(null)).await;
+    let bob_list = friend_api(&app, Method::GET, "/friends", &bob_token, json!(null)).await;
+    assert_eq!(alice_list["outgoing"][0]["user_id"], bob);
+    assert_eq!(bob_list["incoming"][0]["user_id"], alice);
+
+    let request_id = bob_list["incoming"][0]["id"].as_str().unwrap();
+    friend_api(&app, Method::POST, &format!("/friends/requests/{request_id}/accept"), &bob_token, json!(null)).await;
+    assert_eq!(alice_socket.event("friends-updated").await["userId"], alice);
+    assert_eq!(bob_socket.event("friends-updated").await["userId"], bob);
+    let alice_list = friend_api(&app, Method::GET, "/friends", &alice_token, json!(null)).await;
+    let bob_list = friend_api(&app, Method::GET, "/friends", &bob_token, json!(null)).await;
+    assert_eq!(alice_list["friends"][0]["user_id"], bob);
+    assert_eq!(bob_list["friends"][0]["user_id"], alice);
+}

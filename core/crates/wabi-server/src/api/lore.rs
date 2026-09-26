@@ -135,7 +135,7 @@ async fn record_lore_commit_and_change(
 /// Follows the retention-reaper pattern (state.sio handle, fire-and-forget).
 async fn emit_lore_file_changed(state: &AppState, channel_id: i64, payload: serde_json::Value) {
     let room = format!("ch_{:x}", channel_id);
-    let io = state.sio.read().await.clone();
+    let io = state.socket_io();
     if let Some(io) = io {
         if let Err(e) = io.to(room).emit("lore:file-changed", &payload).await {
             warn!(channel_id, error = %e, "failed to emit lore:file-changed");
@@ -846,14 +846,15 @@ async fn promote_from_message(
     };
     let retention_guard = state.retention_policy_lock.lock().await;
     let announcement_posted = !state.channel_auto_delete_label.read().await
-        .get(&message.channel_id).is_some_and(|label| label == "live");
+        .get(&message.channel_id).is_some_and(|label| label == "live")
+        && !crate::api::e2ee::room_blocks_server_content(&state.config.data_dir, &message.channel_id)?;
     if announcement_posted {
         state
             .wdb
             .send_message(&message.channel_id, auth.user_id as u64, &system_content, false, &[])
             .await?;
     } else {
-        tracing::warn!(channel_id, "Live policy became active during Lore promotion; skipped durable chat announcement");
+        tracing::warn!(channel_id, "Live or encryption policy prevents a durable Lore chat announcement");
     }
     drop(retention_guard);
 

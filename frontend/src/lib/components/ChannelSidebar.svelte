@@ -87,6 +87,8 @@
 
 	const dispatch = createEventDispatcher();
 	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
+	export let dmHubTab: 'messages' | 'friends' = 'messages';
+	export let friendRequestCount = 0;
 
 	let newChannelName = '';
 	let newChannelDescription = '';
@@ -365,7 +367,8 @@
 
 	function clearAllUnreadNotifications() { for (const id of Object.keys($channelUnreadCounts)) markChannelAsRead(id); markMessagesAsRead(); }
 	function openFollowingView() { activeView = 'following'; glimpseChannelId = null; dispatch('close'); }
-	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('close'); }
+	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('openMessages'); dispatch('close'); }
+	function openFriendsHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('openFriends'); dispatch('close'); }
 	function openVoiceChannelWhiteboard(id: string, e?: Event) { e?.stopPropagation(); activeView = 'chat'; currentChannel.set(id); setWhiteboardSurface(id, 'whiteboard'); dispatch('close'); }
 	function toggleChannelFollowState(id: string, e?: Event) { e?.stopPropagation(); const f = toggleChannelFollow(id); if (!f && glimpseChannelId === id) glimpseChannelId = null; }
 	function cycleFollowAlert(id: string, e?: Event) { e?.stopPropagation(); if (!followedChannelIds.has(id)) toggleChannelFollow(id); cycleChannelFollowAlertLevel(id); }
@@ -1097,11 +1100,11 @@
 		<button
 			class="messages-hub-btn"
 			type="button"
-			class:active={activeView === 'dm'}
+			class:active={activeView === 'dm' && dmHubTab === 'messages'}
 			on:click={openDmHub}
 			title={isCompactSidebar ? (dmUnreadCount > 0 ? `Messages (${dmUnreadCount} unread)` : 'Messages') : 'Direct messages & notes'}
 			aria-label={dmUnreadCount > 0 ? `Messages, ${dmUnreadCount} unread` : 'Messages'}
-			aria-current={activeView === 'dm' ? 'page' : undefined}
+			aria-current={activeView === 'dm' && dmHubTab === 'messages' ? 'page' : undefined}
 		>
 			<span class="messages-hub-icon" aria-hidden="true">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -1111,6 +1114,25 @@
 			{/if}
 			{#if dmUnreadCount > 0}
 				<span class="messages-hub-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
+			{/if}
+		</button>
+		<button
+			class="messages-hub-btn"
+			type="button"
+			class:active={activeView === 'dm' && dmHubTab === 'friends'}
+			on:click={openFriendsHub}
+			title={friendRequestCount > 0 ? `Friends (${friendRequestCount} requests)` : 'Friends and requests'}
+			aria-label={friendRequestCount > 0 ? `Friends, ${friendRequestCount} requests waiting` : 'Friends and requests'}
+			aria-current={activeView === 'dm' && dmHubTab === 'friends' ? 'page' : undefined}
+		>
+			<span class="messages-hub-icon" aria-hidden="true">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+			</span>
+			{#if !isCompactSidebar}
+				<span class="messages-hub-label">Friends</span>
+			{/if}
+			{#if friendRequestCount > 0}
+				<span class="messages-hub-badge">{friendRequestCount > 99 ? '99+' : friendRequestCount}</span>
 			{/if}
 		</button>
 	</div>
