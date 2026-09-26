@@ -155,7 +155,7 @@ struct RequestBody {
 }
 
 async fn notify(state: &AppState, a: u64, b: u64) {
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         for user_id in [a, b] {
             if let Err(error) = io
                 .to(format!("user-{user_id}"))

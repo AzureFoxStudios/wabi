@@ -205,7 +205,7 @@ async fn put_privacy(
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "Could not save privacy policy");
     }
     drop(guard);
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         let _ = io.broadcast().emit("privacy-policy-updated", &json!({
             "privateContentAutomation": policy.private_content_automation,
             "analyticsMode": policy.analytics_mode,

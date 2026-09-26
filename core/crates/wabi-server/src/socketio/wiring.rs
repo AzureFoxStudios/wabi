@@ -21,9 +21,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
 
     let (layer, io) = SocketIo::builder().with_state(state).build_layer();
     // Keep a direct handle for HTTP routes that must broadcast immediately.
-    if let Ok(mut handle) = app_for_broadcast.sio.try_write() {
-        *handle = Some(io.clone());
-    }
+    app_for_broadcast.set_socket_io(io.clone());
 
     io.ns(
         "/",

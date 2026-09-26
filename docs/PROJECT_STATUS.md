@@ -1,6 +1,6 @@
 # Wabi Project Status
 
-**Updated:** 2026-09-25
+**Updated:** 2026-09-26
 
 **Purpose:** canonical product-status boundary for operators, contributors, reviewers, and AI agents.
 
@@ -43,6 +43,20 @@ installed-PWA flows, group and retention regressions, and public health/page/
 realtime checks. Physical-phone acceptance is still pending. Live mode can
 temporarily hide older durable history while selected, and messages deleted
 before this repair cannot be recovered.
+
+### New private-room encryption default — branch candidate, not deployed
+
+The current `codex/friends-dm-release-20260925` worktree has a further
+experimental change under acceptance testing. A newly created DM or group
+starts in an encryption-pending state. Registered participants' browsers
+create device keys, and the room switches to encrypted messages only after
+every participant has a registered device. Until then, the Authority rejects
+plaintext sends. A participant can explicitly choose server-readable chat;
+that choice stops automatic enablement, and every sender must make their own
+server-readable choice before sending. An earlier room without this new policy
+keeps its existing behavior. This change is **not in the Tim release described
+above** and is not a verified operator-blind guarantee. See
+[the privacy stance](PRIVACY_STANCE.md) for the experimental trust boundary.
 
 ## Production-finish candidate — not yet merged or deployed
 
@@ -112,7 +126,7 @@ Calling works, but performance and correctness work continues across browser/nat
 
 ## Explicitly not claimed today
 
-- End-to-end encryption for DMs/private rooms.
+- Independently verified end-to-end encryption for DMs/private rooms.
 - Operator-blind private content.
 - Federation between independent Wabi servers.
 - Global Wabi identities or a global username directory.
@@ -131,7 +145,7 @@ Calling works, but performance and correctness work continues across browser/nat
 Wabi is privacy-oriented through self-hosting and minimized central dependence, but **self-hosted does not mean zero-trust**.
 
 - The server operator controls the instance and can access server-readable content.
-- DMs/private rooms are currently server-readable; E2EE design work is not a shipped encryption guarantee.
+- The deployed DM/private-room path is server-readable. The branch candidate adds a fail-closed encrypted default for new rooms, but its first-seen device keys come from the Authority and the full client/protocol has not been independently verified.
 - Retention and confidentiality are separate. A message that is not retained after its configured lifetime is still visible to the server while it exists.
 - Client-local preferences/effects/queues remain a different trust boundary from server state.
 - Optional reverse proxies, tunnels, DERP relays, media services, external tools, and plugins add their own operators/software to the trust chain.

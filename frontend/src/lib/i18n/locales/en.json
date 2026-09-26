@@ -309,9 +309,9 @@
     "edited": "edited",
     "translated_label": "Translated",
     "deletion": {
-      "scheduled_title": "This message is scheduled to leave chat; copies may remain in backups",
+      "scheduled_title": "This message keeps the timer set when it was sent. Changing the room timer affects new messages only; copies may remain in backups",
       "deleting": "Leaving chat...",
-      "retention_lifetime": "{duration} retention",
+      "retention_lifetime": "{duration} timer",
       "deletes_in": "Leaves chat in {duration}"
     },
     "persistence": {

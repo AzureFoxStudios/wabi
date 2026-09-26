@@ -159,6 +159,11 @@ async fn handle_send_message(
 
     // Reuse the same WDB write path as REST /api/messages.
     let retention_guard = state.retention_policy_lock.lock().await;
+    if crate::api::e2ee::room_blocks_server_content(&state.config.data_dir, &req.channel_id)? {
+        return Err(AppError::BadRequest(
+            "Bot sends are unavailable while private-room encryption is pending or enabled".into(),
+        ));
+    }
     if state.channel_auto_delete_label.read().await.get(&req.channel_id).is_some_and(|label| label == "live") {
         return Err(AppError::BadRequest(
             "Bot sends are unavailable in Live rooms because this endpoint stores messages".into(),
@@ -202,7 +207,7 @@ async fn handle_send_message(
         "channelId": &req.channel_id,
         "message": message_view,
     });
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         let ch = req.channel_id.clone();
         let payload = msg_payload.clone();
         tokio::spawn(async move {

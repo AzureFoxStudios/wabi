@@ -309,9 +309,9 @@
     "edited": "editado",
     "translated_label": "Traducido",
     "deletion": {
-      "scheduled_title": "Este mensaje saldra del chat; pueden quedar copias en respaldos",
+      "scheduled_title": "Este mensaje conserva el plazo que tenia al enviarse. Cambiar el plazo de la sala solo afecta a mensajes nuevos; pueden quedar copias en respaldos",
       "deleting": "Saliendo del chat...",
-      "retention_lifetime": "Retención de {duration}",
+      "retention_lifetime": "Plazo de {duration}",
       "deletes_in": "Sale del chat en {duration}"
     },
     "persistence": {

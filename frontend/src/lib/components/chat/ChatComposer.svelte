@@ -43,7 +43,6 @@ import type { MediaAlbum } from '$lib/api';
 	import type { FilePreview } from './fileHandlers';
 	import type { MentionSuggestion } from './types';
 	import type { E2eeRoomStatus } from '$lib/e2ee';
-	import { encryptMessageForChannel } from '$lib/e2ee';
 
 	interface Props {
 		isDMChannel?: boolean;
@@ -409,26 +408,13 @@ import type { MediaAlbum } from '$lib/api';
 				});
 			}
 		} else {
-			// E2EE: wrap outgoing text in an encrypted envelope before chunking or
-			// payload building, so replyTo/spoiler/entities ride inside the sealed payload.
-			let outgoingText = processed.text;
-			if (encryptSend && !processed.text.startsWith('wabi-e2ee-v1:')) {
-				const encrypted = await encryptMessageForChannel(
-					draftChannel,
-					processed.text,
-					'text',
-					{ replyTo: replyId, isSpoiler: spoiler, entities: normalizedEntities }
-				);
-				if (encrypted) {
-					outgoingText = encrypted.wireText;
-					// Encryption absorbs replyTo/isSpoiler/entities into the envelope.
-					markAsSpoiler = false;
-				}
-			}
-			const kind = detectMessageKind(outgoingText, $emojis as unknown as Emoji[]);
+			// The shared send boundary encrypts exactly once, after message-kind
+			// detection. Encrypting here as well nested an E2EE envelope inside a
+			// second one and made the recipient see ciphertext after decryption.
+			const kind = detectMessageKind(processed.text, $emojis as unknown as Emoji[]);
 			if (kind.type === 'emoji') {
 				payloads.push({
-					text: outgoingText,
+					text: processed.text,
 					type: 'emoji',
 					opts: {
 						emojiUrl: kind.emojiUrl,
@@ -439,7 +425,7 @@ import type { MediaAlbum } from '$lib/api';
 				});
 			} else {
 				payloads.push({
-					text: outgoingText,
+					text: processed.text,
 					type: 'text',
 					opts: {
 						replyTo: replyId,

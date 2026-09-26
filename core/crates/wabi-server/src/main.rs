@@ -440,7 +440,7 @@ async fn main() -> anyhow::Result<()> {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 interval.tick().await;
-                let Some(io) = state.sio.read().await.clone() else {
+                let Some(io) = state.socket_io() else {
                     tracing::warn!("[live-reaper] SocketIo handle not available, skipping tick");
                     continue;
                 };
@@ -560,7 +560,7 @@ async fn main() -> anyhow::Result<()> {
                                 continue;
                             }
                             state.session_messages.write().await.entry(channel_id.clone()).or_default().retain(|item| item.get("id").and_then(|value| value.as_str()) != Some(message.message_id.as_str()));
-                            if let Some(io) = state.sio.read().await.clone() {
+                            if let Some(io) = state.socket_io() {
                                 let _ = io.to(channel_id.clone()).emit("message-deleted", &serde_json::json!({"channelId": channel_id, "messageId": message.message_id})).await;
                             }
                         }
@@ -665,7 +665,7 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             // Wait for the SocketIo instance to be available.
             let io = loop {
-                if let Some(io) = state_clone.sio.read().await.clone() {
+                if let Some(io) = state_clone.socket_io() {
                     break io;
                 }
                 tracing::warn!("subscription bridge: SocketIo handle not available, retrying in 1s");

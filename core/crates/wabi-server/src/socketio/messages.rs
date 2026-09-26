@@ -69,6 +69,9 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         }
     }
 
+    // Encryption transitions and durable message writes share one ordering
+    // boundary, including the new-room pending state and explicit fallback.
+    let retention_guard = state.app.retention_policy_lock.lock().await;
     // Privacy boundary first. Once a private room is E2EE, plaintext is never
     // accepted as that room's message body. Membership/device changes fail
     // closed until a participant rotates the room key.
@@ -134,7 +137,6 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     let message_id;
     // Policy transitions and message commits share one ordering boundary.
     // Otherwise a message can select an old mode but land in a new epoch.
-    let retention_guard = state.app.retention_policy_lock.lock().await;
     let timestamp = now_ms();
     let is_live = channel_is_live(&state.app, &channel_id).await;
     let requested_spoiler = cmd.get("isSpoiler").and_then(|v| v.as_bool()).unwrap_or(false);

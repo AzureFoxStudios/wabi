@@ -10,21 +10,52 @@
  * render, and exposes one enable action that both DmConversationView and DMTab
  * call.
  */
-import { enableE2eeRoom, getE2eeRoomStatus, rekeyE2eeRoom, type E2eeRoomStatus } from '$lib/e2ee';
+import { allowServerReadableRoom, e2eeClientRealmKey, enableE2eeRoom, ensureE2eeDeviceRegistered, getE2eeRoomStatus, rekeyE2eeRoom, type E2eeRoomStatus } from '$lib/e2ee';
 import { getServerUrl } from '$lib/serverUrl';
 
 const statusCache = new Map<string, E2eeRoomStatus>();
 
+function cacheKey(channelId: string): string | null {
+	try { return `${e2eeClientRealmKey()}:${channelId}`; }
+	catch { return null; }
+}
+
+function remember(channelId: string, status: E2eeRoomStatus): E2eeRoomStatus {
+	const key = cacheKey(channelId);
+	if (key) statusCache.set(key, status);
+	return status;
+}
+
 /** Read-through cache: returns cached status without a network call. */
 export function cachedE2eeStatus(channelId: string): E2eeRoomStatus | null {
-	return statusCache.get(channelId) ?? null;
+	const key = cacheKey(channelId);
+	return key ? statusCache.get(key) ?? null : null;
 }
 
 /** Fetch fresh status and update the cache (fail-closed: errors leave the cache as-is). */
 export async function refreshE2eeStatus(channelId: string): Promise<E2eeRoomStatus> {
-	const status = await getE2eeRoomStatus(channelId);
-	statusCache.set(channelId, status);
+	return remember(channelId, await getE2eeRoomStatus(channelId, false));
+}
+
+/** New private rooms default to encryption, once every member has a device. */
+export async function prepareNewConversationEncryption(channelId: string): Promise<E2eeRoomStatus> {
+	await ensureE2eeDeviceRegistered();
+	let status = await refreshE2eeStatus(channelId);
+	if (!status.pendingDefault || status.enabled || status.missingUserIds.length) return status;
+	try {
+		status = remember(channelId, await enableE2eeRoom(channelId));
+	} catch (error) {
+		// Another participant may have enabled encryption or explicitly chosen
+		// server-readable mode while this device wrapped the room key.
+		status = await refreshE2eeStatus(channelId);
+		if (status.pendingDefault && !status.enabled) throw error;
+	}
 	return status;
+}
+
+export async function chooseServerReadable(channelId: string): Promise<E2eeRoomStatus> {
+	await allowServerReadableRoom(channelId);
+	return refreshE2eeStatus(channelId);
 }
 
 /** Probe the endpoint once per session so a stale cache never lies about capabilities. */
@@ -46,8 +77,7 @@ export async function probeE2eeOnce(): Promise<void> {
 export async function turnOnE2ee(channelId: string): Promise<E2eeRoomStatus | null> {
 	try {
 		const status = await enableE2eeRoom(channelId);
-		statusCache.set(channelId, status);
-		return status;
+		return remember(channelId, status);
 	} catch {
 		return null;
 	}
@@ -57,8 +87,7 @@ export async function turnOnE2ee(channelId: string): Promise<E2eeRoomStatus | nu
 export async function rekeyE2ee(channelId: string): Promise<E2eeRoomStatus | null> {
 	try {
 		const status = await rekeyE2eeRoom(channelId, true);
-		statusCache.set(channelId, status);
-		return status;
+		return remember(channelId, status);
 	} catch {
 		return null;
 	}

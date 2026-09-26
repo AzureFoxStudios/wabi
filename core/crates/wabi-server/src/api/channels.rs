@@ -225,7 +225,7 @@ async fn set_channel_retention(
     }
 
     let retention = apply_channel_retention(&state, &id, &req.retention).await?;
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         let _ = io.broadcast().emit("channel-updated", &serde_json::json!({
             "channelId": &id,
             "autoDeleteAfter": &retention,
@@ -427,7 +427,7 @@ async fn delete_channel(
     for channel_id in &deleted_ids {
         crate::socketio::remove_board_version(&format!("channel:{}", channel_id));
     }
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         let _ = io.broadcast().emit("channel-deleted", &serde_json::json!({ "channelId": &id, "channelIds": &deleted_ids })).await;
     }
     Ok(Json(serde_json::json!({ "deleted": id, "deletedIds": deleted_ids })))

@@ -68,10 +68,17 @@ async function api(path, method, body, token) {
 async function connect(account) {
 	const socket = io(origin, { autoConnect: false, reconnection: false, transports: ['websocket'], auth: { token: account.accessToken } });
 	sockets.push(socket);
-	const initialized = event(socket, 'init');
+	const diagnostics = [];
+	socket.on('connect_error', (error) => diagnostics.push(`connect_error: ${error.message}`));
+	socket.on('auth-required', (payload) => diagnostics.push(`auth-required: ${JSON.stringify(payload)}`));
+	const initialized = event(socket, 'init', () => true, 60000);
 	socket.on('connect', () => socket.emit('join', account.user.username));
 	socket.connect();
-	return { socket, init: await initialized };
+	try {
+		return { socket, init: await initialized };
+	} catch (error) {
+		throw new Error(`${error.message}; connected=${socket.connected}; id=${socket.id}; diagnostics=${JSON.stringify(diagnostics)}`);
+	}
 }
 
 try {
@@ -101,12 +108,29 @@ try {
 	}
 
 	const recipientAdded = event(b.socket, 'dm-channel-added');
+	const initiatorAdded = event(a.socket, 'dm-channel-added');
 	const created = event(a.socket, 'dm-created');
+	const otherCreated = event(b.socket, 'dm-created');
 	a.socket.emit('create-dm', { targetUserId: `user-${bob.user.id}` });
+	b.socket.emit('create-dm', { targetUserId: `user-${alice.user.id}` });
 	const dm = await created;
 	const recipient = await recipientAdded;
+	assert.equal((await otherCreated).channelId, dm.channelId, 'concurrent DM creation converges on one channel');
+	assert.equal((await initiatorAdded).channelId, dm.channelId, 'both devices learn the same concurrent DM');
 	assert.equal(recipient.channelId, dm.channelId, 'both members learn the same DM');
 	assert.ok(dm.channelId.startsWith('dm-user-'));
+	const pendingStatus = await api(`/api/e2ee/channels/${dm.channelId}`, 'GET', null, alice.accessToken);
+	assert.equal(pendingStatus.pendingDefault, true, 'new DM waits for encryption by default');
+	const pendingDenied = event(a.socket, 'message-error', (row) => row.clientMessageId === 'pending-plaintext');
+	a.socket.emit('message', { channelId: dm.channelId, clientMessageId: 'pending-plaintext', text: 'must not leak before mode choice', type: 'text' });
+	assert.equal((await pendingDenied).code, 'e2ee_required', 'new DM rejects silent plaintext');
+	// This fixture exercises the legacy/plaintext delivery contract. Newly
+	// created private rooms require each sender to explicitly allow that mode.
+	await api(`/api/e2ee/channels/${dm.channelId}/allow-server-readable`, 'POST', null, alice.accessToken);
+	const peerDenied = event(b.socket, 'message-error', (row) => row.clientMessageId === 'peer-no-consent');
+	b.socket.emit('message', { channelId: dm.channelId, clientMessageId: 'peer-no-consent', text: 'peer did not consent', type: 'text' });
+	assert.equal((await peerDenied).code, 'e2ee_required', 'one participant cannot opt the other into plaintext');
+	await api(`/api/e2ee/channels/${dm.channelId}/allow-server-readable`, 'POST', null, bob.accessToken);
 
 	const firstId = 'dm-alice-first';
 	const firstAccepted = event(a.socket, 'message-accepted', (row) => row.clientMessageId === firstId);
@@ -146,7 +170,7 @@ try {
 	await vite.listen();
 	const app = `http://127.0.0.1:${vite.httpServer.address().port}`;
 	browser = await chromium.launch({ headless: false, ...(process.env.WABI_SMOKE_CHROMIUM_PATH ? { executablePath: process.env.WABI_SMOKE_CHROMIUM_PATH } : {}) });
-	async function openApp(account, mobile) {
+	async function openApp(account, mobile, conversationId = dm.channelId) {
 		const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1360, height: 860 }, isMobile: mobile, hasTouch: mobile });
 		await context.addInitScript(({ serverUrl, login }) => {
 			const scope = encodeURIComponent(serverUrl);
@@ -164,11 +188,11 @@ try {
 			let state;
 			channels.subscribe((value) => { state = value; })();
 			return state?.some((channel) => channel.id === channelId);
-		}, dm.channelId);
+		}, conversationId);
 		await page.evaluate(async (channelId) => {
 			const { layoutStore } = await import('/src/lib/layoutStore.ts');
 			layoutStore.openCenterDm(channelId, null);
-		}, dm.channelId);
+		}, conversationId);
 		await page.locator('.dm-conversation').waitFor({ state: 'visible' });
 		return page;
 	}
@@ -185,15 +209,22 @@ try {
 	await mobile.locator('.dm-conversation .input-container textarea').fill('phone viewport reply');
 	await mobile.locator('.dm-conversation .send-button').click();
 	await desktop.locator('.dm-conversation').getByText('phone viewport reply').waitFor();
-	await desktop.locator('.messages-hub-btn').click();
-	await desktop.locator('.dm-conversation .dm-header-back').click();
-	await desktop.locator('.dm-hub-tabs').getByRole('button', { name: /Friends/ }).click();
+	for (const page of [desktop, mobile]) {
+		await page.locator(`.dm-hub-conversation[data-dm-channel-id="${dm.channelId}"] .dm-hub-preview`).getByText('phone viewport reply').waitFor({ state: 'attached' });
+	}
+	await desktop.locator('.personal-nav').getByRole('button', { name: /^Messages/ }).click();
+	const dmBack = desktop.locator('.dm-conversation .dm-header-back');
+	if (await dmBack.isVisible()) await dmBack.click();
+	await desktop.locator('.personal-nav').getByRole('button', { name: /^Friends/ }).click();
 	await desktop.locator('.friends-panel').getByText('dm_bob').waitFor();
 	// Exercise the visible friend actions as well as the API contract above.
 	await api(`/api/friends/${bob.user.id}`, 'DELETE', null, alice.accessToken);
 	await desktop.locator('.friends-panel .friend-row').filter({ hasText: 'dm_bob' }).getByRole('button', { name: 'Add friend' }).click();
-	await mobile.locator('.mobile-bottom-nav').getByRole('button', { name: 'Messages' }).click();
-	await mobile.locator('.dm-hub-tabs').getByRole('button', { name: /Friends/ }).click();
+	await desktop.locator('.friends-panel').getByText('Sent requests').waitFor();
+	await desktop.locator('.friends-panel .friend-row').filter({ hasText: 'dm_bob' }).getByText('Request sent', { exact: true }).waitFor();
+	await mobile.locator('.mobile-bottom-nav').getByRole('button', { name: /^Friends/ }).click();
+	await mobile.locator('.mobile-bottom-nav .mobile-nav-badge').filter({ hasText: '1' }).waitFor();
+	await mobile.locator('.friends-panel').getByText('Requests to review').waitFor();
 	await mobile.locator('.friends-panel .friend-row').filter({ hasText: 'dm_alice' }).getByRole('button', { name: 'Accept' }).click();
 	await desktop.locator('.friends-panel .friend-row').filter({ hasText: 'dm_bob' }).getByRole('button', { name: 'Message' }).waitFor();
 	await desktop.screenshot({ path: `${scratch}/friends-desktop.png` });
@@ -309,6 +340,10 @@ try {
 	assert.equal(sw.display, 'standalone', 'embedded frontend supplies installable manifest');
 	await pwaPhone.reload({ waitUntil: 'load' });
 	assert.equal(await pwaPhone.evaluate(() => Boolean(navigator.serviceWorker.controller)), true, 'PWA reload is service-worker controlled');
+	await pwaPhone.locator('.mobile-bottom-nav').waitFor({ state: 'visible', timeout: 60000 });
+	await pwaPhone.evaluate(() => navigator.serviceWorker.dispatchEvent(new Event('controllerchange')));
+	await pwaPhone.getByRole('region', { name: 'Wabi update available' }).getByRole('button', { name: 'Reload' }).waitFor();
+	await pwaPhone.getByRole('button', { name: 'Dismiss update notice' }).click();
 	await pwaPhone.locator('.mobile-bottom-nav').getByRole('button', { name: 'Messages' }).click();
 	const pwaConversation = pwaPhone.locator(`.dm-hub-conversation[data-dm-channel-id="${dm.channelId}"]`);
 	await pwaConversation.waitFor({ state: 'visible' });
@@ -320,6 +355,71 @@ try {
 	await pwaPhone.locator('.dm-conversation .send-button').click();
 	await pwaReceived;
 	await pwaPhone.screenshot({ path: `${scratch}/dm-phone-pwa.png` });
+
+	// Two installed phone PWAs must exchange actual server-delivered messages.
+	// Block WebSocket for Alice to cover mobile networks where polling works but
+	// the WebSocket upgrade does not. A local optimistic bubble is insufficient.
+	const constrainedContext = await pwaBrowser.newContext({
+		viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+		serviceWorkers: 'allow'
+	});
+	await constrainedContext.routeWebSocket(/\/socket\.io\//, (socket) => socket.close());
+	await constrainedContext.addInitScript(({ serverUrl, login }) => {
+		const scope = encodeURIComponent(serverUrl);
+		sessionStorage.setItem('wabi.serverUrlSession', serverUrl);
+		sessionStorage.setItem(`wabi_auth_token:${scope}`, login.accessToken);
+		localStorage.setItem(`wabi_username:${scope}`, login.user.username);
+		localStorage.setItem(`wabi_db_user_id:${scope}`, String(login.user.id));
+		localStorage.setItem('notificationsEnabled', 'false');
+	}, { serverUrl: pwaOrigin, login: alice });
+	const constrainedPhone = await constrainedContext.newPage();
+	let pollingRequests = 0;
+	const constrainedConsoleErrors = [];
+	constrainedPhone.on('console', (message) => { if (message.type() === 'error') constrainedConsoleErrors.push(message.text()); });
+	constrainedPhone.on('pageerror', (error) => constrainedConsoleErrors.push(error.message));
+	constrainedPhone.on('request', (request) => {
+		if (request.url().includes('/socket.io/') && request.url().includes('transport=polling')) pollingRequests += 1;
+	});
+	constrainedPhone.setDefaultTimeout(30000);
+	await constrainedPhone.goto(pwaOrigin, { waitUntil: 'domcontentloaded' });
+	await constrainedPhone.locator('.badge--online').waitFor({ state: 'visible', timeout: 60000 });
+	assert.ok(pollingRequests > 0, 'constrained phone connected through HTTP polling');
+	const constrainedSwReady = await constrainedPhone.evaluate(() => Promise.race([
+		navigator.serviceWorker.ready.then(() => true),
+		new Promise((resolve) => setTimeout(() => resolve(false), 60000))
+	]));
+	if (!constrainedSwReady) {
+		const diagnostics = await constrainedPhone.evaluate(async () => ({
+			secure: isSecureContext,
+			online: navigator.onLine,
+			controller: navigator.serviceWorker.controller?.scriptURL || null,
+			registrations: (await navigator.serviceWorker.getRegistrations()).map((registration) => ({
+				scope: registration.scope,
+				active: registration.active?.scriptURL || null,
+				activeState: registration.active?.state || null,
+				waiting: registration.waiting?.scriptURL || null,
+				installing: registration.installing?.scriptURL || null
+			}))
+		}));
+		throw new Error(`Polling-only phone service worker did not activate: ${JSON.stringify({ diagnostics, constrainedConsoleErrors })}`);
+	}
+	await constrainedPhone.reload({ waitUntil: 'load' });
+	assert.equal(await constrainedPhone.evaluate(() => Boolean(navigator.serviceWorker.controller)), true, 'constrained phone is service-worker controlled');
+	await constrainedPhone.locator('.mobile-bottom-nav').getByRole('button', { name: 'Messages' }).click();
+	await constrainedPhone.locator(`.dm-hub-conversation[data-dm-channel-id="${dm.channelId}"]`).click();
+	await constrainedPhone.locator('.dm-conversation').getByText(pwaReply).waitFor();
+	const bobToAlice = 'phone PWA to polling-only phone';
+	await pwaPhone.locator('.dm-conversation .input-container textarea').fill(bobToAlice);
+	await pwaPhone.locator('.dm-conversation .send-button').click();
+	await constrainedPhone.locator('.dm-conversation').getByText(bobToAlice).waitFor();
+	const aliceToBob = 'polling-only phone PWA reply';
+	await constrainedPhone.locator('.dm-conversation .input-container textarea').fill(aliceToBob);
+	await constrainedPhone.locator('.dm-conversation .send-button').click();
+	await pwaPhone.locator('.dm-conversation').getByText(aliceToBob).waitFor();
+	const crossPwaHistory = await api(`/api/messages/${dm.channelId}`, 'GET', null, alice.accessToken);
+	assert.ok(crossPwaHistory.messages.some((message) => message.content === aliceToBob), 'polling-only PWA reply is durable');
+	await constrainedPhone.screenshot({ path: `${scratch}/dm-phone-pwa-polling.png` });
+	await constrainedContext.close();
 
 	// Simulate a real phone losing its connection while the installed PWA stays
 	// open. Wait for both the browser's offline state and the live transport to
@@ -415,12 +515,35 @@ try {
 	await desktop.locator('.dm-conversation .send-button').click();
 	const visualRow = desktop.locator('.dm-conversation .message').filter({ hasText: 'retention visual preview' });
 	await visualRow.locator('.deletion-timer').waitFor({ state: 'visible' });
-	assert.match(await visualRow.locator('.deletion-timer').innerText(), /30s retention/, 'Static badge states the original policy lifetime instead of a frozen countdown');
+	assert.match(await visualRow.locator('.deletion-timer').innerText(), /30s timer/, 'Static badge states the original policy lifetime instead of a frozen countdown');
 	const mobileVisualTimer = mobile.locator('.dm-conversation .message').filter({ hasText: 'retention visual preview' }).locator('.deletion-timer');
 	await mobileVisualTimer.waitFor({ state: 'visible' });
-	assert.match(await mobileVisualTimer.innerText(), /30s retention/, 'phone-sized Static badge states the original lifetime');
+	assert.match(await mobileVisualTimer.innerText(), /30s timer/, 'phone-sized Static badge states the original lifetime');
 	await desktop.screenshot({ path: `${scratch}/retention-desktop.png` });
 	await mobile.screenshot({ path: `${scratch}/retention-mobile.png` });
+	const daySave = desktop.waitForResponse((response) => response.url().includes(`/api/channels/${encodeURIComponent(dm.channelId)}/retention`) && response.request().method() === 'PUT');
+	await retentionSelect.selectOption('24h');
+	assert.equal((await daySave).status(), 200);
+	assert.equal(await retentionSelect.inputValue(), '24h', 'conversation control reflects the new 24h policy');
+	await desktop.locator('.dm-conversation .input-container textarea').fill('new 24-hour retention proof');
+	await desktop.locator('.dm-conversation .send-button').click();
+	const dayRow = desktop.locator('.dm-conversation .message').filter({ hasText: 'new 24-hour retention proof' });
+	await dayRow.waitFor({ state: 'visible' });
+	assert.equal(await dayRow.locator('.deletion-timer').count(), 0, 'new 24h message never inherits the older 30s badge');
+	await visualRow.locator('.deletion-timer').getByText('30s timer').waitFor({ state: 'visible' });
+	const dayHistory = await api(`/api/messages/${dm.channelId}`, 'GET', null, alice.accessToken);
+	const timeline = await api(`/api/channels/${dm.channelId}/retention`, 'GET', null, alice.accessToken);
+	const deadlineFor = (content) => {
+		const message = dayHistory.messages.find((row) => row.content === content);
+		assert.ok(message, `history contains ${content}`);
+		const epoch = [...timeline.epochs].reverse().find((row) => row.fromMicros <= message.created_at * 1000);
+		assert.ok(epoch, `retention epoch exists for ${content}`);
+		return { durationMs: epoch.durationMs, deadline: message.created_at + epoch.durationMs };
+	};
+	assert.equal(deadlineFor('retention visual preview').durationMs, 30_000, 'older message keeps 30s deadline');
+	const dayDeadline = deadlineFor('new 24-hour retention proof');
+	assert.equal(dayDeadline.durationMs, 86_400_000, 'new message receives 24h deadline');
+	assert.ok(dayDeadline.deadline - Date.now() > 86_300_000, 'server deadline is approximately one day away');
 	const fiveSave = desktop.waitForResponse((response) => response.url().includes(`/api/channels/${encodeURIComponent(dm.channelId)}/retention`) && response.request().method() === 'PUT');
 	await retentionSelect.selectOption('5s');
 	assert.equal((await fiveSave).status(), 200);
@@ -452,6 +575,78 @@ try {
 	await desktop.locator(`.channel-item[data-channel-id="${headerChannel.id}"] .channel-btn`).click();
 	await desktop.locator('.chat-header .retention-channel-badge').getByText('30 seconds').waitFor({ state: 'visible' });
 	await desktop.screenshot({ path: `${scratch}/retention-header-desktop.png` });
+
+	// Two real browser accounts must exchange one-layer encrypted messages in
+	// both a new group and a fresh DM. The Authority retains only wire envelopes.
+	const groupRequestId = crypto.randomUUID();
+	const groupResult = event(reloadedAlice.socket, 'group-operation-result', (row) => row.requestId === groupRequestId);
+	reloadedAlice.socket.emit('create-group', { requestId: groupRequestId, groupName: 'Encrypted pilot group', userIds: [`user-${bob.user.id}`] });
+	const group = await groupResult;
+	assert.equal(group.ok, true, `encrypted group creation: ${JSON.stringify(group)}`);
+	const groupId = group.channelId;
+	assert.equal((await api(`/api/e2ee/channels/${groupId}`, 'GET', null, alice.accessToken)).pendingDefault, true, 'new group starts pending encryption');
+	for (const page of [desktop, mobile]) {
+		await page.waitForFunction(async (id) => {
+			const { channels } = await import('/src/lib/channelStore.ts');
+			let value;
+			channels.subscribe((next) => { value = next; })();
+			return value?.some((channel) => channel.id === id);
+		}, groupId);
+		if (page === desktop) {
+			await page.locator('.personal-nav').getByRole('button', { name: /^Messages/ }).click();
+		} else {
+			await page.locator('.mobile-bottom-nav').getByRole('button', { name: 'Messages' }).click();
+		}
+		await page.locator(`.dm-hub-conversation[data-dm-channel-id="${groupId}"]`).click();
+		await page.locator('.dm-conversation').waitFor({ state: 'visible' });
+	}
+	for (const page of [desktop, mobile]) await page.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
+	await desktop.locator('.dm-conversation .input-container textarea').fill('one-layer group secret from Alice');
+	await desktop.locator('.dm-conversation .send-button').click();
+	await mobile.locator('.dm-conversation').getByText('one-layer group secret from Alice').waitFor();
+	assert.equal(await mobile.locator('.dm-conversation').getByText('wabi-e2ee-v1:').count(), 0, 'group recipient does not see a nested ciphertext envelope');
+	await mobile.locator('.dm-conversation .input-container textarea').fill('group reply from Bob');
+	await mobile.locator('.dm-conversation .send-button').click();
+	await desktop.locator('.dm-conversation').getByText('group reply from Bob').waitFor();
+	const groupHistory = await api(`/api/messages/${groupId}`, 'GET', null, alice.accessToken);
+	assert.equal(groupHistory.messages.length, 2, 'both encrypted group messages are durable');
+	for (const row of groupHistory.messages) {
+		assert.match(row.content, /^wabi-e2ee-v1:/, 'Authority stores a ciphertext envelope');
+		assert.ok(!row.content.includes('one-layer group secret') && !row.content.includes('group reply from Bob'), 'Authority does not store group plaintext');
+	}
+	for (const page of [desktop, mobile]) {
+		await page.locator(`.dm-hub-conversation[data-dm-channel-id="${groupId}"] .dm-hub-preview`).getByText('Encrypted message', { exact: true }).waitFor({ state: 'attached' });
+	}
+	await desktop.screenshot({ path: `${scratch}/e2ee-group-desktop.png` });
+	await mobile.screenshot({ path: `${scratch}/e2ee-group-mobile.png` });
+
+	const freshDmCreated = event(reloadedAlice.socket, 'dm-created', (row) => row.otherUser?.id === `user-${charlie.user.id}`);
+	reloadedAlice.socket.emit('create-dm', { targetUserId: `user-${charlie.user.id}` });
+	const freshDm = await freshDmCreated;
+	assert.equal((await api(`/api/e2ee/channels/${freshDm.channelId}`, 'GET', null, alice.accessToken)).pendingDefault, true, 'fresh DM starts pending encryption');
+	const charliePage = await openApp(charlie, false, freshDm.channelId);
+	await charliePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
+	await desktop.evaluate(async (id) => {
+		const { layoutStore } = await import('/src/lib/layoutStore.ts');
+		layoutStore.openCenterDm(id, null);
+	}, freshDm.channelId);
+	await desktop.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
+	await charliePage.locator('.dm-conversation .input-container textarea').fill('one-layer DM secret from Charlie');
+	await charliePage.locator('.dm-conversation .send-button').click();
+	await desktop.locator('.dm-conversation').getByText('one-layer DM secret from Charlie').waitFor();
+	await desktop.locator('.dm-conversation .input-container textarea').fill('encrypted DM reply from Alice');
+	await desktop.locator('.dm-conversation .send-button').click();
+	await charliePage.locator('.dm-conversation').getByText('encrypted DM reply from Alice').waitFor();
+	const encryptedDmHistory = await api(`/api/messages/${freshDm.channelId}`, 'GET', null, charlie.accessToken);
+	assert.equal(encryptedDmHistory.messages.length, 2, 'both encrypted DM messages are durable');
+	for (const row of encryptedDmHistory.messages) {
+		assert.match(row.content, /^wabi-e2ee-v1:/, 'Authority stores DM ciphertext');
+		assert.ok(!row.content.includes('one-layer DM secret') && !row.content.includes('encrypted DM reply'), 'Authority does not store DM plaintext');
+	}
+	for (const page of [desktop, charliePage]) {
+		await page.locator(`.dm-hub-conversation[data-dm-channel-id="${freshDm.channelId}"] .dm-hub-preview`).getByText('Encrypted message', { exact: true }).waitFor({ state: 'attached' });
+	}
+	await charliePage.screenshot({ path: `${scratch}/e2ee-dm-charlie.png` });
 
 	const logoutRoster = await desktop.evaluate(async (serverUrl) => {
 		const { clearAuthSession } = await import('/src/lib/authSession.ts');

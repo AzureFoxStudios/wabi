@@ -2,12 +2,12 @@
 	import { afterUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
-	import { cachedE2eeStatus, refreshE2eeStatus, turnOnE2ee } from '$lib/dm/dmE2eeState';
+	import { cachedE2eeStatus, chooseServerReadable, prepareNewConversationEncryption, rekeyE2ee, turnOnE2ee } from '$lib/dm/dmE2eeState';
 	import type { E2eeRoomStatus } from '$lib/e2ee';
 	import { getLineDmResolvedProfile, lineDmAddonStore } from '$lib/lineDmAddon';
 	import { openPreferredMapSurface } from '$lib/mapWorkspace';
 	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
-	import { channelMessagesStore, channelHasMoreHistory, channelHistoryLoading, channels, currentUser, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, syncNewerMessages, updateChannelSettings, type Channel, type Message, type User } from '$lib/socket';
+	import { channelMessagesStore, channelHasMoreHistory, channelHistoryLoading, channels, currentUser, getSocket, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, syncNewerMessages, updateChannelSettings, type Channel, type Message, type User } from '$lib/socket';
 	import { showToast } from '$lib/toast';
 	import {
 		DEFAULT_DM_RETENTION,
@@ -41,6 +41,7 @@
 	let statusChannelId = '';
 	let e2eeStatus: E2eeRoomStatus | null = null;
 	let e2eeBusy = false;
+	let e2eeChecking = false;
 	let e2eeError = '';
 	let mounted = true;
 	let followLatest = true;
@@ -48,7 +49,7 @@
 	let lastMessageKey = '';
 	let olderAnchor: { channelId: string; firstId: string; height: number; top: number } | null = null;
 
-	$: activeChannel = channel || $channels.find((entry) => entry.id === channelId);
+	$: activeChannel = $channels.find((entry) => entry.id === channelId) || channel;
 	$: isGroup = activeChannel?.type === 'group';
 	$: displayName = isGroup ? activeChannel?.name || 'Group message' : otherUser?.username || 'Direct message';
 	$: messagesForChannel = channelMessagesStore(channelId);
@@ -75,9 +76,50 @@
 		statusChannelId = requestedChannelId;
 		e2eeStatus = cachedE2eeStatus(requestedChannelId);
 		e2eeError = '';
-		void refreshE2eeStatus(requestedChannelId)
-			.then((status) => { if (mounted && channelId === requestedChannelId) e2eeStatus = status; })
-			.catch(() => { /* Keep the last known state until this device can refresh it. */ });
+		void loadE2eeStatus(requestedChannelId);
+	}
+
+	async function loadE2eeStatus(targetChannelId: string): Promise<void> {
+		e2eeChecking = true;
+		try {
+			const status = await prepareNewConversationEncryption(targetChannelId);
+			if (mounted && channelId === targetChannelId) { e2eeStatus = status; e2eeError = ''; }
+		} catch (error) {
+			if (mounted && channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not check encryption. Try again.';
+		} finally {
+			if (mounted && channelId === targetChannelId) e2eeChecking = false;
+		}
+	}
+
+	async function useServerReadable(): Promise<void> {
+		if (!channelId || e2eeBusy) return;
+		const targetChannelId = channelId;
+		e2eeBusy = true;
+		e2eeError = '';
+		try {
+			const status = await chooseServerReadable(targetChannelId);
+			if (mounted && channelId === targetChannelId) e2eeStatus = status;
+		} catch (error) {
+			if (mounted && channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not change conversation mode.';
+		} finally {
+			if (mounted) e2eeBusy = false;
+		}
+	}
+
+	async function updateEncryptionKeys(): Promise<void> {
+		if (!channelId || e2eeBusy) return;
+		const targetChannelId = channelId;
+		e2eeBusy = true;
+		e2eeError = '';
+		try {
+			const status = await rekeyE2ee(targetChannelId);
+			if (mounted && channelId === targetChannelId) {
+				if (status) e2eeStatus = status;
+				else e2eeError = 'Could not update encryption keys. Check participant devices and try again.';
+			}
+		} finally {
+			if (mounted) e2eeBusy = false;
+		}
 	}
 
 	function handleRetentionChange(event: Event): void {
@@ -196,7 +238,31 @@
 	onMount(() => {
 		document.addEventListener('visibilitychange', markVisibleMessagesRead);
 		void tick().then(markVisibleMessagesRead);
-		return () => document.removeEventListener('visibilitychange', markVisibleMessagesRead);
+		let observedSocket: ReturnType<typeof getSocket> = null;
+		const onEncryptionUpdate = (payload: { channelId?: string }) => {
+			if (payload?.channelId === channelId) void loadE2eeStatus(channelId);
+		};
+		const bindSocket = () => {
+			const next = getSocket();
+			if (next === observedSocket) return;
+			observedSocket?.off('e2ee-room-updated', onEncryptionUpdate);
+			observedSocket = next;
+			observedSocket?.on('e2ee-room-updated', onEncryptionUpdate);
+			if (next && channelId) void loadE2eeStatus(channelId);
+		};
+		const onFocus = () => { if (channelId) void loadE2eeStatus(channelId); };
+		window.addEventListener('focus', onFocus);
+		bindSocket();
+		const poll = window.setInterval(() => {
+			bindSocket();
+			if (channelId && e2eeStatus?.pendingDefault && !e2eeChecking && !e2eeBusy) void loadE2eeStatus(channelId);
+		}, 5000);
+		return () => {
+			document.removeEventListener('visibilitychange', markVisibleMessagesRead);
+			window.removeEventListener('focus', onFocus);
+			observedSocket?.off('e2ee-room-updated', onEncryptionUpdate);
+			window.clearInterval(poll);
+		};
 	});
 
 	onDestroy(() => { mounted = false; });
@@ -226,11 +292,14 @@
 		<span class="dm-retention-hint">Earlier messages keep their original lifetime.</span>
 		</div>
 		<div class="dm-tool-actions">
-			{#if !isGroup && !e2eeStatus?.enabled}
+			{#if e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault}
 				<button type="button" class="dm-tool-button" on:click={() => void enableE2ee()} disabled={e2eeBusy} title="Experimental end-to-end encryption; not independently verified">
 					{e2eeBusy ? 'Enabling…' : 'Enable encryption'}
 				</button>
 			{/if}
+			{#if e2eeStatus?.enabled}<span class="dm-tool-encryption-status" title="Experimental encryption; device identities and client have not been independently verified">Encrypted · experimental</span>{/if}
+			{#if e2eeStatus?.pendingDefault}<span class="dm-tool-encryption-status">Encryption pending</span>{/if}
+			{#if e2eeStatus?.serverReadableSelected && !e2eeStatus.serverReadableAllowedByMe}<span class="dm-tool-encryption-status">Your confirmation needed</span>{/if}
 			<button type="button" class="dm-tool-button" on:click={() => void openPreferredMapSurface()} title="Open map">Map</button>
 			<button type="button" class="dm-tool-button" on:click={() => openPaymentSheet()} disabled={!paymentButtonEnabled} title="Create payment request">Pay</button>
 			<button type="button" class="dm-tool-button" class:active={showNotes} aria-pressed={showNotes} on:click={() => showNotes = !showNotes}>Notes</button>
@@ -279,6 +348,7 @@
 				<button type="button" class="dm-jump-latest" on:click={() => void scrollToLatest()}>↓ New messages</button>
 			{/if}
 			<div class="dm-conversation-composer">
+				{#if e2eeStatus && !e2eeStatus.pendingDefault && !e2eeStatus.needsRekey && (!e2eeStatus.serverReadableSelected || e2eeStatus.serverReadableAllowedByMe)}
 				{#key `${$currentUser?.dbUserId || $currentUser?.id || ''}:${channelId}`}
 					<ChatComposer
 						bind:this={chatComposer}
@@ -295,6 +365,30 @@
 						onOpenPaymentSheet={openPaymentSheet}
 					/>
 				{/key}
+				{:else}
+					<div class="dm-encryption-gate" role="status">
+						{#if e2eeStatus?.enabled && e2eeStatus.needsRekey}
+							<strong>Encryption keys need an update.</strong>
+							<span>Membership or devices changed. Review the participant devices before trusting the new key. Earlier encrypted messages may be unavailable on newly added devices.</span>
+							<button type="button" on:click={() => void updateEncryptionKeys()} disabled={e2eeBusy}>Trust current devices · update keys</button>
+						{:else if e2eeStatus?.pendingDefault}
+							<strong>Encryption is waiting for participant devices.</strong>
+							<span>{e2eeStatus.missingUserIds.length} participant{e2eeStatus.missingUserIds.length === 1 ? '' : 's'} still need to open updated Wabi. Messages cannot be sent until encryption starts or someone chooses server-readable chat.</span>
+							<div class="dm-encryption-actions">
+								<button type="button" on:click={() => void loadE2eeStatus(channelId)} disabled={e2eeChecking}>Check again</button>
+								<button type="button" on:click={() => void useServerReadable()} disabled={e2eeBusy}>Use server-readable messages</button>
+							</div>
+						{:else if e2eeStatus?.serverReadableSelected && !e2eeStatus.serverReadableAllowedByMe}
+							<strong>This conversation is server-readable.</strong>
+							<span>Another participant chose this mode. Confirm it on your own account before sending; you can enable encryption later when participant devices are ready.</span>
+							<button type="button" on:click={() => void useServerReadable()} disabled={e2eeBusy}>I understand · send server-readable</button>
+						{:else}
+							<strong>Checking conversation encryption…</strong>
+							<span>Sending is paused until this device can confirm the conversation mode.</span>
+							<button type="button" on:click={() => void loadE2eeStatus(channelId)} disabled={e2eeChecking}>Retry</button>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		</div>
 		{#if showNotes}
@@ -322,6 +416,12 @@
 />
 
 <style>
+	.dm-encryption-gate { display: grid; gap: 0.35rem; padding: 0.75rem 1rem; color: var(--text-secondary); font-size: var(--text-sm); }
+	.dm-encryption-gate strong { color: var(--text-primary); font-weight: 600; }
+	.dm-encryption-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem; }
+	.dm-encryption-gate button { width: fit-content; padding: 0.35rem 0.65rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-hover); color: var(--text-primary); cursor: pointer; }
+	.dm-encryption-gate button:disabled { opacity: 0.55; cursor: default; }
+	.dm-tool-encryption-status { color: var(--text-secondary); font-size: var(--text-xs); }
 	.dm-message-view {
 		position: relative;
 		display: flex;
