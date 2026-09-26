@@ -44,27 +44,39 @@ realtime checks. Physical-phone acceptance is still pending. Live mode can
 temporarily hide older durable history while selected, and messages deleted
 before this repair cannot be recovered.
 
-### New private-room encryption default — branch candidate, not deployed
+The 2026-09-26 follow-up (`88db86a7`) is live on Tim. It fixes the realtime
+startup race and installed-PWA delivery through HTTP polling, makes Friends
+requests and notices visible, keeps DM previews current, and refines the
+DM/group layout and per-message timer badge. A disposable two-account browser
+run covered phone-sized installed PWAs, offline replay, friends, group and DM
+messages, and 30-second to 24-hour to 5-second retention changes. The exact
+release passed a fresh embedded-build smoke check; Tim's public page,
+health/readiness and Socket.IO polling probes passed after the swap. Physical
+phone acceptance remains open.
 
-The current `codex/friends-dm-release-20260925` worktree has a further
-experimental change under acceptance testing. A newly created DM or group
-starts in an encryption-pending state. Registered participants' browsers
-create device keys, and the room switches to encrypted messages only after
-every participant has a registered device. Until then, the Authority rejects
-plaintext sends. A participant can explicitly choose server-readable chat;
-that choice stops automatic enablement, and every sender must make their own
-server-readable choice before sending. An earlier room without this new policy
-keeps its existing behavior. This change is **not in the Tim release described
-above** and is not a verified operator-blind guarantee. See
-[the privacy stance](PRIVACY_STANCE.md) for the experimental trust boundary.
+### Experimental new-room encryption default — deployed on Tim
+
+The Tim release branch adds an experimental default for newly created DMs and
+groups. Each new room starts encryption-pending. Registered participants'
+clients create device keys, and the room can switch to encrypted text only
+after every participant has a registered device. The Authority rejects
+plaintext sends while encryption is pending. A participant can explicitly
+choose server-readable chat instead; that choice stops automatic enablement,
+and **each sender** must confirm server-readable mode before sending plaintext.
+An earlier room without the new policy keeps its previous behavior, including
+server-readable mode unless participants had already enabled experimental
+encryption. Damaged encryption-registry state blocks sends and key changes
+instead of silently resetting. The cosmetic “Sealed / Private / Open” menu no
+longer appears as a security control. This rollout remains under acceptance
+testing, including physical phones, and is **not an independently verified
+E2EE or operator-blind guarantee**. See [the privacy stance](PRIVACY_STANCE.md)
+for the trust boundary.
 
 ## Production-finish candidate — not yet merged or deployed
 
 `codex/production-finish-20260915` adds account/server-scoped local Notes with transactional saves, independent editor drafts, conflict recovery, trash, titled wiki-links/backlinks, explicit legacy recovery, JSON backup/import, portable Markdown archives, keyboard link completion, a reading view, explicit broken-link reconnect and a shared scratchpad. Reader storage upgrades preserve older writing, and a scoped return control links Reader copies to their source notes. Profile annotations now use scoped, revision-checked writes. See [Local Notes](features/LOCAL_NOTES.md) for storage boundaries, backup limits and unfinished acceptance work.
 
 The candidate also scopes device-local Planner data to its server/account, retains competing or failed-save drafts, and replaces destructive imports with validated additive imports. Planner server sync is unavailable. Recurring calendar occurrences render with local-date handling and explicit whole-series editing. See [Local Planner](features/LOCAL_PLANNER.md).
-
-The candidate also rejects damaged experimental encryption-registry state instead of silently resetting it, and removes cosmetic DM privacy modes that did not control encryption. Existing encrypted content is preserved; no operator-blind confidentiality claim is certified.
 
 This candidate also contains the production-finish entry-page, mobile-panel and authentication repairs tracked in the [campaign ledger](plans/2026-09-15-production-finish-campaign.md). Candidate checks do not promote the deployed website, full workspace suite, native devices, self-host installation, restore procedure or physical-device calling to production-ready status.
 
@@ -145,7 +157,7 @@ Calling works, but performance and correctness work continues across browser/nat
 Wabi is privacy-oriented through self-hosting and minimized central dependence, but **self-hosted does not mean zero-trust**.
 
 - The server operator controls the instance and can access server-readable content.
-- The deployed DM/private-room path is server-readable. The branch candidate adds a fail-closed encrypted default for new rooms, but its first-seen device keys come from the Authority and the full client/protocol has not been independently verified.
+- New DMs/groups in the Tim rollout begin encryption-pending and may move to experimental encrypted text after participant devices are ready. Explicit server-readable fallback needs each sender's confirmation; earlier rooms retain their previous policy. First-seen device keys come from the Authority, and the full client/protocol has not been independently verified.
 - Retention and confidentiality are separate. A message that is not retained after its configured lifetime is still visible to the server while it exists.
 - Client-local preferences/effects/queues remain a different trust boundary from server state.
 - Optional reverse proxies, tunnels, DERP relays, media services, external tools, and plugins add their own operators/software to the trust chain.

@@ -3,8 +3,9 @@
 The `codex/friends-dm-release-20260925` branch was deployed on Tim on
 2026-09-25, but has not been merged into `main`. Friends are scoped to one
 Authority. They do not create global identities, federation or cross-server
-messages. Direct messages and group rooms are server-readable. The experimental
-encryption path is not a shipped confidentiality guarantee.
+messages. The first 2026-09-25 release kept DMs and groups server-readable.
+The later new-room encryption default is experimental, with explicit
+server-readable fallback and no verified operator-blind guarantee.
 
 ## Durable friend relationship
 
@@ -61,8 +62,9 @@ The DM hub opens group creation in center stage. A newly created group opens
 there immediately. Group settings in the center conversation expose the
 existing add, remove and leave actions; older history can be requested in the
 center conversation and right panel. Group invitees are active registered
-members of the same Authority, rather than a friends-only list. Group content
-is server-readable, and custom group avatars are not yet supported.
+members of the same Authority, rather than a friends-only list. Groups from
+the first 2026-09-25 release were server-readable; the later new-room policy
+is described below. Custom group avatars are not yet supported.
 
 The People tab exposes a right-click menu and a visible More button for touch
 and keyboard use. Both include View Profile and relevant friend actions. The
@@ -132,3 +134,50 @@ swap. The Tim service is healthy; the public page, health endpoint, embedded
 precache and Socket.IO handshake passed. A physical-phone PWA check remains
 open. Do not roll back only the binary after new friendship or retention epoch
 writes; restore the matching stopped data and sidecar backup with it.
+
+## 2026-09-26 new-room privacy and phone delivery follow-up
+
+Code commit `88db86a787c518b7dd90a1feba5f0566d8672f53` makes newly created
+DMs and groups encryption-pending by default. The Authority refuses plaintext
+while pending. Updated participant clients register device keys and enable
+experimental encrypted text once all members have a device; a user can instead
+choose server-readable mode, but each sender must explicitly choose it before
+their own plaintext send. Existing rooms retain their previous policy.
+Encrypted message previews are generic rather than disclosing text. This is
+still not an independently verified E2EE or operator-blind guarantee: first-seen
+keys are supplied by the Authority, the Authority supplies browser code, and
+attachment, device recovery and multi-device behavior need further acceptance.
+
+The same commit fixes a Socket.IO initialization race, starts browser realtime
+with HTTP polling so installed PWAs can deliver when WebSockets are blocked,
+and reconciles optimistic sends with accepted message IDs. Friends navigation,
+sent and incoming request state, toast notices, People actions, profiles and
+DM/group visual hierarchy are included. The retention badge now shows a
+message's actual policy: changing 30 seconds to 24 hours affects new messages
+only, and a later 5-second policy expires only messages sent under that epoch.
+
+The disposable two-account browser regression exercised two-way DMs, reactive
+previews, friend actions, People/profile actions, encrypted DM and group text,
+ciphertext-only stored history, phone-sized installed PWAs including a
+polling-only client, offline queue and reconnect replay, and 30-second,
+24-hour and 5-second retention changes. The Rust encryption tests passed 6/6,
+the frontend unit tests passed 4/4, and frontend checking reported zero errors.
+Iyoku booted the code candidate against disposable data. The exact final
+addon-enabled release artifact (SHA-256
+`32c068d237040668415e0ac62548a25b8c745b30513df2368b45d5decb7bd422`)
+passed the Lore addon marker gate and a fresh disposable health/readiness and
+embedded static build smoke check. Its frontend build ID is
+`9c03d7127eb2619d` with 201 offline assets. Physical installed-phone
+acceptance by Ronin and Tim remains open.
+
+The release was deployed to Tim on 2026-09-26 after stopping the Wabi server
+and refreshing a cold backup of WabiDB data, privacy/retention sidecars,
+uploads, configuration and the previous binary at
+`/home/tim/wabi-backups/authority-20260926-friends-dm-e2ee`. Tim's deployed
+binary matches the SHA-256 above. Its database readiness and container health
+passed; Lore remained compiled and enabled; the anonymous admin and Friends
+endpoints returned 401; and the public page, health and Socket.IO polling
+routes returned 200. The public precache manifest reported build ID
+`9c03d7127eb2619d` and 201 assets. The backup must be restored together with
+its matching previous binary if a rollback is required after new friendship,
+retention or encryption-policy writes.

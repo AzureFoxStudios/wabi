@@ -13,7 +13,8 @@ A Wabi community chooses its own server and operator instead of being required t
 - Wabi does not require a central Wabi account or global identity service.
 - Independent Wabi servers do not federate or share account databases.
 - The server operator controls the instance and its durable data.
-- **The deployed DM/private-room path remains server-readable.** An unshipped branch candidate tries encrypted messages by default in newly created rooms, with the experimental limits below.
+- New DMs/groups in the Tim rollout start **encryption-pending**, then can use experimental encrypted text after participant device keys are ready. Server-readable fallback requires each sender's explicit choice; earlier rooms keep their previous policy.
+- This flow is **not independently verified E2EE or an operator-blind guarantee**.
 - Retention and confidentiality are separate. “Deleted later” or “not written to disk” does not mean “hidden from the server.”
 - Optional proxies, tunnels, DERP relays, media services, external tools, and plugins add their own trust boundaries.
 
@@ -39,8 +40,8 @@ Wabi should provide useful moderation, reporting, audit, export, and recovery to
 | Live/ephemeral public chat | Server-readable while live | Not durably retained by that mode |
 | Timed public chat | Server-readable | Visible until expiry/deletion; underlying event records and backups may remain |
 | Forever/archived public chat | Server-readable | Visible until explicitly deleted; underlying event records and backups may remain |
-| DM | Deployed path is **server-readable**; branch candidate has an experimental encrypted default only for new rooms | Policy/implementation dependent |
-| Private/group room | Deployed path is **server-readable**; branch candidate has an experimental encrypted default only for new rooms | Policy/implementation dependent |
+| New DM or group | Encryption-pending blocks plaintext, then experimental encrypted text after participant devices are ready; each sender may explicitly choose server-readable fallback | Policy/implementation dependent |
+| Earlier DM or group | Keeps its previous policy, including server-readable mode unless experimental encryption was already enabled | Policy/implementation dependent |
 | Presence/typing/transient call state | Server/runtime-visible | Intended to be transient |
 | Client-local preferences/effects | Device-local unless a feature explicitly syncs them | Local lifecycle |
 
@@ -50,7 +51,7 @@ The current Authority deletion path writes a deleted message record; it does not
 
 Only a correctly implemented end-to-end encrypted path can remove the server operator from the content-confidentiality boundary.
 
-## E2EE is a future acceptance project, not current marketing
+## Experimental encryption is not a verified E2EE guarantee
 
 Wabi contains encryption/security design work, but the current DM/private-room send path is not an independently verified E2EE system.
 
@@ -65,13 +66,13 @@ Before Wabi can claim operator-blind private messaging, tests must cover at leas
 7. downgrade to plaintext cannot happen silently;
 8. retention/deletion semantics are defined for ciphertext, keys, attachments, indexes, and backups.
 
-Until that entire path ships and is verified, docs and UI must identify
+Until that entire path is independently verified, docs and UI must identify
 unencrypted rooms as **server-readable** and encrypted rooms as
 **experimental**, without claiming verified protection from an operator.
 
-### New-room candidate behavior and limits
+### New-room experimental behavior and limits
 
-The unshipped branch candidate records a pending-encryption policy in
+The Tim rollout records a pending-encryption policy in
 `e2ee_state.json` before a new DM or group is created. A message in that room
 cannot be stored as plaintext while pending. When every participant has opened
 an updated Wabi client and registered a device, a participant client can wrap
@@ -90,7 +91,7 @@ those keys before users verify fingerprints out of band, so a malicious
 Authority can substitute device identities during setup. The browser also
 receives the app code from the Authority and stores its private key and local
 wrapping secret in browser storage; clearing that storage can make older
-ciphertext unreadable on that device. This candidate is **not an independently
+ciphertext unreadable on that device. This flow is **not an independently
 verified operator-blind confidentiality guarantee**. It needs a protocol,
 client-integrity, key-verification, recovery, attachment and multi-device
 review before that claim changes.
@@ -103,7 +104,7 @@ clear a problem; damaged registry state blocks sends and key changes.
 
 ### Experimental registry and recovery boundary
 
-The candidate retains the existing encrypted-envelope and attachment mechanisms; it does not convert existing ciphertext to plaintext. A room's registry flag reports `experimental_e2ee`, not verified operator-blind confidentiality. The separate DM “Sealed / Private / Open” menu was a device-local label with no connection to message encryption and is no longer presented as a security control. Existing stored preferences are left untouched.
+The current release path retains the existing encrypted-envelope and attachment mechanisms; it does not convert existing ciphertext to plaintext. A room's registry flag reports `experimental_e2ee`, not verified operator-blind confidentiality. The separate DM “Sealed / Private / Open” menu was a device-local label with no connection to message encryption and is no longer presented as a security control. Existing stored preferences are left untouched.
 
 Unreadable, malformed or incomplete `e2ee_state.json` now blocks registry changes, enabled-room privacy lookup and outbound message validation rather than treating damaged state as an empty registry. The file remains intact for recovery. Restore it with the matching stopped Authority backup; do not delete it to clear the error. An absent registry still represents a fresh installation, so deleting the file cannot be distinguished from never having enabled encryption. This check does not prove resilience to a malicious operator, rollback to an older valid registry, or the full E2EE acceptance checklist above.
 
@@ -165,7 +166,7 @@ Product principles:
 - user reporting and incident handling should be first-class;
 - moderation should be attributable and auditable where practical;
 - public/server-readable content can support operator moderation according to the server's policy;
-- future true E2EE spaces must not quietly gain a server-side content classifier/backdoor;
+- encrypted spaces must not quietly gain a server-side content classifier/backdoor;
 - evidence preservation/export should be explicit rather than an invisible universal surveillance mode;
 - already delivered content cannot be magically recalled from another user's device.
 
