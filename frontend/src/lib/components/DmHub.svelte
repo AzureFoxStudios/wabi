@@ -2,7 +2,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
-  import { channels, channelMessages, currentUser, users, serverMembers, channelUnreadCounts, createDM, joinChannel, markChannelAsRead } from '$lib/socket';
+  import { channels, channelMessages, currentUser, users, serverMembers, connected, channelUnreadCounts, createDM, joinChannel, markChannelAsRead } from '$lib/socket';
   import type { Channel, User, Message } from '$lib/socket-types';
   import { getDmDirectoryKey } from '$lib/dmUserDirectory';
   import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
@@ -13,6 +13,7 @@
   import { friendships, startFriendshipSync } from '$lib/friendships';
   import { mediaUrl } from '$lib/mediaUrl';
   import { E2EE_MESSAGE_PREFIX } from '$lib/e2ee';
+  import { livePresenceForUser } from '$lib/dmPresentation';
 
   import { openDetachedPanel } from '$lib/detachedPanels';
 
@@ -144,16 +145,6 @@
       return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  }
-
-  function statusColor(user: User | null): string {
-    if (!user) return 'var(--status-offline, #708090)';
-    switch (user.status) {
-      case 'active': return 'var(--color-success, #22c55e)';
-      case 'away': return 'var(--color-warning, #f59e0b)';
-      case 'busy': return 'var(--color-danger, #ef4444)';
-      default: return 'var(--status-offline, #708090)';
-    }
   }
 
   function openInCenter(channel: Channel, fallbackUser: User | null = null) {
@@ -383,6 +374,7 @@
       {:else}
         {#each dmChannels as channel (channel.id)}
           {@const other = otherUserFor(channel)}
+          {@const presence = livePresenceForUser(other, $users, $connected)}
           {@const unread = $channelUnreadCounts[channel.id] || 0}
           {@const previewMessages = $channelMessages[channel.id]}
           <button
@@ -401,8 +393,8 @@
                   {(conversationLabel(channel) || '?')[0]}
                 </div>
               {/if}
-              {#if other}
-                <span class="dm-hub-status-dot" style:background={statusColor(other)}></span>
+              {#if presence === 'active' || presence === 'away' || presence === 'busy'}
+                <span class="dm-hub-status-dot" class:away={presence === 'away'} class:busy={presence === 'busy'} title={`${other?.username || 'Recipient'} is ${presence === 'active' ? 'online' : presence}`} aria-label={`${other?.username || 'Recipient'} is ${presence === 'active' ? 'online' : presence}`}></span>
               {/if}
             </div>
             <div class="dm-hub-body">
@@ -669,7 +661,10 @@
     height: var(--space-2, 8px);
     border-radius: 50%;
     border: 2px solid var(--surface-base, #24243e);
+    background: var(--color-success, #22c55e);
   }
+  .dm-hub-status-dot.away { background: var(--color-warning, #f59e0b); }
+  .dm-hub-status-dot.busy { background: var(--color-danger, #ef4444); }
 
   .dm-hub-body {
     flex: 1;
@@ -733,103 +728,6 @@
     line-height: 1;
   }
 
-  .dm-hub-notes {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .notes-external-config {
-    padding: var(--space-3, 12px) var(--space-4, 16px);
-    border-bottom: 1px solid var(--color-border-primary, #302b63);
-    flex-shrink: 0;
-  }
-
-  .notes-external-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2, 8px);
-  }
-
-  .notes-external-title {
-    font-size: var(--font-size-sm, 13px);
-    font-weight: var(--font-weight-semibold, 600);
-    color: var(--text-heading, #e0e0ff);
-  }
-
-  .notes-external-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border: 1px solid var(--color-border-primary, #302b63);
-    border-radius: var(--radius-sm, 4px);
-    background: transparent;
-    color: var(--text-secondary, #b3b3ff);
-    cursor: pointer;
-    transition: background var(--duration-fast, 150ms), color var(--duration-fast, 150ms);
-  }
-  .notes-external-toggle:hover {
-    color: var(--text-heading, #e0e0ff);
-    background: var(--surface-hover, #302b63);
-  }
-
-  .notes-external-settings {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2, 8px);
-    margin-top: var(--space-3, 12px);
-  }
-
-  .notes-external-label {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1, 4px);
-    font-size: var(--font-size-sm, 13px);
-    color: var(--text-secondary, #b3b3ff);
-  }
-
-  .notes-external-select,
-  .notes-external-input {
-    width: 100%;
-    padding: var(--space-2, 8px) var(--space-3, 12px);
-    border: 1px solid var(--color-border-primary, #302b63);
-    border-radius: var(--radius-md, 8px);
-    background: var(--surface-input, #24243e);
-    color: var(--text-heading, #e0e0ff);
-    font-size: var(--font-size-sm, 13px);
-  }
-
-  .notes-external-test {
-    align-self: flex-start;
-    padding: var(--space-2, 8px) var(--space-3, 12px);
-    border: 1px solid var(--color-border-primary, #302b63);
-    border-radius: var(--radius-md, 8px);
-    background: var(--surface-button, #302b63);
-    color: var(--text-heading, #e0e0ff);
-    font-size: var(--font-size-sm, 13px);
-    font-weight: var(--font-weight-medium, 500);
-    cursor: pointer;
-  }
-  .notes-external-test:hover {
-    background: var(--surface-hover, #302b63);
-  }
-
-  .notes-external-result {
-    font-size: var(--font-size-sm, 13px);
-    color: var(--text-muted, #9999ff);
-  }
-  .notes-external-result.success {
-    color: var(--color-success, #22c55e);
-  }
-  .notes-external-result.error {
-    color: var(--color-danger, #ef4444);
-  }
-
 	/* Mobile: roomier rows and thumb-sized targets */
 	@media (max-width: 768px) {
 		.dm-hub-header { padding: var(--space-3, 12px) var(--space-4, 16px); }
@@ -849,12 +747,10 @@
 			border-radius: var(--radius-lg, 12px);
 		}
 		.dm-hub-tab { min-height: 40px; }
-		.notes-external-toggle { width: 36px; height: 36px; }
 	}
 	@media (max-width: 520px) { .dm-hub-group-btn { width: 44px; padding: 0; } .dm-hub-group-btn span { display: none; } }
 
 	@media (prefers-reduced-motion: reduce) {
-		.dm-hub-new-btn, .dm-hub-group-btn, .dm-hub-conversation, .dm-hub-tab, .dm-hub-empty-btn,
-		.notes-external-toggle, .notes-external-test { transition: none; }
+		.dm-hub-new-btn, .dm-hub-group-btn, .dm-hub-conversation, .dm-hub-tab, .dm-hub-empty-btn { transition: none; }
 	}
 </style>

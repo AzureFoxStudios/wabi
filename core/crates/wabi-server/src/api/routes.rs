@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 use super::{
-    addons, admin, albums, auth, blobs, bots, cad, calls, channels, e2ee, emoji, forum, gallery, incidents,
+    addons, admin, albums, auth, blobs, bots, cad, calls, channels, conversation_notes, e2ee, emoji, forum, gallery, incidents,
     friends, jobs, lan, media, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
     standby, steam, sync, upload, user, wiki,
 };
@@ -43,6 +43,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/e2ee", e2ee::routes(state.clone()))
         // Channel routes
         .nest("/channels", channels::routes(state.clone()))
+        .nest("/conversation-notes", conversation_notes::routes(state.clone()))
         // Message routes
         .nest("/messages", messages::routes(state.clone()))
         // Upload routes

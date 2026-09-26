@@ -22,7 +22,7 @@
 	type MicroTab = 'notes' | 'dm';
 
 	let quickPanelHeight = QUICK_DEFAULT_HEIGHT;
-	let quickPanelCollapsed = false;
+	let quickPanelCollapsed = true;
 	let isResizingQuick = false;
 	let quickResizeStartY = 0;
 	let quickResizeStartHeight = QUICK_DEFAULT_HEIGHT;

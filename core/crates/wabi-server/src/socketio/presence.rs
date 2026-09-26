@@ -730,7 +730,11 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     let account_still_connected = io.sockets().iter().any(|other|
         other.id != socket.id && other.connected()
             && get_my_stable_id(other, &state.app.config.jwt_secret) == departed_stable);
-    if !account_still_connected { dm_link_clear_user(&departed_stable); }
+    let direct_call_peers = if account_still_connected { Vec::new() } else {
+        let peers = dm_link_peers(&departed_stable);
+        dm_link_clear_user(&departed_stable);
+        peers
+    };
 
     // Recording transparency cleanup (2026-08-27 round 5): a disconnected
     // recorder stops recording — tell the members of every channel they
@@ -895,9 +899,10 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
         }
     }
 
-    // Broadcast call-ended so DM call partners can clean up
-    if !account_still_connected {
-        let _ = io.emit("call-ended", &json!({ "userId": departed_stable })).await;
+    // A disconnected account ends only its own direct calls. A global event
+    // used to end unrelated calls whenever anybody left the server.
+    for peer in direct_call_peers {
+        let _ = io.to(peer).emit("call-ended", &json!({ "userId": departed_stable })).await;
     }
 }
 

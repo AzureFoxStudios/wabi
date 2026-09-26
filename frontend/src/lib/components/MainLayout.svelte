@@ -24,7 +24,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import type { WorkspaceViewKey } from './chat/types';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
-	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen } from '$lib/calling';
+	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
 import { _ } from '$lib/i18n';
@@ -179,6 +179,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	// flips channelCallPanelOpen, so channel calls load the modal again
 	// (excluding them here is why the second click rendered nothing).
 	$: callUiActive = Boolean(
+		$callOfflineNotice ||
 		$incomingCall ||
 			$outgoingCall ||
 			$activeGroupCall ||

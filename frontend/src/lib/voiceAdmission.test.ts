@@ -41,8 +41,8 @@ describe('voice admission', () => {
     socket.receive('group-call-started', { ...data, requestId: 'old' });
     socket.receive('group-call-participant-joined', data);
     await tick(); expect(done).toBe(false);
-    socket.receive('call-error', { ...data, message: 'No group members are currently connected' });
-    expect((await result).message).toBe('No group members are currently connected');
+    socket.receive('call-error', { ...data, code: 'no_recipients', message: 'This group has no other members to call' });
+    expect((await result).message).toBe('This group has no other members to call');
     expect(socket.listenerCount).toBe(0);
   });
   test('synchronous transport failure cleans every admission listener', async () => {

@@ -186,6 +186,10 @@ async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         return;
     }
 
+    if let Err(error) = crate::api::conversation_notes::remove_channel_notes(&state.app.config.data_dir, &channel_id) {
+        warn!("[sio] delete-dm: shared note cleanup failed for {}: {}", channel_id, error);
+    }
+
     let _ = socket.emit("dm-deleted", &json!({ "channelId": channel_id }));
     let recipients: Vec<String> = members.iter().map(|m| format!("user-{}", m.user_id)).collect();
     let _ = io.to(recipients).emit("dm-deleted", &json!({ "channelId": channel_id })).await;

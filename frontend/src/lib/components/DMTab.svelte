@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { openGames } from '$lib/games/navigation';
 	import { createEventDispatcher, onDestroy } from 'svelte';
-	import { channels, channelMessages, currentUser, users, serverMembers, createDM, deleteDM, leaveGroup, socket, joinChannel } from '$lib/socket';
+	import { channels, channelMessages, currentUser, users, serverMembers, connected, createDM, deleteDM, leaveGroup, socket, joinChannel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { brandName } from '$lib/branding';
 	import { showToast } from '$lib/toast';
@@ -21,6 +21,7 @@
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
 	import { cachedE2eeStatus } from '$lib/dm/dmE2eeState';
+	import { livePresenceForUser } from '$lib/dmPresentation';
 	type ConversationAction = {
 		id: 'voice' | 'video' | 'remove';
 		label: string;
@@ -209,16 +210,14 @@
 				if (!memberId || memberId === myStableId) continue;
 				if (memberId.startsWith('user-')) {
 					const dbUserId = Number.parseInt(memberId.substring(5), 10);
-					const onlineUser = $users.find((u) => u.dbUserId === dbUserId);
-					if (onlineUser) {
-						invitees.set(memberId, { stableUserId: memberId, username: onlineUser.username });
-					}
+					const member = [...$users, ...$serverMembers].find((u) => u.dbUserId === dbUserId);
+					invitees.set(memberId, { stableUserId: memberId, username: member?.username || 'Member' });
 					continue;
 				}
-				const onlineUser = $users.find((u) => u.id === memberId);
-				if (onlineUser) {
-					const stableUserId = typeof onlineUser.dbUserId === 'number' ? `user-${onlineUser.dbUserId}` : onlineUser.id;
-					invitees.set(stableUserId, { stableUserId, username: onlineUser.username });
+				const member = [...$users, ...$serverMembers].find((u) => u.id === memberId);
+				if (member) {
+					const stableUserId = typeof member.dbUserId === 'number' ? `user-${member.dbUserId}` : member.id;
+					invitees.set(stableUserId, { stableUserId, username: member.username });
 				}
 			}
 
@@ -476,17 +475,23 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
 					</button>
 					<div class="dm-header-title-wrap">
-						<span class="dm-header-title">{activeHeaderTitle}</span>
+						<div class="dm-header-identity">
+							<span class="dm-header-context">{isKeepNotesSelected ? 'Your notes' : activeGroup ? 'Group conversation' : 'Direct message to'}</span>
+							<span class="dm-header-title" title={activeHeaderTitle}>{activeHeaderTitle}</span>
+						</div>
 						{#if isKeepNotesSelected}
                             <span class="dm-header-pill">Device-local</span>
                         {:else}
-                            {#if cachedE2eeStatus(selectedDmId ?? '')?.enabled}
+							{@const security = cachedE2eeStatus(selectedDmId ?? '')}
+							{#if security?.pendingDefault}
+								<span class="dm-header-pill">Encryption pending</span>
+							{:else if security?.enabled}
                                 <span class="dm-header-pill dm-header-pill-secure" title="End-to-end encrypted · experimental · not independently verified">
                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
-                                    Encrypted
+									New messages encrypted · experimental
                                 </span>
-                            {:else if !isKeepNotesSelected}
-                                <span class="dm-header-pill" title="The server operator is part of the trust boundary. Experimental encryption is not a verified confidentiality guarantee.">Server-readable by default</span>
+							{:else if security?.serverReadableSelected}
+								<span class="dm-header-pill" title="The server operator can read messages in this conversation.">Server-readable</span>
                             {/if}
                         {/if}
 					</div>
@@ -657,6 +662,7 @@
 					{:else}
 						{@const other = getOtherUser(channel)}
 						{#if other}
+							{@const presence = livePresenceForUser(other, $users, $connected)}
 							<div
 								class="dm-conv-item"
 								class:selected={selectedDmId === channel.id}
@@ -676,8 +682,8 @@
 											{other.username.charAt(0).toUpperCase()}
 										</div>
 									{/if}
-									{#if other.status && other.status !== 'offline'}
-										<span class="dm-conv-status-dot" class:active={other.status === 'active'} class:away={other.status === 'away'} class:busy={other.status === 'busy'} title={other.status}></span>
+									{#if presence === 'active' || presence === 'away' || presence === 'busy'}
+										<span class="dm-conv-status-dot" class:active={presence === 'active'} class:away={presence === 'away'} class:busy={presence === 'busy'} title={presence}></span>
 									{/if}
 								</div>
 								<div class="dm-conv-info">
@@ -791,10 +797,22 @@
 		text-align: left;
 	}
 
+	.dm-header-identity {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.dm-header-context {
+		color: var(--text-secondary);
+		font-size: var(--font-size-xs, 11px);
+		line-height: 1.1;
+	}
+
 	.dm-header-title {
 		display: block;
 		text-align: left;
-		font-size: var(--font-size-base, 14px);
+		font-size: var(--font-size-lg, 16px);
 		font-weight: 600;
 		color: var(--text-primary);
 		white-space: nowrap;

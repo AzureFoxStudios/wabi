@@ -3,12 +3,13 @@ import { releasePeerMicrophones, replacePeerMicrophone } from './peerMicrophone'
 import { waitForPeerConnection } from './peerConnectionReady';
 import { requestVoiceAdmission, requestGroupCallAnswer, requestGroupCallStart, requestGroupCallReadmission } from './voiceAdmission';
 import { registerCallSocketOwner } from './callSocketLifecycle';
+import { OutgoingRingDeadline, noAnswerNotice } from './callRinging';
 import { captureGroupAccess, groupMembership } from './groupAccess';
 import { ensureChannelMembership } from './api/channelAccess';
 import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
-import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive, setWabidbSpatialPosition, wabidbStopRemoteVideo } from './callingWabidb';
+import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive, wabidbVideoTransportLive, wabidbStartVideo, setWabidbSpatialPosition, wabidbStopRemoteVideo } from './callingWabidb';
 import { transportWatchdog } from './callingWatchdog';
 import { addStub, peekPanel } from './layoutStoreRightPanel';
 import { rightPanelMode } from './layoutStoreStates';
@@ -256,6 +257,8 @@ type GroupCallRun = {
 	suspended: boolean; membershipRevision: string; name: string; localName: string;
 };
 let groupCallRun: GroupCallRun | null = null;
+const outgoingRingDeadline = new OutgoingRingDeadline();
+let nextDirectCallRequest = 0;
 
 function groupRunCurrent(run: GroupCallRun): boolean {
 	return groupCallRun === run && !run.suspended && !run.controller.signal.aborted && run.access() &&
@@ -270,6 +273,7 @@ function checkGroupRun(run: GroupCallRun): void {
 /** Synchronous local revocation. Network cleanup must not own local state
  * after an await; a newly admitted call may already exist by then. */
 export function revokeGroupCall(channelId: string): void {
+	outgoingRingDeadline.clear(`group:${channelId}`);
 	cancelChannelScreenShare(channelId);
 	const run = groupCallRun?.channelId === channelId ? groupCallRun : null;
 	const ownsView = get(activeGroupCall)?.id === channelId || get(outgoingCall)?.channelId === channelId;
@@ -582,6 +586,9 @@ function createPeerConnection(
 				if (state.type === 'call' && state.channelId && !transportSwitchInFlight && callSessionManager.get(state.channelId)?.transport !== 'wabidb') {
 					callSessionManager.markConnected(state.channelId, 'p2p');
 				}
+				if (state.type === 'call' && !state.channelId && get(activeCallSessionId) === directCallSessionKey(state.targetId)) {
+					callSessionManager.markConnected(directCallSessionKey(state.targetId), 'p2p');
+				}
 				break;
 			case 'disconnected':
 				state.lifecycleState = 'disconnected';
@@ -883,6 +890,7 @@ function finalizeLocalCallEndState(): void {
 // to a full teardown when no voice channel is running, keeping the legacy
 // single-call behavior intact.
 function teardownCallSessionOnly(): void {
+	outgoingRingDeadline.clear();
 	if (!activeVoiceChannelId) {
 		finalizeLocalCallEndState();
 		return;
@@ -1860,11 +1868,14 @@ export async function startCall(
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
 		connectionState.set('signaling');
+		const requestId = `direct-${Date.now()}-${++nextDirectCallRequest}`;
 		outgoingCall.set({
 			targetUserId,
+			requestId,
 			username: options.displayName?.trim() || 'User',
 			isVideoCall,
 			startedAt: Date.now(),
+			status: 'connecting',
 			scope: 'direct'
 		});
 
@@ -1875,6 +1886,7 @@ export async function startCall(
 			socket.emit('call-initiate', {
 				targetUserId,
 				isVideoCall,
+				requestId,
 				experimental: {
 					label: 'experimental-wabidb-call',
 					route: 'desktop-wabidb',
@@ -1884,13 +1896,24 @@ export async function startCall(
 		} else {
 			socket.emit('call-initiate', {
 				targetUserId,
-				isVideoCall
+				isVideoCall,
+				requestId
 			});
 		}
+		outgoingRingDeadline.arm(requestId, () => {
+			const pending = get(outgoingCall);
+			if (pending?.requestId !== requestId) return;
+			if (socket.connected) socket.emit('call-cancel', { targetUserId });
+			teardownCallSessionOnly();
+			callOfflineNotice.set(pending.status === 'ringing'
+				? noAnswerNotice(pending.username)
+				: 'Could not reach the call service. Check your connection and try again.');
+		});
 
 		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
+		outgoingRingDeadline.clear();
 		console.error('Error starting call:', error);
 		callOfflineNotice.set('Could not start the call. Check your connection and try again.');
 		const leakedStream = get(localStream);
@@ -2049,7 +2072,7 @@ function beginGroupCall(
 	// The ringing view owns cancellation even while admission is pending.
 	if (!callerId) outgoingCall.set({
 		channelId, channelName, username: channelName.trim() || 'Group', isVideoCall,
-		startedAt: Date.now(), scope: 'group', localDisplayName
+		startedAt: Date.now(), status: 'connecting', scope: 'group', localDisplayName
 	});
 	run.operation = (async () => {
 		try {
@@ -2078,6 +2101,15 @@ function beginGroupCall(
 			isVideoOff.set(!isVideoCall);
 			connectionState.set('signaling');
 			run.prepared();
+			if (!callerId && !alreadyEstablished) {
+				outgoingCall.update(pending => pending?.channelId === channelId ? { ...pending, status: 'ringing' } : pending);
+				outgoingRingDeadline.arm(`group:${channelId}`, () => {
+					if (!groupRunCurrent(run) || run.established) return;
+					if (socket.connected) socket.emit('call-cancel', { channelId });
+					revokeGroupCall(channelId);
+					callOfflineNotice.set(noAnswerNotice(channelName, true));
+				});
+			}
 			if (callerId || alreadyEstablished) {
 				await establishOwnedGroupCall(run, channelName, localDisplayName, true);
 				checkGroupRun(run);
@@ -2123,6 +2155,7 @@ export function beginEstablishedDirectCall(): boolean {
 	if (!pending || pending.scope === 'group') {
 		return false;
 	}
+	outgoingRingDeadline.clear(pending.requestId);
 
 	const stream = get(localStream);
 	isInCall.set(true);
@@ -2152,7 +2185,6 @@ export function beginEstablishedDirectCall(): boolean {
 	}
 	startPerformanceGuard();
 	syncSpatialAudioGraph();
-	callSessionManager.markConnected(directCallSessionKey(pending.targetUserId || ''), wabidbTransportLive() ? 'wabidb' : 'p2p');
 	callSessionManager.setFocus(directCallSessionKey(pending.targetUserId || ''));
 	playCallActionSound('join', sessionSoundOptionsFor(directCallSessionKey(pending.targetUserId || '')));
 	return true;
@@ -2214,7 +2246,7 @@ export async function answerCall(
 			// T2: DM callee joins via the same fallback chain. The caller (in
 			// createCallOffer) will have already connected with the shared DM
 			// session key when the relay head succeeds.
-			await connectWithFallback({
+			const outcome = await connectWithFallback({
 				mode: activeTransport === 'wabidb' ? getStoredCallTransportMode() : (activeTransport === 'sfu' ? 'sfu-preferred' : 'p2p-only'),
 				surface: 'direct' as CallSurface,
 				expectedParticipants: 2,
@@ -2239,7 +2271,16 @@ export async function answerCall(
 					if (transport === 'sfu') throw new Error('LiveKit DM path not wired');
 				}
 			});
-			callSessionManager.markConnected(directCallSessionKey(callerId), wabidbTransportLive() ? 'wabidb' : 'p2p');
+			if (outcome.active === 'wabidb') {
+				callSessionManager.markConnected(directCallSessionKey(callerId), 'wabidb');
+				if (isVideoCall && stream.getVideoTracks().length && wabidbVideoTransportLive(callerId)) {
+					const camera = new MediaStream(stream.getVideoTracks().map(track => track.clone()));
+					if (!await wabidbStartVideo('camera', camera, callerId)) {
+						isVideoOff.set(true);
+						pushVoiceChannelNotice('Camera relay unavailable; voice call continues');
+					}
+				}
+			}
 			callSessionManager.setFocus(directCallSessionKey(callerId));
 		}
 
@@ -2254,6 +2295,7 @@ export async function answerCall(
 		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
+		if (socket.connected) socket.emit('call-reject', { callerId, reason: 'could_not_answer' });
 		console.error('Error answering call:', error);
 		callOfflineNotice.set('Could not answer the call. Check your connection and try again.');
 		handleMediaError(error as DOMException, 'answering');
@@ -2288,6 +2330,7 @@ export function rejectCall(socket: Socket, callerId: string, options: { channelI
 }
 
 export function cancelOutgoingCall(socket: Socket) {
+	outgoingRingDeadline.clear();
 	const pending = get(outgoingCall);
 	if (pending) {
 		if (pending.scope === 'group' && pending.channelId) {
@@ -2313,6 +2356,7 @@ export function handleIncomingCallCancelled(callerId: string, channelId?: string
 		pendingOutgoing.scope !== 'group' &&
 		pendingOutgoing.targetUserId === callerId
 	) {
+		outgoingRingDeadline.clear(pendingOutgoing.requestId);
 		teardownCallSessionOnly();
 		return;
 	}
@@ -2321,6 +2365,24 @@ export function handleIncomingCallCancelled(callerId: string, channelId?: string
 	if (!current || current.userId !== callerId) return;
 	if (channelId && current.channelId && current.channelId !== channelId) return;
 	incomingCall.set(null);
+}
+
+export function markDirectCallRinging(targetUserId: string, requestId?: string): void {
+	outgoingCall.update(pending => pending?.scope === 'direct' &&
+		pending.targetUserId === targetUserId && pending.requestId === requestId
+		? { ...pending, status: 'ringing' } : pending);
+}
+
+export function handleDirectCallFailure(targetUserId: string, reason: 'declined' | 'unavailable' | 'error', detail?: string): void {
+	const pending = get(outgoingCall);
+	const active = get(callMode) === 'direct' && get(activeCallSessionId) === directCallSessionKey(targetUserId);
+	if (pending?.targetUserId !== targetUserId && !active) return;
+	const name = pending?.username || targetUserId;
+	outgoingRingDeadline.clear(pending?.requestId);
+	teardownCallSessionOnly();
+	callOfflineNotice.set(reason === 'declined' ? `${name} declined the call.`
+		: reason === 'unavailable' ? `${name} disconnected before answering.`
+		: detail || `Could not complete the call with ${name}.`);
 }
 
 export function handleGroupCallInviteCleared(data: { channelId: string; stableUserId: string }): void {
@@ -2388,8 +2450,14 @@ export function handleVoiceParticipantLeft(userId: string, channelId?: string): 
 }
 
 export function handleRemoteDirectCallEnded(userId: string): void {
+	const pending = get(outgoingCall);
+	if (pending?.scope === 'direct' && pending.targetUserId === userId) {
+		handleDirectCallFailure(userId, 'unavailable');
+		return;
+	}
 	const isActiveDirectCall =
 		get(callMode) === 'direct' &&
+		get(activeCallSessionId) === directCallSessionKey(userId) &&
 		(get(isInCall) || get(activeCalls).some((call) => call.userId === userId) || callParticipants.has(userId));
 
 	// Their REC badge dies with the call (server clears on disconnect; this
@@ -2415,6 +2483,7 @@ export async function handleGroupCallParticipantJoined(
 	const run = groupCallRun;
 	if (!run || run.socket !== socket || run.channelId !== data.channelId || !groupRunCurrent(run)) return;
 	try { await run.ready; checkGroupRun(run); } catch { return; }
+	outgoingRingDeadline.clear(`group:${data.channelId}`);
 	const pending = get(outgoingCall);
 	const localDisplayName = pending?.localDisplayName || `${brandName} User`;
 	const isSameActiveGroup = run.established;
@@ -2466,6 +2535,7 @@ export function stopGroupCallRingingTarget(socket: Socket, stableUserId: string)
 }
 
 export function endCall(socket: Socket) {
+	outgoingRingDeadline.clear();
 	const groupId = groupCallRun?.channelId ?? get(activeGroupCall)?.id;
 	if (groupId) {
 		if (socket.connected) socket.emit('group-call-leave', { channelId: groupId });
@@ -2486,6 +2556,9 @@ export function endCall(socket: Socket) {
 			participantIds.add(state.targetId);
 		}
 	});
+	if (endingMode === 'direct' && endingCallSessionId?.startsWith('direct:')) {
+		participantIds.add(endingCallSessionId.slice('direct:'.length));
+	}
 
 	// If this is a channel voice call, explicitly leave/unsubscribe server-side.
 	if (endingMode === 'channel') {
@@ -2721,6 +2794,7 @@ export async function createCallOffer(
 	// (previously the early-return reconnected the dying relay instead).
 	const activeTransport = options?.forceTransport ?? (await resolveActiveTransport(options?.channelId));
 	check();
+	let relayAudioReady = false;
 	if (activeTransport === 'wabidb') {
 		// Channel/group relays are owned by admission, not by a peer offer.
 		// Using targetId here creates a second, unrelated DM relay.
@@ -2733,15 +2807,30 @@ export async function createCallOffer(
 				undefined,
 				targetId,
 			);
+			relayAudioReady = true;
+			callSessionManager.markConnected(directCallSessionKey(targetId), 'wabidb');
 			console.log('[Wabidb] Direct call using wabiDB relay for target:', targetId);
-			return;
+			const cameraTracks = get(localStream)?.getVideoTracks() ?? [];
+			if (get(isVideoOff) || cameraTracks.length === 0) return;
+			if (wabidbVideoTransportLive(targetId)) {
+				const camera = new MediaStream(cameraTracks.map(track => track.clone()));
+				const cameraStarted = await wabidbStartVideo('camera', camera, targetId, wanted).catch(error => {
+					console.warn('[Calling] Direct camera relay failed:', error);
+					return false;
+				});
+				if (cameraStarted) return;
+			}
+			// The peer may lack the relay video decoder. Try P2P camera while
+			// keeping the already connected audio relay alive.
 		} catch (err) {
+			relayAudioReady = false;
 			console.warn('[Calling] wabiDB direct relay failed, falling back to P2P:', err);
 			check();
 			await disconnectWabidbChannel(targetId || 'direct-call');
 		}
 	}
 
+	try {
 	await prefetchTurnCredentials().catch((err) => {
 		console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
 	});
@@ -2787,6 +2876,18 @@ export async function createCallOffer(
 		throw err;
 	}
 	return pc;
+	} catch (error) {
+		if (!relayAudioReady || !wanted()) throw error;
+		console.warn('[Calling] Optional direct camera connection failed:', error);
+		const stream = get(localStream);
+		for (const track of stream?.getVideoTracks() ?? []) {
+			stream?.removeTrack(track);
+			track.stop();
+		}
+		isVideoOff.set(true);
+		pushVoiceChannelNotice('Camera could not connect; voice call continues');
+		return;
+	}
 }
 
 export async function handleCallOffer(

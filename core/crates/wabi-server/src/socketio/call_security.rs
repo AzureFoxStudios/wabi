@@ -269,6 +269,21 @@ pub fn dm_link_exists(a: &str, b: &str) -> bool {
         .contains(&dm_link_key(a, b))
 }
 
+/// Accounts that are actually in a direct call with this account. A roster
+/// departure must notify only these peers, never every active direct call.
+pub fn dm_link_peers(stable_id: &str) -> Vec<String> {
+    dm_call_links()
+        .read()
+        .expect("dm link lock")
+        .iter()
+        .filter_map(|(a, b)| {
+            if a == stable_id { Some(b.clone()) }
+            else if b == stable_id { Some(a.clone()) }
+            else { None }
+        })
+        .collect()
+}
+
 /// Remove every link mentioning `stable_id` (disconnect cleanup).
 pub fn dm_link_clear_user(stable_id: &str) {
     dm_call_links()
@@ -669,8 +684,12 @@ mod call_security_tests {
         // tests run in parallel.
         dm_link_remember("user-10", "user-11");
         dm_link_remember("user-12", "user-13");
+        assert_eq!(dm_link_peers("user-10"), vec!["user-11"]);
+        assert!(dm_link_peers("user-99").is_empty());
         dm_link_clear_user("user-10");
         assert!(!dm_link_exists("user-10", "user-11"));
+        assert!(dm_link_peers("user-11").is_empty());
+        assert_eq!(dm_link_peers("user-12"), vec!["user-13"]);
         assert!(dm_link_exists("user-12", "user-13"));
         dm_link_clear_user("user-13");
         assert!(!dm_link_exists("user-12", "user-13"));

@@ -1,6 +1,6 @@
 # Calling transport architecture
 
-Updated 2026-09-08. Implementation and verification details are in the
+Updated 2026-09-26. Implementation and verification details are in the
 [audio-flow integrity work record](../plans/2026-09-06-audio-flow-integrity.md).
 
 ## Admission before media
@@ -60,6 +60,26 @@ that group's cached headers. A shared membership gate orders socket admission,
 peer signaling and REST call commands against that removal. See the
 [admission work record](../plans/2026-09-07-call-admission-boundary.md); these
 changes are not a claim of complete call/session authorization.
+
+## Direct and group ringing outcomes (2026-09-26)
+
+Direct-call initiation checks that the addressed account exists; group-call
+initiation checks current GroupDm membership. Roster presence is not admission:
+an Invisible account can receive a live invite, and a currently offline member
+does not block the caller from starting a bounded ring attempt. A direct
+`call-ringing` receipt means the Authority accepted and emitted the invitation;
+it does not prove that the other device displayed it. The client shows a
+ringing state while waiting and ends an unanswered attempt after 30 seconds
+with an explicit no-answer notice. Declined, busy, disconnected, and rejected
+call starts also surface a visible outcome. Calls to offline devices are not
+stored for later delivery.
+
+On final account disconnect, the Authority sends `call-ended` only to that
+account's active direct-call peers. The client also checks the peer identity
+before ending its current direct call. Unrelated account departures must not
+tear down a call. Group member departure remains scoped to its group session.
+Browser checks and socket contract tests do not establish physical-device
+audio/video acceptance; a two-device phone and desktop call is still required.
 
 ## Persisted call-state authorization (2026-09-07)
 

@@ -37,18 +37,22 @@ export async function refreshE2eeStatus(channelId: string): Promise<E2eeRoomStat
 	return remember(channelId, await getE2eeRoomStatus(channelId, false));
 }
 
-/** New private rooms default to encryption, once every member has a device. */
+/**
+ * Encrypt future messages when every participant has an updated device.
+ * Existing server-readable history remains readable; an explicit readable
+ * choice on a new room is respected.
+ */
 export async function prepareNewConversationEncryption(channelId: string): Promise<E2eeRoomStatus> {
 	await ensureE2eeDeviceRegistered();
 	let status = await refreshE2eeStatus(channelId);
-	if (!status.pendingDefault || status.enabled || status.missingUserIds.length) return status;
+	if (status.enabled || status.serverReadableSelected || status.missingUserIds.length) return status;
 	try {
 		status = remember(channelId, await enableE2eeRoom(channelId));
 	} catch (error) {
 		// Another participant may have enabled encryption or explicitly chosen
 		// server-readable mode while this device wrapped the room key.
 		status = await refreshE2eeStatus(channelId);
-		if (status.pendingDefault && !status.enabled) throw error;
+		if (!status.enabled && !status.serverReadableSelected) throw error;
 	}
 	return status;
 }
@@ -72,25 +76,15 @@ export async function probeE2eeOnce(): Promise<void> {
 
 /**
  * Turn on E2EE for a conversation. Rekeys when the participant set changed.
- * Returns the fresh status, or null when the endpoint is unsupported / unauthenticated.
+ * Returns the fresh status. Callers show the actual setup failure to the user.
  */
-export async function turnOnE2ee(channelId: string): Promise<E2eeRoomStatus | null> {
-	try {
-		const status = await enableE2eeRoom(channelId);
-		return remember(channelId, status);
-	} catch {
-		return null;
-	}
+export async function turnOnE2ee(channelId: string): Promise<E2eeRoomStatus> {
+	return remember(channelId, await enableE2eeRoom(channelId));
 }
 
 /** Rekey after membership changes (or when the server reports needsRekey). */
-export async function rekeyE2ee(channelId: string): Promise<E2eeRoomStatus | null> {
-	try {
-		const status = await rekeyE2eeRoom(channelId, true);
-		return remember(channelId, status);
-	} catch {
-		return null;
-	}
+export async function rekeyE2ee(channelId: string): Promise<E2eeRoomStatus> {
+	return remember(channelId, await rekeyE2eeRoom(channelId, true));
 }
 
 /** Clear cached state (e.g. account/session switch). */

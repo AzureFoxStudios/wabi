@@ -72,6 +72,26 @@ testing, including physical phones, and is **not an independently verified
 E2EE or operator-blind guarantee**. See [the privacy stance](PRIVACY_STANCE.md)
 for the trust boundary.
 
+The 2026-09-26 follow-up candidate also registers signed-in browser devices and
+upgrades **future messages** in older readable rooms to the experimental
+encrypted mode once every participant has a registered device. Historical
+plaintext remains server-readable. This follow-up is not yet deployed or
+merged; it does not retroactively encrypt old messages or establish an
+independently verified E2EE guarantee.
+
+### Shared conversation notes — follow-up candidate
+
+`codex/dm-call-notes-followup-20260926` adds a collapsed-by-default Shared notes
+panel for DMs and groups. Saved notes use a separate Authority-backed store,
+membership checks, author-only updates and revision checks, with live refresh
+for recipients. Existing personal browser Notes remain private and are not
+uploaded automatically. Readable rooms store readable notes; experimental
+encrypted rooms store signed ciphertext envelopes and pending rooms reject
+plaintext. Shared notes outlive message timers until removed or the room is
+deleted, and Authority data-directory backups include them. This work is a
+candidate, not yet deployed or merged. See [Local Notes](features/LOCAL_NOTES.md)
+for the detailed storage and backup boundary.
+
 ## Production-finish candidate — not yet merged or deployed
 
 `codex/production-finish-20260915` adds account/server-scoped local Notes with transactional saves, independent editor drafts, conflict recovery, trash, titled wiki-links/backlinks, explicit legacy recovery, JSON backup/import, portable Markdown archives, keyboard link completion, a reading view, explicit broken-link reconnect and a shared scratchpad. Reader storage upgrades preserve older writing, and a scoped return control links Reader copies to their source notes. Profile annotations now use scoped, revision-checked writes. See [Local Notes](features/LOCAL_NOTES.md) for storage boundaries, backup limits and unfinished acceptance work.
