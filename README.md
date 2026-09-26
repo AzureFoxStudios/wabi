@@ -26,6 +26,7 @@ Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)
 |---|---|
 | Authority server + WabiDB | ✅ Core path |
 | Chat, DMs, groups, roles, presence | ✅ Core path |
+| New DM/group encryption default | 🧪 Experimental Tim rollout: pending until device keys are ready, then encrypted text; explicit server-readable fallback |
 | Server-local friend requests and friendships | ✅ Available on the current Tim release branch; physical phone acceptance pending |
 | Translator Assist | 🔌 Optional, off by default; local/self-hosted LibreTranslate |
 | Voice/video/screen sharing | ✅ Available; transport/device hardening continues |
@@ -164,7 +165,8 @@ A single client connecting to many Wabi servers is **not federation**. Inside on
 Self-hosting changes **who you trust**; it does not magically remove trust.
 
 - The server operator controls the instance and its stored data.
-- **DMs and private rooms are not end-to-end encrypted today.** Treat their text and attachments as server-readable.
+- New DMs and groups in the Tim rollout start **encryption-pending**. Plaintext sends are blocked while pending; once every participant has a device key, the room can use experimental encrypted text. A participant may choose server-readable chat, but each sender must confirm that choice before sending plaintext.
+- Existing DMs/groups retain their earlier policy, including server-readable rooms. The encrypted path has **not** been independently verified as E2EE or operator-blind; attachment and device-recovery behavior still need acceptance work.
 - Ephemeral/no-retention content is not the same thing as operator-blind content.
 - Optional tunnels, media providers, plugins, and external integrations add their own trust boundaries.
 - Translator Assist does not relay message text through the Authority for translation; choosing a remote translator still gives that translator the plaintext being translated.
