@@ -1,6 +1,6 @@
 # Local Notes
 
-**Candidate implementation:** `codex/production-finish-20260915`. This document does not mean the candidate is deployed on wabi.chat or merged into main.
+**Personal Notes candidate:** `codex/production-finish-20260915`. This document does not mean that full candidate is deployed on wabi.chat or merged into main. Shared conversation notes below were deployed separately on Tim on 2026-09-26.
 
 ## Where writing lives
 
@@ -8,13 +8,13 @@ Notes and scratchpad writing live in this browser/device's IndexedDB database, `
 
 This is local storage, not server synchronization, collaboration or end-to-end encryption. Browser storage eviction, clearing site data, losing a device, or changing browser profiles can remove access. Keep backups outside the browser. Server backups do not include local Notes.
 
-### Shared notes in conversations — follow-up candidate
+### Shared notes in conversations — deployed on Tim
 
 The `codex/dm-call-notes-followup-20260926` branch adds a **separate** Shared notes panel to DMs and groups. It is collapsed by default. A note is shared only when its author presses **Share note** or **Save changes** and the Authority confirms the write. Recipients in that conversation can read saved notes after reconnect or reload. Only the author can edit or remove a note; a revision conflict stops a stale editor from overwriting a newer save. An unsaved draft can survive switching conversations in the current page session, but it is kept in memory and is lost on reload or crash. Existing personal Notes, including older conversation-linked local notes, stay private on their original device and are never uploaded automatically.
 
 Shared notes are stored in the Authority's `conversation_notes.json` sidecar. In server-readable conversations, the server and its operator can read their content. In an experimental encrypted conversation, the client submits a signed ciphertext envelope and the server stores that envelope; a pending room rejects plaintext notes. These envelopes use the same experimental first-seen device-key trust as chat, without independent cryptographic verification. Notes saved before a room enables encryption remain server-readable. The panel marks individual notes by how they were saved and reports when a device cannot decrypt one.
 
-Shared notes have their own lifetime: they do **not** inherit the conversation's message timer and remain until their author removes them or the conversation is deleted. They are part of an Authority data-directory backup, including old server-readable content and encrypted envelopes. WabiDB message retention does not erase them. Deleted copies may still exist in older backups. Personal notebook JSON/Markdown exports exclude shared notes, and an Authority backup does not include device-local personal Notes or unsaved drafts. This follow-up is a branch candidate until its exact release is deployed and verified.
+Shared notes have their own lifetime: they do **not** inherit the conversation's message timer and remain until their author removes them or the conversation is deleted. They are part of an Authority data-directory backup, including old server-readable content and encrypted envelopes. WabiDB message retention does not erase them. Deleted copies may still exist in older backups. Personal notebook JSON/Markdown exports exclude shared notes, and an Authority backup does not include device-local personal Notes or unsaved drafts. This follow-up is deployed on Tim; physical-phone acceptance remains open.
 
 Channels continue to anchor location. Center-stage Notes owns the primary notebook task. Stubs and right panels remain additive multitasking surfaces. Each editor has an independent draft; Full on a scratchpad opens that same note in center stage.
 

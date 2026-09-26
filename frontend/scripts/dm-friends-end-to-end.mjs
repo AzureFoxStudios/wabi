@@ -507,7 +507,7 @@ try {
 	await desktop.locator('.dm-conversation').waitFor({ state: 'visible' });
 	await mobile.locator('.dm-conversation').waitFor({ state: 'visible' });
 	await mobile.locator('.mobile-right-overlay.visible').waitFor({ state: 'hidden' });
-	const retentionSelect = desktop.locator('.dm-conversation select[aria-label="Retention for new messages"]');
+	const retentionSelect = desktop.locator('.dm-conversation select[aria-label="Keep new messages for"]');
 	const thirtySave = desktop.waitForResponse((response) => response.url().includes(`/api/channels/${encodeURIComponent(dm.channelId)}/retention`) && response.request().method() === 'PUT');
 	await retentionSelect.selectOption('30s');
 	assert.equal((await thirtySave).status(), 200);
