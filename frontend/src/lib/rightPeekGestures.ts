@@ -81,13 +81,7 @@ export function peekAnimationGate(node: HTMLElement): { destroy: () => void } {
 	// retract a peek the user is actively hovering.
 	const settle = () => {
 		requestAnimationFrame(() => {
-			let hovered: Element | null = null;
-			try {
-				hovered = document.querySelector(':hover');
-			} catch {
-				hovered = null;
-			}
-			setPeekPointerInside(!!hovered && (hovered === node || node.contains(hovered)));
+			setPeekPointerInside(node.matches(':hover'));
 			endPeekAnimation();
 		});
 	};

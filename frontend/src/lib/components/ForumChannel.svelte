@@ -284,7 +284,7 @@
 		{:else if error && allThreads.length === 0 && !showNewThread}
 			<div class="forum-error">
 				<span>{error}</span>
-				<button on:click={() => effectiveChannel && loadThreads(effectiveChannel)}>Retry</button>
+				<button class="ui-btn ui-btn-secondary" on:click={() => effectiveChannel && loadThreads(effectiveChannel)}>Retry</button>
 			</div>
 		{:else}
 			<div class="forum-category-pane">
@@ -523,7 +523,7 @@
 
 						{#if threadReplies.length > 0}
 							<div class="forum-replies-section">
-								<div class="forum-replies-header">{threadReplies.length} Replies</div>
+								<div class="forum-replies-header">{threadReplies.length} {threadReplies.length === 1 ? 'Reply' : 'Replies'}</div>
 								{#each threadReplies as reply (reply.post_id)}
 									<ForumReply
 										{reply}

@@ -140,48 +140,55 @@
 		</select>
 	</label>
 
-	<div class="actions">
-		<button type="button" class="primary" disabled={isSaving} on:click={handleSave}>{isSaving ? 'Saving…' : 'Save font'}</button>
-		<button type="button" class="ghost" disabled={isSaving} on:click={handleReset}>Reset</button>
+	<div class="font-actions">
+		<button type="button" class="font-save" disabled={isSaving} on:click={handleSave}>{isSaving ? 'Saving…' : 'Save font'}</button>
+		<button type="button" class="font-reset" disabled={isSaving} on:click={handleReset}>Reset</button>
 	</div>
 	{#if saveOk}<p class="ok">Saved.</p>{/if}
 	{#if saveError}<p class="err">{saveError}</p>{/if}
 </div>
 
 <style>
-	.font-customizer { display: flex; flex-direction: column; gap: 0.65rem; }
+	.font-customizer { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+	.font-customizer > :is(h3, p, .preview, .font-actions) { grid-column: 1 / -1; }
 	.hint { margin: 0; color: var(--text-secondary); font-size: 0.82rem; }
 	.preview {
 		padding: 0.75rem 1rem;
-		border-radius: 10px;
+		border-radius: var(--radius-md);
 		border: 1px solid var(--border-subtle);
 		background: var(--surface-raised);
 	}
 	label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; font-weight: 650; color: var(--text-secondary); }
 	select {
+		width: 100%;
+		max-width: none;
+		min-width: 0;
 		padding: 0.45rem 0.55rem;
-		border-radius: 8px;
+		border-radius: var(--radius-control, var(--radius-md));
 		border: 1px solid var(--border-subtle);
 		background: var(--surface-base);
 		color: var(--text-heading);
 	}
-	.actions { display: flex; gap: 0.5rem; }
-	.primary, .ghost {
-		border-radius: 8px;
+	.font-actions { display: flex; gap: 0.5rem; }
+	.font-save, .font-reset {
+		min-height: 40px;
+		border-radius: var(--radius-control, var(--radius-md));
 		padding: 0.45rem 0.85rem;
 		font-weight: 650;
 		cursor: pointer;
 	}
-	.primary {
+	.font-save {
 		border: 1px solid rgba(var(--accent-rgb), 0.45);
 		background: rgba(var(--accent-rgb), 0.18);
 		color: var(--text-heading);
 	}
-	.ghost {
+	.font-reset {
 		border: 1px solid var(--border-subtle);
 		background: transparent;
 		color: var(--text-secondary);
 	}
-	.ok { color: #4ade80; margin: 0; font-size: 0.82rem; }
-	.err { color: #f87171; margin: 0; font-size: 0.82rem; }
+	.ok { color: var(--color-success); margin: 0; font-size: 0.82rem; }
+	.err { color: var(--color-danger); margin: 0; font-size: 0.82rem; }
+	@media (max-width: 1120px) { .font-customizer { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+	@media (max-width: 420px) { .font-customizer { grid-template-columns: minmax(0, 1fr); } }
 </style>

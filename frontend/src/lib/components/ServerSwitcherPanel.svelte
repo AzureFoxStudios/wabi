@@ -180,8 +180,8 @@
 		addServerInput?.focus();
 	}
 
-	function canRenderServerImage(url: string | null | undefined): boolean {
-		return Boolean(url && !brokenImageUrls.has(url));
+	function canRenderServerImage(url: string | null | undefined, failedUrls: ReadonlySet<string>): boolean {
+		return Boolean(url && !failedUrls.has(url));
 	}
 
 	function markImageBroken(url: string | null | undefined): void {
@@ -203,8 +203,8 @@
 		return server.effectiveAccentColor || '#2dd4bf';
 	}
 
-	function serverBannerImage(server: SavedServerView): string {
-		return canRenderServerImage(server.effectiveBannerUrl)
+	function serverBannerImage(server: SavedServerView, failedUrls: ReadonlySet<string>): string {
+		return canRenderServerImage(server.effectiveBannerUrl, failedUrls)
 			? `url('${server.effectiveBannerUrl}')`
 			: 'none';
 	}
@@ -661,7 +661,7 @@
 		class="switcher-showcase"
 		style:--showcase-accent={showcaseServer?.effectiveAccentColor || '#2dd4bf'}
 	>
-		{#if canRenderServerImage(showcaseServer?.effectiveBannerUrl)}
+		{#if canRenderServerImage(showcaseServer?.effectiveBannerUrl, brokenImageUrls)}
 			<img
 				class="switcher-showcase-image"
 				src={showcaseServer?.effectiveBannerUrl}
@@ -844,7 +844,7 @@
 									data-drop-row-item-id={mobile ? item.id : undefined}
 									data-drop-row-item-kind={mobile ? item.kind : undefined}
 									style:--row-accent={serverAccent(server)}
-									style:--row-banner-image={serverBannerImage(server)}
+								style:--row-banner-image={serverBannerImage(server, brokenImageUrls)}
 									role="button"
 									tabindex="0"
 									aria-current={server.isActive ? 'page' : undefined}
@@ -855,7 +855,7 @@
 										class="switcher-avatar"
 										use:longpress={{ duration: 430, cancelOnMove: 18, onLongPress: (event) => startMobileServerMove(server, item, event) }}
 									>
-										{#if canRenderServerImage(server.effectiveIconUrl)}
+										{#if canRenderServerImage(server.effectiveIconUrl, brokenImageUrls)}
 											<img
 												src={server.effectiveIconUrl}
 												alt={server.effectiveName}
@@ -1038,5 +1038,3 @@
 		</div>
 	{/if}
 </section>
-
-
