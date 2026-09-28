@@ -172,6 +172,7 @@
 .wiki-content-pane {
 	flex: 1;
 	min-width: 0;
+	container: wiki-page / inline-size;
 	overflow-y: auto;
 	background: var(--surface-app);
 	display: flex;
@@ -180,6 +181,7 @@
 
 .wiki-content-toolbar {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-3);
 	padding: var(--space-2) var(--space-6);
@@ -197,7 +199,7 @@
 	gap: var(--space-1);
 	font-size: var(--font-size-sm);
 	color: var(--text-muted);
-	flex: 1;
+	flex: 1 1 140px;
 	min-width: 0;
 }
 
@@ -212,6 +214,7 @@
 }
 
 .wiki-content-toolbar-link {
+	flex-shrink: 0;
 	padding: 0;
 	color: var(--text-link);
 	font: inherit;
@@ -232,6 +235,7 @@
 }
 
 .wiki-content-toolbar-btn {
+	flex-shrink: 0;
 	padding: var(--space-1) var(--space-3);
 	font-size: var(--font-size-sm);
 	font-weight: var(--font-weight-semibold);
@@ -344,7 +348,7 @@
 	font-size: var(--font-size-lg);
 	line-height: var(--line-height-relaxed);
 	color: var(--text-body);
-	white-space: pre-wrap;
+	white-space: normal;
 	word-wrap: break-word;
 }
 
@@ -369,6 +373,13 @@
 .wiki-content-body h3,
 .wiki-content-body h4 {
 	scroll-margin-top: var(--space-6);
+}
+
+/* Toolbars respond to the page width left by navigation and optional docks. */
+@container wiki-page (max-width: 640px) {
+	.wiki-content-toolbar-breadcrumb {
+		flex-basis: 100%;
+	}
 }
 
 @media (max-width: 760px) {

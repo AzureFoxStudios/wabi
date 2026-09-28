@@ -20,7 +20,7 @@
 </script>
 
 <div
-	class="modal-overlay"
+	class="modal-overlay todo-task-modal"
 	role="button"
 	tabindex="0"
 	on:click={closeModal}

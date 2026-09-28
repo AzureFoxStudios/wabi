@@ -13,7 +13,7 @@
 	--control-height-lg: 2.75rem;   /* 44px touch / emphasized */
 	--control-height-touch: 3rem;   /* 48px mobile normal control */
 	--control-pad-x: 0.875rem;
-	--radius-control: 0.875rem;     /* 14px control radius (design brief) */
+	--radius-control: var(--radius-md); /* Match workspace fields and actions. */
 	/* Lightened accent: raw accent colors can fall under 3:1 against dark canvases */
 	--focus-ring-color: color-mix(in srgb, var(--accent-primary-color, #6366f1) 55%, #ffffff);
 }

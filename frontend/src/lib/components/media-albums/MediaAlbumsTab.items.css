@@ -1,5 +1,5 @@
 
-	.album-viewer-modal {
+	:where(.media-albums-tab) .album-viewer-modal {
 		width: min(1100px, 100%);
 		max-height: min(94dvh, 920px);
 		display: grid;
@@ -14,25 +14,25 @@
 		box-shadow: 0 28px 60px rgba(var(--surface-app-rgb, 2, 6, 23), 0.42);
 	}
 
-	.album-viewer-header {
+	:where(.media-albums-tab) .album-viewer-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.8rem;
 	}
 
-	.album-viewer-copy {
+	:where(.media-albums-tab) .album-viewer-copy {
 		display: grid;
 		gap: 0.18rem;
-		color: var(--text-inverse, #f8fafc);
+		color: var(--text-primary);
 		min-width: 0;
 	}
 
-	.album-viewer-copy strong {
+	:where(.media-albums-tab) .album-viewer-copy strong {
 		font-size: 1rem;
 	}
 
-	.album-viewer-copy span {
+	:where(.media-albums-tab) .album-viewer-copy span {
 		font-size: 0.78rem;
 		color: var(--text-secondary, #cbd5e1);
 		white-space: nowrap;
@@ -41,17 +41,17 @@
 		max-width: min(56vw, 56rem);
 	}
 
-	.album-viewer-actions {
+	:where(.media-albums-tab) .album-viewer-actions {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 	}
 
-	.album-viewer-action,
-	.album-viewer-close {
+	:where(.media-albums-tab) .album-viewer-action,
+	:where(.media-albums-tab) .album-viewer-close {
 		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.28);
 		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-		color: var(--text-inverse, #f8fafc);
+		color: var(--text-primary);
 		border-radius: 10px;
 		padding: 0.42rem 0.68rem;
 		cursor: pointer;
@@ -60,14 +60,14 @@
 		font-weight: 700;
 	}
 
-	.album-viewer-close {
+	:where(.media-albums-tab) .album-viewer-close {
 		width: 2.2rem;
 		height: 2.2rem;
 		padding: 0;
 		font-weight: 700;
 	}
 
-	.album-viewer-stage {
+	:where(.media-albums-tab) .album-viewer-stage {
 		position: relative;
 		display: grid;
 		place-items: center;
@@ -80,15 +80,15 @@
 		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.16);
 	}
 
-	.album-viewer-stage img,
-	.album-viewer-stage video {
+	:where(.media-albums-tab) .album-viewer-stage img,
+	:where(.media-albums-tab) .album-viewer-stage video {
 		display: block;
 		max-width: 100%;
 		max-height: min(66dvh, 680px);
 		object-fit: contain;
 	}
 
-	.album-viewer-nav {
+	:where(.media-albums-tab) .album-viewer-nav {
 		position: absolute;
 		top: 50%;
 		transform: translateY(-50%);
@@ -97,26 +97,26 @@
 		border-radius: 999px;
 		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.18);
 		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.72);
-		color: var(--text-inverse, #fff);
+		color: var(--text-primary);
 		font-size: 1.35rem;
 		font-weight: 800;
 		cursor: pointer;
 		backdrop-filter: blur(8px);
 	}
 
-	.album-viewer-nav:hover {
+	:where(.media-albums-tab) .album-viewer-nav:hover {
 		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.14);
 	}
 
-	.album-viewer-nav-prev {
+	:where(.media-albums-tab) .album-viewer-nav-prev {
 		left: 0.75rem;
 	}
 
-	.album-viewer-nav-next {
+	:where(.media-albums-tab) .album-viewer-nav-next {
 		right: 0.75rem;
 	}
 
-	.album-viewer-caption {
+	:where(.media-albums-tab) .album-viewer-caption {
 		margin-top: -0.25rem;
 		padding: 0 0.15rem;
 		color: var(--text-info, #dbeafe);
@@ -124,13 +124,13 @@
 		line-height: 1.45;
 	}
 
-	.album-viewer-strip {
+	:where(.media-albums-tab) .album-viewer-strip {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
 		gap: 0.55rem;
 	}
 
-	.album-viewer-thumb {
+	:where(.media-albums-tab) .album-viewer-thumb {
 		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.18);
 		border-radius: 12px;
 		padding: 0;
@@ -139,20 +139,20 @@
 		cursor: pointer;
 	}
 
-	.album-viewer-thumb.active {
+	:where(.media-albums-tab) .album-viewer-thumb.active {
 		border-color: rgba(var(--accent-rgb), 0.7);
 		box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.22);
 	}
 
-	.album-viewer-thumb img,
-	.album-viewer-thumb video {
+	:where(.media-albums-tab) .album-viewer-thumb img,
+	:where(.media-albums-tab) .album-viewer-thumb video {
 		display: block;
 		width: 100%;
 		height: 84px;
 		object-fit: cover;
 	}
 
-	.featured-badge {
+	:where(.media-albums-tab) .featured-badge {
 		font-size: 0.66rem;
 		color: var(--text-secondary);
 		border: 1px solid var(--border-subtle);
@@ -161,7 +161,7 @@
 		background: rgba(var(--accent-rgb), 0.12);
 	}
 
-	.feature-btn {
+	:where(.media-albums-tab) .feature-btn {
 		border: 1px solid var(--border-subtle);
 		background: var(--surface-base);
 		color: var(--text-heading);
@@ -171,17 +171,17 @@
 		cursor: pointer;
 	}
 
-	.feature-btn:disabled {
+	:where(.media-albums-tab) .feature-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
 	}
 
-	.feature-btn.active {
+	:where(.media-albums-tab) .feature-btn.active {
 		border-color: rgba(var(--accent-rgb), 0.65);
 		background: rgba(var(--accent-rgb), 0.2);
 	}
 
-	.album-quick-btn {
+	:where(.media-albums-tab) .album-quick-btn {
 		border: 1px solid var(--border-subtle);
 		background: var(--surface-base);
 		color: var(--text-heading);
@@ -191,17 +191,17 @@
 		cursor: pointer;
 	}
 
-	.album-quick-btn:hover {
+	:where(.media-albums-tab) .album-quick-btn:hover {
 		background: rgba(var(--accent-rgb), 0.12);
 	}
 
-	.album-quick-btn--danger {
+	:where(.media-albums-tab) .album-quick-btn--danger {
 		border-color: rgba(var(--color-danger-rgb, 220, 38, 38), 0.45);
-		color: var(--accent-danger-soft, #fecaca);
+		color: var(--color-danger);
 		background: rgba(var(--color-danger-rgb, 220, 38, 38), 0.08);
 	}
 
-	.album-meta {
+	:where(.media-albums-tab) .album-meta {
 		margin-top: auto;
 		padding-top: 0.42rem;
 		display: flex;
@@ -212,7 +212,7 @@
 		color: var(--text-secondary);
 	}
 
-	.album-context-menu {
+	:where(.media-albums-tab) .album-context-menu {
 		position: fixed;
 		z-index: 1200;
 		display: grid;
@@ -225,7 +225,7 @@
 		box-shadow: 0 18px 44px rgba(var(--surface-app-rgb, 15, 23, 42), 0.28);
 	}
 
-	.album-context-menu button {
+	:where(.media-albums-tab) .album-context-menu button {
 		border: none;
 		background: transparent;
 		color: var(--text-heading);
@@ -235,15 +235,15 @@
 		cursor: pointer;
 	}
 
-	.album-context-menu button:hover {
+	:where(.media-albums-tab) .album-context-menu button:hover {
 		background: rgba(var(--accent-rgb), 0.14);
 	}
 
-	.album-context-menu button.danger {
-		color: var(--accent-danger-soft, #fecaca);
+	:where(.media-albums-tab) .album-context-menu button.danger {
+		color: var(--color-danger);
 	}
 
-	.items-section {
+	:where(.media-albums-tab) .items-section {
 		border-top: 1px solid var(--border-subtle);
 		padding-top: 0.6rem;
 		display: flex;
@@ -251,7 +251,7 @@
 		gap: 0.45rem;
 	}
 
-	.permission-hint {
+	:where(.media-albums-tab) .permission-hint {
 		font-size: 0.74rem;
 		color: var(--text-secondary);
 		padding: 0.45rem 0.5rem;
@@ -259,21 +259,21 @@
 		border-radius: 8px;
 	}
 
-	.items-header {
+	:where(.media-albums-tab) .items-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.5rem;
 	}
 
-	.items-header-actions {
+	:where(.media-albums-tab) .items-header-actions {
 		display: inline-flex;
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 0.42rem;
 	}
 
-	.items-header-title {
+	:where(.media-albums-tab) .items-header-title {
 		display: flex;
 		flex-direction: column;
 		gap: 0.1rem;
@@ -281,33 +281,33 @@
 		color: var(--text-secondary);
 	}
 
-	.danger-btn {
+	:where(.media-albums-tab) .danger-btn {
 		border: 1px solid rgba(var(--color-danger-rgb, 220, 38, 38), 0.6);
 		background: rgba(var(--color-danger-rgb, 220, 38, 38), 0.14);
-		color: var(--accent-danger-soft, #fecaca);
+		color: var(--color-danger);
 		border-radius: 8px;
 		padding: 0.34rem 0.52rem;
 		font-size: 0.74rem;
 		cursor: pointer;
 	}
 
-	.danger-btn:disabled {
+	:where(.media-albums-tab) .danger-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
 	}
 
-	.danger-btn:hover {
+	:where(.media-albums-tab) .danger-btn:hover {
 		background: rgba(var(--color-danger-rgb, 220, 38, 38), 0.22);
 	}
 
-	.album-preview-strip {
+	:where(.media-albums-tab) .album-preview-strip {
 		display: flex;
 		gap: 0.45rem;
 		overflow-x: auto;
 		padding-bottom: 0.1rem;
 	}
 
-	.album-preview-chip {
+	:where(.media-albums-tab) .album-preview-chip {
 		flex: 0 0 auto;
 		width: 4.2rem;
 		height: 4.2rem;
@@ -320,56 +320,56 @@
 		cursor: pointer;
 	}
 
-	.album-preview-chip img,
-	.album-preview-chip video {
+	:where(.media-albums-tab) .album-preview-chip img,
+	:where(.media-albums-tab) .album-preview-chip video {
 		display: block;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
 	}
 
-	.debug-add-item summary {
+	:where(.media-albums-tab) .debug-add-item summary {
 		cursor: pointer;
 		font-size: 0.76rem;
 		color: var(--text-secondary);
 	}
 
-	.debug-form {
+	:where(.media-albums-tab) .debug-form {
 		margin-top: 0.42rem;
 		display: grid;
 		gap: 0.4rem;
 	}
 
-	.item-toolbar {
+	:where(.media-albums-tab) .item-toolbar {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.5rem;
 	}
 
-	.item-toolbar-left {
+	:where(.media-albums-tab) .item-toolbar-left {
 		flex: 1;
 		min-width: 0;
 	}
 
-	.item-toolbar-left input {
+	:where(.media-albums-tab) .item-toolbar-left input {
 		width: 100%;
 	}
 
-	.item-toolbar-right {
+	:where(.media-albums-tab) .item-toolbar-right {
 		display: flex;
 		align-items: center;
 		gap: 0.45rem;
 	}
 
-	.view-toggle {
+	:where(.media-albums-tab) .view-toggle {
 		display: inline-flex;
 		border: 1px solid var(--border-subtle);
 		border-radius: 8px;
 		overflow: hidden;
 	}
 
-	.view-toggle button {
+	:where(.media-albums-tab) .view-toggle button {
 		border: none;
 		background: transparent;
 		color: var(--text-secondary);
@@ -378,17 +378,17 @@
 		cursor: pointer;
 	}
 
-	.view-toggle button.active {
+	:where(.media-albums-tab) .view-toggle button.active {
 		background: rgba(var(--accent-rgb), 0.2);
 		color: var(--text-heading);
 	}
 
-	.item-toolbar-summary {
+	:where(.media-albums-tab) .item-toolbar-summary {
 		font-size: 0.72rem;
 		color: var(--text-secondary);
 	}
 
-	.item-row {
+	:where(.media-albums-tab) .item-row {
 		border: 1px solid var(--border-subtle);
 		border-radius: 9px;
 		padding: 0.45rem 0.55rem;
@@ -398,32 +398,32 @@
 		gap: 0.65rem;
 	}
 
-	.item-row[draggable='true'] {
+	:where(.media-albums-tab) .item-row[draggable='true'] {
 		cursor: move;
 	}
 
-	.item-row.dragging {
+	:where(.media-albums-tab) .item-row.dragging {
 		opacity: 0.6;
 		border-color: rgba(var(--accent-rgb), 0.6);
 	}
 
-	.item-list.grid-view {
+	:where(.media-albums-tab) .item-list.grid-view {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 		gap: 0.45rem;
 	}
 
-	.item-list.grid-view .item-row {
+	:where(.media-albums-tab) .item-list.grid-view .item-row {
 		grid-template-columns: 1fr;
 	}
 
-	.item-list.grid-view .item-meta {
+	:where(.media-albums-tab) .item-list.grid-view .item-meta {
 		width: 100%;
 		align-items: flex-start;
 		text-align: left;
 	}
 
-	.item-preview {
+	:where(.media-albums-tab) .item-preview {
 		display: flex;
 		width: 5.25rem;
 		height: 5.25rem;

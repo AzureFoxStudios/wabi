@@ -263,6 +263,16 @@
 	line-height: 1;
 }
 
+/* Keep the icon inside the visible half-tab while the panel is tucked away.
+   Revealed and floating tabs use the normal centered icon. */
+.stub-strip:not(.floating).side-right .stub:not(:hover):not(:focus-visible) .stub-icon {
+	transform: translateX(-12px);
+}
+
+.stub-strip:not(.floating).side-left .stub:not(:hover):not(:focus-visible) .stub-icon {
+	transform: translateX(12px);
+}
+
 .stub-add {
 	color: var(--text-muted);
 }

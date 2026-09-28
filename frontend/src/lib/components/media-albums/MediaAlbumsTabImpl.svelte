@@ -1,5 +1,6 @@
 <script lang="ts">
 	import './MediaAlbumsTabImpl.css';
+	import SurfaceHeader from '../SurfaceHeader.svelte';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { channels, currentChannel, currentUser, sendMessage } from '$lib/socket';
 
@@ -211,7 +212,7 @@
 		return canModerateAlbums();
 	}
 
-	$: selectedAlbumValue = selectedAlbum();
+	$: selectedAlbumValue = albums.find((album) => album.id === selectedAlbumId) || null;
 		$: contextMenuAlbumValue = albumContextMenu
 			? albums.find((album) => album.id === albumContextMenu?.albumId) || null
 			: null;
@@ -769,12 +770,15 @@
 	}
 </script>
 
-<div class="media-albums-tab">
+<div class="media-albums-tab" class:media-albums-full={variant === 'full'}>
+	{#if variant === 'full'}
+		<SurfaceHeader title="Media" description={scopeLabel} />
+	{:else}
 	<div class="section-header">
 		<h3>Media</h3>
 	</div>
 	<p class="scope-label">{scopeLabel} Pins and uploads stay scoped to the current channel or DM.</p>
-
+	{/if}
 
 	{#if !getAuthToken()}
 		<div class="empty-state">
@@ -786,6 +790,7 @@
 				type="text"
 				bind:value={newAlbumName}
 				placeholder="New album name"
+				aria-label="New album name"
 				maxlength="80"
 				on:keydown={(event) => {
 					if (event.key === 'Enter') {
@@ -803,17 +808,25 @@
 		</div>
 
 		{#if errorMessage}
-			<div class="error-banner">{errorMessage}</div>
+			<div class="error-banner" role="alert">{errorMessage}</div>
 		{/if}
 		{#if successMessage}
-			<div class="success-banner">{successMessage}</div>
+			<div class="success-banner" role="status">{successMessage}</div>
 		{/if}
 
-		<div class="album-list">
+		<div class="album-list" class:is-empty={albums.length === 0}>
 		{#if isLoadingAlbums}
-				<div class="empty-state">Loading albums...</div>
+				<div class="empty-state" role="status">Loading albums…</div>
 			{:else if albums.length === 0}
-				<div class="empty-state">{scopeType === 'dm' ? 'No albums in this conversation yet.' : 'No albums in this channel yet.'}</div>
+				<div class="empty-state">
+					{#if variant === 'full'}
+						<svg class="media-empty-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+						<h3>{scopeType === 'dm' ? 'No albums in this conversation yet' : 'No albums in this channel yet'}</h3>
+						<p>Create an album above to collect images, videos, and files together.</p>
+					{:else}
+						{scopeType === 'dm' ? 'No albums in this conversation yet.' : 'No albums in this channel yet.'}
+					{/if}
+				</div>
 			{:else}
 				{#each albums as album}
 					{@const previewItems = getAlbumPreviewItems(album.id)}

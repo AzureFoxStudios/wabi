@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
   import { channels, channelMessages, currentUser, users, serverMembers, connected, channelUnreadCounts, createDM, joinChannel, markChannelAsRead } from '$lib/socket';
@@ -147,7 +147,7 @@
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  function openInCenter(channel: Channel, fallbackUser: User | null = null) {
+  async function openInCenter(channel: Channel, fallbackUser: User | null = null) {
     selectTab('messages');
     const other = fallbackUser || otherUserFor(channel);
     if (channel.type === 'group') {
@@ -157,6 +157,11 @@
     }
     joinChannel(channel.id);
     markChannelAsRead(channel.id);
+    await tick();
+    const list = document.querySelector('.center-dm-list');
+    if (list && getComputedStyle(list).display === 'none') {
+      document.querySelector<HTMLButtonElement>('.center-dm-thread .dm-header-back')?.focus();
+    }
   }
 
   function openInSidePanel(channel: Channel, fallbackUser: User | null = null) {
@@ -380,6 +385,7 @@
           <button
             class="dm-hub-conversation"
             data-dm-channel-id={channel.id}
+            aria-pressed={$centerDmChannelId === channel.id}
             class:active={$centerDmChannelId === channel.id}
             class:unread={unread > 0}
             on:click={() => openInCenter(channel)}

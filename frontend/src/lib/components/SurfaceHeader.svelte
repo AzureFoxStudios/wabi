@@ -18,6 +18,6 @@
 	{/if}
 	<slot name="actions" />
 	{#if primaryLabel}
-		<button class="btn btn-primary" on:click={onPrimary}>{primaryLabel}</button>
+		<button type="button" class="ui-btn ui-btn-primary" on:click={onPrimary}>{primaryLabel}</button>
 	{/if}
 </div>

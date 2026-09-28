@@ -383,6 +383,12 @@
           <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" />
         </svg>
       </button>
+      <button class="dm-header-action" title="Close DM (Esc)" aria-label="Close DM" on:click={handleClose}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
     </div>
   </div>
 
@@ -514,7 +520,7 @@
     border-bottom: 1px solid var(--color-border-primary, #302b63);
     background: var(--surface-raised, #302b63);
     flex-shrink: 0;
-    min-height: 88px;
+    min-height: 72px;
   }
 
   .dm-header-back {

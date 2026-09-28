@@ -61,28 +61,28 @@
 	max-width: 700px;
 }
 
-.header {
+:where(.storage-settings) .header {
 	margin-bottom: 2rem;
 }
 
-.header h3 {
+:where(.storage-settings) .header h3 {
 	font-size: 1.5rem;
 	margin: 0 0 0.5rem 0;
 }
 
-.subtitle {
+:where(.storage-settings) .subtitle {
 	color: var(--text-secondary);
 	font-size: 0.9rem;
 	margin: 0;
 }
 
-.setting-group {
+:where(.storage-settings) .setting-group {
 	margin-bottom: 1.5rem;
 	padding-bottom: 1.5rem;
 	border-bottom: 1px solid var(--border-subtle);
 }
 
-.toggle-setting {
+:where(.storage-settings) .toggle-setting {
 	display: flex;
 	align-items: center;
 	gap: 0.75rem;
@@ -91,24 +91,24 @@
 	font-size: 1.05rem;
 }
 
-.toggle-setting input[type="checkbox"] {
+:where(.storage-settings) .toggle-setting input[type="checkbox"] {
 	width: 20px;
 	height: 20px;
 	cursor: pointer;
 }
 
-.hint {
+:where(.storage-settings) .hint {
 	font-size: 0.85rem;
 	color: var(--text-secondary);
 	font-style: italic;
 	margin: 0.5rem 0 0 0;
 }
 
-.warning-hint {
+:where(.storage-settings) .warning-hint {
 	color: var(--text-danger, #ff8a8a);
 }
 
-.stats-panel {
+:where(.storage-settings) .stats-panel {
 	display: grid;
 	grid-template-columns: repeat(3, 1fr);
 	gap: 1rem;
@@ -118,17 +118,17 @@
 	border-radius: 8px;
 }
 
-.stat {
+:where(.storage-settings) .stat {
 	text-align: center;
 }
 
-.stat-label {
+:where(.storage-settings) .stat-label {
 	font-size: 0.8rem;
 	color: var(--text-secondary);
 	margin-bottom: 0.25rem;
 }
 
-.stat-value {
+:where(.storage-settings) .stat-value {
 	font-size: 1.5rem;
 	font-weight: 600;
 	color: var(--accent-primary-color);
@@ -142,7 +142,7 @@
 	gap: 0.5rem;
 }
 
-.label {
+:where(.storage-settings) .label {
 	font-weight: 500;
 	font-size: 0.95rem;
 }
@@ -156,13 +156,13 @@
 	font-size: 0.95rem;
 }
 
-.number-input-group {
+:where(.storage-settings) .number-input-group {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
 }
 
-.number-input-group input {
+:where(.storage-settings) .number-input-group input {
 	width: 80px;
 	padding: 0.5rem;
 	border: none;
@@ -171,34 +171,34 @@
 	color: var(--text-heading);
 }
 
-.unit {
+:where(.storage-settings) .unit {
 	color: var(--text-secondary);
 	font-size: 0.9rem;
 }
 
-.archives-section {
+:where(.storage-settings) .archives-section {
 	margin-top: 1.5rem;
 }
 
-.section-header {
+:where(.storage-settings) .section-header {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
 	margin-bottom: 1rem;
 }
 
-.section-header h4 {
+:where(.storage-settings) .section-header h4 {
 	font-size: 1.1rem;
 	margin: 0;
 }
 
-.archive-list {
+:where(.storage-settings) .archive-list {
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;
 }
 
-.archive-item {
+:where(.storage-settings) .archive-item {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
@@ -208,28 +208,28 @@
 	border: none;
 }
 
-.archive-info {
+:where(.storage-settings) .archive-info {
 	display: flex;
 	flex-direction: column;
 	gap: 0.25rem;
 }
 
-.archive-period {
+:where(.storage-settings) .archive-period {
 	font-weight: 600;
 	font-size: 0.95rem;
 }
 
-.archive-meta {
+:where(.storage-settings) .archive-meta {
 	font-size: 0.8rem;
 	color: var(--text-secondary);
 }
 
-.archive-actions {
+:where(.storage-settings) .archive-actions {
 	display: flex;
 	gap: 0.5rem;
 }
 
-.btn-icon {
+:where(.storage-settings) .btn-icon {
 	background: none;
 	border: none;
 	font-size: 1.2rem;
@@ -239,15 +239,15 @@
 	transition: background-color 0.2s;
 }
 
-.btn-icon:hover {
+:where(.storage-settings) .btn-icon:hover {
 	background: var(--shadow-sm, rgba(0, 0, 0, 0.05));
 }
 
-.btn-icon.danger:hover {
+:where(.storage-settings) .btn-icon.danger:hover {
 	background: rgba(var(--color-danger-rgb, 220, 38, 38), 0.1);
 }
 
-.btn-small {
+:where(.storage-settings) .btn-small {
 	padding: 0.4rem 0.8rem;
 	font-size: 0.85rem;
 	background: var(--accent-primary-color);
@@ -258,24 +258,24 @@
 	transition: opacity 0.2s;
 }
 
-.btn-small:hover {
+:where(.storage-settings) .btn-small:hover {
 	opacity: 0.9;
 }
 
-.empty-state {
+:where(.storage-settings) .empty-state {
 	text-align: center;
 	padding: var(--space-8);
 	color: var(--text-secondary);
 	font-style: italic;
 }
 
-.actions {
+:where(.storage-settings) .actions {
 	margin-top: 2rem;
 	padding-top: 1.5rem;
 	border-top: 1px solid var(--border-subtle);
 }
 
-.btn-danger {
+:where(.storage-settings) .btn-danger {
 	padding: 0.6rem 1.2rem;
 	background: var(--color-danger-hover);
 	color: white;
@@ -286,11 +286,11 @@
 	transition: background-color 0.2s;
 }
 
-.btn-danger:hover {
+:where(.storage-settings) .btn-danger:hover {
 	background: var(--color-danger-dark);
 }
 
-.tauri-section {
+:where(.storage-settings) .tauri-section {
 	background: linear-gradient(135deg, rgba(var(--accent-primary-rgb, 88, 101, 242), 0.05), rgba(var(--accent-primary-rgb, 88, 101, 242), 0.02));
 	border: 1px solid rgba(var(--accent-primary-rgb, 88, 101, 242), 0.2);
 	border-radius: 8px;
@@ -298,13 +298,13 @@
 	margin-bottom: 1.5rem;
 }
 
-.tauri-actions {
+:where(.storage-settings) .tauri-actions {
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
 }
 
-.btn-primary {
+:where(.storage-settings) .btn-primary {
 	padding: 0.6rem 1.2rem;
 	background: var(--accent-primary-color);
 	color: white;
@@ -317,23 +317,23 @@
 	text-align: left;
 }
 
-.btn-primary:hover:not(:disabled) {
+:where(.storage-settings) .btn-primary:hover:not(:disabled) {
 	opacity: 0.9;
 	transform: translateY(-2px);
 }
 
-.btn-primary:disabled {
+:where(.storage-settings) .btn-primary:disabled {
 	opacity: 0.6;
 	cursor: not-allowed;
 }
 
-.divider {
+:where(.storage-settings) .divider {
 	height: 1px;
 	background: var(--border-subtle);
 	margin: 2rem 0;
 }
 
-.path {
+:where(.storage-settings) .path {
 	display: block;
 	margin-top: 0.5rem;
 	padding: 0.5rem 0.75rem;

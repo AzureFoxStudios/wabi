@@ -252,11 +252,17 @@
 
 .profile-mock-body {
 	display: grid;
-	grid-template-columns: auto minmax(0, 1fr);
+	grid-template-columns: 96px minmax(0, 1fr);
 	gap: 0.75rem 0.9rem;
 	padding: 0.95rem 0.95rem 0.75rem;
 	position: relative;
 	z-index: 1;
+}
+
+@media (min-width: 769px) and (max-width: 1120px) {
+	.profile-settings-layout {
+		grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+	}
 }
 
 .profile-mock-avatar-stack {
